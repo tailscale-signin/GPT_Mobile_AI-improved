@@ -159,6 +159,40 @@ class CombinedDeliverySessionTest {
         assertEquals("Committed prefix." + winner, events.filterIsInstance<ProviderEvent.TextDelta>().single().text)
     }
 
+    @Test fun cultureExportMustNotDropTangChinaWhenSelectingAnAthensAnswer() {
+        val fixture = Json.parseToJsonElement(checkNotNull(javaClass.getResource("/combined/culture-and-era.json")).readText()).jsonObject
+        val rows = fixture.getValue("sources").jsonArray.map { item ->
+            val row = item.jsonObject
+            CombinedModelResponse(row.getValue("platformUid").jsonPrimitive.content, row.getValue("platformName").jsonPrimitive.content, content = row.getValue("content").jsonPrimitive.content)
+        }
+        val result = CombinedContentCoverage(rows).check(fixture.getValue("selectedAnswer").jsonPrimitive.content)
+        assertFalse(result.accepted)
+        assertTrue(result.missing.any { "profile-2" in it.profileUids && it.text.contains("Tang Dynasty") })
+    }
+
+    @Test fun suggestionQuestionsAreNotMandatoryFactsInCombinedAnswers() {
+        val fact = "Athens used wealth from silver mines to fund public works and naval power."
+        val content = fact + "\n\nNext questions:\n- **Another culture:** Would you like a different era?"
+        val coverage = CombinedContentCoverage(listOf(CombinedModelResponse("one", "One", content = content)))
+        assertTrue(coverage.check(fact).accepted)
+        assertEquals(1, coverage.units.size)
+    }
+
+    @Test fun partialRepairKeepsRecoveredTopicsButNeverClaimsFullCoverage() = runTest {
+        val rows = listOf(
+            CombinedModelResponse("athens", "Athens", content = "Athens used wealth from silver mines to fund public works and naval power."),
+            CombinedModelResponse("tang", "Tang", content = "Tang China welcomed Persian merchants and Japanese monks along the Silk Road."),
+            CombinedModelResponse("egypt", "Egypt", content = "Egyptian scribes recorded tax payments and grain harvests using hieroglyphic writing.")
+        )
+        val draft = rows[0].content
+        val improved = draft + "\n\n" + rows[1].content
+        val wrapper = CombinedDeliverySession(session(draft), rows, 100_000, validateAccess = {}) { _, _ -> session(improved) }
+        val events = wrapper.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(improved, events.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+        assertTrue(events.none { it == ProviderEvent.Completed })
+        assertTrue(events.filterIsInstance<ProviderEvent.Failed>().single().message.contains("1 of 3"))
+    }
+
     @Test fun sharedTextNamesEverySubmitterAndParaphrasesStayNeutral() {
         val sentence = "The new government created a conscript army and built railways."
         val rows = listOf(CombinedModelResponse("one", "One", content = sentence), CombinedModelResponse("two", "Two", content = sentence), CombinedModelResponse("three", "Three", content = "Different information."))

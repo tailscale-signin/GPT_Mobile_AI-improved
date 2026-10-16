@@ -15,8 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.R
-import dev.chungjungsoo.gptmobile.data.agent.CombinedContentCoverage
-import dev.chungjungsoo.gptmobile.data.agent.combinedVerbatimProfiles
+import dev.chungjungsoo.gptmobile.data.agent.combinedWordingSpans
 import dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse
 import dev.chungjungsoo.gptmobile.data.model.ProfileColorIdentity
 import kotlinx.coroutines.Dispatchers
@@ -28,7 +27,7 @@ private data class PassageIndicatorSnapshot(
     val matches: List<Pair<String, Set<String>>>
 )
 
-/** Exact wording gets submission badges; paraphrases stay neutral, without invented exclusive ownership. */
+/** Matching wording gets the same profile badges as prose colours; shared matches retain all submitters. */
 @Composable
 internal fun CombinedPassageIndicators(
     passage: String,
@@ -41,8 +40,8 @@ internal fun CombinedPassageIndicators(
             PassageIndicatorSnapshot(
                 passage,
                 sources,
-                CombinedContentCoverage.sentences(passage).mapNotNull { sentence ->
-                    combinedVerbatimProfiles(sentence, sources).takeIf { it.isNotEmpty() }?.let { sentence to it }
+                combinedWordingSpans(passage, sources).map { span ->
+                    passage.substring(span.start, span.end) to span.profileUids
                 }
             )
         }

@@ -1,37 +1,29 @@
-# GPT Mobile AI 0.9.52.0
+# GPT Mobile AI 0.9.53.0
 
-## Delegation and recovery
-- Preserve evidence and stage checkpoints when the final writer fails; Continue resumes the original work and retained budget.
-- Separate source collection, question coverage, claim verification, independent review and answer delivery.
-- Admit writer/reviewer roles before expensive work, retain precise cancellation reasons and enforce child capability restrictions.
-- Include the durable encrypted memory and diagnostic repairs merged in #668.
+## New chat experience
+- Replace the old New Chat entry with a full-screen, theme-aware flow for **Research**, **Single**, **Multi-chat** and **Combined**.
+- Let Research preconfigure Deep Research with explicit permission handling, research depth and one or more local/remote profiles.
+- Add profile search, favorites, source filters, labels, model/provider/score/price sorting and a pinned Combined synthesis lead.
+- Keep Multi-chat conversations genuinely independent, with per-profile lanes, navigation and coordinated archive/delete.
 
-## Local AI and execution
-- Add the pinned, QAIRT-independent GGUF CPU engine to the normal app, including verified imports, bounded generation and cancellation.
-- Keep LiteRT/QNN and GenieX preview dependency families separate. Unsupported GGUF GPU/NPU, tools, vision and speculative decoding remain unavailable.
-- Account for native input/output tokens with provenance, including partial and failed requests.
-- Add Test Local Assist, explicit warm/automatic preparation, owned-session cleanup, exact source handoffs and configuration/artifact readiness checks.
-- Add opt-in execution policies, retained shared model budgets, final-writer reserves and subscriber-owned shared read-only requests. Optimization remains off by default; no measured savings are claimed.
+## Combined answers and responsiveness
+- Improve claim coverage and recovery so distinct facts from contributors are preserved rather than simply selecting one answer.
+- Use high-contrast contributor text colors without normal-view model-name footers or an extra Combined sources bar; keep supplemental source-recovery details in Debug Mode only.
+- Reduce repeated Markdown, citation and attribution work during streaming; preserve final answer completion and optimize early connection preparation.
 
-## Research
-- Add Settings, Statistics and Archive views, publication filters, adaptive/expert appraisal and scoped automatic examination.
-- Retain up to 1,000 reusable public works in FIFO order; preserve immutable source versions and separate chat/job retention roots.
-- Add citation-linked article details, source-quoted study fields, method concerns, independent review reports and resumable article examination.
-- Support approved gateway readers and bounded native full-text HTML discovery. Access refusals remain terminal; unsupported PDFs and unverified figures/supplements are reported explicitly.
-- Add topic/category organization and study comparison without an overall truth score or pooled dependent findings.
-- Preserve durable research statistics, clear epochs, scoped history migration and encrypted research backup/restore. Temporary/deleted chats cannot create durable examination or archive records.
+## Models, local AI and diagnostics
+- Integrate the NVIDIA remote provider with credential-isolated model discovery, model-aware reasoning, streaming, supported input validation and opt-in connection testing.
+- Improve Local Assist recovery, readiness/error reporting, model admission and cancellation handling.
+- Repair diagnostic/runtime failure paths, including native prefill, GenieX routing and Combined response reliability.
 
-## Profile picker
-- Use compact profile cards with stable UID selection, separate/combined modes, searchable labels and focused insight details.
-- Keep confirmation available in narrow layouts; expose accessible favorite and insight actions.
-
-## Verification and limitations
-- CI checks unit regressions, Android lint, exported Room schemas, dependency/runtime packaging, CodeQL, gateway contracts and Android acceptance.
-- Real GGUF CPU JNI acceptance includes warm generations, partial cancellation, context rejection and reopening in the release-minified Android 16 x86-64 app.
-- Paired synthetic fixtures measure orchestration behavior and exact evidence retention. They do not establish real-model quality, provider-cost savings, battery benefit or physical ROG Phone qualification.
-- The signed-release workflow verifies application identity, certificate continuity, native packaging, checksums and source provenance before publication.
+## Release and Google Play
+- Application ID: `dev.melo.gptmobile.improved` (unchanged, for upgrade continuity).
+- Minimum SDK: 31. Target SDK: 37, meeting Google Play's October 2026 API-level requirement of 36 or higher.
+- Signed Android App Bundle (`app-release.aab`) for Play Console upload, alongside signed arm64-v8a, x86_64 and universal APKs for direct distribution.
+- Native Android host libraries are checked for 16 KB ELF LOAD alignment, and the release workflow verifies signing-certificate continuity, application ID, version and source commit. An AAB-native alignment and Google Play target-SDK check are included in the release gate.
+- Manual Google Play Console review is still required for app content, Data safety, Health Connect/health-data permissions and special-use foreground services. Automated build checks do not substitute for device qualification or Play approval.
 
 ## Release identity
-- Package: dev.melo.gptmobile.improved
-- Version: 0.9.52.0
-- Version code: 121
+- Package: `dev.melo.gptmobile.improved`
+- Version: `0.9.53.0`
+- Version code: `122` (increased from 121)

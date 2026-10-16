@@ -5,6 +5,7 @@ import android.app.Application
 import android.content.ComponentCallbacks2
 import android.content.Context
 import android.os.SystemClock
+import android.os.StrictMode
 import android.util.Log
 import android.widget.Toast
 import androidx.hilt.work.HiltWorkerFactory
@@ -90,6 +91,17 @@ class GPTMobileApp :
         super.onCreate()
         if (dev.chungjungsoo.gptmobile.data.localruntime.isInferenceProcess()) return
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.initialize(this)
+        if (dev.chungjungsoo.gptmobile.BuildConfig.DEBUG) {
+            // Diagnose unexpected UI-thread disk and network blocking in development builds.
+            StrictMode.setThreadPolicy(
+                StrictMode.ThreadPolicy.Builder()
+                    .detectDiskReads()
+                    .detectDiskWrites()
+                    .detectNetwork()
+                    .penaltyLog()
+                    .build()
+            )
+        }
         registerActivityLifecycleCallbacks(AppForegroundTracker)
         StartupRecoveryGate.start(applicationScope) {
             val gateStartTime = SystemClock.elapsedRealtime()

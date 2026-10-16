@@ -161,6 +161,8 @@ object AppLogRecorder {
             }
         }
         record("Diagnostics", "Log tracking enabled")
+        // Read historical ANR stacks only on IO, never while constructing the UI.
+        scope.launch { captureHistoricalAnrSummaries() }
         scope.launch {
             checkpoint("Application", "version=${BuildConfig.VERSION_NAME} · versionCode=${BuildConfig.VERSION_CODE} · package=${BuildConfig.APPLICATION_ID} · appCommit=${BuildConfig.APP_COMMIT} · variant=${BuildConfig.BUILD_TYPE} · droppedRecords=${droppedRecords.get()} · vendor_log_available=false · process=${Process.myPid()}")
         }
@@ -255,6 +257,34 @@ object AppLogRecorder {
             target.delete()
             throw failure
         }
+    }
+
+    /** Capture only allow-listed main-thread stack frames, never raw ANR traces or private text. */
+    private fun captureHistoricalAnrSummaries() {
+        val context = app ?: return
+        if (!mutableEnabled.value || privateSessions.isNotEmpty()) return
+        if (android.os.Build.VERSION.SDK_INT < 30) return
+        runCatching {
+            val manager = context.getSystemService(android.app.ActivityManager::class.java) ?: return
+            val preferences = context.getSharedPreferences("app_diagnostics", Context.MODE_PRIVATE)
+            val lastTimestamp = preferences.getLong("last_sanitized_anr", 0L)
+            val exits = manager.getHistoricalProcessExitReasons(context.packageName, 0, 8)
+                .filter { it.reason == android.app.ApplicationExitInfo.REASON_ANR && it.timestamp > lastTimestamp }
+                .sortedBy { it.timestamp }
+            for (exit in exits) {
+                if (!mutableEnabled.value || privateSessions.isNotEmpty()) return
+                val frames = exit.traceInputStream?.bufferedReader()?.use { reader ->
+                    mainThreadAnrFrames(generateSequence { reader.readLine() })
+                }.orEmpty()
+                record(
+                    "AnrTraceSummary",
+                    "exitTime=${exit.timestamp} · mainAppFrames=${frames.size} · trace=${if (frames.isEmpty()) "not_available_or_no_app_frames" else "sanitized"}" +
+                        if (frames.isEmpty()) "" else "\\n" + frames.joinToString("\\n"),
+                    "W"
+                )
+                preferences.edit().putLong("last_sanitized_anr", exit.timestamp).apply()
+            }
+        }.onFailure { record("AnrTraceSummary", "coverage=unavailable · reason=trace_access_failed", "W") }
     }
 
     /** Bounded platform metadata only: never collect trace streams, descriptions, or process names. */

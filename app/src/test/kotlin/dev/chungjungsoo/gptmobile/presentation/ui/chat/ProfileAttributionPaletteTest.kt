@@ -22,6 +22,26 @@ class ProfileAttributionPaletteTest {
         assertEquals(after.size, after.values.map { it.hue }.toSet().size)
     }
 
+
+    @Test
+    fun `the first eight contributors have visibly separated font colours on dark and light themes`() {
+        for (surface in listOf(Color.White, Color.Black, Color(0xFF141218), Color(0xFFFEF7FF))) {
+            // Deliberately give each profile the same persisted hash hue. Only the
+            // stable marker should decide its accessible, maximally spaced colour.
+            val colours = (1..8).map { marker ->
+                ProfileAttributionPalette.foreground(ProfileColorIdentity(hue = 50, marker = marker), surface)
+            }
+            colours.forEachIndexed { index, left ->
+                colours.drop(index + 1).forEach { right ->
+                    val distance = kotlin.math.abs(left.red - right.red) +
+                        kotlin.math.abs(left.green - right.green) +
+                        kotlin.math.abs(left.blue - right.blue)
+                    assertTrue("Low distinction on $surface: $left / $right", distance >= 0.32f)
+                }
+            }
+        }
+    }
+
     @Test
     fun `every palette hue meets normal prose contrast on light dark and custom surfaces`() {
         val surfaces = listOf(Color.White, Color.Black, Color(0xFF141218), Color(0xFFFEF7FF), Color(0xFF808080), Color(0xFF236054), Color(0xFFFFD7BC))

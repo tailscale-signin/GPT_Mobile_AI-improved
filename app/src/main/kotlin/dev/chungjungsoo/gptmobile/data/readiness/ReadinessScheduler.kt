@@ -44,6 +44,11 @@ class ReadinessScheduler @Inject constructor(@dev.chungjungsoo.gptmobile.di.Read
     }
 
     fun cancelSpeculation() {
-        jobs.values.toList().forEach { it.cancel() }
+        val cancelled = synchronized(jobs) {
+            jobs.values.toList().also { jobs.clear() }
+        }
+        // Cancellation cleanup may be dispatched later. Old jobs must not consume the
+        // next generation's admission slots; completion still removes by job identity.
+        cancelled.forEach { it.cancel() }
     }
 }

@@ -101,7 +101,7 @@ class ChatReadinessCoordinator @Inject constructor(
                     if (networkAllowed(features.readiness.warmMeteredNetworks)) {
                         // Prime the shared inference transport first. Never send a draft, API credential or token.
                         if (composerEngaged) {
-                            targets.forEach { profile ->
+                            targets.filter { it.compatibleType != dev.chungjungsoo.gptmobile.data.model.ClientType.LITERT_LM }.forEach { profile ->
                                 scheduler.request("provider:${profile.uid}", ::idle) {
                                     transport.warm(profile.apiUrl, ReadinessHints.networkEpoch.value, ReadinessInvalidation.epoch)
                                 }

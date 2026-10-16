@@ -21,3 +21,9 @@ Reduce new-chat tap-to-dispatch latency and time to first visible provider token
 - Unit tests: composer state lifecycle and bounded selected-profile priority, public-origin URL restrictions, and readiness default serialization.
 - CI: Android Kotlin compilation, test suite, static analysis and safety gates.
 - Device acceptance: 25 cold vs 25 focus-warmed sends, including Wi-Fi, metered opt-in, Combined, local-model pressure, degraded MCP and no-network cases. Capture SEND_TAPPED, provider-dispatch timestamp, DNS/connect/TLS, first remote token and first visible token, and compare p50/p95. No empirical speedup is claimed without traces.
+
+## PR integration audit follow-up
+
+Cancellation now removes the obsolete scheduler generation from admission accounting immediately, before its asynchronous cleanup completes. Previously a full queue could reject all replacement jobs after a profile/configuration change. Removal remains conditional on job identity, so an old completion cannot remove a replacement with the same key. Native LiteRT profiles are excluded from HTTP connection probes even if a stale remote URL remains in their configuration.
+
+Validation: seven isolated readiness JVM tests pass, including the replacement-admission regression (which failed with zero of four replacement warmups before the fix), same-key completion isolation, composer lifecycle and settings serialization. Changed-file Kotlin lint and diff checks passed. Android CI and the device latency acceptance described above remain separate gates.

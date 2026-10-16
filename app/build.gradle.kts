@@ -136,6 +136,8 @@ extensions.configure<ApplicationExtension> {
         buildConfigField("boolean", "TOOL_STORM_FINALIZATION", providers.gradleProperty("toolStormFinalization").map { (it != "false").toString() }.getOrElse("true"))
         minSdk = 31
         targetSdk = 37
+        // Interim release: Play-ready artifact gates remain mandatory while full
+        // Unified Reliability v2 milestone acceptance is still in progress.
         versionCode = 122
         versionName = "0.9.53.0"
 

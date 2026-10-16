@@ -49,6 +49,7 @@ import dev.chungjungsoo.gptmobile.data.model.ResearchContentScope
 import dev.chungjungsoo.gptmobile.data.model.collectReusableProfileLabels
 import dev.chungjungsoo.gptmobile.data.model.parseProfileLabels
 import dev.chungjungsoo.gptmobile.data.model.researchStartBlockReason
+import dev.chungjungsoo.gptmobile.data.pricing.decimalRate
 import dev.chungjungsoo.gptmobile.presentation.common.ProfileLabelChip
 import dev.chungjungsoo.gptmobile.presentation.common.ProfileSearchField
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
@@ -65,7 +66,9 @@ private enum class ProfileSort(val title: String) {
     FAVORITES("Favorites first"),
     NAME("Name A–Z"),
     PROVIDER("Provider"),
-    MODEL("Model")
+    MODEL("Model"),
+    BENCHMARK("Benchmark score"),
+    PRICE("Listed input price · USD")
 }
 
 private fun isLocalOrSelfHosted(profile: PlatformV2): Boolean =
@@ -107,12 +110,22 @@ internal fun NewChatProfileScreen(
     val researchPolicy = remember(researchDepth) {
         MultiSearchResearchSelection(researchToggle = true, depth = researchDepth, scope = ResearchContentScope.WEB_ONLY)
     }
-    val baseOrder = remember(profiles, sort) {
+    val baseOrder = remember(profiles, sort, insights) {
         when (sort) {
             ProfileSort.FAVORITES -> orderedChatProfiles(profiles).map { it.second }
             ProfileSort.NAME -> profiles.filter { it.enabled }.sortedBy { it.name.lowercase() }
             ProfileSort.PROVIDER -> profiles.filter { it.enabled }.sortedWith(compareBy({ it.compatibleType.name }, { it.name.lowercase() }))
             ProfileSort.MODEL -> profiles.filter { it.enabled }.sortedWith(compareBy({ it.model.lowercase() }, { it.name.lowercase() }))
+            ProfileSort.BENCHMARK -> profiles.filter { it.enabled }.sortedWith(
+                compareBy<PlatformV2> { insights[it.uid]?.score == null }
+                    .thenByDescending { insights[it.uid]?.score?.score?.toDouble() ?: -1.0 }
+                    .thenBy { it.name.lowercase() }
+            )
+            ProfileSort.PRICE -> profiles.filter { it.enabled }.sortedWith(
+                compareBy<PlatformV2> { insights[it.uid]?.price?.takeIf { price -> price.currency == "USD" } == null }
+                    .thenBy { decimalRate(insights[it.uid]?.price?.takeIf { price -> price.currency == "USD" }?.inputPerMillion) }
+                    .thenBy { it.name.lowercase() }
+            )
         }
     }
     val visible = remember(baseOrder, query, labelKey, filter, features, researchPolicy) {
@@ -272,7 +285,7 @@ internal fun NewChatProfileScreen(
                     if (kind == NewChatType.RESEARCH && blockers.isNotEmpty()) {
                         Text(blockers.joinToString("\n"), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, maxLines = 4)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            TextButton(onClick = viewModel::grantWebResearchAccess, enabled = !approvingResearch) { Text("Enable Deep Research plugin") }
+                            TextButton(onClick = viewModel::grantWebResearchAccess, enabled = !approvingResearch) { Text("Enable Research plugin globally") }
                             TextButton(onClick = onManageTools) { Text("Tools & Permissions") }
                         }
                     }

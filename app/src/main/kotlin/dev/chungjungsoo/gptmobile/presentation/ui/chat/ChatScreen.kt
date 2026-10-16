@@ -1130,13 +1130,13 @@ private fun ChatMessagePair(
     val selectedAssistantMessage = if (selectedProfile != null) selectedProfile.message else assistantMessages.getOrNull(displayPlatformIndex)
     val responseInsetPx = with(LocalDensity.current) { 12.dp.roundToPx() }
     val synthesisStarted = isCombinedConversation && combinedSynthesisIndex >= 0
+    val rawAssistantContent = dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(selectedAssistantMessage?.effectiveContent().orEmpty())
     val assistantContent = when {
         isCombinedConversation && !synthesisStarted && combinedStatus == CombinedResponseStatus.FAILED -> stringResource(R.string.combined_all_profiles_failed)
         isCombinedConversation && !synthesisStarted -> ""
         isSourceResponse && selectedProfile.status == CombinedResponseStatus.FAILED && selectedAssistantMessage?.content.isNullOrBlank() -> stringResource(R.string.combined_profile_no_response)
-        else -> dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(selectedAssistantMessage?.effectiveContent().orEmpty()).let { answer ->
-            if (isCombinedConversation) combinedVisibleAnswer(answer) else answer
-        }
+        isCombinedConversation -> combinedVisibleAnswer(rawAssistantContent, debugMode)
+        else -> rawAssistantContent
     }
     val assistantThoughts = if (isCombinedConversation && !synthesisStarted) {
         ""
@@ -1146,7 +1146,13 @@ private fun ChatMessagePair(
     val assistantTimeline = if (isCombinedConversation && !synthesisStarted) {
         emptyList()
     } else {
-        selectedAssistantMessage?.effectiveTimeline().orEmpty()
+        selectedAssistantMessage?.effectiveTimeline().orEmpty().let { timeline ->
+            if (isCombinedConversation && rawAssistantContent != assistantContent) {
+                combinedVisibleTimeline(timeline, assistantContent)
+            } else {
+                timeline
+            }
+        }
     }
     val selectedRunId = selectedAssistantMessage?.effectiveRunId()
     val agentRun = selectedRunId?.let(agentRunsById::get)

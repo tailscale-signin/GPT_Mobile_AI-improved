@@ -128,5 +128,6 @@ internal fun combinedVisibleAnswer(answer: String): String {
         )
         .replace(Regex("(?m)^\\*\\*From [^\\r\\n]{1,180}:\\*\\*\\s*$"), "")
         .trim()
+        .replace(Regex("\\n{3,}"), "\\n\\n")
     return if (appendix.isBlank()) body else "$body\n\n## Further details\n\n$appendix"
 }

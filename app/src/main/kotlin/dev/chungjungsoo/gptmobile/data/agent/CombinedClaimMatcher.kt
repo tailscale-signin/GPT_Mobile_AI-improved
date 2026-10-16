@@ -99,14 +99,11 @@ internal object CombinedClaimMatcher {
     fun possibleConflict(first: Fingerprint, second: Fingerprint): Boolean {
         if (first.terms.size < 3 || second.terms.size < 3) return false
         val shared = first.terms.intersect(second.terms).size
-        val sameTopic = shared >= 3 && (
-            shared.toDouble() / minOf(first.terms.size, second.terms.size) >= 0.72 ||
-                (shared >= 4 && shared.toDouble() / minOf(first.terms.size, second.terms.size) >= 0.45)
-        )
+        val overlapRatio = shared.toDouble() / minOf(first.terms.size, second.terms.size)
+        val sameTopic = shared >= 3 && (overlapRatio >= 0.72 || (shared >= 4 && overlapRatio >= 0.45))
         if (!sameTopic) return false
-        val numberDisagreement = first.numbers.isNotEmpty() && second.numbers.isNotEmpty() &&
-            first.numbers.subtract(second.numbers).isNotEmpty() &&
-            second.numbers.subtract(first.numbers).isNotEmpty()
+        val competingValues = first.numbers.subtract(second.numbers).isNotEmpty() && second.numbers.subtract(first.numbers).isNotEmpty()
+        val numberDisagreement = first.numbers.isNotEmpty() && second.numbers.isNotEmpty() && competingValues
         val polarityDisagreement = first.negative != second.negative
         return numberDisagreement || polarityDisagreement
     }

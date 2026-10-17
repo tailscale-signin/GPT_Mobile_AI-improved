@@ -54,15 +54,25 @@ class GgufNativeInstrumentedTest {
 
     @Test
     fun packagedCpuRuntimePreservesRepeatedSessionsAndPartialUsage() {
+        assertCpuInference("chatml", "c5398d4d93aa7dac7ee95fbc1f8448620fdb5b7445a8b42286c80d587e53dfd5")
+    }
+
+    @Test
+    fun packagedCpuRuntimeRendersCustomJinja() {
+        GgufNative.validateChatTemplate("{% for m in messages %}{{ m.role|upper }}: {{ m.content }}{% endfor %}".toByteArray())
+        assertCpuInference("jinja", "3555a89f9dc6c6f625421a4b88b71b173243d7d960872243aa95ef6a47158ca7")
+    }
+
+    private fun assertCpuInference(fixture: String, expectedHash: String) {
         val context = ApplicationProvider.getApplicationContext<Context>()
-        val model = File(context.cacheDir, "gguf-native-smoke.gguf")
+        val model = File(context.cacheDir, "gguf-native-smoke-$fixture.gguf")
         val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
-        ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand("cat /data/local/tmp/stories15M-chatml.gguf")).use { input ->
+        ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand("cat /data/local/tmp/stories15M-$fixture.gguf")).use { input ->
             model.outputStream().use { input.copyTo(it) }
         }
         try {
             val hash = MessageDigest.getInstance("SHA-256").digest(model.readBytes()).joinToString("") { "%02x".format(it) }
-            assertEquals("c5398d4d93aa7dac7ee95fbc1f8448620fdb5b7445a8b42286c80d587e53dfd5", hash)
+            assertEquals(expectedHash, hash)
             val handle = GgufNative.load(model.absolutePath.toByteArray(), 512, 2, 0)
             try {
                 repeat(3) {

@@ -479,7 +479,7 @@ class AgentToolResolver @Inject constructor(
             }
         }
 
-        val finalized = finalizeResolvedTools(resolved, profileUid, platform, featureSettings, bindings, chatToolConfig, freeProfile, onConnectionError)
+        val finalized = finalizeResolvedTools(resolved, profileUid, platform, featureSettings, bindings, chatToolConfig, freeProfile, disableRemote, disableLocal, onConnectionError)
         val coldBindings = if (cachedCataloguesOnly && allowRemoteMcp && userMessage != null) {
             bindings.filter { binding ->
                 binding.connection?.type == ToolConnectionType.MCP &&
@@ -517,7 +517,7 @@ class AgentToolResolver @Inject constructor(
             }
             // Recheck after I/O. Old grants/credentials cannot publish tools to a newer turn authority.
             check(settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid } == platform && settingRepository.getFeatureSettings() == live && toolConnectionRepository.listBindingsWithConnections(profileUid) == currentBindings) { "Tool permissions changed during discovery." }
-            val admitted = finalizeResolvedTools(loaded, profileUid, platform, live, currentBindings, chatToolConfig, freeProfile, onConnectionError)
+            val admitted = finalizeResolvedTools(loaded, profileUid, live, live, currentBindings, chatToolConfig, freeProfile, live.disableRemoteTools, live.disableLocalTools, onConnectionError)
             admitted.forEach { next ->
                 val previous = finalized.firstOrNull { it.modelToolName == next.modelToolName } ?: discovered[next.modelToolName]
                 check(previous == null || previous.connectionUid == next.connectionUid && previous.realToolName == next.realToolName) { "Ambiguous discovered tool alias; no action dispatched." }
@@ -537,6 +537,8 @@ class AgentToolResolver @Inject constructor(
         bindings: List<AgentToolBindingWithConnection>,
         chatToolConfig: ChatMcpToolConfig?,
         freeProfile: Boolean,
+        disableRemote: Boolean,
+        disableLocal: Boolean,
         onConnectionError: (String) -> Unit
     ): List<ResolvedAgentTool> {
         val collisions = resolved.groupBy { it.modelToolName }.filterValues { group -> group.map { it.connectionUid to it.realToolName }.distinct().size > 1 }.keys

@@ -887,7 +887,7 @@ fun ChatScreen(
                             profileColorIdentities = if (combined) {
                                 ProfileAttributionPalette.forSelection(
                                     (chatViewModel.enabledPlatformsInChat + frozenProfiles.map { it.uid }).distinct(),
-                                    debugSettings.profileAttributionColors
+                                    featureSettings.profileAttributionColors
                                 )
                             } else {
                                 emptyMap()

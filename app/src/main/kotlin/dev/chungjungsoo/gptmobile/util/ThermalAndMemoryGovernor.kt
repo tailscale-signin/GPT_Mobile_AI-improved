@@ -116,7 +116,7 @@ class ThermalAndMemoryGovernor private constructor(context: Context) : Component
         private var instance: ThermalAndMemoryGovernor? = null
 
         fun getInstance(context: Context): ThermalAndMemoryGovernor = instance ?: synchronized(this) {
-            instance ?: ThermalAndMemoryGovernor(context).also { INSTANCE = it }
+            instance ?: ThermalAndMemoryGovernor(context).also { instance = it }
         }
     }
 }

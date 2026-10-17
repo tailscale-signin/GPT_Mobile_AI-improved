@@ -7,7 +7,6 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -39,7 +38,11 @@ class GgufPrefillDeadlineTest {
         val actual = runCatching {
             withGgufPrefillDeadline(100, {}) { throw expected }
         }.exceptionOrNull()
-        assertSame(expected, actual)
+        assertEquals(expected.javaClass, actual?.javaClass)
+        assertEquals(expected.message, actual?.message)
+        // Coroutine debug stack recovery may copy exceptions while retaining
+        // the original in the cause chain; reference identity is not a contract.
+        assertTrue(generateSequence(actual) { it.cause }.any { it === expected })
     }
 
     @Test fun cancellationAfterDeadlineIsNeverSwallowed() = runTest {
@@ -51,6 +54,8 @@ class GgufPrefillDeadlineTest {
                 throw expected
             }
         }.exceptionOrNull()
-        assertSame(expected, actual)
+        assertEquals(expected.javaClass, actual?.javaClass)
+        assertEquals(expected.message, actual?.message)
+        assertTrue(generateSequence(actual) { it.cause }.any { it === expected })
     }
 }

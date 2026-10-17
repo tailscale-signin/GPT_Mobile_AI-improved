@@ -1137,6 +1137,35 @@ class LiteRtLmAdapterTest {
     }
 
     @Test
+    fun `local model without native function calling still sees and executes authorized tools`() = runBlocking {
+        val runtime = FakeLocalRuntime().apply {
+            capabilities = LocalModelCapabilities(backends = setOf("cpu", "gpu", "npu"), tools = false)
+            scriptedEvents = listOf(
+                listOf(LocalRuntimeEvent.TextDelta("""{"type":"tool_call","name":"lookup","arguments":{"query":"weather"}}"""), LocalRuntimeEvent.Done),
+                listOf(LocalRuntimeEvent.TextDelta("The tool returned clear weather."), LocalRuntimeEvent.Done)
+            )
+        }
+        val adapter = adapter(runtime)
+        var invoked = false
+        val events = adapter.openSession(
+            turns("hello"),
+            localPlatform(),
+            listOf(lookupTool { callId, _ ->
+                invoked = true
+                AgentToolResult(callId, ToolResultContent.Text("clear weather"), isError = false)
+            })
+        ).streamRound(emptyList(), emptyList()).toList()
+
+        assertTrue(invoked)
+        assertTrue(runtime.createConversationCalls.single().tools.isEmpty())
+        assertTrue(runtime.createConversationCalls.single().systemPrompt.orEmpty().contains("lookup"))
+        assertTrue(runtime.sendMessageCalls[1].contains("clear weather"))
+        assertEquals("lookup", events.filterIsInstance<ProviderEvent.ToolCall>().single().name)
+        assertEquals("The tool returned clear weather.", events.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+        assertTrue(events.last() is ProviderEvent.Completed)
+    }
+
+    @Test
     fun `tool capable model without bound tools does not register tools`() = runBlocking {
         val runtime = FakeLocalRuntime().apply {
             scriptedEvents = listOf(listOf(LocalRuntimeEvent.TextDelta("ok"), LocalRuntimeEvent.Done))

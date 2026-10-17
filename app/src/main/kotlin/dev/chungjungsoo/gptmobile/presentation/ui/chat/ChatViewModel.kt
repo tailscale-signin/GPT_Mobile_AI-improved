@@ -1496,7 +1496,18 @@ class ChatViewModel @Inject constructor(
                 prettyPrint = true
             }
             val body = withContext(Dispatchers.IO) {
-                buildChatDebugExport(room, messages, profiles, tools, features, draft, records, research, json)
+                buildChatDebugExport(
+                    room,
+                    messages,
+                    profiles,
+                    tools,
+                    features,
+                    draft,
+                    records,
+                    research,
+                    json,
+                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.entries.value
+                )
             }
             val safeTitle = room.title.replace(Regex("[^\\p{L}\\p{N}._ -]"), "_").take(80)
             return "export_${safeTitle}_${System.currentTimeMillis()}.${format.extension}" to body
@@ -2287,6 +2298,10 @@ class ChatViewModel @Inject constructor(
                 )
             )
         }
+        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
+            "CombinedSynthesis",
+            "SYNTHESIS_INPUT_FROZEN · runId=$synthesisRunId · sourceCount=${attributedSources.size} · profileUids=${attributedSources.map { it.platformUid }.distinct().joinToString(",")} · candidateUnits=${dev.chungjungsoo.gptmobile.data.agent.CombinedContentCoverage(attributedSources).units.size} · promptChars=${synthesisPrompt.length} · protocol=PASSAGES_V2"
+        )
         val run = AgentRunDraft(
             runId = synthesisRunId,
             profileUid = leadPlatform.uid,
@@ -2308,6 +2323,10 @@ class ChatViewModel @Inject constructor(
         // The durable run now owns this answer slot. No automatic retry may
         // replace it, even if UI publication or provider dispatch subsequently fails.
         onPersisted()
+        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
+            "CombinedSynthesis",
+            "SYNTHESIS_RUN_PERSISTED · runId=$synthesisRunId · leadProfileUid=$leadUid · sourceCount=${attributedSources.size} · evidenceRecords=${evidenceLedger.records.size}"
+        )
 
         _agentRunsById.update { it + (persisted.run.runId to persisted.run) }
         _groupedMessages.update { current ->

@@ -35,11 +35,17 @@ internal class NativeOperationJournal(
             val interrupted = pending.readText()
             check(interrupted.matches(Regex("[a-f0-9]{64}"))) { "Native operation journal is damaged; reinstall or repair this runtime's data." }
             val fields = runCatching { metadata.readLines() }.getOrDefault(emptyList())
-            val cause = exitCause(fields.getOrNull(0)?.toLongOrNull() ?: 0, fields.getOrNull(1)?.toIntOrNull() ?: 0)
+            val exitEvidence = exitCause(fields.getOrNull(0)?.toLongOrNull() ?: 0, fields.getOrNull(1)?.toIntOrNull() ?: 0)
+            val cause = exitEvidence.substringBefore('|')
             // Low-memory and deliberate termination are scheduling events, not proof of bad weights.
             // Unknown interruptions remain protective until a controlled verification is performed.
-            if (cause !in setOf("LOW_MEMORY", "USER_REQUESTED", "USER_STOPPED")) durableWrite(blocked(interrupted), "$interrupted\n$cause")
-            durableWrite(File(directory, "last-interruption"), listOf(interrupted, cause).joinToString("\n"))
+            if (cause !in setOf("LOW_MEMORY", "USER_REQUESTED", "USER_STOPPED")) durableWrite(blocked(interrupted), "$interrupted\n$exitEvidence")
+            durableWrite(File(directory, "last-interruption"), listOf(interrupted, exitEvidence).joinToString("\n"))
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
+                "NativeRuntime",
+                "NATIVE_OPERATION_INTERRUPTED · stage=${fields.getOrNull(2)?.take(40) ?: "unknown"} · exit=$exitEvidence · quarantined=${cause !in setOf("LOW_MEMORY", "USER_REQUESTED", "USER_STOPPED")} · exactTupleHash=${interrupted.take(12)}",
+                if (cause == "LOW_MEMORY") "W" else "E"
+            )
             check(pending.delete())
         }
     }

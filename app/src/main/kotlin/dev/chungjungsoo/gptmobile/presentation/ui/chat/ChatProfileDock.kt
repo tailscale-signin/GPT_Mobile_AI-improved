@@ -24,6 +24,7 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
+import dev.chungjungsoo.gptmobile.data.model.ProfileColorIdentity
 
 /** Fixed under the shared composer. Choosing a response never changes broadcast recipients. */
 @OptIn(ExperimentalFoundationApi::class)
@@ -39,7 +40,8 @@ internal fun ChatProfileDock(
     onSelect: (String?) -> Unit,
     onPause: (String) -> Unit,
     failedUids: Set<String> = emptySet(),
-    combinedFailed: Boolean = false
+    combinedFailed: Boolean = false,
+    profileColorIdentities: Map<String, ProfileColorIdentity> = emptyMap()
 ) {
     val colors = MaterialTheme.colorScheme
     Surface(
@@ -61,6 +63,9 @@ internal fun ChatProfileDock(
                 val running = if (uid == null) combinedGenerating else uid in generatingUids
                 val failed = if (uid == null) combinedFailed else uid in failedUids
                 val label = if (uid == null) "Combined" else names[uid] ?: "AI"
+                val itemColor = if (failed) colors.errorContainer else if (active) colors.primaryContainer else colors.secondaryContainer
+                val labelColor = uid?.let(profileColorIdentities::get)?.let { ProfileAttributionPalette.foreground(it, itemColor) }
+                    ?: if (failed) colors.onErrorContainer else if (active) colors.onPrimaryContainer else colors.onSecondaryContainer
                 val status = if (paused) {
                     "Paused"
                 } else if (running) {
@@ -71,13 +76,7 @@ internal fun ChatProfileDock(
                     "Ready"
                 }
                 Surface(
-                    color = if (failed) {
-                        colors.errorContainer
-                    } else if (active) {
-                        colors.primaryContainer
-                    } else {
-                        colors.secondaryContainer
-                    },
+                    color = itemColor,
                     contentColor = if (failed) {
                         colors.onErrorContainer
                     } else if (active) {
@@ -97,7 +96,7 @@ internal fun ChatProfileDock(
                 ) {
                     Row(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         if (running) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp, color = colors.primary)
-                        Text(label, style = MaterialTheme.typography.labelLarge)
+                        Text(label, style = MaterialTheme.typography.labelLarge, color = labelColor)
                         Text(status, style = MaterialTheme.typography.labelSmall)
                     }
                 }

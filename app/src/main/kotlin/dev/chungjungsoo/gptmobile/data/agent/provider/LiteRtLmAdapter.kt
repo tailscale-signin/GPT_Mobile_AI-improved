@@ -169,7 +169,9 @@ class LiteRtLmAdapter(
                 // function-call parsing; the prompt bridge validates and executes calls.
                 val usePromptToolBridge = !nativeToolsCapable && boundTools.isNotEmpty()
                 // Some runtimes advertise native tools while the model emits tool-call JSON as text.
-                val textToolFallbackEnabled = boundTools.isNotEmpty()
+                // Parse text-call formats even when the authorized catalog is empty so
+                // unsupported control markup is withheld instead of shown as an answer.
+                val textToolFallbackEnabled = true
                 val latestAttachments = turns.lastOrNull()?.userMessage?.attachments.orEmpty()
                 attachmentNotices(visionCapable, turns, latestAttachments).forEach { notice ->
                     send(notice)
@@ -225,6 +227,7 @@ class LiteRtLmAdapter(
                 val thinkingEnabled = platform.reasoning && constraints.allowReasoning && metadata?.thinking != false
 
                 val availableTools = boundTools
+                val noToolsInstruction = if (availableTools.isEmpty()) LocalPromptToolBridge.instruction(emptyList()) else ""
                 // Native tool templates already contain their definitions. Repeating
                 // the catalog here can evict history and tools from small contexts;
                 // text-call parsing remains available without a second catalog.
@@ -251,7 +254,7 @@ class LiteRtLmAdapter(
                     LocalContextPlanner.plan(
                         priorTurns = turns.dropLast(1),
                         currentUserPrompt = latestUserText,
-                        systemPrompt = evidencePrompt.orEmpty() + "\n" + LOCAL_CAPABILITY_CONTRACT,
+                        systemPrompt = evidencePrompt.orEmpty() + noToolsInstruction + "\n" + LOCAL_CAPABILITY_CONTRACT,
                         tools = availableTools.map { it.definition },
                         contextTokens = effectiveContextTokens,
                         outputLimit = outputLimit,
@@ -270,7 +273,7 @@ class LiteRtLmAdapter(
                         LocalContextPlanner.plan(
                             priorTurns = turns.dropLast(1),
                             currentUserPrompt = latestUserText,
-                            systemPrompt = conversationSystemPrompt.orEmpty() + "\n" + LOCAL_CAPABILITY_CONTRACT,
+                            systemPrompt = conversationSystemPrompt.orEmpty() + noToolsInstruction + "\n" + LOCAL_CAPABILITY_CONTRACT,
                             tools = availableTools.map { it.definition },
                             contextTokens = effectiveContextTokens,
                             outputLimit = outputLimit,
@@ -330,7 +333,7 @@ class LiteRtLmAdapter(
                     dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("LocalModel", "LOCAL_TOOL_REGISTRATION · tool=${tool.definition.name} · disposition=$exclusion")
                 }
                 val registeredTools = availableTools.filter { it.definition.name in selectedNames }.map { toolBudget.bind(it) }
-                conversationSystemPrompt = conversationSystemPrompt.orEmpty() + toolPromptRenderer?.invoke(plan.tools).orEmpty() + "\n" + LOCAL_CAPABILITY_CONTRACT
+                conversationSystemPrompt = conversationSystemPrompt.orEmpty() + noToolsInstruction + toolPromptRenderer?.invoke(plan.tools).orEmpty() + "\n" + LOCAL_CAPABILITY_CONTRACT
                 val descriptors = if (nativeToolsCapable) registeredTools.map { it.definition.toLocalDescriptor() } else emptyList()
                 val toolsKey = toolsFingerprint(descriptors)
                 val runToolsByName = registeredTools.associateBy { it.definition.name }
@@ -408,6 +411,14 @@ class LiteRtLmAdapter(
                                 if (!isEngineLoaded(requestSpec) && loadingModelNotice.isNotBlank()) {
                                     send(ProviderEvent.Notice(loadingModelNotice))
                                 }
+                                val selectedManifest = if (modelPath.endsWith("manifest.json")) {
+                                    runCatching { dev.chungjungsoo.gptmobile.data.localmodel.ArtifactManifestStore.read(java.io.File(modelPath)) }.getOrNull()
+                                } else null
+                                val selectedRuntime = selectedManifest?.runtime?.name ?: if (modelPath.endsWith("manifest.json")) "MANIFEST_RUNTIME_UNREADABLE" else "LITERT_MODEL"
+                                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
+                                    "LocalModel",
+                                    "LOCAL_RUNTIME_ROUTE_SELECTED · profileType=${platform.compatibleType.name} · modelId=$resolvedModelId · artifactRuntime=$selectedRuntime · backendRoute=$selectedRuntime · requestedAccelerator=${platform.accelerator} · engineLoadStarted=${!isEngineLoaded(requestSpec)}"
+                                )
                                 val loadedSpec = if (constraints.requestRole == "assist") {
                                     val warm = checkNotNull(assistWarmSpec)
                                     check(warm.modelPath == modelPath && warm.accelerator == requestedBackend && isEngineLoaded(warm)) { "Local Assist skipped: artifact or runtime configuration changed" }
@@ -415,6 +426,26 @@ class LiteRtLmAdapter(
                                 } else {
                                     loadEngineOrFallback(requestSpec) { event -> send(event) }
                                 }
+                                val manifest = if (modelPath.endsWith("manifest.json")) {
+                                    runCatching { dev.chungjungsoo.gptmobile.data.localmodel.ArtifactManifestStore.read(java.io.File(modelPath)) }.getOrNull()
+                                } else null
+                                val artifactRuntime = manifest?.runtime?.name ?: if (modelPath.endsWith("manifest.json")) "MANIFEST_RUNTIME_UNREADABLE" else "LITERT_MODEL"
+                                val activeRuntime = localRuntime.state.value
+                                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
+                                    "LocalModel",
+                                    "LOCAL_RUNTIME_ROUTE · profileType=${platform.compatibleType.name} · modelId=$resolvedModelId · artifactRuntime=$artifactRuntime · artifactEvidence=${manifest?.evidence?.name ?: "NOT_DECLARED"} · templateId=${manifest?.templateId ?: "NOT_DECLARED_OR_UNVERIFIED"} · actualBackend=${activeRuntime.backend?.name ?: "UNKNOWN"} · requestedAccelerator=${platform.accelerator} · actualAccelerator=${activeRuntime.engineSpec?.accelerator ?: loadedSpec.accelerator} · fallback=${activeRuntime.fallbackReason?.take(100) ?: "NONE"}"
+                                )
+                                send(
+                                    ProviderEvent.RequestConfigured(
+                                        configuredProfileOutputTokens = platform.maxTokens,
+                                        requestedOutputTokens = requestedOutputLimit,
+                                        effectiveOutputTokens = outputLimit,
+                                        configuredProfileType = platform.compatibleType.name,
+                                        actualRuntime = activeRuntime.backend?.name,
+                                        actualAccelerator = activeRuntime.engineSpec?.accelerator ?: loadedSpec.accelerator,
+                                        artifactRuntime = artifactRuntime
+                                    )
+                                )
                                 val snapshot = openConversation
                                 val canReuse = !isConversationDirty &&
                                     hasOpenConversation() &&
@@ -629,7 +660,11 @@ class LiteRtLmAdapter(
                                     if (templateFailure == null) {
                                         if (!failed && textToolFallbackEnabled) {
                                             val buffered = fallbackOutput.buffered()
-                                            val call = if (promptToolsClosed) null else LocalPromptToolBridge.parse(buffered, runToolsByName.keys)
+                                            val parsedBeforeLimit = LocalPromptToolBridge.parseResult(buffered, runToolsByName.keys)
+                                            val parsed = if (promptToolsClosed && parsedBeforeLimit is PromptToolParseResult.Call) {
+                                                PromptToolParseResult.Rejected("call_limit")
+                                            } else parsedBeforeLimit
+                                            val call = (parsed as? PromptToolParseResult.Call)?.value
                                             if (call != null && promptToolCallCount < 8) {
                                                 nativeToolsUsed = true
                                                 val result = try {
@@ -647,10 +682,17 @@ class LiteRtLmAdapter(
                                             if (call != null && promptToolCallCount >= 8) {
                                                 nativeToolsUsed = true
                                                 promptToolsClosed = true
+                                                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("LocalModel", "LOCAL_TOOL_CALL_REJECTED · reason=call_limit · authorizedToolCount=${runToolsByName.size} · dispatched=false", "W")
                                                 generationInput = "Tool-call limit reached. Do not request another tool. Answer the user's original request using only the evidence already collected. Preserve uncertainty and do not claim actions that were not completed."
                                                 generationImages = emptyList()
                                                 physicalSegment = UUID.randomUUID().toString()
                                                 continue
+                                            }
+                                            if (parsed is PromptToolParseResult.Rejected) {
+                                                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("LocalModel", "LOCAL_TOOL_CALL_REJECTED · reason=${parsed.reason} · authorizedToolCount=${runToolsByName.size} · dispatched=false", "W")
+                                                failed = true
+                                                send(ProviderEvent.Failed("The local model emitted a malformed, unsupported, disabled, or unavailable tool call. No tool was executed."))
+                                                break
                                             }
                                             assistantReply.append(buffered)
                                             if (buffered.isNotEmpty()) send(ProviderEvent.TextDelta(buffered))

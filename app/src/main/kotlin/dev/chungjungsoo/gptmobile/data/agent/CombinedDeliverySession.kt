@@ -36,6 +36,10 @@ internal class CombinedDeliverySession(
         val constrained = policy.maximumWords != null || policy.targetWords != null || policy.singleExample || policy.requiresCurrentEvidence
         // Immutable published text is never rewritten. Constrained answers are checked before publication.
         val progressive = structured && !constrained && committedPrefix.isEmpty()
+        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
+            "CombinedSynthesis",
+            "SYNTHESIS_DELIVERY_STARTED · sourceCount=${sources.size} · profileUids=${sources.map { it.platformUid }.distinct().joinToString(",")} · candidateUnits=${coverage.units.size} · protocol=${if (structured) "PASSAGES_V2" else "PLAIN_TEXT"} · progressive=$progressive · constrained=$constrained"
+        )
         data class Candidate(val text: String, val terminal: ProviderEvent?, val decoder: CombinedPassageDecoder?)
         suspend fun collect(candidate: AgentProviderSession, publish: Boolean): Candidate {
             val text = StringBuilder()
@@ -95,6 +99,7 @@ internal class CombinedDeliverySession(
         var accepted = collect(base, progressive)
         validateAccess()
         if (!accepted.text.startsWith(committedPrefix)) {
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("CombinedSynthesis", "SYNTHESIS_REJECTED · reason=COMMITTED_PREFIX_MISMATCH · sourceCount=${sources.size}", "E")
             emit(ProviderEvent.Failed("Combined delivery cannot replace the committed prefix. Original contributions remain available."))
             return@flow
         }
@@ -162,6 +167,10 @@ internal class CombinedDeliverySession(
             passages = accepted.decoder?.passages.orEmpty().filter { it.matches(accepted.text) }, decisions = accepted.decoder?.decisions.orEmpty().toList(),
             sourceUnits = checked.total, lexicalMissing = checked.missing.size,
             duplicatePassagesRemoved = accepted.decoder?.duplicatesRemoved ?: 0, repairRounds = repairs, turnContext = turnContext
+        )
+        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
+            "CombinedSynthesis",
+            "SYNTHESIS_QUALITY · status=${report.status} · sourceCount=${sources.size} · candidateUnits=${checked.total} · exact=${checked.exactMatches} · paraphrase=${checked.paraphraseMatches} · tentative=${checked.tentativeMatches} · missing=${checked.missing.size} · passages=${report.passages.size} · decisions=${report.decisions.size} · duplicatesRemoved=${report.duplicatePassagesRemoved} · repairRounds=${report.repairRounds} · issues=${report.issues.joinToString(",").ifBlank { "none" }} · semanticCoverageVerified=false · factualAccuracyVerified=false"
         )
         validateAccess()
         if (!progressive && accepted.text.isNotBlank()) emit(ProviderEvent.TextDelta(accepted.text))

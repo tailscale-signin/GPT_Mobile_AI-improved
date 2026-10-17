@@ -70,6 +70,11 @@ class ThermalAndMemoryGovernor private constructor(context: Context) : Component
 
     override fun onTrimMemory(level: Int) {
         _lastTrimLevel.value = level
+        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
+            "Memory",
+            "ANDROID_MEMORY_TRIM · level=$level · stateBefore=${_throttleState.value} · processPssKb=${android.os.Debug.getPss()} · nativeHeapAllocatedBytes=${android.os.Debug.getNativeHeapAllocatedSize()}",
+            if (level in setOf(ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW, ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL, ComponentCallbacks2.TRIM_MEMORY_MODERATE, ComponentCallbacks2.TRIM_MEMORY_COMPLETE)) "W" else "I"
+        )
         when (level) {
             ComponentCallbacks2.TRIM_MEMORY_COMPLETE,
             ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL -> {
@@ -90,6 +95,11 @@ class ThermalAndMemoryGovernor private constructor(context: Context) : Component
     override fun onConfigurationChanged(newConfig: Configuration) {}
 
     override fun onLowMemory() {
+        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
+            "Memory",
+            "ANDROID_LOW_MEMORY · processPssKb=${android.os.Debug.getPss()} · nativeHeapAllocatedBytes=${android.os.Debug.getNativeHeapAllocatedSize()}",
+            "E"
+        )
         _throttleState.value = ThrottleState.CRITICAL
     }
 

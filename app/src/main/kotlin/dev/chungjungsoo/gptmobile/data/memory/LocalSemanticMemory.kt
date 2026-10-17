@@ -71,6 +71,7 @@ class LocalSemanticMemory @Inject constructor(@ApplicationContext private val co
     }
 
     private fun createEmbedder(): TextEmbedder {
+        val createStartedMs = android.os.SystemClock.elapsedRealtime()
         MediaPipeJniContract.verify()
         AppLogRecorder.checkpoint("Memory", "EMBEDDING_ENGINE_STARTING · jniBindings=verified")
         return TextEmbedder.createFromOptions(
@@ -80,7 +81,7 @@ class LocalSemanticMemory @Inject constructor(@ApplicationContext private val co
                 .build()
         ).also { engine ->
             embedderGeneration++
-            AppLogRecorder.checkpoint("Memory", "EMBEDDING_ENGINE_CREATED · owner=${System.identityHashCode(this)} · engine=${System.identityHashCode(engine)} · generation=$embedderGeneration · processNativeAllocatedBytes=${android.os.Debug.getNativeHeapAllocatedSize()} · memoryAttribution=process_not_engine · cause=$lastReleaseReason · liveHandles=1 · backend=cpu_embedding · lazy=true")
+            AppLogRecorder.checkpoint("Memory", "EMBEDDING_ENGINE_CREATED · owner=${System.identityHashCode(this)} · engine=${System.identityHashCode(engine)} · generation=$embedderGeneration · coldStartMs=${android.os.SystemClock.elapsedRealtime() - createStartedMs} · processNativeAllocatedBytes=${android.os.Debug.getNativeHeapAllocatedSize()} · memoryAttribution=process_not_engine · cause=$lastReleaseReason · liveHandles=1 · backend=cpu_embedding · lazy=true")
         }
     }
 
@@ -250,7 +251,10 @@ class LocalSemanticMemory @Inject constructor(@ApplicationContext private val co
         val engine = embedder ?: return
         try {
             engine.close()
-            AppLogRecorder.checkpoint("Memory", "EMBEDDING_ENGINE_RELEASED · generation=$embedderGeneration · reason=$reason · liveHandles=0 · memoryAttribution=process_not_engine")
+            val systemMemory = android.app.ActivityManager.MemoryInfo().also { info ->
+                (context.getSystemService(android.content.Context.ACTIVITY_SERVICE) as? android.app.ActivityManager)?.getMemoryInfo(info)
+            }
+            AppLogRecorder.checkpoint("Memory", "EMBEDDING_ENGINE_RELEASED · generation=$embedderGeneration · reason=$reason · liveHandles=0 · processPssKb=${android.os.Debug.getPss()} · nativeHeapAllocatedBytes=${android.os.Debug.getNativeHeapAllocatedSize()} · systemAvailBytes=${systemMemory.availMem} · lowMemory=${systemMemory.lowMemory} · lowMemoryThresholdBytes=${systemMemory.threshold} · memoryAttribution=process_not_engine")
         } finally {
             embedder = null
             lastReleaseReason = reason

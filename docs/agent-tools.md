@@ -33,7 +33,7 @@ Retrying creates a new run and may invoke tools again. Prior tool results are sh
 
 Each profile run is limited to 15 minutes, eight model/tool rounds, 24 tool calls, and four concurrent tool calls. Individual calls time out after 60 seconds. Model-visible and persisted output is bounded to 64 KiB per tool call.
 
-Models or endpoints that reject native tool definitions fall back once to chat-only before any tool runs. GPT Mobile does not parse tool calls from prompt-generated JSON.
+Remote endpoints that reject native tool definitions fall back once to chat-only before any tool runs. Local models without a native function-call decoder use the app-managed prompt bridge, which accepts its documented JSON call envelope and Gemma `<|tool_call>call:name{...}` form. Calls are matched against the final registered tool set and validated against that tool's schema before execution. Disabled, unavailable, malformed, and unsupported calls are not dispatched and are recorded without logging their arguments. When no tools are available, the model is told not to emit calls or claim that it searched or performed an action. Unparsed control markup is withheld, and an answer's web-search claim is withheld unless this request returned a successful web-search tool result.
 
 ## Privacy and credential security
 

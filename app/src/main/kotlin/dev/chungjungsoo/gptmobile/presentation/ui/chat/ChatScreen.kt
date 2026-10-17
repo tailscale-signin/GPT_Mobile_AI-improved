@@ -883,7 +883,15 @@ fun ChatScreen(
                             },
                             onPause = chatViewModel::togglePlatformDisabled,
                             failedUids = if (combined) frozenProfiles.filter { it.status == CombinedResponseStatus.FAILED }.mapTo(hashSetOf()) { it.uid } else replies.filter { response -> response.currentRunId?.let(agentRunsById::get)?.status in setOf(AgentRunStatus.FAILED, AgentRunStatus.CANCELED, AgentRunStatus.INTERRUPTED) }.mapNotNull { it.platformType }.toSet(),
-                            combinedFailed = combined && dockTurn >= 0 && combinedAnswerStatus(replies.firstOrNull { it.isCombinedSynthesis() }, frozenProfiles, agentRunsById) == CombinedResponseStatus.FAILED
+                            combinedFailed = combined && dockTurn >= 0 && combinedAnswerStatus(replies.firstOrNull { it.isCombinedSynthesis() }, frozenProfiles, agentRunsById) == CombinedResponseStatus.FAILED,
+                            profileColorIdentities = if (combined) {
+                                ProfileAttributionPalette.forSelection(
+                                    (chatViewModel.enabledPlatformsInChat + frozenProfiles.map { it.uid }).distinct(),
+                                    debugSettings.profileAttributionColors
+                                )
+                            } else {
+                                emptyMap()
+                            }
                         )
                     }
                 }
@@ -1322,9 +1330,7 @@ private fun ChatMessagePair(
                     combinedWording = if (hasCombinedTabs && selectedProfile == null) {
                         CombinedWordingPresentation(
                             assistantMessages.getOrNull(combinedSynthesisIndex)?.combinedSources.orEmpty(),
-                            attributionColors,
-                            assistantTimeline.lastOrNull { it.combinedQuality != null }?.combinedQuality?.passages.orEmpty(),
-                            assistantContent
+                            attributionColors
                         )
                     } else {
                         null

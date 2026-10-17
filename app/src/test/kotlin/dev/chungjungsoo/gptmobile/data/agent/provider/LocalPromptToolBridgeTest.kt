@@ -110,9 +110,31 @@ class LocalPromptToolBridgeTest {
     }
 
     @Test fun absentToolsProduceNoCatalogAndNonToolTagsStreamNormally() {
-        assertEquals("", LocalPromptToolBridge.instruction(emptyList()))
+        assertEquals(true, LocalPromptToolBridge.instruction(emptyList()).contains("No tools are authorized"))
         val output = LocalPromptToolOutput()
         assertEquals("", output.accept("<"))
         assertEquals("<p>Answer</p>", output.accept("p>Answer</p>"))
+    }
+
+    @Test fun parsesGemmaCallMarkupAndClassifiesUnauthorizedCalls() {
+        val call = LocalPromptToolBridge.parseResult(
+            "<|tool_call>call:web_search{query:latest news on the economy}",
+            setOf("web_search")
+        ) as PromptToolParseResult.Call
+        assertEquals("web_search", call.value.name)
+        assertEquals("""{"query":"latest news on the economy"}""", call.value.argumentsJson)
+        assertEquals(
+            PromptToolParseResult.Rejected("tools_disabled"),
+            LocalPromptToolBridge.parseResult("<|tool_call>call:web_search{query:news}", emptySet())
+        )
+    }
+
+    @Test fun gemmaControlMarkupStaysBufferedAcrossChunkBoundaries() {
+        val payload = "<|tool_call>call:web_search{query:news}"
+        for (size in 1..payload.length) {
+            val output = LocalPromptToolOutput()
+            assertEquals("", payload.chunked(size).joinToString("") { output.accept(it) })
+            assertEquals("web_search", LocalPromptToolBridge.parse(output.buffered(), setOf("web_search"))?.name)
+        }
     }
 }

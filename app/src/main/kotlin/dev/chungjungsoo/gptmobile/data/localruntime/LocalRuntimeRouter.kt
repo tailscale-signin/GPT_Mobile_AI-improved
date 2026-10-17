@@ -193,6 +193,7 @@ class LocalRuntimeRouter(
 
     override suspend fun createConversation(config: LocalConversationConfig) {
         checkNotNull(activeLoadedRuntime) { "Local engine is not loaded" }.createConversation(config)
+        _state.value = _state.value.copy(requestedMtp = config.speculativeDecoding)
     }
 
     override fun sendMessage(text: String, images: List<ByteArray>): Flow<LocalRuntimeEvent> {

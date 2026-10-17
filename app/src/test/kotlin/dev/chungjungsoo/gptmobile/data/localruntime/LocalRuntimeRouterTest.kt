@@ -58,9 +58,11 @@ class LocalRuntimeRouterTest {
         }
         val fallbackRouter = LocalRuntimeRouter(fakeSettingRepository, qnnRuntime, fallbackRuntime)
         fallbackRouter.loadEngine(requested)
+        fallbackRouter.createConversation(LocalConversationConfig(LocalSamplerConfig(40, 0.9f, 0.7f), null, emptyList(), speculativeDecoding = true))
         fallbackRouter.sendMessage("hello").toList()
         assertEquals(LocalAccelerators.CPU, fallbackRouter.loadedEngineSpec()?.accelerator)
         assertTrue(fallbackRouter.state.value.fallbackReason!!.contains("using CPU"))
+        assertEquals(true, fallbackRouter.state.value.requestedMtp)
         assertTrue(fallbackRouter.isEngineLoaded(requested))
         fallbackRouter.loadEngine(requested)
         assertEquals(2, liteRtRuntime.loadEngineCalls.size)

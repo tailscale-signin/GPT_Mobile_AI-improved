@@ -83,7 +83,7 @@ class LocalRuntimeRouter(
                         LocalRuntimeBackend.GENIEX_LLAMA_CPP
                     },
                     requested,
-                    spec,
+                    runtime.loadedEngineSpec() ?: spec,
                     preferred
                 )
                 return

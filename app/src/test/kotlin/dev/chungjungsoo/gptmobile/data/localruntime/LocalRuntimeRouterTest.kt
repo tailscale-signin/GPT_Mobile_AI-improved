@@ -12,6 +12,7 @@ import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import java.io.File
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -42,6 +43,29 @@ class LocalRuntimeRouterTest {
             qnnRuntime = qnnRuntime,
             liteRtRuntime = liteRtRuntime
         )
+    }
+
+    @Test
+    fun generationFallbackPublishesCpuAndKeepsRequestedEngineWarm() = runTest {
+        val requested = testEngineSpec().copy(accelerator = LocalAccelerators.GPU)
+        val fallbackRuntime = object : LocalRuntime by liteRtRuntime {
+            override fun sendMessage(text: String, images: List<ByteArray>): Flow<LocalRuntimeEvent> = flow {
+                liteRtRuntime.loadEngine(checkNotNull(liteRtRuntime.loadedEngineSpec()).copy(accelerator = LocalAccelerators.CPU))
+                emit(LocalRuntimeEvent.PhaseChanged(LocalInferencePhase.PREFILL))
+                emit(LocalRuntimeEvent.TextDelta("Recovered"))
+                emit(LocalRuntimeEvent.Done)
+            }
+        }
+        val fallbackRouter = LocalRuntimeRouter(fakeSettingRepository, qnnRuntime, fallbackRuntime)
+        fallbackRouter.loadEngine(requested)
+        fallbackRouter.createConversation(LocalConversationConfig(LocalSamplerConfig(40, 0.9f, 0.7f), null, emptyList(), speculativeDecoding = true))
+        fallbackRouter.sendMessage("hello").toList()
+        assertEquals(LocalAccelerators.CPU, fallbackRouter.loadedEngineSpec()?.accelerator)
+        assertTrue(fallbackRouter.state.value.fallbackReason!!.contains("using CPU"))
+        assertEquals(true, fallbackRouter.state.value.requestedMtp)
+        assertTrue(fallbackRouter.isEngineLoaded(requested))
+        fallbackRouter.loadEngine(requested)
+        assertEquals(2, liteRtRuntime.loadEngineCalls.size)
     }
 
     @Test

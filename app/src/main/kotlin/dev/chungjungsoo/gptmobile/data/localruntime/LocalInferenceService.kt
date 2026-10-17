@@ -159,7 +159,7 @@ class LocalInferenceService : Service() {
                                 when (event) {
                                     is LocalRuntimeEvent.TextDelta -> reply.stream("TEXT", event.text)
                                     is LocalRuntimeEvent.ThinkingDelta -> reply.stream("THINKING", event.text)
-                                    is LocalRuntimeEvent.PhaseChanged -> reply.send("PHASE", text = event.phase.name)
+                                    is LocalRuntimeEvent.PhaseChanged -> reply.send("PHASE", text = event.phase.name, state = runtime.state.value.copy(processIsolated = true))
                                     is LocalRuntimeEvent.Metrics -> reply.send("METRICS", metrics = event.metrics)
                                     is LocalRuntimeEvent.Error -> terminal = event
                                     is LocalRuntimeEvent.Drain -> event.acknowledged.complete(Unit)
@@ -170,9 +170,9 @@ class LocalInferenceService : Service() {
                             val final = terminal
                             if (final is LocalRuntimeEvent.Error) {
                                 val code = generateSequence(final.cause) { it.cause }.filterIsInstance<LocalToolLimitException>().firstOrNull()?.code
-                                reply.send("ERROR", text = final.message, errorCode = code)
+                                reply.send("ERROR", text = final.message, errorCode = code, state = runtime.state.value.copy(processIsolated = true))
                             } else if (final is LocalRuntimeEvent.Done) {
-                                reply.send("DONE")
+                                reply.send("DONE", state = runtime.state.value.copy(processIsolated = true))
                             } else {
                                 reply.send("ERROR", text = "Local generation ended without completion")
                             }

@@ -40,6 +40,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -233,6 +234,7 @@ class ChatPromptQueueTest {
     fun `adding a profile releases a paused queue only after membership is saved and refreshes its tools`() = runTest(dispatcher) {
         val model = createViewModel(availableProfileCount = 2)
         runCurrent()
+        model.availableChatTools.first { it.isNotEmpty() }
         model.togglePlatformDisabled("profile-1")
         send(model, "Waiting for another profile")
         model.question.setTextAndPlaceCursorAtEnd("Unsent draft")
@@ -254,7 +256,8 @@ class ChatPromptQueueTest {
         assertEquals(listOf("profile-2"), starts.single().map { it.platform.uid })
         assertEquals(listOf("profile-1", "profile-2"), model.enabledPlatformsInChat)
         assertEquals("Unsent draft", model.question.text.toString())
-        assertTrue(model.availableChatTools.value.any { it.id == "profile-2-tools:search" })
+        // Catalog reads use Dispatchers.IO, which runCurrent does not drain.
+        model.availableChatTools.first { tools -> tools.any { it.id == "profile-2-tools:search" } }
         assertEquals(0, model.queuedPromptCount.value)
     }
 

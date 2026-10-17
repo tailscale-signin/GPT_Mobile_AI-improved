@@ -106,8 +106,11 @@ internal class CombinedDeliverySession(
         // A request for one fact/example remains intentionally narrow.
         val repairCoverage = policy.targetWords != null && !policy.singleExample && coverageResult.missing.isNotEmpty()
         var repairs = 0
-        if (!progressive && committedPrefix.isEmpty() && accepted.terminal == ProviderEvent.Completed &&
-            (violations.isNotEmpty() || repairCoverage) && maxRepairRounds > 0
+        if (!progressive &&
+            committedPrefix.isEmpty() &&
+            accepted.terminal == ProviderEvent.Completed &&
+            (violations.isNotEmpty() || repairCoverage) &&
+            maxRepairRounds > 0
         ) {
             emit(ProviderEvent.Notice("Checking the requested scope, length, and source coverage."))
             repairs = 1

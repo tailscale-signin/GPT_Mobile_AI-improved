@@ -37,7 +37,11 @@ jobs:
       # Bound each phase so a stalled compiler cannot occupy a runner for six hours.
       - name: Build review APK
         timeout-minutes: 30
-        run: ./gradlew :app:assembleDebug --no-daemon --stacktrace --console=plain
+        # Native-library packaging needs more heap after a cold Kotlin/KSP compile.
+        # Keep the compiler in-process and one worker within the runner's RAM budget.
+        run: >-
+          ./gradlew :app:assembleDebug --no-daemon --stacktrace --console=plain --max-workers=1
+          '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8'
       - name: Compile device regressions
         timeout-minutes: 25
         run: ./gradlew :app:compileDebugAndroidTestKotlin --no-daemon --stacktrace --console=plain

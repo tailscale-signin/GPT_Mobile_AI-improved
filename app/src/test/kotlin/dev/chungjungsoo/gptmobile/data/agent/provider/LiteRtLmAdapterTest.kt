@@ -1169,6 +1169,37 @@ class LiteRtLmAdapterTest {
     }
 
     @Test
+    fun `native capable model dispatches text tool call fallback`() = runBlocking {
+        var lookupCalls = 0
+        val runtime = FakeLocalRuntime().apply {
+            scriptedEvents = listOf(
+                listOf(
+                    LocalRuntimeEvent.TextDelta("""{"tool_call":"lookup","arguments":{"query":"weather"}}"""),
+                    LocalRuntimeEvent.Done
+                ),
+                listOf(LocalRuntimeEvent.TextDelta("It is sunny."), LocalRuntimeEvent.Done)
+            )
+        }
+        val events = adapter(runtime, catalog = toolsCatalog()).openSession(
+            turns("look up the weather"),
+            localPlatform(),
+            listOf(
+                lookupTool { id, _ ->
+                    lookupCalls++
+                    AgentToolResult(id, ToolResultContent.Text("sunny"), false)
+                }
+            )
+        ).streamRound(emptyList(), emptyList()).toList()
+
+        assertEquals(1, lookupCalls)
+        assertFalse(runtime.createConversationCalls.first().systemPrompt.orEmpty().contains("Authorized local tools"))
+        assertEquals(listOf("lookup"), runtime.createConversationCalls.first().tools.map { it.name })
+        assertFalse(events.filterIsInstance<ProviderEvent.TextDelta>().any { it.text.contains("tool_call") })
+        assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().any { it.text.contains("It is sunny.") })
+        assertTrue(events.last() is ProviderEvent.Completed)
+    }
+
+    @Test
     fun `tool capable model without bound tools does not register tools`() = runBlocking {
         val runtime = FakeLocalRuntime().apply {
             scriptedEvents = listOf(listOf(LocalRuntimeEvent.TextDelta("ok"), LocalRuntimeEvent.Done))

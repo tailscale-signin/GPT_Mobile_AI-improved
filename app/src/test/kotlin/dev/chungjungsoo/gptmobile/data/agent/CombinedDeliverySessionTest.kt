@@ -210,6 +210,24 @@ class CombinedDeliverySessionTest {
         }
     }
 
+    @Test fun decoderRendersProviderWrappedJsonArrayInsteadOfLeakingProtocolRecords() {
+        val payload = """[
+            {"type":"passage","text":"Canada's history begins with Indigenous peoples.\nThey built diverse societies.","profiles":["C1","C2"],"claims":["C1.1","C2.1"],"sources":[]},
+            {"type":"decision","claim":"C2.1","disposition":"OUT_OF_SCOPE","reason":"The shared point is already covered."}
+        ]"""
+        val expected = "Canada's history begins with Indigenous peoples.\nThey built diverse societies."
+        for (size in 1..payload.length) {
+            val decoder = CombinedPassageDecoder(sources, CombinedEvidenceLedger(), 10000)
+            val deltas = payload.chunked(size).flatMap { decoder.accept(it) } + decoder.accept("", true)
+            assertEquals("Chunk size $size", expected, deltas.joinToString(""))
+            assertFalse(decoder.answer().contains("\"type\""))
+            assertFalse(decoder.answer().startsWith("["))
+            assertEquals(1, decoder.passages.size)
+            assertEquals(setOf("alpha", "beta"), decoder.passages.single().profileUids)
+            assertEquals(1, decoder.decisions.size)
+        }
+    }
+
     @Test fun splitOpeningFenceNeverLeaksStructuredRecordsIntoTheAnswer() {
         val answer = "Athenian ships were financed by silver mines."
         val payload = "```json\n" + passage(answer) + "```"

@@ -114,7 +114,7 @@ internal class CombinedDeliverySession(
                 session?.let { collect(it, false) }
             }
             validateAccess()
-            if (rewritten?.terminal == ProviderEvent.Completed && rewritten.text.isNotBlank()) {
+            if (rewritten != null && rewritten.text.isNotBlank()) {
                 // Keep the completed rewrite. Its remaining issues are reported below, and
                 // the deterministic ceiling enforces any explicit length limit afterward.
                 accepted = rewritten

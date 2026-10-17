@@ -66,6 +66,7 @@ internal class CombinedPassageDecoder(
     private var mode: DeliveryMode? = null
     private var arrayOpened = false
     private var arrayClosed = false
+    private var openingFenceRemoved = false
     private var plainRecoveryBlocked = false
     private val sourceIds = evidence.records.associateBy { it.id }
     private val claimIds = sources.flatMapIndexed { index, source ->
@@ -75,12 +76,26 @@ internal class CombinedPassageDecoder(
     fun accept(delta: String, final: Boolean = false): List<String> {
         pending.append(delta)
         if (mode == null && pending.isNotBlank()) {
-            val prefix = pending.toString().trimStart()
+            var prefix = pending.toString().trimStart()
             // Providers may split an opening code fence across tokens. Wait for
             // enough bytes to distinguish it from plain inline-code prose.
             if (!final && prefix.length < 3 && "```".startsWith(prefix)) return emptyList()
+            if (!openingFenceRemoved && prefix.startsWith("```")) {
+                val fenceEnd = pending.indexOf("\n")
+                if (fenceEnd < 0 && !final) return emptyList()
+                if (fenceEnd >= 0) {
+                    pending.delete(0, fenceEnd + 1)
+                    openingFenceRemoved = true
+                    prefix = pending.toString().trimStart()
+                    if (prefix.isEmpty() && !final) return emptyList()
+                }
+            }
+            // A Markdown link or citation also starts with '['. Wait for the
+            // first array item before committing to the structured protocol.
+            val arrayPrefix = prefix.takeIf { it.startsWith("[") }?.drop(1)?.trimStart()
+            if (arrayPrefix != null && arrayPrefix.isEmpty() && !final) return emptyList()
             mode = when {
-                prefix.startsWith("[") -> DeliveryMode.JSON_ARRAY
+                arrayPrefix?.firstOrNull() in listOf('{', ']') -> DeliveryMode.JSON_ARRAY
                 prefix.startsWith("{") || prefix.startsWith("```") -> DeliveryMode.NDJSON
                 else -> DeliveryMode.PLAIN_TEXT
             }
@@ -133,6 +148,16 @@ internal class CombinedPassageDecoder(
     /** Accepts providers that wrap the PASSAGES_V2 objects in a top-level JSON array. */
     private fun consumeArrayRecords(final: Boolean, deltas: MutableList<String>) {
         while (pending.isNotEmpty()) {
+            if (arrayClosed) {
+                val trailing = pending.toString().trim()
+                if (trailing.isEmpty() || trailing == "```") {
+                    pending.setLength(0)
+                } else if (final || !"```".startsWith(trailing)) {
+                    issues += "INVALID_DELIVERY_RECORD"
+                    pending.setLength(0)
+                }
+                break
+            }
             var offset = 0
             while (offset < pending.length && (pending[offset].isWhitespace() || pending[offset] == ',')) offset++
             if (!arrayOpened && offset < pending.length && pending[offset] == '[') {
@@ -270,9 +295,10 @@ internal class CombinedPassageDecoder(
         output.append(body)
         val supported = validSources.any { id ->
             val source = sourceIds.getValue(id)
-            source.readable && CombinedContentCoverage.sentences(body).all { sentence ->
-                CombinedContentCoverage.normalized(source.passage).contains(CombinedContentCoverage.normalized(sentence))
-            }
+            source.readable &&
+                CombinedContentCoverage.sentences(body).all { sentence ->
+                    CombinedContentCoverage.normalized(source.passage).contains(CombinedContentCoverage.normalized(sentence))
+                }
         }
         passages += CombinedPassageRecord(
             start,
@@ -281,7 +307,13 @@ internal class CombinedPassageDecoder(
             owners,
             validSources,
             retainedClaims,
-            if (supported) "PASSAGE_SUPPORTED" else if (validSources.isNotEmpty()) "CITED_UNVERIFIED" else "UNVERIFIED"
+            if (supported) {
+                "PASSAGE_SUPPORTED"
+            } else if (validSources.isNotEmpty()) {
+                "CITED_UNVERIFIED"
+            } else {
+                "UNVERIFIED"
+            }
         )
         if (citations.isNotBlank()) output.append("\n\n$citations")
         val index = seen.size

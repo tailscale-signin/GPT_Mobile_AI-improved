@@ -47,7 +47,7 @@ jobs:
       - name: Build Debug APK
         run: |
           python3 scripts/check_qnn_provenance.py
-          ./gradlew assembleDebug --no-daemon
+          ./gradlew assembleDebug --no-daemon --max-workers=1 '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8'
 
       - name: Verify local runtime native libraries
         run: python3 scripts/check_local_runtime_apk.py app/build/outputs/apk/debug/*.apk

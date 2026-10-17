@@ -327,6 +327,7 @@ class LiteRtLmAdapterTest {
             .streamRound(emptyList(), emptyList()).toList()
         assertEquals(
             listOf(
+                configuredLocalRequest(),
                 ProviderEvent.PhaseChanged(LocalInferencePhase.PREFILL),
                 ProviderEvent.TextDelta("answer"),
                 ProviderEvent.Completed
@@ -353,6 +354,7 @@ class LiteRtLmAdapterTest {
 
         assertEquals(
             listOf(
+                configuredLocalRequest(),
                 ProviderEvent.ThinkingDelta("plan"),
                 ProviderEvent.TextDelta("hel"),
                 ProviderEvent.TextDelta("lo"),
@@ -702,6 +704,7 @@ class LiteRtLmAdapterTest {
         assertEquals(
             listOf(
                 ProviderEvent.Notice("The local platform ignored attachments", persistent = true),
+                configuredLocalRequest(),
                 ProviderEvent.TextDelta("ok"),
                 ProviderEvent.Completed
             ),
@@ -737,7 +740,7 @@ class LiteRtLmAdapterTest {
         ).streamRound(emptyList(), emptyList()).toList()
 
         assertEquals(
-            listOf(ProviderEvent.TextDelta("a cat"), ProviderEvent.Completed),
+            listOf(configuredLocalRequest(), ProviderEvent.TextDelta("a cat"), ProviderEvent.Completed),
             events
         )
         assertEquals(listOf("describe this"), runtime.sendMessageCalls)
@@ -786,6 +789,7 @@ class LiteRtLmAdapterTest {
         assertEquals(
             listOf(
                 ProviderEvent.Notice(LiteRtLmAdapter.DEFAULT_IGNORED_ATTACHMENTS, persistent = true),
+                configuredLocalRequest(),
                 ProviderEvent.TextDelta("ok"),
                 ProviderEvent.Completed
             ),
@@ -810,6 +814,7 @@ class LiteRtLmAdapterTest {
         assertEquals(
             listOf(
                 ProviderEvent.Notice(LiteRtLmAdapter.DEFAULT_IGNORED_ATTACHMENTS, persistent = true),
+                configuredLocalRequest(),
                 ProviderEvent.TextDelta("ok"),
                 ProviderEvent.Completed
             ),
@@ -838,6 +843,7 @@ class LiteRtLmAdapterTest {
         assertEquals(
             listOf(
                 ProviderEvent.Notice(LiteRtLmAdapter.DEFAULT_IGNORED_ATTACHMENTS, persistent = true),
+                configuredLocalRequest(),
                 ProviderEvent.TextDelta("ok"),
                 ProviderEvent.Completed
             ),
@@ -865,6 +871,7 @@ class LiteRtLmAdapterTest {
         assertEquals(
             listOf(
                 ProviderEvent.Notice(LiteRtLmAdapter.DEFAULT_TOO_MANY_IMAGES, persistent = true),
+                configuredLocalRequest(),
                 ProviderEvent.TextDelta("ok"),
                 ProviderEvent.Completed
             ),
@@ -1038,12 +1045,13 @@ class LiteRtLmAdapterTest {
         second.join()
 
         assertEquals(
-            listOf(ProviderEvent.TextDelta("one"), ProviderEvent.Completed),
+            listOf(configuredLocalRequest(), ProviderEvent.TextDelta("one"), ProviderEvent.Completed),
             firstEvents
         )
         assertEquals(
             listOf(
                 ProviderEvent.Notice(LiteRtLmAdapter.DEFAULT_WAITING_FOR_ENGINE),
+                configuredLocalRequest(),
                 ProviderEvent.TextDelta("two"),
                 ProviderEvent.Completed
             ),
@@ -1404,13 +1412,14 @@ class LiteRtLmAdapterTest {
         assertEquals(
             listOf(
                 ProviderEvent.Notice(LiteRtLmAdapter.DEFAULT_LOADING_MODEL),
+                configuredLocalRequest(),
                 ProviderEvent.TextDelta("one"),
                 ProviderEvent.Completed
             ),
             coldEvents
         )
         assertEquals(
-            listOf(ProviderEvent.TextDelta("two"), ProviderEvent.Completed),
+            listOf(configuredLocalRequest(), ProviderEvent.TextDelta("two"), ProviderEvent.Completed),
             warmEvents
         )
     }
@@ -1790,12 +1799,27 @@ class LiteRtLmAdapterTest {
     }
 
     @Test
+    fun `context too small for required instructions fails before engine loading`() = runBlocking {
+        val runtime = FakeLocalRuntime()
+        val adapter = adapter(runtime, catalog = FakeModelCatalogRepository(listOf(CatalogEntry(id = "gemma3-1b-it", maxContextTokens = 256))))
+        val events = adapter.openSession(turns("Current prompt"), localPlatform().copy(maxTokens = null))
+            .streamRound(emptyList(), emptyList()).toList()
+
+        assertTrue(events.filterIsInstance<ProviderEvent.Failed>().single().message.contains("context", ignoreCase = true))
+        assertTrue(runtime.loadEngineCalls.isEmpty())
+        assertTrue(runtime.createConversationCalls.isEmpty())
+        assertTrue(runtime.sendMessageCalls.isEmpty())
+        assertFalse(events.contains(ProviderEvent.Completed))
+    }
+
+    @Test
     fun `excessive turns beyond context budget are compacted preserving anchor Turn 0`() = runBlocking {
         val runtime = FakeLocalRuntime().apply {
             scriptedEvents = listOf(listOf(LocalRuntimeEvent.TextDelta("ok"), LocalRuntimeEvent.Done))
         }
-        val adapter = adapter(runtime, catalog = FakeModelCatalogRepository(listOf(CatalogEntry(id = "gemma3-1b-it", maxContextTokens = 256))))
-        val platform = localPlatform().copy(maxTokens = null) // Small compiled context, independent of output limit
+        val adapter = adapter(runtime, catalog = FakeModelCatalogRepository(listOf(CatalogEntry(id = "gemma3-1b-it", maxContextTokens = 512))))
+        // Leave room for the required capability instructions and anchor, but not all history.
+        val platform = localPlatform().copy(maxTokens = null)
 
         val anchor = completedTurn("Anchor prompt setup instructions", "Anchor reply confirmation")
         val middle1 = completedTurn("Intermediate step 1 with lots and lots of text that overflows", "Intermediate reply 1")
@@ -2069,6 +2093,7 @@ class LiteRtLmAdapterTest {
         assertEquals(
             listOf(
                 ProviderEvent.Notice(LiteRtLmAdapter.DEFAULT_WAITING_FOR_ENGINE),
+                configuredLocalRequest(),
                 ProviderEvent.TextDelta("ok"),
                 ProviderEvent.Completed
             ),
@@ -2247,6 +2272,15 @@ class LiteRtLmAdapterTest {
         assertEquals("npu", route.actualAccelerator)
         assertTrue(events.last() is ProviderEvent.Completed)
     }
+
+    private fun configuredLocalRequest() = ProviderEvent.RequestConfigured(
+        configuredProfileOutputTokens = 1024,
+        requestedOutputTokens = 1024,
+        effectiveOutputTokens = 1024,
+        configuredProfileType = ClientType.LITERT_LM.name,
+        actualAccelerator = LocalAccelerators.GPU,
+        artifactRuntime = "LITERT_MODEL"
+    )
 
     private fun visionPlatform() = localPlatform(model = "gemma-3n-e2b-it")
 

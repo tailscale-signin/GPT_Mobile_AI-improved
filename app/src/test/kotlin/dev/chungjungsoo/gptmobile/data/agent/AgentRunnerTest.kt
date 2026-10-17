@@ -984,7 +984,7 @@ class AgentRunnerTest {
         )
     }
 
-    @Test
+    @Test(timeout = 5000)
     fun `external cancellation keeps already emitted partial text and does not complete`() = runBlocking {
         val partialSeen = CompletableDeferred<Unit>()
         val events = mutableListOf<AgentRunEvent>()

@@ -1,14 +1,66 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AssistantTextMarkupGuardTest {
+    @Test fun shortOrdinaryTextStreamsBeforeTheProviderFinishes() = runBlocking {
+        val events = withTimeout(1000) {
+            flow {
+                emit(ProviderEvent.TextDelta("partial"))
+                awaitCancellation()
+            }.withAssistantTextMarkupGuard().take(1).toList()
+        }
+        assertEquals(listOf(ProviderEvent.TextDelta("partial")), events)
+    }
+
+    @Test fun searchClaimIsWithheldAtEveryChunkBoundary() = runBlocking {
+        for (claim in listOf("I searched the web", "We have checked current sources", "Our internet search")) {
+            for (split in 1 until claim.length) {
+                val events = flowOf(
+                    ProviderEvent.TextDelta("Answer. " + claim.take(split)),
+                    ProviderEvent.TextDelta(claim.drop(split) + " and found results."),
+                    ProviderEvent.Completed
+                ).withAssistantTextMarkupGuard().toList()
+                assertEquals("Answer. ", events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
+                assertTrue(events.filterIsInstance<ProviderEvent.Failed>().single().message.contains("no successful web-search"))
+            }
+        }
+    }
+
+    @Test fun assistantToolLineIsWithheldAtEveryChunkBoundary() = runBlocking {
+        val markup = "assistant  to=browser.search {\"query\":\"private\"}"
+        for (split in 1 until markup.length) {
+            val events = flowOf(
+                ProviderEvent.TextDelta("Answer.\n  " + markup.take(split)),
+                ProviderEvent.TextDelta(markup.drop(split)),
+                ProviderEvent.Completed
+            ).withAssistantTextMarkupGuard().toList()
+            assertEquals("Answer.", events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text }.trimEnd())
+            assertTrue(events.filterIsInstance<ProviderEvent.Failed>().single().message.contains("unparsed tool-call markup"))
+        }
+    }
+
+    @Test fun ordinaryWordsKeepTheirBoundariesAcrossChunks() = runBlocking {
+        for (parts in listOf(listOf("h", "i searched the web"), listOf("The ", "assistant to=search {} example"), listOf("I", "celand"), listOf("a"), listOf("assistant"))) {
+            val events = flow {
+                parts.forEach { emit(ProviderEvent.TextDelta(it)) }
+                emit(ProviderEvent.Completed)
+            }.withAssistantTextMarkupGuard().toList()
+            assertEquals(parts.joinToString(""), events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
+            assertTrue(events.filterIsInstance<ProviderEvent.Failed>().isEmpty())
+        }
+    }
+
     @Test fun splitRawToolMarkupIsWithheldBeforeItReachesTheConsumer() = runBlocking {
         val events = flowOf(
             ProviderEvent.TextDelta("A useful sentence. <tool_"),

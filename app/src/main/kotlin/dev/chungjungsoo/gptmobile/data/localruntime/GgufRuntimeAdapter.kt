@@ -2,11 +2,15 @@ package dev.chungjungsoo.gptmobile.data.localruntime
 
 import android.content.Context
 import android.os.SystemClock
+import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
 import dev.chungjungsoo.gptmobile.data.localmodel.ArtifactManifestStore
 import dev.chungjungsoo.gptmobile.data.localmodel.ArtifactRuntime
 import dev.chungjungsoo.gptmobile.data.localmodel.ModelArtifactManifest
 import dev.melo.gguf.GgufNative
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.awaitCancellation
@@ -25,8 +29,10 @@ internal class GgufRuntimeAdapter(context: Context) : LocalRuntime {
     @Volatile private var handle = 0L
     private var loaded: LocalEngineSpec? = null
     private var tuple: String? = null
+    private var modelFallbackKey: String? = null
     private var configuration: LocalConversationConfig? = null
     private val history = mutableListOf<Pair<String, String>>()
+    private val gpuFallbackModelKeys = ConcurrentHashMap.newKeySet<String>()
     override fun loadedEngineSpec() = loaded
     override suspend fun isEngineLoaded(spec: LocalEngineSpec) = handle != 0L && loaded?.engineConfiguration() == spec.engineConfiguration()
     override fun hasOpenConversation() = configuration != null
@@ -48,25 +54,63 @@ internal class GgufRuntimeAdapter(context: Context) : LocalRuntime {
     }
 
     override suspend fun loadEngine(spec: LocalEngineSpec) = withContext(Dispatchers.IO) {
-        if (isEngineLoaded(spec)) return@withContext
         RuntimeCapabilityRegistry.requireRuntime(ArtifactRuntime.LLAMA_CPP)
-        inspectModel(spec.modelPath).validate(spec)
-        val accelerator = LocalAccelerators.normalize(spec.accelerator)
-        check(accelerator in setOf(LocalAccelerators.CPU, LocalAccelerators.GPU)) { "Standalone GGUF supports CPU or Vulkan GPU only" }
-        if (accelerator == LocalAccelerators.GPU) check(RuntimeCapabilityRegistry.gguf(android.os.Build.SUPPORTED_ABIS?.toList().orEmpty()).backends.contains("gpu")) { "This build does not include GGUF Vulkan GPU offload; rebuild with ggufVulkan=true" }
         val file = File(spec.modelPath)
         val manifest = ArtifactManifestStore.read(file)
         val model = ModelArtifactManifest.safeFile(requireNotNull(file.parentFile), manifest.entryFile)
+        val modelHash = manifest.files.first { it.path == manifest.entryFile }.sha256
+        val fallbackKey = "$modelHash|${GgufNative.REVISION}|${android.os.Build.FINGERPRINT}"
+        val effectiveSpec = if (
+            LocalAccelerators.normalize(spec.accelerator) == LocalAccelerators.GPU && fallbackKey in gpuFallbackModelKeys
+        ) {
+            spec.copy(accelerator = LocalAccelerators.CPU)
+        } else {
+            spec
+        }
+        if (isEngineLoaded(effectiveSpec)) return@withContext
+        inspectModel(effectiveSpec.modelPath).validate(effectiveSpec)
+        val accelerator = LocalAccelerators.normalize(effectiveSpec.accelerator)
+        check(accelerator in setOf(LocalAccelerators.CPU, LocalAccelerators.GPU)) { "Standalone GGUF supports CPU or Vulkan GPU only" }
+        if (accelerator == LocalAccelerators.GPU) check(RuntimeCapabilityRegistry.gguf(android.os.Build.SUPPORTED_ABIS?.toList().orEmpty()).backends.contains("gpu")) { "This build does not include GGUF Vulkan GPU offload; rebuild with ggufVulkan=true" }
         if (manifest.runtime == ArtifactRuntime.LLAMA_CPP) check(manifest.runtimeVersion == GgufNative.REVISION) { "This artifact requires another GGUF engine revision" }
-        val identity = "${manifest.files.first { it.path == manifest.entryFile }.sha256}|${GgufNative.REVISION}|${android.os.Build.FINGERPRINT}|$accelerator|${spec.maxTokens}"
+        val identity = "$modelHash|${GgufNative.REVISION}|${android.os.Build.FINGERPRINT}|$accelerator|${effectiveSpec.maxTokens}"
         unloadEngine()
         journal.before(identity, "LOAD")
         try {
-            cancellableNative { GgufNative.load(model.absolutePath.toByteArray(), spec.maxTokens, GgufCpuThreads.resolve(spec.cpuThreads, Runtime.getRuntime().availableProcessors()), if (accelerator == LocalAccelerators.GPU) 999 else 0).also { handle = it } }
-            loaded = spec
+            cancellableNative { GgufNative.load(model.absolutePath.toByteArray(), effectiveSpec.maxTokens, GgufCpuThreads.resolve(effectiveSpec.cpuThreads, Runtime.getRuntime().availableProcessors()), if (accelerator == LocalAccelerators.GPU) 999 else 0).also { handle = it } }
+            loaded = effectiveSpec
             tuple = identity
+            modelFallbackKey = fallbackKey
         } catch (failure: Throwable) {
             withContext(NonCancellable) { unloadEngine() }
+            if (failure !is CancellationException && accelerator == LocalAccelerators.GPU && failure.isVulkanComputePipelineFailure()) {
+                gpuFallbackModelKeys += fallbackKey
+                AppLogRecorder.record(
+                    "LocalModel",
+                    "GGUF_VULKAN_LOAD_FALLBACK · model=${file.name} · accelerator=gpu->cpu · visibleOutput=0 · reason=${failure.message.orEmpty().take(180)}",
+                    "W"
+                )
+                val cpuSpec = effectiveSpec.copy(accelerator = LocalAccelerators.CPU)
+                val cpuIdentity = "$modelHash|${GgufNative.REVISION}|${android.os.Build.FINGERPRINT}|${LocalAccelerators.CPU}|${cpuSpec.maxTokens}"
+                try {
+                    journal.before(cpuIdentity, "LOAD")
+                    cancellableNative {
+                        GgufNative.load(
+                            model.absolutePath.toByteArray(),
+                            cpuSpec.maxTokens,
+                            GgufCpuThreads.resolve(cpuSpec.cpuThreads, Runtime.getRuntime().availableProcessors()),
+                            0
+                        ).also { handle = it }
+                    }
+                    loaded = cpuSpec
+                    tuple = cpuIdentity
+                    modelFallbackKey = fallbackKey
+                    return@withContext
+                } catch (cpuFailure: Throwable) {
+                    withContext(NonCancellable) { unloadEngine() }
+                    throw cpuFailure
+                }
+            }
             throw failure
         } finally {
             journal.finished()
@@ -92,37 +136,96 @@ internal class GgufRuntimeAdapter(context: Context) : LocalRuntime {
         require(images.isEmpty()) { "This GGUF runtime is text-only" }
         val config = checkNotNull(configuration) { "GGUF conversation is not open" }
         val active = handle
-        val messages = history.toList() + ("user" to text)
+        val priorHistory = history.toList()
+        val messages = priorHistory + ("user" to text)
         val started = SystemClock.elapsedRealtime()
         val segment = java.util.UUID.randomUUID().toString()
-        val output = StringBuilder()
-        val decoder = Utf8GenerationDecoder()
+        var output = StringBuilder()
+        var decoder = Utf8GenerationDecoder()
         var first: Long? = null
         var saturated = false
         send(LocalRuntimeEvent.PhaseChanged(LocalInferencePhase.PREFILL))
         journal.before(checkNotNull(tuple), "GENERATE", segment)
         try {
-            val counts = cancellableNative {
-                GgufNative.generate(active, messages.map { it.first }.toTypedArray(), messages.map { it.second.toByteArray() }.toTypedArray(), config.maxOutputTokens?.coerceIn(1, 8192) ?: 512, config.sampler.topK.coerceIn(1, 1024), config.sampler.topP.coerceIn(0f, 1f), config.sampler.temperature.coerceIn(0f, 5f)) { bytes ->
-                    if (!isActive) return@generate false
-                    val chunk = decoder.append(bytes)
-                    if (chunk.isNotEmpty()) {
-                        if (first == null) {
-                            first = SystemClock.elapsedRealtime() - started
-                            trySend(LocalRuntimeEvent.PhaseChanged(LocalInferencePhase.GENERATING))
+            val promptCharacters = messages.sumOf { (role, content) -> role.length + content.length }
+            val prefillBudgetMs = LocalPrefillDeadline.budgetMs(promptCharacters)
+            suspend fun runAttempt(engineHandle: Long): LongArray? = withGgufPrefillDeadline(
+                prefillBudgetMs,
+                cancelNative = { GgufNative.cancel(engineHandle) }
+            ) { onFirstOutput ->
+                cancellableNative(engineHandle) {
+                    GgufNative.generate(
+                        engineHandle,
+                        messages.map { it.first }.toTypedArray(),
+                        messages.map { it.second.toByteArray() }.toTypedArray(),
+                        config.maxOutputTokens?.coerceIn(1, 8192) ?: 512,
+                        config.sampler.topK.coerceIn(1, 1024),
+                        config.sampler.topP.coerceIn(0f, 1f),
+                        config.sampler.temperature.coerceIn(0f, 5f)
+                    ) { bytes ->
+                        if (!isActive) return@generate false
+                        val chunk = decoder.append(bytes)
+                        if (chunk.isNotEmpty()) {
+                            onFirstOutput()
+                            if (first == null) {
+                                first = SystemClock.elapsedRealtime() - started
+                                trySend(LocalRuntimeEvent.PhaseChanged(LocalInferencePhase.GENERATING))
+                            }
+                            if (output.length + chunk.length > 262144) {
+                                saturated = true
+                                return@generate false
+                            }
+                            output.append(chunk)
+                            if (!trySend(LocalRuntimeEvent.TextDelta(chunk)).isSuccess) {
+                                saturated = true
+                                return@generate false
+                            }
                         }
-                        if (output.length + chunk.length > 262144) {
-                            saturated = true
-                            return@generate false
-                        }
-                        output.append(chunk)
-                        if (!trySend(LocalRuntimeEvent.TextDelta(chunk)).isSuccess) {
-                            saturated = true
-                            return@generate false
-                        }
+                        true
                     }
-                    true
                 }
+            }
+            val counts = try {
+                runAttempt(active)
+            } catch (failure: Throwable) {
+                val failedSpec = loaded
+                if (failure is kotlinx.coroutines.CancellationException ||
+                    failedSpec == null ||
+                    LocalAccelerators.normalize(failedSpec.accelerator) != LocalAccelerators.GPU ||
+                    output.isNotEmpty() ||
+                    !failure.isVulkanComputePipelineFailure()
+                ) {
+                    throw failure
+                }
+                modelFallbackKey?.let(gpuFallbackModelKeys::add)
+                AppLogRecorder.record(
+                    "LocalModel",
+                    "GGUF_VULKAN_GENERATION_FALLBACK · model=${File(failedSpec.modelPath).name} · accelerator=gpu->cpu · visibleOutput=0 · reason=${failure.message.orEmpty().take(180)}",
+                    "W"
+                )
+                unloadEngine()
+                loadEngine(failedSpec.copy(accelerator = LocalAccelerators.CPU))
+                createConversation(config)
+                history.clear()
+                history.addAll(priorHistory)
+                journal.before(checkNotNull(tuple), "GENERATE", segment)
+                output = StringBuilder()
+                decoder = Utf8GenerationDecoder()
+                first = null
+                saturated = false
+                send(LocalRuntimeEvent.PhaseChanged(LocalInferencePhase.PREFILL))
+                runAttempt(handle)
+            }
+            if (counts == null) {
+                val elapsed = SystemClock.elapsedRealtime() - started
+                AppLogRecorder.record(
+                    "LocalModel",
+                    "GGUF_PREFILL_TIMEOUT · accelerator=${loaded?.accelerator ?: "UNKNOWN"} · promptCharacters=$promptCharacters · elapsedMs=$elapsed · visibleCharacters=${output.length} · action=cancel_generation",
+                    "E"
+                )
+                val detail = if (output.isEmpty()) "No output token arrived" else "Generation stalled after partial output; retained output is partial"
+                send(LocalRuntimeEvent.Error("GGUF_PREFILL_TIMEOUT: $detail after ${elapsed / 1000}s. The request was cancelled; try a smaller context, a smaller model, or another accelerator."))
+                return@channelFlow
             }
             check(counts.size == 5) { "Malformed GGUF native receipt" }
             val unicodeComplete = decoder.isComplete()
@@ -163,16 +266,17 @@ internal class GgufRuntimeAdapter(context: Context) : LocalRuntime {
         }
     }
 
-    private suspend fun <T> cancellableNative(block: () -> T): T = coroutineScope {
+    private suspend fun <T> cancellableNative(activeHandle: Long = 0L, block: () -> T): T = coroutineScope {
+        val completed = AtomicBoolean(false)
         val watcher = launch(Dispatchers.Default) {
             try {
                 awaitCancellation()
             } finally {
-                GgufNative.cancel(handle)
+                if (!completed.get()) GgufNative.cancel(activeHandle)
             }
         }
         try {
-            withContext(Dispatchers.IO) { block() }
+            withContext(Dispatchers.IO) { block().also { completed.set(true) } }
         } finally {
             withContext(NonCancellable) { watcher.cancelAndJoin() }
         }
@@ -190,8 +294,18 @@ internal class GgufRuntimeAdapter(context: Context) : LocalRuntime {
         handle = 0
         loaded = null
         tuple = null
+        modelFallbackKey = null
         if (active != 0L) withContext(Dispatchers.IO) { GgufNative.unload(active) }
     }
+}
+
+private fun Throwable.isVulkanComputePipelineFailure(): Boolean {
+    var current: Throwable? = this
+    while (current != null) {
+        if (current.message.orEmpty().contains("vk::Device::createComputePipeline", ignoreCase = true)) return true
+        current = current.cause
+    }
+    return false
 }
 
 /** Decode complete Unicode scalars only; a token boundary may split a UTF-8 sequence. */

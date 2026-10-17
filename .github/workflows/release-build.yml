@@ -13,7 +13,25 @@ concurrency:
 env:
   OBX_DISABLE_ANALYTICS: "true"
 jobs:
+  release_intent:
+    name: Check whether the version changed
+    runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.intent.outputs.publish }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Select explicit or version-changing releases
+        id: intent
+        env:
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+        run: python3 scripts/check_release_trigger.py
+
   validate:
+    needs: release_intent
+    if: needs.release_intent.outputs.publish == 'true'
     name: Validate exact release commit
     runs-on: ubuntu-latest
     outputs:

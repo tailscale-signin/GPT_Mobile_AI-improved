@@ -83,12 +83,12 @@ internal class GgufRuntimeAdapter(context: Context) : LocalRuntime {
             ?: error("GGUF chat template '$templateName' is missing; no model memory was allocated.")
         try {
             GgufNative.validateChatTemplate(template.toByteArray(Charsets.UTF_8))
-        } catch (failure: Throwable) {
+        } catch (failure: IllegalStateException) {
             if (failure is CancellationException) throw failure
-            AppLogRecorder.record("LocalModel", "GGUF_TEMPLATE_REJECTED · model=${model.name} · template=$templateName · runtimeRevision=${GgufNative.REVISION} · stage=metadata_only_preflight · modelLoadStarted=false · reason=${failure.message.orEmpty().take(180)}", "E")
-            throw IllegalStateException("GGUF chat template '$templateName' is unsupported by llama.cpp ${GgufNative.REVISION}. No model weights or context were loaded; import a model with a supported template.", failure)
+            AppLogRecorder.record("LocalModel", "GGUF_TEMPLATE_REJECTED · model=${model.name} · template=$templateName · runtimeRevision=${GgufNative.REVISION} · renderer=jinja · stage=metadata_only_preflight · modelLoadStarted=false · reason=${failure.message.orEmpty().take(180)}", "E")
+            throw IllegalStateException("GGUF chat template '$templateName' could not be parsed as Jinja. No model weights or context were loaded. ${failure.message.orEmpty().take(180)}", failure)
         }
-        AppLogRecorder.record("LocalModel", "GGUF_TEMPLATE_COMPATIBLE · model=${model.name} · template=$templateName · runtimeRevision=${GgufNative.REVISION} · modelLoadStarted=false")
+        AppLogRecorder.record("LocalModel", "GGUF_TEMPLATE_PARSED · model=${model.name} · template=$templateName · runtimeRevision=${GgufNative.REVISION} · renderer=jinja · stage=syntax_only_preflight · modelLoadStarted=false")
         val accelerator = LocalAccelerators.normalize(effectiveSpec.accelerator)
         check(accelerator in setOf(LocalAccelerators.CPU, LocalAccelerators.GPU)) { "Standalone GGUF supports CPU or Vulkan GPU only" }
         if (accelerator == LocalAccelerators.GPU) check(RuntimeCapabilityRegistry.gguf(android.os.Build.SUPPORTED_ABIS?.toList().orEmpty()).backends.contains("gpu")) { "This build does not include GGUF Vulkan GPU offload; rebuild with ggufVulkan=true" }
@@ -142,8 +142,8 @@ internal class GgufRuntimeAdapter(context: Context) : LocalRuntime {
     } catch (failure: Throwable) {
         val message = failure.message.orEmpty()
         if (message.contains("template", ignoreCase = true)) {
-            AppLogRecorder.record("LocalModel", "GGUF_TEMPLATE_REJECTED · model=${model.name} · template=$templateName · runtimeRevision=${GgufNative.REVISION} · stage=before_context_allocation · reason=${message.take(180)}", "E")
-            throw IllegalStateException("GGUF chat template '$templateName' is unsupported by llama.cpp ${GgufNative.REVISION}. Import a model with a supported template; no context was allocated.", failure)
+            AppLogRecorder.record("LocalModel", "GGUF_TEMPLATE_REJECTED · model=${model.name} · template=$templateName · runtimeRevision=${GgufNative.REVISION} · renderer=jinja · stage=before_context_allocation · reason=${message.take(180)}", "E")
+            throw IllegalStateException("GGUF chat template '$templateName' could not be rendered with the model's tokenizer. No context was allocated. ${message.take(180)}", failure)
         }
         throw failure
     }

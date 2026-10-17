@@ -1,6 +1,9 @@
 Pinned llama.cpp revision: 4413a192410fad1f054e9216114087a3e01527a0
 Source: https://github.com/ggml-org/llama.cpp
 
+Includes the pinned source's Jinja renderer and nlohmann JSON dependency.
+The packaged assets contain llama-cpp-LICENSE.txt and nlohmann-json-LICENSE.txt.
+
 MIT License
 
 Copyright (c) 2023-2026 The ggml authors

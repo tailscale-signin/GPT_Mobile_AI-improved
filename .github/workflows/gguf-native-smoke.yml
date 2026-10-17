@@ -34,6 +34,8 @@ jobs:
       - name: Compile and run production JNI with real inference
         run: |
           cmake -S local-gguf-runtime/src/main/cpp -B /tmp/gguf-build -DFETCHCONTENT_SOURCE_DIR_LLAMA=/tmp/llama -DCMAKE_BUILD_TYPE=Release
-          cmake --build /tmp/gguf-build --target gptmobile_gguf -j2
+          cmake --build /tmp/gguf-build --target gptmobile_gguf gguf_chat_template_test -j2
+          ctest --test-dir /tmp/gguf-build --output-on-failure
           javac -d /tmp/gguf-classes local-gguf-runtime/src/main/java/dev/melo/gguf/GgufNative.java local-gguf-runtime/src/testHost/GgufNativeSmoke.java
           java -Djava.library.path=/tmp/gguf-build -cp /tmp/gguf-classes GgufNativeSmoke /tmp/gguf-fixture/stories15M-chatml.gguf
+          java -Djava.library.path=/tmp/gguf-build -cp /tmp/gguf-classes GgufNativeSmoke /tmp/gguf-fixture/stories15M-jinja.gguf

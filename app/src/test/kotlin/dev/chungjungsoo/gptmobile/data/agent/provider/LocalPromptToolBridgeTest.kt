@@ -26,6 +26,17 @@ class LocalPromptToolBridgeTest {
         assertEquals("""{"query":"weather"}""", parsed?.argumentsJson)
     }
 
+    @Test fun malformedTypeFallsBackWithoutThrowing() {
+        listOf("{}", "[]", "null", "42", "true").forEach { type ->
+            assertNull(
+                LocalPromptToolBridge.parse(
+                    """{"type":$type,"name":"web_search","arguments":{}}""",
+                    setOf("web_search")
+                )
+            )
+        }
+    }
+
     @Test fun acceptsFencedNestedToolCallButRejectsUnknownAndOrdinaryJson() {
         val parsed = LocalPromptToolBridge.parse(
             """```json

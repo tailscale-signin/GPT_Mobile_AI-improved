@@ -51,6 +51,9 @@ class GgufApkInventoryTest(unittest.TestCase):
     def test_independent_cpu_library_has_only_system_dependencies(self):
         self.check()
 
+    def test_vulkan_runtime_may_link_to_android_platform_loader(self):
+        self.check(dependencies=("libc.so", "libm.so", "libvulkan.so"))
+
     def test_separately_pinned_geniex_library_is_allowed(self):
         self.check(owner=True)
 

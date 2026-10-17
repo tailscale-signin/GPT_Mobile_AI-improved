@@ -18,7 +18,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** CPU-only, pinned and QAIRT-independent; the existing holder/process owns every lease. */
+/** Pinned CPU/Vulkan runtime, QAIRT-independent; the existing holder/process owns every lease. */
 internal class GgufRuntimeAdapter(context: Context) : LocalRuntime {
     private val journal = NativeExitEvidence.journal(context, File(context.noBackupFilesDir, "gguf-native"))
 
@@ -35,26 +35,34 @@ internal class GgufRuntimeAdapter(context: Context) : LocalRuntime {
         val file = File(modelPath)
         val manifest = ArtifactManifestStore.read(file)
         manifest.validate(requireNotNull(file.parentFile))
-        check(manifest.runtime == ArtifactRuntime.LLAMA_CPP) { "GenieX artifacts require the separate GenieX preview APK; this is the standard CPU llama.cpp runtime." }
+        check(manifest.runtime == ArtifactRuntime.LLAMA_CPP) { "GenieX artifacts require the separate GenieX preview APK; this is the standard llama.cpp runtime." }
         check(!manifest.vision && manifest.projectorFile == null) { "This GGUF runtime supports self-contained text models only" }
         check("cpu" in manifest.supportedBackends) { "This artifact does not permit the packaged CPU backend" }
-        LocalModelCapabilities(minOf(manifest.contextTokens, 32768), true, setOf("cpu"), false, false, false, false)
+        val backends = buildSet {
+            add("cpu")
+            // A GGUF model is not compiled for a specific accelerator. Vulkan is an
+            // engine capability and may be used for any compatible tensor layers.
+            if (RuntimeCapabilityRegistry.gguf(android.os.Build.SUPPORTED_ABIS?.toList().orEmpty()).backends.contains("gpu")) add("gpu")
+        }
+        LocalModelCapabilities(minOf(manifest.contextTokens, 32768), true, backends, false, false, false, false)
     }
 
     override suspend fun loadEngine(spec: LocalEngineSpec) = withContext(Dispatchers.IO) {
         if (isEngineLoaded(spec)) return@withContext
         RuntimeCapabilityRegistry.requireRuntime(ArtifactRuntime.LLAMA_CPP)
         inspectModel(spec.modelPath).validate(spec)
-        check(spec.accelerator == "cpu") { "The packaged GGUF engine is CPU-only; GPU and NPU require separate qualification" }
+        val accelerator = LocalAccelerators.normalize(spec.accelerator)
+        check(accelerator in setOf(LocalAccelerators.CPU, LocalAccelerators.GPU)) { "Standalone GGUF supports CPU or Vulkan GPU only" }
+        if (accelerator == LocalAccelerators.GPU) check(RuntimeCapabilityRegistry.gguf(android.os.Build.SUPPORTED_ABIS?.toList().orEmpty()).backends.contains("gpu")) { "This build does not include GGUF Vulkan GPU offload; rebuild with ggufVulkan=true" }
         val file = File(spec.modelPath)
         val manifest = ArtifactManifestStore.read(file)
         val model = ModelArtifactManifest.safeFile(requireNotNull(file.parentFile), manifest.entryFile)
         if (manifest.runtime == ArtifactRuntime.LLAMA_CPP) check(manifest.runtimeVersion == GgufNative.REVISION) { "This artifact requires another GGUF engine revision" }
-        val identity = "${manifest.files.first { it.path == manifest.entryFile }.sha256}|${GgufNative.REVISION}|${android.os.Build.FINGERPRINT}|cpu|${spec.maxTokens}"
+        val identity = "${manifest.files.first { it.path == manifest.entryFile }.sha256}|${GgufNative.REVISION}|${android.os.Build.FINGERPRINT}|$accelerator|${spec.maxTokens}"
         unloadEngine()
         journal.before(identity, "LOAD")
         try {
-            cancellableNative { GgufNative.load(model.absolutePath.toByteArray(), spec.maxTokens, spec.cpuThreads?.coerceIn(1, 64) ?: Runtime.getRuntime().availableProcessors().coerceIn(1, 8)).also { handle = it } }
+            cancellableNative { GgufNative.load(model.absolutePath.toByteArray(), spec.maxTokens, spec.cpuThreads?.coerceIn(1, 64) ?: Runtime.getRuntime().availableProcessors().coerceIn(1, 8), if (accelerator == LocalAccelerators.GPU) 999 else 0).also { handle = it } }
             loaded = spec
             tuple = identity
         } catch (failure: Throwable) {
@@ -67,7 +75,7 @@ internal class GgufRuntimeAdapter(context: Context) : LocalRuntime {
 
     override suspend fun allowVerification(spec: LocalEngineSpec) {
         val manifest = ArtifactManifestStore.read(File(spec.modelPath))
-        journal.allowVerification("${manifest.files.first { it.path == manifest.entryFile }.sha256}|${GgufNative.REVISION}|${android.os.Build.FINGERPRINT}|cpu|${spec.maxTokens}")
+        journal.allowVerification("${manifest.files.first { it.path == manifest.entryFile }.sha256}|${GgufNative.REVISION}|${android.os.Build.FINGERPRINT}|${LocalAccelerators.normalize(spec.accelerator)}|${spec.maxTokens}")
     }
 
     override suspend fun createConversation(config: LocalConversationConfig) {

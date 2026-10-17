@@ -43,26 +43,42 @@ std::shared_ptr<Engine> get(jlong handle) {
 bool aborted(void * data) { return static_cast<Engine *>(data)->stop.load(); }
 }
 
-extern "C" JNIEXPORT jlong JNICALL Java_dev_melo_gguf_GgufNative_load(JNIEnv * env, jclass, jbyteArray path, jint contextTokens, jint threads) {
+extern "C" JNIEXPORT jboolean JNICALL Java_dev_melo_gguf_GgufNative_supportsGpuOffload(JNIEnv * env, jclass) {
     try {
-        if (contextTokens < 128 || contextTokens > 32768 || threads < 1 || threads > 64) throw std::runtime_error("Unsupported GGUF context or thread limit");
         std::call_once(initialized, [] { llama_backend_init(); });
+        return llama_supports_gpu_offload() ? JNI_TRUE : JNI_FALSE;
+    } catch (const std::exception & e) { fail(env, e.what()); return JNI_FALSE; }
+}
+
+extern "C" JNIEXPORT jlong JNICALL Java_dev_melo_gguf_GgufNative_load(JNIEnv * env, jclass, jbyteArray path, jint contextTokens, jint threads, jint gpuLayers) {
+    try {
+        if (contextTokens < 128 || contextTokens > 32768 || threads < 1 || threads > 64 || gpuLayers < 0 || gpuLayers > 999) throw std::runtime_error("Unsupported GGUF context, thread, or GPU layer limit");
+        std::call_once(initialized, [] { llama_backend_init(); });
+        if (gpuLayers > 0 && !llama_supports_gpu_offload()) throw std::runtime_error("GGUF Vulkan GPU offload is unavailable on this device or build; select CPU");
         cancelLoad = false;
         auto engine = std::make_shared<Engine>();
         auto mp = llama_model_default_params();
-        mp.n_gpu_layers = 0;
+        ggml_backend_dev_t cpuOnly[] = {nullptr};
+        mp.devices = gpuLayers > 0 ? nullptr : cpuOnly;
+        mp.n_gpu_layers = gpuLayers;
         mp.progress_callback = [](float, void *) { return !cancelLoad.load(); };
         const auto filename = bytes(env, path);
         if (filename.find('\0') != std::string::npos) throw std::runtime_error("Invalid model path");
         engine->model = llama_model_load_from_file(filename.c_str(), mp);
         if (!engine->model) throw std::runtime_error("GGUF load failed: unsupported artifact, canceled load, or insufficient resources");
-        if (!llama_model_chat_template(engine->model, nullptr)) throw std::runtime_error("GGUF has no supported embedded chat template");
+        const char * tmpl = llama_model_chat_template(engine->model, nullptr);
+        if (!tmpl || !*tmpl) throw std::runtime_error("GGUF has no embedded chat template; import a chat-tuned GGUF export");
+        const llama_chat_message probe{"user", "Hello"};
+        const int templateSize = llama_chat_apply_template(tmpl, &probe, 1, true, nullptr, 0);
+        if (templateSize <= 0 || templateSize > 4 * 1024 * 1024) throw std::runtime_error("GGUF embedded chat template is unsupported by this llama.cpp revision; choose an export using a supported template");
         if (llama_model_has_encoder(engine->model)) throw std::runtime_error("This GGUF route supports decoder-only text models");
         auto cp = llama_context_default_params();
         cp.n_ctx = contextTokens;
         cp.n_batch = 256;
         cp.n_threads = threads;
         cp.n_threads_batch = threads;
+        cp.offload_kqv = gpuLayers > 0;
+        cp.op_offload = gpuLayers > 0;
         cp.no_perf = false;
         cp.abort_callback = aborted;
         cp.abort_callback_data = engine.get();

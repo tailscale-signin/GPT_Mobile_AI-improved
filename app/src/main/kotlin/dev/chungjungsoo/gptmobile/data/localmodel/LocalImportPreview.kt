@@ -38,7 +38,7 @@ data class LocalImportPreview(
                 header.take(4).toByteArray().contentEquals("GGUF".toByteArray()) -> {
                     require(gguf || geniex) { "This app build does not include a GGUF runtime." }
                     require(name.endsWith(".gguf", true) && count == 8 && header[4].toInt() in 2..3 && header.drop(5).all { it == 0.toByte() }) { "Unsupported GGUF header or filename." }
-                    LocalImportPreview(name, if (gguf) "GGUF · CPU" else "GenieX · GGUF", size, size, if (gguf) listOf("cpu") else emptyList())
+                    LocalImportPreview(name, if (gguf) "GGUF · llama.cpp" else "GenieX · GGUF", size, size, if (gguf) dev.chungjungsoo.gptmobile.data.localruntime.RuntimeCapabilityRegistry.gguf(android.os.Build.SUPPORTED_ABIS?.toList().orEmpty()).backends.sorted() else emptyList())
                 }
                 header[0] == 0x50.toByte() && header[1] == 0x4b.toByte() -> {
                     require(name.endsWith(".zip", true) || name.endsWith(".localmodel", true)) { "Choose a .localmodel or manifest ZIP package." }

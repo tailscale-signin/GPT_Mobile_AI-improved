@@ -129,6 +129,8 @@ extensions.configure<ApplicationExtension> {
         applicationId = if (geniexRuntime) "dev.melo.gptmobile.improved.geniex" else "dev.melo.gptmobile.improved"
         buildConfigField("boolean", "GENIEX_ENABLED", geniexRuntime.toString())
         buildConfigField("boolean", "GGUF_ENABLED", (providers.gradleProperty("ggufRuntime").orNull != "false").toString())
+        val ggufVulkan = providers.gradleProperty("ggufVulkan").map { it != "false" }.getOrElse(true)
+        buildConfigField("boolean", "GGUF_VULKAN_ENABLED", ggufVulkan.toString())
         buildConfigField("String", "GENIEX_VERSION", "\"${libs.versions.geniex.get()}\"")
         // Independent rollback controls. Mandatory parser/admission hard caps remain enabled.
         buildConfigField("boolean", "COMBINED_SECTION_RECOVERY", providers.gradleProperty("combinedSectionRecovery").map { (it != "false").toString() }.getOrElse("true"))

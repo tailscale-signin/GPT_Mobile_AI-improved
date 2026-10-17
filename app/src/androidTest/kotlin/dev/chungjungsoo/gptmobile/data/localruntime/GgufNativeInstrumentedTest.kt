@@ -12,12 +12,46 @@ import java.security.MessageDigest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
 /** Exercises the release-shrunk Java/JNI boundary with real, pinned CPU weights. */
 @RunWith(AndroidJUnit4::class)
 class GgufNativeInstrumentedTest {
+    @Test
+    fun packagedVulkanRuntimeGeneratesOnCompatibleDevice() {
+        assumeTrue(dev.chungjungsoo.gptmobile.BuildConfig.GGUF_VULKAN_ENABLED)
+        assumeTrue("Device has no compatible Vulkan GPU", GgufNative.supportsGpuOffload())
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val model = File(context.cacheDir, "gguf-vulkan-smoke.gguf")
+        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand("cat /data/local/tmp/stories15M-chatml.gguf")).use { input ->
+            model.outputStream().use { input.copyTo(it) }
+        }
+        try {
+            val hash = MessageDigest.getInstance("SHA-256").digest(model.readBytes()).joinToString("") { "%02x".format(it) }
+            assertEquals("c5398d4d93aa7dac7ee95fbc1f8448620fdb5b7445a8b42286c80d587e53dfd5", hash)
+            val handle = GgufNative.load(model.absolutePath.toByteArray(), 512, 2, 999)
+            try {
+                repeat(2) {
+                    val output = ByteArrayOutputStream()
+                    val usage = GgufNative.generate(handle, arrayOf("user"), arrayOf("Once upon a time".toByteArray()), 16, 1, 1f, 0f) { bytes ->
+                        output.write(bytes)
+                        true
+                    }
+                    assertTrue(usage[0] > 0 && usage[1] in 1L..16L)
+                    assertTrue(usage[4] in 0L..1L)
+                    assertTrue(output.size() > 0)
+                }
+            } finally {
+                GgufNative.unload(handle)
+            }
+        } finally {
+            model.delete()
+        }
+    }
+
     @Test
     fun packagedCpuRuntimePreservesRepeatedSessionsAndPartialUsage() {
         val context = ApplicationProvider.getApplicationContext<Context>()
@@ -29,7 +63,7 @@ class GgufNativeInstrumentedTest {
         try {
             val hash = MessageDigest.getInstance("SHA-256").digest(model.readBytes()).joinToString("") { "%02x".format(it) }
             assertEquals("c5398d4d93aa7dac7ee95fbc1f8448620fdb5b7445a8b42286c80d587e53dfd5", hash)
-            val handle = GgufNative.load(model.absolutePath.toByteArray(), 512, 2)
+            val handle = GgufNative.load(model.absolutePath.toByteArray(), 512, 2, 0)
             try {
                 repeat(3) {
                     val output = ByteArrayOutputStream()
@@ -63,7 +97,7 @@ class GgufNativeInstrumentedTest {
             } catch (_: IllegalStateException) {
                 // A repeated or late callback cannot reactivate the destroyed engine.
             }
-            val reopened = GgufNative.load(model.absolutePath.toByteArray(), 512, 2)
+            val reopened = GgufNative.load(model.absolutePath.toByteArray(), 512, 2, 0)
             GgufNative.unload(reopened)
         } finally {
             model.delete()

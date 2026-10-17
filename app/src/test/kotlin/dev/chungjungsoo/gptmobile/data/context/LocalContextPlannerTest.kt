@@ -118,5 +118,29 @@ class LocalContextPlannerTest {
         assertTrue(plan.priorTurns.isEmpty())
     }
 
+    @Test
+    fun excessiveOutputPreferenceCannotRemoveEveryOptionalTool() {
+        val tools = (1..9).map { AgentToolDefinition("tool$it", "Description ".repeat(30), buildJsonObject {}) }
+        val plan = LocalContextPlanner.plan(emptyList(), "What can you do?", "Instructions ".repeat(270), tools, 8192, 8192)
+        assertTrue(plan.tools.isNotEmpty())
+        assertTrue(plan.outputReserveTokens > 0)
+    }
+
+    @Test
+    fun promptToolCatalogIsChargedOnceAndContainsOnlyAdmittedSchemas() {
+        val tools = (1..9).map { AgentToolDefinition("tool$it", "Description ".repeat(100), buildJsonObject {}) }
+        val render: (List<AgentToolDefinition>) -> String = { selected ->
+            selected.joinToString("\n") { it.name + ":" + it.description + it.inputSchema }
+        }
+        val system = "Instructions ".repeat(270)
+        val user = "What can you do?"
+        val plan = LocalContextPlanner.plan(emptyList(), user, system, tools, 8192, 8192, renderToolPrompt = render)
+        val actualToolTokens = (render(plan.tools).toByteArray().size.toLong() + 1) / 2
+        assertTrue(plan.tools.isNotEmpty())
+        assertEquals(actualToolTokens, plan.toolDefinitionTokens)
+        assertEquals((system.toByteArray().size.toLong() + 1) / 2 + (user.length + 1) / 2 + actualToolTokens, plan.estimatedPromptTokens)
+        assertTrue(plan.estimatedPromptTokens + plan.outputReserveTokens + plan.toolResultBytes / 2 + 256 <= 8192)
+    }
+
     private fun turn(text: String) = ConversationTurn(MessageV2(content = text, platformType = null), null, false)
 }

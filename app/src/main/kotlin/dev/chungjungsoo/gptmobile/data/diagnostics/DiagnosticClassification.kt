@@ -17,6 +17,12 @@ internal fun classifyDiagnostic(level: String?, tag: String?, message: String): 
         "inactive inputconnection" in text -> DiagnosticClassification("input_lifecycle", "warning", true)
         "getenv: not attached" in text -> DiagnosticClassification("native_thread_attachment", "info", false)
         "feedback manager requires a model with a single signature" in text -> DiagnosticClassification("optional_model_feature", "info", false)
+        tag == "Android" &&
+            Regex("(?:audio|video)capabilities.*unsupported (?:mediatype|mime)").containsMatchIn(text) ->
+            DiagnosticClassification("platform_codec_capability", "info", false)
+        tag == "Android" && "adrenovk" in text &&
+            ("shader compilation failed" in text || "pipeline create failed" in text) ->
+            DiagnosticClassification("graphics_driver_failure", "warning", true)
         text.startsWith("enrichment_waiting_") -> DiagnosticClassification("deferred_work", "info", false, "waiting")
         text.startsWith("search_index_ready") ||
             text.startsWith("refresh_ok") ||

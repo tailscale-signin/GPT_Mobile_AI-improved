@@ -84,4 +84,35 @@ class LocalPromptToolBridgeTest {
             assertEquals("web_search", LocalPromptToolBridge.parse(output.buffered(), setOf("web_search"))?.name)
         }
     }
+    @Test fun nativeFunctionEnvelopesRemainHiddenAndExecuteAcrossChunkBoundaries() {
+        val payloads = listOf(
+            """<tool_call>{"name":"web_search","arguments":{"query":"weather"}}</tool_call>""",
+            """[TOOL_CALLS][{"name":"web_search","arguments":{"query":"weather"}}]""",
+            """{"tool_calls":[{"type":"function","function":{"name":"web_search","arguments":"{\"query\":\"weather\"}"}}]}"""
+        )
+        payloads.forEach { payload ->
+            for (size in 1..payload.length) {
+                val output = LocalPromptToolOutput()
+                assertEquals("", payload.chunked(size).joinToString("") { output.accept(it) })
+                assertEquals("{\"query\":\"weather\"}", LocalPromptToolBridge.parse(output.buffered(), setOf("web_search"))?.argumentsJson)
+            }
+        }
+    }
+
+    @Test fun rejectsUnknownTaggedCallsAndIncompleteOrMultipleFunctionCalls() {
+        listOf(
+            """<tool_call>{"name":"unknown","arguments":{}}</tool_call>""",
+            """<tool_call>{"name":"web_search","arguments":{}}""",
+            """{"tool_calls":[{"function":{"name":"web_search","arguments":{}}},{"function":{"name":"web_search","arguments":{}}}]}""",
+            """{"tool_calls":[{"function":{"name":"web_search","arguments":"not json"}}]}"""
+        ).forEach { assertNull(LocalPromptToolBridge.parse(it, setOf("web_search"))) }
+    }
+
+    @Test fun absentToolsProduceNoCatalogAndNonToolTagsStreamNormally() {
+        assertEquals("", LocalPromptToolBridge.instruction(emptyList()))
+        val output = LocalPromptToolOutput()
+        assertEquals("", output.accept("<"))
+        assertEquals("<p>Answer</p>", output.accept("p>Answer</p>"))
+    }
+
 }

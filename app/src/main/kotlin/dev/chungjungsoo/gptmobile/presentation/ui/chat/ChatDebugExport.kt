@@ -58,32 +58,39 @@ internal fun buildChatDebugExport(
             put("sourceCount", message.combinedSources.size)
             put(
                 "profileAttributionSpans",
-                JsonArray(dev.chungjungsoo.gptmobile.data.agent.combinedWordingSpans(answer, message.combinedSources).map { span ->
-                    buildJsonObject {
-                        put("startUtf16", span.start)
-                        put("endUtf16", span.end)
-                        put("profileUids", JsonArray(span.profileUids.sorted().map { JsonPrimitive(it) }))
-                        put("text", exportedBody(answer.substring(span.start, span.end)))
+                JsonArray(
+                    dev.chungjungsoo.gptmobile.data.agent.combinedWordingSpans(answer, message.combinedSources).map { span ->
+                        buildJsonObject {
+                            put("startUtf16", span.start)
+                            put("endUtf16", span.end)
+                            put("profileUids", JsonArray(span.profileUids.sorted().map { JsonPrimitive(it) }))
+                            put("text", exportedBody(answer.substring(span.start, span.end)))
+                        }
                     }
-                })
+                )
             )
-            put("sources", JsonArray(message.combinedSources.map { source ->
-                val coverage = dev.chungjungsoo.gptmobile.data.agent.CombinedContentCoverage(listOf(source)).check(answer)
-                val missing = coverage.missing
-                buildJsonObject {
-                    put("profileUid", source.platformUid)
-                    put("profileName", source.platformName)
-                    put("completionStatus", source.completionStatus)
-                    put("sourceCharacters", source.content.length)
-                    put("candidateUnits", coverage.total)
-                    put("matchedUnits", coverage.total - missing.size)
-                    put("missingUnits", missing.size)
-                    put("exactMatches", coverage.exactMatches)
-                    put("paraphraseMatches", coverage.paraphraseMatches)
-                    put("tentativeMatches", coverage.tentativeMatches)
-                    put("missingSamples", JsonArray(missing.take(12).map { JsonPrimitive(exportedBody(it.text).take(240)) }))
-                }
-            }))
+            put(
+                "sources",
+                JsonArray(
+                    message.combinedSources.map { source ->
+                        val coverage = dev.chungjungsoo.gptmobile.data.agent.CombinedContentCoverage(listOf(source)).check(answer)
+                        val missing = coverage.missing
+                        buildJsonObject {
+                            put("profileUid", source.platformUid)
+                            put("profileName", source.platformName)
+                            put("completionStatus", source.completionStatus)
+                            put("sourceCharacters", source.content.length)
+                            put("candidateUnits", coverage.total)
+                            put("matchedUnits", coverage.total - missing.size)
+                            put("missingUnits", missing.size)
+                            put("exactMatches", coverage.exactMatches)
+                            put("paraphraseMatches", coverage.paraphraseMatches)
+                            put("tentativeMatches", coverage.tentativeMatches)
+                            put("missingSamples", JsonArray(missing.take(12).map { JsonPrimitive(exportedBody(it.text).take(240)) }))
+                        }
+                    }
+                )
+            )
             message.timeline.lastOrNull { it.combinedQuality != null }?.combinedQuality?.let { quality ->
                 put("qualityReport", json.encodeToJsonElement(quality))
             }
@@ -147,15 +154,17 @@ internal fun buildChatDebugExport(
         put("combinedAnalysis", JsonArray(combinedAnalysis))
         put(
             "appLogSnapshot",
-            JsonArray(appLogSnapshot.takeLast(500).map { entry ->
-                buildJsonObject {
-                    put("time", entry.time)
-                    put("level", entry.level)
-                    put("tag", entry.tag)
-                    put("eventId", entry.eventId)
-                    put("message", exportedBody(entry.message))
+            JsonArray(
+                appLogSnapshot.takeLast(500).map { entry ->
+                    buildJsonObject {
+                        put("time", entry.time)
+                        put("level", entry.level)
+                        put("tag", entry.tag)
+                        put("eventId", entry.eventId)
+                        put("message", exportedBody(entry.message))
+                    }
                 }
-            })
+            )
         )
         put(
             "appLogSnapshotAvailability",

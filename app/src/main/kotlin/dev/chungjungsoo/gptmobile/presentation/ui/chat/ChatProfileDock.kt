@@ -63,9 +63,21 @@ internal fun ChatProfileDock(
                 val running = if (uid == null) combinedGenerating else uid in generatingUids
                 val failed = if (uid == null) combinedFailed else uid in failedUids
                 val label = if (uid == null) "Combined" else names[uid] ?: "AI"
-                val itemColor = if (failed) colors.errorContainer else if (active) colors.primaryContainer else colors.secondaryContainer
+                val itemColor = if (failed) {
+                    colors.errorContainer
+                } else if (active) {
+                    colors.primaryContainer
+                } else {
+                    colors.secondaryContainer
+                }
                 val labelColor = uid?.let(profileColorIdentities::get)?.let { ProfileAttributionPalette.foreground(it, itemColor) }
-                    ?: if (failed) colors.onErrorContainer else if (active) colors.onPrimaryContainer else colors.onSecondaryContainer
+                    ?: if (failed) {
+                        colors.onErrorContainer
+                    } else if (active) {
+                        colors.onPrimaryContainer
+                    } else {
+                        colors.onSecondaryContainer
+                    }
                 val status = if (paused) {
                     "Paused"
                 } else if (running) {

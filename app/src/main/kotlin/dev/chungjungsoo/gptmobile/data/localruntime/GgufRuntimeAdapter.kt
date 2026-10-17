@@ -183,7 +183,11 @@ internal class GgufRuntimeAdapter(context: Context) : LocalRuntime {
                 val firstOutput = CompletableDeferred<Unit>()
                 val prefillTimedOut = AtomicBoolean(false)
                 val watchdog = launch(Dispatchers.Default) {
-                    if (withTimeoutOrNull(prefillBudgetMs) { firstOutput.await(); true } == null) {
+                    if (withTimeoutOrNull(prefillBudgetMs) {
+                            firstOutput.await()
+                            true
+                        } == null
+                    ) {
                         prefillTimedOut.set(true)
                         GgufNative.cancel(engineHandle)
                     }

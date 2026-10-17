@@ -2227,11 +2227,13 @@ class LiteRtLmAdapterTest {
         val events = adapter(runtime, deviceSocModel = "SM8750").openSession(
             turns("check the weather"),
             localPlatform().copy(accelerator = "npu"),
-            listOf(lookupTool { callId, arguments ->
-                invoked = true
-                assertEquals("weather", arguments["query"]?.toString()?.trim('"'))
-                AgentToolResult(callId, ToolResultContent.Text("clear weather"), isError = false)
-            })
+            listOf(
+                lookupTool { callId, arguments ->
+                    invoked = true
+                    assertEquals("weather", arguments["query"]?.toString()?.trim('"'))
+                    AgentToolResult(callId, ToolResultContent.Text("clear weather"), isError = false)
+                }
+            )
         ).streamRound(emptyList(), emptyList()).toList()
 
         assertTrue(invoked)

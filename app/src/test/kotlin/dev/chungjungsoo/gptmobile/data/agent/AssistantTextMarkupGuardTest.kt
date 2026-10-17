@@ -34,7 +34,7 @@ class AssistantTextMarkupGuardTest {
 
     @Test fun gemmaToolCallControlTokenIsWithheldWhenNoAuthorizedExecutorHandlesIt() = runBlocking {
         val events = flowOf(
-            ProviderEvent.TextDelta("<|tool_call>call:web_search{query:latest news}") ,
+            ProviderEvent.TextDelta("<|tool_call>call:web_search{query:latest news}"),
             ProviderEvent.Completed
         ).withAssistantTextMarkupGuard().toList()
 

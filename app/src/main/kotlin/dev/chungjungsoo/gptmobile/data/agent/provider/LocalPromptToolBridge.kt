@@ -7,7 +7,6 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
 internal data class PromptToolCall(val name: String, val argumentsJson: String)
@@ -32,7 +31,9 @@ internal class LocalPromptToolOutput {
         val markers = listOf("```", "<tool_call>", "<|tool_call>", "[TOOL_CALLS]")
         if (pending.length <= 64 * 1024 &&
             (prefix.isEmpty() || prefix.startsWith("{") || markers.any { prefix.startsWith(it) || it.startsWith(prefix) })
-        ) return ""
+        ) {
+            return ""
+        }
         plainText = true
         return pending.toString().also { pending.setLength(0) }
     }
@@ -141,7 +142,7 @@ internal object LocalPromptToolBridge {
             if (separator <= 0) return null
             val key = field.substring(0, separator).trim().removeSurrounding("\"", "\"")
             val raw = field.substring(separator + 1).trim()
-            if (!key.matches(Regex("[A-Za-z_][A-Za-z0-9_]{0,127}") ) || raw.isBlank() || key in values) return null
+            if (!key.matches(Regex("[A-Za-z_][A-Za-z0-9_]{0,127}")) || raw.isBlank() || key in values) return null
             val value = when {
                 raw.startsWith('"') || raw.startsWith('[') || raw.startsWith('{') ->
                     runCatching { json.parseToJsonElement(raw) }.getOrNull() ?: return null
@@ -220,5 +221,7 @@ internal class GemmaToolCallCapture {
         if (value.length > available) overflow = true
     }
 
-    private companion object { const val MAX_CAPTURE_CHARACTERS = 16_384 }
+    private companion object {
+        const val MAX_CAPTURE_CHARACTERS = 16_384
+    }
 }

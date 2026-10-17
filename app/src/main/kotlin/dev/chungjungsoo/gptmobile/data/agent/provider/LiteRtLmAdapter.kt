@@ -413,7 +413,9 @@ class LiteRtLmAdapter(
                                 }
                                 val selectedManifest = if (modelPath.endsWith("manifest.json")) {
                                     runCatching { dev.chungjungsoo.gptmobile.data.localmodel.ArtifactManifestStore.read(java.io.File(modelPath)) }.getOrNull()
-                                } else null
+                                } else {
+                                    null
+                                }
                                 val selectedRuntime = selectedManifest?.runtime?.name ?: if (modelPath.endsWith("manifest.json")) "MANIFEST_RUNTIME_UNREADABLE" else "LITERT_MODEL"
                                 dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
                                     "LocalModel",
@@ -428,7 +430,9 @@ class LiteRtLmAdapter(
                                 }
                                 val manifest = if (modelPath.endsWith("manifest.json")) {
                                     runCatching { dev.chungjungsoo.gptmobile.data.localmodel.ArtifactManifestStore.read(java.io.File(modelPath)) }.getOrNull()
-                                } else null
+                                } else {
+                                    null
+                                }
                                 val artifactRuntime = manifest?.runtime?.name ?: if (modelPath.endsWith("manifest.json")) "MANIFEST_RUNTIME_UNREADABLE" else "LITERT_MODEL"
                                 val activeRuntime = localRuntime.state.value
                                 dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
@@ -663,7 +667,9 @@ class LiteRtLmAdapter(
                                             val parsedBeforeLimit = LocalPromptToolBridge.parseResult(buffered, runToolsByName.keys)
                                             val parsed = if (promptToolsClosed && parsedBeforeLimit is PromptToolParseResult.Call) {
                                                 PromptToolParseResult.Rejected("call_limit")
-                                            } else parsedBeforeLimit
+                                            } else {
+                                                parsedBeforeLimit
+                                            }
                                             val call = (parsed as? PromptToolParseResult.Call)?.value
                                             if (call != null && promptToolCallCount < 8) {
                                                 nativeToolsUsed = true

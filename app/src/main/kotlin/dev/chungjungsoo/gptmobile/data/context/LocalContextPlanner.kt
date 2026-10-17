@@ -28,10 +28,14 @@ internal object LocalContextPlanner {
         contextTokens: Int,
         outputLimit: Int?,
         imageCount: Int = 0,
-        historyImageCount: (ConversationTurn) -> Int = { 0 }
+        historyImageCount: (ConversationTurn) -> Int = { 0 },
+        renderToolPrompt: ((List<AgentToolDefinition>) -> String)? = null
     ): LocalContextPlan {
         require(contextTokens > 0)
         val requiredNames = requiredToolNames(currentUserPrompt, tools)
+        val rankedTools = tools.sortedWith(compareByDescending<AgentToolDefinition> { it.name in requiredNames }.thenByDescending { relevance(currentUserPrompt, it) }.thenBy { it.name })
+        fun schemaCost(selected: List<AgentToolDefinition>): Long = renderToolPrompt?.let { estimate(it(selected)) }
+            ?: selected.sumOf { estimate(it.name) + estimate(it.description) + estimate(it.inputSchema.toString()) + 32 }
         // Tool definitions are charged below at their measured cost. Reserving another
         // tool block here double-counted the same tokens and caused local conversations
         // to silently receive zero tools on small-context models.
@@ -40,8 +44,29 @@ internal object LocalContextPlanner {
         // Reserve explicit result headroom for small local contexts; larger engines have
         // provider-level response budgeting and should not lose tools unnecessarily.
         var used = estimate(systemPrompt.orEmpty()) + estimate(currentUserPrompt) + imageCount.toLong() * IMAGE_TOKEN_ESTIMATE
-        val requiredSchemaTokens = tools.filter { it.name in requiredNames }.sumOf { estimate(it.name) + estimate(it.description) + estimate(it.inputSchema.toString()) + 32 }
-        val outputReserve = LocalOutputAllocation.reserve(contextTokens, used + requiredSchemaTokens, templateReserve + toolResultReserve + 1, outputLimit)
+        val requiredTools = rankedTools.filter { it.name in requiredNames }
+        fun cost(turn: ConversationTurn): Long = estimate(turn.userMessage.effectiveContent()) +
+            estimate(turn.assistantMessage?.effectiveContent().orEmpty()) + 32 +
+            historyImageCount(turn).toLong() * IMAGE_TOKEN_ESTIMATE
+
+        val safetyReserve = templateReserve + toolResultReserve + 1
+        val requiredSchemaTokens = schemaCost(requiredTools)
+        val baselineOutput = LocalOutputAllocation.reserve(contextTokens, used + requiredSchemaTokens, safetyReserve, outputLimit)
+        val baselinePromptLimit = contextTokens.toLong() - baselineOutput - templateReserve - toolResultReserve
+        var anchorTokens = 0L
+        // Keep the history anchors that fit before optional schemas are considered.
+        // Reserving a capability must borrow reply space rather than evict documents.
+        listOf(0, priorTurns.lastIndex).distinct().filter { it in priorTurns.indices }.forEach { index ->
+            val tokens = cost(priorTurns[index])
+            if (used + requiredSchemaTokens + anchorTokens + tokens < baselinePromptLimit) anchorTokens += tokens
+        }
+        // An oversized output preference must not consume every optional schema slot.
+        // Protect at least one usable capability before allocating the reply budget.
+        val protectedTools = requiredTools.ifEmpty {
+            rankedTools.firstOrNull { used + anchorTokens + schemaCost(listOf(it)) + safetyReserve < contextTokens }
+                ?.let(::listOf).orEmpty()
+        }
+        val outputReserve = LocalOutputAllocation.reserve(contextTokens, used + anchorTokens + schemaCost(protectedTools), safetyReserve, outputLimit)
         val promptLimit = contextTokens.toLong() - outputReserve - templateReserve - toolResultReserve
         require(used < promptLimit) {
             "This message and system instructions exceed this local model's $contextTokens-token context. " +
@@ -49,23 +74,18 @@ internal object LocalContextPlanner {
                 "Max Output Tokens controls reply length; it does not increase model context."
         }
 
-        val rankedTools = tools.sortedWith(compareByDescending<AgentToolDefinition> { it.name in requiredNames }.thenByDescending { relevance(currentUserPrompt, it) }.thenBy { it.name })
         val selectedTools = mutableListOf<AgentToolDefinition>()
         var toolTokens = 0L
         fun admitTool(tool: AgentToolDefinition) {
-            val tokens = estimate(tool.name) + estimate(tool.description) + estimate(tool.inputSchema.toString()) + 32
+            val tokens = schemaCost(selectedTools + tool) - toolTokens
             if (used + tokens < promptLimit) {
                 used += tokens
                 toolTokens += tokens
                 selectedTools += tool
             }
         }
-        rankedTools.filter { it.name in requiredNames }.forEach(::admitTool)
+        protectedTools.forEach(::admitTool)
         require(selectedTools.map { it.name }.containsAll(requiredNames)) { "Required tool schemas do not fit this local context. Select fewer tools or a larger-context model; the app cannot complete this tool-dependent request without them." }
-        fun cost(turn: ConversationTurn): Long = estimate(turn.userMessage.effectiveContent()) +
-            estimate(turn.assistantMessage?.effectiveContent().orEmpty()) + 32 +
-            historyImageCount(turn).toLong() * IMAGE_TOKEN_ESTIMATE
-
         // Required capabilities take precedence, but optional schemas must not starve
         // the original goal or the most recent exchange (including extracted documents).
         val retainedIndices = mutableSetOf<Int>()
@@ -79,7 +99,7 @@ internal object LocalContextPlanner {
         }
         admitTurn(0)
         admitTurn(priorTurns.lastIndex)
-        rankedTools.filterNot { it.name in requiredNames }.forEach(::admitTool)
+        rankedTools.filterNot { it in protectedTools }.forEach(::admitTool)
         for (index in priorTurns.indices.reversed()) {
             if (index in retainedIndices) continue
             if (used + cost(priorTurns[index]) >= promptLimit) break

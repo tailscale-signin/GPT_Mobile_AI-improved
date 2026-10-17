@@ -17,4 +17,12 @@ class DiagnosticIncidentClassificationTest {
         assertFalse(classifyDiagnostic("I", "Rendering", "FRAME_TIMING · frames=120 · jankFrames=0").actionable)
         assertEquals("performance", classifyDiagnostic("I", "Android", "I/Choreographer: Skipped 35 frames! The application may be doing too much work on its main thread.").category)
     }
+
+    @Test fun codecDiscoveryIsInformationalButGraphicsFailuresRemainActionable() {
+        assertFalse(classifyDiagnostic("W", "Android", "W/AudioCapabilities(22965): Unsupported mediaType audio/alac").actionable)
+        assertFalse(classifyDiagnostic("W", "Android", "W/VideoCapabilities(22965): Unsupported mime image/vnd.android.heic").actionable)
+        assertEquals("graphics_driver_failure", classifyDiagnostic("I", "Android", "I/AdrenoVK-0(22965): Shader compilation failed for shaderType: 0").category)
+        assertTrue(classifyDiagnostic("I", "Android", "I/AdrenoVK-0(22965): Pipeline create failed").actionable)
+        assertTrue(classifyDiagnostic("E", "LocalModel", "Unsupported backend").actionable)
+    }
 }

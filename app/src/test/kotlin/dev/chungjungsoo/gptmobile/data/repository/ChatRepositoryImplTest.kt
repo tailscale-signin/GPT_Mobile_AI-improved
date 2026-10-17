@@ -582,6 +582,7 @@ class ChatRepositoryImplTest {
         ).toList()
         assertFalse(states.any { it is ApiState.Error })
         assertEquals(1, Regex("document contents").findAll(runtime.sendMessageCalls.single()).count())
+        assertTrue("Document history was omitted: $states", runtime.createConversationCalls.single().initialMessages.isNotEmpty())
         assertEquals(1, Regex("prior document").findAll(runtime.createConversationCalls.single().initialMessages.first().text).count())
         assertFalse(states.filterIsInstance<ApiState.Notice>().any { it.message == LiteRtLmAdapter.DEFAULT_IGNORED_ATTACHMENTS })
     }

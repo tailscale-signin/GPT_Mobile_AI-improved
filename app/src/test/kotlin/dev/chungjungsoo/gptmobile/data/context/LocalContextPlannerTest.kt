@@ -127,6 +127,17 @@ class LocalContextPlannerTest {
     }
 
     @Test
+    fun optionalToolReservationBorrowsOutputSpaceWithoutEvictingDocumentHistory() {
+        val history = turn("Document contents ".repeat(8))
+        val tool = AgentToolDefinition("lookup", "Optional description ".repeat(20), buildJsonObject {})
+        val plan = LocalContextPlanner.plan(listOf(history), "Summarize", "Instruction ".repeat(30), listOf(tool), 1024, 256)
+        assertEquals(listOf(history), plan.priorTurns)
+        assertEquals(listOf(tool), plan.tools)
+        assertTrue(plan.outputReserveTokens in 1 until 256)
+        assertTrue(plan.estimatedPromptTokens + plan.outputReserveTokens + plan.toolResultBytes / 2 + 128 < 1024)
+    }
+
+    @Test
     fun promptToolCatalogIsChargedOnceAndContainsOnlyAdmittedSchemas() {
         val tools = (1..9).map { AgentToolDefinition("tool$it", "Description ".repeat(100), buildJsonObject {}) }
         val render: (List<AgentToolDefinition>) -> String = { selected ->

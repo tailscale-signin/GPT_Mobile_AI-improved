@@ -9,6 +9,23 @@ import kotlinx.serialization.json.jsonPrimitive
 
 internal data class PromptToolCall(val name: String, val argumentsJson: String)
 
+/** Buffer possible tool JSON while letting ordinary prose stream immediately. */
+internal class LocalPromptToolOutput {
+    private val pending = StringBuilder()
+    private var plainText = false
+
+    fun accept(delta: String): String {
+        if (plainText) return delta
+        pending.append(delta)
+        val prefix = pending.toString().trimStart()
+        if (prefix.isEmpty() || prefix.startsWith("{") || prefix.startsWith("```") || "```".startsWith(prefix)) return ""
+        plainText = true
+        return pending.toString().also { pending.setLength(0) }
+    }
+
+    fun buffered(): String = pending.toString()
+}
+
 /** Tool bridge for local runtimes whose model format has no native function-call decoder. */
 internal object LocalPromptToolBridge {
     private val json = Json { ignoreUnknownKeys = true }

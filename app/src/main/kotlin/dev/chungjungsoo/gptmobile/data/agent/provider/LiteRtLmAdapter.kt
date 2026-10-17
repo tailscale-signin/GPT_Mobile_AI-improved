@@ -564,7 +564,7 @@ class LiteRtLmAdapter(
                                 var promptToolCallCount = 0
                                 var promptToolsClosed = false
                                 while (true) {
-                                    val fallbackOutput = StringBuilder()
+                                    val fallbackOutput = LocalPromptToolOutput()
                                     var templateFailure: String? = null
                                     yield()
                                     admitNative(
@@ -586,7 +586,11 @@ class LiteRtLmAdapter(
                                                 is LocalRuntimeEvent.TextDelta -> {
                                                     if (event.text.isNotEmpty()) generatedOutput = true
                                                     if (textToolFallbackEnabled) {
-                                                        fallbackOutput.append(event.text)
+                                                        val visible = fallbackOutput.accept(event.text)
+                                                        if (visible.isNotEmpty()) {
+                                                            assistantReply.append(visible)
+                                                            send(ProviderEvent.TextDelta(visible))
+                                                        }
                                                     } else {
                                                         assistantReply.append(event.text)
                                                         send(ProviderEvent.TextDelta(event.text))
@@ -620,7 +624,8 @@ class LiteRtLmAdapter(
                                         }
                                     if (templateFailure == null) {
                                         if (!failed && textToolFallbackEnabled) {
-                                            val call = if (promptToolsClosed) null else LocalPromptToolBridge.parse(fallbackOutput.toString(), runToolsByName.keys)
+                                            val buffered = fallbackOutput.buffered()
+                                            val call = if (promptToolsClosed) null else LocalPromptToolBridge.parse(buffered, runToolsByName.keys)
                                             if (call != null && promptToolCallCount < 8) {
                                                 nativeToolsUsed = true
                                                 val result = try {
@@ -643,8 +648,8 @@ class LiteRtLmAdapter(
                                                 physicalSegment = UUID.randomUUID().toString()
                                                 continue
                                             }
-                                            assistantReply.append(fallbackOutput)
-                                            if (fallbackOutput.isNotEmpty()) send(ProviderEvent.TextDelta(fallbackOutput.toString()))
+                                            assistantReply.append(buffered)
+                                            if (buffered.isNotEmpty()) send(ProviderEvent.TextDelta(buffered))
                                         }
                                         break
                                     }

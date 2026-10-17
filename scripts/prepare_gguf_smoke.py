@@ -18,3 +18,10 @@ target = directory / "stories15M-chatml.gguf"
 subprocess.run([sys.executable, str(upstream / "gguf-py/gguf/scripts/gguf_new_metadata.py"), str(source), str(target), "--chat-template", template, "--force"], check=True)
 assert hashlib.sha256(target.read_bytes()).hexdigest() == "c5398d4d93aa7dac7ee95fbc1f8448620fdb5b7445a8b42286c80d587e53dfd5"
 print(target)
+# This format is valid Jinja but has no marker recognized by the old hard-coded
+# llama_chat_apply_template formatter. Real JNI inference must work with it.
+custom_template = "{% macro turn(m) %}{{ m.role|upper }}: {{ m.content|trim }}\n{% endmacro %}{{ bos_token }}{% for m in messages %}{{ turn(m) }}{% endfor %}{% if add_generation_prompt %}ASSISTANT: {% endif %}"
+custom_target = directory / "stories15M-jinja.gguf"
+subprocess.run([sys.executable, str(upstream / "gguf-py/gguf/scripts/gguf_new_metadata.py"), str(source), str(custom_target), "--chat-template", custom_template, "--force"], check=True)
+assert hashlib.sha256(custom_target.read_bytes()).hexdigest() == "3555a89f9dc6c6f625421a4b88b71b173243d7d960872243aa95ef6a47158ca7"
+print(custom_target)

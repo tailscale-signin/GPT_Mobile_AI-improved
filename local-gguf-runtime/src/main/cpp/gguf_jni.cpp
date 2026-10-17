@@ -1,5 +1,6 @@
 #include <jni.h>
 #include "llama.h"
+#include "gguf_chat_template.h"
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -14,6 +15,7 @@ namespace {
 struct Engine {
     llama_model * model = nullptr;
     llama_context * context = nullptr;
+    std::unique_ptr<GgufChatTemplate> chatTemplate;
     std::atomic<bool> stop{false};
     std::mutex generation;
     ~Engine() { if (context) llama_free(context); if (model) llama_model_free(model); }
@@ -52,11 +54,7 @@ extern "C" JNIEXPORT jboolean JNICALL Java_dev_melo_gguf_GgufNative_supportsGpuO
 
 extern "C" JNIEXPORT void JNICALL Java_dev_melo_gguf_GgufNative_validateChatTemplate(JNIEnv * env, jclass, jbyteArray templateBytes) {
     try {
-        const auto tmpl = bytes(env, templateBytes);
-        if (tmpl.empty() || tmpl.find('\0') != std::string::npos) throw std::runtime_error("GGUF chat template is missing or invalid UTF-8 metadata");
-        const llama_chat_message probe{"user", "Hello"};
-        const int templateSize = llama_chat_apply_template(tmpl.c_str(), &probe, 1, true, nullptr, 0);
-        if (templateSize <= 0 || templateSize > 4 * 1024 * 1024) throw std::runtime_error("GGUF embedded chat template is unsupported by this llama.cpp revision");
+        GgufChatTemplate::validateSyntax(bytes(env, templateBytes));
     } catch (const std::exception & e) { fail(env, e.what()); }
 }
 
@@ -78,9 +76,22 @@ extern "C" JNIEXPORT jlong JNICALL Java_dev_melo_gguf_GgufNative_load(JNIEnv * e
         if (!engine->model) throw std::runtime_error("GGUF load failed: unsupported artifact, canceled load, or insufficient resources");
         const char * tmpl = llama_model_chat_template(engine->model, nullptr);
         if (!tmpl || !*tmpl) throw std::runtime_error("GGUF has no embedded chat template; import a chat-tuned GGUF export");
-        const llama_chat_message probe{"user", "Hello"};
-        const int templateSize = llama_chat_apply_template(tmpl, &probe, 1, true, nullptr, 0);
-        if (templateSize <= 0 || templateSize > 4 * 1024 * 1024) throw std::runtime_error("GGUF embedded chat template is unsupported by this llama.cpp revision; choose an export using a supported template");
+        const auto vocab = llama_model_get_vocab(engine->model);
+        const auto tokenText = [vocab](llama_token token) -> std::string {
+            if (token == LLAMA_TOKEN_NULL) return "";
+            std::string piece(256, '\0');
+            int size = llama_token_to_piece(vocab, token, piece.data(), piece.size(), 0, true);
+            if (size < 0) {
+                piece.resize(-size);
+                size = llama_token_to_piece(vocab, token, piece.data(), piece.size(), 0, true);
+            }
+            if (size < 0) throw std::runtime_error("GGUF chat template special token decoding failed");
+            piece.resize(size);
+            return piece;
+        };
+        engine->chatTemplate = std::make_unique<GgufChatTemplate>(tmpl,
+            tokenText(llama_vocab_bos(vocab)), tokenText(llama_vocab_eos(vocab)),
+            llama_vocab_get_add_bos(vocab), llama_vocab_get_add_eos(vocab));
         if (llama_model_has_encoder(engine->model)) throw std::runtime_error("This GGUF route supports decoder-only text models");
         auto cp = llama_context_default_params();
         cp.n_ctx = contextTokens;
@@ -126,13 +137,9 @@ extern "C" JNIEXPORT jlongArray JNICALL Java_dev_melo_gguf_GgufNative_generate(J
             totalBytes += contentText.back().size();
             if (totalBytes > 4 * 1024 * 1024 || contentText.back().find('\0') != std::string::npos) throw std::runtime_error("GGUF history exceeds bounds or contains a null byte");
         }
-        std::vector<llama_chat_message> messages;
-        for (int i = 0; i < count; ++i) messages.push_back({roleText[i].c_str(), contentText[i].c_str()});
-        const char * tmpl = llama_model_chat_template(engine->model, nullptr);
-        int size = llama_chat_apply_template(tmpl, messages.data(), messages.size(), true, nullptr, 0);
-        if (size <= 0 || size > 4 * 1024 * 1024) throw std::runtime_error("Unsupported GGUF chat template; choose a compatible export");
-        std::string prompt(size, '\0');
-        if (llama_chat_apply_template(tmpl, messages.data(), messages.size(), true, prompt.data(), size) != size) throw std::runtime_error("GGUF template formatting failed");
+        GgufChatTemplate::Messages messages;
+        for (int i = 0; i < count; ++i) messages.emplace_back(roleText[i], contentText[i]);
+        const auto prompt = engine->chatTemplate->render(messages);
         const auto vocab = llama_model_get_vocab(engine->model);
         const int tokenCount = -llama_tokenize(vocab, prompt.data(), prompt.size(), nullptr, 0, true, true);
         if (tokenCount <= 0 || static_cast<uint64_t>(tokenCount) + outputLimit > llama_n_ctx(engine->context)) throw std::runtime_error("GGUF context limit: shorten input or select a larger compatible context");

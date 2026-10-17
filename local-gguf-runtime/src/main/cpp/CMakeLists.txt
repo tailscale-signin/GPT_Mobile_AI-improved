@@ -54,11 +54,31 @@ FetchContent_Declare(llama
     URL_HASH SHA256=4d0cb840af6e67de6afc72cd85aaa5d1419a9c6071a403d7a2069086f0bfe21b
 )
 FetchContent_MakeAvailable(llama)
+# Build the pinned Jinja renderer without llama-common's server, download and
+# tool execution helpers. All sources come from the same verified archive.
+add_library(gguf_chat_template STATIC
+    gguf_chat_template.cpp
+    ${llama_SOURCE_DIR}/common/jinja/lexer.cpp
+    ${llama_SOURCE_DIR}/common/jinja/parser.cpp
+    ${llama_SOURCE_DIR}/common/jinja/runtime.cpp
+    ${llama_SOURCE_DIR}/common/jinja/value.cpp
+    ${llama_SOURCE_DIR}/common/jinja/string.cpp
+    ${llama_SOURCE_DIR}/common/jinja/caps.cpp
+    ${llama_SOURCE_DIR}/common/json.cpp
+    ${llama_SOURCE_DIR}/common/unicode.cpp
+)
+target_include_directories(gguf_chat_template PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ${llama_SOURCE_DIR}/common)
+target_link_libraries(gguf_chat_template PUBLIC llama PRIVATE vendor::nlohmann)
+target_compile_options(gguf_chat_template PRIVATE -fvisibility=hidden)
 add_library(gptmobile_gguf SHARED gguf_jni.cpp)
-target_link_libraries(gptmobile_gguf PRIVATE llama)
+target_link_libraries(gptmobile_gguf PRIVATE gguf_chat_template)
 target_compile_options(gptmobile_gguf PRIVATE -fvisibility=hidden)
 target_link_options(gptmobile_gguf PRIVATE -Wl,--exclude-libs,ALL -Wl,-z,max-page-size=16384)
 if(NOT ANDROID)
     find_package(JNI REQUIRED)
     target_include_directories(gptmobile_gguf PRIVATE ${JNI_INCLUDE_DIRS})
+    enable_testing()
+    add_executable(gguf_chat_template_test ../../testHost/gguf_chat_template_test.cpp)
+    target_link_libraries(gguf_chat_template_test PRIVATE gguf_chat_template)
+    add_test(NAME gguf_chat_template COMMAND gguf_chat_template_test ${llama_SOURCE_DIR}/models/templates)
 endif()

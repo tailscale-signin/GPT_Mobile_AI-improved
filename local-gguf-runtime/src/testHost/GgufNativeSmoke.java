@@ -8,6 +8,13 @@ public final class GgufNativeSmoke {
         if (!value) throw new AssertionError(message);
     }
     public static void main(String[] args) {
+        GgufNative.validateChatTemplate("{% for m in messages %}{{ m.role|upper }}: {{ m.content }}{% endfor %}".getBytes(StandardCharsets.UTF_8));
+        try {
+            GgufNative.validateChatTemplate("{% if true %}unclosed".getBytes(StandardCharsets.UTF_8));
+            throw new AssertionError("Malformed Jinja passed metadata-only preflight");
+        } catch (IllegalStateException expected) {
+            check(expected.getMessage().contains("syntax error"), "Wrong template failure");
+        }
         boolean gpu = GgufNative.supportsGpuOffload();
         if (gpu) throw new AssertionError("CPU host smoke unexpectedly enabled GPU offload");
         try {
@@ -28,6 +35,17 @@ public final class GgufNativeSmoke {
                 check(output.size() > 0, "No visible output");
                 System.out.println("warm attempt " + attempt + ": " + Arrays.toString(usage));
             }
+            var continued = new java.io.ByteArrayOutputStream();
+            long[] historyUsage = GgufNative.generate(engine,
+                new String[]{"system", "user", "assistant", "user"},
+                new byte[][]{
+                    "Tell a short story.".getBytes(StandardCharsets.UTF_8),
+                    "Once upon a time".getBytes(StandardCharsets.UTF_8),
+                    "there was a little bird.".getBytes(StandardCharsets.UTF_8),
+                    "What happened next?".getBytes(StandardCharsets.UTF_8)
+                }, 16, 1, 1f, 0f, bytes -> { continued.writeBytes(bytes); return true; });
+            check(historyUsage[0] > 0 && historyUsage[1] > 0 && continued.size() > 0, "Multi-turn generation failed");
+            check(historyUsage[4] == 0 || historyUsage[4] == 1, "Multi-turn generation returned an error");
             long[] stopped = GgufNative.generate(engine, new String[]{"user"}, new byte[][]{"Once upon a time".getBytes(StandardCharsets.UTF_8)}, 64, 1, 1f, 0f, bytes -> false);
             check(stopped[4] == 2 && stopped[0] > 0 && stopped[1] == 1, "Cancellation lost partial counters");
             try {

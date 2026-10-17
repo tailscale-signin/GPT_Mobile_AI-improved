@@ -86,6 +86,8 @@ class LocalRuntimeRouterTest {
 
     @Test
     fun ggufManifestUsesGgufRuntimeEvenWhenSavedProfileTypeIsLiteRt() = runTest {
+        // Robolectric defaults to an unsupported 32-bit ABI; this route fixture models a supported phone.
+        org.robolectric.util.ReflectionHelpers.setStaticField(android.os.Build::class.java, "SUPPORTED_ABIS", arrayOf("arm64-v8a"))
         val artifactRuntime = FakeLocalRuntime()
         val root = temporaryFolder.newFolder("local_gguf", "local")
         val manifestFile = File(root, "manifest.json")

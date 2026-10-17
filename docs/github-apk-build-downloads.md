@@ -45,6 +45,16 @@ Downloads are explicit user actions. The feature does not install packages autom
 
 ## Validation
 
-Focused tests cover APK filtering, branch-specific discovery, pagination, authentication headers, permission failures, cancellation, archive extraction, invalid paths, multiple APKs, size limits, and transfer integrity. Kotlin formatting and Android resource validation apply to the new files. The normal PR validation pipeline compiles the Android app, runs unit tests, and builds a review APK.
+Focused tests cover APK filtering, branch-specific discovery, pagination, authentication headers, permission failures, cancellation, archive extraction, invalid paths, multiple APKs, size limits, and transfer integrity. The **GitHub build downloads** workflow runs the two test classes with real Android/Gradle and Ktor dependencies and uploads their reports. It has a bounded runtime and runs independently of the full repository test suite.
+
+To run the same checks locally with the Android SDK installed:
+
+```bash
+./gradlew :app:testDebugUnitTest --no-daemon \
+  --tests dev.chungjungsoo.gptmobile.data.github.GitHubBuildCatalogTest \
+  --tests dev.chungjungsoo.gptmobile.data.github.GitHubApkFilesTest
+```
+
+Kotlin formatting and Android resource validation apply to the new files. The normal PR validation pipeline retains the full unit suite, Android lint, and review APK build.
 
 Manual Android verification should exercise a published ARM64 APK, a workflow ZIP containing multiple variants, a private repository, cancel/retry, navigation and rotation during a transfer, Save/Share/Open Downloads, and local removal. The in-app list displays the full workflow archive transfer size; a bundle containing several variants can be substantially larger than a single release APK.

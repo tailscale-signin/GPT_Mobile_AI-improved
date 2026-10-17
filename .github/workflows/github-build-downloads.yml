@@ -1,0 +1,84 @@
+name: GitHub build downloads
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/github-build-downloads.yml'
+      - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubBuildCatalog.kt'
+      - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkspaceClient.kt'
+      - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitManager.kt'
+      - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSessionCaches.kt'
+      - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubApk*.kt'
+      - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/worker/GitHubApkDownloadWorker.kt'
+      - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubBuilds*.kt'
+      - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubWorkspace*.kt'
+      - 'app/src/main/res/values*/github_builds.xml'
+      - 'app/src/main/res/xml/file_paths.xml'
+      - 'app/src/main/AndroidManifest.xml'
+      - 'app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubBuildCatalogTest.kt'
+      - 'app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubApkFilesTest.kt'
+      - 'app/build.gradle.kts'
+      - 'local-gguf-runtime/build.gradle.kts'
+      - 'build.gradle.kts'
+      - 'settings.gradle.kts'
+      - 'gradle.properties'
+      - 'gradle/libs.versions.toml'
+      - 'gradle/verification-metadata.xml'
+      - 'gradle/wrapper/**'
+      - 'gradlew'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: github-build-downloads-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contracts:
+    name: APK catalog and download contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      OBX_DISABLE_ANALYTICS: 'true'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Setup JDK 21
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd
+        with:
+          packages: 'platforms;android-37.0 build-tools;37.0.0'
+
+      - name: Install Vulkan shader headers for Android GGUF backend
+        run: sudo apt-get update && sudo apt-get install -y glslc libvulkan-dev spirv-headers
+
+      - name: Run APK catalog and download tests
+        timeout-minutes: 30
+        run: >-
+          ./gradlew :app:testDebugUnitTest --no-daemon --stacktrace --console=plain --max-workers=1
+          --tests 'dev.chungjungsoo.gptmobile.data.github.GitHubBuildCatalogTest'
+          --tests 'dev.chungjungsoo.gptmobile.data.github.GitHubApkFilesTest'
+          '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8'
+
+      - name: Upload test reports
+        if: always()
+        timeout-minutes: 5
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: github-build-downloads-test-report-${{ github.event.pull_request.number || github.run_id }}-${{ github.sha }}
+          path: |
+            app/build/test-results/testDebugUnitTest/TEST-dev.chungjungsoo.gptmobile.data.github.GitHubBuildCatalogTest.xml
+            app/build/test-results/testDebugUnitTest/TEST-dev.chungjungsoo.gptmobile.data.github.GitHubApkFilesTest.xml
+            app/build/reports/tests/testDebugUnitTest/
+          if-no-files-found: warn
+          retention-days: 14

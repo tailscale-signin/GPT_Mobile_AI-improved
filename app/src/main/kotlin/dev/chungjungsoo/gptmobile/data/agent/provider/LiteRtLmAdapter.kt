@@ -228,7 +228,15 @@ class LiteRtLmAdapter(
                 }
                 dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
                     "LocalModel",
-                    "LOCAL_TOOL_SELECTION · stage=adapter_input · received=${boundTools.size} · available=${availableTools.size} · mode=${when { availableTools.isEmpty() -> "chat_only"; usePromptToolBridge -> "prompt_bridge"; else -> "tools_enabled" }} · reason=${when { boundTools.isEmpty() -> "upstream_selection_empty"; usePromptToolBridge -> "native_function_calling_unavailable_prompt_bridge"; else -> "eligible" }}"
+                    "LOCAL_TOOL_SELECTION · stage=adapter_input · received=${boundTools.size} · available=${availableTools.size} · mode=${when {
+                        availableTools.isEmpty() -> "chat_only"
+                        usePromptToolBridge -> "prompt_bridge"
+                        else -> "tools_enabled"
+                    }} · reason=${when {
+                        boundTools.isEmpty() -> "upstream_selection_empty"
+                        usePromptToolBridge -> "native_function_calling_unavailable_prompt_bridge"
+                        else -> "eligible"
+                    }}"
                 )
                 var conversationSystemPrompt = evidencePrompt
                 var usedCompactFallback = false

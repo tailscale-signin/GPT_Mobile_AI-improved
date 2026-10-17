@@ -123,7 +123,7 @@ internal object LocalPromptToolBridge {
             "Continue the user's request. If another listed tool is needed, output one tool_call JSON object; otherwise answer normally."
 
     private fun parseGemmaCall(source: String, registeredNames: Set<String>): PromptToolParseResult {
-        val match = Regex("(?s)^call:([A-Za-z0-9_.-]{1,128})\\s*\\{(.*)}(?:<\\|/tool_call\\|>|</tool_call>)?$").matchEntire(source)
+        val match = Regex("(?s)^call:([A-Za-z0-9_.-]{1,128})\\s*\\{(.*)\\}(?:<\\|/tool_call\\|>|</tool_call>)?$").matchEntire(source)
             ?: return PromptToolParseResult.Rejected("malformed_call")
         val name = match.groupValues[1]
         val body = match.groupValues[2].trim()

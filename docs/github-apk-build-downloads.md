@@ -15,7 +15,7 @@ Release listings exclude Android App Bundles, signature sidecars, checksums, and
 
 ## Sources and identity
 
-Published releases are repository-wide. Workflow results use the currently selected branch and only completed successful runs. Each download is identified by connection, repository, source, and numeric GitHub asset or artifact ID. Changing the selected repository or branch does not retarget an existing download.
+Published releases are repository-wide. Workflow results use the currently selected repository and branch and only completed successful runs. Fork runs with a matching branch name are excluded by verifying the run's head repository. Each download is identified by connection, repository, source, and numeric GitHub asset or artifact ID. Changing the selected repository or branch does not retarget an existing download.
 
 Release version tags and workflow commit SHAs are displayed as supplied by GitHub. An APK filename does not establish the app version, its signing identity, or its compatibility with an installed package. A successful workflow is evidence of that workflow's result, not proof that every repository check passed.
 

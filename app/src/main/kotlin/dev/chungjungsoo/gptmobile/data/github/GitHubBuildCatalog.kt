@@ -118,11 +118,12 @@ class GitHubBuildCatalog(
         val response = get("$root/actions/runs?branch=${GitHubWorkspaceClient.segment(branch)}&status=success&per_page=$RUNS_PER_PAGE&page=$page")
         val result = response.value as? JsonObject ?: invalidResponse()
         val runs = result["workflow_runs"] as? JsonArray ?: invalidResponse()
-        // Verify these fields even though the API is filtered; only this selected branch is shown.
+        // Branch filters also match fork PR heads; verify the selected repository before listing artifacts.
         val successfulRuns = runs.mapNotNull { it as? JsonObject }.filter {
             it.string("status") == "completed" &&
                 it.string("conclusion") == "success" &&
                 it.string("head_branch") == branch &&
+                (it["head_repository"] as? JsonObject)?.string("full_name")?.equals("$owner/$repo", ignoreCase = true) == true &&
                 it.positiveId("id") != null
         }.take(RUNS_PER_PAGE)
         val permits = Semaphore(3)

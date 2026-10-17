@@ -10,6 +10,7 @@ import io.ktor.http.headersOf
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -160,6 +161,48 @@ class GitHubBuildCatalogTest {
             assertEquals("https://github.com/owner/repo/actions/runs/101", debug.detailsUrl)
             assertTrue(page.builds.first { it.assetId == 11L }.expired)
             assertEquals(archiveDigest, page.builds.first { it.assetId == 12L }.digest)
+        } finally {
+            http.close()
+        }
+    }
+
+    @Test
+    fun `workflow branch builds exclude fork or missing head repositories before listing artifacts`() = runTest {
+        val artifactRequests = mutableListOf<Long>()
+        val http = HttpClient(
+            MockEngine { request ->
+                when (request.url.encodedPath) {
+                    "/repos/owner/repo/actions/runs" -> {
+                        assertEquals("main", request.url.parameters["branch"])
+                        val pageRuns = if (request.url.parameters["page"] == "1") {
+                            listOf(
+                                run(101, "main", headRepository = "OWNER/REPO"),
+                                run(102, "main", headRepository = "fork-owner/repo"),
+                                JsonObject(run(103, "main") - "head_repository"),
+                                run(104, "main", headRepository = null)
+                            )
+                        } else {
+                            listOf(run(201, "main", headRepository = "fork-owner/repo"))
+                        }
+                        respond(runs(pageRuns, total = 21))
+                    }
+                    "/repos/owner/repo/actions/runs/101/artifacts" -> {
+                        artifactRequests += 101L
+                        respond(artifacts(listOf(artifact(10, "app-debug"))))
+                    }
+                    else -> error("Artifact request reached a fork or an unidentified head repository")
+                }
+            }
+        )
+        try {
+            val catalog = GitHubBuildCatalog("token", http)
+            val firstPage = catalog.workflowBuilds("owner", "repo", "main")
+            assertEquals(listOf(101L), firstPage.builds.map { it.runId })
+            assertTrue(firstPage.hasMore)
+            val forkOnlyPage = catalog.workflowBuilds("owner", "repo", "main", page = 2)
+            assertTrue(forkOnlyPage.builds.isEmpty())
+            assertTrue(forkOnlyPage.hasMore)
+            assertEquals(listOf(101L), artifactRequests)
         } finally {
             http.close()
         }
@@ -323,13 +366,14 @@ class GitHubBuildCatalogTest {
         put("html_url", "https://untrusted.example/release")
     }
 
-    private fun run(id: Long, branch: String, status: String = "completed", conclusion: String = "success"): JsonObject = buildJsonObject {
+    private fun run(id: Long, branch: String, status: String = "completed", conclusion: String = "success", headRepository: String? = "owner/repo"): JsonObject = buildJsonObject {
         put("id", id)
         put("name", "PR Validation")
         put("display_title", "Build #$id")
         put("status", status)
         put("conclusion", conclusion)
         put("head_branch", branch)
+        put("head_repository", headRepository?.let { buildJsonObject { put("full_name", it) } } ?: JsonNull)
         put("head_sha", commit)
         put("created_at", "2026-10-17T10:00:00Z")
         put("html_url", "https://untrusted.example/run")

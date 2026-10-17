@@ -84,6 +84,7 @@ class LocalPromptToolBridgeTest {
             assertEquals("web_search", LocalPromptToolBridge.parse(output.buffered(), setOf("web_search"))?.name)
         }
     }
+
     @Test fun nativeFunctionEnvelopesRemainHiddenAndExecuteAcrossChunkBoundaries() {
         val payloads = listOf(
             """<tool_call>{"name":"web_search","arguments":{"query":"weather"}}</tool_call>""",
@@ -114,5 +115,4 @@ class LocalPromptToolBridgeTest {
         assertEquals("", output.accept("<"))
         assertEquals("<p>Answer</p>", output.accept("p>Answer</p>"))
     }
-
 }

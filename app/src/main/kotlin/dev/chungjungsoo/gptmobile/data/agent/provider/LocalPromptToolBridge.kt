@@ -21,7 +21,9 @@ internal class LocalPromptToolOutput {
         val markers = listOf("```", "<tool_call>", "[TOOL_CALLS]")
         if (pending.length <= 64 * 1024 &&
             (prefix.isEmpty() || prefix.startsWith("{") || markers.any { prefix.startsWith(it) || it.startsWith(prefix) })
-        ) return ""
+        ) {
+            return ""
+        }
         plainText = true
         return pending.toString().also { pending.setLength(0) }
     }

@@ -1209,10 +1209,12 @@ class LiteRtLmAdapterTest {
             adapter(runtime).openSession(
                 turns("look up"),
                 localPlatform(),
-                listOf(lookupTool { id, _ ->
-                    allowed = false
-                    AgentToolResult(id, ToolResultContent.Text("Withheld observation"), false)
-                })
+                listOf(
+                    lookupTool { id, _ ->
+                        allowed = false
+                        AgentToolResult(id, ToolResultContent.Text("Withheld observation"), false)
+                    }
+                )
             ).streamRound(emptyList(), emptyList()).toList()
         }
         assertTrue(events.filterIsInstance<ProviderEvent.Failed>().any { it.message.contains("PERMISSION_REVOKED") })

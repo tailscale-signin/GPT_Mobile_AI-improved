@@ -20,7 +20,8 @@ internal fun classifyDiagnostic(level: String?, tag: String?, message: String): 
         tag == "Android" &&
             Regex("(?:audio|video)capabilities.*unsupported (?:mediatype|mime)").containsMatchIn(text) ->
             DiagnosticClassification("platform_codec_capability", "info", false)
-        tag == "Android" && "adrenovk" in text &&
+        tag == "Android" &&
+            "adrenovk" in text &&
             ("shader compilation failed" in text || "pipeline create failed" in text) ->
             DiagnosticClassification("graphics_driver_failure", "warning", true)
         text.startsWith("enrichment_waiting_") -> DiagnosticClassification("deferred_work", "info", false, "waiting")

@@ -6,6 +6,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ProviderConnection
 import dev.chungjungsoo.gptmobile.data.dto.Platform
 import dev.chungjungsoo.gptmobile.data.dto.ThemeSetting
 import dev.chungjungsoo.gptmobile.data.localmodel.ArtifactFile
+import dev.chungjungsoo.gptmobile.data.localmodel.ArtifactManifestStore
 import dev.chungjungsoo.gptmobile.data.localmodel.ArtifactRuntime
 import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelMetadata
 import dev.chungjungsoo.gptmobile.data.localmodel.ModelArtifactManifest

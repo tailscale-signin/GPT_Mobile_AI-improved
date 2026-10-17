@@ -215,7 +215,7 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
             val dispatch = dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext(exchanges.flatMap { it.results }.flatMap { it.assistMetadata }.toSet(), parentRunId, record.id, preparedAssistEvidence)
             onInvocation(record.id)
             dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(parentRunId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.INVOCATION_STARTED, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticRole.from(kind), invocationId = record.id)
-            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "Request ${record.id} · $provider / $model · $kind · input estimate=${record.inputTokens} · parentRunId=$parentRunId · turnKey=$turnKey · requestKind=$kind · profileUid=${profileUid.orEmpty()} · requestedOutputCap=$outputLimit")
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "Request ${record.id} · profileType=$provider · model=$model · runtime=not_resolved_at_dispatch · $kind · input estimate=${record.inputTokens} · parentRunId=$parentRunId · turnKey=$turnKey · requestKind=$kind · profileUid=${profileUid.orEmpty()} · requestedOutputCap=$outputLimit")
             val started = System.nanoTime()
             var first: Long? = null
             var input: Int? = null
@@ -262,10 +262,13 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
                                 reasoningBytes += size
                                 generatedBytes += size
                             }
-                            is ProviderEvent.RequestConfigured -> dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
-                                "Model",
-                                "Configured ${record.id} · parentRunId=$parentRunId · requestKind=$kind · profileOutputCap=${event.configuredProfileOutputTokens ?: "unset"} · requestedOutputCap=${event.requestedOutputTokens ?: "unset"} · effectiveOutputCap=${event.effectiveOutputTokens ?: "unset"}"
-                            )
+                            is ProviderEvent.RequestConfigured -> {
+                                actualRuntime = event.actualRuntime ?: actualRuntime
+                                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
+                                    "Model",
+                                    "Configured ${record.id} · parentRunId=$parentRunId · requestKind=$kind · profileType=${event.configuredProfileType ?: "not_reported"} · actualRuntime=${event.actualRuntime ?: "not_reported"} · artifactRuntime=${event.artifactRuntime ?: "not_reported"} · actualAccelerator=${event.actualAccelerator ?: "not_reported"} · profileOutputCap=${event.configuredProfileOutputTokens ?: "unset"} · requestedOutputCap=${event.requestedOutputTokens ?: "unset"} · effectiveOutputCap=${event.effectiveOutputTokens ?: "unset"}"
+                                )
+                            }
                             is ProviderEvent.Usage -> {
                                 input = if (event.inputSource == "runtime_reported" && inputSource != "runtime_reported") event.inputTokens ?: input else mergeUsageCount(input, event.inputTokens, event.cumulative)
                                 output = if (event.outputSource == "runtime_reported" && outputSource != "runtime_reported") event.outputTokens ?: output else mergeUsageCount(output, event.outputTokens, event.cumulative)

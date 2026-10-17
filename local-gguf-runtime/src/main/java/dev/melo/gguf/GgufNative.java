@@ -8,6 +8,8 @@ public final class GgufNative {
     public interface Callback { boolean onBytes(byte[] utf8); }
     /** True when the packaged backend discovers a compatible GPU on this device. */
     public static native boolean supportsGpuOffload();
+    /** Parses only the embedded template; does not load model weights or allocate an engine. */
+    public static native void validateChatTemplate(byte[] template);
     /** gpuLayers is zero for CPU or positive for explicit GPU layer offload. */
     public static native long load(byte[] path, int contextTokens, int threads, int gpuLayers);
     /** Returns input tokens, output tokens, prefill ms, decode ms, stop code. */

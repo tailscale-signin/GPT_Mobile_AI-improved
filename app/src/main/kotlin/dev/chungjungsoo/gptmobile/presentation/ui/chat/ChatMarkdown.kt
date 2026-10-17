@@ -169,9 +169,9 @@ fun ChatMarkdown(
                 try {
                     val visibleSource = dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(request.content)
                     val parsed = parseChatMarkdown(visibleSource, cacheResult = !request.streaming)
-                    // Explicit immutable paragraph records are cheap to map during streaming;
-                    // lexical legacy matching stays deferred until the final render.
-                    val wantsWording = request.wording != null && (!request.streaming || request.wording.passages.isNotEmpty())
+                    // Match frozen source wording once the final response settles so streaming
+                    // does not re-scan every partial delta. Synthesis labels never assign colors.
+                    val wantsWording = request.wording != null && !request.streaming
                     val mapped = if (request.provenance != null || wantsWording) {
                         buildMappedMarkdown(request.content, visibleSource, parsed, displayMathNonce)
                     } else {
@@ -181,7 +181,7 @@ fun ChatMarkdown(
                     val profileSpans = if (request.provenance != null && mapped != null) {
                         mapped.second.exclusiveSpans(request.content, combined, request.provenance.validated, request.provenance.corpusDigest, request.provenance.policyRevision)
                     } else if (wantsWording && mapped != null) {
-                        mapped.second.wordingSpans(request.content, combined, requireNotNull(request.wording).sources, request.wording.passages, request.wording.fullAnswer.ifBlank { request.content })
+                        mapped.second.wordingSpans(request.content, combined, requireNotNull(request.wording).sources)
                     } else {
                         emptyList()
                     }

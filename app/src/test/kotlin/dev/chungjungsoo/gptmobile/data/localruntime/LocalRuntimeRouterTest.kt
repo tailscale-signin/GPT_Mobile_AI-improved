@@ -5,7 +5,11 @@ import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ProviderConnection
 import dev.chungjungsoo.gptmobile.data.dto.Platform
 import dev.chungjungsoo.gptmobile.data.dto.ThemeSetting
+import dev.chungjungsoo.gptmobile.data.localmodel.ArtifactFile
+import dev.chungjungsoo.gptmobile.data.localmodel.ArtifactManifestStore
+import dev.chungjungsoo.gptmobile.data.localmodel.ArtifactRuntime
 import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelMetadata
+import dev.chungjungsoo.gptmobile.data.localmodel.ModelArtifactManifest
 import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
 import dev.chungjungsoo.gptmobile.data.repository.SecretMigrationError
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
@@ -78,6 +82,41 @@ class LocalRuntimeRouterTest {
         assertTrue(failure.cause === original)
         assertEquals("gpu", failure.attempts.first().backend)
         assertTrue(failure.attempts.last().skipped)
+    }
+
+    @Test
+    fun ggufManifestUsesGgufRuntimeEvenWhenSavedProfileTypeIsLiteRt() = runTest {
+        val artifactRuntime = FakeLocalRuntime()
+        val root = temporaryFolder.newFolder("local_gguf", "local")
+        val manifestFile = File(root, "manifest.json")
+        ArtifactManifestStore.write(
+            manifestFile,
+            ModelArtifactManifest(
+                schemaVersion = 3,
+                familyId = "Nanbeige 3B",
+                artifactId = "local_gguf_fixture",
+                runtime = ArtifactRuntime.LLAMA_CPP,
+                format = "gguf",
+                entryFile = "model.gguf",
+                files = listOf(ArtifactFile("model.gguf", 1, "0".repeat(64))),
+                contextTokens = 8192,
+                supportedBackends = setOf("cpu"),
+                runtimeVersion = RuntimeCapabilityRegistry.GGUF_REVISION
+            )
+        )
+        val route = LocalRuntimeRouter(
+            qnnRuntime = FakeLocalRuntime(),
+            liteRtRuntime = FakeLocalRuntime(),
+            artifactRuntime = artifactRuntime,
+            settingsSnapshot = { dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings() },
+            backendSnapshot = { LocalRuntimeBackend.LITERT_LM }
+        )
+
+        route.loadEngine(testEngineSpec().copy(modelPath = manifestFile.absolutePath, accelerator = LocalAccelerators.CPU))
+
+        assertEquals(listOf(manifestFile.absolutePath), artifactRuntime.loadEngineCalls.map { it.modelPath })
+        assertEquals(LocalRuntimeBackend.LLAMA_CPP, route.state.value.backend)
+        assertEquals(LocalRuntimeBackend.LITERT_LM, route.state.value.preferredBackend)
     }
 
     @Test

@@ -1,10 +1,13 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
 import dev.chungjungsoo.gptmobile.BuildConfig
+import dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveContent
+import dev.chungjungsoo.gptmobile.data.database.entity.effectiveRunId
+import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogEntry
 import dev.chungjungsoo.gptmobile.data.diagnostics.redactChatDebugData
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
@@ -28,7 +31,8 @@ internal fun buildChatDebugExport(
     draft: String,
     records: JsonObject,
     research: List<ResearchSession>,
-    json: Json
+    json: Json,
+    appLogSnapshot: List<AppLogEntry> = emptyList()
 ): String {
     val credentials = profiles.mapNotNull { it.token }
     val dependencyIds = buildSet {
@@ -44,12 +48,63 @@ internal fun buildChatDebugExport(
         }
     }
     fun exportedBody(text: String): String = (redactChatDebugData(kotlinx.serialization.json.JsonPrimitive(text), credentials) as kotlinx.serialization.json.JsonPrimitive).content
+    val combinedAnalysis = messages.filter { it.isCombinedSynthesis() }.map { message ->
+        val answer = ConversationSubject.withoutMetadata(message.effectiveContent())
+        buildJsonObject {
+            put("messageId", message.id)
+            put("runId", message.effectiveRunId())
+            put("answerCharacters", answer.length)
+            put("answerWords", Regex("[\\p{L}\\p{N}]+(?:[’'][\\p{L}\\p{N}]+)?").findAll(answer).count())
+            put("sourceCount", message.combinedSources.size)
+            put(
+                "profileAttributionSpans",
+                JsonArray(
+                    dev.chungjungsoo.gptmobile.data.agent.combinedWordingSpans(answer, message.combinedSources).map { span ->
+                        buildJsonObject {
+                            put("startUtf16", span.start)
+                            put("endUtf16", span.end)
+                            put("profileUids", JsonArray(span.profileUids.sorted().map { JsonPrimitive(it) }))
+                            put("text", exportedBody(answer.substring(span.start, span.end)))
+                        }
+                    }
+                )
+            )
+            put(
+                "sources",
+                JsonArray(
+                    message.combinedSources.map { source ->
+                        val coverage = dev.chungjungsoo.gptmobile.data.agent.CombinedContentCoverage(listOf(source)).check(answer)
+                        val missing = coverage.missing
+                        buildJsonObject {
+                            put("profileUid", source.platformUid)
+                            put("profileName", source.platformName)
+                            put("completionStatus", source.completionStatus)
+                            put("sourceCharacters", source.content.length)
+                            put("candidateUnits", coverage.total)
+                            put("matchedUnits", coverage.total - missing.size)
+                            put("missingUnits", missing.size)
+                            put("exactMatches", coverage.exactMatches)
+                            put("paraphraseMatches", coverage.paraphraseMatches)
+                            put("tentativeMatches", coverage.tentativeMatches)
+                            put("missingSamples", JsonArray(missing.take(12).map { JsonPrimitive(exportedBody(it.text).take(240)) }))
+                        }
+                    }
+                )
+            )
+            message.timeline.lastOrNull { it.combinedQuality != null }?.combinedQuality?.let { quality ->
+                put("qualityReport", json.encodeToJsonElement(quality))
+            }
+            put("coverageLimit", "Deterministic lexical coverage hints only; paraphrase matching does not establish factual accuracy or whether omitted details were in scope.")
+        }
+    }
     val raw = buildJsonObject {
-        put("schema", "gptmobile.conversation.debug.v3")
+        put("schema", "gptmobile.conversation.debug.v4")
         put(
             "schemaVersions",
             buildJsonObject {
                 put("conversation", 3)
+                put("combinedAnalysis", 1)
+                put("appLogSnapshot", 1)
                 put("runEvents", 5)
                 put("legacyEvents", 4)
                 put("assist", 2)
@@ -96,6 +151,29 @@ internal fun buildChatDebugExport(
         put("availability", "Contains retained data only. Credentials are redacted. Attachment bytes, deleted data and unrecorded wire payloads are unavailable. Request receipts include digests and retained context, not a complete wire capture. Estimated token counts remain estimates. Research history may have been evicted by its retention policy.")
         put("conversation", json.encodeToJsonElement(room))
         put("messages", json.encodeToJsonElement(messages))
+        put("combinedAnalysis", JsonArray(combinedAnalysis))
+        put(
+            "appLogSnapshot",
+            JsonArray(
+                appLogSnapshot.takeLast(500).map { entry ->
+                    buildJsonObject {
+                        put("time", entry.time)
+                        put("level", entry.level)
+                        put("tag", entry.tag)
+                        put("eventId", entry.eventId)
+                        put("message", exportedBody(entry.message))
+                    }
+                }
+            )
+        )
+        put(
+            "appLogSnapshotAvailability",
+            buildJsonObject {
+                put("retainedEvents", appLogSnapshot.size.coerceAtMost(500))
+                put("limit", 500)
+                put("scope", "Recent sanitized app events; Settings > Debug > Logs can export the full retained log window.")
+            }
+        )
         put("profiles", json.encodeToJsonElement(profiles.map { it.copy(token = null, secretRef = null) }))
         put("chatTools", json.encodeToJsonElement(tools))
         put("featureSettings", json.encodeToJsonElement(features))

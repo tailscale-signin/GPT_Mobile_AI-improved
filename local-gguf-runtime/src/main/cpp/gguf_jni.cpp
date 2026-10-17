@@ -50,6 +50,16 @@ extern "C" JNIEXPORT jboolean JNICALL Java_dev_melo_gguf_GgufNative_supportsGpuO
     } catch (const std::exception & e) { fail(env, e.what()); return JNI_FALSE; }
 }
 
+extern "C" JNIEXPORT void JNICALL Java_dev_melo_gguf_GgufNative_validateChatTemplate(JNIEnv * env, jclass, jbyteArray templateBytes) {
+    try {
+        const auto tmpl = bytes(env, templateBytes);
+        if (tmpl.empty() || tmpl.find('\0') != std::string::npos) throw std::runtime_error("GGUF chat template is missing or invalid UTF-8 metadata");
+        const llama_chat_message probe{"user", "Hello"};
+        const int templateSize = llama_chat_apply_template(tmpl.c_str(), &probe, 1, true, nullptr, 0);
+        if (templateSize <= 0 || templateSize > 4 * 1024 * 1024) throw std::runtime_error("GGUF embedded chat template is unsupported by this llama.cpp revision");
+    } catch (const std::exception & e) { fail(env, e.what()); }
+}
+
 extern "C" JNIEXPORT jlong JNICALL Java_dev_melo_gguf_GgufNative_load(JNIEnv * env, jclass, jbyteArray path, jint contextTokens, jint threads, jint gpuLayers) {
     try {
         if (contextTokens < 128 || contextTokens > 32768 || threads < 1 || threads > 64 || gpuLayers < 0 || gpuLayers > 999) throw std::runtime_error("Unsupported GGUF context, thread, or GPU layer limit");

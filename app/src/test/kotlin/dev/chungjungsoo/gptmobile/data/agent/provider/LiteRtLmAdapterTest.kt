@@ -2206,6 +2206,48 @@ class LiteRtLmAdapterTest {
         override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult = execute(callId, arguments)
     }
 
+    @Test
+    fun `Gemma tool-call markup executes only a registered tool on the QNN route`() = runBlocking {
+        val native = FakeLocalRuntime().apply {
+            capabilities = LocalModelCapabilities(backends = setOf("cpu", "npu"), tools = true, soc = "SM8750")
+            scriptedEvents = listOf(
+                listOf(LocalRuntimeEvent.TextDelta("<|tool_"), LocalRuntimeEvent.TextDelta("call>call:lookup{query:weather}"), LocalRuntimeEvent.Done),
+                listOf(LocalRuntimeEvent.TextDelta("The tool returned clear weather."), LocalRuntimeEvent.Done)
+            )
+        }
+        val runtime = object : LocalRuntime by native {
+            override val state = kotlinx.coroutines.flow.MutableStateFlow(
+                dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntimeState(
+                    backend = dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend.QUALCOMM_QNN,
+                    engineSpec = dev.chungjungsoo.gptmobile.data.localruntime.LocalEngineSpec("/models/gemma.litertlm", "npu", 4096)
+                )
+            )
+        }
+        var invoked = false
+        val events = adapter(runtime, deviceSocModel = "SM8750").openSession(
+            turns("check the weather"),
+            localPlatform().copy(accelerator = "npu"),
+            listOf(
+                lookupTool { callId, arguments ->
+                    invoked = true
+                    assertEquals("weather", arguments["query"]?.toString()?.trim('"'))
+                    AgentToolResult(callId, ToolResultContent.Text("clear weather"), isError = false)
+                }
+            )
+        ).streamRound(emptyList(), emptyList()).toList()
+
+        assertTrue(invoked)
+        assertEquals("npu", native.loadEngineCalls.single().accelerator)
+        assertEquals("lookup", events.filterIsInstance<ProviderEvent.ToolCall>().single().name)
+        assertFalse(events.filterIsInstance<ProviderEvent.TextDelta>().any { "<|tool_call>" in it.text })
+        assertEquals("The tool returned clear weather.", events.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+        val route = events.filterIsInstance<ProviderEvent.RequestConfigured>().last()
+        assertEquals("LITERT_LM", route.configuredProfileType)
+        assertEquals("QUALCOMM_QNN", route.actualRuntime)
+        assertEquals("npu", route.actualAccelerator)
+        assertTrue(events.last() is ProviderEvent.Completed)
+    }
+
     private fun visionPlatform() = localPlatform(model = "gemma-3n-e2b-it")
 
     private fun assertImageBytes(expected: List<ByteArray>, actual: List<ByteArray>) {

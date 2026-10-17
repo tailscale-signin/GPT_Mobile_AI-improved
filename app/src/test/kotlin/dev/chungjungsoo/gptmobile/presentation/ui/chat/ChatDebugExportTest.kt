@@ -79,4 +79,41 @@ class ChatDebugExportTest {
         assertEquals(debugBodyDigest("Historical answer"), mapping.getValue("selectedBodySha256").jsonPrimitive.content)
         assertEquals("earlier-run", mapping.getValue("revisionMapping").jsonArray.single().jsonObject.getValue("runId").jsonPrimitive.content)
     }
+
+    @Test fun combinedExportAddsCoverageAuditAndRecentAppLogs() {
+        val source = CombinedModelResponse(
+            platformUid = "lead",
+            platformName = "Lead",
+            content = "In July 1518, residents of Strasbourg danced for days during a strange epidemic."
+        )
+        val answer = MessageV2(
+            id = 2,
+            chatId = 1,
+            content = "Strasbourg residents danced for days during July 1518 in a strange epidemic.",
+            platformType = "lead",
+            currentRunId = "combined-synthesis:run",
+            combinedSources = listOf(source)
+        )
+        val log = dev.chungjungsoo.gptmobile.data.diagnostics.AppLogEntry(1, "W", "CombinedSynthesis", "SYNTHESIS_RUN_PERSISTED · runId=run")
+        val body = buildChatDebugExport(
+            ChatRoomV2(id = 1, title = "Combined"),
+            listOf(answer),
+            listOf(PlatformV2(uid = "lead", name = "Lead")),
+            ChatMcpToolConfig(),
+            AppFeatureSettings(),
+            "",
+            buildJsonObject {},
+            emptyList(),
+            Json { encodeDefaults = true },
+            listOf(log)
+        )
+        val raw = Json.parseToJsonElement(body).jsonObject
+        val analysis = raw.getValue("combinedAnalysis").jsonArray.single().jsonObject
+        val sourceAudit = analysis.getValue("sources").jsonArray.single().jsonObject
+        assertEquals("1", analysis.getValue("sourceCount").jsonPrimitive.content)
+        assertEquals("0", sourceAudit.getValue("missingUnits").jsonPrimitive.content)
+        assertTrue(analysis.getValue("profileAttributionSpans").jsonArray.isNotEmpty())
+        assertEquals("SYNTHESIS_RUN_PERSISTED · runId=run", raw.getValue("appLogSnapshot").jsonArray.single().jsonObject.getValue("message").jsonPrimitive.content)
+        assertEquals("gptmobile.conversation.debug.v4", raw.getValue("schema").jsonPrimitive.content)
+    }
 }

@@ -134,6 +134,10 @@ class AgentToolResolver @Inject constructor(
 
         // If master disableAllTools is toggled, return no tools immediately
         if (platform?.disableAllTools == true) {
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
+                "Tools",
+                "TOOL_RESOLUTION_BLOCKED · profileType=${platform.compatibleType.name} · reason=profile_disable_all_tools · authorizedTools=0"
+            )
             return emptyList()
         }
 
@@ -475,7 +479,7 @@ class AgentToolResolver @Inject constructor(
             }
         }
 
-        val finalized = finalizeResolvedTools(resolved, profileUid, platform, featureSettings, bindings, chatToolConfig, freeProfile, onConnectionError)
+        val finalized = finalizeResolvedTools(resolved, profileUid, platform, featureSettings, bindings, chatToolConfig, freeProfile, disableRemote, disableLocal, onConnectionError)
         val coldBindings = if (cachedCataloguesOnly && allowRemoteMcp && userMessage != null) {
             bindings.filter { binding ->
                 binding.connection?.type == ToolConnectionType.MCP &&
@@ -513,7 +517,7 @@ class AgentToolResolver @Inject constructor(
             }
             // Recheck after I/O. Old grants/credentials cannot publish tools to a newer turn authority.
             check(settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid } == platform && settingRepository.getFeatureSettings() == live && toolConnectionRepository.listBindingsWithConnections(profileUid) == currentBindings) { "Tool permissions changed during discovery." }
-            val admitted = finalizeResolvedTools(loaded, profileUid, platform, live, currentBindings, chatToolConfig, freeProfile, onConnectionError)
+            val admitted = finalizeResolvedTools(loaded, profileUid, platform, live, currentBindings, chatToolConfig, freeProfile, disableRemote, disableLocal, onConnectionError)
             admitted.forEach { next ->
                 val previous = finalized.firstOrNull { it.modelToolName == next.modelToolName } ?: discovered[next.modelToolName]
                 check(previous == null || previous.connectionUid == next.connectionUid && previous.realToolName == next.realToolName) { "Ambiguous discovered tool alias; no action dispatched." }
@@ -533,11 +537,29 @@ class AgentToolResolver @Inject constructor(
         bindings: List<AgentToolBindingWithConnection>,
         chatToolConfig: ChatMcpToolConfig?,
         freeProfile: Boolean,
+        disableRemote: Boolean,
+        disableLocal: Boolean,
         onConnectionError: (String) -> Unit
     ): List<ResolvedAgentTool> {
         val collisions = resolved.groupBy { it.modelToolName }.filterValues { group -> group.map { it.connectionUid to it.realToolName }.distinct().size > 1 }.keys
         if (collisions.isNotEmpty()) onConnectionError("Ambiguous tool aliases excluded: " + collisions.sorted().joinToString(", "))
-        return resolved.filterNot { it.modelToolName in collisions }.distinctBy { it.modelToolName }
+        val callable = resolved.filterNot { it.modelToolName in collisions }.distinctBy { it.modelToolName }
+        if (callable.isEmpty()) {
+            val reason = when {
+                platform == null -> "profile_missing"
+                !platform.enabled -> "profile_disabled"
+                chatToolConfig?.allToolsDisabled == true -> "chat_tools_disabled"
+                disableRemote && disableLocal -> "profile_local_and_remote_tools_disabled"
+                disableRemote -> "profile_remote_tools_disabled_or_no_local_tools_available"
+                disableLocal -> "profile_local_tools_disabled_or_no_remote_tools_available"
+                else -> "no_enabled_or_available_tools"
+            }
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
+                "Tools",
+                "TOOL_RESOLUTION_EMPTY · profileType=${platform?.compatibleType?.name ?: "UNKNOWN"} · reason=$reason · authorizedTools=0"
+            )
+        }
+        return callable
             .filter { tool ->
                 if (tool.modelToolName in AmazonNativeTool.names + AmazonLocalTool.names) {
                     featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.AMAZON_FREE)

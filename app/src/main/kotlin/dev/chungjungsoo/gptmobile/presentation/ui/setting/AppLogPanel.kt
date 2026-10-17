@@ -2,11 +2,13 @@ package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
 import android.content.Intent
 import android.widget.Toast
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
@@ -44,6 +46,7 @@ internal fun AppLogPanel() {
     val scope = rememberCoroutineScope()
     var query by rememberSaveable { mutableStateOf("") }
     var errorsOnly by rememberSaveable { mutableStateOf(false) }
+    var selectedTag by rememberSaveable { mutableStateOf("All tags") }
     var structuredExport by rememberSaveable { mutableStateOf(true) }
     var frozen by remember { mutableStateOf<List<dev.chungjungsoo.gptmobile.data.diagnostics.AppLogEntry>?>(null) }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -54,14 +57,26 @@ internal fun AppLogPanel() {
                     Switch(enabled, AppLogRecorder::setEnabled)
                 }
                 Text("Capture app events, errors, model requests, tools, network headers and Android logs for this app.", style = MaterialTheme.typography.bodyMedium)
-                Text("Logs stay on this device until you share them. Credentials are redacted. Provider error details may be included; successful HTTP bodies are excluded. Other app logs may include content; review before sharing. The latest 2 MB is retained.", style = MaterialTheme.typography.bodySmall)
+                Text("Logs stay on this device until you share them. Credentials are redacted. Provider error details may include request content; successful HTTP bodies are excluded. Review the export before sharing. The latest 2 MB is retained.", style = MaterialTheme.typography.bodySmall)
             }
         }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        val warningCount = entries.count { it.level in setOf("W", "E", "F") }
+        val failureCount = entries.count { it.level in setOf("E", "F") }
+        Text(
+            "${entries.size} recent events · $warningCount warnings · $failureCount errors · ${entries.map { it.tag }.distinct().size} tags",
+            style = MaterialTheme.typography.labelLarge,
+            color = if (failureCount > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+        )
         OutlinedTextField(query, { query = it }, label = { Text("Filter logs") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(!errorsOnly, { errorsOnly = false }, label = { Text("All levels") })
             FilterChip(errorsOnly, { errorsOnly = true }, label = { Text("Warnings & errors") })
+        }
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            (listOf("All tags") + entries.map { it.tag }.distinct().sorted()).forEach { tag ->
+                FilterChip(selectedTag == tag, { selectedTag = tag }, label = { Text(tag) })
+            }
         }
         FilterChip(structuredExport, { structuredExport = !structuredExport }, label = { Text("Structured export (JSONL)") })
         Row {
@@ -87,14 +102,18 @@ internal fun AppLogPanel() {
                         Toast.makeText(context, "Unable to export logs", Toast.LENGTH_SHORT).show()
                     }
                 }
-            }) { Text("Export logs") }
+            }) { Text("Export full logs") }
             TextButton(onClick = {
                 frozen = null
                 AppLogRecorder.clear()
             }) { Text("Clear logs") }
         }
         val visible = dev.chungjungsoo.gptmobile.data.diagnostics.groupAppLogs(frozen ?: entries)
-            .filter { (!errorsOnly || it.entry.level in setOf("W", "E", "F")) && (it.entry.tag + it.entry.message).contains(query, ignoreCase = true) }.takeLast(100)
+            .filter {
+                (!errorsOnly || it.entry.level in setOf("W", "E", "F")) &&
+                    (selectedTag == "All tags" || it.entry.tag == selectedTag) &&
+                    (it.entry.tag + it.entry.message).contains(query, ignoreCase = true)
+            }.takeLast(100)
         Text("${visible.sumOf { it.repetitions }} events · ${visible.size} rows · newest first", style = MaterialTheme.typography.labelMedium)
         Text("Repeated timeouts and budget warnings are grouped; expand a row for raw details. Exports keep every event.", style = MaterialTheme.typography.labelSmall)
         if (visible.isEmpty()) Text(if (enabled) "Waiting for matching app events…" else "Enable tracking to record a test session.")

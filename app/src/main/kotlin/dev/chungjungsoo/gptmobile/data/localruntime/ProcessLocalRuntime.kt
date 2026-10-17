@@ -139,7 +139,7 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
         val native = state.value
         AppLogRecorder.record(
             "LocalModel",
-            "ENGINE_READY · backend=${native.backend ?: "UNKNOWN"} · requestedAccelerator=${spec.accelerator} · actualAccelerator=${native.engineSpec?.accelerator ?: "UNKNOWN"} · loadMs=${SystemClock.elapsedRealtime() - loadStartedAtMs} · model=${artifact.name} · workerPssBytes=${processPssBytes ?: -1} · processIsolated=${native.processIsolated}"
+            "ENGINE_READY · profileBackendPreference=${native.preferredBackend ?: settings.getLocalRuntimeBackend()} · actualBackend=${native.backend ?: "UNKNOWN"} · artifactRuntime=${if (spec.modelPath.endsWith("manifest.json")) runCatching { dev.chungjungsoo.gptmobile.data.localmodel.ArtifactManifestStore.read(artifact).runtime.name }.getOrDefault("MANIFEST_RUNTIME_UNREADABLE") else "LITERT_MODEL"} · requestedAccelerator=${spec.accelerator} · actualAccelerator=${native.engineSpec?.accelerator ?: "UNKNOWN"} · loadMs=${SystemClock.elapsedRealtime() - loadStartedAtMs} · model=${artifact.name} · workerPssBytes=${processPssBytes ?: -1} · processIsolated=${native.processIsolated}"
         )
     }
 
@@ -165,6 +165,8 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
         val request = Pending(packet, LocalEventBuffer())
         pending[packet.requestId] = request
         val startedAtMs = SystemClock.elapsedRealtime()
+        val watchdogBackend = state.value.backend
+        val watchdogBudgetMs = LocalPrefillDeadline.processWatchdogBudgetMs(text.length, watchdogBackend)
         var receivedNativeToken = false
         try {
             send(packet)
@@ -175,7 +177,7 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
                 val next = if (receivedNativeToken) {
                     true to request.events!!.take()
                 } else {
-                    val remaining = LocalPrefillDeadline.remainingMs(startedAtMs, SystemClock.elapsedRealtime(), text.length)
+                    val remaining = LocalPrefillDeadline.processWatchdogRemainingMs(startedAtMs, SystemClock.elapsedRealtime(), text.length, watchdogBackend)
                     if (remaining <= 0L) null else withTimeoutOrNull(remaining) { true to request.events!!.take() }
                 }
                 if (next == null) {
@@ -183,7 +185,7 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
                     val elapsed = SystemClock.elapsedRealtime() - startedAtMs
                     AppLogRecorder.record(
                         "LocalModel",
-                        "LOCAL_PREFILL_TIMEOUT · backend=${engine.backend ?: "UNKNOWN"} · accelerator=${engine.engineSpec?.accelerator ?: "UNKNOWN"} · elapsedMs=$elapsed · workerPssBytes=${processPssBytes ?: -1} · nativeOutputTokens=0 · action=cancel_and_quarantine_if_unresponsive",
+                        "LOCAL_PREFILL_TIMEOUT · backend=${engine.backend ?: "UNKNOWN"} · accelerator=${engine.engineSpec?.accelerator ?: "UNKNOWN"} · promptCharacters=${text.length} · watchdogBudgetMs=$watchdogBudgetMs · elapsedMs=$elapsed · workerPssBytes=${processPssBytes ?: -1} · nativeOutputTokens=0 · action=cancel_and_quarantine_if_unresponsive",
                         "E"
                     )
                     throw IllegalStateException("LOCAL_PREFILL_TIMEOUT: The native engine produced no tokens after ${elapsed / 1000}s. Generation was cancelled; check the selected backend and model compatibility, then retry manually.")

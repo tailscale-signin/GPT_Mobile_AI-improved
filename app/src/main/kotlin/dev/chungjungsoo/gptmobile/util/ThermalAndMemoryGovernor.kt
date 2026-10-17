@@ -5,11 +5,10 @@ import android.content.Context
 import android.content.res.Configuration
 import android.os.Build
 import android.os.PowerManager
-import androidx.annotation.RequiresApi
+import java.lang.ref.WeakReference
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import java.lang.ref.WeakReference
 
 /**
  * Native Memory & Thermal Watchdog Governor.
@@ -70,6 +69,11 @@ class ThermalAndMemoryGovernor private constructor(context: Context) : Component
 
     override fun onTrimMemory(level: Int) {
         _lastTrimLevel.value = level
+        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
+            "Memory",
+            "ANDROID_MEMORY_TRIM · level=$level · stateBefore=${_throttleState.value} · processPssKb=${android.os.Debug.getPss()} · nativeHeapAllocatedBytes=${android.os.Debug.getNativeHeapAllocatedSize()}",
+            if (level in setOf(ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW, ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL, ComponentCallbacks2.TRIM_MEMORY_MODERATE, ComponentCallbacks2.TRIM_MEMORY_COMPLETE)) "W" else "I"
+        )
         when (level) {
             ComponentCallbacks2.TRIM_MEMORY_COMPLETE,
             ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL -> {
@@ -90,6 +94,11 @@ class ThermalAndMemoryGovernor private constructor(context: Context) : Component
     override fun onConfigurationChanged(newConfig: Configuration) {}
 
     override fun onLowMemory() {
+        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
+            "Memory",
+            "ANDROID_LOW_MEMORY · processPssKb=${android.os.Debug.getPss()} · nativeHeapAllocatedBytes=${android.os.Debug.getNativeHeapAllocatedSize()}",
+            "E"
+        )
         _throttleState.value = ThrottleState.CRITICAL
     }
 
@@ -104,12 +113,10 @@ class ThermalAndMemoryGovernor private constructor(context: Context) : Component
 
     companion object {
         @Volatile
-        private var INSTANCE: ThermalAndMemoryGovernor? = null
+        private var instance: ThermalAndMemoryGovernor? = null
 
-        fun getInstance(context: Context): ThermalAndMemoryGovernor {
-            return INSTANCE ?: synchronized(this) {
-                INSTANCE ?: ThermalAndMemoryGovernor(context).also { INSTANCE = it }
-            }
+        fun getInstance(context: Context): ThermalAndMemoryGovernor = instance ?: synchronized(this) {
+            instance ?: ThermalAndMemoryGovernor(context).also { instance = it }
         }
     }
 }

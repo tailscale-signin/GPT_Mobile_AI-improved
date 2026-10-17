@@ -31,4 +31,41 @@ class AssistantTextMarkupGuardTest {
         assertTrue(events.any { it == ProviderEvent.Completed })
         assertTrue(events.filterIsInstance<ProviderEvent.Failed>().isEmpty())
     }
+
+    @Test fun gemmaToolCallControlTokenIsWithheldWhenNoAuthorizedExecutorHandlesIt() = runBlocking {
+        val events = flowOf(
+            ProviderEvent.TextDelta("<|tool_call>call:web_search{query:latest news}"),
+            ProviderEvent.Completed
+        ).withAssistantTextMarkupGuard().toList()
+
+        assertTrue(events.none { it is ProviderEvent.TextDelta })
+        assertTrue(events.filterIsInstance<ProviderEvent.Failed>().single().message.contains("unparsed tool-call markup"))
+    }
+
+    @Test fun webSearchClaimsWithoutSuccessfulSearchEvidenceAreWithheld() = runBlocking {
+        val events = flowOf(
+            ProviderEvent.TextDelta("I searched the web and found three headlines."),
+            ProviderEvent.Completed
+        ).withAssistantTextMarkupGuard().toList()
+
+        assertTrue(events.none { it is ProviderEvent.TextDelta })
+        assertTrue(events.filterIsInstance<ProviderEvent.Failed>().single().message.contains("no successful web-search tool result"))
+    }
+
+    @Test fun successfulSearchResultAuthorizesSearchClaim() = runBlocking {
+        val call = ProviderEvent.ToolCall("search-1", "web_search", kotlinx.serialization.json.buildJsonObject {})
+        val result = dev.chungjungsoo.gptmobile.data.agent.AgentToolResult(
+            callId = call.callId,
+            content = dev.chungjungsoo.gptmobile.data.agent.ToolResultContent.Text("Three headlines"),
+            isError = false
+        )
+        val events = flowOf(
+            ProviderEvent.ToolResult(call, result),
+            ProviderEvent.TextDelta("I searched the web and found three headlines."),
+            ProviderEvent.Completed
+        ).withAssistantTextMarkupGuard().toList()
+
+        assertEquals("I searched the web and found three headlines.", events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
+        assertTrue(events.filterIsInstance<ProviderEvent.Failed>().isEmpty())
+    }
 }

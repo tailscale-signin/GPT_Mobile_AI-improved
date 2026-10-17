@@ -1151,10 +1151,12 @@ class LiteRtLmAdapterTest {
         val events = adapter.openSession(
             turns("hello"),
             localPlatform(),
-            listOf(lookupTool { callId, _ ->
-                invoked = true
-                AgentToolResult(callId, ToolResultContent.Text("clear weather"), isError = false)
-            })
+            listOf(
+                lookupTool { callId, _ ->
+                    invoked = true
+                    AgentToolResult(callId, ToolResultContent.Text("clear weather"), isError = false)
+                }
+            )
         ).streamRound(emptyList(), emptyList()).toList()
 
         assertTrue(invoked)

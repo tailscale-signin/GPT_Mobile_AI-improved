@@ -47,11 +47,25 @@ INSTRUMENTATION_STATUS_CODE: 0
 """
     FINISH = "INSTRUMENTATION_RESULT: stream=\nOK (1 test)\nINSTRUMENTATION_CODE: -1\n"
 
-    def check_output(self, content):
+    def check_output(self, content, **kwargs):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory, "instrumentation.txt")
             path.write_text(content)
-            smoke.check_instrumentation(path)
+            smoke.check_instrumentation(path, **kwargs)
+
+    def test_optional_gpu_assumption_keeps_cpu_success_required(self):
+        optional = ("GgufTest", "gpuTest")
+        gpu = "INSTRUMENTATION_STATUS: class=GgufTest\nINSTRUMENTATION_STATUS: test=gpuTest\nINSTRUMENTATION_STATUS_CODE: -4\n"
+        self.check_output(self.START + self.SUCCESS + gpu + self.FINISH, optional_assumptions={optional})
+        with self.assertRaisesRegex(ValueError, "did not execute"):
+            self.check_output(gpu + self.FINISH, optional_assumptions={optional})
+        for code in [-1, -2, -3]:
+            with self.subTest(code=code), self.assertRaisesRegex(ValueError, "failed or was skipped"):
+                self.check_output(self.START + self.SUCCESS + gpu.replace("CODE: -4", f"CODE: {code}") + self.FINISH, optional_assumptions={optional})
+        with self.assertRaisesRegex(ValueError, "failed or was skipped"):
+            self.check_output(self.START + self.SUCCESS + gpu + self.FINISH, optional_assumptions={("OtherClass", "gpuTest")})
+        with self.assertRaisesRegex(ValueError, "failed or was skipped"):
+            self.check_output(self.START + self.SUCCESS.replace("CODE: 0", "CODE: -4") + self.FINISH, optional_assumptions={(smoke.TEST_CLASS, smoke.TEST_METHOD)})
 
     def test_real_test_protocol_passes_with_unix_or_adb_line_endings(self):
         output = self.START + self.SUCCESS + self.FINISH

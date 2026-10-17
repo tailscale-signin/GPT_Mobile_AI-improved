@@ -27,7 +27,7 @@ def check_reports(directory):
     print(f"Native memory smoke: {TEST_CLASS}.{TEST_METHOD} passed on {len(matched)} device(s)")
 
 
-def check_instrumentation(output, test_class=TEST_CLASS, test_method=TEST_METHOD):
+def check_instrumentation(output, test_class=TEST_CLASS, test_method=TEST_METHOD, *, optional_assumptions=()):
     """Validate raw am instrument packets; adb's exit code is not a test result."""
     packet = {}
     started = False
@@ -42,7 +42,9 @@ def check_instrumentation(output, test_class=TEST_CLASS, test_method=TEST_METHOD
                 packet[key] = value
         elif line.startswith("INSTRUMENTATION_STATUS_CODE: "):
             code = int(line.removeprefix("INSTRUMENTATION_STATUS_CODE: "))
-            if code < 0:
+            identity = (packet.get("class"), packet.get("test"))
+            optional_skip = code == -4 and identity in optional_assumptions and identity != (test_class, test_method)
+            if code < 0 and not optional_skip:
                 raise ValueError(f"Native smoke failed or was skipped: {packet}")
             if packet.get("class") == test_class and packet.get("test") == test_method:
                 if code == 1:

@@ -10,7 +10,7 @@ import dev.melo.gguf.GgufNative
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
-import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.awaitCancellation
@@ -21,7 +21,6 @@ import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
 
 /** Pinned CPU/Vulkan runtime, QAIRT-independent; the existing holder/process owns every lease. */
 internal class GgufRuntimeAdapter(context: Context) : LocalRuntime {
@@ -78,13 +77,13 @@ internal class GgufRuntimeAdapter(context: Context) : LocalRuntime {
         unloadEngine()
         journal.before(identity, "LOAD")
         try {
-            cancellableNative(null) { GgufNative.load(model.absolutePath.toByteArray(), effectiveSpec.maxTokens, effectiveSpec.cpuThreads?.coerceIn(1, 64) ?: Runtime.getRuntime().availableProcessors().coerceIn(1, 8), if (accelerator == LocalAccelerators.GPU) 999 else 0).also { handle = it } }
+            cancellableNative { GgufNative.load(model.absolutePath.toByteArray(), effectiveSpec.maxTokens, GgufCpuThreads.resolve(effectiveSpec.cpuThreads, Runtime.getRuntime().availableProcessors()), if (accelerator == LocalAccelerators.GPU) 999 else 0).also { handle = it } }
             loaded = effectiveSpec
             tuple = identity
             modelFallbackKey = fallbackKey
         } catch (failure: Throwable) {
             withContext(NonCancellable) { unloadEngine() }
-            if (accelerator == LocalAccelerators.GPU && failure.isVulkanComputePipelineFailure()) {
+            if (failure !is CancellationException && accelerator == LocalAccelerators.GPU && failure.isVulkanComputePipelineFailure()) {
                 gpuFallbackModelKeys += fallbackKey
                 AppLogRecorder.record(
                     "LocalModel",
@@ -95,11 +94,11 @@ internal class GgufRuntimeAdapter(context: Context) : LocalRuntime {
                 val cpuIdentity = "$modelHash|${GgufNative.REVISION}|${android.os.Build.FINGERPRINT}|${LocalAccelerators.CPU}|${cpuSpec.maxTokens}"
                 try {
                     journal.before(cpuIdentity, "LOAD")
-                    cancellableNative(null) {
+                    cancellableNative {
                         GgufNative.load(
                             model.absolutePath.toByteArray(),
                             cpuSpec.maxTokens,
-                            cpuSpec.cpuThreads?.coerceIn(1, 64) ?: Runtime.getRuntime().availableProcessors().coerceIn(1, 8),
+                            GgufCpuThreads.resolve(cpuSpec.cpuThreads, Runtime.getRuntime().availableProcessors()),
                             0
                         ).also { handle = it }
                     }
@@ -137,7 +136,8 @@ internal class GgufRuntimeAdapter(context: Context) : LocalRuntime {
         require(images.isEmpty()) { "This GGUF runtime is text-only" }
         val config = checkNotNull(configuration) { "GGUF conversation is not open" }
         val active = handle
-        val messages = history.toList() + ("user" to text)
+        val priorHistory = history.toList()
+        val messages = priorHistory + ("user" to text)
         val started = SystemClock.elapsedRealtime()
         val segment = java.util.UUID.randomUUID().toString()
         var output = StringBuilder()
@@ -149,53 +149,41 @@ internal class GgufRuntimeAdapter(context: Context) : LocalRuntime {
         try {
             val promptCharacters = messages.sumOf { (role, content) -> role.length + content.length }
             val prefillBudgetMs = LocalPrefillDeadline.budgetMs(promptCharacters)
-            suspend fun runAttempt(engineHandle: Long): LongArray? = coroutineScope {
-                val firstOutput = CompletableDeferred<Unit>()
-                val prefillTimedOut = AtomicBoolean(false)
-                val watchdog = launch(Dispatchers.Default) {
-                    if (withTimeoutOrNull(prefillBudgetMs) { firstOutput.await(); true } == null) {
-                        prefillTimedOut.set(true)
-                        GgufNative.cancel(engineHandle)
-                    }
-                }
-                val counts = try {
-                    cancellableNative(engineHandle) {
-                        GgufNative.generate(
-                            engineHandle,
-                            messages.map { it.first }.toTypedArray(),
-                            messages.map { it.second.toByteArray() }.toTypedArray(),
-                            config.maxOutputTokens?.coerceIn(1, 8192) ?: 512,
-                            config.sampler.topK.coerceIn(1, 1024),
-                            config.sampler.topP.coerceIn(0f, 1f),
-                            config.sampler.temperature.coerceIn(0f, 5f)
-                        ) { bytes ->
-                            if (!isActive) return@generate false
-                            val chunk = decoder.append(bytes)
-                            if (chunk.isNotEmpty()) {
-                                firstOutput.complete(Unit)
-                                if (first == null) {
-                                    first = SystemClock.elapsedRealtime() - started
-                                    trySend(LocalRuntimeEvent.PhaseChanged(LocalInferencePhase.GENERATING))
-                                }
-                                if (output.length + chunk.length > 262144) {
-                                    saturated = true
-                                    return@generate false
-                                }
-                                output.append(chunk)
-                                if (!trySend(LocalRuntimeEvent.TextDelta(chunk)).isSuccess) {
-                                    saturated = true
-                                    return@generate false
-                                }
+            suspend fun runAttempt(engineHandle: Long): LongArray? = withGgufPrefillDeadline(
+                prefillBudgetMs,
+                cancelNative = { GgufNative.cancel(engineHandle) }
+            ) { onFirstOutput ->
+                cancellableNative(engineHandle) {
+                    GgufNative.generate(
+                        engineHandle,
+                        messages.map { it.first }.toTypedArray(),
+                        messages.map { it.second.toByteArray() }.toTypedArray(),
+                        config.maxOutputTokens?.coerceIn(1, 8192) ?: 512,
+                        config.sampler.topK.coerceIn(1, 1024),
+                        config.sampler.topP.coerceIn(0f, 1f),
+                        config.sampler.temperature.coerceIn(0f, 5f)
+                    ) { bytes ->
+                        if (!isActive) return@generate false
+                        val chunk = decoder.append(bytes)
+                        if (chunk.isNotEmpty()) {
+                            onFirstOutput()
+                            if (first == null) {
+                                first = SystemClock.elapsedRealtime() - started
+                                trySend(LocalRuntimeEvent.PhaseChanged(LocalInferencePhase.GENERATING))
                             }
-                            true
+                            if (output.length + chunk.length > 262144) {
+                                saturated = true
+                                return@generate false
+                            }
+                            output.append(chunk)
+                            if (!trySend(LocalRuntimeEvent.TextDelta(chunk)).isSuccess) {
+                                saturated = true
+                                return@generate false
+                            }
                         }
+                        true
                     }
-                } catch (failure: Throwable) {
-                    if (prefillTimedOut.get()) null else throw failure
-                } finally {
-                    watchdog.cancelAndJoin()
                 }
-                if (prefillTimedOut.get()) null else counts
             }
             val counts = try {
                 runAttempt(active)
@@ -218,6 +206,9 @@ internal class GgufRuntimeAdapter(context: Context) : LocalRuntime {
                 unloadEngine()
                 loadEngine(failedSpec.copy(accelerator = LocalAccelerators.CPU))
                 createConversation(config)
+                history.clear()
+                history.addAll(priorHistory)
+                journal.before(checkNotNull(tuple), "GENERATE", segment)
                 output = StringBuilder()
                 decoder = Utf8GenerationDecoder()
                 first = null
@@ -275,16 +266,17 @@ internal class GgufRuntimeAdapter(context: Context) : LocalRuntime {
         }
     }
 
-    private suspend fun <T> cancellableNative(activeHandle: Long?, block: () -> T): T = coroutineScope {
+    private suspend fun <T> cancellableNative(activeHandle: Long = 0L, block: () -> T): T = coroutineScope {
+        val completed = AtomicBoolean(false)
         val watcher = launch(Dispatchers.Default) {
             try {
                 awaitCancellation()
             } finally {
-                activeHandle?.let(GgufNative::cancel)
+                if (!completed.get()) GgufNative.cancel(activeHandle)
             }
         }
         try {
-            withContext(Dispatchers.IO) { block() }
+            withContext(Dispatchers.IO) { block().also { completed.set(true) } }
         } finally {
             withContext(NonCancellable) { watcher.cancelAndJoin() }
         }

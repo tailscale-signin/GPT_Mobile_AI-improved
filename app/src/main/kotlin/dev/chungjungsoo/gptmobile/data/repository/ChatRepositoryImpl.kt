@@ -72,8 +72,6 @@ import dev.chungjungsoo.gptmobile.data.diagnostics.PreparationPhase
 import dev.chungjungsoo.gptmobile.data.diagnostics.measurePreparation
 import dev.chungjungsoo.gptmobile.data.dto.ApiState
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayProgress
-import dev.chungjungsoo.gptmobile.data.localmodel.ArtifactManifestStore
-import dev.chungjungsoo.gptmobile.data.localmodel.ArtifactRuntime
 import dev.chungjungsoo.gptmobile.data.localmodel.resolveLocalModelSelection
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntime
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
@@ -96,7 +94,6 @@ import dev.chungjungsoo.gptmobile.data.telemetry.tool.forStatisticsProfile
 import dev.chungjungsoo.gptmobile.util.DocumentTextExtractor
 import dev.chungjungsoo.gptmobile.util.FileUtils
 import dev.chungjungsoo.gptmobile.util.stripAssistantErrorNote
-import java.io.File
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CancellationException
@@ -391,16 +388,9 @@ class ChatRepositoryImpl(
         ).let(dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkWorkloadPlanner::contextTier)
     }
 
-    /** GGUF's native llama.cpp route is text-only; don't advertise tools it cannot execute. */
-    private suspend fun localModelSupportsTools(platform: PlatformV2): Boolean {
-        if (platform.compatibleType != ClientType.LITERT_LM) return false
-        val selected = localModelRepository.resolveLocalModelSelection(platform.model, platform.accelerator)
-        if (!selected.path.endsWith("manifest.json", ignoreCase = true)) return true
-        val runtime = withContext(Dispatchers.IO) {
-            runCatching { ArtifactManifestStore.read(File(selected.path)).runtime }.getOrNull()
-        } ?: return false
-        return LocalModelToolSupport.supportsTools(runtime)
-    }
+    /** Local profiles always receive authorized tools; LiteRtLmAdapter selects native or prompt dispatch. */
+    private suspend fun localModelSupportsTools(platform: PlatformV2): Boolean =
+        platform.compatibleType == ClientType.LITERT_LM
 
     override suspend fun openBenchmarkSession(
         platform: PlatformV2,
@@ -1525,10 +1515,7 @@ class ChatRepositoryImpl(
                 val memoryBoundary = effectiveUserMessages.lastOrNull()?.let { factVault?.scopeForChat(it.chatId) }
                 val privateConversation = memoryBoundary?.isTemporary == true
                 suspend fun resolveAuthorizedTools(cachedOnly: Boolean = preparationPlan.kind == dev.chungjungsoo.gptmobile.data.readiness.PreparationKind.CONTEXTUAL) = (
-                    if (preparationPlan.kind == dev.chungjungsoo.gptmobile.data.readiness.PreparationKind.DIRECT ||
-                        platform.disableAllTools ||
-                        (!supportsTools && !(sourceAcquisitionRequested && platform.compatibleType != ClientType.LITERT_LM))
-                    ) {
+                    if (preparationPlan.kind == dev.chungjungsoo.gptmobile.data.readiness.PreparationKind.DIRECT || platform.disableAllTools || (!supportsTools && !sourceAcquisitionRequested)) {
                         emptyList()
                     } else {
                         val sharingEnabled = runCatching {
@@ -2605,7 +2592,7 @@ class ChatRepositoryImpl(
                     factVault?.validateRecall(recalled, latestUser?.chatId ?: 0, platform.isPrivateDestination())
                 }
             )
-        } ?: openPrimarySession(contextPlan.turns, textOnly = !supportsTools)
+        } ?: openPrimarySession(contextPlan.turns)
         val continuedSession = dev.chungjungsoo.gptmobile.data.agent.OutputLimitRecoverySession(
             firstSession,
             maxContinuations = continuationLimit,

@@ -9,6 +9,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.onCompletion
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.withContext
 
 /** Selects the runtime, owns QNN fallback, and publishes the engine that actually loaded. */
@@ -193,8 +195,28 @@ class LocalRuntimeRouter(
         checkNotNull(activeLoadedRuntime) { "Local engine is not loaded" }.createConversation(config)
     }
 
-    override fun sendMessage(text: String, images: List<ByteArray>): Flow<LocalRuntimeEvent> =
-        activeLoadedRuntime?.sendMessage(text, images) ?: flowOf(LocalRuntimeEvent.Error("Local engine is not loaded"))
+    override fun sendMessage(text: String, images: List<ByteArray>): Flow<LocalRuntimeEvent> {
+        val runtime = activeLoadedRuntime ?: return flowOf(LocalRuntimeEvent.Error("Local engine is not loaded"))
+        return runtime.sendMessage(text, images)
+            .onEach { refreshEffectiveEngine(runtime) }
+            .onCompletion { refreshEffectiveEngine(runtime) }
+    }
+
+    private fun refreshEffectiveEngine(runtime: LocalRuntime) {
+        if (runtime !== activeLoadedRuntime) return
+        val actual = runtime.loadedEngineSpec() ?: return
+        val previous = delegatedSpec ?: return
+        if (actual == previous) return
+        delegatedSpec = actual
+        _state.value = _state.value.copy(
+            engineSpec = actual,
+            fallbackReason = if (actual.accelerator != previous.accelerator) {
+                "${previous.accelerator.uppercase()} generation failed; using ${actual.accelerator.uppercase()}"
+            } else {
+                _state.value.fallbackReason
+            }
+        )
+    }
 
     override fun cancelActive() {
         activeLoadedRuntime?.cancelActive()

@@ -103,16 +103,19 @@ internal class CombinedDeliverySession(
         if (!progressive && committedPrefix.isEmpty() && accepted.terminal == ProviderEvent.Completed && violations.isNotEmpty() && maxRepairRounds > 0) {
             emit(ProviderEvent.Notice("Checking the requested length and removing repeated material."))
             repairs = 1
-            val rewritten = withTimeoutOrNull(90_000L) {
-                val session = try {
+            val repairSession = withTimeoutOrNull(90_000L) {
+                try {
                     repair(accepted.text, emptyList())
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (_: Exception) {
                     null
                 }
-                session?.let { collect(it, false) }
             }
+            // The repair factory only prepares the provider session. Collect its stream outside
+            // this factory timeout so coroutine-test dispatchers and provider progress deadlines
+            // govern the response rather than a nested timeout around Flow collection.
+            val rewritten = repairSession?.let { collect(it, false) }
             validateAccess()
             if (rewritten != null && rewritten.text.isNotBlank()) {
                 // Keep the completed rewrite. Its remaining issues are reported below, and

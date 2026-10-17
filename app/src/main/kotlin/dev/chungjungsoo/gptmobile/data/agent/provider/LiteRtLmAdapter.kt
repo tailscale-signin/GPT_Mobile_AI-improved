@@ -610,9 +610,14 @@ class LiteRtLmAdapter(
                                             val call = if (promptToolsClosed) null else LocalPromptToolBridge.parse(fallbackOutput.toString(), runToolsByName.keys)
                                             if (call != null && promptToolCallCount < 8) {
                                                 nativeToolsUsed = true
-                                                val result = executeBoundTool(call.name, call.argumentsJson, runToolsByName, runToolEventSink, modelEvidenceRemaining)
+                                                val result = try {
+                                                    executeBoundTool(call.name, call.argumentsJson, runToolsByName, runToolEventSink, modelEvidenceRemaining)
+                                                } catch (limit: dev.chungjungsoo.gptmobile.data.localruntime.LocalToolLimitException) {
+                                                    terminalToolLimit = limit.code
+                                                    break
+                                                }
                                                 promptToolCallCount++
-                                                generationInput = LocalPromptToolBridge.continuation(call, result, availableTools.map { it.definition })
+                                                generationInput = LocalPromptToolBridge.continuation(call, result)
                                                 generationImages = emptyList()
                                                 physicalSegment = UUID.randomUUID().toString()
                                                 continue

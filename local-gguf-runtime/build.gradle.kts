@@ -1,9 +1,11 @@
+import com.android.build.api.dsl.LibraryExtension
+
 plugins { id("com.android.library") }
 
 val ggufVulkan = providers.gradleProperty("ggufVulkan").map { it != "false" }.getOrElse(true)
 val ggufInventoryTemplate = layout.projectDirectory.file("src/main/gguf-runtime-inventory.json.in")
 val ggufInventoryAssets = layout.buildDirectory.dir("generated/ggufInventory/assets")
-val generateGgufRuntimeInventory by tasks.registering {
+val generateGgufRuntimeInventory = tasks.register("generateGgufRuntimeInventory") {
     inputs.file(ggufInventoryTemplate)
     inputs.property("ggufVulkan", ggufVulkan)
     outputs.dir(ggufInventoryAssets)
@@ -15,7 +17,7 @@ val generateGgufRuntimeInventory by tasks.registering {
     }
 }
 
-android {
+extensions.configure<LibraryExtension> {
     namespace = "dev.melo.gguf"
     compileSdk = 37
     ndkVersion = "29.0.14206865"

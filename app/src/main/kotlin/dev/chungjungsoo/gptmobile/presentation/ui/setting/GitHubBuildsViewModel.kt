@@ -217,10 +217,7 @@ constructor(
         }
     }
 
-    fun open(
-        context: Context,
-        apk: GitHubDownloadedApk
-    ) = action { downloadManager.open(context, apk) }
+    fun openDownloads(context: Context) = action { downloadManager.openDownloads(context) }
 
     fun share(
         context: Context,

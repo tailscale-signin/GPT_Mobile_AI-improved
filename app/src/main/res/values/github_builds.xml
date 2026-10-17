@@ -38,13 +38,14 @@
     <string name="github_builds_cancel">Cancel download</string>
     <string name="github_builds_download_failed">Download failed</string>
     <string name="github_builds_download_cancelled">Download cancelled</string>
-    <string name="github_builds_download_ready">Ready to open</string>
+    <string name="github_builds_download_ready">Ready to save or share</string>
     <string name="github_builds_download_missing">The downloaded APK is no longer available. Download it again.</string>
-    <string name="github_builds_open_apk">Open APK</string>
+    <string name="github_builds_open_downloads">Open Downloads</string>
     <string name="github_builds_save_apk">Save to Downloads</string>
     <string name="github_builds_saving">Saving…</string>
     <string name="github_builds_share_apk">Share APK</string>
-    <string name="github_builds_saved">Saved %1$s to Downloads.</string>
+    <string name="github_builds_saved">Saved %1$s to Downloads/GPT Mobile.</string>
+    <string name="github_builds_saved_hint">You can open the saved APK from that folder when you are ready.</string>
     <string name="github_builds_dismiss">Dismiss</string>
     <string name="github_builds_remove_download">Remove local download</string>
     <string name="github_builds_removing">Removing…</string>

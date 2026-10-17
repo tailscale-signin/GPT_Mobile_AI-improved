@@ -8,7 +8,7 @@ The **Builds** tab in GitHub Workspace provides APK downloads for the selected r
 2. Choose **Releases** for published APK assets or **Workflow builds** for artifacts from successful runs on the selected branch.
 3. Review the version or branch, date, file size, and device architecture. The variant matching the device is highlighted without hiding other APKs.
 4. Select **Download**. Download progress and cancellation remain available in the workspace; the background worker continues when the workspace closes.
-5. When the download finishes, choose an extracted APK and use **Open**, **Save**, or **Share**. Opening delegates to Android. Installation is never automatic.
+5. When the download finishes, choose an extracted APK and use **Save to Downloads** or **Share APK**. Saved files go to **Downloads/GPT Mobile**. The save confirmation offers **Open Downloads** so the APK can be opened from the system file interface. Installation remains an explicit Android user action.
 6. Use **Remove local download** to reclaim the app's storage after a transfer finishes or is canceled. Copies already saved to Downloads remain available there.
 
 Release listings exclude Android App Bundles, signature sidecars, checksums, and other non-APK assets. Workflow artifacts are ZIP archives; the app extracts their APK files so the user does not need to unzip them manually. An artifact can contain more than one APK variant.
@@ -40,11 +40,11 @@ Downloads are explicit user actions. The feature does not install packages autom
 - `GitHubBuildCatalog` discovers and normalizes release assets and workflow artifacts.
 - `GitHubBuildsViewModel` isolates requests by the selected connection/repository/branch and ignores stale responses after selection changes.
 - `GitHubBuildsPanel` presents source filters, metadata, progress, saved files, retry, and cancellation in the current theme.
-- `GitHubApkDownloadManager` owns work identity, durable history, completed-file access, local removal, and Android Open/Save/Share actions.
+- `GitHubApkDownloadManager` owns work identity, durable history, completed-file access, local removal, and Android save/share/downloads actions.
 - `GitHubApkDownloadWorker` performs durable transfers using the existing WorkManager foreground-download infrastructure.
 
 ## Validation
 
 Focused tests cover APK filtering, branch-specific discovery, pagination, authentication headers, permission failures, cancellation, archive extraction, invalid paths, multiple APKs, size limits, and transfer integrity. Kotlin formatting and Android resource validation apply to the new files. The normal PR validation pipeline compiles the Android app, runs unit tests, and builds a review APK.
 
-Manual Android verification should exercise a published ARM64 APK, a workflow ZIP containing multiple variants, a private repository, cancel/retry, navigation and rotation during a transfer, Open/Save/Share, and local removal. The in-app list displays the full workflow archive transfer size; a bundle containing several variants can be substantially larger than a single release APK.
+Manual Android verification should exercise a published ARM64 APK, a workflow ZIP containing multiple variants, a private repository, cancel/retry, navigation and rotation during a transfer, Save/Share/Open Downloads, and local removal. The in-app list displays the full workflow archive transfer size; a bundle containing several variants can be substantially larger than a single release APK.

@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import android.app.DownloadManager
 import android.content.ClipData
 import android.content.ContentValues
 import android.content.Context
@@ -152,12 +153,9 @@ class GitHubApkDownloadManager @Inject constructor(@ApplicationContext private v
 
     fun completedFiles(state: GitHubApkDownloadState): List<GitHubDownloadedApk> = storedFiles(state.downloadKey)
 
-    fun open(context: Context, apk: GitHubDownloadedApk) {
-        requireOwnUri(apk.uri)
+    fun openDownloads(context: Context) {
         context.startActivity(
-            Intent(Intent.ACTION_VIEW).setDataAndType(apk.uri, APK_MIME)
-                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-                .apply { clipData = ClipData.newRawUri(apk.fileName, apk.uri) }
+            Intent(DownloadManager.ACTION_VIEW_DOWNLOADS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         )
     }
 

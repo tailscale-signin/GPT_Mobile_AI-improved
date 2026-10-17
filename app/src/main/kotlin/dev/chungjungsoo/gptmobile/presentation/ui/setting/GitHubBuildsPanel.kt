@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -70,9 +71,13 @@ fun GitHubBuildsPanel(
     modifier: Modifier = Modifier,
     model: GitHubBuildsViewModel = hiltViewModel()
 ) {
+    val context = LocalContext.current
     val state by model.state.collectAsStateWithLifecycle()
     val downloads by model.downloads.collectAsStateWithLifecycle()
+    val listState = rememberLazyListState()
     LaunchedEffect(connectionUid, owner, repo, branch) { model.bind(connectionUid, owner, repo, branch) }
+    LaunchedEffect(connectionUid, owner, repo, branch, state.source) { listState.scrollToItem(0) }
+    LaunchedEffect(state.savedFileName) { if (state.savedFileName != null) listState.animateScrollToItem(0) }
     val currentList = state.list()
     val builds = preferredGitHubBuildOrder(currentList.builds)
     val scopedDownloads =
@@ -89,7 +94,7 @@ fun GitHubBuildsPanel(
     val otherDownloads = scopedDownloads.filter { it.buildId !in buildIds }
     val latestRelease = builds.firstOrNull { it.source == GitHubBuildSource.RELEASE && !it.prerelease }?.releaseTag
 
-    LazyColumn(modifier = modifier, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    LazyColumn(modifier = modifier, state = listState, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -160,6 +165,10 @@ fun GitHubBuildsPanel(
                                 },
                             style = MaterialTheme.typography.bodySmall
                         )
+                        if (state.actionError == null && state.savedFileName != null) {
+                            Text(stringResource(R.string.github_builds_saved_hint), style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 6.dp))
+                            Button(onClick = { model.openDownloads(context) }, modifier = Modifier.padding(top = 8.dp)) { Text(stringResource(R.string.github_builds_open_downloads)) }
+                        }
                         TextButton(onClick = model::dismissNotice) { Text(stringResource(R.string.github_builds_dismiss)) }
                     }
                 }
@@ -474,9 +483,8 @@ private fun GitHubDownloadedFile(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Button(onClick = { model.open(context, apk) }, enabled = !removing) { Text(stringResource(R.string.github_builds_open_apk)) }
-                OutlinedButton(onClick = { model.save(apk) }, enabled = !saving && !removing) {
-                    if (saving) CircularProgressIndicator(Modifier.padding(end = 6.dp).size(14.dp), strokeWidth = 2.dp)
+                Button(onClick = { model.save(apk) }, enabled = !saving && !removing) {
+                    if (saving) CircularProgressIndicator(Modifier.padding(end = 6.dp).size(14.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
                     Text(stringResource(if (saving) R.string.github_builds_saving else R.string.github_builds_save_apk))
                 }
                 TextButton(onClick = { model.share(context, apk) }, enabled = !removing) {

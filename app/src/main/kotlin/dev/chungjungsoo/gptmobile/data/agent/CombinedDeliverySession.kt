@@ -115,14 +115,10 @@ internal class CombinedDeliverySession(
             }
             validateAccess()
             if (rewritten?.terminal == ProviderEvent.Completed && rewritten.text.isNotBlank()) {
-                val next = withContext(Dispatchers.Default) { policy.violations(rewritten.text) }
-                val retryCeiling = policy.maximumWords ?: policy.targetWords
-                val retryFitsRequestedLength = next.none { it.startsWith("WORD_") } &&
-                    (retryCeiling == null || visibleWordCount(rewritten.text) <= retryCeiling)
-                if (retryFitsRequestedLength || next.size < violations.size) {
-                    accepted = rewritten
-                    violations = next
-                }
+                // Keep the completed rewrite. Its remaining issues are reported below, and
+                // the deterministic ceiling enforces any explicit length limit afterward.
+                accepted = rewritten
+                violations = withContext(Dispatchers.Default) { policy.violations(rewritten.text) }
             }
         }
         var ceilingEnforced = false

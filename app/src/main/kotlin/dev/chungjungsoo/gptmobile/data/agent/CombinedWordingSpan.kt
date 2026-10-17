@@ -11,7 +11,7 @@ data class CombinedWordingSpan(val start: Int, val end: Int, val profileUids: Se
 /**
  * Colour meaningful answer claims, not arbitrary shared five-word openers.
  * Compare every competing contributor before assigning exclusive ownership; multi-source
- * contributions remain neutral in the prose renderer and are inspectable in Debug Mode.
+ * contributions retain all submitters; the prose renderer chooses a stable primary display colour. This is wording lineage, not an exclusive semantic claim.
  * UTF-16 ranges always refer to the original answer, not transformed Markdown.
  */
 fun combinedWordingSpans(answer: String, sources: List<CombinedModelResponse>): List<CombinedWordingSpan> {

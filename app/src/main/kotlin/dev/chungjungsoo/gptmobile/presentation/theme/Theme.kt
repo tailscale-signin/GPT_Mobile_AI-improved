@@ -220,7 +220,7 @@ internal fun resolveThemeColorScheme(
         else -> lightScheme
     }
     fun foreground(color: Color): Color = if (androidx.core.graphics.ColorUtils.calculateLuminance(color.toArgb()) > 0.179) Color.Black else Color.White
-    return when {
+    val resolved = when {
         dynamicTheme == DynamicTheme.ON -> baseScheme
         customPalette != null -> {
             customPaletteColorScheme(baseScheme, customPalette)
@@ -228,4 +228,26 @@ internal fun resolveThemeColorScheme(
         customPrimary != null -> baseScheme.copy(primary = customPrimary, onPrimary = foreground(customPrimary), secondary = customPrimary, tertiary = customPrimary)
         else -> baseScheme
     }
+    return tintNeutralSurfaces(resolved)
+}
+
+/** Keep Material surface roles tied to the chosen accent, including dynamic themes. */
+internal fun tintNeutralSurfaces(scheme: androidx.compose.material3.ColorScheme): androidx.compose.material3.ColorScheme {
+    fun isNeutral(color: Color): Boolean = maxOf(color.red, color.green, color.blue) - minOf(color.red, color.green, color.blue) < 0.06f
+    val accent = scheme.primary.takeUnless(::isNeutral) ?: darkScheme.primary
+    fun tinted(color: Color): Color = if (isNeutral(color)) androidx.compose.ui.graphics.lerp(color, accent, 0.16f) else color
+    return scheme.copy(
+        background = tinted(scheme.background),
+        surface = tinted(scheme.surface),
+        surfaceVariant = tinted(scheme.surfaceVariant),
+        surfaceDim = tinted(scheme.surfaceDim),
+        surfaceBright = tinted(scheme.surfaceBright),
+        surfaceContainerLowest = tinted(scheme.surfaceContainerLowest),
+        surfaceContainerLow = tinted(scheme.surfaceContainerLow),
+        surfaceContainer = tinted(scheme.surfaceContainer),
+        surfaceContainerHigh = tinted(scheme.surfaceContainerHigh),
+        surfaceContainerHighest = tinted(scheme.surfaceContainerHighest),
+        outline = tinted(scheme.outline),
+        outlineVariant = tinted(scheme.outlineVariant)
+    )
 }

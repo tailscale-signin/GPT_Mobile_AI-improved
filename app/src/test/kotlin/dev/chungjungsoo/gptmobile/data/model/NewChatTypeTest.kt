@@ -25,7 +25,7 @@ class NewChatTypeTest {
     }
 
     @Test
-    fun independentMultiChatDoesNotUseCombinedExecution() {
+    fun sharedInputMultiChatKeepsSeparateModelResponses() {
         assertFalse(NewChatType.MULTI_CHAT.isCountValid(1))
         assertTrue(NewChatType.MULTI_CHAT.isCountValid(2))
         assertEquals(ConversationMode.STANDARD, NewChatType.MULTI_CHAT.executionMode(3))

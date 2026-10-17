@@ -19,6 +19,7 @@ class ToolExecutionBudget(
     private val statisticsRoot: String = "",
     private val failureMessage: (Exception) -> String = { "Tool execution failed. Check the connection diagnostics before repeating an action." }
 ) {
+    private val terminalToolFailures = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val unknownOutcomes = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val calls = AtomicInteger()
     private val attempts = AtomicInteger()
@@ -54,10 +55,16 @@ class ToolExecutionBudget(
             val signature = "$executionOwner:${tool.definition.name}:" + dev.chungjungsoo.gptmobile.data.permissions.ScopedToolGrant.canonicalHash(arguments)
             if (signature in unknownOutcomes) return { withBudgetState(ToolResultEnvelope.error(callId, "RECONCILIATION_REQUIRED", "Previous dispatch outcome is unknown. Reconcile it before repeating this action.")) }
             if ((failures[signature]?.get() ?: 0) >= 2) return { withBudgetState(ToolResultEnvelope.error(callId, "REPEATED_FAILURE", "An unchanged call failed twice. Stop repeating it; use retained evidence or correct the request.")) }
+            terminalToolFailures[tool.definition.name]?.let { code ->
+                return { withBudgetState(ToolResultEnvelope.error(callId, code, "This tool's permission or authentication failed earlier in this turn. Review its grants or credentials before starting a new turn; changing arguments will not retry it.")) }
+            }
             val invalid = ToolArgumentValidator.errors(arguments, tool.definition.inputSchema)
             if (invalid.isNotEmpty()) {
                 failures.computeIfAbsent(signature) { AtomicInteger() }.incrementAndGet()
-                return { withBudgetState(ToolResultEnvelope.error(callId, "INVALID_ARGUMENTS", invalid.joinToString("; "))) }
+                val message = invalid.joinToString("; ") +
+                    ". No action was dispatched. Correct the arguments using this tool schema, then retry with a new call ID: " +
+                    tool.definition.inputSchema.toString().take(6000)
+                return { withBudgetState(ToolResultEnvelope.error(callId, "INVALID_ARGUMENTS", message)) }
             }
             if (!tryAcquireCall()) {
                 val message = toolCallBudgetMessage()
@@ -94,9 +101,13 @@ class ToolExecutionBudget(
             val authorized = try {
                 authorize(callId, arguments)
             } catch (rejected: dev.chungjungsoo.gptmobile.data.permissions.ToolAuthorizationRejected) {
+                if (rejected.code in setOf("AUTH_REQUIRED", "AUTH_FAILED", "UNAUTHORIZED", "PERMISSION_DENIED", "PERMISSION_REVOKED")) terminalToolFailures[tool.definition.name] = rejected.code
                 return { bounded(ToolResultEnvelope.error(callId, rejected.code, rejected.message.orEmpty())) }
             }
-            if (!authorized) return { bounded(ToolResultEnvelope.error(callId, "AUTH_REQUIRED", "Tool permission was denied or revoked. Review this tool's grants before retrying.")) }
+            if (!authorized) {
+                terminalToolFailures[tool.definition.name] = "AUTH_REQUIRED"
+                return { bounded(ToolResultEnvelope.error(callId, "AUTH_REQUIRED", "Tool permission was denied or revoked. Review this tool's grants before retrying.")) }
+            }
             val dispatched = java.util.concurrent.atomic.AtomicBoolean()
             return execution@{
                 if (!dispatched.compareAndSet(false, true)) return@execution withBudgetState(ToolResultEnvelope.error(callId, "DUPLICATE_INVOCATION", "This prepared tool call was already dispatched. No action was repeated."))
@@ -168,6 +179,16 @@ class ToolExecutionBudget(
                         boundedResult.copy(isError = false)
                     } else {
                         boundedResult
+                    }
+                    if (normalizedResult.isError) {
+                        val code = normalizedResult.errorCode
+                        if (code in setOf("AUTH_REQUIRED", "AUTH_FAILED", "UNAUTHORIZED", "PERMISSION_DENIED", "PERMISSION_REVOKED")) {
+                            terminalToolFailures[tool.definition.name] = requireNotNull(code)
+                        } else if (tool.definition.name !in setOf("read_url", "deep_research_read_paper", "firecrawl_scrape", "tavily_extract", "web_fetch_exa") &&
+                            Regex("(?i)HTTP\\s*401|status(?:\\s+code)?[\\s:=]+401|invalid api key|authentication failed").containsMatchIn(normalizedResult.content.toString())
+                        ) {
+                            terminalToolFailures[tool.definition.name] = "AUTH_FAILED"
+                        }
                     }
                     if (normalizedResult.errorCode in setOf("TIMEOUT_OUTCOME_UNKNOWN", "DISPATCH_OUTCOME_UNKNOWN") && !dev.chungjungsoo.gptmobile.data.research.ResearchTimeouts.isAcademicRead(tool.definition.name)) unknownOutcomes += signature
                     if (normalizedResult.isError && normalizedResult.errorCode !in setOf("AUTH_REQUIRED", "BUDGET_EXHAUSTED")) failures.computeIfAbsent(signature) { AtomicInteger() }.incrementAndGet()

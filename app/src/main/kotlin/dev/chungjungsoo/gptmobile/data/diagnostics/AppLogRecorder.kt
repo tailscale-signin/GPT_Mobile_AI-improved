@@ -31,7 +31,7 @@ data class AppLogEntry(val time: Long, val level: String, val tag: String, val m
 
 /** Opt-in, app-process-only diagnostics. No network upload and no HTTP bodies. */
 object AppLogRecorder {
-    private const val QUEUE_CAPACITY = 512
+    private const val QUEUE_CAPACITY = 2048
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val droppedRecords = java.util.concurrent.atomic.AtomicLong()
     private val queue = Channel<AppLogEntry>(QUEUE_CAPACITY, BufferOverflow.DROP_OLDEST, onUndeliveredElement = { droppedRecords.incrementAndGet() })
@@ -85,18 +85,26 @@ object AppLogRecorder {
             }
         }
         scope.launch {
+            var publication: Job? = null
             for (entry in queue) {
                 synchronized(fileLock) {
                     if (!mutableEnabled.value || privateSessions.isNotEmpty()) return@synchronized
                     val batch = mutableListOf(entry)
-                    repeat(63) { queue.tryReceive().getOrNull()?.let(batch::add) }
+                    repeat(255) { queue.tryReceive().getOrNull()?.let(batch::add) }
                     batch.forEach(recent::addLast)
                     while (recent.size > 500) recent.removeFirst()
-                    mutableEntries.value = recent.toList()
+                    if (publication?.isActive != true) {
+                        publication = scope.launch {
+                            kotlinx.coroutines.delay(250)
+                            synchronized(fileLock) {
+                                mutableEntries.value = if (mutableEnabled.value && privateSessions.isEmpty()) recent.toList() else emptyList()
+                            }
+                        }
+                    }
                     runCatching { append(batch.joinToString("\n") { it.line() }) }.onFailure { mutableError.value = "Unable to save logs. Check available storage." }
                 }
-                // Coalesce routine diagnostics to four visible snapshots/second.
-                kotlinx.coroutines.delay(250)
+                // Drain persistence continuously. Delaying the consumer caused dropped
+                // records during bursts; only UI publication is throttled above.
             }
         }
         application.registerActivityLifecycleCallbacks(object : Application.ActivityLifecycleCallbacks {

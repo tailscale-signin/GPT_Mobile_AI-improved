@@ -162,7 +162,10 @@ class LiteRtLmAdapter(
                 // catalogue flag is a recommendation, not a runtime capability;
                 // using it as a gate hid all MCP tools from imported, legacy and
                 // most bundled local models.
-                val toolsCapable = metadata?.tools != false
+                val nativeToolsCapable = metadata?.tools != false
+                // Expose the app-managed tool catalog even when this model lacks native
+                // function-call parsing; the prompt bridge validates and executes calls.
+                val usePromptToolBridge = !nativeToolsCapable && boundTools.isNotEmpty()
                 val latestAttachments = turns.lastOrNull()?.userMessage?.attachments.orEmpty()
                 attachmentNotices(visionCapable, turns, latestAttachments).forEach { notice ->
                     send(notice)
@@ -215,21 +218,24 @@ class LiteRtLmAdapter(
                 if (requestedOutputLimit != outputLimit) {
                     send(ProviderEvent.Notice("Local reply budget: $outputLimit tokens, reserving room for instructions, history and tool results in this export's $resolvedMaxTokens-token context."))
                 }
-                if (!toolsCapable && tools.isNotEmpty()) {
-                    send(ProviderEvent.Failed("This export reports chat-only support. Select a tool-capable artifact to use the enabled tools."))
-                    return@channelFlow
-                }
                 val thinkingEnabled = platform.reasoning && constraints.allowReasoning && metadata?.thinking != false
 
-                val availableTools = if (toolsCapable) boundTools else emptyList()
+                val availableTools = boundTools
+                val promptToolInstructions = if (usePromptToolBridge) {
+                    LocalPromptToolBridge.instruction(availableTools.map { it.definition })
+                } else {
+                    ""
+                }
                 dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
                     "LocalModel",
-                    "LOCAL_TOOL_SELECTION · stage=adapter_input · received=${boundTools.size} · available=${availableTools.size} · mode=${if (availableTools.isEmpty()) "chat_only" else "tools_enabled"} · reason=${if (!toolsCapable) {
-                        "artifact_function_calling_unsupported"
-                    } else if (boundTools.isEmpty()) {
-                        "upstream_selection_empty"
-                    } else {
-                        "eligible"
+                    "LOCAL_TOOL_SELECTION · stage=adapter_input · received=${boundTools.size} · available=${availableTools.size} · mode=${when {
+                        availableTools.isEmpty() -> "chat_only"
+                        usePromptToolBridge -> "prompt_bridge"
+                        else -> "tools_enabled"
+                    }} · reason=${when {
+                        boundTools.isEmpty() -> "upstream_selection_empty"
+                        usePromptToolBridge -> "native_function_calling_unavailable_prompt_bridge"
+                        else -> "eligible"
                     }}"
                 )
                 var conversationSystemPrompt = evidencePrompt
@@ -238,7 +244,7 @@ class LiteRtLmAdapter(
                     LocalContextPlanner.plan(
                         priorTurns = turns.dropLast(1),
                         currentUserPrompt = latestUserText,
-                        systemPrompt = evidencePrompt.orEmpty() + "\n" + LOCAL_CAPABILITY_CONTRACT,
+                        systemPrompt = evidencePrompt.orEmpty() + promptToolInstructions + "\n" + LOCAL_CAPABILITY_CONTRACT,
                         tools = availableTools.map { it.definition },
                         contextTokens = effectiveContextTokens,
                         outputLimit = outputLimit,
@@ -256,7 +262,7 @@ class LiteRtLmAdapter(
                         LocalContextPlanner.plan(
                             priorTurns = turns.dropLast(1),
                             currentUserPrompt = latestUserText,
-                            systemPrompt = conversationSystemPrompt.orEmpty() + "\n" + LOCAL_CAPABILITY_CONTRACT,
+                            systemPrompt = conversationSystemPrompt.orEmpty() + promptToolInstructions + "\n" + LOCAL_CAPABILITY_CONTRACT,
                             tools = availableTools.map { it.definition },
                             contextTokens = effectiveContextTokens,
                             outputLimit = outputLimit,
@@ -308,15 +314,15 @@ class LiteRtLmAdapter(
                 }
                 boundTools.forEach { tool ->
                     val exclusion = when {
-                        !toolsCapable -> "artifact_function_calling_unsupported"
+                        usePromptToolBridge -> "prompt_bridge"
                         tool.definition.name !in selectedNames -> "context_budget_or_tool_cap"
                         else -> "registered"
                     }
                     dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("LocalModel", "LOCAL_TOOL_REGISTRATION · tool=${tool.definition.name} · disposition=$exclusion")
                 }
                 val registeredTools = availableTools.filter { it.definition.name in selectedNames }.map { toolBudget.bind(it) }
-                conversationSystemPrompt = conversationSystemPrompt.orEmpty() + "\n" + LOCAL_CAPABILITY_CONTRACT
-                val descriptors = registeredTools.map { it.definition.toLocalDescriptor() }
+                conversationSystemPrompt = conversationSystemPrompt.orEmpty() + promptToolInstructions + "\n" + LOCAL_CAPABILITY_CONTRACT
+                val descriptors = if (nativeToolsCapable) registeredTools.map { it.definition.toLocalDescriptor() } else emptyList()
                 val toolsKey = toolsFingerprint(descriptors)
                 val runToolsByName = registeredTools.associateBy { it.definition.name }
                 val collectedToolResults = java.util.concurrent.CopyOnWriteArrayList<Pair<String, AgentToolResult>>()
@@ -358,7 +364,7 @@ class LiteRtLmAdapter(
                 )
                 val requestSpec = spec.copy(
                     samplerIdentity = if (spec.accelerator == LocalAccelerators.NPU) "runtime_default" else "${sampler.topK}|${sampler.topP}|${sampler.temperature}",
-                    workload = if (descriptors.isNotEmpty()) {
+                    workload = if (availableTools.isNotEmpty()) {
                         "tools"
                     } else if (thinkingEnabled) {
                         "thinking"
@@ -548,11 +554,20 @@ class LiteRtLmAdapter(
                                     val attemptId = dev.chungjungsoo.gptmobile.data.context.PhysicalAttemptBoundary.dispatch()
                                     kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.serialized(frozenInput, admitted.receipt.copy(physicalAttemptId = attemptId))
                                 }
+                                var generationInput = latestUserText
+                                var generationImages = latestImages
+                                var promptToolCallCount = 0
+                                var promptToolsClosed = false
                                 while (true) {
+                                    val fallbackOutput = StringBuilder()
                                     var templateFailure: String? = null
                                     yield()
-                                    admitNative(latestUserText, Json.parseToJsonElement(Json.encodeToString(descriptors)), latestImages.size)
-                                    sendMessage(latestUserText, latestImages)
+                                    admitNative(
+                                        generationInput,
+                                        if (usePromptToolBridge) JsonArray(emptyList()) else Json.parseToJsonElement(Json.encodeToString(descriptors)),
+                                        generationImages.size
+                                    )
+                                    sendMessage(generationInput, generationImages)
                                         .catch { error ->
                                             if (error is CancellationException) throw error
                                             emit(LocalRuntimeEvent.Error(error.message ?: "Local inference failed", error))
@@ -565,8 +580,12 @@ class LiteRtLmAdapter(
 
                                                 is LocalRuntimeEvent.TextDelta -> {
                                                     if (event.text.isNotEmpty()) generatedOutput = true
-                                                    assistantReply.append(event.text)
-                                                    send(ProviderEvent.TextDelta(event.text))
+                                                    if (usePromptToolBridge) {
+                                                        fallbackOutput.append(event.text)
+                                                    } else {
+                                                        assistantReply.append(event.text)
+                                                        send(ProviderEvent.TextDelta(event.text))
+                                                    }
                                                 }
 
                                                 is LocalRuntimeEvent.ThinkingDelta -> {
@@ -594,7 +613,36 @@ class LiteRtLmAdapter(
                                                 LocalRuntimeEvent.Done -> Unit
                                             }
                                         }
-                                    if (templateFailure == null) break
+                                    if (templateFailure == null) {
+                                        if (!failed && usePromptToolBridge) {
+                                            val call = if (promptToolsClosed) null else LocalPromptToolBridge.parse(fallbackOutput.toString(), runToolsByName.keys)
+                                            if (call != null && promptToolCallCount < 8) {
+                                                nativeToolsUsed = true
+                                                val result = try {
+                                                    executeBoundTool(call.name, call.argumentsJson, runToolsByName, runToolEventSink, modelEvidenceRemaining)
+                                                } catch (limit: dev.chungjungsoo.gptmobile.data.localruntime.LocalToolLimitException) {
+                                                    terminalToolLimit = limit.code
+                                                    break
+                                                }
+                                                promptToolCallCount++
+                                                generationInput = LocalPromptToolBridge.continuation(call, result)
+                                                generationImages = emptyList()
+                                                physicalSegment = UUID.randomUUID().toString()
+                                                continue
+                                            }
+                                            if (call != null && promptToolCallCount >= 8) {
+                                                nativeToolsUsed = true
+                                                promptToolsClosed = true
+                                                generationInput = "Tool-call limit reached. Do not request another tool. Answer the user's original request using only the evidence already collected. Preserve uncertainty and do not claim actions that were not completed."
+                                                generationImages = emptyList()
+                                                physicalSegment = UUID.randomUUID().toString()
+                                                continue
+                                            }
+                                            assistantReply.append(fallbackOutput)
+                                            if (fallbackOutput.isNotEmpty()) send(ProviderEvent.TextDelta(fallbackOutput.toString()))
+                                        }
+                                        break
+                                    }
                                     if (!canReuse || templateRetried || generatedOutput || nativeToolsUsed || failed) {
                                         failed = true
                                         send(ProviderEvent.Failed(LOCAL_TEMPLATE_ERROR))

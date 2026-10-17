@@ -18,7 +18,9 @@ class ResearchReaderHealth(private val now: () -> Long = System::currentTimeMill
     }
 
     @Synchronized
-    fun record(reader: String, url: String, outcome: ToolOutcome, billingFailure: Boolean = false, pageFailure: Boolean = false) {
+    fun record(reader: String, url: String, outcome: ToolOutcome, billingFailure: Boolean = false, pageFailure: Boolean = false, transientFailure: Boolean = false) {
+        // A device DNS outage says nothing about this reader or publication.
+        if (transientFailure) return
         when {
             billingFailure || outcome == ToolOutcome.AUTH_FAILED -> disabled += reader
             outcome == ToolOutcome.INVALID_RESPONSE -> {

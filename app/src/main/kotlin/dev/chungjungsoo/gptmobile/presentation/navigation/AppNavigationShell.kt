@@ -70,8 +70,8 @@ internal fun AppNavigationShell(navController: NavHostController, route: String?
                 }
             }
             Column(Modifier.weight(1f)) {
-                Box(Modifier.weight(1f).then(if (selected != null && !rail) Modifier.consumeWindowInsets(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom)) else Modifier)) { content() }
-                if (selected != null && !rail) {
+                Box(Modifier.weight(1f).then(if (selected != null && selected != AppRootDestination.CHATS && !rail) Modifier.consumeWindowInsets(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom)) else Modifier)) { content() }
+                if (selected != null && selected != AppRootDestination.CHATS && !rail) {
                     NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp) {
                         AppRootDestination.entries.forEach { root ->
                             NavigationBarItem(selected = root == selected, onClick = { navigate(root) }, icon = { Icon(root.icon, null) }, label = { Text(root.label) })

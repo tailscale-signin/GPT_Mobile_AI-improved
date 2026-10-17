@@ -73,6 +73,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
@@ -106,7 +107,6 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
@@ -391,13 +391,6 @@ fun ChatScreen(
     val inspectingCombinedSource = chatRoom.conversationMode == ConversationMode.COMBINED &&
         (inspectableProfiles.size > 1 || groupedMessages.assistantMessages.getOrNull(inspectedTurnIndex).orEmpty().any { it.isCombinedSynthesis() }) &&
         inspectableProfiles.any { it.uid == inspectedCombinedProfileUid }
-    val keyboardController = LocalSoftwareKeyboardController.current
-    LaunchedEffect(inspectingCombinedSource) {
-        if (inspectingCombinedSource) {
-            focusManager.clearFocus()
-            keyboardController?.hide()
-        }
-    }
     val backFade = dev.chungjungsoo.gptmobile.presentation.common.rememberBackFade()
     val onBackFromChat: () -> Unit = {
         if (inspectingCombinedSource) {
@@ -427,7 +420,6 @@ fun ChatScreen(
     ) { granted ->
         if (granted && sendAfterLocalNetworkPermission) {
             chatViewModel.askQuestion()
-            focusManager.clearFocus()
         } else if (!granted) {
             Toast.makeText(context, R.string.local_network_permission_required, Toast.LENGTH_SHORT).show()
         }
@@ -446,7 +438,6 @@ fun ChatScreen(
                 localNetworkPermissionLauncher.launch(PERMISSION_ACCESS_LOCAL_NETWORK)
             } else {
                 chatViewModel.askQuestion()
-                focusManager.clearFocus()
             }
         }
         sendAfterNotificationPermission = false
@@ -593,6 +584,15 @@ fun ChatScreen(
         attachmentNotice?.let { notice ->
             Toast.makeText(context, notice, Toast.LENGTH_SHORT).show()
             chatViewModel.consumeAttachmentNotice()
+        }
+    }
+
+    val bottomProfileTurn by remember(groupedMessages.userMessages, listState) {
+        derivedStateOf {
+            val visibleKeys = listState.layoutInfo.visibleItemsInfo.mapTo(hashSetOf()) { it.key }
+            groupedMessages.userMessages.indices.lastOrNull { index ->
+                chatMessagePairKey(groupedMessages.userMessages[index], index) in visibleKeys
+            } ?: groupedMessages.userMessages.lastIndex
         }
     }
 
@@ -791,13 +791,13 @@ fun ChatScreen(
             }
 
             CombinedChatComposer(
-                visible = !inspectingCombinedSource,
+                visible = true,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
                     .onSizeChanged { composerHeightPx = it.height }
             ) {
-                Column {
+                Column(Modifier.navigationBarsPadding()) {
                     chatToolConfig.research?.takeIf { it.researchToggle && it.depth > 0 }?.let { selection ->
                         val profileUid = activePlatformUids.firstOrNull().orEmpty()
                         val target = selection.applyTo(featureSettings.delegationFor(profileUid)).deepResearch.maxPages
@@ -812,12 +812,39 @@ fun ChatScreen(
                             Text(stringResource(R.string.next_message_label, enabledPlatformLookup[uid]?.name ?: uid))
                         }
                     }
+                    if (chatRoom.conversationMode == dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode.STANDARD &&
+                        chatViewModel.enabledPlatformsInChat.size > 1
+                    ) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            shape = MaterialTheme.shapes.medium,
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
+                        ) {
+                            Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                                Text(
+                                    if (nextMessageProfileUid == null) {
+                                        "Message all active AIs · " + activePlatformUids.count { it !in disabledPlatformUids } + " profiles"
+                                    } else {
+                                        "Next message · " + (enabledPlatformLookup[nextMessageProfileUid]?.name ?: "Selected AI")
+                                    },
+                                    style = MaterialTheme.typography.titleSmall
+                                )
+                                Text(
+                                    if (isIdle) {
+                                        "One input · Separate responses · Compare profiles below"
+                                    } else {
+                                        "Responding · " + loadingStates.count { it != ChatViewModel.LoadingState.Idle } + " active · You can queue your next message"
+                                    },
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            }
+                        }
+                    }
                     ChatInputBox(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .navigationBarsPadding(),
+                        modifier = Modifier.fillMaxWidth(),
                         inputState = chatViewModel.question,
-                        chatEnabled = canUseChat && !inspectingCombinedSource,
+                        chatEnabled = canUseChat,
                         sendButtonEnabled = selectedAttachments.none { it.status != ChatAttachmentDraft.Status.Ready },
                         isRunning = !isIdle,
                         queuedPromptCount = queuedPromptCount,
@@ -842,8 +869,51 @@ fun ChatScreen(
                             localNetworkPermissionLauncher.launch(PERMISSION_ACCESS_LOCAL_NETWORK)
                         } else {
                             chatViewModel.askQuestion()
-                            focusManager.clearFocus()
                         }
+                    }
+                    if (chatViewModel.enabledPlatformsInChat.size > 1 || chatRoom.conversationMode == ConversationMode.COMBINED) {
+                        val dockTurn = bottomProfileTurn
+                        val dockMessage = groupedMessages.userMessages.getOrNull(dockTurn)
+                        val dockKey = dockMessage?.let { chatMessagePairKey(it, dockTurn) }
+                        val replies = groupedMessages.assistantMessages.getOrNull(dockTurn).orEmpty()
+                        val combined = chatRoom.conversationMode == ConversationMode.COMBINED
+                        val frozenProfiles = if (combined) {
+                            combinedResponseProfiles(
+                                replies,
+                                chatViewModel.enabledPlatformsInChat,
+                                enabledPlatformLookup.mapValues { it.value.name },
+                                activePlatformUids.toSet() - disabledPlatformUids,
+                                dockTurn == lastMessageIndex && !isIdle,
+                                agentRunsById
+                            )
+                        } else {
+                            emptyList()
+                        }
+                        ChatProfileDock(
+                            profileUids = (chatViewModel.enabledPlatformsInChat + frozenProfiles.map { it.uid }).distinct(),
+                            names = enabledPlatformLookup.mapValues { it.value.name } + frozenProfiles.associate { it.uid to it.name },
+                            selectedUid = if (combined) inspectedCombinedProfileUid.takeIf { inspectedCombinedTurn == dockKey } else chatViewModel.enabledPlatformsInChat.getOrNull(indexStates.getOrElse(dockTurn) { 0 }),
+                            pausedUids = disabledPlatformUids,
+                            generatingUids = if (combined) frozenProfiles.filter { it.status == CombinedResponseStatus.GENERATING }.mapTo(hashSetOf()) { it.uid } else chatViewModel.enabledPlatformsInChat.filterIndexed { index, _ -> dockTurn == lastMessageIndex && loadingStates.getOrNull(index) == ChatViewModel.LoadingState.Loading }.toSet(),
+                            combined = combined,
+                            combinedGenerating = combined && dockTurn >= 0 && combinedAnswerStatus(replies.firstOrNull { it.isCombinedSynthesis() }, frozenProfiles, agentRunsById) == CombinedResponseStatus.GENERATING,
+                            onSelect = { uid ->
+                                listState.requestScrollToItem(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset)
+                                isHoldingEntryCenter = false
+                                isFollowingBottom = false
+                                isModelTabPositionLocked = true
+                                if (combined) {
+                                    inspectedCombinedTurn = dockKey.takeIf { uid != null }
+                                    inspectedCombinedProfileUid = uid
+                                } else if (uid != null && dockTurn >= 0) {
+                                    val index = chatViewModel.enabledPlatformsInChat.indexOf(uid)
+                                    if (index >= 0) chatViewModel.updateChatPlatformIndex(dockTurn, index)
+                                }
+                            },
+                            onPause = chatViewModel::togglePlatformDisabled,
+                            failedUids = if (combined) frozenProfiles.filter { it.status == CombinedResponseStatus.FAILED }.mapTo(hashSetOf()) { it.uid } else replies.filter { response -> response.currentRunId?.let(agentRunsById::get)?.status in setOf(AgentRunStatus.FAILED, AgentRunStatus.CANCELED, AgentRunStatus.INTERRUPTED) }.mapNotNull { it.platformType }.toSet(),
+                            combinedFailed = combined && dockTurn >= 0 && combinedAnswerStatus(replies.firstOrNull { it.isCombinedSynthesis() }, frozenProfiles, agentRunsById) == CombinedResponseStatus.FAILED
+                        )
                     }
                 }
             }
@@ -1225,45 +1295,12 @@ private fun ChatMessagePair(
                     .fillMaxWidth()
 
             ) {
-                if (hasCombinedTabs) {
-                    CombinedProfileBubbles(
-                        profiles = combinedProfiles,
-                        identities = combinedIdentities,
-                        primaryUid = assistantMessages.getOrNull(combinedSynthesisIndex)?.platformType,
-                        selectedUid = selectedProfile?.uid,
-                        combinedStatus = combinedStatus,
-                        animateArrival = isActiveMessage && !isIdle,
-                        onSelectProfile = onCombinedProfileClick,
-                        modifier = Modifier.padding(top = 12.dp)
-                    )
-                } else {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        GPTMobileIcon(loading = shouldShowReplyLoadingIndicator(isActiveMessage, loadingStates))
-                        if (enabledPlatformsInChat.size > 1) {
-                            Row(
-                                modifier = Modifier
-                                    .padding(horizontal = 8.dp)
-                                    .fillMaxWidth()
-                                    .horizontalScroll(rememberScrollState())
-                            ) {
-                                enabledPlatformsInChat.forEachIndexed { platformIndex, uid ->
-                                    PlatformButton(
-                                        isLoading = isActiveMessage && loadingStates.getOrNull(platformIndex) == ChatViewModel.LoadingState.Loading,
-                                        name = enabledPlatformLookup[uid]?.name ?: stringResource(R.string.unknown),
-                                        selected = platformIndexState == platformIndex,
-                                        disabled = uid in disabledPlatformUids,
-                                        onPlatformClick = { onPlatformClick(messageIndex, platformIndex) },
-                                        onPlatformLongPress = { onPlatformLongPress(uid) }
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                }
-                            }
-                        }
+                if (!hasCombinedTabs) {
+                    GPTMobileIcon(loading = shouldShowReplyLoadingIndicator(isActiveMessage, loadingStates))
+                }
+                if (debugMode && hasCombinedTabs && selectedProfile == null) {
+                    assistantTimeline.lastOrNull { it.combinedQuality != null }?.combinedQuality?.let { report ->
+                        CombinedQualityInspector(report, assistantContent)
                     }
                 }
                 if (showCombinedTextMatches) {
@@ -1314,7 +1351,9 @@ private fun ChatMessagePair(
                     combinedWording = if (hasCombinedTabs && selectedProfile == null) {
                         CombinedWordingPresentation(
                             assistantMessages.getOrNull(combinedSynthesisIndex)?.combinedSources.orEmpty(),
-                            attributionColors
+                            attributionColors,
+                            assistantTimeline.lastOrNull { it.combinedQuality != null }?.combinedQuality?.passages.orEmpty(),
+                            assistantContent
                         )
                     } else {
                         null

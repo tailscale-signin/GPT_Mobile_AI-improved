@@ -6,6 +6,7 @@ import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase
 import dev.chungjungsoo.gptmobile.data.rag.RecalledFactRef
 
 sealed class ApiState {
+    data class CombinedQuality(val report: dev.chungjungsoo.gptmobile.data.agent.CombinedQualityReport) : ApiState()
     data class AssistStatus(val status: dev.chungjungsoo.gptmobile.data.assist.AssistTaskState) : ApiState()
     data class TokenUsage(val inputTokens: Int?, val outputTokens: Int?, val totalTokens: Int?) : ApiState()
     data object Loading : ApiState()

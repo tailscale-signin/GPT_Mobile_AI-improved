@@ -13,19 +13,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
@@ -51,7 +46,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-/** Each workspace lane is a real independent ChatRoomV2 with a separate message history. */
+/** Compatibility entry point for workspaces created before shared-input multi-chat. */
 @HiltViewModel
 class MultiChatWorkspaceViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
@@ -82,8 +77,15 @@ class MultiChatWorkspaceViewModel @Inject constructor(
                 _laneNames.value = resolved.associate { room ->
                     room.id to (room.enabledPlatform.firstOrNull()?.let { profiles[it]?.name } ?: room.title)
                 }
-                _rooms.value = resolved
+                // Upgrade the root to a shared composer without rewriting or deleting any
+                // of the independent lane histories created by the previous UI.
+                val root = resolved.firstOrNull { it.id == workspaceId } ?: resolved.first()
+                val uids = resolved.flatMap { it.enabledPlatform }.distinct()
+                val shared = if (root.enabledPlatform == uids) root else chats.updateChatPlatforms(root, uids)
+                _rooms.value = listOf(shared) + resolved.filterNot { it.id == shared.id }
                 _error.value = null
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 _error.value = e.message ?: "Could not open Multi-chat."
             }
@@ -103,15 +105,11 @@ internal fun MultiChatWorkspaceScreen(
     val rooms by viewModel.rooms.collectAsStateWithLifecycle()
     val names by viewModel.laneNames.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
-    var selectedChatId by rememberSaveable { mutableIntStateOf(0) }
-    LaunchedEffect(rooms) {
-        if (selectedChatId !in rooms.map { it.id }) selectedChatId = rooms.firstOrNull()?.id ?: 0
-    }
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             CenterAlignedTopAppBar(
-                title = { Text("Multi-chat · " + rooms.size.toString() + " AIs") },
+                title = { Text("Multi-chat · " + (rooms.firstOrNull()?.enabledPlatform?.size ?: 0).toString() + " AIs") },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") } },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
@@ -121,40 +119,26 @@ internal fun MultiChatWorkspaceScreen(
             if (error != null) Text(error.orEmpty(), color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp))
             if (rooms.isNotEmpty()) {
                 val innerNav = rememberNavController()
-                Row(
-                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    rooms.forEach { room ->
-                        FilterChip(
-                            selected = selectedChatId == room.id,
-                            label = { Text(names[room.id] ?: room.title) },
-                            onClick = {
-                                selectedChatId = room.id
-                                innerNav.navigate("lane_" + room.id) {
-                                    popUpTo(innerNav.graph.startDestinationId) { saveState = true }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
-                            },
-                            modifier = Modifier.testTag("multi_chat_lane_" + room.id)
-                        )
+                if (rooms.size > 1) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        rooms.drop(1).forEach { room ->
+                            TextButton(onClick = { onOpenConversation(room.id, false) }) {
+                                Text("Previous chat · " + (names[room.id] ?: room.title))
+                            }
+                        }
                     }
                 }
-                Text(
-                    "Separate histories · Select a model above to continue its conversation",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-                )
                 Box(Modifier.weight(1f)) {
-                    val first = remember(rooms) { rooms.first() }
+                    val first = rooms.first()
                     NavHost(
                         navController = innerNav,
                         startDestination = "lane_" + first.id,
                         modifier = Modifier.fillMaxSize()
                     ) {
-                        rooms.forEach { room ->
+                        listOf(first).forEach { room ->
                             composable(
                                 route = "lane_" + room.id,
                                 arguments = listOf(

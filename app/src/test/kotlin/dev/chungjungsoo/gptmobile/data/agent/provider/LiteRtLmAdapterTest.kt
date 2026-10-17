@@ -21,6 +21,7 @@ import dev.chungjungsoo.gptmobile.data.localruntime.LocalHistoryMessage
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalHistoryRole
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferenceMetrics
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase
+import dev.chungjungsoo.gptmobile.data.localruntime.LocalModelCapabilities
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalNpuPackageException
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntime
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntimeEvent
@@ -1134,6 +1135,37 @@ class LiteRtLmAdapterTest {
         assertEquals(listOf("lookup"), config.tools.map { it.name })
         assertTrue(config.isConstrainedDecodingEnabled)
         assertTrue(config.toolExecutor != null)
+    }
+
+    @Test
+    fun `local model without native function calling still sees and executes authorized tools`() = runBlocking {
+        val runtime = FakeLocalRuntime().apply {
+            capabilities = LocalModelCapabilities(backends = setOf("cpu", "gpu", "npu"), tools = false)
+            scriptedEvents = listOf(
+                listOf(LocalRuntimeEvent.TextDelta("""{"type":"tool_call","name":"lookup","arguments":{"query":"weather"}}"""), LocalRuntimeEvent.Done),
+                listOf(LocalRuntimeEvent.TextDelta("The tool returned clear weather."), LocalRuntimeEvent.Done)
+            )
+        }
+        val adapter = adapter(runtime)
+        var invoked = false
+        val events = adapter.openSession(
+            turns("hello"),
+            localPlatform(),
+            listOf(
+                lookupTool { callId, _ ->
+                    invoked = true
+                    AgentToolResult(callId, ToolResultContent.Text("clear weather"), isError = false)
+                }
+            )
+        ).streamRound(emptyList(), emptyList()).toList()
+
+        assertTrue(invoked)
+        assertTrue(runtime.createConversationCalls.single().tools.isEmpty())
+        assertTrue(runtime.createConversationCalls.single().systemPrompt.orEmpty().contains("lookup"))
+        assertTrue(runtime.sendMessageCalls[1].contains("clear weather"))
+        assertEquals("lookup", events.filterIsInstance<ProviderEvent.ToolCall>().single().name)
+        assertEquals("The tool returned clear weather.", events.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+        assertTrue(events.last() is ProviderEvent.Completed)
     }
 
     @Test

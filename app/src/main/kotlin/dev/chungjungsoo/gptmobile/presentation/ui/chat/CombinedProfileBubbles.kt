@@ -138,10 +138,10 @@ private fun CombinedProfileBubble(
     val colors = MaterialTheme.colorScheme
     val completed = status == CombinedResponseStatus.COMPLETED
     val opacity by animateFloatAsState(if (completed) 1f else 0.4f, tween(500), label = "Profile completion opacity")
-    val background by animateColorAsState(if (completed) colors.surfaceContainerHigh else Color(0xFF808080), tween(500), label = "Profile completion background")
-    val foreground by animateColorAsState(if (completed) (if (selected) colors.onPrimaryContainer else colors.onSurface) else Color(0xFFBDBDBD), tween(500), label = "Profile completion text")
-    val primaryTint by animateColorAsState(if (completed) colors.primaryContainer else Color(0xFF808080), tween(500), label = "Profile primary tint")
-    val secondaryTint by animateColorAsState(if (completed) colors.secondaryContainer else Color(0xFF808080), tween(500), label = "Profile secondary tint")
+    val background by animateColorAsState(if (completed) colors.surfaceContainerHigh else colors.tertiaryContainer, tween(500), label = "Profile completion background")
+    val foreground by animateColorAsState(if (completed) (if (selected) colors.onPrimaryContainer else colors.onSurface) else colors.onTertiaryContainer, tween(500), label = "Profile completion text")
+    val primaryTint by animateColorAsState(if (completed) colors.primaryContainer else colors.tertiaryContainer, tween(500), label = "Profile primary tint")
+    val secondaryTint by animateColorAsState(if (completed) colors.secondaryContainer else colors.tertiaryContainer, tween(500), label = "Profile secondary tint")
     val selection by animateFloatAsState(if (selected) 1f else 0f, tween(220), label = "Profile selection")
     val dotColor by animateColorAsState(
         when (status) {
@@ -178,7 +178,7 @@ private fun CombinedProfileBubble(
         shape = RoundedCornerShape(24.dp),
         color = if (colorIdentity != null) colors.surfaceContainerHigh else background.copy(alpha = opacity),
         contentColor = colorIdentity?.let { ProfileAttributionPalette.foreground(it, colors.surfaceContainerHigh) } ?: foreground.copy(alpha = opacity),
-        border = BorderStroke(1.dp, (if (completed) colors.primary else Color.Gray).copy(alpha = (0.22f + selection * 0.5f) * opacity)),
+        border = BorderStroke(1.dp, (if (completed) colors.primary else colors.tertiary).copy(alpha = (0.22f + selection * 0.5f) * opacity)),
         shadowElevation = if (completed) (2f + selection * 4f).dp else 0.dp
     ) {
         Row(

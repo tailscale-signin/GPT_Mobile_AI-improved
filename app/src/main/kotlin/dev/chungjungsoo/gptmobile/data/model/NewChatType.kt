@@ -6,7 +6,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode
 enum class NewChatType(val title: String, val explanation: String) {
     RESEARCH("Research Chat", "Deep Research with one or more AI models"),
     SINGLE("Single Chat", "One focused AI conversation"),
-    MULTI_CHAT("Multi-chat", "Independent conversations, one workspace"),
+    MULTI_CHAT("Multi-chat", "One message to every AI, separate responses"),
     COMBINED("Combined Mode", "Multiple AIs, one comprehensive answer");
 
     fun isCountValid(count: Int): Boolean = when (this) {

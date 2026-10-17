@@ -21,7 +21,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -59,6 +59,7 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Dns
+import androidx.compose.material.icons.rounded.DragIndicator
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material.icons.rounded.Hub
@@ -75,11 +76,11 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.LargeFloatingActionButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
@@ -136,6 +137,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
@@ -299,35 +301,32 @@ fun HomeScreen(
             .nestedScroll(scrollBehavior.nestedScrollConnection),
         snackbarHost = { SnackbarHost(archiveSnackbarState) },
         topBar = {
-            HomeTopBar(
-                chatListState = chatListState,
-                scrollBehavior = scrollBehavior,
-                selectedChatCount = selectedChatCount,
-                canDuplicate = selectedChat != null && !activeChatIds.contains(selectedChat.id),
-                onCloseSelectionMode = closeSelection,
-                onDuplicateClick = {
-                    homeViewModel.duplicateSelectedChat()
-                    Toast.makeText(context, duplicatedChatMessage, Toast.LENGTH_SHORT).show()
-                },
-                onDeleteClick = homeViewModel::openDeleteWarningDialog,
-                onSettingClick = settingOnClick,
-                onSearchToggle = {
-                    if (chatListState.isSearchMode) {
-                        closeSearch()
-                    } else {
-                        homeViewModel.enableSearchMode()
-                    }
-                },
-                onSearchQueryChanged = homeViewModel::updateSearchQuery,
-                searchQuery = searchQuery
-            )
-        },
-        floatingActionButton = {
-            Column(
-                horizontalAlignment = Alignment.End,
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                if (completedGenerations.isNotEmpty()) {
+            Column {
+                HomeTopBar(
+                    chatListState = chatListState,
+                    scrollBehavior = scrollBehavior,
+                    selectedChatCount = selectedChatCount,
+                    canDuplicate = selectedChat != null && !activeChatIds.contains(selectedChat.id),
+                    onCloseSelectionMode = closeSelection,
+                    onDuplicateClick = {
+                        homeViewModel.duplicateSelectedChat()
+                        Toast.makeText(context, duplicatedChatMessage, Toast.LENGTH_SHORT).show()
+                    },
+                    onArchiveClick = homeViewModel::archiveSelectedChats,
+                    onSelectAllClick = homeViewModel::selectAllChats,
+                    onDeleteClick = homeViewModel::openDeleteWarningDialog,
+                    onSettingClick = settingOnClick,
+                    onSearchToggle = {
+                        if (chatListState.isSearchMode) {
+                            closeSearch()
+                        } else {
+                            homeViewModel.enableSearchMode()
+                        }
+                    },
+                    onSearchQueryChanged = homeViewModel::updateSearchQuery,
+                    searchQuery = searchQuery
+                )
+                if (completedGenerations.isNotEmpty() && !chatListState.isSelectionMode) {
                     val knownChats = remember(chatListState.chats, archivedChats) {
                         (chatListState.chats + archivedChats).associateBy { it.id }
                     }
@@ -344,8 +343,15 @@ fun HomeScreen(
                         }
                     )
                 }
+            }
+        },
+        floatingActionButton = {
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
                 if (currentTab == HomeTab.CHATS && !chatListState.isSelectionMode && !chatListState.isSearchMode) {
-                    NewChatButton(expanded = listState.isScrollingUp(), onClick = navigateToNewChat)
+                    NewChatButton(onClick = navigateToNewChat)
                 }
             }
         }
@@ -508,10 +514,15 @@ fun HomeScreen(
                                         },
                                         onItemLongClick = {
                                             if (!chatListState.isSearchMode) {
-                                                homeViewModel.enableSelectionMode()
+                                                if (!chatListState.isSelectionMode) homeViewModel.enableSelectionMode()
                                                 homeViewModel.selectChat(idx)
                                             }
-                                        }
+                                        },
+                                        rowActions = mapOf(
+                                            "Archive selected" to homeViewModel::archiveSelectedChats,
+                                            "Delete selected" to homeViewModel::openDeleteWarningDialog,
+                                            "Select all" to homeViewModel::selectAllChats
+                                        )
                                     )
                                 } else {
                                     var dragging by remember(chatRoom.id) { mutableStateOf(false) }
@@ -551,8 +562,74 @@ fun HomeScreen(
                                         onItemClick = {
                                             homeViewModel.openConversation(chatRoom, openExistingChat)
                                         },
-                                        onItemLongClick = {},
+                                        onItemLongClick = {
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            homeViewModel.enableSelectionMode()
+                                            homeViewModel.selectChat(idx)
+                                        },
                                         revealingLabels = dragging,
+                                        dragHandleModifier = Modifier.pointerInput(chatRoom.id, chatRoom.isFavorite, windowHeight, pinTargetHeight) {
+                                            detectDragGestures(
+                                                onDragStart = { position ->
+                                                    dragging = true
+                                                    draggedConversationId = chatRoom.id
+                                                    draggedDistanceY = 0f
+                                                    draggedPointerX = (conversationBounds[chatRoom.id]?.right ?: 0f) - 48.dp.toPx() + position.x
+                                                    draggedPointerY = (conversationBounds[chatRoom.id]?.top ?: 0f) + position.y
+                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                },
+                                                onDrag = { change, amount ->
+                                                    change.consume()
+                                                    dragOffset += amount
+                                                    draggedDistanceY = dragOffset.y
+                                                    draggedPointerX += amount.x
+                                                    draggedPointerY += amount.y
+                                                },
+                                                onDragCancel = {
+                                                    dragging = false
+                                                    dragOffset = Offset.Zero
+                                                    draggedConversationId = null
+                                                },
+                                                onDragEnd = {
+                                                    val pins = currentChats.filter { it.isFavorite && it.id != chatRoom.id }
+                                                    val centers = pins.mapNotNull { pin -> conversationBounds[pin.id]?.let { pin.id to it.center.y } }
+                                                    val target = conversationPinDrop(
+                                                        chatRoom.isFavorite,
+                                                        draggedPointerY,
+                                                        windowHeight,
+                                                        (conversationBounds.values.minOfOrNull { it.top } ?: conversationListTop).coerceAtLeast(conversationListTop),
+                                                        pinTargetHeight,
+                                                        centers,
+                                                        dragOffset.y
+                                                    )
+                                                    val point = Offset(draggedPointerX, draggedPointerY)
+                                                    val folderTarget = conversationFolders.firstOrNull { folderBounds[it.id]?.contains(point) == true }
+                                                    when {
+                                                        newFolderBounds?.contains(point) == true -> creatingFolderForChat = chatRoom.id
+                                                        pinBounds?.contains(point) == true -> homeViewModel.moveConversationPin(chatRoom.id, 0)
+                                                        folderTarget != null -> homeViewModel.moveToFolder(chatRoom.id, folderTarget.id)
+                                                        folderBounds[""]?.contains(point) == true -> homeViewModel.moveToFolder(chatRoom.id, null)
+                                                        target != null -> {
+                                                            val firstTop = (conversationBounds.values.minOfOrNull { it.top } ?: conversationListTop).coerceAtLeast(conversationListTop)
+                                                            val globalTarget = when {
+                                                                target < 0 -> -1
+                                                                draggedPointerY <= firstTop + pinTargetHeight -> 0
+                                                                else -> centers.sortedBy { it.second }.firstOrNull { it.second >= draggedPointerY }
+                                                                    ?.let { next -> pins.indexOfFirst { it.id == next.first } }
+                                                                    ?: centers.maxByOrNull { it.second }?.let { previous -> pins.indexOfFirst { it.id == previous.first } + 1 }
+                                                                    ?: 0
+                                                            }
+                                                            homeViewModel.moveConversationPin(chatRoom.id, globalTarget)
+                                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                            Toast.makeText(context, if (target < 0) R.string.chat_unpinned else R.string.chat_pinned, Toast.LENGTH_SHORT).show()
+                                                        }
+                                                    }
+                                                    dragging = false
+                                                    dragOffset = Offset.Zero
+                                                    draggedConversationId = null
+                                                }
+                                            )
+                                        },
                                         modifier = Modifier.animateItem()
                                             .onGloballyPositioned { coordinates ->
                                                 if (!dragging) conversationBounds[chatRoom.id] = coordinates.boundsInRoot()
@@ -564,68 +641,7 @@ fun HomeScreen(
                                                 scaleX = dragScale
                                                 scaleY = dragScale
                                             }
-                                            .pointerInput(chatRoom.id, chatRoom.isFavorite, windowHeight, pinTargetHeight) {
-                                                detectDragGesturesAfterLongPress(
-                                                    onDragStart = { position ->
-                                                        dragging = true
-                                                        draggedConversationId = chatRoom.id
-                                                        draggedDistanceY = 0f
-                                                        draggedPointerX = (conversationBounds[chatRoom.id]?.left ?: 0f) + position.x
-                                                        draggedPointerY = (conversationBounds[chatRoom.id]?.top ?: 0f) + position.y
-                                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                    },
-                                                    onDrag = { change, amount ->
-                                                        change.consume()
-                                                        dragOffset += amount
-                                                        draggedDistanceY = dragOffset.y
-                                                        draggedPointerX += amount.x
-                                                        draggedPointerY += amount.y
-                                                    },
-                                                    onDragCancel = {
-                                                        dragging = false
-                                                        dragOffset = Offset.Zero
-                                                        draggedConversationId = null
-                                                    },
-                                                    onDragEnd = {
-                                                        val pins = currentChats.filter { it.isFavorite && it.id != chatRoom.id }
-                                                        val centers = pins.mapNotNull { pin -> conversationBounds[pin.id]?.let { pin.id to it.center.y } }
-                                                        val target = conversationPinDrop(
-                                                            chatRoom.isFavorite,
-                                                            draggedPointerY,
-                                                            windowHeight,
-                                                            (conversationBounds.values.minOfOrNull { it.top } ?: conversationListTop).coerceAtLeast(conversationListTop),
-                                                            pinTargetHeight,
-                                                            centers,
-                                                            dragOffset.y
-                                                        )
-                                                        val point = Offset(draggedPointerX, draggedPointerY)
-                                                        val folderTarget = conversationFolders.firstOrNull { folderBounds[it.id]?.contains(point) == true }
-                                                        when {
-                                                            newFolderBounds?.contains(point) == true -> creatingFolderForChat = chatRoom.id
-                                                            pinBounds?.contains(point) == true -> homeViewModel.moveConversationPin(chatRoom.id, 0)
-                                                            folderTarget != null -> homeViewModel.moveToFolder(chatRoom.id, folderTarget.id)
-                                                            folderBounds[""]?.contains(point) == true -> homeViewModel.moveToFolder(chatRoom.id, null)
-                                                            target != null -> {
-                                                                val firstTop = (conversationBounds.values.minOfOrNull { it.top } ?: conversationListTop).coerceAtLeast(conversationListTop)
-                                                                val globalTarget = when {
-                                                                    target < 0 -> -1
-                                                                    draggedPointerY <= firstTop + pinTargetHeight -> 0
-                                                                    else -> centers.sortedBy { it.second }.firstOrNull { it.second >= draggedPointerY }
-                                                                        ?.let { next -> pins.indexOfFirst { it.id == next.first } }
-                                                                        ?: centers.maxByOrNull { it.second }?.let { previous -> pins.indexOfFirst { it.id == previous.first } + 1 }
-                                                                        ?: 0
-                                                                }
-                                                                homeViewModel.moveConversationPin(chatRoom.id, globalTarget)
-                                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                                Toast.makeText(context, if (target < 0) R.string.chat_unpinned else R.string.chat_pinned, Toast.LENGTH_SHORT).show()
-                                                            }
-                                                        }
-                                                        dragging = false
-                                                        dragOffset = Offset.Zero
-                                                        draggedConversationId = null
-                                                    }
-                                                )
-                                            }
+
                                     )
                                 }
                             }
@@ -952,6 +968,7 @@ fun FancySwipeChatCard(
     onItemClick: () -> Unit,
     onItemLongClick: () -> Unit,
     revealingLabels: Boolean = false,
+    dragHandleModifier: Modifier = Modifier,
     isArchived: Boolean = false,
     rowActions: Map<String, () -> Unit> = emptyMap(),
     compact: Boolean = false,
@@ -1106,6 +1123,7 @@ fun FancySwipeChatCard(
                 onItemClick = onItemClick,
                 onItemLongClick = onItemLongClick,
                 revealingLabels = revealingLabels,
+                dragHandleModifier = dragHandleModifier,
                 rowActions = rowActions,
                 compact = compact
             )
@@ -1115,7 +1133,7 @@ fun FancySwipeChatCard(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ChatListItem(
+internal fun ChatListItem(
     chatRoom: ChatRoomV2,
     idx: Int,
     chatListState: HomeViewModel.ChatListState,
@@ -1127,6 +1145,7 @@ private fun ChatListItem(
     onItemClick: () -> Unit,
     onItemLongClick: () -> Unit,
     revealingLabels: Boolean = false,
+    dragHandleModifier: Modifier = Modifier,
     rowActions: Map<String, () -> Unit> = emptyMap(),
     compact: Boolean = false
 ) {
@@ -1144,7 +1163,7 @@ private fun ChatListItem(
             .combinedClickable(
                 interactionSource = interaction,
                 indication = null,
-                onLongClick = if (chatListState.isSelectionMode || chatListState.isSearchMode) onItemLongClick else null,
+                onLongClick = onItemLongClick,
                 onClick = onItemClick
             )
             .semantics {
@@ -1157,7 +1176,7 @@ private fun ChatListItem(
             }
             .padding(start = 8.dp, end = 8.dp),
         trailingContent = {
-            if (rowActions.isNotEmpty()) {
+            if (chatListState.isSelectionMode && chatListState.selectedChats.getOrElse(idx) { false } && rowActions.isNotEmpty()) {
                 Box {
                     IconButton(onClick = { menuOpen = true }) { Icon(Icons.Rounded.MoreVert, stringResource(R.string.conversation_actions)) }
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
@@ -1169,6 +1188,13 @@ private fun ChatListItem(
                         }
                     }
                 }
+            } else if (!chatListState.isSelectionMode && !chatListState.isSearchMode) {
+                Icon(
+                    Icons.Rounded.DragIndicator,
+                    contentDescription = "Drag to organize conversation",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = dragHandleModifier.size(48.dp).padding(12.dp)
+                )
             }
         },
         headlineContent = {
@@ -1714,23 +1740,20 @@ fun LazyListState.isScrollingUp(): Boolean {
 }
 
 @Composable
-fun NewChatButton(expanded: Boolean, onClick: () -> Unit) {
-    ExtendedFloatingActionButton(
+fun NewChatButton(onClick: () -> Unit) {
+    LargeFloatingActionButton(
         onClick = onClick,
-        expanded = expanded,
-        icon = {
-            Icon(
-                ImageVector.vectorResource(R.drawable.ic_new_chat),
-                contentDescription = stringResource(R.string.new_chat),
-                modifier = Modifier.size(28.dp),
-                tint = MaterialTheme.colorScheme.onPrimaryContainer
-            )
-        },
-        shape = RoundedCornerShape(24.dp),
+        modifier = Modifier.size(88.dp).testTag("home_new_chat_icon"),
+        shape = RoundedCornerShape(28.dp),
         containerColor = MaterialTheme.colorScheme.primaryContainer,
-        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-        text = { Text(text = stringResource(R.string.new_chat), fontWeight = FontWeight.SemiBold) }
-    )
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+    ) {
+        Icon(
+            ImageVector.vectorResource(R.drawable.ic_new_chat),
+            contentDescription = stringResource(R.string.new_chat),
+            modifier = Modifier.size(42.dp)
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -1743,6 +1766,8 @@ fun HomeTopBar(
     onCloseSelectionMode: () -> Unit,
     onDuplicateClick: () -> Unit,
     onDeleteClick: () -> Unit,
+    onArchiveClick: () -> Unit = {},
+    onSelectAllClick: () -> Unit = {},
     onSettingClick: () -> Unit,
     onSearchToggle: () -> Unit,
     onSearchQueryChanged: (String) -> Unit,
@@ -1758,6 +1783,21 @@ fun HomeTopBar(
                 }
             },
             actions = {
+                var selectionMenu by remember { mutableStateOf(false) }
+                Box {
+                    IconButton(onClick = { selectionMenu = true }) { Icon(Icons.Rounded.MoreVert, "Selection options") }
+                    DropdownMenu(expanded = selectionMenu, onDismissRequest = { selectionMenu = false }) {
+                        DropdownMenuItem(text = { Text("Select all") }, onClick = {
+                            selectionMenu = false
+                            onSelectAllClick()
+                        })
+                        DropdownMenuItem(text = { Text("Archive selected") }, enabled = selectedChatCount > 0, onClick = {
+                            selectionMenu = false
+                            onArchiveClick()
+                        })
+                    }
+                }
+                IconButton(onClick = onArchiveClick, enabled = selectedChatCount > 0) { Icon(Icons.Rounded.Archive, "Archive selected") }
                 if (canDuplicate) {
                     IconButton(onClick = onDuplicateClick) {
                         Icon(Icons.Rounded.ContentCopy, contentDescription = stringResource(R.string.duplicate))

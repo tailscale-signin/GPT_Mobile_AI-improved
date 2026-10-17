@@ -1170,7 +1170,7 @@ class ChatViewModel @Inject constructor(
                                     runId = persisted.run.runId,
                                     chatId = message.chatId,
                                     assistantMessage = persisted.assistantMessage,
-                                    platform = platform.copy(systemPrompt = listOf(snapshot.systemPrompt, COMBINED_SYNTHESIS_INSTRUCTION).joinToString("\n\n"), disableAllTools = true, disableLocalTools = true),
+                                    platform = platform.copy(systemPrompt = listOf(snapshot.systemPrompt, combinedEditorialInstruction(snapshot.deliveryProtocol)).joinToString("\n\n"), disableAllTools = true, disableLocalTools = true),
                                     userMessages = snapshot.history + snapshot.userMessage.copy(content = snapshot.prompt),
                                     assistantMessages = snapshot.replies + listOf(emptyList()),
                                     chatToolConfig = _chatToolConfig.value.copy(allToolsDisabled = true, delegation = dev.chungjungsoo.gptmobile.data.model.ConversationDelegationSettings(enabled = false))
@@ -2246,19 +2246,33 @@ class ChatViewModel @Inject constructor(
             }
             ?.snapshot
             ?.let(dev.chungjungsoo.gptmobile.data.research.ResearchCorpus::freeze)
-        val attributedSources = combinedSourcesWithEvidence(sources, sharedEvidence)
+        val turnRuns = _agentRunsById.value.values.filter { it.chatId == userMessage.chatId && it.userMessageId == userMessage.id && !it.runId.startsWith(COMBINED_RUN_PREFIX) }
+        val turnRunIds = turnRuns.mapTo(hashSetOf()) { it.runId }
+        // Read the committed event rows rather than racing the UI's asynchronous tool-event snapshot.
+        val turnEvents = chatRepository.observeToolEvents(userMessage.chatId).first().filter { it.runId in turnRunIds }
+        val evidenceLedger = withContext(Dispatchers.Default) {
+            dev.chungjungsoo.gptmobile.data.agent.CombinedEvidenceLedger.freeze(sharedEvidence, turnEvents, turnRuns.associate { it.runId to it.profileUid })
+        }
+        val turnContext = dev.chungjungsoo.gptmobile.data.agent.CombinedTurnContext.capture(userMessage.createdAt)
+        val attributedSources = combinedSourcesWithEvidence(sources, sharedEvidence).map { source ->
+            val owned = evidenceLedger.records.filter { source.platformUid in it.profileUids || source.content.contains(it.url) }
+            source.copy(sourceIds = (source.sourceIds + owned.map { it.id }).distinct(), evidenceRefs = (source.evidenceRefs + owned.map { it.url }).distinct())
+        }
         val fullHistory = chatRepository.fetchMessagesV2(userMessage.chatId)
         require(fullHistory.any { it.id == userMessage.id && it.platformType == null }) { "The Combined user turn is no longer available." }
         val historicalUsers = fullHistory.filter { it.platformType == null }.takeWhile { it.id != userMessage.id }
         val historicalReplies = historicalUsers.map { prior -> fullHistory.filter { it.linkedMessageId == prior.id && it.platformType == leadUid } }
         val selectedUids = grouped.assistantMessages.getOrNull(turnIndex).orEmpty().mapNotNull { it.platformType }
         val (synthesisPrompt, synthesisSnapshot) = withContext(Dispatchers.Default) {
-            val prompt = combinedSynthesisPrompt(userMessage.content, attributedSources, sharedEvidence)
+            val prompt = combinedSynthesisPrompt(userMessage.content, attributedSources, sharedEvidence, evidenceLedger, turnContext)
             val lineage = dev.chungjungsoo.gptmobile.data.agent.ContributionLineage.freeze(selectedUids, attributedSources)
             val inventory = dev.chungjungsoo.gptmobile.data.agent.CombinedClaimInventory.freeze(attributedSources)
             prompt to kotlinx.serialization.json.Json.encodeToString(
                 dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot(
-                    version = 3,
+                    version = 4,
+                    deliveryProtocol = "PASSAGES_V2",
+                    evidence = evidenceLedger,
+                    turnContext = turnContext,
                     userMessage = userMessage,
                     history = historicalUsers,
                     replies = historicalReplies,

@@ -29,9 +29,45 @@ class MarkdownSourceMapTest {
         assertEquals("Silver mines funded public works and naval power in ancient Athens", spans.joinToString("") { markdown.substring(it.start, it.end) })
         assertTrue(map.wordingSpans(source + "changed", markdown, rows).isEmpty())
         val shared = map.wordingSpans(source, markdown, rows + rows.single().copy(platformUid = "two"))
-        assertTrue(shared.isNotEmpty())
-        assertTrue(shared.all { it.profileUid == "one" })
-        assertTrue(map.copy(runs = listOf(MarkdownSourceRun(0, -1, 5, 0))).wordingSpans(source, markdown, rows).isEmpty())
+        assertTrue(shared.isEmpty())
+    }
+
+    @Test
+    fun `model passage labels cannot assign shared wording to one profile`() {
+        val sentence = "Silver mines funded public works and naval power in ancient Athens."
+        val rows = listOf(
+            dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse("one", "One", content = sentence),
+            dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse("two", "Two", content = sentence)
+        )
+        val (markdown, map) = mapped(sentence)
+        val declaredSingleOwner = listOf(
+            dev.chungjungsoo.gptmobile.data.agent.CombinedPassageRecord(
+                start = 0,
+                end = sentence.length,
+                digest = researchHash(sentence),
+                profileUids = setOf("one")
+            )
+        )
+
+        assertTrue(map.wordingSpans(sentence, markdown, rows, declaredSingleOwner).isEmpty())
+        assertTrue(map.copy(runs = listOf(MarkdownSourceRun(0, -1, 5, 0))).wordingSpans(sentence, markdown, rows).isEmpty())
+    }
+
+    @Test
+    fun `model passage labels can suppress uncertain unique wording`() {
+        val sentence = "Silver mines funded public works and naval power in ancient Athens."
+        val rows = listOf(dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse("one", "One", content = sentence))
+        val (markdown, map) = mapped(sentence)
+        val declaredShared = listOf(
+            dev.chungjungsoo.gptmobile.data.agent.CombinedPassageRecord(
+                start = 0,
+                end = sentence.length,
+                digest = researchHash(sentence),
+                profileUids = setOf("one", "another")
+            )
+        )
+
+        assertTrue(map.wordingSpans(sentence, markdown, rows, declaredShared).isEmpty())
     }
 
     @Test

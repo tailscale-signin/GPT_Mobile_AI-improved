@@ -38,15 +38,16 @@ import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkMode
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 
 @Composable
-internal fun BenchmarkNavigation(selected: Int, onSelect: (Int) -> Unit) {
+internal fun BenchmarkNavigation(selected: Int, debugMode: Boolean = false, onSelect: (Int) -> Unit) {
     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         listOf(
             Triple(0, "Run", Icons.Rounded.PlayArrow),
             Triple(2, "Scoreboard", Icons.Rounded.BarChart),
             Triple(5, "Compare", Icons.Rounded.CompareArrows),
             Triple(4, "Delegation", Icons.Rounded.Hub),
-            Triple(3, "History", Icons.Rounded.History)
-        ).forEach { (id, label, icon) -> BenchmarkAction(label, icon, selected == id, { onSelect(id) }) }
+            Triple(3, "History", Icons.Rounded.History),
+            Triple(6, "Settings", Icons.Rounded.Science)
+        ).let { if (debugMode) it + Triple(7, "Debug", Icons.Rounded.Science) else it }.forEach { (id, label, icon) -> BenchmarkAction(label, icon, selected == id, { onSelect(id) }) }
     }
 }
 

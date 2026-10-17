@@ -236,7 +236,40 @@ class ProfileBenchmarkViewModel @Inject constructor(
         }
     }
 
-    fun start(mode: BenchmarkMode) {
+    val debugMode = settings.observeDebugMode().stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    private val mutableExporting = MutableStateFlow(false)
+    val exporting = mutableExporting.asStateFlow()
+    private val mutableExportNotice = MutableStateFlow<String?>(null)
+    val exportNotice = mutableExportNotice.asStateFlow()
+
+    fun startDebugBenchmark() {
+        if (debugMode.value) start(BenchmarkMode.FULL, diagnostics = true)
+    }
+
+    fun exportBenchmarks(uri: android.net.Uri, detailed: Boolean = false) {
+        if (mutableExporting.value) return
+        mutableExporting.value = true
+        mutableExportNotice.value = null
+        viewModelScope.launch {
+            try {
+                check(!detailed || settings.getDebugMode()) { "Enable Debug Mode to export diagnostic benchmark data." }
+                val raw = store.exportJson(includeScoreHistory = true)
+                val payload = withContext(Dispatchers.Default) { dev.chungjungsoo.gptmobile.data.benchmark.benchmarkExport(raw, detailed) }
+                withContext(Dispatchers.IO) {
+                    checkNotNull(context.contentResolver.openOutputStream(uri, "wt")) { "Unable to open the export destination." }.bufferedWriter().use { it.write(payload) }
+                }
+                mutableExportNotice.value = "Exported all stored benchmark runs, scores and runtime evidence."
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (error: Exception) {
+                mutableError.value = "Benchmark export failed: ${safeMessage(error)}"
+            } finally {
+                mutableExporting.value = false
+            }
+        }
+    }
+
+    fun start(mode: BenchmarkMode, diagnostics: Boolean = false) {
         if (mode == BenchmarkMode.DELEGATION) {
             startDelegationBatch(BenchmarkMode.QUICK)
             return
@@ -261,6 +294,7 @@ class ProfileBenchmarkViewModel @Inject constructor(
         mutableError.value = null
         mutableProgress.value = BenchmarkProgress(profile.name, "Validating profile", 0, benchmarkSuite(mode).size)
         launchBenchmark {
+            val diagnosticMode = diagnostics && settings.getDebugMode()
             var fixtureContext: Int? = null
             try {
                 chats.validateBenchmarkProfile(profile)
@@ -285,6 +319,7 @@ class ProfileBenchmarkViewModel @Inject constructor(
                 profile.model, benchmarkConfigKey(profile, localEnvironment.value), profile.compatibleType == ClientType.LITERT_LM,
                 mode, System.currentTimeMillis(), billingOrigin = dev.chungjungsoo.gptmobile.data.pricing.billingProvider(profile), finished = false, suiteVersion = dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkSuiteRegistry.VERSION,
                 plannedTrials = benchmarkSuite(mode).size, measurementVersion = 2, scoringVersion = 2, appCommit = dev.chungjungsoo.gptmobile.BuildConfig.APP_COMMIT, runtimeVersion = dev.chungjungsoo.gptmobile.BuildConfig.LITERT_LM_VERSION,
+                diagnosticMode = diagnosticMode,
                 device = "${Build.MANUFACTURER} ${Build.MODEL}", thermalBefore = thermal(), batteryBefore = battery(),
                 engineWasLoaded = profile.compatibleType == ClientType.LITERT_LM && runtime.loadedEngineSpec() != null,
                 delegationSettings = config.takeIf { mode == BenchmarkMode.DELEGATION },
@@ -320,6 +355,18 @@ class ProfileBenchmarkViewModel @Inject constructor(
                         val actual = runtime.state.value.takeIf { run.local && sample.completed }
                         run = run.copy(
                             samples = run.samples + sample,
+                            resources = if (run.diagnosticMode) {
+                                run.resources + dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkResourceSample(
+                                    sample.testId,
+                                    System.currentTimeMillis(),
+                                    pss,
+                                    Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory(),
+                                    battery(),
+                                    thermal()
+                                )
+                            } else {
+                                run.resources
+                            },
                             peakClientPssKb = maxOf(run.peakClientPssKb ?: 0, pss),
                             backend = actual?.backend?.displayName ?: run.backend,
                             accelerator = actual?.engineSpec?.accelerator ?: run.accelerator

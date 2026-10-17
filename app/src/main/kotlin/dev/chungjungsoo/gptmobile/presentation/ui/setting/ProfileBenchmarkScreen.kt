@@ -85,6 +85,13 @@ import kotlin.math.roundToInt
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: ProfileBenchmarkViewModel = hiltViewModel(), embedded: Boolean = false) {
+    val debugMode by viewModel.debugMode.collectAsStateWithLifecycle()
+    val exporting by viewModel.exporting.collectAsStateWithLifecycle()
+    val exportNotice by viewModel.exportNotice.collectAsStateWithLifecycle()
+    var detailedExport by rememberSaveable { mutableStateOf(false) }
+    val exportLauncher = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri != null) viewModel.exportBenchmarks(uri, detailedExport)
+    }
     val profiles by viewModel.profiles.collectAsStateWithLifecycle()
     val profile by viewModel.selected.collectAsStateWithLifecycle()
     val history by viewModel.history.collectAsStateWithLifecycle()
@@ -118,6 +125,7 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
     var deleteId by rememberSaveable { mutableStateOf<String?>(null) }
     var benchmarkOptionsExpanded by rememberSaveable { mutableStateOf(false) }
     var showToolHealth by rememberSaveable { mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(debugMode) { if (!debugMode && tab == 7) tab = 6 }
     val selected = profile
     val local = selected?.compatibleType == ClientType.LITERT_LM
     val tint = benchmarkTint(local)
@@ -147,8 +155,8 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
     }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             item { SettingsHero("Performance lab", "Measure. Compare. Improve.", "${history.size} recorded runs · ${profiles.size} profiles") }
-            item { BenchmarkNavigation(tab) { tab = it } }
-            if (tab != 2 && tab != 5 && !(tab == 4 && delegationBoard)) item { BenchmarkProfilePicker(profiles, selected, progress == null, viewModel::select) }
+            item { BenchmarkNavigation(tab, debugMode) { tab = it } }
+            if (tab != 2 && tab != 5 && tab != 6 && !(tab == 4 && delegationBoard)) item { BenchmarkProfilePicker(profiles, selected, progress == null, viewModel::select) }
             if (error != null) {
                 item {
                     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
@@ -179,7 +187,41 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                     }
                 }
             }
-            if (tab == 2) {
+            if (tab == 6) {
+                item {
+                    SettingsPanel("Export benchmark data") {
+                        Text("Save every stored run, sample, score table and local runtime qualification. Includes all profiles and dates, regardless of the current filters.")
+                        Button(onClick = {
+                            detailedExport = false
+                            exportLauncher.launch("benchmarks-${System.currentTimeMillis()}.json")
+                        }, enabled = !exporting && ready) { Text(if (exporting) "Exporting…" else "Export all benchmark data") }
+                        exportNotice?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
+                    }
+                }
+            } else if (tab == 7 && debugMode) {
+                item {
+                    SettingsPanel("Diagnostic benchmark") {
+                        Text("Runs the full test suite and records per-test memory, thermal and battery samples alongside timings, tokens, tool results and score dimensions. Provider usage is billed normally.")
+                        Button(onClick = viewModel::startDebugBenchmark, enabled = selected != null && ready && progress == null && !activeRequests) { Text("Run full diagnostic benchmark") }
+                        TextButton(onClick = {
+                            detailedExport = true
+                            exportLauncher.launch("benchmark-debug-${System.currentTimeMillis()}.json")
+                        }, enabled = !exporting && ready) { Text("Export diagnostic data & score breakdown") }
+                    }
+                }
+                items(history.filter { it.diagnosticMode }, key = { "debug.${it.id}" }) { run ->
+                    SettingsPanel(run.profileName) {
+                        val currentRow = snapshot?.rows?.firstOrNull { run.id in it.sourceRunIds }
+                        val result = benchmarkRating(listOf(run), run.local).copy(
+                            score = currentRow?.overall?.roundToInt(),
+                            dimensions = dev.chungjungsoo.gptmobile.data.benchmark.benchmarkScoreDimensions(currentRow, run.local)
+                        )
+                        Text("${result.grade} · ${run.samples.size} trials · ${run.resources.size} resource samples")
+                        result.dimensions.forEach { dimension -> Text("${dimension.label}: ${dimension.score?.let { "%.1f".format(it) } ?: "Not measured"} · weight ${dimension.weight}", style = MaterialTheme.typography.bodySmall) }
+                        run.samples.forEach { sample -> Text("${sample.label}: ${sample.outcome} · ${sample.durationMs} ms · ${sample.outputTokens} tokens · first text ${sample.firstTextMs ?: "—"} ms", style = MaterialTheme.typography.bodySmall) }
+                    }
+                }
+            } else if (tab == 2) {
                 item { BenchmarkScoreboardPanel(dev.chungjungsoo.gptmobile.data.benchmark.ScoreboardKind.MODEL, onRun = { tab = 0 }) }
                 item { BenchmarkAction(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_fee0cd4cdb), Icons.Rounded.BarChart, onClick = { tab = 1 }) }
             } else if (tab == 4 && delegationBoard) {

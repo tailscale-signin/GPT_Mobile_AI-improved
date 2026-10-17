@@ -20,7 +20,6 @@ import androidx.compose.material.icons.rounded.AccountTree
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.Code
 import androidx.compose.material.icons.rounded.Commit
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Description
@@ -82,7 +81,9 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
     val uriHandler = LocalUriHandler.current
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
-    var tab by rememberSaveable { mutableIntStateOf(0) }
+    val workspaceScroll = rememberScrollState()
+    var tab by rememberSaveable { mutableIntStateOf(3) }
+    LaunchedEffect(tab, state.commitDetail) { workspaceScroll.scrollTo(0) }
     var repositoryMenu by remember { mutableStateOf(false) }
     var branchMenu by remember { mutableStateOf(false) }
     var repositoryQuery by remember { mutableStateOf("") }
@@ -124,7 +125,7 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
                     actions = {
                         state.selection?.let { repo ->
                             IconButton(onClick = { uriHandler.openUri("https://github.com/${repo.fullName}") }) { Icon(Icons.Rounded.Launch, "Open repository on GitHub") }
-                            IconButton(onClick = viewModel::refreshBranch, enabled = canNavigate) { Icon(Icons.Rounded.Refresh, "Refresh branch") }
+                            IconButton(onClick = { if (tab == 3) viewModel.refreshActivity() else viewModel.refreshBranch() }, enabled = canNavigate) { Icon(Icons.Rounded.Refresh, "Refresh branch") }
                         }
                     }
                 )
@@ -183,24 +184,21 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
                         state.notice?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.heightIn(max = 72.dp).verticalScroll(rememberScrollState())) }
                     }
                 }
-                PrimaryTabRow(selectedTabIndex = tab) {
-                    listOf("Code" to Icons.Rounded.Code, "Changes ${state.staged.size}" to Icons.Rounded.Commit, "Pull requests" to Icons.Rounded.AccountTree).forEachIndexed { index, (label, icon) ->
-                        Tab(selected = tab == index, enabled = !editorDirty || index == 0, onClick = {
-                            tab = index
-                            if (index == 2 && state.selection != null) viewModel.loadPullRequests()
-                        }, text = {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Icon(icon, null, Modifier.size(18.dp))
-                                Text(label, maxLines = 1)
-                            }
-                        })
+                val workspaceTabs = listOf(3 to "Home", 0 to "Code", 1 to "Changes", 2 to "PRs")
+                PrimaryTabRow(selectedTabIndex = workspaceTabs.indexOfFirst { it.first == tab }.coerceAtLeast(0)) {
+                    workspaceTabs.forEach { (id, label) ->
+                        Tab(selected = tab == id, enabled = !editorDirty || id == 0, onClick = {
+                            tab = id
+                            if (id == 2 && state.selection != null) viewModel.loadPullRequests()
+                        }, text = { Text(if (id == 1 && state.staged.isNotEmpty()) "$label (${state.staged.size})" else label, maxLines = 1) })
                     }
                 }
-                Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(Modifier.weight(1f).verticalScroll(workspaceScroll).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     if (state.selection == null) {
                         WorkspaceEmpty(Icons.Rounded.FolderOpen, "Your code, within reach", "Choose a repository above to browse files, prepare changes and review pull requests.")
                     } else {
                         when (tab) {
+                            3 -> GitHubActivityDashboard(state, viewModel, onOpenPulls = { tab = 2 }, onOpenUrl = uriHandler::openUri)
                             0 -> {
                                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
                                     TextButton(onClick = { viewModel.browse("") }, enabled = !state.busy && !editorDirty) {
@@ -313,6 +311,7 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
                                     Surface(onClick = { viewModel.inspectPullRequest(pr.text("number").toInt()) }, enabled = !state.busy, shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
                                         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                             Icon(Icons.Rounded.AccountTree, null, Modifier.size(22.dp))
+                                            GitHubCheckBadge(pr.text("check_state"))
                                             Column(Modifier.weight(1f)) {
                                                 Text(pr.text("title"), style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                                 Text("#${pr.text("number")} · ${if (pr.flag("draft")) "Draft" else pr.text("state")}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

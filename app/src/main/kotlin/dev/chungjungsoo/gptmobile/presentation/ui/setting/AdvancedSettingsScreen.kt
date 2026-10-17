@@ -53,16 +53,18 @@ fun AdvancedSettingsScreen(
     val settings by viewModel.featureSettings.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
     val groups = remember { AppFeature.entries.groupBy(SettingsSearchRegistry::group) }
-    val rows = remember { groups.values.flatMap { listOf<AppFeature?>(null) + it } }
+    val categories = remember { listOf("Privacy & Storage", "Performance", "New Chat") + groups.keys }
+    var category by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("Performance") }
     LaunchedEffect(initialFocus) {
-        val target = if (initialFocus.startsWith("privacy")) {
-            0
-        } else if (initialFocus == "smart-readiness") {
-            1
-        } else {
-            rows.indexOfFirst { it?.name == initialFocus }.takeIf { it >= 0 }?.plus(3)
+        category = when {
+            initialFocus.startsWith("privacy") -> "Privacy & Storage"
+            initialFocus == "smart-readiness" -> "Performance"
+            else -> AppFeature.entries.firstOrNull { it.name == initialFocus }?.let(SettingsSearchRegistry::group) ?: category
         }
-        if (target != null) listState.scrollToItem(target)
+    }
+    LaunchedEffect(category, initialFocus) {
+        val index = groups[category].orEmpty().indexOfFirst { it.name == initialFocus }.coerceAtLeast(0)
+        listState.scrollToItem(index)
     }
     CompositionLocalProvider(LocalSettingSearchFocus provides initialFocus.substringAfter(':', "")) {
         Scaffold(modifier = modifier.fillMaxSize(), topBar = {
@@ -70,37 +72,41 @@ fun AdvancedSettingsScreen(
                 IconButton(onClick = onNavigationClick) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.go_back)) }
             })
         }) { padding ->
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.fillMaxSize().padding(padding),
-                contentPadding = PaddingValues(AppSpacing.large),
-                verticalArrangement = Arrangement.spacedBy(AppSpacing.small)
-            ) {
-                item(key = "privacy") {
-                    SettingsPanel("Privacy & Storage") { PrivacyStoragePanel(embedded = true) }
+            Column(Modifier.fillMaxSize().padding(padding)) {
+                Column(Modifier.padding(horizontal = AppSpacing.large, vertical = AppSpacing.small)) {
+                    Text("Fine-tune your experience", style = MaterialTheme.typography.titleLarge)
+                    Text("Choose a category. Changes save automatically.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    SettingsTabs(categories, categories.indexOf(category).coerceAtLeast(0)) { category = categories[it] }
                 }
-                item(key = "smart-readiness") { SmartReadinessPanel(settings.readiness, viewModel) }
-                item(key = "price-actions") { SettingsPanel("New Chat — Pricing Sources") { NewChatInsightsSettingsPanel() } }
-                groups.forEach { (group, features) ->
-                    item(key = "group.$group") { Text(group, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(vertical = AppSpacing.medium)) }
-                    features.forEach { feature ->
-                        item(key = feature.name) {
-                            Card(
-                                modifier = Modifier.fillMaxWidth().testTag("setting_${feature.name}"),
-                                shape = AppShapes.card,
-                                colors = CardDefaults.cardColors(containerColor = if (initialFocus == feature.name) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow)
-                            ) {
-                                Row(Modifier.padding(AppSpacing.large), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
-                                    Column(Modifier.weight(1f)) {
-                                        Text(feature.title, style = MaterialTheme.typography.bodyLarge)
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(AppSpacing.large),
+                    verticalArrangement = Arrangement.spacedBy(AppSpacing.small)
+                ) {
+                    when (category) {
+                        "Privacy & Storage" -> item(key = "privacy") { SettingsPanel("Privacy & Storage") { PrivacyStoragePanel(embedded = true) } }
+                        "Performance" -> item(key = "smart-readiness") { SmartReadinessPanel(settings.readiness, viewModel) }
+                        "New Chat" -> item(key = "price-actions") { SettingsPanel("Pricing & Discovery") { NewChatInsightsSettingsPanel() } }
+                        else -> groups[category].orEmpty().forEach { feature ->
+                            item(key = feature.name) {
+                                Card(
+                                    modifier = Modifier.fillMaxWidth().testTag("setting_${feature.name}"),
+                                    shape = AppShapes.card,
+                                    colors = CardDefaults.cardColors(containerColor = if (initialFocus == feature.name) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow)
+                                ) {
+                                    Row(Modifier.padding(AppSpacing.large), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
+                                        Column(Modifier.weight(1f)) {
+                                            Text(feature.title, style = MaterialTheme.typography.bodyLarge)
+                                            Text(feature.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                        Switch(
+                                            checked = settings.withFeature(feature, true) == settings,
+                                            onCheckedChange = { viewModel.updateFeature(feature, it) },
+                                            enabled = feature != AppFeature.PARALLEL_SEARCH,
+                                            modifier = Modifier.semantics { contentDescription = feature.title }
+                                        )
                                     }
-                                    SettingsHelpIcon(feature.description, title = feature.title)
-                                    Switch(
-                                        checked = settings.withFeature(feature, true) == settings,
-                                        onCheckedChange = { viewModel.updateFeature(feature, it) },
-                                        enabled = feature != AppFeature.PARALLEL_SEARCH,
-                                        modifier = Modifier.semantics { contentDescription = feature.title }
-                                    )
                                 }
                             }
                         }

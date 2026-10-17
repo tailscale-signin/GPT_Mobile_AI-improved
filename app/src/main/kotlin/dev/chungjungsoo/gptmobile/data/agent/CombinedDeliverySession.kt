@@ -99,13 +99,24 @@ internal class CombinedDeliverySession(
             return@flow
         }
         var violations = withContext(Dispatchers.Default) { policy.violations(accepted.text) }
+        var coverageResult = withContext(Dispatchers.Default) { coverage.check(accepted.text) }
+        // A target-length answer often looks complete to the model even when it omitted
+        // whole requested eras. For broad, length-targeted prompts, give the editor the
+        // unresolved source claims so it can repair omissions inside the user's word budget.
+        // A request for one fact/example remains intentionally narrow.
+        val repairCoverage = policy.targetWords != null && !policy.singleExample && coverageResult.missing.isNotEmpty()
         var repairs = 0
-        if (!progressive && committedPrefix.isEmpty() && accepted.terminal == ProviderEvent.Completed && violations.isNotEmpty() && maxRepairRounds > 0) {
-            emit(ProviderEvent.Notice("Checking the requested length and removing repeated material."))
+        if (!progressive &&
+            committedPrefix.isEmpty() &&
+            accepted.terminal == ProviderEvent.Completed &&
+            (violations.isNotEmpty() || repairCoverage) &&
+            maxRepairRounds > 0
+        ) {
+            emit(ProviderEvent.Notice("Checking the requested scope, length, and source coverage."))
             repairs = 1
             val repairSession = withTimeoutOrNull(90_000L) {
                 try {
-                    repair(accepted.text, emptyList())
+                    repair(accepted.text, if (repairCoverage) coverageResult.missing else emptyList())
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (_: Exception) {

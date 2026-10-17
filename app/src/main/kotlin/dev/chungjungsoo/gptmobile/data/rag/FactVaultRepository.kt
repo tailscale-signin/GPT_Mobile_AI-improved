@@ -312,12 +312,7 @@ class FactVaultRepository @Inject constructor(
                 (!settings.sameChatOnly || it.sourceChatId == chatId) &&
                 !(messageId > 0 && it.sourceChatId == chatId && it.sourceMessageId == messageId)
         }
-        val selected = mutableListOf<VaultFact>()
-        for (entry in MemoryRecallPolicy.rank(query, candidates, previousContext, settings.rankByRecency, settings.rankByFrequency, now, emptyMap())) {
-            if (selected.size >= settings.maxRecall) break
-            if (selected.any { it.id == entry.id || FactRecall(listOf(it)).prefix() == FactRecall(listOf(entry)).prefix() }) continue
-            if (dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(FactRecall(selected + entry).prefix()) <= settings.recallTokens) selected += entry
-        }
+        val selected = MemoryRecallPolicy.select(query, candidates, settings, previousContext, now)
         // Policy/fact mutation while ranking makes the entire preview ineligible.
         return if (_state.value == snapshot) FactRecall(selected) else FactRecall()
     }
@@ -375,14 +370,9 @@ class FactVaultRepository @Inject constructor(
                     (!settings.sameChatOnly || it.sourceChatId == chatId) &&
                     !(messageId > 0 && it.sourceChatId == chatId && it.sourceMessageId == messageId)
             }
-            val selected = mutableListOf<VaultFact>()
-            // Long requests still use the complete lexical query. Do not rank a truncated prefix as the full task.
+            // The preview and execution use identical count, duplicate and token-budget policies.
             val semanticScores = if (settings.semanticRecall && query.length <= MAX_QUERY_CHARS) semantic?.search(query, scope, includePersonal = recallBoundary.includePersonal, inheritedScopes = recallBoundary.inheritedScopes).orEmpty() else emptyMap()
-            for (entry in MemoryRecallPolicy.rank(query, candidates, previousContext, settings.rankByRecency, settings.rankByFrequency, now, semanticScores)) {
-                if (selected.any { it.id == entry.id || FactRecall(listOf(it)).prefix() == FactRecall(listOf(entry)).prefix() }) continue
-                if (selected.size >= settings.maxRecall) break
-                if (dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(FactRecall(selected + entry).prefix()) <= settings.recallTokens) selected += entry
-            }
+            val selected = MemoryRecallPolicy.select(query, candidates, settings, previousContext, now, semanticScores)
             FactRecall(selected)
         }
     }

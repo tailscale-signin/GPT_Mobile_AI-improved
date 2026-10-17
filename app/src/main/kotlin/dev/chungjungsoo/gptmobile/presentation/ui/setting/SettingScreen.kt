@@ -123,100 +123,43 @@ fun SettingScreen(
             }
             if (query.isBlank()) {
                 item {
-                    SettingsCategory(title = stringResource(R.string.settings_category_ai)) {
-                        SettingsDestination(
-                            icon = Icons.Rounded.SmartToy,
-                            title = stringResource(R.string.settings_profiles),
-                            onClick = onNavigateToAiPlatforms
-                        )
-                        SettingsDestination(
-                            icon = Icons.Rounded.Storage,
-                            title = stringResource(R.string.local_models),
-                            onClick = onNavigateToLocalModels
-                        )
-                        SettingsDestination(icon = Icons.Rounded.Tune, title = "Execution & efficiency", onClick = { showExecution = true })
-                    }
-                }
-
-                item {
-                    SettingsCategory(title = stringResource(R.string.settings_category_tools)) {
-                        SettingsDestination(
-                            icon = Icons.Rounded.Build,
-                            title = stringResource(R.string.settings_category_tools),
-                            onClick = onNavigateToToolConnections
-                        )
-                        if (featureSettings.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH)) SettingsDestination(icon = Icons.Rounded.Psychology, title = "Research", onClick = { showResearch = true })
+                    SettingsCategory("AI", "Profiles and models") {
+                        SettingsDestination(Icons.Rounded.SmartToy, "AI Profiles", onNavigateToAiPlatforms)
+                        SettingsDestination(Icons.Rounded.Storage, "Local Models", onNavigateToLocalModels)
                     }
                 }
                 item {
-                    SettingsCategory(title = stringResource(R.string.settings_category_memory)) {
-                        SettingsDestination(
-                            icon = Icons.Rounded.Psychology,
-                            title = stringResource(R.string.settings_delegation),
-                            onClick = { showDelegation = true }
-                        )
-                        SettingsDestination(
-                            icon = Icons.Rounded.AccountTree,
-                            title = stringResource(R.string.settings_memory),
-                            onClick = onNavigateToFactVault
-                        )
-                        if (githubWorkspaceEnabled) {
-                            SettingsDestination(
-                                icon = Icons.Rounded.Build,
-                                title = stringResource(R.string.settings_workspace),
-                                onClick = onNavigateToWorkspaces
-                            )
+                    SettingsCategory("Plugins", "Tools, memory, research and connected work") {
+                        SettingsDestination(Icons.Rounded.Build, "Plugins & Tools", onNavigateToToolConnections)
+                        SettingsDestination(Icons.Rounded.Psychology, "Model Delegation", { showDelegation = true })
+                        SettingsDestination(Icons.Rounded.AccountTree, "Memory", onNavigateToFactVault)
+                        if (featureSettings.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH)) {
+                            SettingsDestination(Icons.Rounded.Psychology, "Research", { showResearch = true })
                         }
+                        if (githubWorkspaceEnabled) SettingsDestination(Icons.Rounded.Build, "GitHub Workspace", onNavigateToWorkspaces)
+                        SettingsDestination(Icons.Rounded.Tune, "Execution & Efficiency", { showExecution = true })
                     }
                 }
-
                 item {
-                    SettingsCategory(
-                        title = stringResource(R.string.settings_category_experience)
-                    ) {
-                        SettingsDestination(
-                            icon = Icons.Rounded.Palette,
-                            title = stringResource(R.string.theme_settings),
-                            onClick = onNavigateToAppearance
-                        )
-                        SettingsDestination(
-                            icon = Icons.Rounded.Tune,
-                            title = stringResource(R.string.settings_advanced),
-                            onClick = onNavigateToAdvancedSettings
-                        )
+                    SettingsCategory("Appearance & Behavior", "Themes, display and advanced preferences") {
+                        SettingsDestination(Icons.Rounded.Palette, "Themes", onNavigateToAppearance)
+                        SettingsDestination(Icons.Rounded.Tune, "Advanced Settings", onNavigateToAdvancedSettings)
                     }
                 }
-
                 item {
-                    SettingsCategory(
-                        title = stringResource(R.string.settings_category_data)
-                    ) {
-                        SettingsDestination(
-                            icon = Icons.Rounded.BugReport,
-                            title = "Activity",
-                            onClick = onNavigateToDebugDiagnostics
-                        )
-
-                        SettingsDestination(
-                            icon = Icons.Rounded.Backup,
-                            title = stringResource(R.string.backup_and_restore),
-                            onClick = settingViewModel::openBackupRestoreDialog
-                        )
+                    SettingsCategory("Activity & Performance", "Usage, benchmarks and diagnostics") {
+                        SettingsDestination(Icons.Rounded.Storage, "Usage Statistics", { onSearchDestination(SettingsSearchDestination.STATISTICS.name, "") })
+                        SettingsDestination(Icons.Rounded.Tune, "Benchmarks", { onSearchDestination(SettingsSearchDestination.BENCHMARKS.name, "") })
+                        SettingsDestination(Icons.Rounded.BugReport, if (debugMode) "Debug & Diagnostics" else "Activity", onNavigateToDebugDiagnostics)
                     }
                 }
-
                 item {
-                    SettingsCategory(
-                        title = "About"
-                    ) {
-                        SettingsDestination(
-                            icon = Icons.Rounded.Info,
-                            title = stringResource(R.string.about),
-                            onClick = onNavigateToAboutPage
-                        )
+                    SettingsCategory("Data & About", "Backup, recovery and app information") {
+                        SettingsDestination(Icons.Rounded.Backup, "Backup & Restore", settingViewModel::openBackupRestoreDialog)
+                        SettingsDestination(Icons.Rounded.Info, "About", onNavigateToAboutPage)
                     }
                 }
-                item { Spacer(Modifier.height(48.dp)) }
+                item { Spacer(Modifier.height(24.dp)) }
             }
         }
     }
@@ -236,17 +179,26 @@ fun SettingScreen(
 }
 
 @Composable
-private fun SettingsCategory(
-    title: String,
-    content: @Composable () -> Unit
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(
-            title.split(Regex("\\s+")).joinToString(" ") { word -> word.replaceFirstChar { ch -> if (ch.isLowerCase()) ch.titlecase() else ch.toString() } },
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold
-        )
-        Column(Modifier.fillMaxWidth()) { content() }
+private fun SettingsCategory(title: String, detail: String, content: @Composable () -> Unit) {
+    var expanded by rememberSaveable(title) { mutableStateOf(false) }
+    androidx.compose.material3.Card(
+        colors = androidx.compose.material3.CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        shape = MaterialTheme.shapes.large
+    ) {
+        Column(Modifier.fillMaxWidth()) {
+            Row(
+                Modifier.fillMaxWidth().clickable(role = Role.Button) { expanded = !expanded }.padding(20.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Text(if (expanded) "−" else "+", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
+            }
+            if (expanded) content()
+        }
     }
 }
 

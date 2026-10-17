@@ -61,6 +61,18 @@ class AssistantTextMarkupGuardTest {
         }
     }
 
+    @Test fun controlLinesAfterSplitLineEndingsAreWithheld() = runBlocking {
+        for (newline in listOf("\n", "\r", "\r\n", "\u0085", "\u2028", "\u2029")) {
+            val events = flowOf(
+                ProviderEvent.TextDelta("Answer.$newline"),
+                ProviderEvent.TextDelta("assistant to=search {\"query\":\"private\"}"),
+                ProviderEvent.Completed
+            ).withAssistantTextMarkupGuard().toList()
+            assertEquals("Answer.$newline", events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
+            assertTrue(events.filterIsInstance<ProviderEvent.Failed>().single().message.contains("unparsed tool-call markup"))
+        }
+    }
+
     @Test fun splitRawToolMarkupIsWithheldBeforeItReachesTheConsumer() = runBlocking {
         val events = flowOf(
             ProviderEvent.TextDelta("A useful sentence. <tool_"),

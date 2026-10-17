@@ -69,7 +69,7 @@ private class AssistantTextMarkupGuard {
 
     private val pending = StringBuilder()
     private var blocked = false
-    private var previousCharacter: Char? = null
+    private var previousText = ""
     private var atLineStart = true
     private val wireMarkup = Regex("(?is)</?(?:tool_call|function_call|tool_result|invoke)\\b[^>]*>|<\\|(?:tool_call|function_call)(?:\\|)?>|<\\|im_start\\|>")
     private val assistantToolLine = Regex("(?im)^\\s*assistant\\s+to=[A-Za-z0-9_.-]+\\s+(?:\\[|\\{)")
@@ -150,7 +150,7 @@ private class AssistantTextMarkupGuard {
         return null
     }
 
-    private fun wordPrefix(): String = previousCharacter?.toString().orEmpty()
+    private fun wordPrefix(): String = previousText
 
     private fun linePrefix(): String = if (atLineStart) "" else "x"
 
@@ -158,8 +158,9 @@ private class AssistantTextMarkupGuard {
         val text = pending.substring(0, count)
         pending.delete(0, count)
         if (text.isNotEmpty()) {
-            previousCharacter = text.last()
-            val newline = text.lastIndexOf('\n')
+            // Preserve a complete supplementary code point for regex boundaries.
+            previousText = (previousText + text.takeLast(2)).takeLast(2)
+            val newline = text.indexOfLast { it in "\n\r\u0085\u2028\u2029" }
             atLineStart = if (newline >= 0) text.substring(newline + 1).isBlank() else atLineStart && text.isBlank()
         }
         return text

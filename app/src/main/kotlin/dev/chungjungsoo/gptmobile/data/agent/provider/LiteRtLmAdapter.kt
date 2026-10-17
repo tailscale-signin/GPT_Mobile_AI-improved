@@ -166,6 +166,8 @@ class LiteRtLmAdapter(
                 // Expose the app-managed tool catalog even when this model lacks native
                 // function-call parsing; the prompt bridge validates and executes calls.
                 val usePromptToolBridge = !nativeToolsCapable && boundTools.isNotEmpty()
+                // Some runtimes advertise native tools while the model emits tool-call JSON as text.
+                val textToolFallbackEnabled = boundTools.isNotEmpty()
                 val latestAttachments = turns.lastOrNull()?.userMessage?.attachments.orEmpty()
                 attachmentNotices(visionCapable, turns, latestAttachments).forEach { notice ->
                     send(notice)
@@ -221,8 +223,11 @@ class LiteRtLmAdapter(
                 val thinkingEnabled = platform.reasoning && constraints.allowReasoning && metadata?.thinking != false
 
                 val availableTools = boundTools
-                val promptToolInstructions = if (usePromptToolBridge) {
-                    LocalPromptToolBridge.instruction(availableTools.map { it.definition })
+                val promptToolInstructions = if (textToolFallbackEnabled) {
+                    LocalPromptToolBridge.instruction(
+                        availableTools.map { it.definition },
+                        includeSchemas = usePromptToolBridge
+                    )
                 } else {
                     ""
                 }
@@ -580,7 +585,7 @@ class LiteRtLmAdapter(
 
                                                 is LocalRuntimeEvent.TextDelta -> {
                                                     if (event.text.isNotEmpty()) generatedOutput = true
-                                                    if (usePromptToolBridge) {
+                                                    if (textToolFallbackEnabled) {
                                                         fallbackOutput.append(event.text)
                                                     } else {
                                                         assistantReply.append(event.text)
@@ -614,7 +619,7 @@ class LiteRtLmAdapter(
                                             }
                                         }
                                     if (templateFailure == null) {
-                                        if (!failed && usePromptToolBridge) {
+                                        if (!failed && textToolFallbackEnabled) {
                                             val call = if (promptToolsClosed) null else LocalPromptToolBridge.parse(fallbackOutput.toString(), runToolsByName.keys)
                                             if (call != null && promptToolCallCount < 8) {
                                                 nativeToolsUsed = true

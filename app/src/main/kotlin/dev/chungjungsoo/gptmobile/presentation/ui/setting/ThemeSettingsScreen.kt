@@ -164,7 +164,7 @@ fun ThemeSettingsScreen(onDismiss: () -> Unit, asDialog: Boolean = true, initial
                     style = MaterialTheme.typography.bodyMedium
                 )
                 ScrollableTabRow(selectedTabIndex = tab, edgePadding = 8.dp) {
-                    listOf("Style", "Colours", "Display", "Saved").forEachIndexed { index, label ->
+                    listOf("Gallery", "Customize", "Display", "My Themes").forEachIndexed { index, label ->
                         Tab(selected = tab == index, onClick = { tab = index }, text = { Text(label) })
                     }
                 }
@@ -193,13 +193,17 @@ fun ThemeSettingsScreen(onDismiss: () -> Unit, asDialog: Boolean = true, initial
                                     }
                                 }
                                 item {
-                                    if (!wide) AppearancePreview(scheme)
+                                    if (!wide && tab == 1) AppearancePreview(scheme)
                                 }
                                 when (tab) {
                                     0 -> {
                                         item { FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) { listOf("All", "Dark", "Light").forEach { label -> FilterChip(selected = filter == label, onClick = { filter = label }, label = { Text(label) }) } } }
-                                        items(ThemePresets.profiles.filter { filter == "All" || it.mode.name.equals(filter, true) }, key = { it.name }) { profile ->
-                                            ThemeProfileRow(profile, draft.activeProfileId == profile.id, onClick = { select(profile) })
+                                        item { Text("Find your atmosphere", style = MaterialTheme.typography.headlineSmall) }
+                                        items(ThemePresets.profiles.filter { filter == "All" || it.mode.name.equals(filter, true) }.chunked(2), key = { it.first().id }) { pair ->
+                                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                                pair.forEach { profile -> ThemeProfileRow(profile, draft.activeProfileId == profile.id, Modifier.weight(1f), onClick = { select(profile) }) }
+                                                if (pair.size == 1) androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
+                                            }
                                         }
                                     }
                                     1 -> {
@@ -377,7 +381,7 @@ fun ThemeSettingsScreen(onDismiss: () -> Unit, asDialog: Boolean = true, initial
                     "delete" -> selected?.let(editor::delete)
                     "overwrite" -> editor.save(name, selectedId) { save = false }
                     "contrast" -> editor.apply()
-                    "replace" -> (ThemePresets.profiles.find { "builtin:${it.name}" == selectedId } ?: selected)?.let(editor::select)
+                    "replace" -> (ThemePresets.profiles.find { it.id == selectedId } ?: selected)?.let(editor::select)
                     "backup" -> editor.apply { backup.openBackupRestoreDialog() }
                     else -> editor.apply(onDismiss)
                 }
@@ -411,18 +415,34 @@ fun ThemeSettingsScreen(onDismiss: () -> Unit, asDialog: Boolean = true, initial
 
 @Composable
 private fun ThemeProfileRow(profile: SavedThemeProfile, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    Card(onClick = onClick, modifier = modifier.fillMaxWidth()) {
-        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Surface(color = Color(profile.palette.background), shape = MaterialTheme.shapes.medium) {
-                Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    listOf(profile.palette.primary, profile.palette.secondary).forEach { Surface(color = Color(it), shape = MaterialTheme.shapes.small, modifier = Modifier.size(20.dp)) {} }
+    val palette = profile.palette
+    val dark = profile.mode != ThemeMode.LIGHT
+    val ink = if (dark) Color(0xFFF2F3F6) else Color(0xFF20242B)
+    Card(
+        onClick = onClick,
+        modifier = modifier.fillMaxWidth(),
+        border = if (selected) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(22.dp)
+    ) {
+        Surface(color = Color(palette.background)) {
+            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Surface(color = Color(palette.primary), shape = androidx.compose.foundation.shape.CircleShape, modifier = Modifier.size(12.dp)) {}
+                    androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
+                    if (selected) Icon(Icons.Rounded.Check, "Selected theme", tint = Color(palette.primary), modifier = Modifier.size(18.dp))
+                }
+                Surface(color = Color(palette.surface), shape = MaterialTheme.shapes.medium) {
+                    Text("A new idea", color = ink, modifier = Modifier.fillMaxWidth().padding(10.dp), style = MaterialTheme.typography.labelMedium)
+                }
+                Text("Make it yours.", color = Color(palette.primary), style = MaterialTheme.typography.titleSmall)
+                Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                    listOf(palette.primary, palette.secondary, palette.surface).forEach { colour -> Surface(color = Color(colour), shape = androidx.compose.foundation.shape.CircleShape, modifier = Modifier.size(16.dp)) {} }
                 }
             }
-            Column(Modifier.weight(1f)) {
-                Text(profile.name, style = MaterialTheme.typography.titleMedium)
-                Text(profile.mode.name.lowercase(), style = MaterialTheme.typography.bodySmall)
-            }
-            if (selected) Icon(Icons.Rounded.Check, "Preview selected")
+        }
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(profile.name, style = MaterialTheme.typography.titleSmall)
+            Text(if (dark) "Dark · Calm contrast" else "Light · Clear & airy", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

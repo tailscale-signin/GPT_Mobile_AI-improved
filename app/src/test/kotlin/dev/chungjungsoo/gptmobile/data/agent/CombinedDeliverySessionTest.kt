@@ -71,6 +71,22 @@ class CombinedDeliverySessionTest {
         assertTrue(events.quality().issues.none { it.startsWith("WORD_") })
     }
 
+    @Test fun targetLengthRepairReceivesUnresolvedClaimsForBroadRequests() = runTest {
+        var repairs = 0
+        val draft = "The silver mines in Athens financed naval ships. Athens' regional naval history reflects the city's changing political and economic priorities across ancient Greek society. Researchers continue to examine these connections through material evidence, inscriptions, and comparison with neighboring city-states, placing the subject in a wider historical framework."
+        val repaired = "Silver mines funded Athenian ships. Persian merchants carried ceramics along the Silk Road during the Tang era."
+        val wrapper = CombinedDeliverySession(session(draft), sources, 10000, validateAccess = {}, originalRequest = "Summarize both findings in 50 words") { _, missing ->
+            repairs++
+            assertEquals(1, missing.size)
+            assertEquals(setOf("beta"), missing.single().profileUids)
+            session(repaired)
+        }
+        val events = wrapper.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(1, repairs)
+        assertEquals(repaired, events.answer())
+        assertEquals(1, events.quality().repairRounds)
+    }
+
     @Test fun failedRepairEnforcesUserCeilingAndReportsQualitySeparately() = runTest {
         val draft = "word ".repeat(40)
         val wrapper = CombinedDeliverySession(session(draft), sources, 10000, validateAccess = {}, originalRequest = "Under 10 words") { _, _ ->

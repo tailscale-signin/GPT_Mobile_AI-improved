@@ -56,6 +56,12 @@ object ThemePresets {
     val defaultProfile = SavedThemeProfile("Cyan", CustomThemePalette(0xFF00FFDE, 0xFFCC00FF, 0xFF001219, 0xFF0B2028), id = "builtin:cyan")
     val profiles = listOf(
         defaultProfile,
+        SavedThemeProfile("OLED", CustomThemePalette(0xFF8CD5FF, 0xFFCEB6FF, 0xFF000000, 0xFF101114)),
+        SavedThemeProfile("Cobalt", CustomThemePalette(0xFFA8C5FF, 0xFF7FE0CF, 0xFF0B1224, 0xFF17213A)),
+        SavedThemeProfile("Espresso", CustomThemePalette(0xFFE8BF98, 0xFFC4D5A1, 0xFF1A1410, 0xFF2A211C)),
+        SavedThemeProfile("Plum", CustomThemePalette(0xFFE8B3EC, 0xFFFFC4AC, 0xFF201023, 0xFF311D35)),
+        SavedThemeProfile("Paper", CustomThemePalette(0xFF365C89, 0xFF725B42, 0xFFFCFBF8, 0xFFF1F0EB), ThemeMode.LIGHT),
+        SavedThemeProfile("Porcelain", CustomThemePalette(0xFF4B5A91, 0xFF386960, 0xFFF8FAFF, 0xFFEDF0F8), ThemeMode.LIGHT),
         SavedThemeProfile("Arctic", CustomThemePalette(0xFF55DFF2, 0xFF9EDCE5, 0xFF001A1F, 0xFF062329)),
         SavedThemeProfile("Orchid", CustomThemePalette(0xFFD0BCFF, 0xFFE8B9D5, 0xFF191323, 0xFF251D33)),
         SavedThemeProfile("Forest", CustomThemePalette(0xFF8CD9AD, 0xFFC2D69A, 0xFF101C16, 0xFF1B2B22)),

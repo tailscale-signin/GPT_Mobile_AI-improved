@@ -95,6 +95,9 @@ internal interface BenchmarkDao {
     @Query("SELECT * FROM benchmark_runs ORDER BY startedAt DESC")
     suspend fun runs(): List<BenchmarkRunRecord>
 
+    @Query("SELECT * FROM benchmark_snapshots ORDER BY generation DESC")
+    suspend fun snapshots(): List<BenchmarkSnapshotRecord>
+
     @Query("SELECT * FROM benchmark_snapshots WHERE generation = (SELECT generation FROM benchmark_current WHERE id = 1)")
     suspend fun current(): BenchmarkSnapshotRecord?
 

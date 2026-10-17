@@ -59,7 +59,6 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Dns
-import androidx.compose.material.icons.rounded.DragIndicator
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material.icons.rounded.Hub
@@ -313,6 +312,8 @@ fun HomeScreen(
                         Toast.makeText(context, duplicatedChatMessage, Toast.LENGTH_SHORT).show()
                     },
                     onArchiveClick = homeViewModel::archiveSelectedChats,
+                    onPinClick = { homeViewModel.pinSelectedChats(true) },
+                    onUnpinClick = { homeViewModel.pinSelectedChats(false) },
                     onSelectAllClick = homeViewModel::selectAllChats,
                     onDeleteClick = homeViewModel::openDeleteWarningDialog,
                     onSettingClick = settingOnClick,
@@ -519,6 +520,8 @@ fun HomeScreen(
                                             }
                                         },
                                         rowActions = mapOf(
+                                            "Pin selected" to { homeViewModel.pinSelectedChats(true) },
+                                            "Unpin selected" to { homeViewModel.pinSelectedChats(false) },
                                             "Archive selected" to homeViewModel::archiveSelectedChats,
                                             "Delete selected" to homeViewModel::openDeleteWarningDialog,
                                             "Select all" to homeViewModel::selectAllChats
@@ -1189,12 +1192,7 @@ internal fun ChatListItem(
                     }
                 }
             } else if (!chatListState.isSelectionMode && !chatListState.isSearchMode) {
-                Icon(
-                    Icons.Rounded.DragIndicator,
-                    contentDescription = "Drag to organize conversation",
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = dragHandleModifier.size(48.dp).padding(12.dp)
-                )
+                Box(dragHandleModifier.size(32.dp).semantics { contentDescription = "Drag to organize conversation" })
             }
         },
         headlineContent = {
@@ -1767,6 +1765,8 @@ fun HomeTopBar(
     onDuplicateClick: () -> Unit,
     onDeleteClick: () -> Unit,
     onArchiveClick: () -> Unit = {},
+    onPinClick: () -> Unit = {},
+    onUnpinClick: () -> Unit = {},
     onSelectAllClick: () -> Unit = {},
     onSettingClick: () -> Unit,
     onSearchToggle: () -> Unit,
@@ -1790,6 +1790,18 @@ fun HomeTopBar(
                         DropdownMenuItem(text = { Text("Select all") }, onClick = {
                             selectionMenu = false
                             onSelectAllClick()
+                        })
+                        DropdownMenuItem(text = { Text("Pin selected") }, enabled = selectedChatCount > 0, onClick = {
+                            selectionMenu = false
+                            onPinClick()
+                        })
+                        DropdownMenuItem(text = { Text("Unpin selected") }, enabled = selectedChatCount > 0, onClick = {
+                            selectionMenu = false
+                            onUnpinClick()
+                        })
+                        DropdownMenuItem(text = { Text("Delete selected") }, enabled = selectedChatCount > 0, onClick = {
+                            selectionMenu = false
+                            onDeleteClick()
                         })
                         DropdownMenuItem(text = { Text("Archive selected") }, enabled = selectedChatCount > 0, onClick = {
                             selectionMenu = false

@@ -94,7 +94,7 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
     var replacementText by remember { mutableStateOf("") }
     var deleting by remember { mutableStateOf<String?>(null) }
     var clearing by remember { mutableStateOf(false) }
-    var advancedControls by rememberSaveable { mutableStateOf(initialTab.contains(':')) }
+    var memoryCategory by rememberSaveable { mutableStateOf(memoryCategoryForFocus(initialTab.substringAfter(':', ""))) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     inspecting?.let { entry ->
@@ -177,30 +177,23 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
                                 Switch(vault.enabled, viewModel::setEnabled, enabled = !busy, modifier = Modifier.semantics { contentDescription = "Enable Local Memory" })
                             }
                             Text(if (settings.allowCloudRecall) "Remote sharing allowed for eligible memories" else "Remote sharing is off", style = MaterialTheme.typography.bodyMedium)
-                            TextButton(onClick = { tab = "Overview" }) { Text("Activity and search status") }
+                            Text("${vault.facts.count { it.enabled && !it.awaitingReview && it.supersededBy == null }} saved · ${vault.facts.count { it.awaitingReview || it.pendingReplacements.isNotEmpty() }} to review · ${documents.size} sources", style = MaterialTheme.typography.labelMedium)
                         }
                     }
                 }
                 item {
                     val selectedTab = when (tab) {
-                        "Review" -> 1
-                        "Controls", "Overview" -> 2
+                        "Documents" -> 1
+                        "Controls", "Overview", "Topics" -> 2
                         else -> 0
                     }
                     TabRow(selectedTabIndex = selectedTab) {
-                        listOf("Library", "Review", "Settings").forEachIndexed { index, title ->
-                            Tab(selected = selectedTab == index, onClick = { tab = listOf("Memories", "Review", "Controls")[index] }, text = {
-                                val pending = vault.facts.count { it.awaitingReview || it.pendingReplacements.isNotEmpty() }
-                                Text(if (index == 1 && pending > 0) "$title ($pending)" else title)
-                            })
+                        listOf("Memories", "Sources", "Settings").forEachIndexed { index, title ->
+                            Tab(selected = selectedTab == index, onClick = { tab = listOf("Memories", "Documents", "Controls")[index] }, text = { Text(title) })
                         }
                     }
                     if (selectedTab == 0) {
-                        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf("Memories" to "Saved", "Documents" to "Sources", "Topics" to "Topics").forEach { (route, label) ->
-                                FilterChip(tab == route, { tab = route }, label = { Text(label) })
-                            }
-                        }
+                        SettingsTabs(listOf("Saved", "Needs review"), if (tab == "Review") 1 else 0) { tab = if (it == 1) "Review" else "Memories" }
                     }
                 }
                 if (busy) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
@@ -369,95 +362,67 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
                         }
                     }
                     else -> {
+                        item { SettingsTabs(listOf("Basics", "Learning", "Recall", "Storage", "Connections"), listOf("Basics", "Learning", "Recall", "Storage", "Connections").indexOf(memoryCategory).coerceAtLeast(0)) { memoryCategory = listOf("Basics", "Learning", "Recall", "Storage", "Connections")[it] } }
                         item {
-                            Card(Modifier.fillMaxWidth()) {
-                                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                            Text(stringResource(R.string.ui_v2_memory_controls), style = MaterialTheme.typography.titleMedium)
-                                            SettingsHelpIcon("Capture durable facts automatically, then recall only what is useful.")
-                                        }
-                                        TextButton(onClick = viewModel::applyRecommendedControls, enabled = !busy) { Text(stringResource(R.string.ui_v2_recommended)) }
-                                    }
-                                    Text("Learning mode", style = MaterialTheme.typography.titleSmall)
-                                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        listOf("Manual", "Review first", "Automatic").forEach { mode ->
-                                            val selected = when (mode) {
-                                                "Manual" -> !settings.learningEnabled
-                                                "Review first" -> settings.learningEnabled && settings.reviewBeforeRecall
-                                                else -> settings.learningEnabled && !settings.reviewBeforeRecall
+                            SettingsPanel(memoryCategory) {
+                                when (memoryCategory) {
+                                    "Basics" -> {
+                                        Text("Choose how memory learns", style = MaterialTheme.typography.titleSmall, modifier = Modifier.settingSearchFocus("Choose how memory learns"))
+                                        SettingsTabs(
+                                            listOf("Manual", "Review first", "Automatic"),
+                                            if (!settings.learningEnabled) {
+                                                0
+                                            } else if (settings.reviewBeforeRecall) {
+                                                1
+                                            } else {
+                                                2
                                             }
-                                            FilterChip(selected, {
-                                                viewModel.updateSettings(settings.copy(learningEnabled = mode != "Manual", reviewBeforeRecall = mode == "Review first"))
-                                            }, label = { Text(mode) }, enabled = !busy)
+                                        ) { mode ->
+                                            viewModel.updateSettings(settings.copy(learningEnabled = mode != 0, reviewBeforeRecall = mode == 1))
                                         }
+                                        Text("Manual saves only what you add. Review first asks before using new memories.", style = MaterialTheme.typography.bodySmall)
+                                        VaultToggle("Use saved memories", settings.recallEnabled, !busy) { viewModel.updateSettings(settings.copy(recallEnabled = it)) }
+                                        VaultToggle("Allow recall in cloud requests", settings.allowCloudRecall, !busy, "Only selected, eligible memories are shared. Memories marked local only stay on this phone.") { viewModel.updateSettings(settings.copy(allowCloudRecall = it)) }
+                                        TextButton(onClick = viewModel::applyRecommendedControls, enabled = !busy) { Text("Use balanced defaults") }
                                     }
-                                    Text("Manual saves only what you add. Review first holds new suggestions for approval. Automatic admits source-bound facts under your capture controls.", style = MaterialTheme.typography.bodySmall)
-                                    var sensitivity by remember(settings.captureSensitivity) { mutableStateOf(settings.captureSensitivity.toFloat()) }
-                                    Text("Capture breadth · ${sensitivity.toInt()}%", style = MaterialTheme.typography.titleSmall)
-                                    Slider(
-                                        value = sensitivity,
-                                        onValueChange = { sensitivity = it },
-                                        onValueChangeFinished = { viewModel.updateSettings(settings.copy(captureSensitivity = sensitivity.toInt())) },
-                                        valueRange = 0f..100f,
-                                        enabled = !busy && vault.enabled && settings.learningEnabled,
-                                        modifier = Modifier.semantics { contentDescription = "Memory capture breadth" }
-                                    )
-                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        Text(stringResource(R.string.ui_v2_only_key_facts), style = MaterialTheme.typography.labelSmall)
-                                        Text(stringResource(R.string.ui_v2_more_details), style = MaterialTheme.typography.labelSmall)
-                                    }
-                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        Text(stringResource(R.string.ui_v2_capture_policy), style = MaterialTheme.typography.labelSmall)
-                                        SettingsHelpIcon("Explicit facts and interests are learned locally. Repeated questions build topic evidence.")
-                                    }
-                                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        listOf(40 to "Selective", 65 to "Balanced", 85 to "Detailed").forEach { (value, label) ->
-                                            FilterChip(
-                                                selected = settings.captureSensitivity == value,
-                                                onClick = { viewModel.updateSettings(settings.copy(captureSensitivity = value)) },
-                                                label = { Text(label) },
-                                                enabled = !busy && vault.enabled && settings.learningEnabled
-                                            )
+                                    "Learning" -> {
+                                        Text("Capture detail", style = MaterialTheme.typography.titleSmall)
+                                        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            listOf(40 to "Essential", 65 to "Balanced", 85 to "Detailed").forEach { (value, title) ->
+                                                FilterChip(settings.captureSensitivity == value, { viewModel.updateSettings(settings.copy(captureSensitivity = value)) }, enabled = !busy, label = { Text(title) })
+                                            }
                                         }
+                                        VaultToggle("Learn preferences", settings.learnPreferences, !busy) { viewModel.updateSettings(settings.copy(learnPreferences = it)) }
+                                        VaultToggle("Learn relationships", settings.learnRelationships, !busy) { viewModel.updateSettings(settings.copy(learnRelationships = it)) }
+                                        VaultToggle("Learn recurring interests", settings.learnRecurringTopics, !busy) { viewModel.updateSettings(settings.copy(learnRecurringTopics = it)) }
+                                        VaultToggle("Use an idle local AI for richer learning", settings.localModelLearning, !busy) { viewModel.updateSettings(settings.copy(localModelLearning = it)) }
+                                        VaultLimit("Mentions before learning an interest", settings.topicRepetitions, 2..10, !busy) { viewModel.updateSettings(settings.copy(topicRepetitions = it)) }
+                                        VaultLimit("New memories per message", settings.maxCapturePerMessage, 1..16, !busy) { viewModel.updateSettings(settings.copy(maxCapturePerMessage = it)) }
+                                        TextButton(onClick = { tab = "Topics" }) { Text("View recurring interests") }
                                     }
-
-                                    Text("Learning", style = MaterialTheme.typography.titleMedium)
-                                    VaultToggle("Learn From New Messages", settings.learningEnabled, !busy) { viewModel.updateSettings(settings.copy(learningEnabled = it)) }
-                                    VaultToggle("Forget Memories When Their Conversation Is Deleted", settings.forgetWithConversation, !busy) { viewModel.updateSettings(settings.copy(forgetWithConversation = it)) }
-                                    Text("Recall and sharing", style = MaterialTheme.typography.titleMedium)
-                                    VaultToggle("Recall Saved Memories", settings.recallEnabled, !busy) { viewModel.updateSettings(settings.copy(recallEnabled = it)) }
-                                    VaultToggle("Semantic Recall · Fully On-Device", settings.semanticRecall, !busy) { viewModel.updateSettings(settings.copy(semanticRecall = it)) }
-                                    Text("${semanticStatus.indexed} / ${semanticStatus.total} semantic memories · no server required", style = MaterialTheme.typography.bodySmall)
-                                    TextButton(onClick = viewModel::rebuildSemanticIndex, enabled = !busy && vault.enabled && settings.semanticRecall) { Text(stringResource(R.string.ui_v2_rebuild_semantic_index)) }
-                                    VaultToggle("Prioritize Pinned Memories", settings.alwaysRecallPinned, !busy && settings.recallEnabled, "Relevant pinned memories get priority within the recall count and conservative context budget. Scope and cloud permissions always apply.") { viewModel.updateSettings(settings.copy(alwaysRecallPinned = it)) }
-                                    VaultToggle("Allow Recall In Cloud Requests", settings.allowCloudRecall, !busy) { viewModel.updateSettings(settings.copy(allowCloudRecall = it)) }
-                                    VaultToggle("Recall Only Within The Original Chat", settings.sameChatOnly, !busy) { viewModel.updateSettings(settings.copy(sameChatOnly = it)) }
-                                    VaultToggle("Review New Memories Before Use", settings.reviewBeforeRecall, !busy) { viewModel.updateSettings(settings.copy(reviewBeforeRecall = it)) }
-                                    VaultToggle("Learn Preferences", settings.learnPreferences, !busy) { viewModel.updateSettings(settings.copy(learnPreferences = it)) }
-                                    VaultToggle("Learn Relationships", settings.learnRelationships, !busy) { viewModel.updateSettings(settings.copy(learnRelationships = it)) }
-                                    VaultToggle("Learn Recurring Topics", settings.learnRecurringTopics, !busy) { viewModel.updateSettings(settings.copy(learnRecurringTopics = it)) }
-                                    VaultToggle("Prioritize Recent Memories", settings.rankByRecency, !busy) { viewModel.updateSettings(settings.copy(rankByRecency = it)) }
-                                    VaultToggle("Prioritize Repeated Information", settings.rankByFrequency, !busy) { viewModel.updateSettings(settings.copy(rankByFrequency = it)) }
-                                    VaultLimit("Mentions before learning a topic", settings.topicRepetitions, 2..10, !busy) { viewModel.updateSettings(settings.copy(topicRepetitions = it)) }
-                                    Text("Local assistance", style = MaterialTheme.typography.titleMedium)
-                                    VaultToggle("Use Local Model For Richer Learning", settings.localModelLearning, !busy, "Uses an idle on-device model in resumable background work. It selects exact user statements; text capture remains active when no model is loaded.") { viewModel.updateSettings(settings.copy(localModelLearning = it)) }
-                                    Text("Storage and maintenance", style = MaterialTheme.typography.titleMedium)
-                                    VaultToggle("Make Room For New Automatic Memories", settings.rotateAutomaticFacts, !busy, "Replaces the oldest automatic memories at capacity. Pinned and manually saved memories are kept.") { viewModel.updateSettings(settings.copy(rotateAutomaticFacts = it)) }
-                                    VaultLimit("New Facts Per Message", settings.maxCapturePerMessage, 1..16, !busy) { viewModel.updateSettings(settings.copy(maxCapturePerMessage = it)) }
-                                    VaultLimit("Recall Token Budget · Estimate", settings.recallTokens, 128..8192, !busy) { viewModel.updateSettings(settings.copy(recallTokens = it)) }
-                                    VaultLimit("Memories Per Response", settings.maxRecall, 1..40, !busy) { viewModel.updateSettings(settings.copy(maxRecall = it)) }
-                                    TextButton(onClick = { advancedControls = !advancedControls }) {
-                                        Text(if (advancedControls) "Hide Advanced Memory Controls" else "Show Advanced Memory Controls")
+                                    "Recall" -> {
+                                        VaultToggle("Match meaning on this device", settings.semanticRecall, !busy) { viewModel.updateSettings(settings.copy(semanticRecall = it)) }
+                                        VaultToggle("Prioritize relevant pinned memories", settings.alwaysRecallPinned, !busy) { viewModel.updateSettings(settings.copy(alwaysRecallPinned = it)) }
+                                        VaultToggle("Prioritize recent information", settings.rankByRecency, !busy) { viewModel.updateSettings(settings.copy(rankByRecency = it)) }
+                                        VaultToggle("Prioritize repeated information", settings.rankByFrequency, !busy) { viewModel.updateSettings(settings.copy(rankByFrequency = it)) }
+                                        VaultToggle("Recall only in the original chat", settings.sameChatOnly, !busy) { viewModel.updateSettings(settings.copy(sameChatOnly = it)) }
+                                        VaultLimit("Memories per response", settings.maxRecall, 1..40, !busy) { viewModel.updateSettings(settings.copy(maxRecall = it)) }
+                                        VaultLimit("Recall context budget", settings.recallTokens, 128..8192, !busy) { viewModel.updateSettings(settings.copy(recallTokens = it)) }
+                                        Text(semanticStatus.detail, style = MaterialTheme.typography.bodySmall)
+                                        TextButton(onClick = viewModel::rebuildSemanticIndex, enabled = !busy && vault.enabled && settings.semanticRecall) { Text("Rebuild search index") }
                                     }
-                                    if (advancedControls) {
-                                        VaultLimit("Memory Capacity", settings.maxFacts, 16..16384, !busy) { viewModel.updateSettings(settings.copy(maxFacts = it)) }
+                                    "Storage" -> {
+                                        VaultLimit("Memory capacity", settings.maxFacts, 16..16384, !busy) { viewModel.updateSettings(settings.copy(maxFacts = it)) }
                                         VaultLimit("Retention days · 0 keeps memories", settings.retentionDays, 0..365, !busy) { viewModel.updateSettings(settings.copy(retentionDays = it)) }
+                                        VaultToggle("Make room for new automatic memories", settings.rotateAutomaticFacts, !busy) { viewModel.updateSettings(settings.copy(rotateAutomaticFacts = it)) }
+                                        VaultToggle("Forget when the source conversation is deleted", settings.forgetWithConversation, !busy) { viewModel.updateSettings(settings.copy(forgetWithConversation = it)) }
+                                        TextButton(onClick = { clearing = true }, enabled = !busy) { Text("Clear saved memories") }
                                     }
+                                    else -> Text("Choose which connected memory services may receive your question. Local memory remains managed on this device.", style = MaterialTheme.typography.bodySmall)
                                 }
                             }
                         }
-                        if (advancedControls) {
+                        if (memoryCategory == "Connections") {
                             item {
                                 Card(Modifier.fillMaxWidth()) {
                                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -480,13 +445,6 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
                                     }
                                 }
                             }
-                        }
-                        item {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text(stringResource(R.string.ui_v2_local_memory_tools), style = MaterialTheme.typography.titleMedium)
-                                SettingsHelpIcon("Capture and recall, search and open nodes, read the graph, add observations, forget memories, and search indexed documents. These tools run inside the app; cloud recall sends selected reference text only when enabled.")
-                            }
-                            TextButton(onClick = { clearing = true }, enabled = !busy) { Text(stringResource(R.string.ui_v2_clear_saved_memories)) }
                         }
                     }
                 }
@@ -592,27 +550,16 @@ private fun memorySettingTitle(value: String): String =
         word.replaceFirstChar { ch -> if (ch.isLowerCase()) ch.titlecase() else ch.toString() }
     }
 
-internal val memoryControlSearchEntries = listOf(
-    SettingsSearchEntry("memory.control.0", "Learn From New Messages", "Memory › Settings", SettingsSearchDestination.MEMORY, "Controls:Learn From New Messages"),
-    SettingsSearchEntry("memory.control.1", "Forget Memories When Their Conversation Is Deleted", "Memory › Settings", SettingsSearchDestination.MEMORY, "Controls:Forget Memories When Their Conversation Is Deleted"),
-    SettingsSearchEntry("memory.control.2", "Recall Saved Memories", "Memory › Settings", SettingsSearchDestination.MEMORY, "Controls:Recall Saved Memories"),
-    SettingsSearchEntry("memory.control.3", "Semantic Recall · Fully On-Device", "Memory › Settings", SettingsSearchDestination.MEMORY, "Controls:Semantic Recall · Fully On-Device"),
-    SettingsSearchEntry("memory.control.4", "Prioritize Pinned Memories", "Memory › Settings", SettingsSearchDestination.MEMORY, "Controls:Always Include Pinned Memories"),
-    SettingsSearchEntry("memory.control.5", "Allow Recall In Cloud Requests", "Memory › Settings", SettingsSearchDestination.MEMORY, "Controls:Allow Recall In Cloud Requests"),
-    SettingsSearchEntry("memory.control.6", "Recall Only Within The Original Chat", "Memory › Settings", SettingsSearchDestination.MEMORY, "Controls:Recall Only Within The Original Chat"),
-    SettingsSearchEntry("memory.control.7", "Review New Memories Before Use", "Memory › Settings", SettingsSearchDestination.MEMORY, "Controls:Review New Memories Before Use"),
-    SettingsSearchEntry("memory.control.8", "Learn Preferences", "Memory › Settings", SettingsSearchDestination.MEMORY, "Controls:Learn Preferences"),
-    SettingsSearchEntry("memory.control.9", "Learn Relationships", "Memory › Settings", SettingsSearchDestination.MEMORY, "Controls:Learn Relationships"),
-    SettingsSearchEntry("memory.control.10", "Learn Recurring Topics", "Memory › Settings", SettingsSearchDestination.MEMORY, "Controls:Learn Recurring Topics"),
-    SettingsSearchEntry("memory.control.11", "Prioritize Recent Memories", "Memory › Settings", SettingsSearchDestination.MEMORY, "Controls:Prioritize Recent Memories"),
-    SettingsSearchEntry("memory.control.12", "Prioritize Repeated Information", "Memory › Settings", SettingsSearchDestination.MEMORY, "Controls:Prioritize Repeated Information"),
-    SettingsSearchEntry("memory.control.13", "Mentions before learning a topic", "Memory › Settings", SettingsSearchDestination.MEMORY, "Controls:Mentions before learning a topic"),
-    SettingsSearchEntry("memory.control.14", "Use Local Model For Richer Learning", "Memory › Settings", SettingsSearchDestination.MEMORY, "Controls:Use Local Model For Richer Learning"),
-    SettingsSearchEntry("memory.control.15", "Make Room For New Automatic Memories", "Memory › Settings", SettingsSearchDestination.MEMORY, "Controls:Make Room For New Automatic Memories"),
-    SettingsSearchEntry("memory.control.16", "New Facts Per Message", "Memory › Settings", SettingsSearchDestination.MEMORY, "Controls:New Facts Per Message"),
-    SettingsSearchEntry("memory.control.17", "Recall Token Budget · Estimate", "Memory › Settings", SettingsSearchDestination.MEMORY, "Controls:Recall Token Budget · Estimate"),
-    SettingsSearchEntry("memory.control.18", "Memories Per Response", "Memory › Settings", SettingsSearchDestination.MEMORY, "Controls:Memories Per Response"),
-    SettingsSearchEntry("memory.control.19", "Memory Capacity", "Memory › Settings", SettingsSearchDestination.MEMORY, "Controls:Memory Capacity"),
-    SettingsSearchEntry("memory.control.20", "Retention days · 0 keeps memories", "Memory › Settings", SettingsSearchDestination.MEMORY, "Controls:Retention days · 0 keeps memories"),
-    SettingsSearchEntry("memory.control.21", "Automatically Recall From Selected MCPs", "Memory › Settings", SettingsSearchDestination.MEMORY, "Controls:Automatically Recall From Selected MCPs")
+private val memoryControlGroups = linkedMapOf(
+    "Basics" to listOf("Choose how memory learns", "Use saved memories", "Allow recall in cloud requests"),
+    "Learning" to listOf("Learn preferences", "Learn relationships", "Learn recurring interests", "Use an idle local AI for richer learning", "Mentions before learning an interest", "New memories per message"),
+    "Recall" to listOf("Match meaning on this device", "Prioritize relevant pinned memories", "Prioritize recent information", "Prioritize repeated information", "Recall only in the original chat", "Memories per response", "Recall context budget"),
+    "Storage" to listOf("Memory capacity", "Retention days · 0 keeps memories", "Make room for new automatic memories", "Forget when the source conversation is deleted"),
+    "Connections" to listOf("Automatically Recall From Selected MCPs")
 )
+
+private fun memoryCategoryForFocus(focus: String): String = memoryControlGroups.entries.firstOrNull { (_, titles) -> titles.any { it.equals(focus, true) } }?.key ?: "Basics"
+
+internal val memoryControlSearchEntries = memoryControlGroups.entries.flatMap { (category, titles) -> titles.map { category to it } }.mapIndexed { index, (category, title) ->
+    SettingsSearchEntry("memory.control.$index", memorySettingTitle(title), "Plugins › Memory › $category", SettingsSearchDestination.MEMORY, "Controls:$title")
+}

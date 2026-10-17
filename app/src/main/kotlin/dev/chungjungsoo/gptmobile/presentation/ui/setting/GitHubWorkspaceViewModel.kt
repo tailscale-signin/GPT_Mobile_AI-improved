@@ -13,6 +13,7 @@ import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -52,6 +53,11 @@ data class GitHubWorkspaceState(
     val moreEntries: Boolean = false,
     val file: JsonObject? = null,
     val staged: List<GitHubStagedFile> = emptyList(),
+    val commits: List<JsonObject> = emptyList(),
+    val moreCommits: Boolean = false,
+    val commitPage: Int = 1,
+    val activityUpdatedAt: Long? = null,
+    val commitDetail: String? = null,
     val pullRequests: List<JsonObject> = emptyList(),
     val pullDetail: String? = null,
     val pullPage: Int = 1,
@@ -129,7 +135,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
         require(default.isNotBlank()) { "Repository has no default branch." }
         val selected = GitHubRepositoryContext(owner, repo, preferredRef ?: default)
         val canWrite = metadata["permissions"]?.jsonObject?.flag("push") == true && !metadata.flag("archived") && _state.value.connection?.toolPolicy != "READ_ONLY"
-        _state.update { it.copy(selection = selected, defaultBranch = default, canWrite = canWrite, branches = emptyList(), file = null, staged = emptyList(), pullRequests = emptyList(), pullDetail = null, directory = "", headSha = "", entries = emptyList()) }
+        _state.update { it.copy(selection = selected, defaultBranch = default, canWrite = canWrite, branches = emptyList(), file = null, staged = emptyList(), pullRequests = emptyList(), commits = emptyList(), commitDetail = null, activityUpdatedAt = null, pullDetail = null, directory = "", headSha = "", entries = emptyList()) }
         loadBranches(1)
         loadHeadAndDirectory()
     }
@@ -143,7 +149,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
 
     fun selectBranch(branch: String) = work {
         require(_state.value.staged.isEmpty()) { "Commit or discard staged edits before switching branches." }
-        _state.update { it.copy(selection = it.selection?.copy(ref = branch), directory = "", file = null, entries = emptyList(), headSha = "") }
+        _state.update { it.copy(selection = it.selection?.copy(ref = branch), directory = "", file = null, entries = emptyList(), headSha = "", commits = emptyList(), commitDetail = null, activityUpdatedAt = null) }
         loadHeadAndDirectory()
     }
 
@@ -159,6 +165,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
         check(sha.isNotBlank()) { "Missing branch head." }
         _state.update { it.copy(headSha = sha, file = null) }
         browseInternal(_state.value.directory)
+        loadActivityInternal()
     }
 
     fun browse(path: String) = work { browseInternal(path) }
@@ -260,6 +267,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
         ).jsonObject
         _state.update { it.copy(staged = emptyList(), headSha = result.text("sha"), file = null, notice = "Committed ${state.staged.size} file(s) to ${state.selection?.ref}.") }
         browseInternal(state.directory)
+        loadCommits(1)
     }
 
     fun createPullRequest(title: String, body: String) = work {
@@ -280,11 +288,78 @@ class GitHubWorkspaceViewModel @Inject constructor(
         loadPullRequestsInternal(1)
     }
 
+    fun refreshActivity() = work { loadActivityInternal() }
+    fun moreCommits() = work { loadCommits(_state.value.commitPage + 1) }
+    fun closeCommit() = _state.update { it.copy(commitDetail = null) }
+
+    private suspend fun loadActivityInternal() {
+        loadCommits(1)
+        loadPullRequestsInternal(1)
+        _state.update { it.copy(activityUpdatedAt = System.currentTimeMillis()) }
+    }
+
+    private suspend fun loadCommits(page: Int) {
+        val result = api("list_commits", buildJsonObject { put("page", page) }).jsonObject
+        val rows = result["items"]?.jsonArray.orEmpty().map { it.jsonObject }
+        _state.update { it.copy(commits = if (page == 1) rows else (it.commits + rows).distinctBy { row -> row.text("sha") }, commitPage = page, moreCommits = result.flag("has_more")) }
+    }
+
+    fun inspectCommit(sha: String) = work {
+        val result = api("get_commit_detail", buildJsonObject { put("ref", sha) }).jsonObject
+        val detail = buildString {
+            appendLine(result["commit"]?.jsonObject?.text("message"))
+            appendLine("\n${result.text("sha")}\n${result["stats"]}")
+            result["files"]?.jsonArray.orEmpty().forEach { row ->
+                val file = row.jsonObject
+                appendLine("\n${file.text("filename")} · ${file.text("status")}")
+                appendLine(file.text("patch").ifBlank { "Patch unavailable. Open this commit on GitHub for the complete change." })
+            }
+            if (result.flag("files_truncated")) appendLine("\nMore changed files may be available on GitHub.")
+        }
+        _state.update { it.copy(commitDetail = detail) }
+    }
+
+    private suspend fun enrichPullRequests(rows: List<JsonObject>): List<JsonObject> {
+        val summaries = java.util.concurrent.ConcurrentHashMap<String, String>()
+        // Status checks are optional dashboard enrichment. Slow/missing permissions must
+        // not hold the workspace indefinitely or make an unchecked PR appear green.
+        kotlinx.coroutines.withTimeoutOrNull(15_000L) {
+            kotlinx.coroutines.coroutineScope {
+                val gate = kotlinx.coroutines.sync.Semaphore(4)
+                rows.map { row ->
+                    async {
+                        gate.acquire()
+                        try {
+                            val sha = row["head"]?.jsonObject?.text("sha").orEmpty()
+                            val summary = try {
+                                if (sha.isBlank()) "UNKNOWN" else api("get_commit_status_summary", buildJsonObject { put("ref", sha) }).jsonObject.text("state")
+                            } catch (cancel: CancellationException) {
+                                throw cancel
+                            } catch (_: Exception) {
+                                "UNKNOWN"
+                            }
+                            summaries[row.text("number")] = summary
+                        } finally {
+                            gate.release()
+                        }
+                    }
+                }.forEach { it.await() }
+            }
+        }
+        return rows.map { row ->
+            buildJsonObject {
+                row.forEach { (key, value) -> put(key, value) }
+                put("check_state", summaries[row.text("number")] ?: "UNKNOWN")
+            }
+        }
+    }
+
     fun loadPullRequests() = work { loadPullRequestsInternal(1) }
     fun morePullRequests() = work { loadPullRequestsInternal(_state.value.pullPage + 1) }
     private suspend fun loadPullRequestsInternal(page: Int) {
-        val result = Json.parseToJsonElement(toolRequest("list_pull_requests", buildJsonObject { put("page", page) })).jsonArray.map { it.jsonObject }
-        _state.update { it.copy(pullRequests = if (page == 1) result else (it.pullRequests + result).distinctBy { pr -> pr.text("number") }, pullPage = page, morePullRequests = result.size == 20, pullDetail = null) }
+        val response = api("list_open_pull_requests", buildJsonObject { put("page", page) }).jsonObject
+        val result = enrichPullRequests(response["items"]?.jsonArray.orEmpty().map { it.jsonObject })
+        _state.update { it.copy(pullRequests = if (page == 1) result else (it.pullRequests + result).distinctBy { pr -> pr.text("number") }, pullPage = page, morePullRequests = response.flag("has_more"), pullDetail = null) }
     }
 
     fun inspectPullRequest(number: Int, page: Int = 1) = work {

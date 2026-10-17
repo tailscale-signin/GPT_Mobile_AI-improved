@@ -66,6 +66,7 @@ class GitHubWorkspaceClient(
         }
         private val json = Json { ignoreUnknownKeys = true }
         val readActions = setOf(
+            "list_commits", "list_open_pull_requests", "get_commit_detail", "get_commit_status_summary",
             "get_account", "list_repositories", "get_repository", "list_branches", "browse_files",
             "read_code", "get_branch_head", "get_pull_request_files", "get_commit_checks", "compare_refs",
             "repo_status", "repo_map", "repo_docs", "find_symbol", "find_references", "find_tests", "related_files",
@@ -120,6 +121,28 @@ class GitHubWorkspaceClient(
         val refQuery = ref.takeIf { it.isNotBlank() }?.let { "?ref=${segment(it)}" }.orEmpty()
 
         return when (action) {
+            "list_open_pull_requests" -> pageResult(request("$root/pulls?state=open&sort=updated&direction=desc&$pagination"), page, "number", "title", "state", "draft", "head", "base", "html_url", "updated_at")
+            "list_commits" -> pageResult(request("$root/commits?sha=${segment(ref.ifBlank { "HEAD" })}&$pagination"), page, "sha", "commit", "html_url")
+            "get_commit_detail" -> {
+                val result = request("$root/commits/${segment(required("ref"))}?per_page=100").jsonObject
+                buildJsonObject {
+                    put("sha", result["sha"] ?: JsonNull)
+                    put("commit", result["commit"] ?: JsonNull)
+                    put("stats", result["stats"] ?: JsonNull)
+                    put("files", JsonArray(result["files"]?.jsonArray.orEmpty().take(50)))
+                    put("files_truncated", result["files"]?.jsonArray.orEmpty().size >= 50)
+                }
+            }
+            "get_commit_status_summary" -> {
+                val target = segment(required("ref"))
+                val checks = request("$root/commits/$target/check-runs?per_page=100").jsonObject
+                val status = request("$root/commits/$target/status").jsonObject
+                buildJsonObject {
+                    put("state", gitHubCheckSummary(checks, status))
+                    put("checks", checks["total_count"] ?: JsonNull)
+                    put("statuses", status["total_count"] ?: JsonNull)
+                }
+            }
             "get_repository" -> request(root)
             "write_capabilities" -> writeCapabilities(root)
             "repo_status" -> repoStatus(owner, repo, root)

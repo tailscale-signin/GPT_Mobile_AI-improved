@@ -531,6 +531,20 @@ class HomeViewModel @Inject constructor(
         _chatListState.update { it.copy(isSelectionMode = true, selectedChats = List(it.chats.size) { true }) }
     }
 
+    fun pinSelectedChats(pinned: Boolean) {
+        val state = _chatListState.value
+        val selected = state.chats.filterIndexed { index, _ -> state.selectedChats.getOrElse(index) { false } }
+        if (selected.isEmpty()) return
+        viewModelScope.launch {
+            val ids = selected.map { it.id }
+            pinnedOrder = if (pinned) (ids + pinnedOrder).distinct() else pinnedOrder - ids.toSet()
+            pinnedOrderStore.save(pinnedOrder)
+            selected.forEach { chatRepository.setChatFavorite(it.id, pinned) }
+            disableSelectionMode()
+            fetchChats()
+        }
+    }
+
     fun archiveSelectedChats() {
         val state = _chatListState.value
         val selected = state.chats.filterIndexed { index, _ -> state.selectedChats.getOrElse(index) { false } }

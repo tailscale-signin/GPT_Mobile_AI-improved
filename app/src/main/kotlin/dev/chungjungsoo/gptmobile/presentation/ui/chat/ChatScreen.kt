@@ -812,35 +812,6 @@ fun ChatScreen(
                             Text(stringResource(R.string.next_message_label, enabledPlatformLookup[uid]?.name ?: uid))
                         }
                     }
-                    if (chatRoom.conversationMode == dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode.STANDARD &&
-                        chatViewModel.enabledPlatformsInChat.size > 1
-                    ) {
-                        Surface(
-                            color = MaterialTheme.colorScheme.primaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                            shape = MaterialTheme.shapes.medium,
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
-                        ) {
-                            Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-                                Text(
-                                    if (nextMessageProfileUid == null) {
-                                        "Message all active AIs · " + activePlatformUids.count { it !in disabledPlatformUids } + " profiles"
-                                    } else {
-                                        "Next message · " + (enabledPlatformLookup[nextMessageProfileUid]?.name ?: "Selected AI")
-                                    },
-                                    style = MaterialTheme.typography.titleSmall
-                                )
-                                Text(
-                                    if (isIdle) {
-                                        "One input · Separate responses · Compare profiles below"
-                                    } else {
-                                        "Responding · " + loadingStates.count { it != ChatViewModel.LoadingState.Idle } + " active · You can queue your next message"
-                                    },
-                                    style = MaterialTheme.typography.labelSmall
-                                )
-                            }
-                        }
-                    }
                     ChatInputBox(
                         modifier = Modifier.fillMaxWidth(),
                         inputState = chatViewModel.question,
@@ -1562,7 +1533,7 @@ private fun ChatTopBar(
             IconButton(
                 onClick = onBackAction,
                 colors = IconButtonDefaults.iconButtonColors(contentColor = MaterialTheme.colorScheme.primary),
-                modifier = Modifier.padding(start = 8.dp).size(48.dp)
+                modifier = Modifier.size(48.dp)
             ) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
@@ -1607,7 +1578,8 @@ private fun ChatTopBar(
                 }
             )
         },
-        colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent, scrolledContainerColor = Color.Transparent),
+        expandedHeight = 56.dp,
+        colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background, scrolledContainerColor = MaterialTheme.colorScheme.background),
         scrollBehavior = scrollBehavior
     )
 }

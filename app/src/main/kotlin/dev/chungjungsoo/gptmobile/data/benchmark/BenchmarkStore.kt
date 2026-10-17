@@ -33,6 +33,8 @@ internal data class BenchmarkBackupPayload(
     val exportedAt: Long = System.currentTimeMillis(),
     val runs: List<BenchmarkRun> = emptyList(),
     val scoreTable: BenchmarkScoreSnapshot? = null,
+    val scoreHistory: List<BenchmarkScoreSnapshot> = emptyList(),
+    val enrollment: Map<String, String>? = null,
     val runtimeTrials: List<RuntimeTrial> = emptyList(),
     val runtimeQualifications: List<RuntimeQualificationResult> = emptyList(),
     val runtimeDecisions: List<RuntimePlanDecisionRecord> = emptyList()
@@ -186,13 +188,15 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
         database.close()
     }
 
-    suspend fun exportJson(): String = withContext(Dispatchers.IO) {
+    suspend fun exportJson(includeScoreHistory: Boolean = false): String = withContext(Dispatchers.IO) {
         mutex.withLock {
             loadLocked()
             json.encodeToString(
                 BenchmarkBackupPayload(
                     runs = mutableHistory.value,
                     scoreTable = mutableSnapshot.value,
+                    scoreHistory = if (includeScoreHistory) dao.snapshots().map { json.decodeFromString<BenchmarkScoreSnapshot>(it.payload) } else emptyList(),
+                    enrollment = if (includeScoreHistory) activeRevisions else null,
                     runtimeTrials = mutableRuntimeTrials.value,
                     runtimeQualifications = mutableQualifications.value,
                     runtimeDecisions = dao.runtimeDecisions().map { json.decodeFromString<RuntimePlanDecisionRecord>(it.payload) }

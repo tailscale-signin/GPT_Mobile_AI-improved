@@ -21,7 +21,7 @@ internal object MemoryRecallPolicy {
         setOf("project", "building", "developing", "working"),
         setOf("preference", "prefer", "favorite", "like")
     )
-    private fun tokens(text: String): Set<String> = Regex("[\\p{L}\\p{N}]+", RegexOption.IGNORE_CASE).findAll(text.lowercase(Locale.ROOT))
+    private fun tokens(text: String): Set<String> = Regex("[\\p{L}\\p{N}]+", RegexOption.IGNORE_CASE).findAll(java.text.Normalizer.normalize(text, java.text.Normalizer.Form.NFKC).lowercase(Locale.ROOT))
         .map { it.value }.filter { it.length > 2 && it !in stop }.map { if (it.endsWith("s") && it.length > 4) it.dropLast(1) else it }.toSet()
     private fun expanded(text: String, document: Boolean = false): Set<String> {
         val terms = tokens(text + " " + RecurringTopicLearning.topics(text).joinToString(" ")).toMutableSet()
@@ -29,6 +29,28 @@ internal object MemoryRecallPolicy {
         return terms + groups.filter { group -> group.any { it in terms } }.flatMap { tokens(it.joinToString(" ")) }
     }
     fun isFollowUp(query: String): Boolean = tokens(query).size <= 10 && Regex("(?i)\\b(?:it|that|those|them|continue|earlier|previous|again)\\b").containsMatchIn(query)
+
+    /** One selection path for typing previews and dispatched requests. Privacy filtering stays upstream. */
+    fun select(query: String, facts: List<VaultFact>, settings: FactVaultSettings, previousContext: String = "", now: Long = System.currentTimeMillis(), semanticScores: Map<String, Double> = emptyMap()): List<VaultFact> {
+        val policy = settings.normalized()
+        val ranked = rank(query, facts, previousContext, policy.rankByRecency, policy.rankByFrequency, now, semanticScores)
+        val prioritized = if (policy.alwaysRecallPinned) ranked.sortedByDescending { it.pinned } else ranked
+        val selected = mutableListOf<VaultFact>()
+        val seen = hashSetOf<List<String>>()
+        fun canonical(text: String) = java.text.Normalizer.normalize(text, java.text.Normalizer.Form.NFKC)
+            .lowercase(Locale.ROOT).replace(Regex("[\\p{Z}\\s]+"), " ").trim()
+        for (fact in prioritized) {
+            if (selected.size >= policy.maxRecall) break
+            // Preserve quantities, negations, relation, scope and entity; only duplicate wording is collapsed.
+            val key = listOf(fact.scope, fact.fact.entity.name, fact.fact.relation.relationType, fact.fact.target.name).map { canonical(it) }
+            if (key in seen) continue
+            if (dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(FactRecall(selected + fact).prefix()) <= policy.recallTokens) {
+                selected += fact
+                seen += key
+            }
+        }
+        return selected
+    }
 
     fun rank(query: String, facts: List<VaultFact>, previousContext: String = "", useRecency: Boolean = true, useFrequency: Boolean = true, now: Long = System.currentTimeMillis(), semanticScores: Map<String, Double> = emptyMap()): List<VaultFact> {
         val queryTerms = tokens(query)

@@ -122,6 +122,16 @@ data class BenchmarkSample(
 }
 
 @Serializable
+data class BenchmarkResourceSample(
+    val testId: String,
+    val recordedAt: Long,
+    val processPssKb: Long,
+    val javaHeapBytes: Long,
+    val batteryPercent: Int?,
+    val thermalStatus: Int?
+)
+
+@Serializable
 data class BenchmarkRun(
     val id: String,
     val profileUid: String,
@@ -159,7 +169,9 @@ data class BenchmarkRun(
     val delegationSuiteVersion: Int = 0,
     val reviewerProvider: String? = null,
     val reviewerModel: String? = null,
-    val billingOrigin: String? = null
+    val billingOrigin: String? = null,
+    val diagnosticMode: Boolean = false,
+    val resources: List<BenchmarkResourceSample> = emptyList()
 )
 
 data class BenchmarkDimension(val label: String, val score: Double?, val weight: Int, val detail: String)

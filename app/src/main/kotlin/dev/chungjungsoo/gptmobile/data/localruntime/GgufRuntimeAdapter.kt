@@ -62,7 +62,7 @@ internal class GgufRuntimeAdapter(context: Context) : LocalRuntime {
         unloadEngine()
         journal.before(identity, "LOAD")
         try {
-            cancellableNative { GgufNative.load(model.absolutePath.toByteArray(), spec.maxTokens, spec.cpuThreads?.coerceIn(1, 64) ?: Runtime.getRuntime().availableProcessors().coerceIn(1, 8), if (accelerator == LocalAccelerators.GPU) 999 else 0).also { handle = it } }
+            cancellableNative { GgufNative.load(model.absolutePath.toByteArray(), spec.maxTokens, GgufCpuThreads.resolve(spec.cpuThreads, Runtime.getRuntime().availableProcessors()), if (accelerator == LocalAccelerators.GPU) 999 else 0).also { handle = it } }
             loaded = spec
             tuple = identity
         } catch (failure: Throwable) {

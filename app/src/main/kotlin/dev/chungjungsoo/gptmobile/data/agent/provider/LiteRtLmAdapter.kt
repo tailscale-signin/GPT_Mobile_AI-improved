@@ -223,11 +223,11 @@ class LiteRtLmAdapter(
                 val thinkingEnabled = platform.reasoning && constraints.allowReasoning && metadata?.thinking != false
 
                 val availableTools = boundTools
-                val promptToolInstructions = if (textToolFallbackEnabled) {
-                    LocalPromptToolBridge.instruction(
-                        availableTools.map { it.definition },
-                        includeSchemas = usePromptToolBridge
-                    )
+                // Native tool templates already contain their definitions. Repeating
+                // the catalog here can evict history and tools from small contexts;
+                // text-call parsing remains available without a second catalog.
+                val promptToolInstructions = if (usePromptToolBridge) {
+                    LocalPromptToolBridge.instruction(availableTools.map { it.definition })
                 } else {
                     ""
                 }

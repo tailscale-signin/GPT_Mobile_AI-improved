@@ -1192,6 +1192,8 @@ class LiteRtLmAdapterTest {
         ).streamRound(emptyList(), emptyList()).toList()
 
         assertEquals(1, lookupCalls)
+        assertFalse(runtime.createConversationCalls.first().systemPrompt.orEmpty().contains("Authorized local tools"))
+        assertEquals(listOf("lookup"), runtime.createConversationCalls.first().tools.map { it.name })
         assertFalse(events.filterIsInstance<ProviderEvent.TextDelta>().any { it.text.contains("tool_call") })
         assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().any { it.text.contains("It is sunny.") })
         assertTrue(events.last() is ProviderEvent.Completed)

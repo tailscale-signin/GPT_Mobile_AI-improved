@@ -194,6 +194,25 @@ class CombinedDeliverySessionTest {
         }
     }
 
+    @Test fun splitOpeningFenceNeverLeaksStructuredRecordsIntoTheAnswer() {
+        val answer = "Athenian ships were financed by silver mines."
+        val payload = "```json\n" + passage(answer) + "```"
+        for (size in 1..payload.length) {
+            val decoder = CombinedPassageDecoder(sources, CombinedEvidenceLedger(), 10000)
+            val deltas = payload.chunked(size).flatMap { decoder.accept(it) } + decoder.accept("", true)
+            assertEquals("Chunk size $size", answer, deltas.joinToString(""))
+            assertEquals(setOf("alpha"), decoder.passages.single().profileUids)
+        }
+    }
+
+    @Test fun splitInlineCodeStillUsesPlainTextFallback() {
+        val answer = "`silver` financed Athenian ships."
+        val decoder = CombinedPassageDecoder(sources, CombinedEvidenceLedger(), 10000)
+        val deltas = answer.chunked(1).flatMap { decoder.accept(it) } + decoder.accept("", true)
+        assertEquals(answer, deltas.joinToString(""))
+        assertTrue(decoder.passages.isEmpty())
+    }
+
     @Test fun fallbackNeverAppendsUnverifiedSourcePassages() {
         assertEquals(null, appendMissingCombinedPassages("Draft", listOf(CombinedContentCoverage.Unit("Missing", setOf("a"))), 1000))
     }

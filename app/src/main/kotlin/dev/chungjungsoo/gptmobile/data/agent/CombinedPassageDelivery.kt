@@ -71,7 +71,13 @@ internal class CombinedPassageDecoder(
 
     fun accept(delta: String, final: Boolean = false): List<String> {
         pending.append(delta)
-        if (mode == null && pending.isNotBlank()) mode = pending.toString().trimStart().let { it.startsWith("{") || it.startsWith("```") }
+        if (mode == null && pending.isNotBlank()) {
+            val prefix = pending.toString().trimStart()
+            // Providers may split an opening code fence across tokens. Wait for
+            // enough bytes to distinguish it from plain inline-code prose.
+            if (!final && prefix.length < 3 && "```".startsWith(prefix)) return emptyList()
+            mode = prefix.startsWith("{") || prefix.startsWith("```")
+        }
         if (mode == false) {
             issues += "PLAIN_TEXT_FALLBACK_NO_EXPLICIT_ATTRIBUTION"
             if (plainRecoveryBlocked) {

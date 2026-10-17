@@ -21,10 +21,10 @@ import dev.chungjungsoo.gptmobile.data.localruntime.LocalHistoryMessage
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalHistoryRole
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferenceMetrics
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase
+import dev.chungjungsoo.gptmobile.data.localruntime.LocalModelCapabilities
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalNpuPackageException
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntime
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntimeEvent
-import dev.chungjungsoo.gptmobile.data.localruntime.LocalModelCapabilities
 import dev.chungjungsoo.gptmobile.data.localruntime.ScriptedToolInvocation
 import dev.chungjungsoo.gptmobile.data.model.ChatAttachment
 import dev.chungjungsoo.gptmobile.data.model.ClientType

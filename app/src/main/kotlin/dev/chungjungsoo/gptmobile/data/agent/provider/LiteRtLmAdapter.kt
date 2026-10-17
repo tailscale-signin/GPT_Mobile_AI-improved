@@ -222,13 +222,7 @@ class LiteRtLmAdapter(
                 val promptToolInstructions = if (usePromptToolBridge) LocalPromptToolBridge.instruction(availableTools.map { it.definition }) else ""
                 dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
                     "LocalModel",
-                    "LOCAL_TOOL_SELECTION · stage=adapter_input · received=${boundTools.size} · available=${availableTools.size} · mode=${if (availableTools.isEmpty()) "chat_only" else "tools_enabled"} · reason=${if (!nativeToolsCapable) {
-                        "artifact_function_calling_unsupported"
-                    } else if (boundTools.isEmpty()) {
-                        "upstream_selection_empty"
-                    } else {
-                        "eligible"
-                    }}"
+                    "LOCAL_TOOL_SELECTION · stage=adapter_input · received=${boundTools.size} · available=${availableTools.size} · mode=${when { availableTools.isEmpty() -> "chat_only"; usePromptToolBridge -> "prompt_bridge"; else -> "tools_enabled" }} · reason=${when { boundTools.isEmpty() -> "upstream_selection_empty"; usePromptToolBridge -> "native_function_calling_unavailable_prompt_bridge"; else -> "eligible" }}"
                 )
                 var conversationSystemPrompt = evidencePrompt
                 var usedCompactFallback = false

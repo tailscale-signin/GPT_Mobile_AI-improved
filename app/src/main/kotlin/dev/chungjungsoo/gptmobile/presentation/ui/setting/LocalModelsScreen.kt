@@ -102,7 +102,7 @@ internal fun LocalMarketplaceScreen(
             (processor == "Any" || item.entry.supportedAccelerators.any { it.equals(processor, true) }) &&
             when (capability) {
                 "Images" -> item.entry.capabilities.vision
-                "Tools" -> item.entry.capabilities.tools
+                "Tools" -> true
                 "Thinking" -> item.entry.capabilities.thinking
                 "MTP" -> item.entry.supportsMtp
                 else -> true

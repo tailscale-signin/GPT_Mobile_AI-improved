@@ -21,5 +21,5 @@ interface LocalModelRepository {
     suspend fun totalStorageUsed(): Long
     suspend fun reconcile()
     suspend fun awaitActiveDownloadScheduling() = Unit
-    fun diskPartialBytes(record: LocalModel): Long = 0L
+    suspend fun diskPartialBytes(record: LocalModel): Long = 0L
 }

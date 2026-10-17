@@ -1,1 +1,0 @@
-{"schemaVersion":1,"runtime":"llama.cpp","revision":"4413a192410fad1f054e9216114087a3e01527a0","sourceSha256":"4d0cb840af6e67de6afc72cd85aaa5d1419a9c6071a403d7a2069086f0bfe21b","library":"libgptmobile_gguf.so","abis":["arm64-v8a","x86_64"],"backends":["cpu"],"qualification":"packaged_only"}

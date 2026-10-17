@@ -77,6 +77,9 @@ jobs:
         with:
           packages: 'platforms;android-37.0 build-tools;37.0.0'
 
+      - name: Install Vulkan shader headers for Android GGUF backend
+        run: sudo apt-get update && sudo apt-get install -y glslc libvulkan-dev spirv-headers
+
       - name: Run focused marketplace contracts
         run: >-
           ./gradlew :app:testDebugUnitTest --no-daemon --max-workers=2

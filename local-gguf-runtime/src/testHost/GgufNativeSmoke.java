@@ -8,7 +8,15 @@ public final class GgufNativeSmoke {
         if (!value) throw new AssertionError(message);
     }
     public static void main(String[] args) {
-        long engine = GgufNative.load(args[0].getBytes(StandardCharsets.UTF_8), 512, 2);
+        boolean gpu = GgufNative.supportsGpuOffload();
+        if (gpu) throw new AssertionError("CPU host smoke unexpectedly enabled GPU offload");
+        try {
+            GgufNative.load(args[0].getBytes(StandardCharsets.UTF_8), 512, 2, 1);
+            throw new AssertionError("GPU request silently fell back to the CPU-only host runtime");
+        } catch (IllegalStateException expected) {
+            if (!expected.getMessage().contains("GPU offload is unavailable")) throw expected;
+        }
+        long engine = GgufNative.load(args[0].getBytes(StandardCharsets.UTF_8), 512, 2, 0);
         try {
             for (int attempt = 0; attempt < 3; attempt++) {
                 var output = new java.io.ByteArrayOutputStream();
@@ -35,7 +43,7 @@ public final class GgufNativeSmoke {
             GgufNative.generate(engine, new String[]{"user"}, new byte[][]{{65}}, 16, 1, 1f, 0f, bytes -> true);
             throw new AssertionError("Stale handle admitted");
         } catch (IllegalStateException expected) { }
-        long reopened = GgufNative.load(args[0].getBytes(StandardCharsets.UTF_8), 512, 2);
+        long reopened = GgufNative.load(args[0].getBytes(StandardCharsets.UTF_8), 512, 2, 0);
         GgufNative.unload(reopened);
         System.out.println("GGUF JNI smoke passed: repeated sessions, native counts, cancellation, context rejection, stale handles, reopening");
     }

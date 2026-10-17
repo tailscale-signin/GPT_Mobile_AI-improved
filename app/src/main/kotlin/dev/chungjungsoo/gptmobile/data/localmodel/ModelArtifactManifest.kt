@@ -92,7 +92,7 @@ data class ModelArtifactManifest(
             require(magic.contentEquals("GGUF".toByteArray())) { "Invalid GGUF header" }
         }
         if (runtime == ArtifactRuntime.LLAMA_CPP) {
-            require(schemaVersion == 3 && supportedBackends == setOf("cpu") && !vision && projectorFile == null) { "Standalone GGUF requires a schema-3 CPU text manifest" }
+            require(schemaVersion == 3 && supportedBackends in setOf(setOf("cpu"), setOf("cpu", "gpu")) && !vision && projectorFile == null) { "Standalone GGUF requires a schema-3 CPU/GPU text manifest" }
             require(runtimeVersion == dev.chungjungsoo.gptmobile.data.localruntime.RuntimeCapabilityRegistry.GGUF_REVISION) { "Unsupported GGUF engine revision" }
         }
         if (runtime == ArtifactRuntime.GENIEX_QAIRT) validateQairtConfiguration(root)

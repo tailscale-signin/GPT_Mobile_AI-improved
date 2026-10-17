@@ -13,6 +13,7 @@ import io.ktor.client.request.prepareGet
 import io.ktor.http.isSuccess
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.supervisorScope
@@ -20,6 +21,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.booleanOrNull
@@ -166,7 +168,7 @@ class HuggingFaceModelSearchClient @Inject constructor(
         val normalized = query.trim()
         val token = tokenStore.readAccessToken()
         if (normalized.matches(Regex("[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*"))) {
-            val results = parseCompatibleFiles(requestJson("$MODELS_API/$normalized", token, mapOf("blobs" to "true")))
+            val results = parseCompatibleFilesOffMain(requestJson("$MODELS_API/$normalized", token, mapOf("blobs" to "true")))
                 .filter { it.sizeInBytes > 0 && it.sha.matches(Regex("[a-fA-F0-9]{40}")) }
             return HubSearchOutcome(results, "Direct repository lookup; capabilities still require device testing.")
         }
@@ -187,7 +189,7 @@ class HuggingFaceModelSearchClient @Inject constructor(
             models.map { model ->
                 async {
                     isolatedHubRequest(onFailure = { failures.incrementAndGet() }) {
-                        if (parseCompatibleFiles(model).isEmpty()) return@isolatedHubRequest emptyList()
+                        if (parseCompatibleFilesOffMain(model).isEmpty()) return@isolatedHubRequest emptyList()
                         run {
                             val obj = model as JsonObject
                             val repo = obj["id"]?.jsonPrimitive?.contentOrNull.orEmpty()
@@ -197,7 +199,7 @@ class HuggingFaceModelSearchClient @Inject constructor(
                                 ?: requestJson("$MODELS_API/$repo/revision/$revision", token, mapOf("blobs" to "true")).also { value ->
                                     (value as? JsonObject)?.let { metadataCache.put(repo, revision, token, it) }
                                 }
-                            parseCompatibleFiles(metadata).filter { it.sizeInBytes > 0 && it.sha == revision && it.repoId == repo }
+                            parseCompatibleFilesOffMain(metadata).filter { it.sizeInBytes > 0 && it.sha == revision && it.repoId == repo }
                         }
                     }.also { ready ->
                         if (ready.isNotEmpty()) {
@@ -286,6 +288,10 @@ class HuggingFaceModelSearchClient @Inject constructor(
             )
         }
     }
+
+    /** Hub listings can contain hundreds of shards/projector siblings; keep parsing off Main. */
+    private suspend fun parseCompatibleFilesOffMain(element: kotlinx.serialization.json.JsonElement): List<HuggingFaceLiteRtResult> =
+        withContext(Dispatchers.Default) { parseCompatibleFiles(element) }
 
     private companion object {
         const val MODELS_API = "https://huggingface.co/api/models"

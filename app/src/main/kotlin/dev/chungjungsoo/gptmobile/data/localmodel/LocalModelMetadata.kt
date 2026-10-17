@@ -21,7 +21,23 @@ internal object LocalModelMetadata {
     fun readFromDirectory(directory: File): CatalogEntry? {
         val metadata = File(directory, FILE_NAME)
         if (!metadata.isFile || metadata.length() > 256 * 1024) return null
-        return runCatching { json.decodeFromString<CatalogEntry>(metadata.readText()) }.getOrNull()
+        return runCatching {
+            val entry = json.decodeFromString<CatalogEntry>(metadata.readText())
+            if (entry.variantLabel == ArtifactRuntime.LLAMA_CPP.name && entry.runtimeRequirement.startsWith("llama_cpp:")) {
+                withGgufBackends(entry, dev.chungjungsoo.gptmobile.data.localruntime.RuntimeCapabilityRegistry.gguf(android.os.Build.SUPPORTED_ABIS?.toList().orEmpty()).backends)
+            } else {
+                entry
+            }
+        }.getOrNull()
+    }
+
+    /** Older imports recorded CPU-only engine support; GGUF tensors are portable. */
+    internal fun withGgufBackends(entry: CatalogEntry, backends: Set<String>): CatalogEntry {
+        if (entry.variantLabel != ArtifactRuntime.LLAMA_CPP.name || !entry.runtimeRequirement.startsWith("llama_cpp:") || "cpu" !in entry.supportedAccelerators) return entry
+        return entry.copy(
+            displayName = if (entry.displayName.endsWith(" · GenieX Preview")) entry.displayName.removeSuffix(" · GenieX Preview") + " · GGUF" else entry.displayName,
+            supportedAccelerators = backends.sorted()
+        )
     }
 
     fun read(context: Context): List<CatalogEntry> {

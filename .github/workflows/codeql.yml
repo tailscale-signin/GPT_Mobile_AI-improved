@@ -61,6 +61,9 @@ jobs:
     - name: Grant execute permission for gradlew
       run: chmod +x ./gradlew
 
+    - name: Install Vulkan build prerequisites
+      run: sudo apt-get update && sudo apt-get install -y glslc libvulkan-dev spirv-headers
+
     - name: Initialize CodeQL
       uses: github/codeql-action/init@v4
       with:

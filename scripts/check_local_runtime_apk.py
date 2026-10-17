@@ -90,10 +90,12 @@ def elf_needed(binary):
 
 def check_gguf_dependencies(apk, manifest, abis):
     names = apk.namelist()
-    system = {"libc.so", "libm.so", "libdl.so", "liblog.so", "libandroid.so"}
+    # Vulkan is a platform library on Android. The GGUF Vulkan backend links to
+    # it dynamically and relies on the device driver supplied by the OS.
+    system = {"libc.so", "libm.so", "libdl.so", "liblog.so", "libandroid.so", "libvulkan.so"}
     for abi in abis:
         path = f"lib/{abi}/libgptmobile_gguf.so"
-        assert path in names, f"Missing GGUF CPU runtime for {abi}"
+        assert path in names, f"Missing GGUF runtime for {abi}"
         unexpected = elf_needed(apk.read(path)) - system
         assert not unexpected, f"GGUF runtime has non-system dependencies: {sorted(unexpected)}"
     # GenieX owns its separately pinned llama/ggml implementation. It must never
@@ -121,7 +123,7 @@ def check_apk(apk_path, manifest):
                 assert f"lib/{abi}/{library}" in names, f"Missing memory runtime {abi}/{library}"
         gguf = json.loads(apk.read("assets/gguf-runtime-inventory.json"))
         assert gguf["revision"] == "4413a192410fad1f054e9216114087a3e01527a0"
-        assert gguf["backends"] == ["cpu"]
+        assert gguf["backends"] in (["cpu"], ["cpu", "gpu"]), "Unsupported GGUF backend inventory"
         check_gguf_dependencies(apk, manifest, abis)
         checked = 0
         for name, expected in manifest["libraries"].items():

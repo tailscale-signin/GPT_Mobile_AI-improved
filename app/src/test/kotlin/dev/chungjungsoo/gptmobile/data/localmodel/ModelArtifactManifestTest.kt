@@ -37,6 +37,13 @@ class ModelArtifactManifestTest {
         assertTrue(runCatching { manifest.copy(contextTokens = 0).validate(temporary.newFolder()) }.isFailure)
     }
 
+    @Test fun standaloneGgufCanDeclareCpuAndVulkanBackends() {
+        val root = temporary.newFolder()
+        val manifest = artifact(root).copy(runtime = ArtifactRuntime.LLAMA_CPP, schemaVersion = 3, supportedBackends = setOf("cpu", "gpu"), runtimeVersion = dev.chungjungsoo.gptmobile.data.localruntime.RuntimeCapabilityRegistry.GGUF_REVISION)
+        manifest.validate(root, "gpu")
+        assertTrue(runCatching { manifest.copy(supportedBackends = setOf("gpu")).validate(root, "gpu") }.isFailure)
+    }
+
     @Test fun atomicImportStripsUntrustedBadgesAndRejectsUndeclaredFiles() {
         val source = temporary.newFolder()
         val manifest = artifact(source).copy(evidence = ArtifactEvidence.VERIFIED_ON_DEVICE)

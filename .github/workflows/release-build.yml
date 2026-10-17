@@ -13,7 +13,25 @@ concurrency:
 env:
   OBX_DISABLE_ANALYTICS: "true"
 jobs:
+  release_intent:
+    name: Check whether the version changed
+    runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.intent.outputs.publish }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Select explicit or version-changing releases
+        id: intent
+        env:
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+        run: python3 scripts/check_release_trigger.py
+
   validate:
+    needs: release_intent
+    if: needs.release_intent.outputs.publish == 'true'
     name: Validate exact release commit
     runs-on: ubuntu-latest
     outputs:
@@ -91,6 +109,8 @@ jobs:
       - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
         with:
           packages: 'platforms;android-37.0 build-tools;37.0.0'
+      - name: Install Vulkan shader headers for Android GGUF backend
+        run: sudo apt-get update && sudo apt-get install -y glslc libvulkan-dev spirv-headers
       - name: Unit tests, compatibility, resources and lint
         run: |
           set -euo pipefail
@@ -128,6 +148,8 @@ jobs:
       - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
         with:
           packages: 'platforms;android-37.0 build-tools;37.0.0'
+      - name: Install Vulkan shader headers for Android GGUF backend
+        run: sudo apt-get update && sudo apt-get install -y glslc libvulkan-dev spirv-headers
       - name: Configure release signing
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}

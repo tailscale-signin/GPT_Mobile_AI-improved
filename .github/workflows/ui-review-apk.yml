@@ -31,6 +31,8 @@ jobs:
       - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd
         with:
           packages: 'platforms;android-37.0 build-tools;37.0.0'
+      - name: Install Vulkan shader headers for Android GGUF backend
+        run: sudo apt-get update && sudo apt-get install -y glslc libvulkan-dev spirv-headers
       # Separate invocations release compiler/KSP memory between build variants.
       # Bound each phase so a stalled compiler cannot occupy a runner for six hours.
       - name: Build review APK

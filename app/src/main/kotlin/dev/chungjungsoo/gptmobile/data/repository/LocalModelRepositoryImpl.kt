@@ -209,7 +209,7 @@ class LocalModelRepositoryImpl(
                         checkNotNull(file.parentFile),
                         CatalogEntry(
                             id = result.record.catalogEntryId,
-                            displayName = artifact.familyId + " · GenieX Preview",
+                            displayName = artifact.familyId + if (artifact.runtime == dev.chungjungsoo.gptmobile.data.localmodel.ArtifactRuntime.LLAMA_CPP) " · GGUF" else " · GenieX Preview",
                             sizeInBytes = result.sizeBytes,
                             familyId = artifact.familyId,
                             variantLabel = artifact.runtime.name,
@@ -265,9 +265,9 @@ class LocalModelRepositoryImpl(
         }
     }
 
-    override fun diskPartialBytes(record: LocalModel): Long {
+    override suspend fun diskPartialBytes(record: LocalModel): Long = withContext(ioDispatcher) {
         val file = storedFile(LocalModelDownloadPaths.relativePartialFilePath(record.catalogEntryId, record.commitHash, record.fileName))
-        return file.takeIf { it.exists() }?.length() ?: 0L
+        file.takeIf { it.exists() }?.length() ?: 0L
     }
 
     override suspend fun reconcile() {

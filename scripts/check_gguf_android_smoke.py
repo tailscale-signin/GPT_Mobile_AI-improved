@@ -3,4 +3,10 @@
 import sys
 from check_native_memory_smoke import check_instrumentation
 
-check_instrumentation(sys.argv[1], "dev.chungjungsoo.gptmobile.data.localruntime.GgufNativeInstrumentedTest", "packagedCpuRuntimePreservesRepeatedSessionsAndPartialUsage")
+test_class = "dev.chungjungsoo.gptmobile.data.localruntime.GgufNativeInstrumentedTest"
+check_instrumentation(
+    sys.argv[1],
+    test_class,
+    "packagedCpuRuntimePreservesRepeatedSessionsAndPartialUsage",
+    optional_assumptions={(test_class, "packagedVulkanRuntimeGeneratesOnCompatibleDevice")},
+)

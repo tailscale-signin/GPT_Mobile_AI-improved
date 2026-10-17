@@ -35,7 +35,8 @@ class GgufRuntimeContractTest {
 
     @Test fun packagingIsSeparateFromDeviceQualification() {
         assertEquals(RuntimeAvailability.PACKAGED, RuntimeCapabilityRegistry.gguf(listOf("arm64-v8a"), true).state)
-        assertEquals(setOf("cpu"), RuntimeCapabilityRegistry.gguf(listOf("x86_64"), true).backends)
+        assertEquals(setOf("cpu"), RuntimeCapabilityRegistry.gguf(listOf("x86_64"), true, false).backends)
+        assertEquals(setOf("cpu", "gpu"), RuntimeCapabilityRegistry.gguf(listOf("arm64-v8a"), true, true).backends)
         assertEquals(RuntimeAvailability.UNAVAILABLE_FOR_ABI, RuntimeCapabilityRegistry.gguf(listOf("armeabi-v7a"), true).state)
         assertEquals(RuntimeAvailability.DISABLED, RuntimeCapabilityRegistry.gguf(listOf("arm64-v8a"), false).state)
         assertFalse(compatibleSpeculativeDecoding(true, LocalModelCapabilities(4096, true, setOf("cpu"), false, false, false, false))!!)

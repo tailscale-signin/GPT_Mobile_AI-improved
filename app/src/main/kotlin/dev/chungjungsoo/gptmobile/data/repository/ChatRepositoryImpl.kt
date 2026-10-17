@@ -365,10 +365,8 @@ class ChatRepositoryImpl(
 
     override suspend fun supportsBenchmarkTools(platform: PlatformV2): Boolean = when (platform.compatibleType) {
         ClientType.FREE -> FreeAiProvider.requireFor(platform).supportsTools
-        ClientType.LITERT_LM -> {
-            val selected = localModelRepository.resolveLocalModelSelection(platform.model, platform.accelerator)
-            localRuntime.inspectModel(selected.path)?.tools != false
-        }
+        // The local adapter uses native calls or an app-managed prompt bridge.
+        ClientType.LITERT_LM -> true
         else -> true
     }
 
@@ -396,17 +394,9 @@ class ChatRepositoryImpl(
      * catalogue recommendation as a hard gate made every imported/legacy local
      * model, and most bundled models, silently lose MCP tools.
      */
-    private suspend fun localModelSupportsTools(platform: PlatformV2): Boolean = try {
-        val selected = localModelRepository.resolveLocalModelSelection(platform.model, platform.accelerator)
-        // An explicit package contract is authoritative; absent metadata preserves legacy support.
-        val supported = localRuntime.inspectModel(selected.path)?.tools != false
-        if (!supported) AppLogRecorder.record("LocalModel", "LOCAL_TOOL_SELECTION · stage=admission · mode=chat_only · schemaConstructionSkipped=true")
-        supported
-    } catch (cancellation: CancellationException) {
-        throw cancellation
-    } catch (_: Exception) {
-        false
-    }
+    /** Local profiles always receive authorized tools; LiteRtLmAdapter selects native or prompt dispatch. */
+    private suspend fun localModelSupportsTools(platform: PlatformV2): Boolean =
+        platform.compatibleType == ClientType.LITERT_LM
 
     override suspend fun openBenchmarkSession(
         platform: PlatformV2,

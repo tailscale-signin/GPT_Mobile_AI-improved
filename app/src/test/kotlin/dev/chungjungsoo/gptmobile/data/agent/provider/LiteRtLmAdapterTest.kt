@@ -1169,6 +1169,61 @@ class LiteRtLmAdapterTest {
     }
 
     @Test
+    fun `8192 output preference retains and dispatches prompt tools in 8192 context`() = runBlocking {
+        var calls = 0
+        val runtime = FakeLocalRuntime().apply {
+            capabilities = LocalModelCapabilities(contextTokens = 8192, backends = setOf("gpu"), tools = false)
+            scriptedEvents = listOf(
+                listOf(LocalRuntimeEvent.TextDelta("""<tool_call>{"name":"lookup","arguments":{}}</tool_call>"""), LocalRuntimeEvent.Done),
+                listOf(LocalRuntimeEvent.TextDelta("Verified answer"), LocalRuntimeEvent.Done)
+            )
+        }
+        val tool = lookupTool { id, _ ->
+            calls++
+            AgentToolResult(id, ToolResultContent.Text("Verified observation"), false)
+        }
+        val events = adapter(runtime).openSession(
+            turns("What can you do?"),
+            localPlatform().copy(maxTokens = 8192, systemPrompt = "System instruction ".repeat(185)),
+            listOf(tool)
+        ).streamRound(emptyList(), emptyList()).toList()
+        assertEquals(1, calls)
+        val config = runtime.createConversationCalls.first()
+        assertTrue(config.tools.isEmpty())
+        assertEquals(1, Regex("Authorized local tools").findAll(config.systemPrompt.orEmpty()).count())
+        assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().any { it.text == "Verified answer" })
+        assertTrue(events.last() is ProviderEvent.Completed)
+    }
+
+    @Test
+    fun `prompt bridge checks revocation before returning evidence or continuing inference`() = runBlocking {
+        var allowed = true
+        val runtime = FakeLocalRuntime().apply {
+            capabilities = LocalModelCapabilities(backends = setOf("gpu"), tools = false)
+            scriptedEvents = listOf(
+                listOf(LocalRuntimeEvent.TextDelta("""{"tool_call":"lookup","arguments":{}}"""), LocalRuntimeEvent.Done)
+            )
+        }
+        val authority = dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard("live") { check(allowed) }
+        val events = kotlinx.coroutines.withContext(authority) {
+            adapter(runtime).openSession(
+                turns("look up"),
+                localPlatform(),
+                listOf(
+                    lookupTool { id, _ ->
+                        allowed = false
+                        AgentToolResult(id, ToolResultContent.Text("Withheld observation"), false)
+                    }
+                )
+            ).streamRound(emptyList(), emptyList()).toList()
+        }
+        assertTrue(events.filterIsInstance<ProviderEvent.Failed>().any { it.message.contains("PERMISSION_REVOKED") })
+        assertTrue(events.filterIsInstance<ProviderEvent.ToolResult>().isEmpty())
+        assertEquals(1, runtime.sendMessageCalls.size)
+        assertFalse(events.contains(ProviderEvent.Completed))
+    }
+
+    @Test
     fun `native capable model dispatches text tool call fallback`() = runBlocking {
         var lookupCalls = 0
         val runtime = FakeLocalRuntime().apply {

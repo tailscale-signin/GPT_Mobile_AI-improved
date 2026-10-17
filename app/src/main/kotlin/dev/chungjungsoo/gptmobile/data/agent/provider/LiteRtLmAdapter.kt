@@ -38,11 +38,13 @@ import dev.chungjungsoo.gptmobile.data.repository.ModelCatalogRepository
 import java.util.Locale
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.single
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
@@ -226,10 +228,10 @@ class LiteRtLmAdapter(
                 // Native tool templates already contain their definitions. Repeating
                 // the catalog here can evict history and tools from small contexts;
                 // text-call parsing remains available without a second catalog.
-                val promptToolInstructions = if (usePromptToolBridge) {
-                    LocalPromptToolBridge.instruction(availableTools.map { it.definition })
+                val toolPromptRenderer: ((List<AgentToolDefinition>) -> String)? = if (usePromptToolBridge) {
+                    { selected -> LocalPromptToolBridge.instruction(selected) }
                 } else {
-                    ""
+                    null
                 }
                 dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
                     "LocalModel",
@@ -249,12 +251,13 @@ class LiteRtLmAdapter(
                     LocalContextPlanner.plan(
                         priorTurns = turns.dropLast(1),
                         currentUserPrompt = latestUserText,
-                        systemPrompt = evidencePrompt.orEmpty() + promptToolInstructions + "\n" + LOCAL_CAPABILITY_CONTRACT,
+                        systemPrompt = evidencePrompt.orEmpty() + "\n" + LOCAL_CAPABILITY_CONTRACT,
                         tools = availableTools.map { it.definition },
                         contextTokens = effectiveContextTokens,
                         outputLimit = outputLimit,
                         imageCount = latestImages.size,
-                        historyImageCount = { turn -> visionImageIds(turn.userMessage.attachments, visionCapable).size }
+                        historyImageCount = { turn -> visionImageIds(turn.userMessage.attachments, visionCapable).size },
+                        renderToolPrompt = toolPromptRenderer
                     )
                 } catch (error: IllegalArgumentException) {
                     val compactPrompt = fallbackSystemPrompt?.takeIf { it != platform.systemPrompt }
@@ -267,12 +270,13 @@ class LiteRtLmAdapter(
                         LocalContextPlanner.plan(
                             priorTurns = turns.dropLast(1),
                             currentUserPrompt = latestUserText,
-                            systemPrompt = conversationSystemPrompt.orEmpty() + promptToolInstructions + "\n" + LOCAL_CAPABILITY_CONTRACT,
+                            systemPrompt = conversationSystemPrompt.orEmpty() + "\n" + LOCAL_CAPABILITY_CONTRACT,
                             tools = availableTools.map { it.definition },
                             contextTokens = effectiveContextTokens,
                             outputLimit = outputLimit,
                             imageCount = latestImages.size,
-                            historyImageCount = { turn -> visionImageIds(turn.userMessage.attachments, visionCapable).size }
+                            historyImageCount = { turn -> visionImageIds(turn.userMessage.attachments, visionCapable).size },
+                            renderToolPrompt = toolPromptRenderer
                         ).also { usedCompactFallback = true }
                     } catch (_: IllegalArgumentException) {
                         send(ProviderEvent.Failed(error.message ?: "Local context is too small for this request."))
@@ -319,14 +323,14 @@ class LiteRtLmAdapter(
                 }
                 boundTools.forEach { tool ->
                     val exclusion = when {
-                        usePromptToolBridge -> "prompt_bridge"
                         tool.definition.name !in selectedNames -> "context_budget_or_tool_cap"
+                        usePromptToolBridge -> "prompt_bridge"
                         else -> "registered"
                     }
                     dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("LocalModel", "LOCAL_TOOL_REGISTRATION · tool=${tool.definition.name} · disposition=$exclusion")
                 }
                 val registeredTools = availableTools.filter { it.definition.name in selectedNames }.map { toolBudget.bind(it) }
-                conversationSystemPrompt = conversationSystemPrompt.orEmpty() + promptToolInstructions + "\n" + LOCAL_CAPABILITY_CONTRACT
+                conversationSystemPrompt = conversationSystemPrompt.orEmpty() + toolPromptRenderer?.invoke(plan.tools).orEmpty() + "\n" + LOCAL_CAPABILITY_CONTRACT
                 val descriptors = if (nativeToolsCapable) registeredTools.map { it.definition.toLocalDescriptor() } else emptyList()
                 val toolsKey = toolsFingerprint(descriptors)
                 val runToolsByName = registeredTools.associateBy { it.definition.name }
@@ -753,7 +757,7 @@ class LiteRtLmAdapter(
                     val message = error.message ?: "Local inference failed"
                     send(ProviderEvent.Failed(if (isLocalTemplateMismatch(message)) LOCAL_TEMPLATE_ERROR else message))
                 }
-            }
+            }.flowOn(Dispatchers.Default)
         }.withProgressWatchdog(settings = progressSettings)
     }
 
@@ -770,6 +774,16 @@ class LiteRtLmAdapter(
         eventSink: (suspend (ProviderEvent) -> Unit)?,
         modelEvidenceRemaining: java.util.concurrent.atomic.AtomicInteger? = null
     ): String {
+        suspend fun validateAuthority() {
+            try {
+                kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]?.validate?.invoke()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                throw dev.chungjungsoo.gptmobile.data.localruntime.LocalToolLimitException("PERMISSION_REVOKED")
+            }
+        }
+        validateAuthority()
         if (modelEvidenceRemaining != null && modelEvidenceRemaining.get() < 512) {
             val call = ProviderEvent.ToolCall(UUID.randomUUID().toString(), toolName, buildJsonObject {})
             val result = dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.error(call.callId, "MODEL_EVIDENCE_LIMIT", "The app reached its local evidence allowance. The provider was not called; retained observations remain available.")
@@ -805,6 +819,7 @@ class LiteRtLmAdapter(
                 isError = true
             )
         }
+        validateAuthority()
         if (result.isError && result.errorCode in setOf("BUDGET_EXHAUSTED", "REPEATED_FAILURE", "RECONCILIATION_REQUIRED")) {
             dev.chungjungsoo.gptmobile.data.agent.LocalToolHealth.completed(toolName, result)
             eventSink?.invoke(ProviderEvent.ToolResult(call, result))

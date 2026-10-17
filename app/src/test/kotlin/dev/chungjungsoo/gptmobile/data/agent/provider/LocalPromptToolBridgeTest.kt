@@ -48,4 +48,40 @@ class LocalPromptToolBridgeTest {
         assertNull(LocalPromptToolBridge.parse("""{"type":"tool_call","name":"delete_everything","arguments":{}}""", setOf("web_search")))
         assertNull(LocalPromptToolBridge.parse("""{"name":"web_search","arguments":{}}""", setOf("web_search")))
     }
+
+    @Test fun acceptsGemmaStringToolCallAndRejectsUnknownTool() {
+        val parsed = LocalPromptToolBridge.parse(
+            """{"tool_call":"web_search","arguments":{"query":"weather"}}""",
+            setOf("web_search")
+        )
+        assertEquals("""{"query":"weather"}""", parsed?.argumentsJson)
+        assertNull(
+            LocalPromptToolBridge.parse(
+                """{"tool_call":"delete_everything","arguments":{}}""",
+                setOf("web_search")
+            )
+        )
+    }
+
+    @Test fun canOmitSchemasWhenRuntimeHasNativeToolSupport() {
+        val prompt = LocalPromptToolBridge.instruction(listOf(tool), includeSchemas = false)
+        assertEquals(true, prompt.contains("web_search"))
+        assertEquals(false, prompt.contains("\"parameters\":"))
+    }
+
+    @Test fun ordinaryAnswerStreamsBeforeCompletionAndDoesNotAccumulate() {
+        val output = LocalPromptToolOutput()
+        assertEquals("A partial answer", output.accept("A partial answer"))
+        assertEquals(" remains visible", output.accept(" remains visible"))
+        assertEquals("", output.buffered())
+    }
+
+    @Test fun toolRequestsRemainHiddenAcrossEveryChunkSize() {
+        val payload = "```json\n{\"tool_call\":\"web_search\",\"arguments\":{\"query\":\"weather\"}}\n```"
+        for (size in 1..payload.length) {
+            val output = LocalPromptToolOutput()
+            assertEquals("", payload.chunked(size).joinToString("") { output.accept(it) })
+            assertEquals("web_search", LocalPromptToolBridge.parse(output.buffered(), setOf("web_search"))?.name)
+        }
+    }
 }

@@ -166,6 +166,8 @@ class LiteRtLmAdapter(
                 // Expose the app-managed tool catalog even when this model lacks native
                 // function-call parsing; the prompt bridge validates and executes calls.
                 val usePromptToolBridge = !nativeToolsCapable && boundTools.isNotEmpty()
+                // Some runtimes advertise native tools while the model emits tool-call JSON as text.
+                val textToolFallbackEnabled = boundTools.isNotEmpty()
                 val latestAttachments = turns.lastOrNull()?.userMessage?.attachments.orEmpty()
                 attachmentNotices(visionCapable, turns, latestAttachments).forEach { notice ->
                     send(notice)
@@ -221,6 +223,9 @@ class LiteRtLmAdapter(
                 val thinkingEnabled = platform.reasoning && constraints.allowReasoning && metadata?.thinking != false
 
                 val availableTools = boundTools
+                // Native tool templates already contain their definitions. Repeating
+                // the catalog here can evict history and tools from small contexts;
+                // text-call parsing remains available without a second catalog.
                 val promptToolInstructions = if (usePromptToolBridge) {
                     LocalPromptToolBridge.instruction(availableTools.map { it.definition })
                 } else {
@@ -559,7 +564,7 @@ class LiteRtLmAdapter(
                                 var promptToolCallCount = 0
                                 var promptToolsClosed = false
                                 while (true) {
-                                    val fallbackOutput = StringBuilder()
+                                    val fallbackOutput = LocalPromptToolOutput()
                                     var templateFailure: String? = null
                                     yield()
                                     admitNative(
@@ -580,8 +585,12 @@ class LiteRtLmAdapter(
 
                                                 is LocalRuntimeEvent.TextDelta -> {
                                                     if (event.text.isNotEmpty()) generatedOutput = true
-                                                    if (usePromptToolBridge) {
-                                                        fallbackOutput.append(event.text)
+                                                    if (textToolFallbackEnabled) {
+                                                        val visible = fallbackOutput.accept(event.text)
+                                                        if (visible.isNotEmpty()) {
+                                                            assistantReply.append(visible)
+                                                            send(ProviderEvent.TextDelta(visible))
+                                                        }
                                                     } else {
                                                         assistantReply.append(event.text)
                                                         send(ProviderEvent.TextDelta(event.text))
@@ -614,8 +623,9 @@ class LiteRtLmAdapter(
                                             }
                                         }
                                     if (templateFailure == null) {
-                                        if (!failed && usePromptToolBridge) {
-                                            val call = if (promptToolsClosed) null else LocalPromptToolBridge.parse(fallbackOutput.toString(), runToolsByName.keys)
+                                        if (!failed && textToolFallbackEnabled) {
+                                            val buffered = fallbackOutput.buffered()
+                                            val call = if (promptToolsClosed) null else LocalPromptToolBridge.parse(buffered, runToolsByName.keys)
                                             if (call != null && promptToolCallCount < 8) {
                                                 nativeToolsUsed = true
                                                 val result = try {
@@ -638,8 +648,8 @@ class LiteRtLmAdapter(
                                                 physicalSegment = UUID.randomUUID().toString()
                                                 continue
                                             }
-                                            assistantReply.append(fallbackOutput)
-                                            if (fallbackOutput.isNotEmpty()) send(ProviderEvent.TextDelta(fallbackOutput.toString()))
+                                            assistantReply.append(buffered)
+                                            if (buffered.isNotEmpty()) send(ProviderEvent.TextDelta(buffered))
                                         }
                                         break
                                     }

@@ -442,7 +442,10 @@ class McpClientManager internal constructor(
         1 -> 5_000L
         2 -> 15_000L
         3 -> 30_000L
-        else -> 60_000L
+        4 -> 60_000L
+        5 -> 120_000L
+        6 -> 240_000L
+        else -> 300_000L
     }
 
     suspend fun close(connectionUid: String) {

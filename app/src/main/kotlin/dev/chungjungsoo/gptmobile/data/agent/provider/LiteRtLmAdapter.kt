@@ -163,6 +163,8 @@ class LiteRtLmAdapter(
                 // using it as a gate hid all MCP tools from imported, legacy and
                 // most bundled local models.
                 val nativeToolsCapable = metadata?.tools != false
+                // Expose the app-managed tool catalog even when this model lacks native
+                // function-call parsing; the prompt bridge validates and executes calls.
                 val usePromptToolBridge = !nativeToolsCapable && boundTools.isNotEmpty()
                 val latestAttachments = turns.lastOrNull()?.userMessage?.attachments.orEmpty()
                 attachmentNotices(visionCapable, turns, latestAttachments).forEach { notice ->
@@ -219,7 +221,11 @@ class LiteRtLmAdapter(
                 val thinkingEnabled = platform.reasoning && constraints.allowReasoning && metadata?.thinking != false
 
                 val availableTools = boundTools
-                val promptToolInstructions = if (usePromptToolBridge) LocalPromptToolBridge.instruction(availableTools.map { it.definition }) else ""
+                val promptToolInstructions = if (usePromptToolBridge) {
+                    LocalPromptToolBridge.instruction(availableTools.map { it.definition })
+                } else {
+                    ""
+                }
                 dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
                     "LocalModel",
                     "LOCAL_TOOL_SELECTION · stage=adapter_input · received=${boundTools.size} · available=${availableTools.size} · mode=${when {

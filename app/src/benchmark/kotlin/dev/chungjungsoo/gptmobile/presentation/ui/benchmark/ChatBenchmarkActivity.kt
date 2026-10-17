@@ -38,6 +38,10 @@ class ChatBenchmarkActivity : ComponentActivity() {
         val streaming = intent.getBooleanExtra("stream", false)
         setContent {
             MaterialTheme {
+                if (intent.getStringExtra("screen") == "combined") {
+                    FiveProfileStreamingFixture()
+                    return@MaterialTheme
+                }
                 if (intent.getStringExtra("screen") == "settings") {
                     var search by remember { mutableStateOf("") }
                     LazyColumn(Modifier.fillMaxSize().semantics { testTagsAsResourceId = true }.testTag("benchmark_settings")) {
@@ -86,5 +90,33 @@ class ChatBenchmarkActivity : ComponentActivity() {
                 }
             }
         }
+    }
+}
+
+@androidx.compose.runtime.Composable
+private fun FiveProfileStreamingFixture() {
+    val texts = remember { androidx.compose.runtime.mutableStateListOf("", "", "", "", "") }
+    val ids = remember { (1..5).map { "profile-$it" } }
+    var selected by remember { mutableStateOf<String?>(null) }
+    var input by remember { mutableStateOf("") }
+    repeat(5) { profile ->
+        LaunchedEffect(profile) {
+            repeat(120) { index ->
+                delay(35L + profile)
+                texts[profile] += "Profile ${profile + 1} evidence chunk ${index + 1}. "
+            }
+        }
+    }
+    Column(Modifier.fillMaxSize().semantics { testTagsAsResourceId = true }) {
+        LazyColumn(Modifier.weight(1f).testTag("benchmark_combined_streams")) {
+            items(5) { index ->
+                OpponentChatBubble(canRetry = false, isLoading = true, text = texts[index], contentIdentity = "combined-fixture-$index")
+            }
+        }
+        OutlinedTextField(input, { input = it }, Modifier.fillMaxWidth().testTag("benchmark_input"))
+        dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatProfileDock(
+            ids, ids.associateWith { it }, selected, emptySet(), ids.toSet(), true, true,
+            onSelect = { selected = it }, onPause = {}
+        )
     }
 }

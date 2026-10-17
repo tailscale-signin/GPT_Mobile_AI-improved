@@ -28,7 +28,9 @@ class MarkdownSourceMapTest {
         assertTrue(spans.isNotEmpty())
         assertEquals("Silver mines funded public works and naval power in ancient Athens", spans.joinToString("") { markdown.substring(it.start, it.end) })
         assertTrue(map.wordingSpans(source + "changed", markdown, rows).isEmpty())
-        assertTrue(map.wordingSpans(source, markdown, rows + rows.single().copy(platformUid = "two")).isEmpty())
+        val shared = map.wordingSpans(source, markdown, rows + rows.single().copy(platformUid = "two"))
+        assertTrue(shared.isNotEmpty())
+        assertTrue(shared.all { it.profileUid == "one" })
         assertTrue(map.copy(runs = listOf(MarkdownSourceRun(0, -1, 5, 0))).wordingSpans(source, markdown, rows).isEmpty())
     }
 

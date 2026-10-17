@@ -527,6 +527,22 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    fun selectAllChats() {
+        _chatListState.update { it.copy(isSelectionMode = true, selectedChats = List(it.chats.size) { true }) }
+    }
+
+    fun archiveSelectedChats() {
+        val state = _chatListState.value
+        val selected = state.chats.filterIndexed { index, _ -> state.selectedChats.getOrElse(index) { false } }
+        if (selected.isEmpty()) return
+        viewModelScope.launch {
+            selected.flatMap { workspaceRooms(it) }.distinctBy { it.id }.forEach { chatRepository.setChatArchived(it.id, isArchived = true) }
+            disableSelectionMode()
+            fetchChats()
+            fetchArchivedChats()
+        }
+    }
+
     fun archiveChat(chatRoom: ChatRoomV2) {
         viewModelScope.launch {
             workspaceRooms(chatRoom).forEach { chatRepository.setChatArchived(it.id, isArchived = true) }

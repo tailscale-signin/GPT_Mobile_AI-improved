@@ -49,6 +49,15 @@ class ResearchReaderHealthTest {
         assertTrue(health.available("BLOCKED", "https://example.org/a"))
     }
 
+    @Test fun transientDnsFailureDoesNotPoisonReaderOrPage() {
+        val health = ResearchReaderHealth()
+        health.record("reader", "https://example.org/a", ToolOutcome.FAILED, transientFailure = true)
+        assertTrue(health.available("reader", "https://example.org/a"))
+        assertTrue(health.available("reader", "https://other.org/b"))
+        health.record("reader", "https://example.org/a", ToolOutcome.FAILED)
+        assertFalse(health.available("reader", "https://example.org/a"))
+    }
+
     @Test fun rateLimitsStillSuppressTheHostButLeaveFallbackAvailable() {
         val health = ResearchReaderHealth()
         health.record("reader", "https://example.org/a", ToolOutcome.RATE_LIMITED)

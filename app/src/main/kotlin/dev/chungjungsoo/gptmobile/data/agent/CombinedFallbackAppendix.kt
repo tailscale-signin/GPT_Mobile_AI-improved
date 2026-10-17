@@ -13,15 +13,7 @@ internal fun appendMissingCombinedPassages(
     missing: List<CombinedContentCoverage.Unit>,
     maxCharacters: Int
 ): String? {
-    if (missing.isEmpty()) return draft
-    if (draft.length >= maxCharacters) return null
-    // Retain every missing fact without displaying source-profile names. Provenance
-    // remains in the frozen combined sources for colour mapping and Debug inspection.
-    val tail = StringBuilder("\n\n$COMBINED_RECOVERY_MARKER\n\n## Further details\n\n")
-    for (unit in missing) {
-        val passage = "${unit.text}\n\n"
-        if (draft.length.toLong() + tail.length + passage.length > maxCharacters.toLong()) return null
-        tail.append(passage)
-    }
-    return (draft + tail.toString()).takeIf { it.length <= maxCharacters }
+    // Compatibility API for old callers. Recovery excerpts belong in audit metadata,
+    // never in stored, displayed, copied or exported answer prose.
+    return draft.takeIf { missing.isEmpty() && it.length <= maxCharacters }
 }

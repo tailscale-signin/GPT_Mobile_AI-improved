@@ -17,7 +17,19 @@ class CombinedCorpusMultipassTest {
         assertTrue(plan.comprehensive)
         val final = plan.finalTurns(plan.passes.map { "All distinct topics and details retained." }).single().userMessage.content
         assertTrue(final.contains("Combination policy: COMPREHENSIVE"))
-        assertTrue(final.contains("short original word goal must not remove topics"))
+        assertTrue(final.contains("word limit and requested number of examples take priority"))
+        assertFalse(final.contains("short original word goal must not remove topics"))
+    }
+
+    @Test fun passageProtocolAndCanonicalSourcesSurviveTheLargeContextFallback() {
+        val input = """{"original_request":"One fact under 100 words","combination_policy":"COMPREHENSIVE","delivery_protocol":"PASSAGES_V2","instruction_priority":"USER_SCOPE_AND_CONSTRAINTS_FIRST","authoritative_turn_context":{"date":"2026-10-16","timezone":"America/Toronto"},"contributions":[{"id":"C1","profile_uid":"alpha","response":"Complete frozen contributor text."}],"evidence_ledger":{"records":[{"id":"E1","url":"https://example.org/article","publishedAt":"2026-10-16","passage":"Complete retained source passage."}]}}"""
+        val plan = CombinedCorpusMultipass.plan(listOf(turn(input, true)), "", TokenBudgetSettings(contextTokens = 4096, outputTokens = 256))
+        val final = plan.finalTurns(plan.passes.map { "Inspected C1 and E1; preserve scope and provenance." }).single().userMessage.content
+        assertTrue(final.contains("PASSAGES_V2"))
+        assertTrue(final.contains("https://example.org/article"))
+        assertTrue(final.contains("America/Toronto"))
+        assertFalse(final.contains("short original word goal must not remove topics"))
+        assertEquals(input, plan.passes.joinToString("") { it.source.text })
     }
 
     @Test fun overflowSelectsBoundedInspectionRatherThanEvictingHistory() {

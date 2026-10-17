@@ -225,7 +225,8 @@ internal class AndroidResearchWorkflow(
                     else -> true
                 }
         }.forEach {
-            sources[it.equivalenceGroup.ifBlank { canonicalSearchUrl(it.url) }] = it
+            sources[it.equivalenceGroup.ifBlank { canonicalSearchUrl(it.url) }] =
+                if (it.status == "Deferred") it.copy(status = "Discovered", failureReason = "") else it
         }
         state = state.copy(claims = state.claims.filter { claim -> sources.values.any { it.id == claim.sourceId && it.readable } })
         queries += state.queries
@@ -332,6 +333,10 @@ internal class AndroidResearchWorkflow(
                     if (state.cancellationOrigin == "PERMISSION_REVOKED") "Permission revoked" else "Stopped"
                 } else if (noResearchNeeded) {
                     "Not needed"
+                } else if (!dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.available()) {
+                    "Waiting for network"
+                } else if (sources.values.any { it.status == "Deferred" } && collectionWorkCount() < sourceTarget) {
+                    "Reader recovery needed"
                 } else if (exhausted || !collecting() || collectionWorkCount() < sourceTarget) {
                     if (exhausted || !collecting()) {
                         "User limit reached"
@@ -749,6 +754,7 @@ internal class AndroidResearchWorkflow(
             val status = when {
                 !allowed -> "Blocked"
                 result?.blockedPage() == true -> "Blocked"
+                result == null || result.hasDnsFailure() -> "Deferred"
                 !valid -> "Failed"
                 passage != text || (payload as? JsonObject)?.get("truncated") == JsonPrimitive(true) -> "Partially read"
                 else -> "Read"
@@ -795,6 +801,10 @@ internal class AndroidResearchWorkflow(
         if (readers.isEmpty()) return
         val questionTerms = researchTerms(state.task + " " + state.questions.joinToString(" "))
         while (!exhausted && !stopped() && collecting() && collectionWorkCount() < sourceTarget) {
+            if (!dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.available()) {
+                checkpoint("Waiting for network")
+                break
+            }
             val remaining = sourceTarget - collectionWorkCount()
             val batch = sources.values.filter { it.status == "Discovered" }.sortedByDescending { source ->
                 researchTerms(source.title + " " + source.url).count { it in questionTerms }
@@ -832,7 +842,8 @@ internal class AndroidResearchWorkflow(
                                 source.url,
                                 readOutcome,
                                 billingFailure = researchReaderBillingFailure(last),
-                                pageFailure = looksLikeConsentOrScriptShell(retrievedText)
+                                pageFailure = looksLikeConsentOrScriptShell(retrievedText),
+                                transientFailure = last?.hasDnsFailure() == true
                             )
                             completedEvents.add(
                                 ResearchToolEvent(
@@ -883,6 +894,10 @@ internal class AndroidResearchWorkflow(
         readAttempts.incrementAndGet()
         return true
     }
+
+    private fun AgentToolResult.hasDnsFailure(): Boolean = isError &&
+        Regex("DNS_RECOVERY|DNS lookup|UnknownHostException|hostname.*resolv", RegexOption.IGNORE_CASE)
+            .containsMatchIn(content.researchText())
 
     private fun AgentToolResult.blockedPage(): Boolean = isError &&
         Regex("HTTP (401|403|429)|denied", RegexOption.IGNORE_CASE).containsMatchIn(content.researchText())

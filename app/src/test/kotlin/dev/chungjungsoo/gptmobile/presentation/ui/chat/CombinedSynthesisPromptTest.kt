@@ -16,7 +16,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CombinedSynthesisPromptTest {
-    @Test fun comprehensivePolicyIgnoresWordCountCompressionWithoutDroppingInput() {
+    @Test fun userConstraintsTakePriorityWithoutDroppingContributorInputs() {
         val sources = listOf(
             CombinedModelResponse("p", "P", content = "Fact from primary."),
             CombinedModelResponse("q", "Q", content = "Distinct fact from secondary.")
@@ -25,7 +25,9 @@ class CombinedSynthesisPromptTest {
         assertEquals("COMPREHENSIVE", prompt.getValue("combination_policy").jsonPrimitive.content)
         assertEquals("Reply in 50 words", prompt.getValue("original_request").jsonPrimitive.content)
         assertEquals(2, prompt.getValue("contributions").jsonArray.size)
-        assertTrue(COMBINED_SYNTHESIS_INSTRUCTION.contains("no application-imposed answer length"))
+        assertTrue(COMBINED_SYNTHESIS_INSTRUCTION.contains("never override a user limit"))
+        assertEquals("USER_SCOPE_AND_CONSTRAINTS_FIRST", prompt.getValue("instruction_priority").jsonPrimitive.content)
+        assertEquals("PASSAGES_V2", prompt.getValue("delivery_protocol").jsonPrimitive.content)
         assertFalse(COMBINED_SYNTHESIS_INSTRUCTION.contains("REQUEST_LENGTH"))
     }
 
@@ -55,7 +57,7 @@ class CombinedSynthesisPromptTest {
         val conflicts = prompt.getValue("potential_conflicts").jsonArray
         assertEquals(1, conflicts.size)
         assertEquals("NUMERIC", conflicts.single().jsonObject.getValue("kind").jsonPrimitive.content)
-        assertTrue(COMBINED_SYNTHESIS_INSTRUCTION.contains("UNVERIFIED lexical candidates"))
+        assertTrue(COMBINED_SYNTHESIS_INSTRUCTION.contains("genuine conflicts"))
     }
 
     @Test fun excludesTransportErrorsFromUsablePartialContributions() {

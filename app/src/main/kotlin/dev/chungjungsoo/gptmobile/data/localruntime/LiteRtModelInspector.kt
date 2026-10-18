@@ -59,7 +59,10 @@ internal object LiteRtModelInspector {
 
     @Synchronized
     fun inspect(path: String): LocalModelCapabilities {
-        val file = File(path).canonicalFile
+        // Descriptor aliases must retain their /proc/self/fd target; canonicalizing
+        // would turn a SAF grant back into an inaccessible raw storage path.
+        val candidate = File(path)
+        val file = if (dev.chungjungsoo.gptmobile.data.localmodel.LinkedModelSources.isOpenAlias(candidate)) candidate.absoluteFile else candidate.canonicalFile
         val key = file.path
         val identity = dev.chungjungsoo.gptmobile.data.localmodel.PackageDigest.installedFileIdentity(file)
         cache[key]?.takeIf { identity != null && it.identity == identity }?.let { return it.metadata }

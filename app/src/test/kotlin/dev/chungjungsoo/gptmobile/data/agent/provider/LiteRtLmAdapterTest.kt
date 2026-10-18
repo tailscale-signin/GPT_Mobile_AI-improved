@@ -732,7 +732,7 @@ class LiteRtLmAdapterTest {
         ).streamRound(emptyList(), emptyList()).toList()
 
         assertEquals(
-            listOf(configuredLocalRequest(), ProviderEvent.TextDelta("a cat"), ProviderEvent.Completed),
+            listOf(configuredLocalRequest(images = 1), ProviderEvent.TextDelta("a cat"), ProviderEvent.Completed),
             events
         )
         assertEquals(listOf("describe this"), runtime.sendMessageCalls)
@@ -806,7 +806,7 @@ class LiteRtLmAdapterTest {
         assertEquals(
             listOf(
                 ProviderEvent.Notice(LiteRtLmAdapter.DEFAULT_IGNORED_ATTACHMENTS, persistent = true),
-                configuredLocalRequest(),
+                configuredLocalRequest(images = 1),
                 ProviderEvent.TextDelta("ok"),
                 ProviderEvent.Completed
             ),
@@ -882,7 +882,7 @@ class LiteRtLmAdapterTest {
         assertEquals(
             listOf(
                 ProviderEvent.Notice(LiteRtLmAdapter.DEFAULT_TOO_MANY_IMAGES, persistent = true),
-                configuredLocalRequest(),
+                configuredLocalRequest(images = 10),
                 ProviderEvent.TextDelta("ok"),
                 ProviderEvent.Completed
             ),
@@ -2284,13 +2284,19 @@ class LiteRtLmAdapterTest {
         assertTrue(events.last() is ProviderEvent.Completed)
     }
 
-    private fun configuredLocalRequest() = ProviderEvent.RequestConfigured(
+    private fun configuredLocalRequest(images: Int = 0) = ProviderEvent.RequestConfigured(
         configuredProfileOutputTokens = 1024,
         requestedOutputTokens = 1024,
         effectiveOutputTokens = 1024,
         configuredProfileType = ClientType.LITERT_LM.name,
         actualAccelerator = LocalAccelerators.GPU,
-        artifactRuntime = "LITERT_MODEL"
+        artifactRuntime = "LITERT_MODEL",
+        reasoningEffort = "disabled",
+        inputImageCount = images,
+        inputModalities = if (images > 0) setOf("text", "image") else setOf("text"),
+        languageBackend = LocalAccelerators.GPU,
+        visionBackend = LocalAccelerators.GPU.takeIf { images > 0 },
+        finalResponseFormat = "unconstrained"
     )
 
     private fun visionPlatform() = localPlatform(model = "gemma-3n-e2b-it")

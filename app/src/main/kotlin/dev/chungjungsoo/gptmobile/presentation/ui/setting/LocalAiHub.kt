@@ -323,7 +323,7 @@ fun LocalModelsScreen(
     if (importOpen) {
         AlertDialog(onDismissRequest = { importOpen = false }, title = { Text(stringResource(R.string.local_ai_import)) }, text = { Text(stringResource(if (dev.chungjungsoo.gptmobile.BuildConfig.GENIEX_ENABLED) R.string.local_ai_import_geniex else R.string.local_ai_import_litert)) }, confirmButton = {
             Column {
-                if (dev.chungjungsoo.gptmobile.BuildConfig.GENIEX_ENABLED) TextButton(onClick = { folderImporter.launch(null) }) { Text(stringResource(R.string.local_ai_choose_folder)) }
+                TextButton(onClick = { folderImporter.launch(null) }) { Text(stringResource(R.string.local_ai_choose_folder)) }
                 TextButton(onClick = { importer.launch(arrayOf("*/*")) }) { Text(stringResource(R.string.local_ai_choose_file)) }
             }
         }, dismissButton = { TextButton(onClick = { importOpen = false }) { Text(stringResource(R.string.cancel)) } })

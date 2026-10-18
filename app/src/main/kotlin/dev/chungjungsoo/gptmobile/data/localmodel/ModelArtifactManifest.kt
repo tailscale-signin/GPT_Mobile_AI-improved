@@ -82,13 +82,13 @@ data class ModelArtifactManifest(
         require(evidence !in setOf(ArtifactEvidence.INCOMPATIBLE, ArtifactEvidence.QUARANTINED)) { "Artifact is quarantined or incompatible" }
         files.forEach { item ->
             checkCurrent()
-            val file = safeFile(root, item.path)
+            val file = safeFile(root, item.path, checkCurrent)
             require(item.sizeBytes > 0 && file.isFile && file.length() == item.sizeBytes) { "Missing or truncated asset: ${item.path}" }
             require(item.sha256.matches(Regex("[a-fA-F0-9]{64}"))) { "Missing SHA-256: ${item.path}" }
             PackageDigest.verifyInstalledAssetCached(file, item.sha256, checkCurrent)
         }
         if (runtime in setOf(ArtifactRuntime.GENIEX_LLAMA_CPP, ArtifactRuntime.LLAMA_CPP)) {
-            val magic = safeFile(root, entryFile).inputStream().use { stream -> ByteArray(4).also { require(stream.read(it) == 4) } }
+            val magic = safeFile(root, entryFile, checkCurrent).inputStream().use { stream -> ByteArray(4).also { require(stream.read(it) == 4) } }
             require(magic.contentEquals("GGUF".toByteArray())) { "Invalid GGUF header" }
         }
         if (runtime == ArtifactRuntime.LLAMA_CPP) {
@@ -160,9 +160,10 @@ data class ModelArtifactManifest(
 
     companion object {
         private fun canonicalSoc(value: String) = value.uppercase().replace(Regex("[^A-Z0-9]"), "").substringBefore("AC")
-        fun safeFile(root: File, path: String): File {
+        fun safeFile(root: File, path: String, checkCurrent: () -> Unit = {}): File {
             require(path.isNotBlank() && !File(path).isAbsolute && '\\' !in path && ':' !in path && path.split('/').none { it == ".." || it == "." || it.isEmpty() }) { "Unsafe package path" }
             require(path.substringAfterLast('.').lowercase() !in setOf("so", "dll", "dylib", "exe", "sh", "bat", "py", "dex", "jar", "apk")) { "Imported code is not a model asset" }
+            LinkedModelSources.resolveAsset(root, path, checkCurrent)?.let { return it }
             val file = File(root, path).canonicalFile
             require(file.toPath().startsWith(root.canonicalFile.toPath()) && file != root.canonicalFile) { "Package path escapes installation" }
             return file

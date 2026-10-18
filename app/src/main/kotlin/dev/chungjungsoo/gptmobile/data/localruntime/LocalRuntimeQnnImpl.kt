@@ -23,7 +23,7 @@ internal class QnnInitializationCrashGuard(context: Context) : QnnLoadGuard {
     private val journal = NativeExitEvidence.journal(app, File(app.noBackupFilesDir, "qnn_dispatch/operations"))
 
     private fun signature(spec: LocalEngineSpec): String {
-        val model = File(spec.modelPath)
+        val model = dev.chungjungsoo.gptmobile.data.localmodel.LinkedModelSources.resolveFile(File(spec.modelPath))
         val dispatchDirectory = spec.litertDispatchLibDir?.let(::File) ?: File(app.applicationInfo.nativeLibraryDir)
         val dispatchHash = runCatching {
             dev.chungjungsoo.gptmobile.data.localmodel.PackageDigest.sha256(

@@ -40,7 +40,7 @@ internal object RuntimeEvidenceIdentity {
     }
 
     internal fun artifactDigest(model: File, cache: File): String {
-        val manifestDigest = PackageDigest.validateInstalledCached(model, cache)
+        val manifestDigest = PackageDigest.validateInstalledCached(dev.chungjungsoo.gptmobile.data.localmodel.LinkedModelSources.resolveFile(model), cache)
         if (!model.name.endsWith("manifest.json")) return manifestDigest
         val manifest = dev.chungjungsoo.gptmobile.data.localmodel.ArtifactManifestStore.read(model)
         require(manifest.files.isNotEmpty() && manifest.files.size <= 256 && manifest.files.map { it.path.lowercase() }.distinct().size == manifest.files.size) { "Invalid artifact file inventory" }

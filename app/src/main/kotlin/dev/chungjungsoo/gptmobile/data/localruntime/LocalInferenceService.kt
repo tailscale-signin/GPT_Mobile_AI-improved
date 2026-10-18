@@ -187,6 +187,7 @@ class LocalInferenceService : Service() {
                     }
                     "UNLOAD" -> {
                         runtime.unloadEngine()
+                        dev.chungjungsoo.gptmobile.data.localmodel.LinkedModelSources.closeLeases()
                         sessionId = ""
                         reply.send("RESULT", state = LocalRuntimeState(processIsolated = true))
                     }

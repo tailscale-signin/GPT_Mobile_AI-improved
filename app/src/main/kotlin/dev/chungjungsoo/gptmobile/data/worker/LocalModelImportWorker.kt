@@ -5,7 +5,6 @@ import android.app.NotificationManager
 import android.content.Context
 import android.content.pm.ServiceInfo
 import android.net.Uri
-import android.provider.OpenableColumns
 import androidx.core.app.NotificationCompat
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
@@ -16,9 +15,7 @@ import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelImportResult
-import dev.chungjungsoo.gptmobile.data.localmodel.ModelFolderArchive
 import dev.chungjungsoo.gptmobile.data.repository.LocalModelRepository
-import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
@@ -37,7 +34,6 @@ class LocalModelImportWorker @AssistedInject constructor(
         val uri = inputData.getString(SOURCE)?.let(Uri::parse) ?: return@withContext Result.failure()
         val notifications = applicationContext.getSystemService(NotificationManager::class.java)
         notifications.createNotificationChannel(NotificationChannel(CHANNEL, applicationContext.getString(R.string.local_ai_import), NotificationManager.IMPORTANCE_LOW))
-        val temporary = File(applicationContext.cacheDir, "import-$id.localmodel")
         try {
             val notification = NotificationCompat.Builder(applicationContext, CHANNEL)
                 .setSmallIcon(android.R.drawable.stat_sys_download)
@@ -46,24 +42,14 @@ class LocalModelImportWorker @AssistedInject constructor(
                 .setProgress(0, 0, true).setOngoing(true)
                 .addAction(android.R.drawable.ic_delete, applicationContext.getString(R.string.cancel), androidx.work.WorkManager.getInstance(applicationContext).createCancelPendingIntent(id)).build()
             setForeground(ForegroundInfo(id.hashCode(), notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC))
-            val resolver = applicationContext.contentResolver
             val coroutine = currentCoroutineContext()
             val check = {
                 coroutine.ensureActive()
                 check(!isStopped) { "Import stopped" }
             }
             val folder = inputData.getBoolean(FOLDER, false)
-            if (folder) ModelFolderArchive.copy(resolver, uri, temporary, check)
-            val name = if (folder) {
-                "folder.localmodel"
-            } else {
-                resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
-                    if (cursor.moveToFirst()) cursor.getString(0) else null
-                } ?: uri.lastPathSegment ?: "unknown"
-            }
-            val input = if (folder) temporary.inputStream() else resolver.openInputStream(uri) ?: error("Source permission lost. Choose the source again.")
             var lastUpdate = 0L
-            val result = repository.importPersisted(input, name, id.toString(), check) { bytes ->
+            val result = repository.linkSource(uri, folder, check) { bytes ->
                 val now = System.nanoTime() / 1_000_000
                 if (now - lastUpdate >= 500) {
                     lastUpdate = now
@@ -78,8 +64,6 @@ class LocalModelImportWorker @AssistedInject constructor(
             throw cancelled
         } catch (failure: Exception) {
             Result.failure(Data.Builder().putString(MESSAGE, failure.message?.take(1000) ?: "Import could not finish; choose the source again.").build())
-        } finally {
-            temporary.delete()
         }
     }
     companion object {

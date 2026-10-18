@@ -117,7 +117,7 @@ internal fun LocalMarketplaceScreen(
     val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) viewModel.importCustomModel(context.contentResolver, uri) }
     Scaffold(modifier = modifier, topBar = {
         androidx.compose.material3.TopAppBar(title = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_local_models_8e4bf)) }, navigationIcon = { IconButton(onClick = onNavigationClick) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") } }, actions = {
-            IconButton(onClick = { importer.launch(arrayOf("*/*")) }) { Icon(Icons.Rounded.Add, "Import a local model") }
+            IconButton(onClick = { importer.launch(arrayOf("*/*")) }) { Icon(Icons.Rounded.Add, "Link a model at its existing location") }
             IconButton(onClick = viewModel::refreshCatalog) { Icon(Icons.Rounded.Refresh, "Refresh catalog") }
         })
     }) { insets ->
@@ -182,6 +182,7 @@ internal fun LocalMarketplaceScreen(
                     Card(onClick = { family = key }, modifier = Modifier.fillMaxWidth(), shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp)) {
                         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(item.entry.displayName, style = MaterialTheme.typography.titleLarge)
+                            if (item.entry.id.startsWith("linked_")) Text("Linked at original location", style = MaterialTheme.typography.labelMedium)
                             Text(
                                 if (item.entry.capabilities.vision) {
                                     androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_9b98c5a243)

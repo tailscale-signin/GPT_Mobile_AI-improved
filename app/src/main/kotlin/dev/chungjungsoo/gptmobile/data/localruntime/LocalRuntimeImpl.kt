@@ -103,7 +103,7 @@ class LocalRuntimeImpl(
         val identity = "inspection|" + RuntimeEvidenceIdentity.key(context, LocalEngineSpec(modelPath, "cpu", 1)).toString()
         operationJournal.before(identity, "INSPECT")
         try {
-            inspectMetadata(modelPath)
+            inspectMetadata(dev.chungjungsoo.gptmobile.data.localmodel.LinkedModelSources.resolveFile(java.io.File(modelPath)).path)
         } finally {
             operationJournal.finished()
         }
@@ -121,15 +121,16 @@ class LocalRuntimeImpl(
             require(spec.modelPath.endsWith(".litertlm", ignoreCase = true)) {
                 "This runtime requires a LiteRT-LM (.litertlm) model package"
             }
+            val nativeModel = dev.chungjungsoo.gptmobile.data.localmodel.LinkedModelSources.resolveFile(java.io.File(spec.modelPath))
             // Pre-flight model integrity verification to avoid native hard crashes (SIGSEGV)
             run {
                 dev.chungjungsoo.gptmobile.data.localmodel.PackageDigest.validateInstalledCached(
-                    java.io.File(spec.modelPath),
+                    nativeModel,
                     java.io.File(context.noBackupFilesDir, "model-identity-cache")
                 )
             }
-            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.checkpoint("LocalModel", "MODEL_INTEGRITY · status=${dev.chungjungsoo.gptmobile.data.localmodel.PackageDigest.trustStatus(java.io.File(spec.modelPath))} · accelerator=${spec.accelerator}")
-            when (val validation = LocalModelValidator.validate(spec.modelPath)) {
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.checkpoint("LocalModel", "MODEL_INTEGRITY · status=${dev.chungjungsoo.gptmobile.data.localmodel.PackageDigest.trustStatus(nativeModel)} · accelerator=${spec.accelerator}")
+            when (val validation = LocalModelValidator.validate(nativeModel.path)) {
                 is ModelValidationResult.Invalid -> {
                     Log.e(TAG, "Model validation failed for path '${spec.modelPath}': ${validation.reason} (${validation.details})")
                     when (validation.reason) {
@@ -162,7 +163,7 @@ class LocalRuntimeImpl(
             try {
                 nextEngine = createEngine(
                     EngineConfig(
-                        modelPath = spec.modelPath,
+                        modelPath = nativeModel.path,
                         backend = backendFor(spec.accelerator, spec.litertDispatchLibDir, spec.cpuThreads),
                         visionBackend = visionBackendFor(spec, spec.litertDispatchLibDir),
                         audioBackend = null,

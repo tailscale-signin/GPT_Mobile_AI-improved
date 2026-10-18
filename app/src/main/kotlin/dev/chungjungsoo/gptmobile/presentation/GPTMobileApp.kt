@@ -91,6 +91,7 @@ class GPTMobileApp :
         // Provider fields keep the child process from eagerly opening Room or starting app services.
         if (!dev.chungjungsoo.gptmobile.data.localruntime.isInferenceProcess()) SanitizedChatBackup.restoreIfPresent(this)
         super.onCreate()
+        dev.chungjungsoo.gptmobile.data.localmodel.LinkedModelSources.initialize(this)
         if (dev.chungjungsoo.gptmobile.data.localruntime.isInferenceProcess()) return
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.initialize(this)
         if (dev.chungjungsoo.gptmobile.BuildConfig.DEBUG) {

@@ -86,7 +86,12 @@ data class CombinedModelResponse(
     val qualityScore: Int = 100,
     val sourceIds: List<String> = emptyList(),
     val evidenceRefs: List<String> = emptyList(),
-    val localOnly: Boolean = false
+    val localOnly: Boolean = false,
+    val attemptId: String? = null,
+    val createdAt: Long? = null,
+    val sourceDigest: String = "",
+    val ancestryIds: Set<String> = emptySet(),
+    val structuralUsability: Int = qualityScore
 )
 
 @Serializable
@@ -95,7 +100,8 @@ data class AssistantRevision(
     val thoughts: String = "",
     val createdAt: Long,
     val runId: String? = null,
-    val timeline: List<AssistantTimelineItem> = emptyList()
+    val timeline: List<AssistantTimelineItem> = emptyList(),
+    val combinedSources: List<CombinedModelResponse> = emptyList()
 )
 
 const val ACTIVE_REVISION_LATEST = -1
@@ -116,6 +122,11 @@ fun MessageV2.effectiveTimeline(): List<AssistantTimelineItem> = revisions
     .getOrNull(activeRevisionIndex)
     ?.timeline
     ?: timeline
+
+fun MessageV2.effectiveCombinedSources(): List<CombinedModelResponse> = revisions
+    .getOrNull(activeRevisionIndex)
+    ?.combinedSources
+    ?: combinedSources
 
 fun MessageV2.effectiveRunId(): String? = if (hasHistoricalRevisionSelected()) {
     revisions[activeRevisionIndex].runId
@@ -143,11 +154,12 @@ fun MessageV2.snapshotLatestAssistantRevision(timestamp: Long = System.currentTi
         thoughts = thoughts,
         createdAt = timestamp,
         runId = currentRunId,
-        timeline = timeline
+        timeline = timeline,
+        combinedSources = combinedSources
     )
 }
 
 /** Privacy restrictions survive revision selection, combination, and subsequent turns. */
 fun MessageV2.containsLocalOnlyMemory(): Boolean = combinedSources.any { it.localOnly } ||
     timeline.any { item -> item.recalledFacts.any { it.localOnly } } ||
-    revisions.any { revision -> revision.timeline.any { item -> item.recalledFacts.any { it.localOnly } } }
+    revisions.any { revision -> revision.combinedSources.any { it.localOnly } || revision.timeline.any { item -> item.recalledFacts.any { it.localOnly } } }

@@ -40,6 +40,7 @@ internal class DeepResearchTool(
     private val runKey: String = "",
     private val peerReviewedOnly: Boolean = false
 ) : AgentTool {
+    override val coordinatesChildWork = operation !in setOf("status", "verify_evidence")
     override val definition = AgentToolDefinition(
         "deep_research_$operation",
         when (operation) {
@@ -102,7 +103,8 @@ internal class DeepResearchTool(
                     }.map(::JsonPrimitive)
                 )
             )
-        }
+        },
+        capabilities = if (operation == "search_papers") setOf(dev.chungjungsoo.gptmobile.data.agent.AgentToolCapability.WEB_SEARCH) else emptySet()
     )
     private val enabledSelection: MultiSearchResearchSelection get() {
         val requested = selection.enabledProviders.ifEmpty { dev.chungjungsoo.gptmobile.data.research.engine.ResearchEngineRegistry.searchableIds }
@@ -125,12 +127,19 @@ internal class DeepResearchTool(
                     1
                 }
             )
-            val remoteCompatible = remote == null || !budget.isGoalDriven || operation == "status" || remoteCapability()
+            val combinedContext = dev.chungjungsoo.gptmobile.data.agent.CombinedAcquisitionBoundary.context()
+            val remoteCompatible = (remote == null || !budget.isGoalDriven || operation == "status" || remoteCapability()) &&
+                (combinedContext == null || remote == null || operation in setOf("status", "verify_evidence") || remoteCapability())
             if (!remoteCompatible && !selection.allowNativeFallback) return failure(callId, "unsupported_research_policy", "Gateway does not support this research policy. Update it or explicitly allow native fallback.")
             if (remote != null && remoteCompatible) {
                 val counters = budget.sharedState()
+                val combinedAllowance = combinedContext?.let { context ->
+                    requireNotNull(dev.chungjungsoo.gptmobile.data.agent.CombinedTurnBudgetStore.installedOrNull()).open(context).availableToolOperations(context)
+                }
+                val requestAllowance = minOf((minOf(counters?.limits?.maxRequests ?: 2400L, 2400L) - (counters?.physical ?: 0)).coerceAtLeast(0), combinedAllowance ?: Long.MAX_VALUE)
+                if (combinedContext != null && operation !in setOf("status", "verify_evidence")) check(requestAllowance > 0) { "Combined academic request allowance is exhausted; no gateway request was sent." }
                 val remoteLimits = buildJsonObject {
-                    counters?.let { put("researchRequestAllowance", (minOf(it.limits.maxRequests ?: 2400L, 2400L) - it.physical).coerceAtLeast(0)) }
+                    put("researchRequestAllowance", requestAllowance)
                     counters?.let { put("researchDownloadAllowance", (minOf(it.limits.maxDownloadedBytes ?: 536870912L, 536870912L) - it.downloaded).coerceAtLeast(0)) }
                 }
                 val bound = JsonObject(
@@ -147,7 +156,22 @@ internal class DeepResearchTool(
                         "researchPolicyFingerprint" to JsonPrimitive(dev.chungjungsoo.gptmobile.data.model.effectiveResearchPlan(options).fingerprint)
                     )
                 )
-                val result = remote.execute(callId, bound)
+                val combinedAttempt = if (operation in setOf("status", "verify_evidence")) null else dev.chungjungsoo.gptmobile.data.agent.CombinedAcquisitionBoundary.reserve("academic-gateway:${java.util.UUID.randomUUID()}", requestAllowance)
+                var gatewayOperations: Long? = null
+                var gatewayDispatched = true
+                val result = try {
+                    remote.execute(callId, bound).also { result ->
+                        gatewayDispatched = result.dispatched
+                        val payload = (result.content as? ToolResultContent.Json)?.value as? JsonObject
+                            ?: (result.content as? ToolResultContent.Text)?.text?.let { runCatching { Json.parseToJsonElement(it) as? JsonObject }.getOrNull() }
+                        gatewayOperations = ((payload?.get("researchAccounting") as? JsonObject)?.get("physicalRequests") as? JsonPrimitive)?.contentOrNull?.toLongOrNull()
+                    }
+                } finally {
+                    combinedAttempt?.finish(gatewayOperations, gatewayDispatched)
+                }
+                if (combinedContext != null && operation !in setOf("status", "verify_evidence") && (gatewayOperations == null || gatewayOperations < 0)) {
+                    return failure(callId, "accounting_unavailable", "Gateway physical-request accounting is unavailable; its upper reservation is retained and the outcome requires reconciliation.")
+                }
                 if (!permitted()) return failure(callId, "permission_denied", "Research permission changed during the request.")
                 if (budget.isGoalDriven && operation != "status") {
                     val payload = (result.content as? ToolResultContent.Json)?.value as? JsonObject

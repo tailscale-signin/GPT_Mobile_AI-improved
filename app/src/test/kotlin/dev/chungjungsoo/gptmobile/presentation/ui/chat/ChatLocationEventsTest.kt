@@ -10,6 +10,43 @@ import org.junit.Test
 
 class ChatLocationEventsTest {
     @Test
+    fun `archived Combined provenance follows saved attempt even when newer text is identical`() {
+        val archivedSource = CombinedModelResponse("other", "Other", content = "Same wording", attemptId = "original")
+        val selected = MessageV2(
+            content = "Latest",
+            platformType = "lead",
+            currentRunId = "latest",
+            activeRevisionIndex = 0,
+            combinedSources = listOf(archivedSource.copy(attemptId = "newer")),
+            revisions = listOf(AssistantRevision("Older", createdAt = 1, runId = "older", combinedSources = listOf(archivedSource)))
+        )
+        val other = MessageV2(content = "Same wording", platformType = "other", currentRunId = "newer")
+        val events = listOf("original", "newer", "older", "latest").associateWith { listOf(location(it, 10)) }
+
+        val result = toolEventsForResponse(selected, listOf(selected, other), true, setOf("lead", "other"), events)
+
+        assertEquals(setOf("older", "original"), result.map { it.runId }.toSet())
+    }
+
+    @Test
+    fun `legacy archived Combined keeps own events without borrowing current contributors`() {
+        val selected = MessageV2(
+            content = "Latest",
+            platformType = "lead",
+            currentRunId = "latest",
+            activeRevisionIndex = 0,
+            combinedSources = listOf(CombinedModelResponse("other", "Other", content = "New candidate", attemptId = "newer")),
+            revisions = listOf(AssistantRevision("Older", createdAt = 1, runId = "older"))
+        )
+        val other = MessageV2(content = "New candidate", platformType = "other", currentRunId = "newer")
+        val events = listOf("newer", "older", "latest").associateWith { listOf(location(it, 10)) }
+
+        val result = toolEventsForResponse(selected, listOf(selected, other), true, setOf("lead", "other"), events)
+
+        assertEquals(listOf("older"), result.map { it.runId })
+    }
+
+    @Test
     fun `combined answer keeps the lead and other candidate location results after synthesis`() {
         val lead = MessageV2(
             content = "Combined answer",

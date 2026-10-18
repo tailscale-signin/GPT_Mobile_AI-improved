@@ -27,6 +27,7 @@ internal class AmazonMcpResultTool private constructor(
         delegate.definition
     }
     override val managesExecutionBudget = delegate.managesExecutionBudget
+    override val coordinatesChildWork = delegate.coordinatesChildWork
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
         val params = arguments["params"] as? JsonObject ?: arguments

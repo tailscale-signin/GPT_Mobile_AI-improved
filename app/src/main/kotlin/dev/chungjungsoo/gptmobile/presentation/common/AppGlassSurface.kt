@@ -1,6 +1,5 @@
 package dev.chungjungsoo.gptmobile.presentation.common
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
@@ -53,7 +52,6 @@ fun AppGlassSurface(modifier: Modifier = Modifier, shape: Shape = MaterialTheme.
         color = if (hasGlassBackdrop()) Color.Transparent else tokens.background,
         contentColor = tokens.foreground,
         tonalElevation = 0.dp,
-        border = BorderStroke(1.dp, tokens.border),
         content = content
     )
 }

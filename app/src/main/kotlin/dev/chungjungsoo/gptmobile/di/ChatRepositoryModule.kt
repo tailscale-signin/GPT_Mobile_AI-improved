@@ -86,7 +86,8 @@ object ChatRepositoryModule {
         openRouterModelRepository: dev.chungjungsoo.gptmobile.data.repository.OpenRouterModelRepository,
         researchRecall: dev.chungjungsoo.gptmobile.data.research.memory.ResearchRecallProvider,
         localAssistPreparation: dev.chungjungsoo.gptmobile.data.assist.LocalAssistPreparation,
-        memoryPreview: dev.chungjungsoo.gptmobile.data.readiness.MemoryPreviewCoordinator
+        memoryPreview: dev.chungjungsoo.gptmobile.data.readiness.MemoryPreviewCoordinator,
+        combinedBudgets: dev.chungjungsoo.gptmobile.data.agent.CombinedTurnBudgetStore
     ): ChatRepository = ChatRepositoryImpl(
         context = context,
         chatRoomV2Dao = chatRoomV2Dao,
@@ -125,6 +126,7 @@ object ChatRepositoryModule {
         openRouterSettingsRepository = openRouterSettingsRepository,
         researchRecall = researchRecall,
         localAssistPreparation = localAssistPreparation,
-        memoryPreview = memoryPreview
+        memoryPreview = memoryPreview,
+        combinedBudgets = combinedBudgets
     )
 }

@@ -84,6 +84,7 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
     onNotice: (String, Boolean) -> Unit = { _, _ -> },
     onPhaseChanged: ((LocalInferencePhase) -> Unit)? = null,
     onGatewayProgress: ((GatewayProgress) -> Unit)? = null,
+    onCombinedReplacement: suspend (dev.chungjungsoo.gptmobile.data.agent.CombinedReplacementCandidate) -> Boolean = { false },
     nanoTimeProvider: () -> Long = System::nanoTime,
     publishIntervalMillis: Long = STANDARD_STREAM_PUBLISH_INTERVAL_MILLIS
 ): ApiStateFlowOutcome {
@@ -96,6 +97,19 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
             pulse.error?.let { throw it }
             when (val chunk = pulse.state) {
                 null -> buffer.publishIfDue(onUpdate)
+                is ApiState.CombinedReplacement -> {
+                    var accepted = false
+                    try {
+                        buffer.flush(onUpdate)
+                        accepted = onCombinedReplacement(chunk.candidate)
+                        if (accepted) {
+                            buffer.replaceCombined(chunk.candidate)
+                            buffer.publishNow(onUpdate)
+                        }
+                    } finally {
+                        chunk.acknowledgement.complete(accepted)
+                    }
+                }
                 is ApiState.CombinedQuality -> {
                     buffer.updateCombinedQuality(chunk.report)
                     buffer.publishIfDue(onUpdate)
@@ -366,6 +380,18 @@ private class StreamingMessageBuffer(
         val index = timeline.indexOfFirst { it.combinedQuality != null }
         val item = AssistantTimelineItem(AssistantTimelineItemType.NOTICE, combinedQuality = report)
         if (index < 0) timeline += item else timeline[index] = item
+        timelineVersion++
+    }
+
+    fun replaceCombined(candidate: dev.chungjungsoo.gptmobile.data.agent.CombinedReplacementCandidate) {
+        flushTimelineText()
+        content.setLength(0)
+        pendingTimelineIndex = -1
+        pendingTimelineText.setLength(0)
+        timeline.removeAll { it.type == AssistantTimelineItemType.TEXT || it.combinedQuality != null }
+        appendContent(candidate.text)
+        updateCombinedQuality(candidate.report)
+        // Equal-length replacements must publish too.
         timelineVersion++
     }
 

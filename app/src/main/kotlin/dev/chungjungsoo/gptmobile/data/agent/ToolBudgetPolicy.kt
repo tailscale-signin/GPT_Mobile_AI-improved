@@ -43,9 +43,13 @@ object ToolBudgetPolicy {
         return remaining in 1..wrapUpThreshold(limits)
     }
 
-    fun buildWrapUpPrompt(remainingAllowance: Int): String =
+    fun buildWrapUpPrompt(remainingAllowance: Int, combined: Boolean = false): String =
         "You have $remainingAllowance tool call(s) remaining before your hard limit. " +
             "Prioritize only essential remaining calls and avoid starting broad new research. " +
             "If the available evidence is already sufficient, stop calling tools and synthesize the final answer now. " +
-            "If essential evidence will not fit in the remaining allowance, state what is missing and ask whether to continue in a new response."
+            if (combined) {
+                "Preserve completed evidence and report any concrete unresolved requirement to the Combined verifier. Required corrections are planned by the turn controller; do not request routine permission to renew an effort tranche."
+            } else {
+                "If essential evidence will not fit in the remaining allowance, state what is missing and ask whether to continue in a new response."
+            }
 }

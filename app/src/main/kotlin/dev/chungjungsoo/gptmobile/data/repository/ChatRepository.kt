@@ -15,6 +15,30 @@ import kotlinx.coroutines.flow.Flow
 
 interface ChatRepository {
 
+    /** Resolve live limits once; accepted preferences, roster and grants remain frozen. */
+    suspend fun prepareCombinedTurn(
+        execution: dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext,
+        userMessages: List<MessageV2>,
+        assistantMessages: List<List<MessageV2>>,
+        profiles: List<PlatformV2>,
+        tools: ChatMcpToolConfig
+    ): dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext = execution
+
+    suspend fun cancelCombinedTurn(rootBudgetId: String) = Unit
+    suspend fun isCombinedTurnCancelled(rootBudgetId: String): Boolean = false
+    suspend fun markCombinedMergeUnavailable(chatId: Int, userMessageId: Int, rootBudgetId: String) = Unit
+    suspend fun regenerateCombinedTurn(
+        userMessage: MessageV2,
+        expectedOwner: MessageV2,
+        runs: List<dev.chungjungsoo.gptmobile.data.database.entity.AgentRunDraft>,
+        accepted: dev.chungjungsoo.gptmobile.data.agent.CombinedAcceptedTurn
+    ): PersistAgentTurnResult = error("Atomic Combined regeneration is unavailable")
+    suspend fun replaceCombinedAnswer(
+        runId: String,
+        expectedFence: Long,
+        candidate: dev.chungjungsoo.gptmobile.data.agent.CombinedReplacementCandidate
+    ): MessageV2? = null
+
     /** Isolated benchmark requests use only supplied fixtures, without chat memory or connected tools. */
     suspend fun openBenchmarkSession(
         platform: PlatformV2,
@@ -83,6 +107,10 @@ interface ChatRepository {
         .maxWithOrNull(compareBy<MessageV2> { it.createdAt }.thenBy { it.combinedSources.isNotEmpty() }.thenBy { it.id })?.id
     suspend fun fetchChatPlatformModels(chatId: Int): Map<String, String>
     suspend fun saveChatPlatformModels(chatId: Int, models: Map<String, String>)
+    suspend fun applyCombinedChatSettings(
+        previous: dev.chungjungsoo.gptmobile.data.model.CombinedChatSettingsDraft,
+        next: dev.chungjungsoo.gptmobile.data.model.CombinedChatSettingsDraft
+    ): ChatRoomV2 = error("Atomic Combined settings are unavailable")
     suspend fun persistAgentTurn(request: PersistAgentTurnRequest): PersistAgentTurnResult
     suspend fun persistAgentRetry(request: PersistAgentRetryRequest): PersistAgentRetryResult
     suspend fun markAgentRunRunning(runId: String, startedAt: Long): Boolean

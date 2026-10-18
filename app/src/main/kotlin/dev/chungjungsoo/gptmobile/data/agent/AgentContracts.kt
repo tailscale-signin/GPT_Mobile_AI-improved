@@ -121,6 +121,9 @@ interface AgentTool {
 
     /** The shared budget times execution only; waiting for a user decision must not time out. */
     val managesExecutionBudget: Boolean get() = false
+
+    /** This operation has no external work of its own; its authorized children are charged. */
+    val coordinatesChildWork: Boolean get() = false
     suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult
 }
 

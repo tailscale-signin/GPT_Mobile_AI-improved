@@ -2,7 +2,9 @@ package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
+import dev.chungjungsoo.gptmobile.data.database.entity.effectiveCombinedSources
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveContent
+import dev.chungjungsoo.gptmobile.data.database.entity.effectiveRunId
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveTimeline
 import dev.chungjungsoo.gptmobile.presentation.ui.thinking.ThinkingParser
 
@@ -18,7 +20,7 @@ internal fun assistantExportText(message: MessageV2, format: ChatExportFormat, d
         message.effectiveTimeline().filter { it.type == AssistantTimelineItemType.TEXT }.joinToString("") { it.content }
     }
     val response = dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(ThinkingParser.extractThinking(text).response).trim()
-    val visible = if (message.isCombinedSynthesis()) combinedVisibleAnswer(response, debugMode) else response
+    val visible = if (message.effectiveRunId()?.startsWith("combined-synthesis:") == true || message.effectiveCombinedSources().isNotEmpty()) combinedVisibleAnswer(response, debugMode) else response
     if (format == ChatExportFormat.MARKDOWN) return visible
     return visible
         .replace(Regex("(?m)^\\s*```[^\\n]*$"), "")

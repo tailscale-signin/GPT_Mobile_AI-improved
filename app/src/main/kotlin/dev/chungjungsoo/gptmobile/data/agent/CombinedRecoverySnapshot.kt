@@ -7,6 +7,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.research.researchHash
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 /** Reconstruct only from the original durable input and the owning revision's verified segments. */
@@ -19,19 +20,37 @@ internal object CombinedRecoverySnapshot {
         val raw = requireNotNull(run.synthesisSnapshot) { "This legacy answer has no frozen synthesis input." }
         require(researchHash(raw) == run.synthesisKey) { "The frozen synthesis input failed its integrity check." }
         val snapshot = json.decodeFromString<CombinedInputSnapshot>(raw)
-        require(snapshot.version in 1..4 && snapshot.userMessage.id == run.userMessageId && snapshot.userMessage.chatId == run.chatId) { "The saved synthesis input is incompatible." }
-        require(primaryUid == snapshot.profileUid && platform.enabled && platform.uid == snapshot.profileUid && platform.model == snapshot.model && benchmarkConfigKey(platform) == snapshot.configKey) { "Restore the pinned primary and its saved configuration before resuming." }
-        require(snapshot.sources.none { it.localOnly } || platform.compatibleType == ClientType.LITERT_LM) { "Local-only contributions require the original local primary." }
-        snapshot.claimInventory?.let {
-            require(it == CombinedClaimInventory.freeze(snapshot.sources)) { "The saved source inventory failed its integrity check." }
+        require(snapshot.version in 1..5 && snapshot.userMessage.id == run.userMessageId && snapshot.userMessage.chatId == run.chatId) { "The saved synthesis input is incompatible." }
+        val modern = snapshot.version >= 5 && snapshot.combined != null
+        val accepted = snapshot.combined?.requested
+        if (modern) {
+            require(accepted != null && snapshot.profileUid in accepted.participantUids && snapshot.combined?.rootBudgetId?.isNotBlank() == true) { "The saved fallback owner is not an accepted participant." }
+            require(accepted.requestedPolicyDigest == combinedDigest(Json.encodeToString(accepted.copy(requestedPolicyDigest = "")))) { "The accepted Combined policy failed its digest check." }
+            require(accepted.userPrompt == snapshot.userMessage.content && accepted.requestedModels[snapshot.profileUid] == snapshot.model) { "The saved owner model or original request differs from the accepted policy." }
+            require(accepted.requestedPolicyDigest.isNotBlank() && snapshot.combined?.plan?.requested?.requestedPolicyDigest.let { it == null || it == accepted.requestedPolicyDigest }) { "The saved Combined policy and work plan disagree." }
+            snapshot.combined?.plan?.let { plan ->
+                require(plan.effectivePlanDigest == combinedDigest(Json.encodeToString(plan.copy(effectivePlanDigest = "")))) { "The saved Combined work plan failed its digest check." }
+            }
+            snapshot.acceptedTools?.combined?.let { toolsContext ->
+                require(toolsContext.rootBudgetId == snapshot.combined?.rootBudgetId && toolsContext.requested.requestedPolicyDigest == accepted.requestedPolicyDigest) { "The accepted tools belong to a different Combined turn." }
+            }
+            require(snapshot.answerContract != null && snapshot.answerContract == CombinedAnswerPolicy.from(snapshot.userMessage.content)) { "The saved answer contract changed." }
         }
-        val prefix = if (run.status == "COMPLETED" || snapshot.deliveryProtocol == "PASSAGES_V2") {
+        require((modern || primaryUid == snapshot.profileUid) && platform.enabled && platform.uid == snapshot.profileUid && platform.model == snapshot.model && benchmarkConfigKey(platform) == snapshot.configKey) { "Restore the saved Combined owner and its accepted configuration before resuming." }
+        require(snapshot.sources.none { it.localOnly } || platform.compatibleType == ClientType.LITERT_LM) { "Local-only contributions require an authorized local synthesis owner." }
+        snapshot.claimInventory?.let {
+            require(it == CombinedClaimInventory.freeze(snapshot.sources).let { frozen -> if (it.version == 1) frozen.copy(version = 1, claims = emptyList()) else frozen }) { "The saved source inventory failed its integrity check." }
+        }
+        val committed = if (run.status == "COMPLETED") {
             ""
         } else {
             AnswerSegmentChain.text(segments, run.runId, run.ownershipFence).also {
                 require(it == message.content) { "The saved answer and committed segments disagree; the answer was not replaced." }
             }
         }
+        // Structured delivery is a complete new revision. Verify the archived prefix but do not
+        // feed already-rendered prose back into the record protocol as a continuation prefix.
+        val prefix = if (snapshot.deliveryProtocol == "PASSAGES_V2") "" else committed
         return snapshot.copy(version = maxOf(snapshot.version, 3), resumeFromRunId = run.runId, committedPrefix = prefix)
     }
 }

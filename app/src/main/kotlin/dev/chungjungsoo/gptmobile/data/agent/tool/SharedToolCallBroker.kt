@@ -53,6 +53,7 @@ class SharedToolCallBroker(
         return object : OwnedAgentTool {
             override val definition = tool.definition
             override val managesExecutionBudget = tool.managesExecutionBudget
+            override val coordinatesChildWork = tool.coordinatesChildWork
             override val executionOwner = (tool as? OwnedAgentTool)?.executionOwner ?: AgentToolExecutionOwner.CLIENT
 
             override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult =

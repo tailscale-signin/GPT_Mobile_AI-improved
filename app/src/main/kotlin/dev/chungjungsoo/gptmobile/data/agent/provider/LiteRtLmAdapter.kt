@@ -324,13 +324,20 @@ class LiteRtLmAdapter(
                 dev.chungjungsoo.gptmobile.data.agent.LocalToolHealth.planned(effectiveContextTokens, plan.tools.map { it.name }, availableTools.map { it.definition.name }.filter { name -> plan.tools.none { it.name == name } }, plan.toolResultBytes)
                 val compactedPriorTurns = plan.priorTurns
                 val selectedNames = plan.tools.map { it.name }.toSet()
+                val combinedToolLimit = constraints.combined?.let { dev.chungjungsoo.gptmobile.data.agent.CombinedPolicyResolver.toolCallLimit(it, platform.maxToolCalls) }
+                val promptToolLimit = combinedToolLimit ?: 8
+                val callbackLimit = combinedToolLimit?.let { (it.toLong() + 2).coerceAtMost(Int.MAX_VALUE.toLong()).toInt() } ?: 32
                 val toolBudget = dev.chungjungsoo.gptmobile.data.agent.ToolExecutionBudget(
                     dev.chungjungsoo.gptmobile.data.agent.AgentRunLimits(
-                        maxToolCalls = 24,
+                        maxToolCalls = combinedToolLimit ?: 24,
+                        maxObservedToolCalls = callbackLimit,
+                        maxConcurrentTools = constraints.combined?.plan?.maxParallelToolCalls ?: 6,
+                        combined = constraints.combined,
                         maxToolOutputBytes = 512 * 1024,
                         toolTimeoutMillis = 60_000L
                     ),
                     evidenceBytesPerResult = (plan.toolResultBytes - 512).coerceAtLeast(128),
+                    combined = constraints.combined,
                     failureMessage = { "Local tool execution failed. Inspect the connection diagnostics." }
                 )
                 if (availableTools.groupBy { it.definition.name }.any { it.value.size > 1 }) {
@@ -509,7 +516,7 @@ class LiteRtLmAdapter(
                                             isConstrainedDecodingEnabled = descriptors.isNotEmpty(),
                                             toolExecutor = if (descriptors.isNotEmpty()) {
                                                 LocalToolExecutor { name, argumentsJson ->
-                                                    if (callbackCount.incrementAndGet() > 32) throw dev.chungjungsoo.gptmobile.data.localruntime.LocalToolLimitException("CALLBACK_LIMIT")
+                                                    if (callbackCount.incrementAndGet() > callbackLimit) throw dev.chungjungsoo.gptmobile.data.localruntime.LocalToolLimitException("CALLBACK_LIMIT")
                                                     if (name.length > 256 || argumentsJson.length > 16 * 1024) throw dev.chungjungsoo.gptmobile.data.localruntime.LocalToolLimitException("ARGUMENT_LIMIT")
                                                     val signature = name + argumentsJson.hashCode()
                                                     if ((callbackFailures[signature]?.get() ?: 0) >= 2) throw dev.chungjungsoo.gptmobile.data.localruntime.LocalToolLimitException("REPEATED_FAILURE")
@@ -616,7 +623,7 @@ class LiteRtLmAdapter(
                                         serializerRevision = "native-config-v1"
                                     )
                                     admitted.dispatchPayload(identity, permissionRevision)
-                                    val attemptId = dev.chungjungsoo.gptmobile.data.context.PhysicalAttemptBoundary.dispatch()
+                                    val attemptId = dev.chungjungsoo.gptmobile.data.context.PhysicalAttemptBoundary.dispatch(admitted.receipt)
                                     kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.serialized(frozenInput, admitted.receipt.copy(physicalAttemptId = attemptId))
                                 }
                                 var generationInput = latestUserText
@@ -704,7 +711,7 @@ class LiteRtLmAdapter(
                                                 parsedBeforeLimit
                                             }
                                             val call = (parsed as? PromptToolParseResult.Call)?.value
-                                            if (call != null && promptToolCallCount < 8) {
+                                            if (call != null && promptToolCallCount < promptToolLimit) {
                                                 awaitingToolRepair = false
                                                 nativeToolsUsed = true
                                                 val result = try {
@@ -719,7 +726,7 @@ class LiteRtLmAdapter(
                                                 physicalSegment = UUID.randomUUID().toString()
                                                 continue
                                             }
-                                            if (call != null && promptToolCallCount >= 8) {
+                                            if (call != null && promptToolCallCount >= promptToolLimit) {
                                                 nativeToolsUsed = true
                                                 promptToolsClosed = true
                                                 dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("LocalModel", "LOCAL_TOOL_CALL_REJECTED · reason=call_limit · authorizedToolCount=${runToolsByName.size} · dispatched=false", "W")

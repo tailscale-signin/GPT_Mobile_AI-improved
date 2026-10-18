@@ -4,6 +4,7 @@ import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chungjungsoo.gptmobile.data.agent.AgentRunCoordinator
 import dev.chungjungsoo.gptmobile.data.agent.AgentRunRequest
+import dev.chungjungsoo.gptmobile.data.agent.temperatureFor
 import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunDraft
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
@@ -45,7 +46,7 @@ class DurablePromptQueue @Inject constructor(
         if (!started.compareAndSet(false, true)) return
         scope.launch {
             dev.chungjungsoo.gptmobile.presentation.StartupRecoveryGate.await()
-            combine(pending, database.agentRunDao().observeActive(), settings.observePlatformV2s(), coordinator.activeRuns, wake) { prompts, active, profiles, live, _ ->
+            combine(pending, database.agentRunDao().observeActive(), combine(settings.observePlatformV2s(), settings.observeFeatureSettings()) { profiles, _ -> profiles }, coordinator.activeRuns, wake) { prompts, active, profiles, live, _ ->
                 Triple(prompts, active.map { it.chatId }.toSet() + live.values.map { it.chatId }, profiles)
             }.collect { (prompts, busyChats, profiles) ->
                 prompts.groupBy { it.chatId }.forEach { (chatId, entries) ->
@@ -58,7 +59,7 @@ class DurablePromptQueue @Inject constructor(
                         if (payload.profileUids.any { it in pausedProfiles }) return@forEach
                         if (!database.agentPersistenceDao().queuedTurnReady(chatId, pausedProfiles)) return@forEach
                         val room = database.agentPersistenceDao().getChatRoom(chatId) ?: return@forEach
-                        if (payload.profileUids.any { it !in room.activePlatform }) {
+                        if (payload.tools.combined == null && payload.profileUids.any { it !in room.activePlatform }) {
                             // Preserve the requested model snapshot for explicit review; never silently reroute.
                             dao.pause(prompt.id, true)
                             return@forEach
@@ -70,18 +71,40 @@ class DurablePromptQueue @Inject constructor(
                         }
                         val remote = targets.any { it.compatibleType != dev.chungjungsoo.gptmobile.data.model.ClientType.LITERT_LM }
                         val features = settings.getFeatureSettings()
+                        val save = features.combinedSettingsJournal[chatId]
+                        if (save != null && !save.roomSettled && save.phase != dev.chungjungsoo.gptmobile.data.model.CombinedSettingsSavePhase.COMMITTED) return@forEach
                         if ((payload.localOnly && remote) || (payload.requiresSpendAllowance && remote && (!features.spendBudget.enforced || features.tokenBudget.outputTokens <= 0))) {
                             dao.pause(prompt.id, true)
                             return@forEach
                         }
                         val before = chats.fetchMessagesV2(chatId)
-                        val resolved = targets.map { it.copy(model = payload.models[it.uid] ?: it.model, reasoning = payload.tools.reasoning ?: it.reasoning) }
+                        val resolved = targets.map {
+                            it.copy(
+                                model = payload.models[it.uid] ?: it.model,
+                                reasoning = payload.tools.reasoning ?: it.reasoning,
+                                temperature = if (payload.tools.combined == null) it.temperature else payload.tools.combined.requested.temperatureFor(it.uid, it.temperature)
+                            )
+                        }
+                        val accepted = payload.tools.combined
+                        val dispatchTools = if (accepted == null) {
+                            payload.tools
+                        } else {
+                            check(accepted.requested.userPrompt == prompt.text && accepted.requested.participantUids == payload.profileUids && accepted.requested.requestedModels == payload.models) {
+                                "Queued Combined intent no longer matches its accepted snapshot."
+                            }
+                            val users = before.filter { it.platformType == null } + MessageV2(chatId = chatId, content = prompt.text, platformType = null)
+                            val rows = users.map { user -> before.filter { it.platformType != null && it.linkedMessageId == user.id } }
+                            payload.tools.copy(combined = chats.prepareCombinedTurn(accepted.copy(chatId = chatId), users, rows, resolved, payload.tools))
+                        }
+                        val acceptedRecord = dispatchTools.combined?.let {
+                            dev.chungjungsoo.gptmobile.data.agent.CombinedAcceptedTurn(context = it, tools = dispatchTools).encode()
+                        }
                         val result = chats.persistAgentTurn(
                             PersistAgentTurnRequest(
                                 chatRoom = room,
                                 userMessage = MessageV2(chatId = chatId, content = prompt.text, attachments = payload.attachments, platformType = null),
-                                runs = resolved.map { AgentRunDraft(UUID.randomUUID().toString(), it.uid, it.compatibleType.name, it.model) },
-                                chatPlatformModels = payload.models,
+                                runs = resolved.map { AgentRunDraft(UUID.randomUUID().toString(), it.uid, it.compatibleType.name, it.model, synthesisSnapshot = acceptedRecord) },
+                                chatPlatformModels = chats.fetchChatPlatformModels(chatId),
                                 queuedPromptId = prompt.id,
                                 queuedPausedProfiles = pausedProfiles
                             )
@@ -99,7 +122,12 @@ class DurablePromptQueue @Inject constructor(
                                     resolved.first { it.uid == run.profileUid },
                                     users,
                                     assistants,
-                                    payload.tools
+                                    dispatchTools.copy(
+                                        combined = dispatchTools.combined?.forRole(
+                                            dev.chungjungsoo.gptmobile.data.agent.CombinedRunRole.CONTRIBUTOR,
+                                            run.profileUid
+                                        )
+                                    )
                                 )
                             }
                         )
@@ -126,7 +154,36 @@ class DurablePromptQueue @Inject constructor(
     }
     suspend fun edit(id: String, text: String, hasAttachments: Boolean) {
         require(text.isNotBlank() || hasAttachments) { "Add a message or keep an attachment before saving." }
-        if (FollowUpProgressStore.canChange(id)) dao.edit(id, text)
+        if (!FollowUpProgressStore.canChange(id)) return
+        val current = dao.get(id) ?: return
+        val payload = current.details()
+        val combined = payload.tools.combined
+        val updated = if (combined == null) {
+            payload
+        } else {
+            val accepted = combined.requested
+            val requested = dev.chungjungsoo.gptmobile.data.agent.CombinedPolicyResolver.accept(
+                settings = accepted.settings,
+                participantUids = accepted.participantUids,
+                requestedModels = accepted.requestedModels,
+                userPrompt = text,
+                settingsRevision = accepted.settingsRevision,
+                preferredOwnerUid = accepted.preferredOwnerUid,
+                requestedTemperatures = accepted.requestedTemperatures
+            )
+            payload.copy(
+                tools = payload.tools.copy(
+                    combined = combined.copy(
+                        requested = requested,
+                        plan = null,
+                        rootBudgetId = UUID.randomUUID().toString()
+                    )
+                )
+            )
+        }
+        check(dao.replaceUnconsumed(id, current.text, current.payload, text, Json.encodeToString(updated)) == 1) {
+            "The queued message changed or started while editing."
+        }
     }
     suspend fun pause(id: String, paused: Boolean) {
         if (FollowUpProgressStore.canChange(id)) dao.pause(id, paused)

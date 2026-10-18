@@ -148,8 +148,8 @@ private fun AppNavHost(
                     )
                 )
         },
-        popEnterTransition = { fadeIn(animationSpec = tween(durationMillis = 160)) },
-        popExitTransition = { fadeOut(animationSpec = tween(durationMillis = 160)) }
+        popEnterTransition = { backSlideFadeEnter() },
+        popExitTransition = { backSlideFadeExit() }
     ) {
         homeScreenNavigation(navController)
         newChatNavigation(navController)

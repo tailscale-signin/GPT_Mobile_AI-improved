@@ -115,6 +115,20 @@ class GPTMobileApp :
                 temporary.forEach { androidx.work.WorkManager.getInstance(this@GPTMobileApp).cancelAllWorkByTag("memory-chat-${it.id}") }
                 conversationDeletion.get().delete(temporary)
             }
+            val combinedSettings = startup.settingRepository()
+            val rooms = conversationDatabase.get().chatRoomDao()
+            val existingConversationIds = (rooms.getChatRooms() + rooms.getArchivedChatRooms()).mapTo(hashSetOf()) { it.id }
+            combinedSettings.recoverConversationCombinedDeletions(existingConversationIds)
+            val combinedJournal = dev.chungjungsoo.gptmobile.data.repository.CombinedSettingsSaveJournal(combinedSettings)
+            combinedSettings.getFeatureSettings().combinedSettingsJournal.keys.filter { it in existingConversationIds }.forEach { chatId ->
+                try {
+                    combinedJournal.recover(chatId) { previous, next -> startup.agentPersistenceDao().applyCombinedSettings(previous, next) }
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("CombinedSettings", "SAVE_RECOVERY_PENDING · chatId=$chatId · reason=${error.javaClass.simpleName}", "W")
+                }
+            }
             toolApprovals.get().recover()
             invocationLedger.get().recover()
             startup.pendingLocalPlatformActivator().start()

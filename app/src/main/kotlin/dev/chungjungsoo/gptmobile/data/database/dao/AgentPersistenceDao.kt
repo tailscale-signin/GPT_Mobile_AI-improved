@@ -56,6 +56,43 @@ interface AgentPersistenceDao {
     @Query("SELECT * FROM chat_platform_model_v2 WHERE chat_id = :chatId")
     suspend fun getModels(chatId: Int): List<ChatPlatformModelV2>
 
+    @Query("DELETE FROM chat_platform_model_v2 WHERE chat_id = :chatId AND platform_uid IN (:profileUids)")
+    suspend fun deleteCombinedModels(chatId: Int, profileUids: List<String>)
+
+    /** Own only first-tab fields. Immediate privacy, tool, draft and archive changes survive. */
+    @Transaction
+    suspend fun applyCombinedSettings(
+        previous: dev.chungjungsoo.gptmobile.data.model.CombinedChatSettingsDraft,
+        next: dev.chungjungsoo.gptmobile.data.model.CombinedChatSettingsDraft
+    ): ChatRoomV2 {
+        require(previous.chatId == next.chatId && previous.conversationIdentity == next.conversationIdentity)
+        val current = requireNotNull(getChatRoom(next.chatId)) { "The conversation was deleted." }
+        val models = getModels(next.chatId).associate { it.platformUid to it.model }
+        val affected = previous.models.keys + next.models.keys
+        val nextPrimary = next.primaryProfileUid?.takeIf { it in next.participantUids }
+            ?: current.combinedPrimaryUid?.takeIf { it in next.participantUids } ?: next.participantUids.firstOrNull()
+        val alreadyApplied = current.activePlatform == next.participantUids &&
+            current.combinedPrimaryUid == nextPrimary &&
+            affected.all { uid ->
+                models[uid] == next.models[uid] || models[uid] == null && next.models[uid] == previous.models[uid]
+            }
+        if (alreadyApplied) return current
+        check(current.activePlatform == previous.participantUids) { "Conversation participants changed during save." }
+        check(affected.all { uid -> models[uid] == null || models[uid] == previous.models[uid] }) { "Conversation models changed during save." }
+        val updated = current.copy(
+            enabledPlatform = (current.enabledPlatform + next.participantUids).distinct(),
+            activePlatform = next.participantUids,
+            combinedPrimaryUid = nextPrimary,
+            updatedAt = System.currentTimeMillis() / 1000
+        )
+        require(updated.activePlatform.isNotEmpty()) { "Select at least one AI profile." }
+        updateChatRoom(updated)
+        val removed = (previous.models.keys - next.models.keys).toList()
+        if (removed.isNotEmpty()) deleteCombinedModels(next.chatId, removed)
+        upsertModels(next.models.map { (uid, model) -> ChatPlatformModelV2(chatId = next.chatId, platformUid = uid, model = model) })
+        return updated
+    }
+
     @Query("SELECT * FROM agent_runs WHERE chat_id = :chatId AND status = 'COMPLETED' ORDER BY created_at, run_id")
     suspend fun getCompletedRuns(chatId: Int): List<AgentRun>
 
@@ -137,6 +174,67 @@ interface AgentPersistenceDao {
     @Insert
     suspend fun insertAnswerSegments(segments: List<dev.chungjungsoo.gptmobile.data.database.entity.AnswerSegment>)
 
+    @Query("UPDATE answer_segments SET runId = :archivedRunId WHERE runId = :runId")
+    suspend fun archiveCombinedSegments(runId: String, archivedRunId: String)
+
+    @Query("UPDATE agent_runs SET ownership_fence = :nextFence WHERE run_id = :runId AND ownership_fence = :expectedFence AND status = 'RUNNING'")
+    suspend fun advanceCombinedFence(runId: String, expectedFence: Long, nextFence: Long): Int
+
+    /** Archive old bytes and citations, advance ownership, and replace the live revision together. */
+    @Transaction
+    suspend fun replaceCombinedAnswer(
+        runId: String,
+        expectedFence: Long,
+        candidate: dev.chungjungsoo.gptmobile.data.agent.CombinedReplacementCandidate
+    ): MessageV2? {
+        val run = recoveryRun(runId) ?: return null
+        if (!runId.startsWith("combined-synthesis:") || run.status != "RUNNING" || run.ownershipFence != expectedFence) return null
+        val current = rawRecoveryMessage(run.assistantMessageId) ?: return null
+        if (current.currentRunId != runId || current.ownershipFence != expectedFence) return null
+        val report = current.timeline.lastOrNull { it.combinedQuality != null }?.combinedQuality ?: return null
+        if (report.revisionId != candidate.previousRevisionId || dev.chungjungsoo.gptmobile.data.research.researchHash(current.content) != candidate.previousDigest) return null
+        require(candidate.text.isNotBlank() && candidate.revisionId.isNotBlank() && candidate.revisionId != candidate.previousRevisionId)
+        require(candidate.report.revisionId == candidate.revisionId && candidate.report.answerDigest == dev.chungjungsoo.gptmobile.data.research.researchHash(candidate.text))
+        val nextFence = Math.addExact(expectedFence, 1L)
+        val archiveId = "combined-synthesis:revision:${candidate.previousRevisionId}:${java.util.UUID.randomUUID()}"
+        val now = System.currentTimeMillis() / 1000
+        insertRun(
+            run.copy(
+                runId = archiveId,
+                status = "COMPLETED",
+                completedAt = now,
+                terminalError = "REVISION_REPLACED",
+                gatewayJobId = null,
+                gatewayBaseUrl = null,
+                gatewayLastSequence = -1,
+                inputTokens = null,
+                outputTokens = null,
+                totalTokens = null,
+                displayRole = "INTERNAL"
+            )
+        )
+        archiveCombinedSegments(runId, archiveId)
+        check(advanceCombinedFence(runId, expectedFence, nextFence) == 1)
+        val timeline = current.timeline.filterNot {
+            it.type == dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.TEXT || it.combinedQuality != null
+        } + listOf(
+            dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.TEXT, content = candidate.text),
+            dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE, combinedQuality = candidate.report)
+        )
+        val previous = current.snapshotLatestAssistantRevision(now)?.copy(runId = archiveId)
+        val replaced = current.copy(
+            content = candidate.text,
+            timeline = timeline,
+            ownershipFence = nextFence,
+            revisions = listOfNotNull(previous) + current.revisions,
+            activeRevisionIndex = ACTIVE_REVISION_LATEST,
+            createdAt = now
+        )
+        updateMessage(replaced)
+        preserveCombinedPrefix(replaced)
+        return replaced
+    }
+
     suspend fun preserveCombinedPrefix(message: MessageV2) {
         val runId = message.currentRunId ?: return
         if (!runId.startsWith("combined-synthesis:")) return
@@ -186,7 +284,15 @@ interface AgentPersistenceDao {
         val key = "${run.chatId}:${run.userMessageId}:$channel"
         val previous = publication(key)
         if (previous != null && previous.ownerFence > run.ownershipFence) return
-        val kind = if (status == "COMPLETED") "FINAL" else "PARTIAL"
+        val quality = message.timeline.lastOrNull { it.combinedQuality != null }?.combinedQuality
+        val limitedCombinedDelivery = run.displayRole == dev.chungjungsoo.gptmobile.data.chat.ReplyDisplayRole.COMBINED &&
+            quality?.let {
+                it.correctionRequired ||
+                    !it.complete ||
+                    it.deliveredScopeStatus !in setOf("COMPLETED", "COMPLETED_WITH_LIMITS") ||
+                    it.answerDigest != dev.chungjungsoo.gptmobile.data.research.researchHash(message.content)
+            } == true
+        val kind = if (status == "COMPLETED" && !limitedCombinedDelivery) "FINAL" else "PARTIAL"
         val digest = dev.chungjungsoo.gptmobile.data.research.researchHash(content)
         if (previous?.contentDigest == digest && previous.deliveryKind == kind && previous.ownerFence == run.ownershipFence) return
         savePublication(
@@ -207,6 +313,26 @@ interface AgentPersistenceDao {
     @Query("SELECT id FROM pending_prompts WHERE chatId = :chatId AND userMessageId IS NULL ORDER BY position, id LIMIT 1")
     suspend fun firstPendingId(chatId: Int): String?
 
+    @Transaction
+    suspend fun markCombinedMergeUnavailable(chatId: Int, userMessageId: Int, rootBudgetId: String): Boolean {
+        val rows = rawGetMessages(chatId).filter { it.linkedMessageId == userMessageId && it.platformType != null }
+        if (rows.any { row -> row.currentRunId?.let { recoveryRun(it)?.status } in setOf("QUEUED", "RUNNING") }) return false
+        val matching = rows.filter { row -> row.timeline.any { it.combinedTurn?.rootBudgetId == rootBudgetId } }
+        if (matching.isEmpty()) return false
+        matching.forEach { row ->
+            updateMessage(
+                row.copy(
+                    timeline = row.timeline.map { item ->
+                        item.combinedTurn?.takeIf { it.rootBudgetId == rootBudgetId }?.let { marker ->
+                            item.copy(combinedTurn = marker.copy(deliveryStatus = "MERGE_UNAVAILABLE"))
+                        } ?: item
+                    }
+                )
+            )
+        }
+        return true
+    }
+
     @Query("SELECT COUNT(*) FROM agent_runs WHERE chat_id = :chatId AND status IN ('QUEUED', 'RUNNING')")
     suspend fun activeRunCount(chatId: Int): Int
 
@@ -219,9 +345,19 @@ interface AgentPersistenceDao {
         if (activeRunCount(chatId) > 0) return false
         val room = getChatRoom(chatId) ?: return false
         if (room.conversationMode != dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode.COMBINED) return true
-        val participants = room.activePlatform.toSet() - pausedProfiles
-        if (participants.size < 2) return true
-        val replies = latestAssistantMessages(chatId).filter { it.platformType in participants }
+        val latest = latestAssistantMessages(chatId)
+        val accepted = latest.asSequence().flatMap { it.timeline.asSequence() }.mapNotNull { it.combinedTurn }.firstOrNull()
+        if (latest.any { it.timeline.any { item -> item.combinedTurn?.deliveryStatus == "MERGE_UNAVAILABLE" } }) return true
+        if (accepted != null &&
+            latest.filter { it.timeline.any { item -> item.combinedTurn != null } }.all {
+                it.timeline.any { item -> item.combinedTurn?.deliveryStatus == "CANDIDATE_CANCELED" }
+            }
+        ) {
+            return true
+        }
+        val participants = accepted?.participantUids?.toSet() ?: (room.activePlatform.toSet() - pausedProfiles)
+        if (participants.isEmpty()) return true
+        val replies = latest.filter { it.platformType in participants }
         if (replies.mapNotNull { it.platformType }.toSet() != participants) return true
         val runIds = replies.map { it.currentRunId }
         if (runIds.any { it.isNullOrBlank() || it.startsWith("combined-synthesis:") }) return true
@@ -258,7 +394,17 @@ interface AgentPersistenceDao {
             val pending = requireNotNull(pendingPrompt(id)) { "Queued input has already been dispatched or removed." }
             require(pending.chatId == request.chatRoom.id && !pending.paused)
             val currentRoom = requireNotNull(getChatRoom(pending.chatId))
-            require(request.runs.isNotEmpty() && request.runs.all { it.profileUid in currentRoom.activePlatform && it.profileUid !in request.queuedPausedProfiles }) { "A queued profile was removed or paused. Review the queued input before resuming it." }
+            val accepted = pending.details().tools.combined
+            val permitted = accepted?.requested?.participantUids ?: currentRoom.activePlatform
+            require(request.runs.isNotEmpty() && request.runs.all { it.profileUid in permitted && it.profileUid !in request.queuedPausedProfiles }) { "A queued profile was removed or paused. Review the queued input before resuming it." }
+            if (accepted != null) {
+                require(
+                    request.runs.all { draft ->
+                        val frozen = dev.chungjungsoo.gptmobile.data.agent.CombinedAcceptedTurn.context(draft.synthesisSnapshot)
+                        frozen?.requested == accepted.requested && draft.modelSnapshot == accepted.requested.requestedModels[draft.profileUid]
+                    }
+                ) { "Queued Combined policy changed during dispatch." }
+            }
             require(firstPendingId(pending.chatId) == id) { "Queue order changed." }
             require(queuedTurnReady(pending.chatId, request.queuedPausedProfiles)) { "Conversation is still running or awaiting its combined answer." }
             require(pending.text == request.userMessage.content && pending.details().attachments == request.userMessage.attachments) { "Queued input was edited." }
@@ -296,7 +442,15 @@ interface AgentPersistenceDao {
                 linkedMessageId = userMessage.id,
                 platformType = draft.profileUid,
                 currentRunId = draft.runId,
-                createdAt = draft.createdAt
+                createdAt = draft.createdAt,
+                timeline = listOfNotNull(
+                    dev.chungjungsoo.gptmobile.data.agent.CombinedAcceptedTurn.context(draft.synthesisSnapshot)?.let { context ->
+                        dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(
+                            type = dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE,
+                            combinedTurn = dev.chungjungsoo.gptmobile.data.context.CombinedTurnHistory.accepted(context.copy(chatId = chatRoom.id, profileUid = draft.profileUid))
+                        )
+                    }
+                )
             ).let { it.copy(id = insertMessage(it).toInt()) }
         }
         val runs = request.runs.zip(assistantMessages) { draft, assistantMessage ->
@@ -309,8 +463,13 @@ interface AgentPersistenceDao {
                 providerSnapshot = draft.providerSnapshot,
                 modelSnapshot = draft.modelSnapshot,
                 createdAt = draft.createdAt,
+                synthesisKey = draft.synthesisKey,
+                synthesisSnapshot = dev.chungjungsoo.gptmobile.data.agent.CombinedAcceptedTurn.decode(draft.synthesisSnapshot)?.let { accepted ->
+                    val rebound = accepted.context.copy(chatId = chatRoom.id)
+                    accepted.copy(context = rebound, tools = accepted.tools.copy(combined = rebound)).encode()
+                } ?: draft.synthesisSnapshot,
                 displayRole = draft.displayRole ?: when {
-                    chatRoom.conversationMode == dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode.COMBINED -> if (request.runs.size == 1) "COMBINED_FINAL" else "COMBINED_CONTRIBUTOR"
+                    chatRoom.conversationMode == dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode.COMBINED -> "COMBINED_CONTRIBUTOR"
                     request.runs.size > 1 -> "MULTI_REPLY"
                     else -> "DIRECT_REPLY"
                 }
@@ -355,6 +514,56 @@ interface AgentPersistenceDao {
     }
 
     @Transaction
+    suspend fun regenerateCombinedTurn(
+        userMessage: MessageV2,
+        expectedOwner: MessageV2,
+        drafts: List<dev.chungjungsoo.gptmobile.data.database.entity.AgentRunDraft>,
+        accepted: dev.chungjungsoo.gptmobile.data.agent.CombinedAcceptedTurn
+    ): PersistAgentTurnResult {
+        val room = requireNotNull(getChatRoom(userMessage.chatId)) { "The conversation was deleted." }
+        require(room.conversationMode == "COMBINED" && accepted.context.chatId == room.id && accepted.context.plan != null)
+        require(accepted.context.requested.userPrompt == userMessage.content)
+        require(drafts.map { it.profileUid } == accepted.context.requested.participantUids && drafts.map { it.runId }.distinct().size == drafts.size)
+        require(drafts.all { it.modelSnapshot == accepted.context.requested.requestedModels[it.profileUid] && it.synthesisKey == null })
+        val messages = rawGetMessages(room.id)
+        val user = requireNotNull(messages.singleOrNull { it.id == userMessage.id && it.platformType == null })
+        require(user.content == userMessage.content && user.attachments == userMessage.attachments) { "The original question changed before regeneration." }
+        val rows = messages.filter { it.linkedMessageId == user.id && it.platformType != null }
+        val owner = requireNotNull(rows.singleOrNull { it.id == expectedOwner.id })
+        require(owner.currentRunId == expectedOwner.currentRunId && owner.ownershipFence == expectedOwner.ownershipFence) { "The answer changed before regeneration." }
+        require(rows.none { row -> row.currentRunId?.let { recoveryRun(it)?.status } in setOf("RUNNING", "QUEUED") }) { "Stop all current contributors before regenerating." }
+        require(drafts.all { it.profileUid in room.activePlatform }) { "Combined participants changed before regeneration." }
+        val selected = drafts.mapTo(hashSetOf()) { it.profileUid }
+        rows.filter { it.platformType !in selected }.forEach { old ->
+            updateMessage(
+                old.copy(
+                    content = "", thoughts = "", timeline = emptyList(), combinedSources = emptyList(), attachments = emptyList(),
+                    currentRunId = null, ownershipFence = Math.addExact(old.ownershipFence, 1L),
+                    activeRevisionIndex = ACTIVE_REVISION_LATEST,
+                    revisions = listOfNotNull(old.snapshotLatestAssistantRevision()) + old.revisions
+                )
+            )
+        }
+        val record = accepted.encode()
+        val created = drafts.map { draft ->
+            val prior = rows.singleOrNull { it.platformType == draft.profileUid } ?: MessageV2(
+                chatId = room.id,
+                platformType = draft.profileUid,
+                linkedMessageId = user.id,
+                content = ""
+            ).let { it.copy(id = insertMessage(it).toInt()) }
+            persistAgentRetry(
+                PersistAgentRetryRequest(
+                    userMessage = user,
+                    assistantMessage = prior.copy(combinedSources = emptyList()),
+                    run = draft.copy(synthesisSnapshot = record, displayRole = "COMBINED_CONTRIBUTOR")
+                )
+            )
+        }
+        return PersistAgentTurnResult(room, user, created.map { it.assistantMessage }, created.map { it.run })
+    }
+
+    @Transaction
     suspend fun persistAgentRetry(request: PersistAgentRetryRequest): PersistAgentRetryResult {
         require(request.userMessage.id > 0 && request.assistantMessage.id > 0)
         require(request.userMessage.chatId == request.assistantMessage.chatId)
@@ -377,8 +586,10 @@ interface AgentPersistenceDao {
                 val sourceRun = row.currentRunId?.let { recoveryRun(it) }
                 require(
                     row.combinedSources.isEmpty() &&
-                        (row.currentRunId == null || sourceRun?.status == "COMPLETED") &&
-                        dev.chungjungsoo.gptmobile.util.stripAssistantErrorNote(row.content).trim() == source.content.trim()
+                        (row.currentRunId == null || sourceRun?.status in setOf("COMPLETED", "FAILED", "INTERRUPTED")) &&
+                        source.completionStatus == (sourceRun?.status ?: source.completionStatus) &&
+                        source.content.isNotBlank() &&
+                        dev.chungjungsoo.gptmobile.util.stripAssistantErrorNote(row.content).trim() == dev.chungjungsoo.gptmobile.util.stripAssistantErrorNote(source.content).trim()
                 ) {
                     "A Combined contribution is still settling. The inputs will be checked again before dispatch."
                 }
@@ -392,8 +603,9 @@ interface AgentPersistenceDao {
             val original = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromString<dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot>(requireNotNull(priorRun.synthesisSnapshot))
             require(snapshot.copy(version = original.version, resumeFromRunId = original.resumeFromRunId, committedPrefix = original.committedPrefix) == original) { "Recovery cannot replace the frozen input." }
             val prefix = if (priorRun.status == "COMPLETED") "" else dev.chungjungsoo.gptmobile.data.agent.AnswerSegmentChain.text(answerSegments(priorId), priorId, priorRun.ownershipFence)
-            require(snapshot.committedPrefix == prefix && (priorRun.status == "COMPLETED" || current.content == prefix)) { "The committed Combined prefix changed." }
-            prefix
+            val resumed = if (snapshot.deliveryProtocol == "PASSAGES_V2") "" else prefix
+            require(snapshot.committedPrefix == resumed && (priorRun.status == "COMPLETED" || current.content == prefix)) { "The committed Combined prefix changed." }
+            resumed
         }.orEmpty()
         val nextFence = Math.addExact(current.ownershipFence, 1L)
         val previousRevision = current.snapshotLatestAssistantRevision(request.run.createdAt)
@@ -407,6 +619,12 @@ interface AgentPersistenceDao {
                         type = dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE,
                         content = "Resuming unfinished work from saved evidence.",
                         recovery = descriptor
+                    )
+                },
+                dev.chungjungsoo.gptmobile.data.agent.CombinedAcceptedTurn.decode(request.run.synthesisSnapshot)?.let { accepted ->
+                    dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(
+                        type = dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE,
+                        combinedTurn = dev.chungjungsoo.gptmobile.data.context.CombinedTurnHistory.accepted(accepted.context.copy(profileUid = request.run.profileUid))
                     )
                 }
             ),

@@ -136,7 +136,11 @@ class DurableExecutionIntegrationTest {
         first.runs.forEach { database.agentRunDao().updateStatus(it.runId, "COMPLETED", 1, 2, null) }
         database.pendingPromptDao().enqueue(prompt())
         assertFalse(owner.queuedTurnReady(1))
-        assertTrue(owner.queuedTurnReady(1, setOf("other")))
+        // One healthy contributor still owns a pending merge, even if its peer is paused.
+        assertFalse(owner.queuedTurnReady(1, setOf("other")))
+        assertFalse(owner.queuedTurnReady(1, setOf("p")))
+        // This legacy fixture has no frozen accepted roster; pausing all profiles releases it.
+        assertTrue(owner.queuedTurnReady(1, setOf("p", "other")))
         assertTrue(runCatching { owner.persistAgentTurn(request().copy(chatRoom = room)) }.isFailure)
         assertEquals(null, database.pendingPromptDao().get("q")!!.userMessageId)
 

@@ -20,6 +20,7 @@ fun AgentTool.forStatisticsProfile(uid: String): AgentTool {
     return object : PreparableAgentTool, OwnedAgentTool {
         override val definition = delegate.definition
         override val managesExecutionBudget = delegate.managesExecutionBudget
+        override val coordinatesChildWork = delegate.coordinatesChildWork
         override val executionOwner = (delegate as? OwnedAgentTool)?.executionOwner ?: AgentToolExecutionOwner.CLIENT
         override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult = prepareExecution(callId, arguments).invoke()
         override suspend fun prepareExecution(callId: String, arguments: JsonObject): suspend () -> AgentToolResult {

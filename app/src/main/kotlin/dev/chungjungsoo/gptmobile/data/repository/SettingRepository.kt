@@ -5,6 +5,8 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ProviderConnection
 import dev.chungjungsoo.gptmobile.data.dto.Platform
 import dev.chungjungsoo.gptmobile.data.dto.ThemeSetting
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
+import dev.chungjungsoo.gptmobile.data.model.ConversationCombinedLifecycle
+import dev.chungjungsoo.gptmobile.data.model.ConversationCombinedSettings
 import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
@@ -37,6 +39,25 @@ interface SettingRepository {
         }
     }
     fun observeFeatureSettings(): Flow<AppFeatureSettings> = flowOf(AppFeatureSettings())
+    suspend fun ensureConversationIdentity(chatId: Int, preferredIdentity: String? = null): String =
+        mutateFeatureSettings { ConversationCombinedLifecycle.ensureIdentity(it, chatId, preferredIdentity) }.conversationIdentities.getValue(chatId)
+    suspend fun saveCombinedSettings(chatId: Int, settings: ConversationCombinedSettings, expectedRevision: Long): ConversationCombinedSettings =
+        mutateFeatureSettings { ConversationCombinedLifecycle.save(it, chatId, settings, expectedRevision) }.conversationCombined.getValue(chatId)
+    suspend fun copyConversationCombinedSettings(sourceId: Int, targetId: Int) {
+        mutateFeatureSettings { ConversationCombinedLifecycle.copy(it, sourceId, targetId) }
+    }
+    suspend fun adoptConversationCombinedSettings(sourceId: Int, targetId: Int, expectedIdentity: String) {
+        mutateFeatureSettings { ConversationCombinedLifecycle.adopt(it, sourceId, targetId, expectedIdentity) }
+    }
+    suspend fun prepareConversationCombinedDeletion(chatId: Int) {
+        mutateFeatureSettings { ConversationCombinedLifecycle.prepareDeletion(it, chatId) }
+    }
+    suspend fun deleteConversationCombinedSettings(chatId: Int) {
+        mutateFeatureSettings { ConversationCombinedLifecycle.delete(it, chatId) }
+    }
+    suspend fun recoverConversationCombinedDeletions(existingChatIds: Set<Int>) {
+        mutateFeatureSettings { ConversationCombinedLifecycle.recoverDeletions(it, existingChatIds) }
+    }
     suspend fun migrateToPlatformV2()
     suspend fun migrateSecrets(): List<SecretMigrationError>
     suspend fun updatePlatforms(platforms: List<Platform>)

@@ -1,5 +1,9 @@
 package dev.chungjungsoo.gptmobile.data.context
 
+import dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext
+import dev.chungjungsoo.gptmobile.data.agent.CombinedRequestedPolicy
+import dev.chungjungsoo.gptmobile.data.agent.CombinedResourceQuota
+import dev.chungjungsoo.gptmobile.data.agent.CombinedWorkPlan
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -89,6 +93,35 @@ class CombinedCorpusMultipassTest {
             )
         }
         assertTrue(failure.message.orEmpty().contains("COMBINED_MULTIPASS_BUDGET"))
+    }
+
+    @Test fun modernRequiredSourceInventoryUsesRootBudgetInsteadOfLegacyPassCount() {
+        val source = "Untrusted source. ".repeat(12000)
+        val requested = CombinedRequestedPolicy()
+        val context = CombinedExecutionContext(requested, CombinedWorkPlan(requested = requested, baselineByOwner = emptyMap(), finalizationReserve = CombinedResourceQuota(2_000_000, 500_000), optionalAllowance = CombinedResourceQuota()), "root")
+        val plan = CombinedCorpusMultipass.plan(listOf(turn(source, false), turn("Describe", true)), "", TokenBudgetSettings(contextTokens = 1024, outputTokens = 128), context)
+        assertTrue(plan.passes.size > 64)
+        assertEquals(source, plan.passes.filter { it.source.turnIndex == 0 }.joinToString("") { it.source.text })
+        assertEquals("root", plan.rootBudgetId)
+        val full = plan.requiredInspectionResources()
+        val afterRestore = plan.requiredInspectionResources(setOf(plan.passes.first().source.sourceId))
+        assertTrue(afterRestore.inputTokens < full.inputTokens)
+        assertEquals(128L, full.generatedTokens - afterRestore.generatedTokens)
+        assertEquals(0L, full.toolOperations)
+    }
+
+    @Test fun replacementMultipassUsesUpdatedEvidenceAndKeepsTheFullReplacementContract() {
+        val input = """{"operation":"REPLACE_DRAFT","original_request":"Exactly 500 words","previous_revision_id":"old","answer_contract":{"targetWords":500,"exactWords":true},"failed_checks":["SUPPLIED_PASSAGE_CONFLICT"],"complete_candidate_draft":"Complete original draft","evidence_ledger":{"records":[{"id":"E2","url":"https://example.org/correction","passage":"Retained new passage"}]},"frozen_inputs":{"delivery_protocol":"PASSAGES_V2","answer_policy":{"targetWords":100},"merge_selection_policy":{"style":"COLLECTION","response_effort":100},"contributions":[{"id":"C1","profile_uid":"a","response":"Source"}],"evidence_ledger":{"records":[{"id":"E1","url":"https://example.org/old","passage":"Old evidence"}]}}}"""
+        val plan = CombinedCorpusMultipass.plan(listOf(turn(input, true)), "", TokenBudgetSettings(contextTokens = 4096, outputTokens = 256))
+        val final = plan.finalTurns(plan.passes.map { "Every frozen span was inspected; E2 contradicts the old draft." }).single().userMessage.content
+        assertEquals(input, plan.passes.joinToString("") { it.source.text })
+        assertTrue(final.contains("REPLACE_DRAFT"))
+        assertTrue(final.contains("SUPPLIED_PASSAGE_CONFLICT"))
+        assertTrue(final.contains("https://example.org/correction"))
+        assertFalse(final.contains("https://example.org/old"))
+        assertTrue(final.contains("\"targetWords\":500"))
+        assertTrue(final.contains("COLLECTION"))
+        assertTrue(final.contains("Do not append"))
     }
 
     @Test fun requiresEveryInspectedReportBeforePreparingFinalPrompt() {

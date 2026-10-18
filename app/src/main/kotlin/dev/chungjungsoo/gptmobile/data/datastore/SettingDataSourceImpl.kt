@@ -140,10 +140,12 @@ class SettingDataSourceImpl @Inject constructor(
         var result: AppFeatureSettings? = null
         dataStore.edit { pref ->
             // Do not overwrite malformed/future configuration with defaults on an edit.
-            val current = pref[featureSettingsKey]?.let { json.decodeFromString<AppFeatureSettings>(dev.chungjungsoo.gptmobile.data.assist.LocalAssistSettingsMigration.normalize(it)) } ?: AppFeatureSettings()
+            val raw = pref[featureSettingsKey]
+            val current = raw?.let(dev.chungjungsoo.gptmobile.data.model.FeatureSettingsJson::decode) ?: AppFeatureSettings()
             val next = transform(current).advanceAssistEpoch(current)
-            pref[featureSettingsKey] = json.encodeToString(next)
-            result = next
+            val encoded = dev.chungjungsoo.gptmobile.data.model.FeatureSettingsJson.merge(raw, current, next)
+            pref[featureSettingsKey] = encoded
+            result = dev.chungjungsoo.gptmobile.data.model.FeatureSettingsJson.decode(encoded)
         }
         return checkNotNull(result)
     }
@@ -220,21 +222,20 @@ class SettingDataSourceImpl @Inject constructor(
 
     override suspend fun updateResearchSettings(settings: dev.chungjungsoo.gptmobile.data.model.DeepResearchSettings) {
         val validated = settings.migrated()
-        dataStore.edit { pref ->
-            val current = pref[featureSettingsKey]?.let { json.decodeFromString<AppFeatureSettings>(dev.chungjungsoo.gptmobile.data.assist.LocalAssistSettingsMigration.normalize(it)) } ?: AppFeatureSettings()
-            pref[featureSettingsKey] = json.encodeToString(current.copy(delegation = current.delegation.copy(deepResearch = validated)))
+        mutateFeatureSettings { current ->
+            current.copy(delegation = current.delegation.copy(deepResearch = validated))
         }
     }
 
     override suspend fun getFeatureSettings(): AppFeatureSettings = dataStore.data.map { pref ->
         pref[featureSettingsKey]
-            ?.let { raw -> json.decodeFromString<AppFeatureSettings>(dev.chungjungsoo.gptmobile.data.assist.LocalAssistSettingsMigration.normalize(raw)) }
+            ?.let(dev.chungjungsoo.gptmobile.data.model.FeatureSettingsJson::decode)
             ?: AppFeatureSettings()
     }.first()
 
     override fun observeFeatureSettings(): Flow<AppFeatureSettings> = dataStore.data.map { pref ->
         pref[featureSettingsKey]
-            ?.let { raw -> json.decodeFromString<AppFeatureSettings>(dev.chungjungsoo.gptmobile.data.assist.LocalAssistSettingsMigration.normalize(raw)) }
+            ?.let(dev.chungjungsoo.gptmobile.data.model.FeatureSettingsJson::decode)
             ?: AppFeatureSettings()
     }
 

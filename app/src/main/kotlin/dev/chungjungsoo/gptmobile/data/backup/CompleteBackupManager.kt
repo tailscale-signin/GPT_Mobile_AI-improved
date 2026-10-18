@@ -63,7 +63,7 @@ class CompleteBackupManager @Inject constructor(
     /** Startup calls this before workers, credentials, memory or chat repositories are used. */
     suspend fun recoverAtStartup() = withContext(Dispatchers.IO) {
         mutex.withLock {
-            recoverInterruptedRestore()
+            dev.chungjungsoo.gptmobile.data.repository.CombinedSettingsSaveJournal.withExclusiveMutation { recoverInterruptedRestore() }
             preferences.normalizeAssist()
             dev.chungjungsoo.gptmobile.data.chat.LegacyReplyInboxMigration.migrate(context, database)
         }
@@ -216,6 +216,7 @@ class CompleteBackupManager @Inject constructor(
         val sources = linkedMapOf<String, File>()
         val lockToolState = selected.includes(CompleteBackupSection.TOOLS)
         var toolPreferencesSnapshot: Map<String, BackupValue>? = null
+        var conversationSettings: ConversationCombinedPortableSnapshot? = null
         var toolSecretsSnapshot: Map<String, String>? = null
         if (lockToolState) dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.lock()
         try {
@@ -223,10 +224,18 @@ class CompleteBackupManager @Inject constructor(
 
             if (databaseSelected) {
                 val dbFile = File(work, "database.sqlite")
-                database.withTransaction {
-                    ensureIdle(restoring = false)
-                    dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository(database.toolConnectionDao(), secretVault).listConnections()
-                    CompleteBackupDatabase.snapshot(database.openHelper.writableDatabase, dbFile)
+                dev.chungjungsoo.gptmobile.data.repository.CombinedSettingsSaveJournal.withExclusiveMutation {
+                    database.withTransaction {
+                        ensureIdle(restoring = false)
+                        dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository(database.toolConnectionDao(), secretVault).listConnections()
+                        if (selected.includes(CompleteBackupSection.CONVERSATIONS) || selected.includes(CompleteBackupSection.SETTINGS)) {
+                            val ids = database.openHelper.readableDatabase.query("SELECT chat_id FROM chats_v2 WHERE is_temporary = 0").use { rows ->
+                                buildSet { while (rows.moveToNext()) add(rows.getInt(0)) }
+                            }
+                            conversationSettings = preferences.captureConversationSettings(ids)
+                        }
+                        CompleteBackupDatabase.snapshot(database.openHelper.writableDatabase, dbFile)
+                    }
                 }
 
                 val snapshot = openSnapshot(dbFile)
@@ -263,6 +272,17 @@ class CompleteBackupManager @Inject constructor(
                 sources["database.sqlite"] = dbFile
             }
 
+            if (!databaseSelected && selected.includes(CompleteBackupSection.SETTINGS)) {
+                dev.chungjungsoo.gptmobile.data.repository.CombinedSettingsSaveJournal.withExclusiveMutation {
+                    database.withTransaction {
+                        ensureIdle(restoring = false)
+                        val ids = database.openHelper.readableDatabase.query("SELECT chat_id FROM chats_v2 WHERE is_temporary = 0").use { rows ->
+                            buildSet { while (rows.moveToNext()) add(rows.getInt(0)) }
+                        }
+                        conversationSettings = preferences.captureConversationSettings(ids)
+                    }
+                }
+            }
             if (selected.includes(CompleteBackupSection.CONVERSATIONS)) {
                 File(context.filesDir, "research-history").listFiles().orEmpty()
                     .filter { it.isFile && it.name.matches(Regex("[a-f0-9]{64}\\.(json|source|budget|ledger|index|chunk|cursor|claim|fence)")) && it.length() <= 512 * 1024 }
@@ -316,7 +336,8 @@ class CompleteBackupManager @Inject constructor(
             secrets = toolSecretsSnapshot ?: readSecrets(selected),
             files = sources.mapValues { it.value.length() },
             sections = selected.sections.mapTo(linkedSetOf()) { it.name },
-            protection = if (selected.includes(CompleteBackupSection.SETTINGS)) savedProtection().copy(password = "") else null
+            protection = if (selected.includes(CompleteBackupSection.SETTINGS)) savedProtection().copy(password = "") else null,
+            conversationSettings = conversationSettings
         )
 
         val archive = File(work, "archive.zip")
@@ -500,7 +521,9 @@ class CompleteBackupManager @Inject constructor(
             null
         }
         val restoreSettings = CompleteBackupSection.SETTINGS in effective.sections
-        val restorePreferences = restoreSettings || CompleteBackupSection.TOOLS in effective.sections
+        val restoreConversations = CompleteBackupSection.CONVERSATIONS in effective.sections
+        val restorePreferences = restoreSettings || restoreConversations || CompleteBackupSection.TOOLS in effective.sections
+        if (restoreSettings || restoreConversations) manifest.conversationSettings?.let(ConversationCombinedPortable::validate)
         val restoreSecrets = effective.requiresEncryption
         val selectedSecrets = manifest.secrets.filterKeys { secretBelongsTo(it, effective) }
         val restoreAttachments = CompleteBackupSection.ATTACHMENTS in effective.sections
@@ -590,64 +613,93 @@ class CompleteBackupManager @Inject constructor(
             val lockToolState = effective.includes(CompleteBackupSection.TOOLS)
             if (lockToolState) dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.lock()
             try {
-                val oldPreferences = if (restorePreferences) preferences.read() else emptyMap()
-                val oldShared = if (restorePreferences) preferences.readShared() else emptyMap()
-                val oldSecrets = if (restoreSecrets) readSecrets(effective) else emptyMap()
-                val protectedMemory = if (effective.includes(CompleteBackupSection.MEMORY)) memoryStore?.read() else null
-                val oldProtection = savedProtection()
-                val restoreTransactionId = UUID.randomUUID().toString()
-                val replacement = storage.replacement(staging, selectedPaths, restoreTransactionId)
+                dev.chungjungsoo.gptmobile.data.repository.CombinedSettingsSaveJournal.withExclusiveMutation {
+                    val oldPreferences = if (restorePreferences) preferences.read() else emptyMap()
+                    val oldShared = if (restorePreferences) preferences.readShared() else emptyMap()
+                    if (restoreSettings || restoreConversations) {
+                        val currentFeatures = oldPreferences[ConversationCombinedPortable.FEATURE_KEY]?.value?.let(dev.chungjungsoo.gptmobile.data.model.FeatureSettingsJson::decode)
+                        check(currentFeatures?.combinedSettingsJournal?.values?.none { !it.roomSettled } != false) { "Finish or recover the conversation settings save before restoring." }
+                    }
+                    val oldSecrets = if (restoreSecrets) readSecrets(effective) else emptyMap()
+                    val protectedMemory = if (effective.includes(CompleteBackupSection.MEMORY)) memoryStore?.read() else null
+                    val oldProtection = savedProtection()
+                    val restoreTransactionId = UUID.randomUUID().toString()
+                    val replacement = storage.replacement(staging, selectedPaths, restoreTransactionId)
 
-                restoreJournal.write(
-                    RestoreStoreSnapshot(
-                        restoreTransactionId,
-                        effective,
-                        oldPreferences.takeIf { restorePreferences },
-                        oldShared.takeIf { restorePreferences },
-                        oldSecrets.takeIf { restoreSecrets },
-                        oldProtection.takeIf { restoreSettings },
-                        oldProtection.password,
-                        benchmarkImportJson
+                    restoreJournal.write(
+                        RestoreStoreSnapshot(
+                            restoreTransactionId,
+                            effective,
+                            oldPreferences.takeIf { restorePreferences },
+                            oldShared.takeIf { restorePreferences },
+                            oldSecrets.takeIf { restoreSecrets },
+                            oldProtection.takeIf { restoreSettings },
+                            oldProtection.password,
+                            benchmarkImportJson
+                        )
                     )
-                )
-                try {
-                    database.withTransaction {
-                        ensureIdle(restoring = true)
-                        if (source != null) {
-                            CompleteBackupDatabase.restoreSections(
-                                source,
-                                database.openHelper.writableDatabase,
-                                effective
-                            )
+                    try {
+                        database.withTransaction {
+                            ensureIdle(restoring = true)
+                            if (source != null) {
+                                CompleteBackupDatabase.restoreSections(
+                                    source,
+                                    database.openHelper.writableDatabase,
+                                    effective
+                                )
+                            }
+                            if (selectedPaths.isNotEmpty()) replacement.apply()
+                            run {
+                                database.openHelper.writableDatabase.execSQL(
+                                    "INSERT OR REPLACE INTO $RESTORE_MARKER_TABLE(singleton, transaction_id) VALUES (1, ?)",
+                                    arrayOf(restoreTransactionId)
+                                )
+                            }
+                            if (restoreSecrets) replaceSecrets(selectedSecrets, effective)
+                            if (effective.includes(CompleteBackupSection.MEMORY)) memoryStore?.restorePortable(selectedSecrets, protectedMemory)
+                            if (restorePreferences) {
+                                var nextPreferences = if (restoreSettings) PluginBackupPreferences.sanitizeAcademic(manifest.preferences) else PluginBackupPreferences.merge(oldPreferences, manifest.preferences)
+                                if (restoreSettings || restoreConversations) {
+                                    val restoredIds = if (restoreConversations && source != null) {
+                                        source.query("SELECT chat_id FROM chats_v2").use { rows ->
+                                            buildMap<Int, Int> { while (rows.moveToNext()) rows.getInt(0).let { put(it, it) } }
+                                        }
+                                    } else {
+                                        null
+                                    }
+                                    val existingIds = database.openHelper.readableDatabase.query("SELECT chat_id FROM chats_v2").use { rows ->
+                                        buildSet { while (rows.moveToNext()) add(rows.getInt(0)) }
+                                    }
+                                    val combined = ConversationCombinedPortable.restore(
+                                        currentRaw = oldPreferences[ConversationCombinedPortable.FEATURE_KEY]?.value,
+                                        incomingRaw = manifest.preferences[ConversationCombinedPortable.FEATURE_KEY]?.value,
+                                        snapshot = manifest.conversationSettings,
+                                        restoredIdMap = restoredIds,
+                                        existingChatIds = existingIds,
+                                        replaceGlobalSettings = restoreSettings,
+                                        baseRaw = nextPreferences[ConversationCombinedPortable.FEATURE_KEY]?.value
+                                    )
+                                    nextPreferences = nextPreferences + (ConversationCombinedPortable.FEATURE_KEY to BackupValue("string", combined))
+                                }
+                                preferences.replace(nextPreferences, if (restoreSettings) manifest.sharedPreferences else oldShared)
+                            }
+                            if (selectedPaths.any(CompleteBackupFiles::isPluginPath)) nativePlugins?.reload()
+                            if (restoreSettings) manifest.protection?.let { saveProtection(it.copy(password = oldProtection.password)) }
                         }
-                        if (selectedPaths.isNotEmpty()) replacement.apply()
-                        run {
-                            database.openHelper.writableDatabase.execSQL(
-                                "INSERT OR REPLACE INTO $RESTORE_MARKER_TABLE(singleton, transaction_id) VALUES (1, ?)",
-                                arrayOf(restoreTransactionId)
-                            )
+                    } catch (error: Throwable) {
+                        report(RestorePhase.ROLLING_BACK)
+                        withContext(NonCancellable) {
+                            // Keep the journal if rollback itself fails; startup must retry it.
+                            recoverInterruptedRestore()
                         }
-                        if (restoreSecrets) replaceSecrets(selectedSecrets, effective)
-                        if (effective.includes(CompleteBackupSection.MEMORY)) memoryStore?.restorePortable(selectedSecrets, protectedMemory)
-                        if (restorePreferences) {
-                            preferences.replace(if (restoreSettings) PluginBackupPreferences.sanitizeAcademic(manifest.preferences) else PluginBackupPreferences.merge(oldPreferences, manifest.preferences), if (restoreSettings) manifest.sharedPreferences else oldShared)
-                        }
-                        if (selectedPaths.any(CompleteBackupFiles::isPluginPath)) nativePlugins?.reload()
-                        if (restoreSettings) manifest.protection?.let { saveProtection(it.copy(password = oldProtection.password)) }
+                        throw error
                     }
-                } catch (error: Throwable) {
-                    report(RestorePhase.ROLLING_BACK)
-                    withContext(NonCancellable) {
-                        // Keep the journal if rollback itself fails; startup must retry it.
-                        recoverInterruptedRestore()
-                    }
-                    throw error
-                }
 
-                if (selectedPaths.isNotEmpty()) replacement.cleanup()
-                if (benchmarkImportJson != null) benchmarkStore.importBackupJson(benchmarkImportJson)
-                restoreJournal.clear()
-                clearRestoreMarker()
+                    if (selectedPaths.isNotEmpty()) replacement.cleanup()
+                    if (benchmarkImportJson != null) benchmarkStore.importBackupJson(benchmarkImportJson)
+                    restoreJournal.clear()
+                    clearRestoreMarker()
+                }
             } finally {
                 if (lockToolState) dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.unlock()
             }
@@ -1051,7 +1103,7 @@ class CompleteBackupManager @Inject constructor(
             val work = File(context.cacheDir, "complete-backup-${UUID.randomUUID()}")
             val readinessLease = dev.chungjungsoo.gptmobile.data.readiness.ReadinessWorkloadSignals.enter()
             try {
-                recoverInterruptedRestore()
+                dev.chungjungsoo.gptmobile.data.repository.CombinedSettingsSaveJournal.withExclusiveMutation { recoverInterruptedRestore() }
                 check(work.mkdirs()) { "Could not create temporary backup storage." }
                 block(work)
             } catch (error: CancellationException) {

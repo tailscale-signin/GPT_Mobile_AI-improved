@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "fixtureMode": "CORRECTED_EVIDENCE_SEPARATE_FROM_ORIGINAL_REPLAY",
+  "grounding": "Synthetic passage paraphrases for deterministic regression tests, based on primary documents inspected in the design audit. They are not verbatim document extracts or live tool results, and do not measure model improvement.",
+  "cases": [
+    {
+      "id": "parkinson_null",
+      "sourceUrl": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8519836/",
+      "doi": "10.1007/s10072-021-05489-4",
+      "passage": "In the small randomized pilot trial, inhaled hydrogen did not significantly improve clinical outcomes in patients with Parkinson disease.",
+      "unsupportedRewrite": "In the randomized pilot trial, inhaled hydrogen significantly improved clinical outcomes in patients with Parkinson disease."
+    },
+    {
+      "id": "route_applicability",
+      "sourceUrl": "https://example.org/fixture/oral-water",
+      "passage": "In a small randomized pilot trial, drinking hydrogen-rich water did not significantly improve clinical outcomes in patients with Parkinson disease.",
+      "unsupportedRewrite": "In a small randomized pilot trial, inhaled hydrogen significantly improved clinical outcomes in patients with Parkinson disease."
+    },
+    {
+      "id": "death_causal_limit",
+      "sourceUrl": "https://npr.brightspotcdn.com/1c/1d/f5f28d0940ef8bc28b88820833de/hulk-hogan-police-report-060526.pdf",
+      "passage": "The report described death from natural disease and no reasonable terminal toxicologic contributions.",
+      "constraint": "Do not transform the reported causal limit into a statement about whether any substance was ever present or used."
+    }
+  ]
+}

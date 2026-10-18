@@ -18,7 +18,8 @@ internal object CombinedClaimMatcher {
         val negative: Boolean,
         val hedged: Boolean,
         val restrictions: Set<String>,
-        val ordered: String
+        val ordered: String,
+        val qualifiers: CombinedClaimQualifiers = CombinedClaimQualifiers()
     )
 
     private val word = Regex("[\\p{L}\\p{N}]+(?:[’'][\\p{L}\\p{N}]+)?")
@@ -42,7 +43,8 @@ internal object CombinedClaimMatcher {
         "finance" to "fund", "financ" to "fund", "fund" to "fund",
         "build" to "build", "built" to "build", "construction" to "build",
         "athenian" to "athens", "athens" to "athens",
-        "merchant" to "merchant", "trad" to "trade", "approv" to "approve"
+        "merchant" to "merchant", "trad" to "trade", "approv" to "approve",
+        "reconcile" to "reconcile", "reconcil" to "reconcile", "reconciliation" to "reconcile"
     )
 
     private fun canonical(token: String): String {
@@ -60,6 +62,7 @@ internal object CombinedClaimMatcher {
 
     fun fingerprint(text: String): Fingerprint {
         val normalized = Normalizer.normalize(text, Normalizer.Form.NFKC).lowercase(Locale.ROOT).replace('’', '\'')
+            .replace(Regex("(?i)\\b(?:leave|leaves|leaving) beneficial (?:ros|oxidants) intact\\b|\\bwithout disrupting beneficial (?:ros|oxidants)\\b"), "preserve beneficial ros")
             .replace(contraction) { match ->
                 val auxiliary = when (val stem = match.groupValues[1]) {
                     "ca" -> "can"
@@ -70,7 +73,9 @@ internal object CombinedClaimMatcher {
                 "$auxiliary not"
             }
         val words = word.findAll(normalized).map { canonical(it.value) }.toList()
-        val quantities = numeric.findAll(normalized).map { match ->
+        val qualifiers = CombinedClaimSemantics.qualifiers(text)
+        val numericText = Regex("\\b(?:[a-z]{2,}-[0-9]+|(?:il|nrf)[ ]?[0-9]+|[a-z]+[0-9]+)\\b").replace(normalized, " ")
+        val quantities = numeric.findAll(numericText).map { match ->
             match.value.replace(",", "").replace(" ", "").replace(160.toChar().toString(), "").replace('−', '-')
                 .removePrefix("+")
         }.toList()
@@ -81,12 +86,14 @@ internal object CombinedClaimMatcher {
             negative = words.any { it in negatives },
             hedged = words.any { it in hedges },
             restrictions = words.filter { it in restrictions }.toSet() + bound.findAll(normalized).map { it.value.replace(" ", "") },
-            ordered = words.filter { it !in stop }.joinToString(" ")
+            ordered = words.filter { it !in stop }.joinToString(" "),
+            qualifiers = qualifiers
         )
     }
 
     /** Subject-preserving alignment; never compare contradictory numbers or reversed polarity. */
     fun match(source: Fingerprint, answer: Fingerprint): Match {
+        if (CombinedClaimSemantics.lostQualifiers(source.qualifiers, answer.qualifiers).isNotEmpty()) return Match.NONE
         if (source.negative != answer.negative) return Match.NONE
         if (source.hedged && !answer.hedged) return Match.NONE
         if (source.restrictions != answer.restrictions) return Match.NONE
@@ -114,14 +121,22 @@ internal object CombinedClaimMatcher {
      * itself a contradiction; the surrounding subject must have substantial overlap.
      */
     fun possibleConflict(first: Fingerprint, second: Fingerprint): Boolean {
+        if (CombinedClaimSemantics.applicabilityConflicts(first.qualifiers, second.qualifiers).isNotEmpty()) return false
         if (first.terms.size < 3 || second.terms.size < 3) return false
-        val shared = first.terms.intersect(second.terms).size
+        val sharedTerms = first.terms.intersect(second.terms)
+        val shared = sharedTerms.size
         val overlapRatio = shared.toDouble() / minOf(first.terms.size, second.terms.size)
-        val sameTopic = shared >= 3 && (overlapRatio >= 0.72 || (shared >= 4 && overlapRatio >= 0.45))
+        val sameTopic = shared >= 3 && (overlapRatio >= 0.72 || (shared >= 4 && overlapRatio >= 0.45) || "reconcile" in sharedTerms)
         if (!sameTopic) return false
         val competingValues = first.numbers.subtract(second.numbers).isNotEmpty() && second.numbers.subtract(first.numbers).isNotEmpty()
         val numberDisagreement = first.numbers.isNotEmpty() && second.numbers.isNotEmpty() && competingValues
         val polarityDisagreement = first.negative != second.negative
-        return numberDisagreement || polarityDisagreement
+        val outcomeDisagreement = setOf(first.qualifiers.outcome, second.qualifiers.outcome).let {
+            "POSITIVE_ASSERTION" in it && ("NULL_EFFECT" in it || "INSUFFICIENT_EVIDENCE" in it)
+        }
+        val causalDisagreement = first.qualifiers.causalStrength != second.qualifiers.causalStrength &&
+            "CAUSAL" in setOf(first.qualifiers.causalStrength, second.qualifiers.causalStrength) &&
+            setOf(first.qualifiers.causalStrength, second.qualifiers.causalStrength).any { it in setOf("ASSOCIATION", "MECHANISTIC") }
+        return numberDisagreement || polarityDisagreement || outcomeDisagreement || causalDisagreement
     }
 }

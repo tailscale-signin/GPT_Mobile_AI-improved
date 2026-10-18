@@ -24,7 +24,7 @@ class CombinedPassageDecoderArrayTest {
         val expected = "A quoted \"finding\" with {braces}, [brackets] and a \\ slash."
         val payload = "```json\n[\n${passage(expected)}\n]\n```"
         for (size in 1..payload.length) {
-            val decoder = CombinedPassageDecoder(sources, CombinedEvidenceLedger(), 10000)
+            val decoder = CombinedPassageDecoder(listOf(sources.single().copy(content = expected)), CombinedEvidenceLedger(), 10000)
             val deltas = payload.chunked(size).flatMap { decoder.accept(it) } + decoder.accept("", true)
             assertEquals("Chunk size $size", expected, deltas.joinToString(""))
             assertTrue(decoder.issues.isEmpty())

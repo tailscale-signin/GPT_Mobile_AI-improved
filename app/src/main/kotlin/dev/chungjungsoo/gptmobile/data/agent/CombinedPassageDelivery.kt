@@ -18,19 +18,30 @@ data class CombinedPassageRecord(
     val sourceIds: Set<String> = emptySet(),
     val claimIds: Set<String> = emptySet(),
     val evidenceStatus: String = "UNVERIFIED",
-    val origin: String = "SYNTHESIS_DECLARATION"
+    val origin: String = "SYNTHESIS_DECLARATION",
+    val passageId: String = "",
+    val semanticLinkStatus: String = "UNVERIFIED"
 ) {
     val primaryProfileUid: String? get() = profileUids.sorted().firstOrNull()
     fun matches(answer: String): Boolean = start >= 0 && end > start && end <= answer.length && researchHash(answer.substring(start, end)) == digest
 }
 
 @Serializable
-data class CombinedClaimReview(val claimId: String, val disposition: String, val reason: String)
+data class CombinedClaimReview(
+    val claimId: String,
+    val disposition: String,
+    val reason: String,
+    val finalSpans: List<CombinedCoverageLink> = emptyList(),
+    val semanticStatus: String = "UNVERIFIED",
+    val declaredDisposition: String = disposition,
+    val failedChecks: List<String> = emptyList(),
+    val finalQuote: String = ""
+)
 
 /** Completion, textual accounting, evidence support and semantic truth are separate dimensions. */
 @Serializable
 data class CombinedQualityReport(
-    val version: Int = 3,
+    val version: Int = 4,
     val answerDigest: String = "",
     val complete: Boolean = false,
     val status: String = "WRITING",
@@ -47,7 +58,20 @@ data class CombinedQualityReport(
     val repairAccepted: Int = 0,
     val repairRejected: Int = 0,
     val repairSkippedReason: String? = null,
-    val turnContext: CombinedTurnContext? = null
+    val turnContext: CombinedTurnContext? = null,
+    val deliveredScopeStatus: String = "",
+    val verificationStatus: String = "UNVERIFIED",
+    val correctionRequired: Boolean = false,
+    val revisionId: String = "",
+    val wordCounterVersion: String = CombinedWordCounter.VERSION,
+    val verificationReceipts: List<CombinedVerificationReceipt> = emptyList(),
+    val supportEdges: List<CombinedSupportEdge> = emptyList(),
+    val checks: List<CombinedAnswerCheck> = emptyList(),
+    val verificationNeeds: List<CombinedVerificationNeed> = emptyList(),
+    val repairRejections: List<String> = emptyList(),
+    val consideredProfileUids: Set<String> = emptySet(),
+    val requestedPolicyDigest: String = "",
+    val effectivePlanDigest: String = ""
 )
 
 /** One NDJSON record per paragraph permits progressive delivery without leaking protocol data. */
@@ -72,9 +96,9 @@ internal class CombinedPassageDecoder(
     private var openingFenceRemoved = false
     private var plainRecoveryBlocked = false
     private val sourceIds = evidence.records.associateBy { it.id }
-    private val claimIds = sources.flatMapIndexed { index, source ->
-        CombinedContentCoverage.sentences(CombinedContentCoverage.sourceCoverageText(source.content)).indices.map { "C${index + 1}.${it + 1}" }
-    }.toSet()
+    private val inventory = CombinedClaimSemantics.records(sources)
+    private val claimsById = inventory.flatMap { claim -> claim.candidateIds.map { it to claim } }.toMap()
+    private val claimIds = claimsById.keys
 
     fun accept(delta: String, final: Boolean = false): List<String> {
         pending.append(delta)
@@ -241,9 +265,9 @@ internal class CombinedPassageDecoder(
         if (text("type") == "decision") {
             val id = text("claim")
             val disposition = text("disposition")
-            if (id in claimIds && disposition in setOf("MERGED", "OUT_OF_SCOPE", "UNSUPPORTED", "CONFLICT", "MISSING") && text("reason").isNotBlank()) {
+            if (id in claimIds && disposition in setOf("INCLUDED", "MERGED", "QUALIFIED", "DISPUTED", "CORRECTED", "OUT_OF_SCOPE", "UNSUPPORTED", "CONFLICT", "MISSING", "OMITTED_SCOPE", "OMITTED_DUPLICATE", "OMITTED_UNSUPPORTED", "UNRESOLVED") && text("reason").isNotBlank()) {
                 decisions.removeAll { it.claimId == id }
-                decisions += CombinedClaimReview(id, disposition, text("reason"))
+                decisions += CombinedClaimReview(id, disposition, text("reason"), finalQuote = text("final_quote"))
             } else {
                 issues += "INVALID_CLAIM_DECISION"
             }
@@ -268,7 +292,18 @@ internal class CombinedPassageDecoder(
         val claims = strings("claims")
         if (claims.any { it !in claimIds }) issues += "UNKNOWN_CLAIM_REFERENCE"
         val retainedClaims = claims.filter { it in claimIds }.toSet()
-        val claimProfiles = retainedClaims.mapNotNull { id -> id.substringBefore('.').removePrefix("C").toIntOrNull()?.let { sources.getOrNull(it - 1)?.platformUid } }.toSet()
+        val linkedClaims = retainedClaims.filterTo(linkedSetOf()) { id ->
+            val claim = claimsById.getValue(id)
+            CombinedContentCoverage.sentences(body).any { candidate ->
+                CombinedClaimSemantics.lostQualifiers(claim.qualifiers, CombinedClaimSemantics.qualifiers(candidate)).isEmpty() &&
+                    (
+                        CombinedContentCoverage.normalized(claim.proposition) == CombinedContentCoverage.normalized(candidate) ||
+                            CombinedClaimMatcher.match(claim.proposition, candidate) >= CombinedClaimMatcher.Match.PARAPHRASE
+                        )
+            }
+        }
+        if (linkedClaims != retainedClaims) issues += "UNESTABLISHED_CONTRIBUTION_LINK"
+        val claimProfiles = linkedClaims.mapNotNull { id -> id.substringBefore('.').removePrefix("C").toIntOrNull()?.let { sources.getOrNull(it - 1)?.platformUid } }.toSet()
         val owners = profiles.intersect(claimProfiles)
         if (owners != profiles) issues += "MISSING_CONTRIBUTION_LINK"
         val normalizedBody = CombinedContentCoverage.normalized(body)
@@ -296,13 +331,7 @@ internal class CombinedPassageDecoder(
         output.append(separator)
         val start = output.length
         output.append(body)
-        val supported = validSources.any { id ->
-            val source = sourceIds.getValue(id)
-            source.readable &&
-                CombinedContentCoverage.sentences(body).all { sentence ->
-                    CombinedContentCoverage.normalized(source.passage).contains(CombinedContentCoverage.normalized(sentence))
-                }
-        }
+        val assessment = CombinedEvidenceVerifier.assess("P${passages.size + 1}", body, evidence, validSources)
         passages += CombinedPassageRecord(
             start,
             output.length,
@@ -310,13 +339,9 @@ internal class CombinedPassageDecoder(
             owners,
             validSources,
             retainedClaims,
-            if (supported) {
-                "PASSAGE_SUPPORTED"
-            } else if (validSources.isNotEmpty()) {
-                "CITED_UNVERIFIED"
-            } else {
-                "UNVERIFIED"
-            }
+            assessment.result,
+            passageId = "P${passages.size + 1}",
+            semanticLinkStatus = if (linkedClaims == retainedClaims && linkedClaims.isNotEmpty()) "CONSERVATIVE_LINK_CHECKED" else "UNVERIFIED"
         )
         if (citations.isNotBlank()) output.append("\n\n$citations")
         val index = seen.size

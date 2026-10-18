@@ -10,6 +10,9 @@ data class RunOutputLength(val runId: String, val characters: Long)
 
 @Dao
 interface AgentRunDao {
+    @Query("SELECT run_id AS runId, profile_uid AS profileUid, provider_snapshot AS provider, model_snapshot AS model, status, created_at AS createdAt, started_at AS startedAt, completed_at AS completedAt, input_tokens AS inputTokens, output_tokens AS outputTokens, total_tokens AS totalTokens FROM agent_runs WHERE display_role != 'INTERNAL' ORDER BY created_at DESC, run_id DESC LIMIT :limit")
+    fun observeHomeActivity(limit: Int = 250): Flow<List<dev.chungjungsoo.gptmobile.data.model.SettingsHomeActivity>>
+
     @Upsert
     suspend fun upsert(run: AgentRun)
 

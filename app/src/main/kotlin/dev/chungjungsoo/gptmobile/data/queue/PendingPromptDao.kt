@@ -35,6 +35,9 @@ interface PendingPromptDao {
     @Query("UPDATE pending_prompts SET text = :text WHERE id = :id AND userMessageId IS NULL")
     suspend fun editUnconsumed(id: String, text: String)
 
+    @Query("UPDATE pending_prompts SET text = :text, payload = :payload WHERE id = :id AND text = :expectedText AND payload = :expectedPayload AND userMessageId IS NULL")
+    suspend fun replaceUnconsumed(id: String, expectedText: String, expectedPayload: String, text: String, payload: String): Int
+
     @Query("UPDATE pending_prompts SET paused = :paused WHERE id = :id AND userMessageId IS NULL")
     suspend fun pauseUnconsumed(id: String, paused: Boolean)
 

@@ -83,11 +83,11 @@ class CombinedProvenanceValidatorTest {
     }
 
     @Test
-    fun `qualified complete comparison can label a sole supporter but shared paraphrase stays default`() {
+    fun `qualified comparison can label a sole supporter but unrelated alleged support stays unknown`() {
         assertEquals("a", validate().sentences.single().exclusiveProfileUid)
         val shared = validate(sidecar(listOf(comparison("a", true), comparison("b", true)))).sentences.single()
-        assertEquals(ClaimSupportClass.SHARED, shared.supportClass)
-        assertEquals(setOf("a", "b"), shared.supporterUids)
+        assertEquals(ClaimSupportClass.UNKNOWN, shared.supportClass)
+        assertTrue(shared.warning.orEmpty().contains("deterministic"))
         assertNull(shared.exclusiveProfileUid)
     }
 
@@ -118,12 +118,12 @@ class CombinedProvenanceValidatorTest {
     }
 
     @Test
-    fun `mixed sentence and omitted qualifier stay default`() {
+    fun `unsupported mixed sentence fragments and omitted qualifier stay unknown`() {
         val split = answer.indexOf("1984")
         val whole = sidecar().sentences.single()
         val first = AttributionClaim(0, split, researchHash(answer.substring(0, split)), listOf(comparison("a", true), comparison("b", true)))
         val second = AttributionClaim(split, answer.length, researchHash(answer.substring(split)), listOf(comparison("a", true), comparison("b")))
-        assertEquals(ClaimSupportClass.MIXED, validate(sidecar().copy(sentences = listOf(whole.copy(claims = listOf(first, second))))).sentences.single().supportClass)
+        assertEquals(ClaimSupportClass.UNKNOWN, validate(sidecar().copy(sentences = listOf(whole.copy(claims = listOf(first, second))))).sentences.single().supportClass)
         assertEquals(ClaimSupportClass.UNKNOWN, validate(sidecar().copy(sentences = listOf(whole.copy(claims = listOf(first))))).sentences.single().supportClass)
     }
 

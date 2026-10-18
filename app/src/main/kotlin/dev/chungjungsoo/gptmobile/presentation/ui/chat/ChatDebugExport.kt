@@ -5,8 +5,10 @@ import dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.database.entity.effectiveCombinedSources
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveContent
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveRunId
+import dev.chungjungsoo.gptmobile.data.database.entity.effectiveTimeline
 import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogEntry
 import dev.chungjungsoo.gptmobile.data.diagnostics.redactChatDebugData
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
@@ -40,7 +42,7 @@ internal fun buildChatDebugExport(
         features.localAssistPolicy.profileUid?.let(::add)
         messages.forEach { message ->
             message.platformType?.let(::add)
-            message.combinedSources.forEach { add(it.platformUid) }
+            (message.combinedSources + message.revisions.flatMap { it.combinedSources }).forEach { add(it.platformUid) }
             (message.timeline + message.revisions.flatMap { it.timeline }).mapNotNull { it.assistDiagnostic?.profileUid }.forEach(::add)
         }
         (records["invocations"] as? JsonArray).orEmpty().forEach { row ->
@@ -48,18 +50,20 @@ internal fun buildChatDebugExport(
         }
     }
     fun exportedBody(text: String): String = (redactChatDebugData(kotlinx.serialization.json.JsonPrimitive(text), credentials) as kotlinx.serialization.json.JsonPrimitive).content
-    val combinedAnalysis = messages.filter { it.isCombinedSynthesis() }.map { message ->
+    val combinedAnalysis = messages.filter { it.effectiveRunId()?.startsWith("combined-synthesis:") == true || it.effectiveCombinedSources().isNotEmpty() }.map { message ->
         val answer = ConversationSubject.withoutMetadata(message.effectiveContent())
+        val sources = message.effectiveCombinedSources()
         buildJsonObject {
             put("messageId", message.id)
             put("runId", message.effectiveRunId())
             put("answerCharacters", answer.length)
-            put("answerWords", Regex("[\\p{L}\\p{N}]+(?:[’'][\\p{L}\\p{N}]+)?").findAll(answer).count())
-            put("sourceCount", message.combinedSources.size)
+            put("answerWords", dev.chungjungsoo.gptmobile.data.agent.visibleWordCount(answer))
+            put("wordCounterVersion", dev.chungjungsoo.gptmobile.data.agent.CombinedWordCounter.VERSION)
+            put("sourceCount", sources.size)
             put(
                 "profileAttributionSpans",
                 JsonArray(
-                    dev.chungjungsoo.gptmobile.data.agent.combinedWordingSpans(answer, message.combinedSources).map { span ->
+                    dev.chungjungsoo.gptmobile.data.agent.combinedWordingSpans(answer, sources).map { span ->
                         buildJsonObject {
                             put("startUtf16", span.start)
                             put("endUtf16", span.end)
@@ -72,7 +76,7 @@ internal fun buildChatDebugExport(
             put(
                 "sources",
                 JsonArray(
-                    message.combinedSources.map { source ->
+                    sources.map { source ->
                         val coverage = dev.chungjungsoo.gptmobile.data.agent.CombinedContentCoverage(listOf(source)).check(answer)
                         val missing = coverage.missing
                         buildJsonObject {
@@ -91,7 +95,7 @@ internal fun buildChatDebugExport(
                     }
                 )
             )
-            message.timeline.lastOrNull { it.combinedQuality != null }?.combinedQuality?.let { quality ->
+            message.effectiveTimeline().lastOrNull { it.combinedQuality != null }?.combinedQuality?.let { quality ->
                 put("qualityReport", json.encodeToJsonElement(quality))
             }
             put("coverageLimit", "Deterministic lexical coverage hints only; paraphrase matching does not establish factual accuracy or whether omitted details were in scope.")
@@ -240,6 +244,19 @@ internal fun buildChatDebugExport(
                                         put("index", index)
                                         put("runId", revision.runId)
                                         put("bodySha256", debugBodyDigest(exportedBody(revision.content)))
+                                        put(
+                                            "contributionMapping",
+                                            JsonArray(
+                                                revision.combinedSources.mapIndexed { sourceIndex, source ->
+                                                    buildJsonObject {
+                                                        put("id", "C${sourceIndex + 1}")
+                                                        put("profileUid", source.platformUid)
+                                                        put("bodySha256", debugBodyDigest(exportedBody(source.content)))
+                                                        put("characters", source.content.length)
+                                                    }
+                                                }
+                                            )
+                                        )
                                     }
                                 }
                             )

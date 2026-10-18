@@ -22,11 +22,24 @@ internal class CompleteBackupPreferences(private val context: Context, private v
         context.getSharedPreferences(name, Context.MODE_PRIVATE).all.mapValues { (_, value) -> encode(requireNotNull(value)) }
     }
 
+    suspend fun captureConversationSettings(chatIds: Set<Int>): ConversationCombinedPortableSnapshot {
+        var result: ConversationCombinedPortableSnapshot? = null
+        dataStore.edit { prefs ->
+            val key = stringPreferencesKey(ConversationCombinedPortable.FEATURE_KEY)
+            val raw = ConversationCombinedPortable.ensureIdentities(prefs[key], chatIds)
+            val decoded = dev.chungjungsoo.gptmobile.data.model.FeatureSettingsJson.decode(raw)
+            check(decoded.combinedSettingsJournal.values.none { !it.roomSettled }) { "Finish or recover the conversation settings save before backing up." }
+            prefs[key] = raw
+            result = ConversationCombinedPortable.capture(raw, chatIds)
+        }
+        return checkNotNull(result)
+    }
+
     suspend fun normalizeAssist() {
         dataStore.edit { prefs ->
             val key = stringPreferencesKey("advanced_feature_settings_json")
             prefs[key]?.let { raw ->
-                val next = dev.chungjungsoo.gptmobile.data.assist.LocalAssistSettingsMigration.normalize(raw)
+                val next = dev.chungjungsoo.gptmobile.data.model.FeatureSettingsJson.normalize(raw)
                 if (next != raw) {
                     prefs[stringPreferencesKey("advanced_feature_settings_before_assist_v1")] = raw
                     prefs[key] = next
@@ -38,7 +51,7 @@ internal class CompleteBackupPreferences(private val context: Context, private v
     suspend fun replace(values: Map<String, BackupValue>, shared: Map<String, Map<String, BackupValue>>) {
         validate(values, shared)
         val normalized = values.mapValues { (key, value) ->
-            if (key == "advanced_feature_settings_json") value.copy(value = dev.chungjungsoo.gptmobile.data.assist.LocalAssistSettingsMigration.normalize(value.value)) else value
+            if (key == "advanced_feature_settings_json") value.copy(value = dev.chungjungsoo.gptmobile.data.model.FeatureSettingsJson.normalize(value.value)) else value
         }
         dataStore.edit { prefs ->
             prefs.clear()

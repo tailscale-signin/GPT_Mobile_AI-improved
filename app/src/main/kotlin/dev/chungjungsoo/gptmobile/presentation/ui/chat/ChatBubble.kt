@@ -260,7 +260,8 @@ fun OpponentChatBubble(
     combinedWording: CombinedWordingPresentation? = null,
     showSourceBar: Boolean = true,
     splitForPassageIndicators: Boolean = false,
-    passageIndicators: @Composable (String) -> Unit = {}
+    passageIndicators: @Composable (String) -> Unit = {},
+    retryLabel: String? = null
 ) {
     var activityExpanded by rememberSaveable(contentIdentity) { mutableStateOf(false) }
     val bubbleColor = animateColorAsState(
@@ -384,7 +385,7 @@ fun OpponentChatBubble(
             add(BubbleAction(stringResource(R.string.edit), Icons.Rounded.Edit, canEdit && !isLoading, onEditClick))
         }
         onInspectContext?.let { add(BubbleAction(stringResource(R.string.bubble_context), Icons.Rounded.Description, !isLoading, it)) }
-        add(BubbleAction(stringResource(R.string.retry), Icons.Rounded.Refresh, canRetry && !isLoading, onRetryClick))
+        add(BubbleAction(retryLabel ?: stringResource(R.string.retry), Icons.Rounded.Refresh, canRetry && !isLoading, onRetryClick))
         if (hasDetails) add(BubbleAction(stringResource(R.string.details), Icons.Rounded.HelpOutline) { activityExpanded = !activityExpanded })
     }
     BubbleActionHost(identity = contentIdentity, actions = actions) {

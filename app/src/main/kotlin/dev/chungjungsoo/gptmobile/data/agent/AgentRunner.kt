@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.transformWhile
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -41,7 +42,8 @@ data class AgentRunLimits(
     val allowToolStormFinalization: Boolean = true,
     val maxGeneratedCharacters: Int = 0,
     val detectRepetition: Boolean = false,
-    val researchAcquisition: Boolean = false
+    val researchAcquisition: Boolean = false,
+    val combined: CombinedExecutionContext? = null
 ) {
     companion object {
         const val DEFAULT_MAX_TOOL_CALLS: Int = 50
@@ -82,7 +84,7 @@ class AgentRunner(
         if (finishedInTime == null) {
             emit(failed("Agent run timed out after ${limits.runTimeoutMillis} ms."))
         }
-    }
+    }.flowOn(limits.combined?.let(::CombinedRunScope) ?: kotlin.coroutines.EmptyCoroutineContext)
 
     private suspend fun kotlinx.coroutines.flow.FlowCollector<AgentRunEvent>.executeLoop(
         session: AgentProviderSession,
@@ -173,7 +175,8 @@ class AgentRunner(
             val successfulSearch = exchanges.any { exchange ->
                 exchange.results.any { result -> !result.isError && result.dispatched && exchange.calls.any { it.callId == result.callId && it.name in searchNames } }
             }
-            val round = collectRound(session, exposedDefinitions, exchanges, (limits.maxObservedToolCalls.coerceIn(1, 1024) - observedToolCalls).coerceAtLeast(0), successfulSearch, searchNames)
+            val observedLimit = if (limits.combined == null) limits.maxObservedToolCalls.coerceIn(1, 1024) else limits.maxObservedToolCalls.coerceAtLeast(0)
+            val round = collectRound(session, exposedDefinitions, exchanges, (observedLimit - observedToolCalls).coerceAtLeast(0), successfulSearch, searchNames)
             observedToolCalls += round.observedCalls
             if (round.batchRejected) {
                 AppLogRecorder.record("Agent", "TOOL_BATCH_OVERSIZE · rejectedBatchObserved=${round.observedCalls} · permittedPerRound=${limits.maxToolCallsPerRound} · cumulativeObserved=$observedToolCalls · rejection=${round.batchRejection ?: "UNKNOWN_THRESHOLD"} · dispatched=0", "W")
@@ -448,7 +451,7 @@ class AgentRunner(
                     else -> appendFinalResponseInstruction(allResults.last())
                 }
             } else if (shouldInjectWrapUp && allResults.isNotEmpty()) {
-                val wrapUpPrompt = ToolBudgetPolicy.buildWrapUpPrompt(remainingAllowance)
+                val wrapUpPrompt = ToolBudgetPolicy.buildWrapUpPrompt(remainingAllowance, combined = limits.combined != null)
                 allResults[allResults.lastIndex] = appendInstruction(allResults.last(), wrapUpPrompt)
             }
 

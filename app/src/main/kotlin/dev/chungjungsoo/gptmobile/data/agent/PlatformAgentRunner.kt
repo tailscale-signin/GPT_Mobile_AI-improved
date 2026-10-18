@@ -10,12 +10,16 @@ import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 fun agentRunnerForPlatform(
     platform: PlatformV2,
     runOverride: Int? = null,
-    maxRoundsOverride: Int? = null
+    maxRoundsOverride: Int? = null,
+    combined: CombinedExecutionContext? = null
 ): AgentRunner = AgentRunner(
     AgentRunLimits(
-        maxRounds = maxRoundsOverride ?: Int.MAX_VALUE,
-        maxToolCalls = runOverride ?: platform.maxToolCalls,
+        maxRounds = if (combined != null) Int.MAX_VALUE else maxRoundsOverride ?: Int.MAX_VALUE,
+        maxToolCalls = combined?.let { CombinedPolicyResolver.toolCallLimit(it, platform.maxToolCalls, runOverride) } ?: runOverride ?: platform.maxToolCalls,
+        maxConcurrentTools = combined?.plan?.maxParallelToolCalls ?: AgentRunLimits.defaultMaxConcurrentTools(),
+        maxObservedToolCalls = if (combined != null) ((runOverride ?: platform.maxToolCalls).coerceAtLeast(0).toLong() * 2 + 2).coerceAtMost(Int.MAX_VALUE.toLong()).toInt() else 256,
         toolTimeoutMillis = 45_000L,
+        combined = combined,
         allowToolStormFinalization = dev.chungjungsoo.gptmobile.BuildConfig.TOOL_STORM_FINALIZATION
     )
 )

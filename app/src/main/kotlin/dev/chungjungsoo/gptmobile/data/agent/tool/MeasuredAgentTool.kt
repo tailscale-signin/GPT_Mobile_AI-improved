@@ -18,6 +18,7 @@ class MeasuredAgentTool(
     OwnedAgentTool {
     override val definition = delegate.definition
     override val managesExecutionBudget = delegate.managesExecutionBudget
+    override val coordinatesChildWork = delegate.coordinatesChildWork
     override val executionOwner: AgentToolExecutionOwner =
         (delegate as? OwnedAgentTool)?.executionOwner ?: AgentToolExecutionOwner.CLIENT
 

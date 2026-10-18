@@ -1,6 +1,8 @@
 package dev.chungjungsoo.gptmobile.presentation.common
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -9,25 +11,33 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
-/** Back transitions for subpages that share one navigation destination. */
+/** Slide and fade for subpages that share one navigation destination; existing callers keep the API. */
 class BackFade internal constructor(private val scope: CoroutineScope) {
-    private val opacity = Animatable(1f)
+    private val frame = Animatable(Offset(0f, 1f), Offset.VectorConverter)
     private var running by mutableStateOf(false)
-    val modifier: Modifier get() = Modifier.graphicsLayer { alpha = opacity.value }
+    val modifier: Modifier get() = Modifier.graphicsLayer {
+        translationX = size.width * frame.value.x
+        alpha = frame.value.y.coerceIn(0f, 1f)
+    }
 
     fun fade(action: () -> Unit) {
         if (running) return
         running = true
         scope.launch {
             try {
-                opacity.animateTo(0f, tween(120))
+                frame.animateTo(Offset(0.16f, 0f), tween(140, easing = FastOutSlowInEasing))
                 action()
-                opacity.snapTo(1f)
+                frame.snapTo(Offset(-0.06f, 0f))
+                frame.animateTo(Offset(0f, 1f), tween(160, easing = FastOutSlowInEasing))
             } finally {
+                withContext(NonCancellable) { frame.snapTo(Offset(0f, 1f)) }
                 running = false
             }
         }

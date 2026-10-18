@@ -23,10 +23,11 @@ data class CombinedSourceSection(
 /** Complete source occurrences, including partial contributions. This is not semantic verification. */
 @Serializable
 data class CombinedClaimInventory(
-    val version: Int = 1,
+    val version: Int = 2,
     val corpusDigest: String,
     val sourceDigests: Map<String, String>,
-    val sections: List<CombinedSourceSection>
+    val sections: List<CombinedSourceSection>,
+    val claims: List<CombinedClaimRecord> = emptyList()
 ) {
     fun page(offset: Int, size: Int): List<CombinedSourceSection> {
         require(offset >= 0 && size in 1..256)
@@ -64,7 +65,7 @@ data class CombinedClaimInventory(
                     }
                 }
             }
-            return CombinedClaimInventory(corpusDigest = researchHash(Json.encodeToString(digests) + Json.encodeToString(sections)), sourceDigests = digests, sections = sections)
+            return CombinedClaimInventory(corpusDigest = researchHash(Json.encodeToString(digests) + Json.encodeToString(sections)), sourceDigests = digests, sections = sections, claims = CombinedClaimSemantics.records(sources))
         }
     }
 }
@@ -125,7 +126,7 @@ internal object CombinedCoverageValidator {
     ): CombinedCoverageValidation {
         val errors = mutableListOf<String>()
         val missing = linkedSetOf<String>()
-        if (runCatching { CombinedClaimInventory.freeze(sources) }.getOrNull() != inventory || proposal.corpusDigest != inventory.corpusDigest || proposal.answerDigest != researchHash(answer) || proposal.policyRevision != policyRevision) {
+        if (runCatching { CombinedClaimInventory.freeze(sources).let { if (inventory.version == 1) it.copy(version = 1, claims = emptyList()) else it } }.getOrNull() != inventory || proposal.corpusDigest != inventory.corpusDigest || proposal.answerDigest != researchHash(answer) || proposal.policyRevision != policyRevision) {
             return CombinedCoverageValidation(listOf("Stale corpus, answer or policy"), inventory.sections.map { it.id }.toSet(), 0, 0, proposal.decisions.size, proposal.decisions.size)
         }
         val sections = inventory.sections.associateBy { it.id }
@@ -152,6 +153,17 @@ internal object CombinedCoverageValidator {
                 }
                 val hasOutput = claim.disposition in setOf(CombinedClaimDisposition.INCLUDED, CombinedClaimDisposition.MERGED_EQUIVALENT, CombinedClaimDisposition.CONFLICT_EXPLAINED)
                 if (hasOutput && (claim.output.isEmpty() || claim.output.any { !valid(answer, it, answerBoundaries) })) errors += "Missing or stale output link: ${claim.id}"
+                if (hasOutput && valid(text, range, boundaries.getValue(section.profileUid))) {
+                    val proposition = text.substring(range.startUtf16, range.endUtf16)
+                    val destinations = claim.output.filter { valid(answer, it, answerBoundaries) }.map { answer.substring(it.startUtf16, it.endUtf16) }
+                    if (destinations.none { destination ->
+                            CombinedClaimSemantics.lostQualifiers(CombinedClaimSemantics.qualifiers(proposition), CombinedClaimSemantics.qualifiers(destination)).isEmpty() &&
+                                CombinedClaimMatcher.match(proposition, destination) >= CombinedClaimMatcher.Match.PARAPHRASE
+                        }
+                    ) {
+                        errors += "Output does not establish preserved proposition and qualifiers: ${claim.id}"
+                    }
+                }
                 if (!hasOutput && claim.output.isNotEmpty()) errors += "Exclusion or missing claim cannot claim output inclusion: ${claim.id}"
                 if (!hasOutput && claim.disposition != CombinedClaimDisposition.MISSING && claim.reason.isBlank()) errors += "Exclusion requires a reason: ${claim.id}"
                 if (claim.disposition == CombinedClaimDisposition.WITHHELD_BY_POLICY && section.id !in withheldSectionIds) errors += "Model cannot grant itself a policy exclusion: ${claim.id}"

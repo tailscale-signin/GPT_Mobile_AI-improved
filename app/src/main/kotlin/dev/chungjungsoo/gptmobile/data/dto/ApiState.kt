@@ -6,6 +6,11 @@ import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase
 import dev.chungjungsoo.gptmobile.data.rag.RecalledFactRef
 
 sealed class ApiState {
+    /** Internal ownership handoff; the editor waits for durable compare-and-swap acknowledgement. */
+    data class CombinedReplacement(
+        val candidate: dev.chungjungsoo.gptmobile.data.agent.CombinedReplacementCandidate,
+        val acknowledgement: kotlinx.coroutines.CompletableDeferred<Boolean> = kotlinx.coroutines.CompletableDeferred()
+    ) : ApiState()
     data class CombinedQuality(val report: dev.chungjungsoo.gptmobile.data.agent.CombinedQualityReport) : ApiState()
     data class AssistStatus(val status: dev.chungjungsoo.gptmobile.data.assist.AssistTaskState) : ApiState()
     data class TokenUsage(val inputTokens: Int?, val outputTokens: Int?, val totalTokens: Int?) : ApiState()

@@ -5,6 +5,8 @@ import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
+import dev.chungjungsoo.gptmobile.data.model.ConversationCombinedSettings
 import dev.chungjungsoo.gptmobile.data.research.researchHash
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -48,5 +50,41 @@ class CombinedRecoverySnapshotTest {
         val recovered = CombinedRecoverySnapshot.prepare(run.copy(status = "COMPLETED"), answer, "primary", platform, segments)
         assertEquals("", recovered.committedPrefix)
         assertEquals(snapshot.sources, recovered.sources)
+    }
+
+    private fun modern(): CombinedInputSnapshot {
+        val accepted = CombinedRequestedPolicy(settings = ConversationCombinedSettings(collectionBias = 75, effort = 25), participantUids = listOf("pinned", "primary"), requestedModels = mapOf("primary" to "test"), preferredOwnerUid = "pinned", userPrompt = source.content)
+        val requested = accepted.copy(requestedPolicyDigest = combinedDigest(Json.encodeToString(accepted)))
+        val context = CombinedExecutionContext(requested = requested, rootBudgetId = "accepted-root", role = CombinedRunRole.SYNTHESIS)
+        return snapshot.copy(deliveryProtocol = "PASSAGES_V2", combined = context, acceptedTools = ChatMcpToolConfig(enabledToolIds = setOf("read_url"), allowAllByDefault = false, combined = context), answerContract = CombinedAnswerPolicy.from(source.content))
+    }
+
+    @Test fun modernRecoveryUsesActualFallbackOwnerAndPreservesAcceptedPolicyAndTools() {
+        val saved = modern()
+        val encoded = Json.encodeToString(saved)
+        val recovered = CombinedRecoverySnapshot.prepare(run.copy(synthesisKey = researchHash(encoded), synthesisSnapshot = encoded), answer, "pinned", platform, segments)
+        assertEquals("", recovered.committedPrefix)
+        assertEquals(saved.combined, recovered.combined)
+        assertEquals(saved.acceptedTools, recovered.acceptedTools)
+        assertEquals(saved.sources, recovered.sources)
+        assertEquals(saved.answerContract, recovered.answerContract)
+    }
+
+    @Test fun structuredReplacementStillChecksTheArchivedPrefixAndFrozenPolicyDigest() {
+        val saved = modern()
+        val encoded = Json.encodeToString(saved)
+        val owner = run.copy(synthesisKey = researchHash(encoded), synthesisSnapshot = encoded)
+        assertThrows(IllegalArgumentException::class.java) { CombinedRecoverySnapshot.prepare(owner, answer.copy(content = "Changed"), "pinned", platform, segments) }
+        val changed = saved.copy(combined = saved.combined!!.copy(requested = saved.combined.requested.copy(settings = ConversationCombinedSettings(effort = 100))))
+        val changedRaw = Json.encodeToString(changed)
+        assertThrows(IllegalArgumentException::class.java) { CombinedRecoverySnapshot.prepare(owner.copy(synthesisSnapshot = changedRaw, synthesisKey = researchHash(changedRaw)), answer, "pinned", platform, segments) }
+    }
+
+    @Test fun legacyInventoryCanResumeWithoutInventingModernSemanticClaims() {
+        val legacy = snapshot.copy(version = 3, claimInventory = CombinedClaimInventory.freeze(snapshot.sources).copy(version = 1, claims = emptyList()))
+        val encoded = Json.encodeToString(legacy)
+        val recovered = CombinedRecoverySnapshot.prepare(run.copy(synthesisKey = researchHash(encoded), synthesisSnapshot = encoded), answer, "primary", platform, segments)
+        assertEquals(1, recovered.claimInventory!!.version)
+        assertEquals(emptyList<CombinedClaimRecord>(), recovered.claimInventory.claims)
     }
 }

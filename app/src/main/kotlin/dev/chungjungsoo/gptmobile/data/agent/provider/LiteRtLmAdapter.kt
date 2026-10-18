@@ -235,6 +235,13 @@ class LiteRtLmAdapter(
 
                 val availableTools = boundTools
                 val noToolsInstruction = if (availableTools.isEmpty()) LocalPromptToolBridge.instruction(emptyList()) else ""
+                // The explicit no-tools instruction already is the final inventory
+                // for an empty catalog. Do not charge a duplicate in tiny contexts.
+                val capabilityPromptRenderer: ((List<AgentToolDefinition>) -> String)? = if (availableTools.isEmpty()) {
+                    null
+                } else {
+                    { selected -> dev.chungjungsoo.gptmobile.data.agent.localToolCapabilityPrompt(selected.map { it.name }) }
+                }
                 // Native tool templates already contain their definitions. Repeating
                 // the catalog here can evict history and tools from small contexts;
                 // text-call parsing remains available without a second catalog.
@@ -267,7 +274,8 @@ class LiteRtLmAdapter(
                         outputLimit = outputLimit,
                         imageCount = latestImages.size,
                         historyImageCount = { turn -> visionImageIds(turn.userMessage.attachments, visionCapable).size },
-                        renderToolPrompt = toolPromptRenderer
+                        renderToolPrompt = toolPromptRenderer,
+                        renderCapabilityPrompt = capabilityPromptRenderer
                     )
                 } catch (error: IllegalArgumentException) {
                     val compactPrompt = fallbackSystemPrompt?.takeIf { it != platform.systemPrompt }
@@ -286,7 +294,8 @@ class LiteRtLmAdapter(
                             outputLimit = outputLimit,
                             imageCount = latestImages.size,
                             historyImageCount = { turn -> visionImageIds(turn.userMessage.attachments, visionCapable).size },
-                            renderToolPrompt = toolPromptRenderer
+                            renderToolPrompt = toolPromptRenderer,
+                            renderCapabilityPrompt = capabilityPromptRenderer
                         ).also { usedCompactFallback = true }
                     } catch (_: IllegalArgumentException) {
                         send(ProviderEvent.Failed(error.message ?: "Local context is too small for this request."))
@@ -334,10 +343,11 @@ class LiteRtLmAdapter(
                         usePromptToolBridge -> "prompt_bridge"
                         else -> "registered"
                     }
-                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("LocalModel", "LOCAL_TOOL_REGISTRATION · tool=${tool.definition.name} · disposition=$exclusion")
+                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("LocalModel", "LOCAL_TOOL_REGISTRATION · tool=${tool.definition.name} · disposition=$exclusion · selectionReason=${plan.toolSelectionReasons[tool.definition.name]}")
                 }
                 val registeredTools = availableTools.filter { it.definition.name in selectedNames }.map { toolBudget.bind(it) }
-                conversationSystemPrompt = conversationSystemPrompt.orEmpty() + noToolsInstruction + toolPromptRenderer?.invoke(plan.tools).orEmpty() + "\n" + LOCAL_CAPABILITY_CONTRACT
+                conversationSystemPrompt = conversationSystemPrompt.orEmpty() + noToolsInstruction + toolPromptRenderer?.invoke(plan.tools).orEmpty() +
+                    capabilityPromptRenderer?.invoke(plan.tools).orEmpty() + "\n" + LOCAL_CAPABILITY_CONTRACT
                 val descriptors = if (nativeToolsCapable) registeredTools.map { it.definition.toLocalDescriptor() } else emptyList()
                 val toolsKey = toolsFingerprint(descriptors) + "|finalSchema=" + constraints.finalResponseSchemaJson.orEmpty()
                 val runToolsByName = registeredTools.associateBy { it.definition.name }
@@ -614,6 +624,7 @@ class LiteRtLmAdapter(
                                 var promptToolCallCount = 0
                                 var promptToolsClosed = false
                                 var promptToolRepairs = 0
+                                var awaitingToolRepair = false
                                 while (true) {
                                     val fallbackOutput = LocalPromptToolOutput()
                                     var templateFailure: String? = null
@@ -638,7 +649,7 @@ class LiteRtLmAdapter(
                                                     if (event.text.isNotEmpty()) generatedOutput = true
                                                     if (textToolFallbackEnabled) {
                                                         val visible = fallbackOutput.accept(event.text)
-                                                        if (visible.isNotEmpty()) {
+                                                        if (visible.isNotEmpty() && !awaitingToolRepair) {
                                                             assistantReply.append(visible)
                                                             send(ProviderEvent.TextDelta(visible))
                                                         }
@@ -665,7 +676,7 @@ class LiteRtLmAdapter(
                                                         templateFailure = event.message
                                                     } else {
                                                         val retained = fallbackOutput.buffered()
-                                                        if (textToolFallbackEnabled && LocalPromptToolBridge.parseResult(retained, runToolsByName.keys, allowBareCalls = usePromptToolBridge) is PromptToolParseResult.NoCall && retained.isNotEmpty()) {
+                                                        if (!awaitingToolRepair && textToolFallbackEnabled && LocalPromptToolBridge.parseResult(retained, runToolsByName.keys, allowBareCalls = usePromptToolBridge) is PromptToolParseResult.NoCall && retained.isNotEmpty()) {
                                                             assistantReply.append(retained)
                                                             send(ProviderEvent.TextDelta(retained))
                                                         }
@@ -678,6 +689,11 @@ class LiteRtLmAdapter(
                                                 LocalRuntimeEvent.Done -> Unit
                                             }
                                         }
+                                    val progressClosure = fallbackOutput.progressClosure()
+                                    if (!awaitingToolRepair && progressClosure.isNotEmpty()) {
+                                        assistantReply.append(progressClosure)
+                                        send(ProviderEvent.TextDelta(progressClosure))
+                                    }
                                     if (templateFailure == null) {
                                         if (!failed && textToolFallbackEnabled) {
                                             val buffered = fallbackOutput.buffered()
@@ -689,6 +705,7 @@ class LiteRtLmAdapter(
                                             }
                                             val call = (parsed as? PromptToolParseResult.Call)?.value
                                             if (call != null && promptToolCallCount < 8) {
+                                                awaitingToolRepair = false
                                                 nativeToolsUsed = true
                                                 val result = try {
                                                     executeBoundTool(call.name, call.argumentsJson, runToolsByName, runToolEventSink, modelEvidenceRemaining)
@@ -714,15 +731,29 @@ class LiteRtLmAdapter(
                                             if (parsed is PromptToolParseResult.Rejected) {
                                                 dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("LocalModel", "LOCAL_TOOL_CALL_REJECTED · reason=${parsed.reason} · authorizedToolCount=${runToolsByName.size} · dispatched=false", "W")
                                                 if (usePromptToolBridge && !promptToolsClosed && promptToolRepairs++ < 1) {
-                                                    generationInput = "The previous tool call was rejected (${parsed.reason}) and was not executed. " +
-                                                        "Use exactly one authorized tool name and a JSON arguments object, or answer normally if no tool is needed. " +
-                                                        "Do not claim that the rejected call succeeded."
+                                                    awaitingToolRepair = true
+                                                    generationInput = LocalPromptToolBridge.repairInstruction(
+                                                        parsed.reason,
+                                                        buffered,
+                                                        plan.tools,
+                                                        plan.toolSelectionReasons.filterValues { it.startsWith("required_") }.keys
+                                                    )
                                                     generationImages = emptyList()
                                                     physicalSegment = UUID.randomUUID().toString()
                                                     continue
                                                 }
                                                 failed = true
                                                 send(ProviderEvent.Failed("The local model emitted a malformed, unsupported, disabled, or unavailable tool call. No tool was executed for the rejected call."))
+                                                break
+                                            }
+                                            if (awaitingToolRepair) {
+                                                failed = true
+                                                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
+                                                    "LocalModel",
+                                                    "LOCAL_TOOL_TASK_FAILED · reason=repair_without_call · registered=${runToolsByName.size} · promptCalls=$promptToolCallCount · dispatched=false",
+                                                    "W"
+                                                )
+                                                send(ProviderEvent.Failed("The local model did not produce an executable tool call after repair. The requested tool action was not completed. Try again or choose another model."))
                                                 break
                                             }
                                             dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(

@@ -10,6 +10,18 @@ import org.junit.Test
 
 class LiveToolContextTest {
     @Test
+    fun localCapabilityDescriptionUsesOnlyTheFinalSelection() {
+        val upstream = liveToolSystemPrompt("User profile instructions", listOf("web_search", BuiltInAgentTool.DEVICE_LOCATION), deferCapabilities = true)
+        assertFalse(upstream.contains("Live mobile tool context"))
+        assertFalse(upstream.contains("call device_location"))
+        val final = upstream + localToolCapabilityPrompt(listOf("current_date"))
+        assertTrue(final.contains("Final local tool inventory: current_date."))
+        assertTrue(final.contains("No native device_location tool is registered"))
+        assertFalse(final.contains("call device_location"))
+        assertTrue(localToolCapabilityPrompt(emptyList()).contains("Final local tool inventory: none."))
+    }
+
+    @Test
     fun enabledNativeLocationIsNamedAndPermissionIsNotAssumed() {
         val prompt = liveToolSystemPrompt("User profile instructions", listOf("current_date", BuiltInAgentTool.DEVICE_LOCATION))
         assertTrue(prompt.startsWith("User profile instructions\n\n"))

@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.presentation.common
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -27,6 +28,7 @@ import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
 
 internal val LocalGlassBackdrop = compositionLocalOf<HazeState?> { null }
+private val LocalInlineGlassBackdrop = compositionLocalOf<HazeState?> { null }
 internal val LocalGlassBackdropActive = compositionLocalOf { false }
 private val LocalGlassPopupSequence = compositionLocalOf<java.util.concurrent.atomic.AtomicInteger?> { null }
 internal val LocalOverlayWindow = compositionLocalOf { false }
@@ -46,10 +48,19 @@ fun GlassBackdropHost(content: @Composable () -> Unit) {
     }
 }
 
+/** Isolates in-page controls from other destinations while popups retain the window backdrop. */
+@Composable
+internal fun GlassBackdropBox(modifier: Modifier = Modifier, content: @Composable BoxScope.() -> Unit) {
+    val state = rememberHazeState()
+    CompositionLocalProvider(LocalInlineGlassBackdrop provides state) {
+        Box(modifier, content = content)
+    }
+}
+
 /** A sibling source for same-window controls, below the enclosing navigation source. */
 @Composable
 fun Modifier.glassBackdropSource(): Modifier {
-    val state = LocalGlassBackdrop.current
+    val state = LocalInlineGlassBackdrop.current ?: LocalGlassBackdrop.current
     return if (state != null && LocalGlassBackdropActive.current) hazeSource(state, zIndex = -1f) else this
 }
 
@@ -62,7 +73,7 @@ internal fun hasGlassBackdrop(): Boolean = LocalGlassBackdrop.current != null &&
 @OptIn(dev.chrisbanes.haze.ExperimentalHazeApi::class)
 @Composable
 internal fun Modifier.glassBackdrop(shape: Shape, opacity: Float = GLASS_OPACITY, captureAsPopup: Boolean = false): Modifier {
-    val state = LocalGlassBackdrop.current ?: return this
+    val state = (if (captureAsPopup) LocalGlassBackdrop.current else LocalInlineGlassBackdrop.current ?: LocalGlassBackdrop.current) ?: return this
     // Allocate while visible, even with blur Off, so toggling does not reorder
     // already-open parent and child windows. A source excludes itself and newer windows.
     val sequence = LocalGlassPopupSequence.current

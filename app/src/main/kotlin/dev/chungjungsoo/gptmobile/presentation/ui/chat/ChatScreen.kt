@@ -86,15 +86,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
@@ -141,10 +136,10 @@ import dev.chungjungsoo.gptmobile.data.model.excludesMemory
 import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as DropdownMenu
 import dev.chungjungsoo.gptmobile.presentation.common.FadingModalBottomSheet as ModalBottomSheet
+import dev.chungjungsoo.gptmobile.presentation.common.GlassBackdropBox
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import dev.chungjungsoo.gptmobile.presentation.common.appOverlayTokens
 import dev.chungjungsoo.gptmobile.presentation.common.glassBackdrop
-import dev.chungjungsoo.gptmobile.presentation.common.glassBackdropSource
 import dev.chungjungsoo.gptmobile.presentation.common.hasGlassBackdrop
 import dev.chungjungsoo.gptmobile.util.isAssistantErrorMessage
 import java.io.File
@@ -157,38 +152,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private const val PERMISSION_ACCESS_LOCAL_NETWORK = "android.permission.ACCESS_LOCAL_NETWORK"
-
-private fun Modifier.chatViewportEdgeFade(
-    topFadeStart: Dp,
-    topFade: Dp,
-    bottomFadeStartFromBottom: Dp,
-    bottomFadeEndFromBottom: Dp
-): Modifier = this
-    .graphicsLayer {
-        compositingStrategy = CompositingStrategy.Offscreen
-    }
-    .drawWithContent {
-        drawContent()
-        if (size.height <= 0f) return@drawWithContent
-
-        val topStart = (topFadeStart.toPx() / size.height).coerceIn(0f, 0.45f)
-        val topStop = (topFade.toPx() / size.height).coerceIn(topStart, 0.5f)
-        val bottomOpaqueStop = (1f - (bottomFadeStartFromBottom.toPx() / size.height))
-            .coerceIn(topStop, 0.96f)
-        val bottomTransparentStop = (1f - (bottomFadeEndFromBottom.toPx() / size.height))
-            .coerceIn(bottomOpaqueStop, 1f)
-        drawRect(
-            brush = Brush.verticalGradient(
-                0f to Color.Transparent,
-                topStart to Color.Transparent,
-                topStop to Color.Black,
-                bottomOpaqueStop to Color.Black,
-                bottomTransparentStop to Color.Transparent,
-                1f to Color.Transparent
-            ),
-            blendMode = BlendMode.DstIn
-        )
-    }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -624,7 +587,7 @@ fun ChatScreen(
         var composerHeightPx by remember { mutableIntStateOf(with(density) { 88.dp.roundToPx() }) }
         val composerHeight = with(density) { composerHeightPx.toDp() }
 
-        Box(
+        GlassBackdropBox(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(bottom = innerPadding.calculateBottomPadding())
@@ -633,9 +596,6 @@ fun ChatScreen(
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
-                    // Capture only messages: the composer and floating arrow consume
-                    // this sibling source and must never become part of their own blur.
-                    .glassBackdropSource()
                     .nestedScroll(boundaryConnection)
                     .pointerInput(responseBoundary) {
                         awaitEachGesture {
@@ -646,16 +606,14 @@ fun ChatScreen(
                             } while (event.changes.any { it.pressed })
                         }
                     }
-                    // Position the measured list before revealing an existing chat.
-                    // Restored positions and favourite targeting never animate on entry.
-                    .graphicsLayer { alpha = if (entryPositioned || groupedMessages.userMessages.isEmpty()) 1f else 0f }
-                    .chatViewportEdgeFade(
+                    .chatMessageBackdrop(
                         topFadeStart = if (featureSettings.edgeFades) (innerPadding.calculateTopPadding() + 16.dp - configuration.screenHeightDp.dp * 0.05f).coerceAtLeast(0.dp) else 0.dp,
                         topFade = if (featureSettings.edgeFades) (innerPadding.calculateTopPadding() + 48.dp - configuration.screenHeightDp.dp * 0.05f).coerceAtLeast(0.dp) else 0.dp,
                         // Content continues behind the composer. Fade it from the top edge
                         // of the input surface to transparent halfway through the bar.
                         bottomFadeStartFromBottom = if (featureSettings.edgeFades && !inspectingCombinedSource) composerHeight else 0.dp,
-                        bottomFadeEndFromBottom = if (featureSettings.edgeFades && !inspectingCombinedSource) composerHeight * 0.5f else 0.dp
+                        bottomFadeEndFromBottom = if (featureSettings.edgeFades && !inspectingCombinedSource) composerHeight * 0.5f else 0.dp,
+                        contentVisible = entryPositioned || groupedMessages.userMessages.isEmpty()
                     ),
                 state = listState,
                 contentPadding = PaddingValues(top = innerPadding.calculateTopPadding(), bottom = composerHeight + 16.dp)
@@ -2099,7 +2057,7 @@ fun ScrollToBottomButton(isGenerating: Boolean = false, onClick: () -> Unit) {
     // Generation remains distinguishable through the themed outline.
     Box(Modifier.size(48.dp).testTag("chat_jump_to_bottom").clickable(onClick = onClick), contentAlignment = Alignment.Center) {
         Surface(
-            modifier = Modifier.size(26.dp).glassBackdrop(shape, opacity = CHAT_LATEST_OPACITY),
+            modifier = Modifier.size(26.dp).glassBackdrop(shape, opacity = CHAT_LATEST_OPACITY).testTag("chat_latest_glass"),
             shape = shape,
             color = if (hasGlassBackdrop()) Color.Transparent else tokens.background,
             contentColor = tokens.foreground,
@@ -2107,7 +2065,8 @@ fun ScrollToBottomButton(isGenerating: Boolean = false, onClick: () -> Unit) {
                 if (isGenerating) 2.dp else 1.dp,
                 MaterialTheme.colorScheme.primary.copy(alpha = if (isGenerating) 0.8f else 0.3f)
             ),
-            shadowElevation = 3.dp
+            // A shadow inside this translucent plate would darken its 50% tint.
+            shadowElevation = 0.dp
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Icon(Icons.Rounded.KeyboardArrowDown, stringResource(R.string.scroll_to_bottom_icon), modifier = Modifier.size(18.dp))

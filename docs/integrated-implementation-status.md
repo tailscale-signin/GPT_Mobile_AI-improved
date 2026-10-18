@@ -55,7 +55,7 @@ This branch implements a substantial portion of the four supplied specifications
 ## Validation evidence
 
 - 132 Python script tests passed, including the two new APK budget fixtures.
-- 20 isolated Kotlin/JUnit parser/schema/range tests passed using production algorithms and boundary stubs.
+- 21 isolated Kotlin/JUnit parser/schema/range tests passed using production algorithms and boundary stubs.
 - 4 isolated Kotlin/JUnit Anthropic DTO and restore-journal tests passed using production implementations and a fake vault boundary.
 - 2 isolated Kotlin/JUnit model-memory and asset-receipt tests passed, including a sparse 4 GiB model and same-size in-place modification with preserved mtime.
 - Android resource, regex, exported Room-schema and QNN provenance checks passed.
@@ -66,3 +66,9 @@ This branch implements a substantial portion of the four supplied specifications
 ## Release gates
 
 Do not merge as a completed implementation of all four documents. Complete the open software packages above; run full Android compilation/unit/lint, process-kill restore and workspace tests, private/public APK delivery, provider completion and rotation fixtures, composite-opacity screenshots, and target-device local/NPU qualification. Repository required-check protection needs a separate authorized administration-capable path.
+
+## Wiring review follow-up
+
+All files changed from current main were reviewed again, including supplied specification exports, implementation, tests, gateway manifest and CI. The follow-up corrected Android compiler integration errors, inherited document authorization for child requests, staged-versus-editor draft recovery/reset/navigation, load-time startup access, reordered prompt-tool envelopes, Anthropic GIF MIME mapping, and prefix retention after a length stop. Added GitHub mock-transport regressions for branch rejection and selected-revision blob search. These tests still require the full Android unit job; isolated tests do not substitute for that job.
+
+CI caught the original native receipt assertion and then the missing reuse after a length stop. The new seven-field assertion checks reused plus newly processed tokens against total prompt tokens. Final Android/native CI and device qualification remain release gates.

@@ -30,6 +30,15 @@ class LocalPromptToolBridgeTest {
         assertEquals(true, LocalPromptToolBridge.parseResult(output.buffered(), setOf("web_search")) is PromptToolParseResult.Rejected)
     }
 
+    @Test fun reorderedToolEnvelopeDoesNotLeakBeforeRecognition() {
+        val text = """{"name":"web_search","arguments":{},"type":"tool_call"}"""
+        for (split in 0..text.length) {
+            val output = LocalPromptToolOutput()
+            assertEquals("", output.accept(text.take(split)) + output.accept(text.drop(split)))
+            assertEquals(true, LocalPromptToolBridge.parseResult(output.buffered(), setOf("web_search")) is PromptToolParseResult.Call)
+        }
+    }
+
     private val schema = buildJsonObject { put("type", "object") }
     private val tool = AgentToolDefinition("web_search", "Search the web", schema)
 

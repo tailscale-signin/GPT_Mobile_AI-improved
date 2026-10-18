@@ -1,4 +1,4 @@
-# Local gateway 13.0
+# Local gateway 14.2.0
 
 `gateway.py` is the stable launcher for v14. Install the complete reviewed package, including `manifest-v14.json`, the `v14/` package, the retained v13 runtime and transport modules, `gateway_multisearch.py`, `gateway_security.py`, and the pinned requirements. See [V14_UPGRADE.md](V14_UPGRADE.md) for installation, validation, upgrades and rollback. `gateway_v13.py` is a retained compatibility runtime, not the current launcher.
 

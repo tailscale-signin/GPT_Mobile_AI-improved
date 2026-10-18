@@ -100,7 +100,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
     }
 
     fun editDraft(path: String, content: String, original: String) {
-        _state.update { state -> state.copy(editorDrafts = if (content == original) state.editorDrafts - path else state.editorDrafts + (path to content)) }
+        _state.update { state -> state.copy(editorDrafts = if (content == (state.staged.firstOrNull { it.path == path }?.content ?: original)) state.editorDrafts - path else state.editorDrafts + (path to content)) }
     }
 
     fun open(connection: ToolConnection) {
@@ -161,7 +161,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
     }
 
     fun selectRepository(owner: String, repo: String) = work {
-        require(_state.value.staged.isEmpty()) { "Commit or discard staged edits before switching repositories." }
+        require(_state.value.staged.isEmpty() && _state.value.editorDrafts.isEmpty()) { "Commit or discard staged edits before switching repositories." }
         selectRepositoryInternal(owner, repo)
     }
 
@@ -177,7 +177,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
         require(default.isNotBlank()) { "Repository has no default branch." }
         val selected = GitHubRepositoryContext(owner, repo, preferredRef ?: default)
         val canWrite = metadata["permissions"]?.jsonObject?.flag("push") == true && !metadata.flag("archived") && _state.value.connection?.toolPolicy != "READ_ONLY"
-        _state.update { it.copy(selection = selected, defaultBranch = default, canWrite = canWrite, branches = emptyList(), file = null, staged = emptyList(), pullRequests = emptyList(), commits = emptyList(), commitDetail = null, activityUpdatedAt = null, pullDetail = null, directory = "", headSha = "", entries = emptyList()) }
+        _state.update { it.copy(selection = selected, defaultBranch = default, canWrite = canWrite, branches = emptyList(), file = null, staged = emptyList(), editorDrafts = emptyMap(), pullRequests = emptyList(), commits = emptyList(), commitDetail = null, activityUpdatedAt = null, pullDetail = null, directory = "", headSha = "", entries = emptyList()) }
         loadBranches(1)
         loadHeadAndDirectory()
     }
@@ -190,13 +190,13 @@ class GitHubWorkspaceViewModel @Inject constructor(
     }
 
     fun selectBranch(branch: String) = work {
-        require(_state.value.staged.isEmpty()) { "Commit or discard staged edits before switching branches." }
+        require(_state.value.staged.isEmpty() && _state.value.editorDrafts.isEmpty()) { "Commit or discard staged edits before switching branches." }
         _state.update { it.copy(selection = it.selection?.copy(ref = branch), directory = "", file = null, entries = emptyList(), headSha = "", commits = emptyList(), commitDetail = null, activityUpdatedAt = null) }
         loadHeadAndDirectory()
     }
 
     fun refreshBranch() = work {
-        require(_state.value.staged.isEmpty()) { "Discard or commit staged edits before refreshing the snapshot." }
+        require(_state.value.staged.isEmpty() && _state.value.editorDrafts.isEmpty()) { "Discard or commit staged edits before refreshing the snapshot." }
         loadHeadAndDirectory()
     }
 
@@ -251,7 +251,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
                 state.copy(error = "Stage at most 20 files and 1 MB of text.")
             } else {
                 accepted = true
-                state.copy(staged = next, notice = "Changes staged for review.")
+                state.copy(staged = next, editorDrafts = state.editorDrafts - path, notice = "Changes staged for review.")
             }
         }
         return accepted

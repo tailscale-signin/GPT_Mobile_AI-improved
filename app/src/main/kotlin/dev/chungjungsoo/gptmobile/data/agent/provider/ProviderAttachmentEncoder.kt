@@ -47,7 +47,7 @@ open class ProviderAttachmentEncoder @Inject constructor(
         var remaining = 8L * 1024 * 1024
         exchanges.lastOrNull()?.results.orEmpty().flatMap { result ->
             result.media.take(4).mapNotNull { media ->
-                if (!(media.mimeType.startsWith("image/") || audio && media.mimeType.startsWith("audio/")) ||
+                if (!(media.mimeType in setOf("image/jpeg", "image/png", "image/webp", "image/gif") || audio && media.mimeType.startsWith("audio/")) ||
                     media.sizeBytes !in 1..minOf(4L * 1024 * 1024, remaining) ||
                     dev.chungjungsoo.gptmobile.data.agent.tool.McpMediaStore.managedReference(media.uri) != media
                 ) {

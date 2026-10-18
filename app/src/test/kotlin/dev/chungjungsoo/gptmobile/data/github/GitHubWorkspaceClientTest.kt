@@ -24,6 +24,74 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubWorkspaceClientTest {
+    @Test fun legacyWritesRejectMissingOrConflictingBranchBeforeAnyRequest() = runTest {
+        var requests = 0
+        val http = HttpClient(
+            MockEngine {
+                requests++
+                error("Rejected write reached GitHub")
+            }
+        )
+        try {
+            val tool = GitHubTool("token", http, repositoryContext = GitHubRepositoryContext("owner", "repo", "feature/read"))
+            for (branch in listOf<String?>(null, "main")) {
+                val result = tool.execute(
+                    "write",
+                    buildJsonObject {
+                        put("action", "update_file")
+                        put("path", "new.txt")
+                        put("content", "content")
+                        put("expected_head_sha", "a".repeat(40))
+                        branch?.let { put("branch", it) }
+                    }
+                )
+                assertTrue(result.isError)
+            }
+            assertEquals(0, requests)
+        } finally {
+            http.close()
+        }
+    }
+
+    @Test fun selectedRevisionSearchUsesTreeBlobsAndReportsExactSha() = runTest {
+        var requests = 0
+        val sha = "b".repeat(40)
+        val http = HttpClient(
+            MockEngine { request ->
+                requests++
+                val body = when (requests) {
+                    1 -> {
+                        assertTrue(request.url.encodedPath.endsWith("/commits/feature%2Fread"))
+                        """{"sha":"$sha","commit":{"tree":{"sha":"tree"}}}"""
+                    }
+                    2 -> """{"truncated":false,"tree":[{"path":"src/new.kt","type":"blob","size":24,"sha":"blob"}]}"""
+                    3 -> {
+                        assertTrue(request.url.encodedPath.endsWith("/git/blobs/blob"))
+                        """{"encoding":"base64","content":"${Base64.getEncoder().encodeToString("fun FeatureOnly() = 1".toByteArray())}"}"""
+                    }
+                    else -> error("Unexpected search request")
+                }
+                respond(body)
+            }
+        )
+        try {
+            val result = GitHubWorkspaceClient("token", http).execute(
+                "find_symbol",
+                buildJsonObject {
+                    put("owner", "owner")
+                    put("repo", "repo")
+                    put("ref", "feature/read")
+                    put("query", "FeatureOnly")
+                }
+            ).jsonObject
+            assertEquals(sha, result["commit_sha"]!!.jsonPrimitive.content)
+            assertEquals("src/new.kt", result["items"]!!.jsonArray.single().jsonObject["path"]!!.jsonPrimitive.content)
+            assertEquals("false", result["truncated"].toString())
+        } finally {
+            http.close()
+        }
+    }
+
     private val head = "a".repeat(40)
 
     private fun changeSet(branch: String = "feature/code"): JsonObject = buildJsonObject {

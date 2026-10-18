@@ -156,6 +156,7 @@ class GPTMobileApp :
         }
 
         applicationScope.launch {
+            StartupRecoveryGate.await()
             while (isActive) {
                 delay(60_000L)
                 semanticMemory.get().releaseWhenIdle()
@@ -169,7 +170,7 @@ class GPTMobileApp :
 
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
-        if (dev.chungjungsoo.gptmobile.data.localruntime.isInferenceProcess()) return
+        if (dev.chungjungsoo.gptmobile.data.localruntime.isInferenceProcess() || !StartupRecoveryGate.ready) return
         applicationScope.launch {
             val memoryPressure = dev.chungjungsoo.gptmobile.data.memory.MemoryTrimPolicy.releaseImmediately(level)
             semanticMemory.get().releaseWhenIdle(if (memoryPressure) 0L else 180_000L, memoryPressure = memoryPressure)
@@ -239,6 +240,8 @@ object StartupRecoveryGate {
     fun start(scope: CoroutineScope, block: suspend () -> Unit) {
         job = scope.async { block() }
     }
+
+    val ready: Boolean get() = job?.let { it.isCompleted && !it.isCancelled } == true
 
     suspend fun await() {
         job?.await()

@@ -202,7 +202,7 @@ extern "C" JNIEXPORT jlongArray JNICALL Java_dev_melo_gguf_GgufNative_generate(J
             decodedTokens.push_back(token);
         }
         if (engine->stop) stop = 2;
-        if (stop == 0) engine->committedTokens = std::move(decodedTokens);
+        if (stop == 0 || stop == 1) engine->committedTokens = std::move(decodedTokens);
         jlong values[] = {input, output, prefillMs, elapsed(decodeStart), stop, static_cast<jlong>(reused), input - static_cast<jlong>(reused)};
         auto result = env->NewLongArray(7);
         env->SetLongArrayRegion(result, 0, 7, values);

@@ -921,6 +921,7 @@ class AnthropicMessagesAdapter @Inject constructor(
                                     when (media.mimeType) {
                                         "image/png" -> dev.chungjungsoo.gptmobile.data.dto.anthropic.common.MediaType.PNG
                                         "image/webp" -> dev.chungjungsoo.gptmobile.data.dto.anthropic.common.MediaType.WEBP
+                                        "image/gif" -> dev.chungjungsoo.gptmobile.data.dto.anthropic.common.MediaType.GIF
                                         else -> dev.chungjungsoo.gptmobile.data.dto.anthropic.common.MediaType.JPEG
                                     },
                                     media.base64

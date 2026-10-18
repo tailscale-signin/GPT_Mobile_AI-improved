@@ -43,7 +43,7 @@ internal class LocalPromptToolOutput {
         } else if ("```".startsWith(candidate) && candidate.isNotEmpty()) {
             return ""
         }
-        val envelopeKeys = listOf("type", "tool_call", "tool_calls")
+        val envelopeKeys = listOf("type", "tool_call", "tool_calls", "name", "tool", "arguments", "parameters")
         val typedValue = Regex("^\\{\\s*\"type\"\\s*:\\s*\"([^\"]*)\"").find(candidate)?.groupValues?.get(1)
         val ordinaryType = typedValue != null && typedValue != "tool_call"
         val possibleJsonEnvelope = if (candidate.startsWith("{") && !ordinaryType) {

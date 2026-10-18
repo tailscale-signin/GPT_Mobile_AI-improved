@@ -108,14 +108,14 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
     }
     fun close() {
         if (state.busy) return
-        if (state.staged.isNotEmpty() || editorDirty) {
+        if (state.staged.isNotEmpty() || state.editorDrafts.isNotEmpty() || editorDirty) {
             confirmClose = true
         } else {
             viewModel.close()
             onDismiss()
         }
     }
-    val canNavigate = !state.busy && !editorDirty && state.staged.isEmpty()
+    val canNavigate = !state.busy && !editorDirty && state.staged.isEmpty() && state.editorDrafts.isEmpty()
     Dialog(onDismissRequest = { close() }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Scaffold(
             modifier = Modifier.fillMaxSize(),
@@ -246,6 +246,9 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
                                     val original = file.text("content")
                                     val path = file.text("path")
                                     var edited by rememberSaveable(path, state.headSha) { mutableStateOf(state.editorDrafts[path] ?: state.staged.firstOrNull { it.path == path }?.content ?: original) }
+                                    LaunchedEffect(path, state.headSha) {
+                                        editorDirty = edited != (state.staged.firstOrNull { it.path == path }?.content ?: original)
+                                    }
                                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                         Text(path.substringAfterLast('/'), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                                         IconButton(onClick = { copy(path) }) { Icon(Icons.Rounded.ContentCopy, "Copy file path") }
@@ -270,7 +273,8 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
                                                 Text("Stage")
                                             }
                                             TextButton(onClick = {
-                                                edited = state.editorDrafts[path] ?: state.staged.firstOrNull { it.path == path }?.content ?: original
+                                                edited = state.staged.firstOrNull { it.path == path }?.content ?: original
+                                                viewModel.editDraft(path, edited, original)
                                                 editorDirty = false
                                             }, enabled = !state.busy && editorDirty) { Text("Reset editor") }
                                         }

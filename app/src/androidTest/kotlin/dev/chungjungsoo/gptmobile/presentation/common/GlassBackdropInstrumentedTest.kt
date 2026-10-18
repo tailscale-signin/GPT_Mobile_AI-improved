@@ -9,6 +9,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -18,6 +19,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.unit.dp
 import androidx.test.filters.SdkSuppress
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -26,6 +28,36 @@ import org.junit.Test
 @SdkSuppress(minSdkVersion = 32)
 class GlassBackdropInstrumentedTest {
     @get:Rule val compose = createComposeRule()
+
+    @Test fun settingsBackdropAndTypographyChangesKeepNavigationContentComposed() {
+        var settings by mutableStateOf(false)
+        val allocations = java.util.concurrent.atomic.AtomicInteger()
+        compose.setContent {
+            MaterialTheme {
+                GlassBackdropHost {
+                    SettingsGlassBackdropHost(settings) {
+                        dev.chungjungsoo.gptmobile.presentation.ui.setting.SettingsTypographyScope(enabled = settings) {
+                            val contentIdentity = remember { allocations.incrementAndGet() }
+                            if (!settings) {
+                                Canvas(Modifier.fillMaxSize().captureHomeGlassBackdrop()) { drawRect(Color.Blue) }
+                            }
+                            Text("Navigation content $contentIdentity")
+                        }
+                    }
+                }
+            }
+        }
+        compose.waitForIdle()
+        assertEquals(1, allocations.get())
+        repeat(3) {
+            compose.runOnIdle { settings = true }
+            compose.waitForIdle()
+            assertEquals("Opening settings must preserve remembered navigation content", 1, allocations.get())
+            compose.runOnIdle { settings = false }
+            compose.waitForIdle()
+            assertEquals("Returning home must preserve remembered navigation content", 1, allocations.get())
+        }
+    }
 
     @Test fun dialogBlurSwitchActuallyFiltersTheBackground() {
         var blur by mutableStateOf(false)

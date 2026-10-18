@@ -87,13 +87,8 @@ fun SetupNavGraph(
         dev.chungjungsoo.gptmobile.presentation.navigation.AppNavigationShell(navController, currentEntry?.destination?.route) {
             Column(Modifier.fillMaxSize()) {
                 Box(Modifier.weight(1f)) {
-                    val navHost: @Composable () -> Unit = {
+                    SettingsTypographyScope(enabled = isSettingsDestination(currentEntry?.destination?.route)) {
                         AppNavHost(navController, toolConnectionsViewModel, onLaunchOAuth)
-                    }
-                    if (isSettingsDestination(currentEntry?.destination?.route)) {
-                        SettingsTypographyScope(content = navHost)
-                    } else {
-                        navHost()
                     }
                 }
                 BenchmarkExecutionBanner(

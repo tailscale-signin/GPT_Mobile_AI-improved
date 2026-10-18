@@ -1219,6 +1219,33 @@ class LiteRtLmAdapterTest {
     }
 
     @Test
+    fun `prompt tool repair stops after one retry without dispatching invalid calls`() = runBlocking {
+        var calls = 0
+        val runtime = FakeLocalRuntime().apply {
+            capabilities = LocalModelCapabilities(backends = setOf("gpu"), tools = false)
+            scriptedEvents = List(3) {
+                listOf(LocalRuntimeEvent.TextDelta("""{"type":"tool_call","name":"unregistered","arguments":{}}"""), LocalRuntimeEvent.Done)
+            }
+        }
+        val events = adapter(runtime).openSession(
+            turns("Look up the weather"),
+            localPlatform(),
+            listOf(
+                lookupTool { id, _ ->
+                    calls++
+                    AgentToolResult(id, ToolResultContent.Text("must not execute"), false)
+                }
+            )
+        ).streamRound(emptyList(), emptyList()).toList()
+        assertEquals(0, calls)
+        assertEquals(2, runtime.sendMessageCalls.size)
+        assertTrue(events.filterIsInstance<ProviderEvent.ToolCall>().isEmpty())
+        assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().isEmpty())
+        assertTrue(events.filterIsInstance<ProviderEvent.Failed>().isNotEmpty())
+        assertFalse(events.contains(ProviderEvent.Completed))
+    }
+
+    @Test
     fun `8192 output preference retains and dispatches prompt tools in 8192 context`() = runBlocking {
         var calls = 0
         val runtime = FakeLocalRuntime().apply {

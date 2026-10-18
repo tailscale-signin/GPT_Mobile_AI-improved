@@ -43,3 +43,10 @@ Branch: fix/glass-import-local-tools-2026-10-18.
 2. Import one on-device `.litertlm` file and a supported single-file bundle. Verify progress, profile creation and load; remove/move the original and verify that the copied installation still loads. Cancel an import and retry. Restart during an import and verify recovery/grant cleanup.
 3. On a tools-disabled/unknown-native-capability model, authorize calculator and one reachable search/read tool. Check actual tool call/result events and an evidence-based final answer. Test malformed arguments, an unknown name and revoked permission. No rejected action may execute.
 4. Repeat combined/research workload and inspect frame timing, oversized batches, provider errors and new import diagnostics. Actual vision reading still requires a vision-capable model and its required assets; app-managed tool calling does not grant vision capability to text-only models.
+
+## Follow-up review
+
+- Keep navigation content at one composition call site while settings glass and typography change. Conditional content ownership could otherwise dispose/recreate remembered navigation state. Added an instrumented regression that repeatedly enters/leaves settings and checks content identity.
+- Move import-observer preference reads to IO, persist job ownership before enqueue, and combine scheduling state with WorkManager updates using collectLatest so stale progress cannot re-enable import during enqueue.
+- Release newly owned URI grants from the worker on completion/failure/cancellation even when the screen has closed. Existing grants and grants still used by linked models remain protected. The observer remains a fallback for older jobs and jobs canceled before execution.
+- Add a local-adapter regression ensuring a second rejected prompt-tool call terminates without dispatch or visible control markup. Adapter and Compose regressions await the full Android CI environment; the 44 focused Kotlin tests and 138 repository-script tests were rerun successfully.

@@ -46,14 +46,11 @@ internal fun SettingsGlassBackdropHost(settings: Boolean, content: @Composable (
                 )
             }
             if (settings) {
-                AppGlassSurface(Modifier.fillMaxSize(), shape = androidx.compose.ui.graphics.RectangleShape) {
-                    // One glass background owns opacity. Scaffolds/top bars must not cover it.
-                    val scheme = MaterialTheme.colorScheme
-                    MaterialTheme(colorScheme = scheme.copy(background = Color.Transparent, surface = Color.Transparent)) {
-                        content()
-                    }
-                }
-            } else {
+                AppGlassSurface(Modifier.fillMaxSize(), shape = androidx.compose.ui.graphics.RectangleShape) { }
+            }
+            // Keep navigation at one composition call site when the backdrop changes.
+            val scheme = MaterialTheme.colorScheme
+            MaterialTheme(colorScheme = if (settings) scheme.copy(background = Color.Transparent, surface = Color.Transparent) else scheme) {
                 content()
             }
         }

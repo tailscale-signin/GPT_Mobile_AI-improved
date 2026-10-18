@@ -50,7 +50,7 @@ This branch implements a substantial portion of the four supplied specifications
 - APK workspace: PR 713 integrated; guarded mutations, lifecycle, selected-revision search, retention and explicit completeness extended. Dispatch correlation remains partly open.
 - Answer visibility: primary title directives removed; canonical answer predicate used by runner, persistence, history and timeline; one existing bounded empty-answer recovery reused; first visible Markdown bypasses the sampling delay. Ordered asynchronous persistence and idempotent render metrics remain open.
 - Local runtime: actual asset accounting, cached validation, prompt bridge, artifact planning, exact token-prefix reuse and optional selected fixed-context primary preparation. Two primary hub tabs and corrected marketplace filters/runtime labels. Full qualification, native GGUF multimodal/tools, experimental Hexagon and native NPU tuning remain open.
-- Glass appearance: shared 85% background tokens with contrast adjustment, shared wrappers and bubble menu; Glass/Solid and Auto/Off draft/persistence/backup/legacy mapping plus preview. Custom root-plate inventory/migration, brand-icon migration, qualified bounded blur renderer and full visual/device matrix remain open.
+- Glass appearance: shared 85% background tokens with contrast adjustment, shared wrappers, bubble menu, profile picker, source dialog, archive sheet and Amazon detail plate; Glass/Solid and Auto/Off draft/persistence/backup/legacy mapping plus preview. Custom root-plate inventory/migration, remaining icon migration, qualified bounded blur renderer and full visual/device matrix remain open.
 
 ## Validation evidence
 
@@ -60,6 +60,7 @@ This branch implements a substantial portion of the four supplied specifications
 - 2 isolated Kotlin/JUnit model-memory and asset-receipt tests passed, including a sparse 4 GiB model and same-size in-place modification with preserved mtime.
 - Android resource, regex, exported Room-schema and QNN provenance checks passed.
 - Ktlint 1.3.1 formatting and native JNI syntax check against the pinned llama.cpp headers passed.
+- The gateway launcher validated its complete v14.2.0 manifest; 180 gateway Python tests and the Node contract suite passed after updating the reviewed README checksum.
 - Full Gradle Android compilation was attempted with JDK 21/Gradle 9.8.0; dependency resolution could not reach the configured Maven repositories from Java in this environment. No Android unit/lint/build success is claimed.
 
 ## Release gates

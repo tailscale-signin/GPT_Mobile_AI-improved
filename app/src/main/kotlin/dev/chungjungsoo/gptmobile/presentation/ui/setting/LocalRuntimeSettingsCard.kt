@@ -72,9 +72,31 @@ internal fun LocalRuntimeSettingsCard(viewModel: LocalRuntimeSettingsViewModel, 
                     Text("Execution policy", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
                     dev.chungjungsoo.gptmobile.presentation.common.SettingsHelpIcon("Profile preserves your explicit accelerator choice. Other policies select only from locally qualified evidence for the same artifact, firmware, runtime and workload. A quick measurement alone does not qualify a plan.")
                 }
+                Text("Automatic retains the selected profile until matching qualification exists. Speed, reliability and battery choices need verified device evidence; battery also needs energy measurements.", style = MaterialTheme.typography.bodySmall)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     dev.chungjungsoo.gptmobile.data.localruntime.LocalExecutionPolicy.entries.forEach { policy ->
-                        FilterChip(settings.localExecutionPolicy == policy, onClick = { viewModel.updateTuning(policy = policy) }, label = { Text(policy.name.lowercase().replaceFirstChar { it.uppercase() }) }, enabled = !busy)
+                        val matching = qualifications.filter { result ->
+                            result.status == dev.chungjungsoo.gptmobile.data.localruntime.QualificationStatus.QUALIFIED &&
+                                result.actualBackendConfirmed &&
+                                result.qualityEquivalent &&
+                                result.plan.artifactDigest == active.decision?.selected?.artifactDigest &&
+                                result.plan.contextTokens == active.engineSpec?.maxTokens
+                        }
+                        val available = when (policy) {
+                            dev.chungjungsoo.gptmobile.data.localruntime.LocalExecutionPolicy.PROFILE,
+                            dev.chungjungsoo.gptmobile.data.localruntime.LocalExecutionPolicy.AUTO -> true
+                            dev.chungjungsoo.gptmobile.data.localruntime.LocalExecutionPolicy.SPEED -> matching.any { it.sustainedMedianDecodeTokensPerSecond?.let { value -> value.isFinite() && value > 0 } == true }
+                            dev.chungjungsoo.gptmobile.data.localruntime.LocalExecutionPolicy.BATTERY -> matching.any { it.energyPerToken?.let { value -> value.isFinite() && value > 0 } == true }
+                            else -> matching.isNotEmpty()
+                        }
+                        val label = when (policy) {
+                            dev.chungjungsoo.gptmobile.data.localruntime.LocalExecutionPolicy.AUTO -> "Automatic"
+                            dev.chungjungsoo.gptmobile.data.localruntime.LocalExecutionPolicy.SPEED -> "Maximum speed"
+                            dev.chungjungsoo.gptmobile.data.localruntime.LocalExecutionPolicy.BATTERY -> "Battery saver"
+                            dev.chungjungsoo.gptmobile.data.localruntime.LocalExecutionPolicy.PROFILE -> "Custom"
+                            else -> "Prefer reliability"
+                        }
+                        FilterChip(settings.localExecutionPolicy == policy, onClick = { viewModel.updateTuning(policy = policy) }, label = { Text(label) }, enabled = !busy && available)
                     }
                 }
             }

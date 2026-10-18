@@ -88,7 +88,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -673,7 +672,7 @@ fun PricingIcon(pricing: McpPricingType, modifier: Modifier = Modifier.size(16.d
 fun ServiceIcon(iconName: String, category: McpCategory, modifier: Modifier = Modifier) {
     val brand = getServiceBrand(iconName, category)
     Box(modifier.size(48.dp).clip(RoundedCornerShape(14.dp)).background(brand.containerColor), contentAlignment = Alignment.Center) {
-        brand.iconResId?.let { Icon(painterResource(it), null, tint = brand.brandColor, modifier = Modifier.size(28.dp)) }
+        brand.iconResId?.let { dev.chungjungsoo.gptmobile.presentation.common.BrandMark(it, null, Modifier.size(28.dp), monochrome = it == dev.chungjungsoo.gptmobile.R.drawable.ic_github || it == dev.chungjungsoo.gptmobile.R.drawable.mcp_brand_protocol) }
             ?: Icon(brand.iconVector ?: Icons.Rounded.Extension, null, tint = brand.brandColor, modifier = Modifier.size(28.dp))
     }
 }

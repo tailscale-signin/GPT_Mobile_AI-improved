@@ -200,9 +200,8 @@ internal fun BubbleActionHost(identity: Any, actions: List<BubbleAction>, conten
                     shape = RoundedCornerShape(22.dp),
                     color = dev.chungjungsoo.gptmobile.presentation.common.appOverlayTokens().background,
                     contentColor = dev.chungjungsoo.gptmobile.presentation.common.appOverlayTokens().foreground,
-                    contentColor = MaterialTheme.colorScheme.onSurface,
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)),
-                    tonalElevation = 8.dp,
+                    tonalElevation = 0.dp,
                     shadowElevation = 16.dp
                 ) {
                     // Leave room above/below a central thumb when neither horizontal side fits.

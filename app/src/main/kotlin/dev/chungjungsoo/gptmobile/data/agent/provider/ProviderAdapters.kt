@@ -520,6 +520,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                             var ollamaSucceeded = false
                             var emulatorFallbackTried = false
                             var currentConfig = config
+                            val assistantSegment = StringBuilder()
 
                             while ((System.nanoTime() - startTime) / 1_000_000 < maxRetryDurationMs) {
                                 var chunkError: String? = null
@@ -534,7 +535,6 @@ class OpenAICompatibleAdapter @Inject constructor(
                                 val effectiveOllamaTimeout = minOf(maxOf(configuredAttemptSeconds, 30), 60, remainingAttemptSeconds)
 
                                 var downstreamFailure: Throwable? = null
-                                val assistantSegment = StringBuilder()
                                 suspend fun publishOllama(event: ProviderEvent) {
                                     if (event is ProviderEvent.TextDelta) assistantSegment.append(event.text)
                                     try {

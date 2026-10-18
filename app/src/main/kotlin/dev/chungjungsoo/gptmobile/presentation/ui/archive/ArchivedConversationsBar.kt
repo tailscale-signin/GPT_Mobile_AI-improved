@@ -104,6 +104,9 @@ fun ArchivedConversationsBar(
             onDismissRequest = { expanded = false },
             sheetState = sheetState,
             dragHandle = null,
+            containerColor = dev.chungjungsoo.gptmobile.presentation.common.appOverlayTokens().background,
+            contentColor = dev.chungjungsoo.gptmobile.presentation.common.appOverlayTokens().foreground,
+            tonalElevation = 0.dp,
             contentWindowInsets = { WindowInsets(0, 0, 0, 0) }
         ) {
             // The sheet measures half the window, so its only visible anchor is

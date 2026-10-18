@@ -90,7 +90,13 @@ internal fun SelectPlatformDialog(
     val detail = detailsUid?.let { uid -> insights[uid]?.takeIf { insight -> platforms.any { it.uid == uid && insight.matches(it) && priceContextKey(it) == detailsContext } } }
     LaunchedEffect(detailsUid, detail) { if (detailsUid != null && detail == null) detailsUid = null }
     Dialog(onDismissRequest = onDismissRequest, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Surface(Modifier.imePadding().padding(12.dp).widthIn(max = 560.dp).fillMaxWidth().heightIn(max = (height - 48.dp).coerceAtLeast(160.dp)).testTag("select_platform_dialog"), shape = RoundedCornerShape(24.dp)) {
+        Surface(
+            Modifier.imePadding().padding(12.dp).widthIn(max = 560.dp).fillMaxWidth().heightIn(max = (height - 48.dp).coerceAtLeast(160.dp)).testTag("select_platform_dialog"),
+            shape = RoundedCornerShape(24.dp),
+            color = dev.chungjungsoo.gptmobile.presentation.common.appOverlayTokens().background,
+            contentColor = dev.chungjungsoo.gptmobile.presentation.common.appOverlayTokens().foreground,
+            tonalElevation = 0.dp
+        ) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(stringResource(R.string.select_platform), Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)

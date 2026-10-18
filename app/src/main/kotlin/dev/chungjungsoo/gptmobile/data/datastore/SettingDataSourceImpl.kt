@@ -142,8 +142,6 @@ class SettingDataSourceImpl @Inject constructor(
             val current = pref[featureSettingsKey]?.let { json.decodeFromString<AppFeatureSettings>(it) } ?: AppFeatureSettings()
             val next = transform(current)
             pref[featureSettingsKey] = json.encodeToString(next)
-            pref[stringPreferencesKey("overlay_material")] = next.overlayMaterial.takeIf { it in setOf("glass", "solid") } ?: "glass"
-            pref[stringPreferencesKey("overlay_blur")] = next.overlayBlur.takeIf { it in setOf("auto", "off") } ?: "auto"
             result = next
         }
         return checkNotNull(result)

@@ -363,4 +363,3 @@ W3  OpenRouter streaming framing and errors  Accessed 17 October 2026.
 W4  Android Compose performance best practices  Accessed 17 October 2026.
 
 W5  Android Macrobenchmark guidance  Accessed 17 October 2026.
-

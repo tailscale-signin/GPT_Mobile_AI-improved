@@ -473,4 +473,3 @@ Platform and accessibility sources
 [A12] AndroidX popup window implementation
 
 [A13] AndroidX Material bottom sheet window implementation
-

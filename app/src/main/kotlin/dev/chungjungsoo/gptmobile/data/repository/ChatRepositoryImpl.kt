@@ -738,6 +738,7 @@ class ChatRepositoryImpl(
 
     private suspend fun delegateToProfile(target: PlatformV2, task: String, maxTokens: Int, parentRunId: String, turnKey: String, maxInputTokens: Int = Int.MAX_VALUE, onProgress: (DelegateProgress) -> Unit = {}, allowTools: Boolean = true, fixtureTools: List<AgentTool>? = null, chatToolConfig: ChatMcpToolConfig = ChatMcpToolConfig(), traceSequences: java.util.concurrent.atomic.AtomicInteger? = null, onToolTrace: (suspend (ApiState.ToolCall) -> Unit)? = null, authorizedTools: List<ResolvedAgentTool>? = null, finalizationRepairAttempted: Boolean = false, requestRole: String = "delegate"): String {
         check(parentRunId !in privateMemoryRuns || target.compatibleType == ClientType.LITERT_LM) { "This run contains local-only memory. Choose a local reviewer or delegate." }
+        val parentAuthority = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]
         val dispatchAuthority = dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.capture(settingRepository, target)
         val reviewing = requestRole == "reviewer"
         val followingUp = requestRole == "follow_up"
@@ -875,6 +876,7 @@ class ChatRepositoryImpl(
             nativeLocationToolName = childTools.firstOrNull { it.definition.name == BuiltInAgentTool.DEVICE_LOCATION }?.definition?.name
         )
         val authorizedSession = session.withRequestAuthorization(dispatchAuthority.revision) {
+            parentAuthority?.validate()
             dispatchAuthority.validate()
             // Each child tool validates its own grant at execution. An unused unavailable tool must not veto the model request.
         }

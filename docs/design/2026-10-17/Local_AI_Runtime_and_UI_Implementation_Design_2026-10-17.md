@@ -471,4 +471,3 @@ Official platform evidence
 [E11] Android 16 KB page sizes — native library and final-package compatibility.
 
 [E12] GenieX CLI reference — compiled QAIRT context limit; reconcile current upstream behavior with pinned 0.8.0.
-

@@ -207,8 +207,9 @@ private fun SourceListDialog(sources: ChatSources, origin: Offset, onDismiss: ()
                         }
                         .pointerInput(Unit) { detectTapGestures(onTap = {}) },
                     shape = RoundedCornerShape(28.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    tonalElevation = 6.dp
+                    color = dev.chungjungsoo.gptmobile.presentation.common.appOverlayTokens().background,
+                    contentColor = dev.chungjungsoo.gptmobile.presentation.common.appOverlayTokens().foreground,
+                    tonalElevation = 0.dp
                 ) {
                     Column {
                         Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {

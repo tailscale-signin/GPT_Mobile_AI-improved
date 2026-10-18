@@ -58,6 +58,12 @@ class CompleteBackupManager @Inject constructor(
     private val mutex = Mutex()
     private val protectionMutex = Mutex()
     private val preferences = CompleteBackupPreferences(context, dataStore)
+    private val restoreJournal = RestoreStoreJournal(secretVault)
+
+    /** Startup calls this before workers, credentials, memory or chat repositories are used. */
+    suspend fun recoverAtStartup() = withContext(Dispatchers.IO) {
+        mutex.withLock { recoverInterruptedRestore() }
+    }
     private val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true
@@ -588,6 +594,17 @@ class CompleteBackupManager @Inject constructor(
                 val restoreTransactionId = UUID.randomUUID().toString()
                 val replacement = storage.replacement(staging, selectedPaths, restoreTransactionId)
 
+                restoreJournal.write(
+                    RestoreStoreSnapshot(
+                        restoreTransactionId,
+                        effective,
+                        oldPreferences.takeIf { restorePreferences },
+                        oldShared.takeIf { restorePreferences },
+                        oldSecrets.takeIf { restoreSecrets },
+                        oldProtection.takeIf { restoreSettings },
+                        oldProtection.password
+                    )
+                )
                 try {
                     database.withTransaction {
                         ensureIdle(restoring = true)
@@ -599,7 +616,7 @@ class CompleteBackupManager @Inject constructor(
                             )
                         }
                         if (selectedPaths.isNotEmpty()) replacement.apply()
-                        if (selectedPaths.isNotEmpty()) {
+                        run {
                             database.openHelper.writableDatabase.execSQL(
                                 "INSERT OR REPLACE INTO $RESTORE_MARKER_TABLE(singleton, transaction_id) VALUES (1, ?)",
                                 arrayOf(restoreTransactionId)
@@ -616,16 +633,14 @@ class CompleteBackupManager @Inject constructor(
                 } catch (error: Throwable) {
                     report(RestorePhase.ROLLING_BACK)
                     withContext(NonCancellable) {
-                        if (selectedPaths.isNotEmpty()) runCatching { replacement.rollback() }
-                        if (restoreSecrets) runCatching { replaceSecrets(oldSecrets, effective) }
-                        if (restorePreferences) runCatching { preferences.replace(oldPreferences, oldShared) }
-                        if (selectedPaths.any(CompleteBackupFiles::isPluginPath)) runCatching { nativePlugins?.reload() }
-                        if (restoreSettings && manifest.protection != null) runCatching { saveProtection(oldProtection) }
+                        // Keep the journal if rollback itself fails; startup must retry it.
+                        recoverInterruptedRestore()
                     }
                     throw error
                 }
 
                 if (selectedPaths.isNotEmpty()) replacement.cleanup()
+                restoreJournal.clear()
                 if (benchmarkImportJson != null) benchmarkStore.importBackupJson(benchmarkImportJson)
                 clearRestoreMarker()
             } finally {
@@ -895,7 +910,7 @@ class CompleteBackupManager @Inject constructor(
     }
 
     private fun secretBelongsTo(reference: String, selection: CompleteBackupSelection): Boolean = when {
-        reference.startsWith("share-") -> false
+        reference == dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceDraftStore.KEY || reference.startsWith("share-") || reference.startsWith(RestoreStoreJournal.PREFIX) -> false
         reference.startsWith("memory-portable-") -> selection.includes(CompleteBackupSection.MEMORY)
         reference.startsWith("workspace-memory-") -> selection.includes(CompleteBackupSection.MEMORY)
         reference == BACKUP_PASSWORD_REF || reference == BACKUP_KEY_REF || reference.startsWith("backup-recovery-") -> false
@@ -1050,7 +1065,7 @@ class CompleteBackupManager @Inject constructor(
         }
     }
 
-    private fun recoverInterruptedRestore() {
+    private suspend fun recoverInterruptedRestore() {
         val db = database.openHelper.writableDatabase
         db.execSQL(
             "CREATE TABLE IF NOT EXISTS $RESTORE_MARKER_TABLE (singleton INTEGER PRIMARY KEY CHECK(singleton = 1), transaction_id TEXT NOT NULL)"
@@ -1058,7 +1073,14 @@ class CompleteBackupManager @Inject constructor(
         val committed = db.query("SELECT transaction_id FROM $RESTORE_MARKER_TABLE WHERE singleton = 1").use { cursor ->
             if (cursor.moveToFirst()) cursor.getString(0) else null
         }
+        val previous = restoreJournal.read()
+        if (previous != null && previous.transactionId != committed) {
+            previous.secrets?.let { replaceSecrets(it, previous.selection) }
+            previous.preferences?.let { preferences.replace(it, previous.shared.orEmpty()) }
+            previous.protection?.let { saveProtection(it.copy(password = previous.protectionPassword)) }
+        }
         files().recoverInterruptedRestore(committed)
+        restoreJournal.clear()
         clearRestoreMarker()
     }
 

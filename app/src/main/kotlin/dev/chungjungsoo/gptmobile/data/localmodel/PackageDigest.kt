@@ -81,6 +81,28 @@ internal object PackageDigest {
         }
         return digest
     }
+    private val assetReceipts = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    /** Kernel change time and inode detect in-place edits as well as atomic replacements.
+     * Filesystems without this identity receive full verification, never a timestamp-only fast path.
+     */
+    fun verifyInstalledAssetCached(file: File, expected: String, checkCurrent: () -> Unit = {}): String {
+        checkCurrent()
+        fun identity(): String? = runCatching {
+            val attributes = Files.readAttributes(file.toPath(), "unix:dev,ino,ctime,size,lastModifiedTime")
+            require(attributes.keys.containsAll(setOf("dev", "ino", "ctime", "size", "lastModifiedTime")))
+            "${file.canonicalPath}|$expected|${LocalModelInstallationEpoch.current()}|$attributes"
+        }.getOrNull()
+        val before = identity()
+        if (before != null) assetReceipts[before]?.let { return it }
+        val digest = verify(file, expected, checkCurrent)
+        if (before != null && before == identity()) {
+            if (assetReceipts.size >= 256) assetReceipts.clear()
+            assetReceipts[before] = digest
+        }
+        return digest
+    }
+
     fun verify(file: File, expected: String, checkCurrent: () -> Unit = {}): String {
         if (expected.isNotBlank() && !expected.matches(Regex("[a-fA-F0-9]{64}"))) throw IOException("Invalid trusted package checksum metadata")
         val actual = sha256(file, checkCurrent)

@@ -112,6 +112,11 @@ class ChatReadinessCoordinator @Inject constructor(
                         }
                         if (features.providerModelDiscovery && targets.any { it.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.OPENROUTER && dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterCatalogLimits.officialEndpoint(it.apiUrl) }) scheduler.request("public-models", ::idle) { models.fetchModels() }
                     }
+                    if (composerEngaged && features.readiness.prepareSelectedLocalModel) {
+                        targets.firstOrNull { it.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.LITERT_LM }?.let { primary ->
+                            scheduler.requestFor("primary:${primary.uid}", ::idle, ReadinessResource.LOCAL) { helper.preparePrimary(primary) }
+                        }
+                    }
                     val effective = features.resolveAssistPolicy()
                     val requested = features.localAssistPolicy
                     // Explicit preload is separate from per-task cold loading. Never auto-select/download weights.

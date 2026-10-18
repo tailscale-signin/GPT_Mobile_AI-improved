@@ -8,6 +8,28 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class LocalPromptToolBridgeTest {
+    @Test fun ordinaryCodeAndJsonStreamBeforeCompletionAcrossEverySplit() {
+        listOf("```kotlin\nfun greet() = \"Hi\"", "{\"temperature\": 24}", "{\"type\":\"message\",\"content\":\"Hi\"}").forEach { text ->
+            for (split in 0..text.length) {
+                val output = LocalPromptToolOutput()
+                val visible = output.accept(text.take(split)) + output.accept(text.drop(split))
+                assertEquals(text, visible)
+                assertEquals("", output.buffered())
+            }
+        }
+    }
+
+    @Test fun toolEnvelopeNeverLeaksAcrossChunkBoundariesOrOverflow() {
+        val text = "{\"type\":\"tool_call\",\"name\":\"web_search\",\"arguments\":{}}"
+        for (split in 0..text.length) {
+            val output = LocalPromptToolOutput()
+            assertEquals("", output.accept(text.take(split)) + output.accept(text.drop(split)))
+        }
+        val output = LocalPromptToolOutput()
+        assertEquals("", output.accept(text.dropLast(2) + " ".repeat(70000)))
+        assertEquals(true, LocalPromptToolBridge.parseResult(output.buffered(), setOf("web_search")) is PromptToolParseResult.Rejected)
+    }
+
     private val schema = buildJsonObject { put("type", "object") }
     private val tool = AgentToolDefinition("web_search", "Search the web", schema)
 

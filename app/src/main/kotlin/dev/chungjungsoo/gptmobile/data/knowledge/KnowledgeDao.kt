@@ -66,6 +66,12 @@ interface KnowledgeDao {
     @Query("DELETE FROM knowledge_chunks WHERE documentId = :id")
     suspend fun deleteChunks(id: String)
 
+    @Query("SELECT MAX(endOffset) FROM knowledge_chunks WHERE documentId = :id")
+    suspend fun documentLength(id: String): Int?
+
+    @Query("SELECT * FROM knowledge_chunks WHERE documentId = :id AND endOffset > :start AND startOffset < :end ORDER BY startOffset")
+    suspend fun chunksInRange(id: String, start: Int, end: Int): List<KnowledgeChunk>
+
     @Query("SELECT * FROM knowledge_chunks WHERE documentId = :id ORDER BY chunkIndex")
     suspend fun chunks(id: String): List<KnowledgeChunk>
 

@@ -76,6 +76,7 @@ class WebSearchTool(
     override val definition: AgentToolDefinition = AgentToolDefinition(
         name = modelToolName,
         description = "Search the web and return normalized results with title, url, snippet, and optional publishedDate.",
+        capabilities = setOf(dev.chungjungsoo.gptmobile.data.agent.AgentToolCapability.WEB_SEARCH),
         inputSchema = buildJsonObject {
             put("type", "object")
             put(

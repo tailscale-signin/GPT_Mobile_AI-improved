@@ -47,7 +47,7 @@ internal object RuntimeEvidenceIdentity {
         val actualFiles = manifest.files.sortedBy { it.path }.map { declared ->
             val file = dev.chungjungsoo.gptmobile.data.localmodel.ModelArtifactManifest.safeFile(requireNotNull(model.parentFile), declared.path)
             require(file.isFile && file.length() == declared.sizeBytes && declared.sizeBytes > 0) { "Missing or truncated model asset" }
-            val actual = PackageDigest.journalIdentity(file, cache)
+            val actual = PackageDigest.verifyInstalledAssetCached(file, declared.sha256)
             require(actual.equals(declared.sha256, ignoreCase = true)) { "Model asset checksum mismatch; native initialization blocked" }
             declared.path + ":" + actual
         }

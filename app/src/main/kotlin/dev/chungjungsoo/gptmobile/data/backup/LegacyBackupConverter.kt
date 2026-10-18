@@ -76,8 +76,14 @@ internal object LegacyBackupConverter {
                     sections += CompleteBackupSection.SETTINGS
                     values["theme_mode"] = BackupValue("int", (ui?.themeMode ?: theme!!.themeMode).toString())
                     values["dynamic_mode"] = BackupValue("int", if (ui?.dynamicTheme ?: theme!!.dynamicTheme) "1" else "0")
-                    (ui?.customPrimaryArgb ?: theme?.customPrimaryArgb)?.let { values["custom_primary_argb"] = BackupValue("long", it.toString()) }
-                    (ui?.customPalette ?: theme?.customPalette)?.let { values["custom_theme_palette"] = BackupValue("string", json.encodeToString(it)) }
+                    (if (ui != null) ui.customPrimaryArgb else theme?.customPrimaryArgb)?.let { values["custom_primary_argb"] = BackupValue("long", it.toString()) }
+                    (if (ui != null) ui.customPalette else theme?.customPalette)?.let { values["custom_theme_palette"] = BackupValue("string", json.encodeToString(it)) }
+                    val savedProfiles = if (ui != null) ui.savedProfiles else theme!!.savedProfiles
+                    val activeProfileId = if (ui != null) ui.activeProfileId else theme!!.activeProfileId
+                    values["saved_theme_profiles"] = BackupValue("string", json.encodeToString(savedProfiles))
+                    activeProfileId?.let { values["active_theme_profile_id"] = BackupValue("string", it) }
+                    values["overlay_material"] = BackupValue("string", if (ui != null) ui.overlayMaterial else theme!!.overlayMaterial)
+                    values["overlay_blur"] = BackupValue("string", if (ui != null) ui.overlayBlur else theme!!.overlayBlur)
                     ui?.let {
                         values["debug_mode"] = BackupValue("boolean", it.debugMode.toString())
                         values["local_runtime_backend"] = BackupValue("string", it.localRuntimeBackend)

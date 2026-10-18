@@ -51,14 +51,19 @@ internal fun LocalRuntimeSettingsCard(viewModel: LocalRuntimeSettingsViewModel, 
     var threads by remember(settings.localCpuThreads) { mutableStateOf(settings.localCpuThreads.toFloat()) }
     Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (section == "memory") {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Prepare the selected local model", Modifier.weight(1f))
+                    Switch(settings.readiness.prepareSelectedLocalModel, viewModel::prepareSelectedLocalModel)
+                }
+                Text("Prepares one selected model while typing when memory and temperature permit. Active conversations take priority.", style = MaterialTheme.typography.bodySmall)
+            }
             if (section == "engine") {
                 Text("Engine and processor", style = MaterialTheme.typography.titleLarge)
                 Text("${viewModel.soc} · ${viewModel.cores} CPU cores · ${viewModel.ramGb} GB RAM", style = MaterialTheme.typography.bodyMedium)
-                Text(active.engineSpec?.let { if (active.backend in setOf(LocalRuntimeBackend.GENIEX_QAIRT, LocalRuntimeBackend.GENIEX_LLAMA_CPP)) "${active.backend?.displayName} · Requested ${it.accelerator.uppercase()} · Effective processor not reported by SDK" else "Running: ${active.backend?.displayName} / ${it.accelerator.uppercase()} · ${it.maxTokens} context" } ?: "Engine idle", color = MaterialTheme.colorScheme.primary)
+                Text(active.engineSpec?.let { if (active.backend in setOf(LocalRuntimeBackend.GENIEX_QAIRT, LocalRuntimeBackend.GENIEX_LLAMA_CPP)) "${active.backend?.displayName} · Requested ${it.accelerator.uppercase()} · Effective processor not reported by SDK" else "${active.backend?.displayName} · Requested ${it.accelerator.uppercase()} · ${it.maxTokens} context · execution observation unavailable" } ?: "Engine idle", color = MaterialTheme.colorScheme.primary)
                 active.fallbackReason?.let { Text("Fallback: $it", style = MaterialTheme.typography.bodySmall) }
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    LocalRuntimeBackend.entries.filter { it == LocalRuntimeBackend.LITERT_LM || (it == LocalRuntimeBackend.QUALCOMM_QNN && qnnAvailable && !dev.chungjungsoo.gptmobile.BuildConfig.GENIEX_ENABLED) }.forEach { option -> FilterChip(selected = backend == option, onClick = { viewModel.selectBackend(option) }, label = { Text(option.displayName) }, enabled = !busy) }
-                }
+                Text("The model package determines its engine. Choose a supported processor in the model profile; changing a global label cannot convert a model.", style = MaterialTheme.typography.bodySmall)
                 Text(npuStatus, style = MaterialTheme.typography.bodySmall)
                 if (dev.chungjungsoo.gptmobile.BuildConfig.GENIEX_ENABLED) Text("GenieX preview · Import a validated .localmodel bundle. Chat only; device qualification pending.", style = MaterialTheme.typography.bodySmall)
                 Text("LiteRT-LM ${dev.chungjungsoo.gptmobile.BuildConfig.LITERT_LM_VERSION} · QAIRT ${dev.chungjungsoo.gptmobile.BuildConfig.QAIRT_VERSION}", style = MaterialTheme.typography.labelSmall)

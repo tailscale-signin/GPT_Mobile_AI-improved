@@ -129,6 +129,7 @@ class FactVaultRepository @Inject constructor(
     private val indexMutex = Mutex()
     private var indexJob: kotlinx.coroutines.Job? = null
     private var policyGeneration = 0L
+    private var loadedStoreGeneration: Long? = null
 
     private fun scheduleIndexes(snapshot: FactVaultSnapshot) {
         indexJob?.cancel()
@@ -748,6 +749,13 @@ class FactVaultRepository @Inject constructor(
         current.facts.filter { (isLocal && includeLocalOnly || !it.localOnly) && (it.validFromMillis == null || it.validFromMillis <= System.currentTimeMillis()) && (it.validUntilMillis == null || it.validUntilMillis > System.currentTimeMillis()) && it.enabled && it.supersededBy == null && !it.awaitingReview && boundary.acceptsSource(it) && boundary.accepts(it.scope) && (!current.settings.sameChatOnly || it.sourceChatId == chatId) && (it.source == "manual" || it.pinned || it.savedAtMillis == 0L || maxOf(it.savedAtMillis, it.lastSeenMillis) >= cutoff) }
     }
 
+    suspend fun recallGeneration(): String = mutex.withLock { "${durable?.generation() ?: 0}:$policyGeneration" }
+
+    suspend fun recallConsent(): FactVaultSnapshot = mutex.withLock {
+        loadLocked()
+        _state.value
+    }
+
     /** Revalidate canonical content and consent at each actual provider dispatch. */
     suspend fun validateRecall(recall: FactRecall, chatId: Int, isLocal: Boolean) {
         if (recall.facts.isEmpty()) return
@@ -756,7 +764,10 @@ class FactVaultRepository @Inject constructor(
     }
 
     private suspend fun loadLocked() {
+        val generation = durable?.generation()
+        if (generation != null && hasLoaded && loadedStoreGeneration == generation) return
         durable?.read()?.let { snapshot ->
+            loadedStoreGeneration = generation
             if (!hasLoaded || _state.value != snapshot) {
                 _state.value = snapshot
                 hasLoaded = true

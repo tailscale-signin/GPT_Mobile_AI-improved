@@ -198,7 +198,8 @@ internal fun BubbleActionHost(identity: Any, actions: List<BubbleAction>, conten
                         transformOrigin = TransformOrigin.Center
                     },
                     shape = RoundedCornerShape(22.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    color = dev.chungjungsoo.gptmobile.presentation.common.appOverlayTokens().background,
+                    contentColor = dev.chungjungsoo.gptmobile.presentation.common.appOverlayTokens().foreground,
                     contentColor = MaterialTheme.colorScheme.onSurface,
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)),
                     tonalElevation = 8.dp,

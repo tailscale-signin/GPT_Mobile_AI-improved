@@ -24,7 +24,9 @@ data class UiPreferencesBackupDto(
     val debugMode: Boolean = false,
     val localRuntimeBackend: String = "DEFAULT",
     val savedProfiles: List<dev.chungjungsoo.gptmobile.data.dto.SavedThemeProfile> = emptyList(),
-    val activeProfileId: String? = null
+    val activeProfileId: String? = null,
+    val overlayMaterial: String = "glass",
+    val overlayBlur: String = "auto"
 )
 
 @Serializable

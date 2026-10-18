@@ -62,7 +62,8 @@ class MultiEngineSearchTool(
     override val definition = AgentToolDefinition(
         "web_search",
         "Search all selected compatible engines concurrently with shared permissions/budgets. Sources are interleaved in selected-engine order and retain attribution. maxResults is the per-engine contribution cap (1–10). totalResults is the final source count (1–50); request 20 for a new search. If omitted, the legacy per-engine ceiling applies. Slow or failed engines do not discard sibling evidence.",
-        buildJsonObject {
+        capabilities = setOf(dev.chungjungsoo.gptmobile.data.agent.AgentToolCapability.WEB_SEARCH),
+        inputSchema = buildJsonObject {
             put("type", "object")
             put(
                 "properties",

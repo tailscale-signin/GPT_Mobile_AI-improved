@@ -8,6 +8,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.data.model.DynamicTheme
 import dev.chungjungsoo.gptmobile.data.model.ThemeMode
 
+val LocalOverlayMaterial = compositionLocalOf { "glass" }
+val LocalOverlayBlur = compositionLocalOf { "auto" }
 val LocalDynamicTheme = compositionLocalOf { DynamicTheme.OFF }
 val LocalThemeMode = compositionLocalOf { ThemeMode.SYSTEM }
 val LocalCustomPalette = compositionLocalOf<dev.chungjungsoo.gptmobile.data.dto.CustomThemePalette?> { null }
@@ -28,6 +30,8 @@ fun ThemeSettingProvider(
             LocalThemeMode provides themeMode,
             LocalCustomPrimaryArgb provides customPrimaryArgb,
             LocalCustomPalette provides customPalette,
+            LocalOverlayMaterial provides overlayMaterial,
+            LocalOverlayBlur provides overlayBlur,
             content = content
         )
     }

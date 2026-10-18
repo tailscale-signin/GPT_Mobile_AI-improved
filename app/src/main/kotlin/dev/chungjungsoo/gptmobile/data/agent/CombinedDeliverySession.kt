@@ -133,11 +133,18 @@ internal class CombinedDeliverySession(
             // govern the response rather than a nested timeout around Flow collection.
             val rewritten = repairSession?.let { collect(it, false) }
             validateAccess()
-            if (rewritten != null && rewritten.text.isNotBlank()) {
-                // Keep the completed rewrite. Its remaining issues are reported below, and
-                // the deterministic ceiling enforces any explicit length limit afterward.
+            if (rewritten != null &&
+                rewritten.text.isNotBlank() &&
+                rewritten.terminal == ProviderEvent.Completed &&
+                policy.violations(rewritten.text).isEmpty() &&
+                rewritten.decoder?.issues.orEmpty().isEmpty()
+            ) {
+                // Replace only with a completed, accepted candidate. A failed or partial
+                // repair must never erase the already completed original answer.
                 accepted = rewritten
                 violations = withContext(Dispatchers.Default) { policy.violations(rewritten.text) }
+            } else {
+                emit(ProviderEvent.Notice("The revision did not pass completion checks. The original answer was retained.", persistent = true))
             }
         }
         var ceilingEnforced = false

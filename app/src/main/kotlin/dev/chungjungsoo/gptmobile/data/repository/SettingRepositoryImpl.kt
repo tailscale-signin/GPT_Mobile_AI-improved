@@ -458,7 +458,9 @@ class SettingRepositoryImpl @Inject constructor(
                 customPrimaryArgb = currentThemes.customPrimaryArgb,
                 customPalette = currentThemes.customPalette,
                 savedProfiles = currentThemes.savedProfiles,
-                activeProfileId = currentThemes.activeProfileId
+                activeProfileId = currentThemes.activeProfileId,
+                overlayMaterial = currentThemes.overlayMaterial,
+                overlayBlur = currentThemes.overlayBlur
             ),
             platforms = currentPlatforms.map { p ->
                 PlatformBackupDto(
@@ -499,7 +501,7 @@ class SettingRepositoryImpl @Inject constructor(
         backup.theme?.let { themeDto ->
             val dynamicTheme = if (themeDto.dynamicTheme) DynamicTheme.ON else DynamicTheme.OFF
             val themeMode = ThemeMode.getByValue(themeDto.themeMode) ?: ThemeMode.SYSTEM
-            updateThemes(ThemeSetting(dynamicTheme = dynamicTheme, themeMode = themeMode, customPrimaryArgb = themeDto.customPrimaryArgb, customPalette = themeDto.customPalette, savedProfiles = themeDto.savedProfiles, activeProfileId = themeDto.activeProfileId))
+            updateThemes(ThemeSetting(dynamicTheme = dynamicTheme, themeMode = themeMode, customPrimaryArgb = themeDto.customPrimaryArgb, customPalette = themeDto.customPalette, savedProfiles = themeDto.savedProfiles, activeProfileId = themeDto.activeProfileId, overlayMaterial = themeDto.overlayMaterial, overlayBlur = themeDto.overlayBlur))
         }
 
         if (backup.favoriteGroups.isNotEmpty()) {

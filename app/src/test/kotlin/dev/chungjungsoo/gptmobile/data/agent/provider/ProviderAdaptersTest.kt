@@ -77,6 +77,38 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 class ProviderAdaptersTest {
+    @Test fun anthropicCleanEofRetainsTextWithoutSuccessfulCompletionOrRotation() = runBlocking {
+        val api = FakeAnthropicAPI(
+            ArrayDeque(
+                listOf(
+                    flowOf(
+                        ContentStartResponseChunk(0, ContentBlock(ContentBlockType.TEXT, text = "Retained partial")),
+                        ContentStopResponseChunk(0)
+                    )
+                )
+            )
+        )
+        val events = AnthropicMessagesAdapter(api, attachmentEncoder()).openSession(turns(), platform(ClientType.ANTHROPIC))
+            .streamRound(emptyList(), emptyList()).toList()
+        assertEquals("Retained partial", events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
+        assertTrue(events.last() is ProviderEvent.Failed)
+        assertFalse(events.contains(ProviderEvent.Completed))
+        assertEquals(1, api.requests.size)
+    }
+
+    @Test fun groqCleanEofIsPartialAndNonstreamingToolCallsAreRetained() = runBlocking {
+        val partial = FakeGroqAPI(ArrayDeque(listOf(flowOf(GroqChatCompletionChunk(choices = listOf(GroqChoice(index = 0, delta = GroqDelta(content = "partial"))))))))
+        val partialEvents = OpenAICompatibleAdapter(FakeOpenAIAPI(), partial, attachmentEncoder()).openSession(turns(), platform(ClientType.GROQ))
+            .streamRound(emptyList(), emptyList()).toList()
+        assertTrue(partialEvents.last() is ProviderEvent.Failed)
+        val call = NetworkClient.json.decodeFromString<GroqChatCompletionChunk>("""{"choices":[{"index":0,"message":{"role":"assistant","tool_calls":[{"id":"call1","type":"function","function":{"name":"weather","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}""")
+        val api = FakeGroqAPI(ArrayDeque(listOf(flowOf(call))))
+        val events = OpenAICompatibleAdapter(FakeOpenAIAPI(), api, attachmentEncoder()).openSession(turns(), platform(ClientType.GROQ).copy(stream = false))
+            .streamRound(listOf(definition), emptyList()).toList()
+        assertEquals("weather", events.filterIsInstance<ProviderEvent.ToolCall>().single().name)
+        assertEquals(ProviderEvent.Completed, events.last())
+    }
+
     @Test
     fun `OpenRouter connection policy reaches every execution role and benchmarks bypass cache`() = runBlocking {
         val settings = io.mockk.mockk<dev.chungjungsoo.gptmobile.data.repository.OpenRouterSettingsRepository>()

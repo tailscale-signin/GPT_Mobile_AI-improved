@@ -59,6 +59,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -66,6 +67,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDialog as Dialog
@@ -78,6 +80,8 @@ import kotlinx.serialization.json.jsonObject
 @Composable
 fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, viewModel: GitHubWorkspaceViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val buildsViewModel: GitHubBuildsViewModel = hiltViewModel()
+    val buildsState by buildsViewModel.state.collectAsStateWithLifecycle()
     val uriHandler = LocalUriHandler.current
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
@@ -96,7 +100,9 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
     var confirmCommit by remember { mutableStateOf(false) }
     var confirmClose by remember { mutableStateOf(false) }
     var editorDirty by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(connection.connectionUid) { viewModel.open(connection) }
+    LaunchedEffect(connection.connectionUid) {
+        if (viewModel.state.value.connection?.connectionUid != connection.connectionUid) viewModel.open(connection)
+    }
     fun copy(value: String) {
         scope.launch { clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("GitHub workspace", value))) }
     }
@@ -125,7 +131,13 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
                     actions = {
                         state.selection?.let { repo ->
                             IconButton(onClick = { uriHandler.openUri("https://github.com/${repo.fullName}") }) { Icon(Icons.Rounded.Launch, "Open repository on GitHub") }
-                            IconButton(onClick = { if (tab == 3) viewModel.refreshActivity() else viewModel.refreshBranch() }, enabled = canNavigate) { Icon(Icons.Rounded.Refresh, "Refresh branch") }
+                            IconButton(onClick = {
+                                when (tab) {
+                                    4 -> buildsViewModel.refresh()
+                                    3 -> viewModel.refreshActivity()
+                                    else -> viewModel.refreshBranch()
+                                }
+                            }, enabled = if (tab == 4) !buildsState.list().loading else canNavigate) { Icon(Icons.Rounded.Refresh, if (tab == 4) stringResource(R.string.github_builds_refresh) else "Refresh branch") }
                         }
                     }
                 )
@@ -184,7 +196,7 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
                         state.notice?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.heightIn(max = 72.dp).verticalScroll(rememberScrollState())) }
                     }
                 }
-                val workspaceTabs = listOf(3 to "Home", 0 to "Code", 1 to "Changes", 2 to "PRs")
+                val workspaceTabs = listOf(3 to "Home", 4 to stringResource(R.string.github_builds_tab), 0 to "Code", 1 to "Changes", 2 to "PRs")
                 PrimaryTabRow(selectedTabIndex = workspaceTabs.indexOfFirst { it.first == tab }.coerceAtLeast(0)) {
                     workspaceTabs.forEach { (id, label) ->
                         Tab(selected = tab == id, enabled = !editorDirty || id == 0, onClick = {
@@ -193,11 +205,15 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
                         }, text = { Text(if (id == 1 && state.staged.isNotEmpty()) "$label (${state.staged.size})" else label, maxLines = 1) })
                     }
                 }
-                Column(Modifier.weight(1f).verticalScroll(workspaceScroll).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(Modifier.weight(1f).then(if (tab == 4) Modifier else Modifier.verticalScroll(workspaceScroll)).padding(if (tab == 4) 0.dp else 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     if (state.selection == null) {
                         WorkspaceEmpty(Icons.Rounded.FolderOpen, "Your code, within reach", "Choose a repository above to browse files, prepare changes and review pull requests.")
                     } else {
                         when (tab) {
+                            4 -> {
+                                val selection = requireNotNull(state.selection)
+                                GitHubBuildsPanel(connection.connectionUid, selection.owner, selection.repo, selection.ref, Modifier.fillMaxSize(), buildsViewModel)
+                            }
                             3 -> GitHubActivityDashboard(state, viewModel, onOpenPulls = { tab = 2 }, onOpenUrl = uriHandler::openUri)
                             0 -> {
                                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
@@ -229,7 +245,7 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
                                     val file = requireNotNull(state.file)
                                     val original = file.text("content")
                                     val path = file.text("path")
-                                    var edited by rememberSaveable(path, state.headSha) { mutableStateOf(state.staged.firstOrNull { it.path == path }?.content ?: original) }
+                                    var edited by rememberSaveable(path, state.headSha) { mutableStateOf(state.editorDrafts[path] ?: state.staged.firstOrNull { it.path == path }?.content ?: original) }
                                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                         Text(path.substringAfterLast('/'), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                                         IconButton(onClick = { copy(path) }) { Icon(Icons.Rounded.ContentCopy, "Copy file path") }
@@ -244,6 +260,7 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
                                         OutlinedTextField(edited, {
                                             if (it.toByteArray().size <= 256_000) {
                                                 edited = it
+                                                viewModel.editDraft(path, it, original)
                                                 editorDirty = edited != (state.staged.firstOrNull { staged -> staged.path == path }?.content ?: original)
                                             }
                                         }, modifier = Modifier.fillMaxWidth().heightIn(min = 240.dp, max = 480.dp), label = { Text("File content") }, textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace), readOnly = !state.canWrite || state.busy || state.selection?.ref == state.defaultBranch)
@@ -253,7 +270,7 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
                                                 Text("Stage")
                                             }
                                             TextButton(onClick = {
-                                                edited = state.staged.firstOrNull { it.path == path }?.content ?: original
+                                                edited = state.editorDrafts[path] ?: state.staged.firstOrNull { it.path == path }?.content ?: original
                                                 editorDirty = false
                                             }, enabled = !state.busy && editorDirty) { Text("Reset editor") }
                                         }

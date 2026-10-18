@@ -40,7 +40,7 @@ class PlannedLocalRuntime(
     private var admissionFailure: String? = null
 
     private suspend fun artifactIdentity(spec: LocalEngineSpec): String = kotlinx.coroutines.withContext(Dispatchers.IO) {
-        dev.chungjungsoo.gptmobile.data.localmodel.PackageDigest.validateInstalledCached(File(spec.modelPath), File(context.noBackupFilesDir, "model-identity-cache"))
+        RuntimeEvidenceIdentity.artifactDigest(File(spec.modelPath), File(context.noBackupFilesDir, "model-identity-cache"))
     }
     init {
         stateScope.launch {
@@ -96,7 +96,6 @@ class PlannedLocalRuntime(
         val artifact = artifactIdentity(spec)
         val current = settings.getFeatureSettings()
         val tuning = current.localEngineTuning()
-        val isLiteRt = !spec.modelPath.endsWith("manifest.json")
         val capabilities = delegate.inspectModel(spec.modelPath)
         val speculative = compatibleSpeculativeDecoding(tuning.speculativeDecoding, capabilities)
         val tuned = if (spec.tuningLocked) spec else spec.copy(cpuThreads = tuning.cpuThreads, cacheEnabled = tuning.cacheEnabled, speculativeDecoding = speculative, nativeMetricsEnabled = tuning.nativeMetricsEnabled, tuningLocked = true)
@@ -106,7 +105,7 @@ class PlannedLocalRuntime(
             null
         }
         var evidenceKey: RuntimeQualificationKey? = null
-        val decision = if (isLiteRt) {
+        val decision = run {
             evidence.load()
             val key = RuntimeEvidenceIdentity.key(context, tuned, tuned.samplerIdentity, tuned.workload)
             evidenceKey = key
@@ -115,15 +114,14 @@ class PlannedLocalRuntime(
                     (it.plan.speculativeDecoding != true || capabilities?.speculative == true)
             }
             planner.select(if (spec.tuningLocked) LocalExecutionPolicy.PROFILE else current.localExecutionPolicy, RuntimeEvidenceIdentity.plan(key), key, allowed, spec.expectedOutputTokens, delegate.loadedEngineSpec()?.let { state.value.decision?.selected?.id })
-        } else {
-            null
         }
         val chosen = tuned.copy(accelerator = decision?.selected?.languageBackend ?: tuned.accelerator, speculativeDecoding = decision?.selected?.speculativeDecoding ?: tuned.speculativeDecoding)
         val warm = delegate.loadedEngineSpec()
+        val assetBytes = localModelAssetBytes(File(spec.modelPath))
         val estimate = if (warm?.engineConfiguration() == chosen.engineConfiguration()) {
             128L * 1024 * 1024
         } else {
-            File(spec.modelPath).length() + spec.maxTokens * 256L * 1024 + (if (chosen.speculativeDecoding == true) File(spec.modelPath).length() / 3 else 0) + (if (spec.isVisionEnabled) 256L * 1024 * 1024 else 0)
+            assetBytes + chosen.maxTokens * 256L * 1024 + 128L * 1024 * 1024 + (if (chosen.speculativeDecoding == true) assetBytes / 3 else 0) + (if (spec.isVisionEnabled) 256L * 1024 * 1024 else 0)
         }
         val memoryEstimate = LocalMemoryEstimate(estimate, current.localMemoryReserveMb.coerceIn(256, 4096) * 1024L * 1024, availableMemory(), chosen.maxTokens, if (warm?.engineConfiguration() == chosen.engineConfiguration()) "warm_incremental_reserve" else "conservative_unmeasured")
         mutableState.value = state.value.copy(decision = decision)
@@ -198,3 +196,14 @@ class PlannedLocalRuntime(
 /** A global speed preference must not prevent ordinary decoding on another package. */
 internal fun compatibleSpeculativeDecoding(requested: Boolean?, capabilities: LocalModelCapabilities?): Boolean? =
     if (requested == true && capabilities?.speculative != true) false else requested
+
+/** Called after runtime preflight has validated the package. Metadata is never a weight estimate. */
+internal fun localModelAssetBytes(model: File): Long {
+    if (!model.name.endsWith("manifest.json")) return model.length().also { require(it > 0) }
+    val manifest = dev.chungjungsoo.gptmobile.data.localmodel.ArtifactManifestStore.read(model)
+    return manifest.files.fold(0L) { total, asset ->
+        val file = dev.chungjungsoo.gptmobile.data.localmodel.ModelArtifactManifest.safeFile(requireNotNull(model.parentFile), asset.path)
+        require(asset.sizeBytes > 0 && file.isFile && file.length() == asset.sizeBytes) { "Missing or truncated model asset: ${asset.path}" }
+        Math.addExact(total, file.length())
+    }
+}

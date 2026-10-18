@@ -191,7 +191,7 @@ private class StreamingMessageBuffer(
     private val timeline = mutableListOf<AssistantTimelineItem>()
     private var pendingTimelineIndex = -1
     private val pendingTimelineText = StringBuilder()
-    val hasResponse: Boolean get() = dev.chungjungsoo.gptmobile.presentation.ui.thinking.ThinkingParser.extractThinking(content.toString()).response.isNotBlank()
+    val hasResponse: Boolean get() = dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.hasAnswer(content.toString())
     private var lastPublishedAtNanos = 0L
     private var publishedThoughtLength = 0
     private var publishedContentLength = 0

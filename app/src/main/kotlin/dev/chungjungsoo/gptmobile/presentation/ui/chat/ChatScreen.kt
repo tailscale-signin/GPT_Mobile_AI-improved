@@ -486,7 +486,7 @@ fun ChatScreen(
                 val responseOffset = kotlinx.coroutines.withTimeoutOrNull(1_000L) {
                     snapshotFlow { targetResponseOffset }.filterNotNull().first()
                 }
-                if (responseOffset != null) listState.scrollToConversationEntry(itemIndex, responseOffset, centerResponse = true)
+                if (responseOffset != null) listState.scrollToConversationEntry(itemIndex, responseOffset, centerResponse = featureSettings.centerUnread)
             }
         } else {
             // Explicitly override a restored list position on each conversation entry.
@@ -509,7 +509,7 @@ fun ChatScreen(
         snapshotFlow { Triple(listState.layoutInfo.beforeContentPadding, listState.layoutInfo.afterContentPadding, targetResponseOffset) }
             .distinctUntilChanged()
             .collect { (_, _, offset) ->
-                if (offset != null) listState.scrollToConversationEntry(itemIndex, offset, centerResponse = true)
+                if (offset != null) listState.scrollToConversationEntry(itemIndex, offset, centerResponse = featureSettings.centerUnread)
             }
     }
 

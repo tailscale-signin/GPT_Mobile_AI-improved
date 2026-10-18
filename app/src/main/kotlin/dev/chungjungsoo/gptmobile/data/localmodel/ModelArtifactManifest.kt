@@ -85,7 +85,7 @@ data class ModelArtifactManifest(
             val file = safeFile(root, item.path)
             require(item.sizeBytes > 0 && file.isFile && file.length() == item.sizeBytes) { "Missing or truncated asset: ${item.path}" }
             require(item.sha256.matches(Regex("[a-fA-F0-9]{64}"))) { "Missing SHA-256: ${item.path}" }
-            PackageDigest.verify(file, item.sha256, checkCurrent)
+            PackageDigest.verifyInstalledAssetCached(file, item.sha256, checkCurrent)
         }
         if (runtime in setOf(ArtifactRuntime.GENIEX_LLAMA_CPP, ArtifactRuntime.LLAMA_CPP)) {
             val magic = safeFile(root, entryFile).inputStream().use { stream -> ByteArray(4).also { require(stream.read(it) == 4) } }

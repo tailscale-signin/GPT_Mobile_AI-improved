@@ -57,8 +57,11 @@ sealed interface ProviderEvent {
 data class AgentToolDefinition(
     val name: String,
     val description: String,
-    val inputSchema: JsonObject
+    val inputSchema: JsonObject,
+    val capabilities: Set<AgentToolCapability> = emptySet()
 )
+
+enum class AgentToolCapability { WEB_SEARCH }
 
 data class AgentToolResult(
     val callId: String,
@@ -79,8 +82,12 @@ data class AgentToolResult(
     val retainedContent: ToolResultContent? = null,
     val errorCode: String? = null,
     val dispatched: Boolean = true,
-    val assistMetadata: List<JsonObject> = emptyList()
+    val assistMetadata: List<JsonObject> = emptyList(),
+    val media: List<AgentToolMedia> = emptyList()
 )
+
+/** Managed content reference, never an arbitrary local path or remote download instruction. */
+data class AgentToolMedia(val uri: String, val mimeType: String, val sizeBytes: Long, val sha256: String)
 
 sealed interface ToolResultContent {
     data class Text(val text: String) : ToolResultContent

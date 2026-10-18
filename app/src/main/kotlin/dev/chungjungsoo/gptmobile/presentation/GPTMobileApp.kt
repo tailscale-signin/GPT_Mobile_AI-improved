@@ -30,8 +30,8 @@ import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -57,6 +57,8 @@ class GPTMobileApp :
 
     @Inject
     lateinit var semanticMemory: javax.inject.Provider<dev.chungjungsoo.gptmobile.data.memory.LocalSemanticMemory>
+
+    @Inject lateinit var completeBackup: javax.inject.Provider<dev.chungjungsoo.gptmobile.data.backup.CompleteBackupManager>
 
     @Inject lateinit var conversationDatabase: javax.inject.Provider<dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2>
 
@@ -105,6 +107,7 @@ class GPTMobileApp :
         registerActivityLifecycleCallbacks(AppForegroundTracker)
         StartupRecoveryGate.start(applicationScope) {
             val gateStartTime = SystemClock.elapsedRealtime()
+            completeBackup.get().recoverAtStartup()
             val startup = startupDependencies()
             val temporary = conversationDatabase.get().chatRoomDao().temporaryChats()
             if (temporary.isNotEmpty()) {
@@ -231,14 +234,14 @@ interface StartupDependencies {
 
 object StartupRecoveryGate {
     @Volatile
-    private var job: Job? = null
+    private var job: kotlinx.coroutines.Deferred<Unit>? = null
 
     fun start(scope: CoroutineScope, block: suspend () -> Unit) {
-        job = scope.launch { block() }
+        job = scope.async { block() }
     }
 
     suspend fun await() {
-        job?.join()
+        job?.await()
     }
 }
 

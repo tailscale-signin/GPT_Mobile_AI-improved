@@ -184,7 +184,7 @@ class AppBackupManager @Inject constructor(
                     customPrimaryArgb = theme.customPrimaryArgb,
                     customPalette = theme.customPalette,
                     savedProfiles = theme.savedProfiles,
-                    activeProfileId = theme.activeProfileId,
+                    activeProfileId = theme.activeProfileId, overlayMaterial = theme.overlayMaterial, overlayBlur = theme.overlayBlur,
                     dynamicTheme = theme.dynamicTheme == DynamicTheme.ON,
                     debugMode = settingRepository.getDebugMode(),
                     localRuntimeBackend = settingRepository.getLocalRuntimeBackend().name
@@ -205,7 +205,9 @@ class AppBackupManager @Inject constructor(
                     customPrimaryArgb = theme.customPrimaryArgb,
                     customPalette = theme.customPalette,
                     savedProfiles = theme.savedProfiles,
-                    activeProfileId = theme.activeProfileId
+                    activeProfileId = theme.activeProfileId,
+                    overlayMaterial = theme.overlayMaterial,
+                    overlayBlur = theme.overlayBlur
                 ),
                 platforms = platforms,
                 toolConnections = connectionsWithCreds,
@@ -247,13 +249,13 @@ class AppBackupManager @Inject constructor(
             payload.uiPreferences?.let { uiPrefs ->
                 val dynamicTheme = if (uiPrefs.dynamicTheme) DynamicTheme.ON else DynamicTheme.OFF
                 val themeMode = ThemeMode.getByValue(uiPrefs.themeMode) ?: ThemeMode.SYSTEM
-                settingRepository.updateThemes(ThemeSetting(dynamicTheme = dynamicTheme, themeMode = themeMode, customPrimaryArgb = uiPrefs.customPrimaryArgb, customPalette = uiPrefs.customPalette, savedProfiles = uiPrefs.savedProfiles, activeProfileId = uiPrefs.activeProfileId))
+                settingRepository.updateThemes(ThemeSetting(dynamicTheme = dynamicTheme, themeMode = themeMode, customPrimaryArgb = uiPrefs.customPrimaryArgb, customPalette = uiPrefs.customPalette, savedProfiles = uiPrefs.savedProfiles, activeProfileId = uiPrefs.activeProfileId, overlayMaterial = uiPrefs.overlayMaterial, overlayBlur = uiPrefs.overlayBlur))
                 settingRepository.updateDebugMode(uiPrefs.debugMode)
                 settingRepository.updateLocalRuntimeBackend(LocalRuntimeBackend.fromString(uiPrefs.localRuntimeBackend))
             } ?: payload.theme?.let { themeDto ->
                 val dynamicTheme = if (themeDto.dynamicTheme) DynamicTheme.ON else DynamicTheme.OFF
                 val themeMode = ThemeMode.getByValue(themeDto.themeMode) ?: ThemeMode.SYSTEM
-                settingRepository.updateThemes(ThemeSetting(dynamicTheme = dynamicTheme, themeMode = themeMode, customPrimaryArgb = themeDto.customPrimaryArgb, customPalette = themeDto.customPalette, savedProfiles = themeDto.savedProfiles, activeProfileId = themeDto.activeProfileId))
+                settingRepository.updateThemes(ThemeSetting(dynamicTheme = dynamicTheme, themeMode = themeMode, customPrimaryArgb = themeDto.customPrimaryArgb, customPalette = themeDto.customPalette, savedProfiles = themeDto.savedProfiles, activeProfileId = themeDto.activeProfileId, overlayMaterial = themeDto.overlayMaterial, overlayBlur = themeDto.overlayBlur))
             }
 
             // Restore Tool Connections

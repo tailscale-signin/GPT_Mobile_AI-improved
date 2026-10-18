@@ -109,6 +109,9 @@ class LocalRuntimeSettingsViewModel @Inject constructor(
         require(value != LocalRuntimeBackend.QUALCOMM_QNN || _qnnAvailable.value) { "NPU is unavailable on this device" }
         repository.updateLocalRuntimeBackend(value)
     }
+    fun prepareSelectedLocalModel(enabled: Boolean) = perform {
+        repository.mutateFeatureSettings { it.copy(readiness = it.readiness.copy(prepareSelectedLocalModel = enabled)) }
+    }
     fun updateTuning(
         threads: Int? = null,
         cache: Boolean? = null,
@@ -216,7 +219,9 @@ class LocalRuntimeSettingsViewModel @Inject constructor(
             temperature = entry.defaultConfig.temperature,
             topP = entry.defaultConfig.topP,
             topK = entry.defaultConfig.topK,
-            disableAllTools = capabilities?.tools == false
+            // Native tool support and the app prompt bridge are separate capabilities.
+            // Explicit user denials on existing profiles are never migrated here.
+            disableAllTools = false
         )
         repository.addPlatformV2(profile)
         _status.value = "AI profile created"

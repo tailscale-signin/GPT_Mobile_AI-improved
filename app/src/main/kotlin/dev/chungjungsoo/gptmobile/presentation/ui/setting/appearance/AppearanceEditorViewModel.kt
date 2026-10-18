@@ -27,11 +27,13 @@ data class AppearanceDraft(
     val dynamic: DynamicTheme,
     val primary: Long?,
     val palette: CustomThemePalette?,
-    val activeProfileId: String? = null
+    val activeProfileId: String? = null,
+    val overlayMaterial: String = "glass",
+    val overlayBlur: String = "auto"
 ) {
-    fun applyTo(latest: ThemeSetting) = latest.copy(themeMode = mode, dynamicTheme = dynamic, customPrimaryArgb = primary, customPalette = palette, activeProfileId = activeProfileId)
+    fun applyTo(latest: ThemeSetting) = latest.copy(themeMode = mode, dynamicTheme = dynamic, customPrimaryArgb = primary, customPalette = palette, activeProfileId = activeProfileId, overlayMaterial = overlayMaterial, overlayBlur = overlayBlur)
     companion object {
-        fun from(value: ThemeSetting) = AppearanceDraft(value.themeMode, value.dynamicTheme, value.customPrimaryArgb, value.customPalette, value.activeProfileId)
+        fun from(value: ThemeSetting) = AppearanceDraft(value.themeMode, value.dynamicTheme, value.customPrimaryArgb, value.customPalette, value.activeProfileId, value.overlayMaterial, value.overlayBlur)
     }
 }
 
@@ -81,11 +83,17 @@ class AppearanceEditorViewModel @Inject constructor(
         if (mutable.value.busy) return
         val old = mutable.value.draft
         val transformed = transform(old)
-        val draft = if (transformed.activeProfileId == old.activeProfileId && transformed != old) transformed.copy(activeProfileId = "custom") else transformed
+        val draft = if (transformed.activeProfileId == old.activeProfileId &&
+            (transformed.mode != old.mode || transformed.dynamic != old.dynamic || transformed.primary != old.primary || transformed.palette != old.palette)
+        ) {
+            transformed.copy(activeProfileId = "custom")
+        } else {
+            transformed
+        }
         savedState["appearanceDraft"] = Json.encodeToString(draft)
         mutable.value = mutable.value.copy(draft = draft, message = null)
     }
-    fun select(profile: SavedThemeProfile) = edit { AppearanceDraft(profile.mode, DynamicTheme.OFF, profile.palette.primary, profile.palette, profile.id) }
+    fun select(profile: SavedThemeProfile) = edit { it.copy(mode = profile.mode, dynamic = DynamicTheme.OFF, primary = profile.palette.primary, palette = profile.palette, activeProfileId = profile.id) }
     fun discard() {
         savedState.remove<String>("appearanceDraft")
         mutable.value = mutable.value.copy(draft = AppearanceDraft.from(mutable.value.applied), conflict = false, message = null)
@@ -114,6 +122,7 @@ class AppearanceEditorViewModel @Inject constructor(
     }
     fun defaults() {
         select(ThemePresets.defaultProfile)
+        edit { it.copy(overlayMaterial = "glass", overlayBlur = "auto") }
         apply()
     }
 

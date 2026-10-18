@@ -44,7 +44,7 @@ internal object SettingsSearchRegistry {
         else -> "Research & Efficiency"
     }
 
-    val entries: List<SettingsSearchEntry> = AppFeature.entries.map {
+    val entries: List<SettingsSearchEntry> = AppFeature.entries.filterNot { it == AppFeature.OPENROUTER_BATCH }.map {
         SettingsSearchEntry("feature.${it.name}", it.title, "Advanced Settings › ${group(it)}", SettingsSearchDestination.ADVANCED, it.name, it.description)
     } + DebugMetric.entries.map {
         SettingsSearchEntry("debug.${it.name}", it.title, "Debug › Display", SettingsSearchDestination.DEBUG, it.name, it.description)

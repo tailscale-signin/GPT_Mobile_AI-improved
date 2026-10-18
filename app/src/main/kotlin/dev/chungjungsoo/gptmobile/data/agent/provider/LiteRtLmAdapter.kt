@@ -649,6 +649,11 @@ class LiteRtLmAdapter(
                                                     } else if (isLocalTemplateMismatch(event.message)) {
                                                         templateFailure = event.message
                                                     } else {
+                                                        val retained = fallbackOutput.buffered()
+                                                        if (textToolFallbackEnabled && LocalPromptToolBridge.parseResult(retained, runToolsByName.keys) is PromptToolParseResult.NoCall && retained.isNotEmpty()) {
+                                                            assistantReply.append(retained)
+                                                            send(ProviderEvent.TextDelta(retained))
+                                                        }
                                                         failed = true
                                                         send(ProviderEvent.Failed(event.message))
                                                     }

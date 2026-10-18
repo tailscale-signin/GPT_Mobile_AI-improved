@@ -234,7 +234,11 @@ class AnthropicEventAssembler {
 
                 else -> Unit
             }
-            emptyList()
+            when (event.contentBlock.type) {
+                ContentBlockType.TEXT -> event.contentBlock.text?.takeIf(String::isNotEmpty)?.let { listOf(ProviderEvent.TextDelta(it)) }.orEmpty()
+                ContentBlockType.THINKING -> event.contentBlock.thinking?.takeIf(String::isNotEmpty)?.let { listOf(ProviderEvent.ThinkingDelta(it)) }.orEmpty()
+                else -> emptyList()
+            }
         }
 
         is ContentDeltaResponseChunk -> when (event.delta.type) {

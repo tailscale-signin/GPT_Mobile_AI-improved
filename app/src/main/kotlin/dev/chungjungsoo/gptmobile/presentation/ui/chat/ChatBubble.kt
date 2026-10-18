@@ -363,14 +363,10 @@ fun OpponentChatBubble(
         attachments.isNotEmpty() ||
         locationToolEvents.isNotEmpty() ||
         (!isLoading && (canRetry || canEdit || isError))
-    val showTerminalFallback =
-        !isLoading &&
-            isLastMessage &&
-            text.isBlank() &&
-            contentTimeline.isEmpty() &&
-            toolEvents.isEmpty() &&
-            !hasVisibleProcess &&
-            !hasVisibleExtras
+    val showTerminalFallback = !isLoading &&
+        isLastMessage &&
+        !dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.hasAnswer(text) &&
+        attachments.isEmpty()
     val shouldShowBubble =
         isLoading ||
             contentTimeline.isNotEmpty() ||

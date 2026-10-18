@@ -78,7 +78,7 @@ class GitHubWorkspaceClient(
             "create_tag",
             "create_release",
             "update_release",
-            "publish_release"
+            "publish_release", "update_pull_request", "mark_ready_for_review", "submit_pull_request_review", "merge_pull_request"
         )
         val actions = readActions + writeActions
 
@@ -152,16 +152,16 @@ class GitHubWorkspaceClient(
             "read_code" -> readCode(root, refQuery, ref, required("path"), field("start_line"), field("end_line"))
             "repo_map" -> repoMap(root, ref, page)
             "repo_docs" -> repoDocs(root, ref, page)
-            "find_symbol" -> codeSearch(owner, repo, required("query"), testsOnly = false)
-            "find_references" -> codeSearch(owner, repo, required("query"), testsOnly = false)
-            "find_tests" -> codeSearch(owner, repo, required("query"), testsOnly = true)
+            "find_symbol" -> codeSearch(root, ref, required("query"), testsOnly = false, page = page)
+            "find_references" -> codeSearch(root, ref, required("query"), testsOnly = false, page = page)
+            "find_tests" -> codeSearch(root, ref, required("query"), testsOnly = true, page = page)
             "related_files" -> relatedFiles(root, ref, required("path"))
             "get_pull_request_files" -> {
                 val number = required("pull_number").toInt().also { require(it > 0) }
                 pageResult(request("$root/pulls/$number/files?$pagination"), page, "filename", "status", "additions", "deletions", "changes", "sha", "previous_filename", "patch")
             }
             "pr_context" -> prContext(root, required("pull_number").toInt().also { require(it > 0) })
-            "get_commit_checks" -> compactChecks(request("$root/commits/${segment(required("ref"))}/check-runs?$pagination").jsonObject)
+            "get_commit_checks" -> compactChecks(request("$root/commits/${segment(required("ref"))}/check-runs?$pagination").jsonObject, page)
             "compare_refs" -> compactCompare(request("$root/compare/${segment(required("base"))}...${segment(required("head"))}?$pagination").jsonObject)
             "changed_since" -> {
                 val head = field("head").ifBlank { ref.ifBlank { "HEAD" } }
@@ -178,6 +178,7 @@ class GitHubWorkspaceClient(
             "create_release" -> createRelease(root, args)
             "update_release" -> updateRelease(root, args)
             "publish_release" -> publishRelease(root, args)
+            "update_pull_request", "mark_ready_for_review", "submit_pull_request_review", "merge_pull_request" -> pullRequestLifecycle(root, action, args)
             "commit_files" -> commitFiles(root, args)
             else -> error("Unsupported workspace action: $action")
         }
@@ -401,28 +402,78 @@ class GitHubWorkspaceClient(
         }
     }
 
-    private suspend fun codeSearch(owner: String, repo: String, query: String, testsOnly: Boolean): JsonObject {
-        val scoped = "$query repo:$owner/$repo"
-        val result = request("/search/code?q=${segment(scoped)}&per_page=30").jsonObject
-        val items = result["items"]?.jsonArray.orEmpty()
-            .mapNotNull { it as? JsonObject }
-            .filter { item ->
-                if (!testsOnly) {
-                    true
+    /** Search a bounded tree/blob snapshot at the selected revision, never REST's default-branch index. */
+    private suspend fun codeSearch(root: String, ref: String, query: String, testsOnly: Boolean, page: Int): JsonObject {
+        require(query.isNotBlank() && query.length <= 200 && page in 1..1000) { "Use a literal symbol or text query of at most 200 characters." }
+        val target = ref.ifBlank { request(root).jsonObject["default_branch"]?.jsonPrimitive?.content ?: "HEAD" }
+        val commit = request("$root/commits/${segment(target)}").jsonObject
+        val sha = commit["sha"]?.jsonPrimitive?.content ?: error("Selected revision is unavailable.")
+        val treeSha = commit["commit"]?.jsonObject?.get("tree")?.jsonObject?.get("sha")?.jsonPrimitive?.content ?: error("Selected tree is unavailable.")
+        val tree = request("$root/git/trees/$treeSha?recursive=1").jsonObject
+        val extensions = setOf("kt", "kts", "java", "py", "js", "ts", "tsx", "jsx", "cpp", "c", "h", "hpp", "rs", "go", "xml", "json", "yml", "yaml", "toml", "md")
+        val candidates = tree["tree"]?.jsonArray.orEmpty().map { it.jsonObject }.filter { item ->
+            val path = item["path"]?.jsonPrimitive?.content.orEmpty()
+            item["type"]?.jsonPrimitive?.content == "blob" &&
+                path.substringAfterLast('.', "").lowercase() in extensions &&
+                (!testsOnly || path.lowercase().let { "/test" in it || "test" in it.substringAfterLast('/') })
+        }.sortedWith(compareBy<JsonObject> { !it["path"]?.jsonPrimitive?.content.orEmpty().contains(query, true) }.thenBy { it["path"]?.jsonPrimitive?.content.orEmpty() })
+        val selected = candidates.drop((page - 1) * 24).take(24)
+        var skipped = 0
+        val matches = buildJsonArray {
+            selected.forEach { item ->
+                if ((item["size"]?.jsonPrimitive?.content?.toLongOrNull() ?: Long.MAX_VALUE) > 256_000) {
+                    skipped++
+                    return@forEach
+                }
+                val blob = request("$root/git/blobs/${segment(item["sha"]!!.jsonPrimitive.content)}").jsonObject
+                val text = if (blob["encoding"]?.jsonPrimitive?.content == "base64") {
+                    Base64.getMimeDecoder().decode(blob["content"]!!.jsonPrimitive.content).decodeToString()
                 } else {
-                    val itemPath = item["path"]?.jsonPrimitive?.content.orEmpty().lowercase()
-                    "/test" in itemPath || "/androidtest" in itemPath || itemPath.endsWith("test.kt") || itemPath.endsWith("test.java")
+                    blob["content"]?.jsonPrimitive?.content.orEmpty()
+                }
+                val hits = text.lineSequence().mapIndexedNotNull { index, line ->
+                    if (line.contains(query, true)) {
+                        buildJsonObject {
+                            put("line", index + 1)
+                            put("text", line.take(500))
+                        }
+                    } else {
+                        null
+                    }
+                }.take(10).toList()
+                if (hits.isNotEmpty()) {
+                    add(
+                        buildJsonObject {
+                            put("path", item["path"]!!)
+                            put("sha", item["sha"]!!)
+                            put("matches", JsonArray(hits))
+                        }
+                    )
                 }
             }
+        }
+        val more = page * 24 < candidates.size
         return buildJsonObject {
             put("query", query)
-            put("total_count", if (testsOnly) JsonPrimitive(items.size) else result["total_count"] ?: JsonPrimitive(items.size))
-            put(
-                "items",
-                buildJsonArray {
-                    items.take(30).forEach { item -> add(project(item, "name", "path", "sha", "html_url")) }
-                }
-            )
+            put("ref", target)
+            put("commit_sha", sha)
+            put("items", matches)
+            put("returned", matches.size)
+            put("scanned_files", selected.size)
+            put("total_candidate_files", candidates.size)
+            put("skipped_oversized_files", skipped)
+            put("page", page)
+            put("has_more", more)
+            put("truncated", more || skipped > 0 || tree["truncated"]?.jsonPrimitive?.booleanOrNull == true)
+            if (more) {
+                put(
+                    "continuation",
+                    buildJsonObject {
+                        put("page", page + 1)
+                        put("ref", sha)
+                    }
+                )
+            }
         }
     }
 
@@ -447,6 +498,17 @@ class GitHubWorkspaceClient(
                     pr["base"]?.jsonObject?.let { put("base", project(it, "ref", "sha")) }
                 }
             )
+            put("files_total", pr["changed_files"] ?: JsonPrimitive(files.size))
+            put("files_returned", files.size)
+            put("files_truncated", (pr["changed_files"]?.jsonPrimitive?.content?.toIntOrNull() ?: files.size) > files.size)
+            put(
+                "files_continuation",
+                buildJsonObject {
+                    put("action", "get_pull_request_files")
+                    put("pull_number", number)
+                    put("page", 2)
+                }
+            )
             put(
                 "files",
                 buildJsonArray {
@@ -459,14 +521,20 @@ class GitHubWorkspaceClient(
         }
     }
 
-    private fun compactChecks(result: JsonObject): JsonObject {
+    private fun compactChecks(result: JsonObject, page: Int = 1): JsonObject {
         val runs = result["check_runs"]?.jsonArray.orEmpty()
         return buildJsonObject {
-            put("total_count", result["total_count"] ?: JsonPrimitive(runs.size))
+            val total = result["total_count"]?.jsonPrimitive?.content?.toIntOrNull() ?: runs.size
+            put("total_count", total)
+            put("returned", runs.size)
+            put("truncated", total > runs.size)
+            put("has_more", page * 100 < total)
+            put("page", page)
+            if (page * 100 < total) put("next_page", page + 1)
             put(
                 "check_runs",
                 buildJsonArray {
-                    runs.take(50).forEach { run ->
+                    runs.forEach { run ->
                         add(project(run.jsonObject, "id", "name", "status", "conclusion", "started_at", "completed_at", "html_url"))
                     }
                 }
@@ -516,6 +584,75 @@ class GitHubWorkspaceClient(
                 )
             }
         }
+    }
+
+    private suspend fun pullRequestLifecycle(root: String, action: String, args: JsonObject): JsonElement {
+        require(token.isNotBlank()) { "Connect a GitHub account before changing a pull request." }
+        val number = args["pull_number"]?.jsonPrimitive?.content?.toIntOrNull()?.also { require(it > 0) } ?: error("pull_number is required.")
+        val expected = args["expected_head_sha"]?.jsonPrimitive?.content.orEmpty()
+        require(Regex("[a-fA-F0-9]{40}").matches(expected)) { "Read the current PR head and supply expected_head_sha." }
+        val pr = request("$root/pulls/$number").jsonObject
+        check(pr["head"]?.jsonObject?.get("sha")?.jsonPrimitive?.content == expected) { "Pull request head changed. Refresh before continuing." }
+        check(pr["state"]?.jsonPrimitive?.content == "open") { "Pull request is no longer open." }
+        val body = args["body"]?.jsonPrimitive?.content.orEmpty()
+        val result = when (action) {
+            "update_pull_request" -> request(
+                "$root/pulls/$number",
+                HttpMethod.Patch,
+                buildJsonObject {
+                    listOf("title", "body", "base").forEach { key -> args[key]?.let { put(key, it) } }
+                }
+            )
+            "mark_ready_for_review" -> graphQl(
+                "mutation Ready(\$id: ID!) { markPullRequestReadyForReview(input: {pullRequestId: \$id}) { pullRequest { number isDraft url } } }",
+                buildJsonObject { put("id", requireNotNull(pr["node_id"])) }
+            ).also { check(it["errors"]?.jsonArray.isNullOrEmpty()) { "GitHub did not confirm ready-for-review." } }
+            "submit_pull_request_review" -> {
+                val event = args["event"]?.jsonPrimitive?.content.orEmpty()
+                require(event in setOf("APPROVE", "REQUEST_CHANGES", "COMMENT")) { "event must be APPROVE, REQUEST_CHANGES or COMMENT." }
+                request(
+                    "$root/pulls/$number/reviews",
+                    HttpMethod.Post,
+                    buildJsonObject {
+                        put("commit_id", expected)
+                        put("event", event)
+                        put("body", body)
+                    }
+                )
+            }
+            else -> {
+                check(pr["draft"]?.jsonPrimitive?.booleanOrNull != true) { "Mark the draft ready before merging." }
+                val checks = request("$root/commits/$expected/check-runs?per_page=100").jsonObject
+                val rows = checks["check_runs"]?.jsonArray.orEmpty().toMutableList()
+                val total = checks["total_count"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0
+                require(total <= 1000) { "PR check inventory exceeds the merge verification budget." }
+                var page = 2
+                while (rows.size < total && page <= 10) {
+                    val more = request("$root/commits/$expected/check-runs?per_page=100&page=$page").jsonObject
+                    check(more["total_count"]?.jsonPrimitive?.content?.toIntOrNull() == total) { "Check inventory changed; refresh before merging." }
+                    val entries = more["check_runs"]?.jsonArray.orEmpty()
+                    if (entries.isEmpty()) break
+                    rows += entries
+                    page++
+                }
+                check(total == rows.size) { "Checks are incomplete. Review all checks before merging." }
+                check(rows.isNotEmpty() && rows.all { it.jsonObject["status"]?.jsonPrimitive?.content == "completed" && it.jsonObject["conclusion"]?.jsonPrimitive?.content in setOf("success", "neutral", "skipped") }) { "Pull request checks are not fully green." }
+                val status = request("$root/commits/$expected/status").jsonObject
+                check(status["total_count"]?.jsonPrimitive?.content == "0" || status["state"]?.jsonPrimitive?.content == "success") { "Commit status checks are not green." }
+                val method = args["merge_method"]?.jsonPrimitive?.content ?: "squash"
+                require(method in setOf("squash", "merge", "rebase"))
+                request(
+                    "$root/pulls/$number/merge",
+                    HttpMethod.Put,
+                    buildJsonObject {
+                        put("sha", expected)
+                        put("merge_method", method)
+                    }
+                )
+            }
+        }
+        responseCache.clear()
+        return result
     }
 
     private suspend fun commitFiles(root: String, args: JsonObject): JsonObject {
@@ -705,7 +842,10 @@ class GitHubWorkspaceClient(
                     .ifBlank { args["target_commitish"]?.jsonPrimitive?.content.orEmpty() }
                     .ifBlank { request(root).jsonObject["default_branch"]?.jsonPrimitive?.content.orEmpty() }
                 require(ref.isNotBlank()) { "Could not resolve a ref for the release workflow." }
-                val versionPreflight = validateReleaseVersionHint(root, ref, tagName)
+                val sourceSha = request("$root/commits/${segment(ref)}").jsonObject["sha"]?.jsonPrimitive?.content ?: error("Release source SHA unavailable.")
+                val dispatchTime = java.time.Instant.now().toString()
+                val correlationId = java.util.UUID.randomUUID().toString()
+                val versionPreflight = validateReleaseVersionHint(root, sourceSha, tagName)
                 request(
                     "$root/actions/workflows/${segment(workflowId)}/dispatches",
                     HttpMethod.Post,
@@ -719,6 +859,17 @@ class GitHubWorkspaceClient(
                 )
                 responseCache.clear()
                 return buildJsonObject {
+                    put(
+                        "dispatch_receipt",
+                        buildJsonObject {
+                            put("workflow_id", workflowId)
+                            put("source_sha", sourceSha)
+                            put("tag_name", tagName)
+                            put("dispatched_at", dispatchTime)
+                            put("correlation_id", correlationId)
+                            put("run_correlation", "UNKNOWN_UNTIL_EXPLICIT_RUN_RECEIPT")
+                        }
+                    )
                     put("status", "workflow_dispatched")
                     put("strategy", "workflow")
                     put("tag_name", tagName)
@@ -747,11 +898,17 @@ class GitHubWorkspaceClient(
             findReleaseWorkflow(root, args["workflow_id"]?.jsonPrimitive?.content.orEmpty())
         }
         val workflow = workflowLookup.getOrNull()
-        val latestRun = workflow?.get("id")?.jsonPrimitive?.content?.let { workflowId ->
-            val runs = request("$root/actions/workflows/${segment(workflowId)}/runs?per_page=10").jsonObject["workflow_runs"]?.jsonArray ?: JsonArray(emptyList())
-            val requestedRef = args["ref"]?.jsonPrimitive?.content.orEmpty()
-            val match = if (requestedRef.isBlank()) runs.firstOrNull() else runs.firstOrNull { it.jsonObject["head_branch"]?.jsonPrimitive?.content == requestedRef }
-            match?.jsonObject
+        val requestedRunId = args["workflow_run_id"]?.jsonPrimitive?.content?.toLongOrNull()
+        val expectedSource = args["expected_head_sha"]?.jsonPrimitive?.content.orEmpty()
+        val latestRun = requestedRunId?.let { id ->
+            require(id > 0 && Regex("[a-fA-F0-9]{40}").matches(expectedSource)) { "Supply workflow_run_id and the dispatched source expected_head_sha." }
+            request("$root/actions/runs/$id").jsonObject.also { run ->
+                require(
+                    run["head_sha"]?.jsonPrimitive?.content == expectedSource &&
+                        run["workflow_id"]?.jsonPrimitive?.content == workflow?.get("id")?.jsonPrimitive?.content &&
+                        run["event"]?.jsonPrimitive?.content == "workflow_dispatch"
+                ) { "Workflow receipt does not match the dispatched source and workflow." }
+            }
         }
         return buildJsonObject {
             put("tag_name", tagName)
@@ -759,6 +916,7 @@ class GitHubWorkspaceClient(
             put("release", release?.let(::compactRelease) ?: JsonNull)
             put("workflow", workflow ?: JsonNull)
             workflowLookup.exceptionOrNull()?.message?.let { put("workflow_discovery_error", it) }
+            put("workflow_correlation", if (latestRun == null) "UNKNOWN_SUPPLY_DISPATCH_RUN_RECEIPT" else "EXPLICIT_RUN_AND_SOURCE_VERIFIED")
             put("latest_workflow_run", latestRun?.let { project(it, "id", "name", "event", "status", "conclusion", "head_branch", "head_sha", "run_number", "run_attempt", "created_at", "updated_at", "html_url") } ?: JsonNull)
         }
     }

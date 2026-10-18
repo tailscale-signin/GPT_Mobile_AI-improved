@@ -17,6 +17,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CombinedDeliverySessionTest {
+    @Test fun failedOrUnterminatedRepairCannotReplaceCompletedOriginal() = runTest {
+        val original = "Original ".repeat(20)
+        for (terminal in listOf<ProviderEvent?>(ProviderEvent.Failed("timeout"), null)) {
+            val repair = object : AgentProviderSession {
+                override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                    emit(ProviderEvent.TextDelta("Partial replacement"))
+                    terminal?.let { emit(it) }
+                }
+            }
+            val wrapper = CombinedDeliverySession(session(original), sources, 10000, validateAccess = {}, originalRequest = "One fact under 10 words") { _, _ -> repair }
+            val events = wrapper.streamRound(emptyList(), emptyList()).toList()
+            assertTrue(events.answer().startsWith("Original"))
+            assertFalse(events.answer().contains("Partial replacement"))
+            assertEquals(ProviderEvent.Completed, events.last())
+        }
+    }
+
     private val sources = listOf(
         CombinedModelResponse("alpha", "Alpha", content = "The silver mines of Athens financed construction of naval ships."),
         CombinedModelResponse("beta", "Beta", content = "Persian merchants carried ceramics along the Silk Road during the Tang era.")

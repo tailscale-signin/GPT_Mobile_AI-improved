@@ -17,6 +17,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentRunnerFailureBoundaryTest {
+    @Test fun titleOnlyCompletionRecoversOnceWithoutRepeatingTools() = runBlocking {
+        var attempts = 0
+        val session = provider {
+            emit(ProviderEvent.TextDelta(if (attempts++ == 0) "<!-- chat_subject: Greeting -->" else "Hi! How can I help?"))
+            emit(ProviderEvent.Completed)
+        }
+        val events = AgentRunner().run(session, listOf(unusedTool)).toList().providerEvents()
+        assertEquals(2, attempts)
+        assertEquals(1, events.count { it == ProviderEvent.Completed })
+        assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().any { it.text.contains("How can I help") })
+    }
+
     private fun provider(block: suspend FlowCollector<ProviderEvent>.(List<AgentToolDefinition>) -> Unit) = object : AgentProviderSession {
         override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow { block(tools) }
     }

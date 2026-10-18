@@ -249,6 +249,25 @@ fun ThemeSettingsScreen(onDismiss: () -> Unit, asDialog: Boolean = true, initial
                                         }
                                     }
                                     2 -> {
+                                        item {
+                                            Text("Menus and popups", style = MaterialTheme.typography.titleMedium)
+                                            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                listOf("glass", "solid").forEach { value ->
+                                                    FilterChip(selected = draft.overlayMaterial == value, onClick = { editor.edit { it.copy(overlayMaterial = value) } }, label = { Text(value.replaceFirstChar { it.uppercase() }) })
+                                                }
+                                            }
+                                            Text("Glass uses an 85% opaque theme background. Text and icons stay sharp.", style = MaterialTheme.typography.bodySmall)
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Text("Background blur", Modifier.weight(1f))
+                                                Switch(checked = draft.overlayBlur == "auto", onCheckedChange = { enabled -> editor.edit { it.copy(overlayBlur = if (enabled) "auto" else "off") } })
+                                            }
+                                            Text("Uses tinted glass when a qualified background blur renderer is unavailable.", style = MaterialTheme.typography.bodySmall)
+                                            androidx.compose.runtime.CompositionLocalProvider(dev.chungjungsoo.gptmobile.presentation.common.LocalOverlayMaterial provides draft.overlayMaterial) {
+                                                dev.chungjungsoo.gptmobile.presentation.common.AppGlassSurface(Modifier.fillMaxWidth().padding(vertical = 12.dp)) {
+                                                    Text("Menu and dialog preview", Modifier.padding(24.dp))
+                                                }
+                                            }
+                                        }
                                         item { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_appearance_mode_3a6b5), style = MaterialTheme.typography.titleMedium) }
                                         item { FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) { ThemeMode.entries.forEach { mode -> FilterChip(selected = draft.mode == mode, onClick = { editor.edit { it.copy(mode = mode) } }, label = { Text(mode.name.lowercase().replaceFirstChar { it.uppercase() }) }) } } }
                                         item {

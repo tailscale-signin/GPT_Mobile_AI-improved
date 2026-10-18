@@ -167,7 +167,13 @@ class AgentRunner(
 
             // collectRound catches only upstream provider failures. Cancellation and
             // downstream collector errors must leave the run without retrying or emitting.
-            val round = collectRound(session, exposedDefinitions, exchanges, (limits.maxObservedToolCalls.coerceIn(1, 1024) - observedToolCalls).coerceAtLeast(0))
+            val searchNames = (toolByName.values + executableToolByName.values).filter {
+                AgentToolCapability.WEB_SEARCH in it.definition.capabilities
+            }.mapTo(HashSet()) { it.definition.name }
+            val successfulSearch = exchanges.any { exchange ->
+                exchange.results.any { result -> !result.isError && result.dispatched && exchange.calls.any { it.callId == result.callId && it.name in searchNames } }
+            }
+            val round = collectRound(session, exposedDefinitions, exchanges, (limits.maxObservedToolCalls.coerceIn(1, 1024) - observedToolCalls).coerceAtLeast(0), successfulSearch, searchNames)
             observedToolCalls += round.observedCalls
             if (round.batchRejected) {
                 AppLogRecorder.record("Agent", "TOOL_BATCH_OVERSIZE · rejectedBatchObserved=${round.observedCalls} · permittedPerRound=${limits.maxToolCallsPerRound} · cumulativeObserved=$observedToolCalls · dispatched=0", "W")
@@ -493,7 +499,9 @@ class AgentRunner(
         session: AgentProviderSession,
         exposedDefinitions: List<AgentToolDefinition>,
         exchanges: List<AgentToolExchange>,
-        remainingObserved: Int
+        remainingObserved: Int,
+        successfulSearch: Boolean,
+        searchToolNames: Set<String>
     ): RoundResult {
         val calls = mutableListOf<ProviderEvent.ToolCall>()
         val admission = ToolRoundAdmission(minOf(limits.maxToolCallsPerRound, remainingObserved))
@@ -502,6 +510,7 @@ class AgentRunner(
         var failure: String? = null
         var progressDeadline: ProgressDeadlineOutcome? = null
         var textEmitted = false
+        val answerCandidate = StringBuilder()
         var toolDefinitionsRejected = false
         var roundInputTokens = 0L
         var roundOutputTokens = 0L
@@ -556,7 +565,7 @@ class AgentRunner(
                 )
             }
             // Include synchronous stream construction failures in the upstream boundary.
-            emitAll(session.streamRound(exposedDefinitions, replayExchanges).withAssistantTextMarkupGuard())
+            emitAll(session.streamRound(exposedDefinitions, replayExchanges).withAssistantTextMarkupGuard(successfulSearch, searchToolNames))
         }.catch { error ->
             if (error is CancellationException || error is VirtualMachineError || error is ThreadDeath || error is IllegalStateException && error.message?.startsWith("DISPATCH_POLICY_CHANGED:") == true) throw error
             if (error is ToolBatchOversizeException) {
@@ -640,7 +649,10 @@ class AgentRunner(
                 ProviderEvent.Completed -> completed = true
 
                 else -> {
-                    if (event is ProviderEvent.TextDelta && event.text.isNotBlank()) textEmitted = true
+                    if (event is ProviderEvent.TextDelta && !textEmitted) {
+                        answerCandidate.append(event.text)
+                        textEmitted = dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.hasAnswer(answerCandidate.toString())
+                    }
                     emit(AgentRunEvent.Provider(event))
                 }
             }

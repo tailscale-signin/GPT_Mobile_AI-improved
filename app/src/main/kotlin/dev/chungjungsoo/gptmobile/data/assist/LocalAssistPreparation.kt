@@ -27,6 +27,30 @@ class LocalAssistPreparation @Inject constructor(
     private val assistAdmission = dev.chungjungsoo.gptmobile.data.localruntime.LocalWorkloadAdmission()
     private val assistPreparationFailures = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
+    suspend fun preparePrimary(target: PlatformV2) {
+        if (localRuntime.isBusy || localRuntime.hasOpenConversation()) return
+        val features = settingRepository.getFeatureSettings()
+        if (!features.readiness.prepareSelectedLocalModel) return
+        if (assistAdmission.evaluate(localRuntime.getHardwareState(), dev.chungjungsoo.gptmobile.data.localruntime.LocalWorkloadAdmission.availableMemory(context), 128L * 1024 * 1024, features.localMemoryReserveMb.coerceIn(256, 4096) * 1024L * 1024, optional = true) != null) return
+        val selected = localModelRepository.resolveLocalModelSelection(target.model, target.accelerator)
+        localRuntime.runExclusive {
+            if (hasOpenConversation()) return@runExclusive
+            val loaded = admittedEngineSpec()
+            // Speculation never evicts another prepared primary or helper.
+            if (loaded != null && loaded.modelPath != selected.path) return@runExclusive
+            val metadata = inspectModel(selected.path) ?: return@runExclusive
+            val backend = dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators.normalize(target.accelerator)
+            if (backend !in metadata.backends) return@runExclusive
+            // Dynamic contexts require the exact admitted prompt size; a guess would
+            // allocate excess KV memory and force a reload on Send.
+            if (metadata.dynamicContext != false) return@runExclusive
+            val capacity = metadata.contextTokens?.takeIf { it > 0 } ?: return@runExclusive
+            val spec = dev.chungjungsoo.gptmobile.data.localruntime.LocalEngineSpec(selected.path, backend, capacity)
+            metadata.validate(spec)
+            if (!isEngineLoaded(spec)) loadEngine(spec)
+        }
+    }
+
     suspend fun eligible(target: PlatformV2, policy: dev.chungjungsoo.gptmobile.data.assist.LocalAssistPolicy): Boolean {
         fun status(state: dev.chungjungsoo.gptmobile.data.assist.AssistReadiness, reason: String): Boolean {
             AppLogRecorder.record("LocalAssist", "READINESS · state=$state · requestedBackend=${dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators.normalize(target.accelerator)} · modelLoaded=${state == AssistReadiness.READY}")

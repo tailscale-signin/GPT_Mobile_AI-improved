@@ -39,7 +39,7 @@ internal class CompleteBackupPreferences(private val context: Context, private v
                 }
             }
         }
-        (sharedNames() + shared.keys).filterNot { it == "complete_backup_ui_v1" }.forEach { name ->
+        (sharedNames() + shared.keys).filterNot { it in SECTION_OWNED_SHARED_PREFERENCES }.forEach { name ->
             val editor = context.getSharedPreferences(name, Context.MODE_PRIVATE).edit().clear()
             shared[name].orEmpty().forEach { (key, value) ->
                 when (val decoded = decode(value)) {
@@ -67,7 +67,7 @@ internal class CompleteBackupPreferences(private val context: Context, private v
     }
 
     private fun sharedNames(): Set<String> = File(context.applicationInfo.dataDir, "shared_prefs").listFiles().orEmpty()
-        .filter { it.name.endsWith(".xml") }.map { it.name.removeSuffix(".xml") }.toSet() + "llama_settings"
+        .filter { it.name.endsWith(".xml") }.map { it.name.removeSuffix(".xml") }.filterNot { it in SECTION_OWNED_SHARED_PREFERENCES }.toSet() + "llama_settings"
 
     private fun encode(value: Any): BackupValue = when (value) {
         is Boolean -> BackupValue("boolean", value.toString())
@@ -96,3 +96,6 @@ internal class CompleteBackupPreferences(private val context: Context, private v
         else -> error("Unsupported backup preference type.")
     }
 }
+
+// History and qualification mirrors belong to Statistics, never generic Settings.
+internal val SECTION_OWNED_SHARED_PREFERENCES = setOf("complete_backup_ui_v1", "profile_benchmarks_v1")

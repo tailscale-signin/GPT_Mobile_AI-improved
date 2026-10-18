@@ -26,9 +26,9 @@ import dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseContentPart
 import dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputContent
 import dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputMessage
 import dev.chungjungsoo.gptmobile.data.model.AttachmentRemoteType
-import dev.chungjungsoo.gptmobile.llama.GatewayPerformancePreferences
 import dev.chungjungsoo.gptmobile.data.repository.sendableAssistantContent
 import dev.chungjungsoo.gptmobile.data.repository.validateResponseInputPartsOrThrow
+import dev.chungjungsoo.gptmobile.llama.GatewayPerformancePreferences
 import dev.chungjungsoo.gptmobile.util.AttachmentPayloadCache
 import dev.chungjungsoo.gptmobile.util.FileUtils
 import javax.inject.Inject
@@ -38,6 +38,36 @@ import kotlinx.coroutines.withContext
 open class ProviderAttachmentEncoder @Inject constructor(
     @param:ApplicationContext private val context: Context?
 ) {
+    data class EncodedToolMedia(val callId: String, val mimeType: String, val base64: String)
+
+    /** Resolve only current managed references, verify immutable bytes, and bound each next-round payload. */
+    open suspend fun toolMedia(exchanges: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange>, audio: Boolean = false): List<EncodedToolMedia> = withContext(Dispatchers.IO) {
+        val ctx = context ?: return@withContext emptyList()
+        var remaining = 8L * 1024 * 1024
+        exchanges.lastOrNull()?.results.orEmpty().flatMap { result ->
+            result.media.take(4).mapNotNull { media ->
+                if (!(media.mimeType.startsWith("image/") || audio && media.mimeType.startsWith("audio/")) ||
+                    media.sizeBytes !in 1..minOf(4L * 1024 * 1024, remaining) ||
+                    dev.chungjungsoo.gptmobile.data.agent.tool.McpMediaStore.managedReference(media.uri) != media
+                ) {
+                    return@mapNotNull null
+                }
+                val name = media.uri.removePrefix("gptmobile://media/")
+                if (name == media.uri || '/' in name || '\\' in name || name in setOf(".", "..")) return@mapNotNull null
+                val file = File(File(ctx.cacheDir, "mcp-media"), name)
+                if (!file.isFile || file.length() != media.sizeBytes) return@mapNotNull null
+                val bytes = file.readBytes()
+                try {
+                    check(dev.chungjungsoo.gptmobile.data.localmodel.PackageDigest.sha256(bytes) == media.sha256) { "Tool media changed before dispatch." }
+                    remaining -= bytes.size
+                    EncodedToolMedia(result.callId, media.mimeType, java.util.Base64.getEncoder().encodeToString(bytes))
+                } finally {
+                    bytes.fill(0)
+                }
+            }
+        }
+    }
+
     open fun gatewayPerformanceHeaders(): Map<String, String> =
         GatewayPerformancePreferences.headers(context)
 

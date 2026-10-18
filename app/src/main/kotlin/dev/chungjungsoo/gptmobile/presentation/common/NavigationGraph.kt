@@ -376,7 +376,7 @@ fun NavGraphBuilder.settingNavigation(
         composable(Route.ACTIVITY) {
             dev.chungjungsoo.gptmobile.presentation.ui.setting.ActivityScreen(
                 onBack = { navController.navigateUp() },
-                onRuns = { navController.navigate("workspaces?tab=Tasks") },
+                onRuns = { navController.navigate("runs") },
                 onUsage = { navController.navigate(Route.USAGE_STATISTICS) },
                 onBenchmarks = { navController.navigate("profile_benchmarks") },
                 onDiagnostics = { navController.navigate(Route.DEBUG_DIAGNOSTICS) }
@@ -459,6 +459,13 @@ fun NavGraphBuilder.settingNavigation(
                     modifier = Modifier.fillMaxSize()
                 )
             }
+        }
+        composable("runs") {
+            dev.chungjungsoo.gptmobile.presentation.ui.workspace.WorkspaceScreen(
+                onBack = { navController.navigateUp() },
+                onChat = { chatId -> navController.navigate("chat_room/$chatId") },
+                initialTab = "Tasks"
+            )
         }
         composable(Route.OPENROUTER_SETTINGS) {
             val viewModel: OpenRouterSettingsViewModel = hiltViewModel()

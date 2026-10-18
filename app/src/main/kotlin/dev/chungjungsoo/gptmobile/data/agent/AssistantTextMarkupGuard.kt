@@ -6,10 +6,13 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
 
 /** Withhold provider text that contains unresolved wire-level tool instructions. */
-internal fun Flow<ProviderEvent>.withAssistantTextMarkupGuard(): Flow<ProviderEvent> = flow {
+internal fun Flow<ProviderEvent>.withAssistantTextMarkupGuard(
+    initialSuccessfulSearch: Boolean = false,
+    searchToolNames: Set<String> = emptySet()
+): Flow<ProviderEvent> = flow {
     val guard = AssistantTextMarkupGuard()
     var blocked = false
-    var successfulWebSearch = false
+    var successfulWebSearch = initialSuccessfulSearch
 
     suspend fun finishText() {
         if (blocked) return
@@ -25,7 +28,7 @@ internal fun Flow<ProviderEvent>.withAssistantTextMarkupGuard(): Flow<ProviderEv
     collect { event ->
         if (event is ProviderEvent.ToolResult &&
             !event.result.isError &&
-            event.call.name.contains("web_search", ignoreCase = true)
+            event.call.name in searchToolNames
         ) {
             successfulWebSearch = true
         }
@@ -44,6 +47,10 @@ internal fun Flow<ProviderEvent>.withAssistantTextMarkupGuard(): Flow<ProviderEv
                 }
             }
             ProviderEvent.Completed -> {
+                finishText()
+                if (!blocked) emit(event)
+            }
+            is ProviderEvent.Failed -> {
                 finishText()
                 if (!blocked) emit(event)
             }

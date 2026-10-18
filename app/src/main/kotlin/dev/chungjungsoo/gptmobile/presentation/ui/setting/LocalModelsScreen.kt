@@ -91,18 +91,22 @@ internal fun LocalMarketplaceScreen(
     var why by rememberSaveable { mutableStateOf(false) }
     val geniex = dev.chungjungsoo.gptmobile.BuildConfig.GENIEX_ENABLED
     fun support(item: LocalModelListItem) = dev.chungjungsoo.gptmobile.data.catalog.LocalCatalogCompatibilityResolver.resolve(item.entry, geniex, runtimeViewModel.soc, item.status == LocalModelItemStatus.READY)
-    fun isGenieX(item: LocalModelListItem) = item.entry.variantLabel.startsWith("GENIEX_") || item.entry.runtimeRequirement.contains("geniex", true) || item.entry.downloadUrl.substringBefore('?').endsWith(".gguf", true)
+    fun runtimeLabel(item: LocalModelListItem): String = when {
+        item.entry.variantLabel.startsWith("GENIEX_") || item.entry.runtimeRequirement.contains("geniex", true) -> "GenieX"
+        item.entry.variantLabel.contains("GGUF", true) || item.entry.runtimeRequirement.contains("llama", true) || item.entry.downloadUrl.substringBefore('?').endsWith(".gguf", true) -> "llama.cpp"
+        else -> "LiteRT-LM"
+    }
     val recommended = remember(uiState.allItems, geniex) { dev.chungjungsoo.gptmobile.data.catalog.LocalCatalogRecommendationPolicy.recommend(uiState.allItems.map { it.entry }, geniex, runtimeViewModel.soc, runtimeViewModel.ramGb).map { it.id }.toSet() }
     val visible = uiState.items.filter { item ->
         val compatible = item.status == LocalModelItemStatus.READY ||
             everyModel ||
             (support(item).reasons.isEmpty() && (runtimeViewModel.ramGb == null || item.entry.minRamGb <= runtimeViewModel.ramGb!!))
         compatible &&
-            (runtime == "All" || (runtime == "GenieX") == isGenieX(item)) &&
+            (runtime == "All" || runtime == runtimeLabel(item)) &&
             (processor == "Any" || item.entry.supportedAccelerators.any { it.equals(processor, true) }) &&
             when (capability) {
                 "Images" -> item.entry.capabilities.vision
-                "Tools" -> true
+                "Tools" -> item.entry.capabilities.tools
                 "Thinking" -> item.entry.capabilities.thinking
                 "MTP" -> item.entry.supportsMtp
                 else -> true
@@ -187,7 +191,7 @@ internal fun LocalMarketplaceScreen(
                                 },
                                 style = MaterialTheme.typography.bodyMedium
                             )
-                            Text("${if (isGenieX(item)) "GenieX" else "LiteRT-LM"} · ${item.entry.variantLabel.ifBlank { item.entry.precision }} · ${if (item.downloadSizeBytes > 0) ModelCatalogParser.formatDownloadSize(item.downloadSizeBytes) else "Size unknown"}", style = MaterialTheme.typography.labelMedium)
+                            Text("${runtimeLabel(item)} · ${item.entry.variantLabel.ifBlank { item.entry.precision }} · ${if (item.downloadSizeBytes > 0) ModelCatalogParser.formatDownloadSize(item.downloadSizeBytes) else "Size unknown"}", style = MaterialTheme.typography.labelMedium)
                             Text(support(item).reasons.firstOrNull() ?: if (item.status == LocalModelItemStatus.READY) androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_dd89b29224) else androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_f1321c7b23), style = MaterialTheme.typography.bodySmall)
                             TextButton(onClick = { family = key }) { Text(if (variants.size > 1) androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_38fb1198d8, (variants.size).toString()) else androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_cd3cd14621)) }
                         }
@@ -243,7 +247,7 @@ internal fun LocalMarketplaceScreen(
         androidx.compose.material3.AlertDialog(onDismissRequest = { filtersOpen = false }, title = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_model_filters_d4bb9)) }, text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_runtime_10931))
-                androidx.compose.foundation.layout.FlowRow { listOf("All", "LiteRT-LM", "GenieX").forEach { value -> TextButton(onClick = { runtime = value }) { Text(if (runtime == value) "✓ $value" else value) } } }
+                androidx.compose.foundation.layout.FlowRow { listOf("All", "LiteRT-LM", "llama.cpp", "GenieX").forEach { value -> TextButton(onClick = { runtime = value }) { Text(if (runtime == value) "✓ $value" else value) } } }
                 Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_processor_54aac))
                 Row {
                     listOf("Any", "CPU", "GPU", "NPU").forEach { value ->
@@ -261,6 +265,7 @@ internal fun LocalMarketplaceScreen(
                 runtime = "All"
                 processor = "Any"
                 capability = "Any"
+                everyModel = false
                 viewModel.setNpuOnly(false)
             }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_reset_filters_10afa)) }
         })

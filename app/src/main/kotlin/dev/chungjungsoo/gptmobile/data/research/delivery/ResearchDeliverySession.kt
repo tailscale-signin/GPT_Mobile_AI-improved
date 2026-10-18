@@ -151,7 +151,7 @@ internal class ResearchDeliverySession(
 
     /** Each chapter is a separate tool-free request; it may fail without losing captured evidence. */
     private suspend fun trySectionedRepair(packet: ResearchDeliveryPacket, sourceContext: String): String? {
-        val sections = ResearchDeliveryPacket.SECTIONS.chunked(4)
+        val sections = packet.sections.chunked(4)
         val report = StringBuilder()
         for ((index, headings) in sections.withIndex()) {
             val part = StringBuilder()

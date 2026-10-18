@@ -1701,7 +1701,6 @@ class ChatRepositoryImpl(
                         ?.takeUnless { it.isTemporary }?.project?.instructions.orEmpty()
                     val responseFeatures = settingRepository.getFeatureSettings()
                     val quickRepliesEnabled = responseFeatures.smartSuggestions
-                    val subjectInstruction = if (!synthesisRun && responseFeatures.automaticConversationTitles && effectiveUserMessages.size == 1) dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.INSTRUCTION else ""
                     fun baseSystemPrompt(): String {
                         val recoveryInstruction = taskRecovery?.let { "\nRecovery action: ${it.action.name}. Resume unfinished stages using saved evidence; preserve prior constraints and verify unknown action outcomes before retrying." }.orEmpty()
                         val progressInstruction = if (resolvedTools.isNotEmpty()) {
@@ -1735,7 +1734,7 @@ class ChatRepositoryImpl(
                             platform.systemPrompt,
                             exposedTools.map { it.modelToolName },
                             compact = localResearch || limits.contextTokens < 4096
-                        ) + subjectInstruction + (if (quickRepliesEnabled && !synthesisRun) dev.chungjungsoo.gptmobile.data.agent.CHAT_QUICK_REPLY_INSTRUCTION else "") + projectInstructions.takeIf { it.isNotBlank() }?.let { "\nProject instructions supplied by the user:\n$it" }.orEmpty() + recoveryInstruction + progressInstruction + delegationInstruction + synthesisInstruction +
+                        ) + (if (quickRepliesEnabled && !synthesisRun) dev.chungjungsoo.gptmobile.data.agent.CHAT_QUICK_REPLY_INSTRUCTION else "") + projectInstructions.takeIf { it.isNotBlank() }?.let { "\nProject instructions supplied by the user:\n$it" }.orEmpty() + recoveryInstruction + progressInstruction + delegationInstruction + synthesisInstruction +
                             if (reviewedPreparationUnavailable) "\nRequired delegate preparation or independent review could not finish. Do not do the task independently or present rejected delegate claims as verified facts. Explain the limitation and suggest retrying with a working delegate/reviewer or explicitly choosing primary-only recovery." else ""
                     }
                     val memorySettings = factVault?.state?.value
@@ -1749,7 +1748,22 @@ class ChatRepositoryImpl(
                         !platform.disableLocalTools
                     val connectedMemoryTools = if (canRecallDocuments && memorySettings != null && !platform.excludesMemory()) ConnectedMemoryRecall.select(taskRoutedTools, memorySettings.settings) else emptyList()
                     val researchMemory = prepareResearchMemory(platform, researchTask, latestUser?.chatId, preparationPlan.kind == dev.chungjungsoo.gptmobile.data.readiness.PreparationKind.REQUIRED_WORK && !synthesisRun && !privateConversation)
-                    val documentContext = measurePreparation(runId, PreparationPhase.SOURCE_COLLECTION) { if (exclusions.documents || platform.excludesMemory() || !canRecallDocuments) "" else latestUser?.let { knowledge?.context(it.chatId, it.content) }.orEmpty() }
+                    val documentRecall = measurePreparation(runId, PreparationPhase.SOURCE_COLLECTION) {
+                        if (exclusions.documents || platform.excludesMemory() || !canRecallDocuments) null else latestUser?.let { knowledge?.recall(it.chatId, it.content) }
+                    }
+                    val documentContext = documentRecall?.text.orEmpty()
+                    val documentConsentGeneration = factVault?.recallGeneration()
+                    suspend fun validateDocuments() {
+                        if (documentRecall?.sources.isNullOrEmpty()) return
+                        require(factVault?.recallGeneration() == documentConsentGeneration) { "DOCUMENT_RECALL_STALE: Document consent changed while queued. Prepare the request again." }
+                        val consent = factVault?.recallConsent()
+                        require(
+                            consent?.enabled == true &&
+                                consent.settings.recallEnabled &&
+                                (platform.isPrivateDestination() || consent.settings.allowCloudRecall)
+                        ) { "DOCUMENT_RECALL_STALE: Document recall consent was revoked. Prepare the request again." }
+                        knowledge?.validateRecall(requireNotNull(documentRecall))
+                    }
                     var requestPlatform = platform.withSystemPrompt(
                         systemPrompt = recalled.prefix() + researchMemory.text + documentContext + baseSystemPrompt()
                     )
@@ -1826,7 +1840,12 @@ class ChatRepositoryImpl(
                         toolBudget
                     }
 
-                    runPreparedDispatch preparedDispatch@{
+                    runPreparedDispatch(
+                        dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard("${dispatchAuthority.revision}:documents:${documentConsentGeneration.orEmpty()}") {
+                            dispatchAuthority.validate()
+                            validateDocuments()
+                        }
+                    ) preparedDispatch@{
                         val authorizedBoundedTools = bindAuthorizedTools(taskRoutedTools, behavior, connectedMemoryTools, localResearch, explicitResearch, contextPlan, acquisitionBudget, toolBudget, runId)
                         val boundedTools = dev.chungjungsoo.gptmobile.data.assist.LocalAssistToolBinder.bind(
                             tools = authorizedBoundedTools,
@@ -2104,6 +2123,7 @@ class ChatRepositoryImpl(
                                 preparedAssistEvidence = preparedAssistEvidence,
                                 recoveredResearch = { recovery?.researchSnapshotForDelivery() },
                                 validateSavedEvidence = {
+                                    validateDocuments()
                                     val allowed = recovery?.isAuthorized() != false && researchMemory.validate()
                                     if (!allowed) dispatchDenial.set(recovery?.blocked() ?: dev.chungjungsoo.gptmobile.data.agent.recoveryBlock(turnKey, runId, dev.chungjungsoo.gptmobile.data.agent.recoveryDestinationIdentity(platform), dispatchAuthority.revision, researchMemory.evidenceIds, assistantMessages.flatten(), taskRecovery?.action?.name ?: "CONTINUE_RUN"))
                                     allowed
@@ -2193,7 +2213,7 @@ class ChatRepositoryImpl(
      * Keep dispatch in a separate coroutine method so JVM coverage/shrinker instrumentation
      * stays below the method-size limit. This adds no scope, dispatcher or ownership change.
      */
-    private suspend fun runPreparedDispatch(block: suspend () -> Unit) = block()
+    private suspend fun runPreparedDispatch(authority: dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard, block: suspend () -> Unit) = withContext(authority) { block() }
 
     private fun measureBenchmarkAdmission(upstream: Flow<ApiState>, runId: String): Flow<ApiState> = channelFlow {
         val waitingAt = System.nanoTime()
@@ -2448,6 +2468,7 @@ class ChatRepositoryImpl(
             )
         }
         suspend fun openPrimarySession(turns: List<dev.chungjungsoo.gptmobile.data.context.ConversationTurn>, kind: String = if (runId.startsWith("combined-synthesis:")) "synthesis" else "primary", textOnly: Boolean = false, passOutputTokens: Int? = null): AgentProviderSession {
+            if (!validateSavedEvidence()) throw dev.chungjungsoo.gptmobile.data.agent.SavedEvidenceAccessDenied()
             factVault?.validateRecall(recalled, latestUser?.chatId ?: 0, platform.isPrivateDestination())
             if (platform.compatibleType != ClientType.LITERT_LM) {
                 require(recalled.facts.none { it.localOnly } && turns.none { turn -> turn.assistantMessage?.containsLocalOnlyMemory() == true }) { "This history contains local-only memory. Continue with a local AI profile or start a conversation without that history." }
@@ -3485,7 +3506,7 @@ internal fun isLikelyDelegatedTruncation(text: String, outputCapReached: Boolean
 }
 
 internal fun MessageV2.sendableAssistantContent(): String {
-    val strippedContent = stripAssistantErrorNote(effectiveContent()).trim()
+    val strippedContent = dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.text(stripAssistantErrorNote(effectiveContent())).trim()
     return if (strippedContent.startsWith("Error: ")) "" else strippedContent
 }
 

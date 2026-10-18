@@ -23,15 +23,44 @@ internal sealed interface PromptToolParseResult {
 internal class LocalPromptToolOutput {
     private val pending = StringBuilder()
     private var plainText = false
+    private var overflow = false
 
     fun accept(delta: String): String {
         if (plainText) return delta
+        if (overflow) return ""
         pending.append(delta)
         val prefix = pending.toString().trimStart()
-        val markers = listOf("```", "<tool_call>", "<|tool_call>", "[TOOL_CALLS]")
-        if (pending.length <= 64 * 1024 &&
-            (prefix.isEmpty() || prefix.startsWith("{") || markers.any { prefix.startsWith(it) || it.startsWith(prefix) })
-        ) {
+        val markers = listOf("<tool_call>", "<|tool_call>", "[TOOL_CALLS]")
+        var candidate = prefix
+        if (candidate.startsWith("```")) {
+            val newline = candidate.indexOf('\n')
+            if (newline < 0 && candidate.length <= 16) return ""
+            if (newline >= 0 && candidate.substring(3, newline).trim() in setOf("", "json")) {
+                candidate = candidate.substring(newline + 1).trimStart()
+            } else {
+                candidate = "ordinary code"
+            }
+        } else if ("```".startsWith(candidate) && candidate.isNotEmpty()) {
+            return ""
+        }
+        val envelopeKeys = listOf("type", "tool_call", "tool_calls")
+        val typedValue = Regex("^\\{\\s*\"type\"\\s*:\\s*\"([^\"]*)\"").find(candidate)?.groupValues?.get(1)
+        val ordinaryType = typedValue != null && typedValue != "tool_call"
+        val possibleJsonEnvelope = if (candidate.startsWith("{") && !ordinaryType) {
+            val keyPrefix = candidate.drop(1).trimStart()
+            envelopeKeys.any { key ->
+                val quoted = "\"$key\""
+                quoted.startsWith(keyPrefix) || keyPrefix.startsWith(quoted)
+            }
+        } else {
+            false
+        }
+        if (candidate.isEmpty() || possibleJsonEnvelope || markers.any { candidate.startsWith(it) || it.startsWith(candidate) }) {
+            if (pending.length > 64 * 1024) {
+                pending.clear()
+                pending.append("<tool_call>oversized")
+                overflow = true
+            }
             return ""
         }
         plainText = true
@@ -80,7 +109,9 @@ internal object LocalPromptToolBridge {
     fun parseResult(text: String, registeredNames: Set<String>): PromptToolParseResult {
         var candidate = text.trim()
         if (candidate.startsWith("```json\n") || candidate.startsWith("```\n")) {
-            if (!candidate.endsWith("```")) return PromptToolParseResult.Rejected("malformed_call")
+            if (!candidate.endsWith("```")) {
+                return if (candidate.contains("\"tool_call\"") || candidate.contains("\"tool_calls\"")) PromptToolParseResult.Rejected("malformed_call") else PromptToolParseResult.NoCall
+            }
             candidate = candidate.substringAfter('\n').removeSuffix("```").trim()
         }
         if (candidate.startsWith(GEMMA_CALL_START)) return parseGemmaCall(candidate.removePrefix(GEMMA_CALL_START).trim(), registeredNames)

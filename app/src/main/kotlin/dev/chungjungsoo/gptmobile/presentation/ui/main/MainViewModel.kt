@@ -27,13 +27,22 @@ class MainViewModel @Inject constructor(private val settingRepository: SettingRe
 
     private val _isReady: MutableStateFlow<Boolean> = MutableStateFlow(false)
     val isReady: StateFlow<Boolean> = _isReady.asStateFlow()
+    private val _startupError = MutableStateFlow<String?>(null)
+    val startupError: StateFlow<String?> = _startupError.asStateFlow()
 
     private val _event: MutableSharedFlow<SplashEvent> = MutableSharedFlow(replay = 1)
     val event: SharedFlow<SplashEvent> = _event.asSharedFlow()
 
     init {
         viewModelScope.launch {
-            StartupRecoveryGate.await()
+            try {
+                StartupRecoveryGate.await()
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                _startupError.value = "Recovery could not finish. Saved recovery data is preserved. Restart the app to retry before opening chats or settings."
+                return@launch
+            }
             val platformsDeferred = async { settingRepository.fetchPlatforms() }
             val platformV2sDeferred = async { settingRepository.fetchPlatformV2s() }
             val platforms = platformsDeferred.await()

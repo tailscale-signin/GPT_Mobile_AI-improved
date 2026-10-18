@@ -22,6 +22,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog as ComposeDialog
 import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.launch
@@ -69,7 +70,11 @@ fun FadingAlertDialog(
         title = title,
         text = text,
         shape = shape,
-        properties = properties
+        properties = properties,
+        containerColor = appOverlayTokens().background,
+        titleContentColor = appOverlayTokens().foreground,
+        textContentColor = appOverlayTokens().foreground,
+        tonalElevation = 0.dp
     )
 }
 
@@ -95,7 +100,14 @@ fun FadingDropdownMenu(
     if (expanded) {
         // Recreate on opening so a previously dismissed menu cannot stay transparent.
         val (opacity, dismiss) = rememberFadeDismiss(onDismissRequest)
-        MaterialDropdownMenu(expanded = true, onDismissRequest = dismiss, modifier = modifier.graphicsLayer { alpha = opacity.value }, content = content)
+        MaterialDropdownMenu(
+            expanded = true,
+            onDismissRequest = dismiss,
+            modifier = modifier.graphicsLayer { alpha = opacity.value },
+            containerColor = appOverlayTokens().background,
+            tonalElevation = 0.dp,
+            content = content
+        )
     }
 }
 
@@ -108,7 +120,7 @@ fun FadingModalBottomSheet(
     content: @Composable ColumnScope.() -> Unit
 ) {
     val (opacity, dismiss) = rememberFadeDismiss(onDismissRequest)
-    MaterialModalBottomSheet(onDismissRequest = dismiss, modifier = modifier.graphicsLayer { alpha = opacity.value }, sheetState = sheetState) {
+    MaterialModalBottomSheet(onDismissRequest = dismiss, modifier = modifier.graphicsLayer { alpha = opacity.value }, sheetState = sheetState, containerColor = appOverlayTokens().background, contentColor = appOverlayTokens().foreground, tonalElevation = 0.dp) {
         BackHandler { dismiss() }
         content()
     }

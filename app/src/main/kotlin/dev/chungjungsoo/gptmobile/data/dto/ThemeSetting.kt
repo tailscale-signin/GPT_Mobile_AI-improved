@@ -11,7 +11,9 @@ data class ThemeSetting(
     val customPalette: CustomThemePalette? = null,
     val savedProfiles: List<SavedThemeProfile> = emptyList(),
     val recoveryWarning: String? = null,
-    val activeProfileId: String? = null
+    val activeProfileId: String? = null,
+    val overlayMaterial: String = "glass",
+    val overlayBlur: String = "auto"
 )
 
 @Serializable

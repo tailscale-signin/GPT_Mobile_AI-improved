@@ -20,7 +20,9 @@ data class ThemeBackupDto(
     val customPrimaryArgb: Long? = null,
     val customPalette: CustomThemePalette? = null,
     val savedProfiles: List<SavedThemeProfile> = emptyList(),
-    val activeProfileId: String? = null
+    val activeProfileId: String? = null,
+    val overlayMaterial: String = "glass",
+    val overlayBlur: String = "auto"
 )
 
 @Serializable

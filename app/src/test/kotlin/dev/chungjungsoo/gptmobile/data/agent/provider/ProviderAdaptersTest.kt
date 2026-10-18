@@ -1053,6 +1053,7 @@ class ProviderAdaptersTest {
                         GenerateContentResponse(
                             candidates = listOf(
                                 Candidate(
+                                    finishReason = "STOP",
                                     content = Content(
                                         role = GoogleRole.MODEL,
                                         parts = listOf(Part(functionCall = FunctionCall("call_exact", "weather", call.arguments)))
@@ -1064,7 +1065,7 @@ class ProviderAdaptersTest {
                     flowOf(
                         GenerateContentResponse(
                             candidates = listOf(
-                                Candidate(content = Content(role = GoogleRole.MODEL, parts = listOf(Part.text("done"))))
+                                Candidate(content = Content(role = GoogleRole.MODEL, parts = listOf(Part.text("done"))), finishReason = "STOP")
                             )
                         )
                     )
@@ -1074,9 +1075,9 @@ class ProviderAdaptersTest {
         val session = GeminiAdapter(api, attachmentEncoder())
             .openSession(turns(), platform(ClientType.GOOGLE))
 
-        assertEquals(listOf(call, ProviderEvent.Completed), session.streamRound(listOf(definition), emptyList()).toList())
+        assertEquals(listOf(call, ProviderEvent.Usage(finishReason = "STOP"), ProviderEvent.Completed), session.streamRound(listOf(definition), emptyList()).toList())
         assertEquals(
-            listOf(ProviderEvent.TextDelta("done"), ProviderEvent.Completed),
+            listOf(ProviderEvent.TextDelta("done"), ProviderEvent.Usage(finishReason = "STOP"), ProviderEvent.Completed),
             session.streamRound(listOf(definition), listOf(AgentToolExchange(listOf(call), listOf(result)))).toList()
         )
         assertEquals("AUTO", api.requests.first().toolConfig?.functionCallingConfig?.mode)
@@ -1095,6 +1096,7 @@ class ProviderAdaptersTest {
                         GenerateContentResponse(
                             candidates = listOf(
                                 Candidate(
+                                    finishReason = "STOP",
                                     content = Content(
                                         role = GoogleRole.MODEL,
                                         parts = listOf(Part(functionCall = FunctionCall("call_exact", "weather", call.arguments)))
@@ -1106,7 +1108,7 @@ class ProviderAdaptersTest {
                     flowOf(
                         GenerateContentResponse(
                             candidates = listOf(
-                                Candidate(content = Content(role = GoogleRole.MODEL, parts = listOf(Part.text("sunny"))))
+                                Candidate(content = Content(role = GoogleRole.MODEL, parts = listOf(Part.text("sunny"))), finishReason = "STOP")
                             )
                         )
                     )
@@ -1129,7 +1131,7 @@ class ProviderAdaptersTest {
     @Test
     fun `gemini adapter preserves thought signature and omitted provider id`() = runBlocking {
         val firstRound = NetworkClient.json.decodeFromString<GenerateContentResponse>(
-            """{"candidates":[{"index":0,"content":{"role":"model","parts":[{"thought":true,"text":"checking"},{"thoughtSignature":"signature_exact","functionCall":{"name":"weather","args":{"city":"Tokyo"}}}]}}]}"""
+            """{"candidates":[{"index":0,"finishReason":"STOP","content":{"role":"model","parts":[{"thought":true,"text":"checking"},{"thoughtSignature":"signature_exact","functionCall":{"name":"weather","args":{"city":"Tokyo"}}}]}}]}"""
         )
         val api = FakeGoogleAPI(
             ArrayDeque(

@@ -171,14 +171,18 @@ internal object GitHubApkArchive {
                     val prefix = "${index + 1}-"
                     val baseName = GitHubApkTransferPolicy.safeApkName(entry.name).dropLast(4).take(146 - prefix.length) + ".apk"
                     val output = File(canonicalDirectory, prefix + baseName)
-                    if (!output.canonicalPath.startsWith(canonicalDirectory.path + File.separator)) {
-                        throw GitHubApkDownloadException("The build archive contains an unsafe output path.")
-                    }
                     val crc = CRC32()
                     var entryWritten = 0L
                     zip.getInputStream(entry).buffered().use { input ->
+                        val outputPath = output.toPath().normalize()
+                        if (!outputPath.startsWith(canonicalDirectory.toPath())) {
+                            throw GitHubApkDownloadException("The build archive contains an unsafe output path.")
+                        }
+                        if (!output.canonicalPath.startsWith(canonicalDirectory.path + File.separator)) {
+                            throw GitHubApkDownloadException("The build archive contains an unsafe output path.")
+                        }
                         Files.newOutputStream(
-                            output.toPath(),
+                            outputPath,
                             StandardOpenOption.WRITE,
                             StandardOpenOption.CREATE_NEW,
                             LinkOption.NOFOLLOW_LINKS
@@ -207,9 +211,10 @@ internal object GitHubApkArchive {
         } catch (error: Exception) {
             written.forEach { output ->
                 try {
-                    if (output.parentFile.canonicalFile == canonicalDirectory) {
+                    val outputPath = output.toPath().normalize()
+                    if (outputPath.startsWith(canonicalDirectory.toPath()) && output.parentFile.canonicalFile == canonicalDirectory) {
                         // Delete the original path, so a replacement symlink cannot delete its target.
-                        Files.deleteIfExists(output.toPath())
+                        Files.deleteIfExists(outputPath)
                     }
                 } catch (cleanupError: Exception) {
                     error.addSuppressed(cleanupError)

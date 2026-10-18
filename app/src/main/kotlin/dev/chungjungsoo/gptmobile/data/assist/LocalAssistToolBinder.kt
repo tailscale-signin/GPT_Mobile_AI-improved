@@ -43,7 +43,7 @@ internal object LocalAssistToolBinder {
         }
         status(expected)
         AssistReadinessResolver.publish(AssistReadiness.CHECKING, "Local Assist ready · waiting for an eligible evidence task", policy.profileUid)
-        val target = candidates.firstOrNull { it.uid == policy.profileUid || policy.profileUid == null && profileAllowed(it) } ?: run {
+        val target = candidates.firstOrNull { policy.profileUid != null && it.uid == policy.profileUid } ?: run {
             status(expected.copy(sequence = 1, admission = AssistAdmission.INELIGIBLE, execution = AssistExecution.SKIPPED, reason = "NO_ELIGIBLE_SELECTED_PROFILE"))
             notice("Local Assist skipped: no eligible selected profile")
             return tools
@@ -55,7 +55,7 @@ internal object LocalAssistToolBinder {
         }
         val assist = AssistCoordinator(goal, {
             profileAllowed(target) && eligible(target)
-        }, { task -> generate(target, task, if (policy.summarizeRetrievedText || policy.proposeQueries) 1024 else 128) }, notice, policy.validated(), { stillEnabled() && profileAllowed(target) }, turnId, producerInvocationId, contextTokens, runtimeFingerprint, { status(it.copy(profileUid = target.uid, model = target.model, policySnapshot = policySnapshot)) })
+        }, { task -> generate(target, task, if (policy.summarizeRetrievedText || policy.proposeQueries) 1024 else 128) }, notice, policy.validated().copy(optionalWaitSeconds = 0, preparation = AssistPreparation.WARM_ONLY), { stillEnabled() && profileAllowed(target) }, turnId, producerInvocationId, contextTokens, runtimeFingerprint, { status(it.copy(profileUid = target.uid, model = target.model, policySnapshot = policySnapshot)) })
         val bound = tools.map { tool -> if (tool.shareableReadOnly) tool.copy(tool = assist.bind(tool.tool, tool.selectionId() + target.uid + dev.chungjungsoo.gptmobile.data.benchmark.benchmarkConfigKey(target))) else tool }
         if (!allowPerTurnTool || !policy.perTurnQueryPlanning) return bound
         // An intentional planning tool permits assistance before external search produces evidence.

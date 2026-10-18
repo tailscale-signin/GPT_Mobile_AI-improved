@@ -62,7 +62,7 @@ import dev.chungjungsoo.gptmobile.presentation.common.SettingsHelpIcon
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import dev.chungjungsoo.gptmobile.presentation.ui.localmodel.LocalModelDownloadDialogHost
 
-internal enum class LocalAiTab { MODELS, MARKETPLACE, ASSIST, SETTINGS }
+internal enum class LocalAiTab { MODELS, MARKETPLACE, SETTINGS }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -81,7 +81,7 @@ fun LocalModelsScreen(
             if (startInMarketplace) {
                 LocalAiTab.MARKETPLACE
             } else if (startInDelegation) {
-                LocalAiTab.ASSIST
+                LocalAiTab.SETTINGS
             } else {
                 LocalAiTab.MODELS
             }
@@ -182,7 +182,6 @@ fun LocalModelsScreen(
             }
             when (tab) {
                 LocalAiTab.MARKETPLACE -> LocalMarketplaceScreen(viewModel = viewModel, runtimeViewModel = runtimeViewModel, onOpenProfile = onOpenProfile, onNavigationClick = { tab = LocalAiTab.MODELS })
-                LocalAiTab.ASSIST -> LocalAssistScreen(runtimeViewModel, onMarketplace = { marketplace = true })
                 LocalAiTab.SETTINGS -> LocalAiSettingsScreen(viewModel, runtimeViewModel, onDownloads = {
                     marketplace = true
                     viewModel.updateFilter(LocalModelFilter.DOWNLOADING)
@@ -212,7 +211,7 @@ fun LocalModelsScreen(
                         }
                     }
                     item(key = "local-assist") {
-                        TextButton(onClick = { tab = LocalAiTab.ASSIST }) { Text("Local Assist and tools") }
+                        TextButton(onClick = { tab = LocalAiTab.SETTINGS }) { Text("Local Assist and tools") }
                     }
                     item(key = "profiles-title") {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -264,7 +263,7 @@ fun LocalModelsScreen(
                                         DropdownMenuItem(text = { Text(stringResource(R.string.local_ai_assign)) }, onClick = {
                                             menu = false
                                             runtimeViewModel.updateAssist { it.copy(profileUid = profile.uid) }
-                                            tab = LocalAiTab.ASSIST
+                                            tab = LocalAiTab.SETTINGS
                                         })
                                         DropdownMenuItem(text = { Text(stringResource(R.string.delete)) }, onClick = {
                                             menu = false

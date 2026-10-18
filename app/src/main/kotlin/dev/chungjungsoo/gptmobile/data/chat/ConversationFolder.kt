@@ -32,3 +32,7 @@ object ConversationFolderStyle {
     fun name(value: String): String = value.trim().also { require(it.isNotBlank() && it.length <= 40) { "Use 1–40 characters for a folder name." } }
     fun color(value: Long): Long = value.also { require(it in colors) { "Choose a folder colour." } }
 }
+
+@Serializable
+@Entity(tableName = "conversation_folder_moves", foreignKeys = [ForeignKey(entity = ChatRoomV2::class, parentColumns = ["chat_id"], childColumns = ["chatId"], onDelete = ForeignKey.CASCADE)])
+data class ConversationFolderMove(@PrimaryKey val chatId: Int, val version: String)

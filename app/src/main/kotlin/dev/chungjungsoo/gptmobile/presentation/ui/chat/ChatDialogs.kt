@@ -182,8 +182,6 @@ fun ChatModelDialog(
                 }
                 Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(top = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (section == "Models") {
-                        dev.chungjungsoo.gptmobile.presentation.ui.setting.LocalAssistToggle(localAssist, onLocalAssistChanged)
-                        HorizontalDivider(Modifier.padding(vertical = 8.dp))
                         ConversationDelegationCard(
                             settings = delegationSettings,
                             profiles = delegationProfiles,

@@ -62,7 +62,10 @@ class CompleteBackupManager @Inject constructor(
 
     /** Startup calls this before workers, credentials, memory or chat repositories are used. */
     suspend fun recoverAtStartup() = withContext(Dispatchers.IO) {
-        mutex.withLock { recoverInterruptedRestore() }
+        mutex.withLock {
+            recoverInterruptedRestore()
+            preferences.normalizeAssist()
+        }
     }
     private val json = Json {
         ignoreUnknownKeys = true

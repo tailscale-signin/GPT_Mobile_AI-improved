@@ -86,7 +86,22 @@ class ChatReadinessCoordinator @Inject constructor(
                     memory.clear()
                     val (features, profiles, selection) = state
                     val (hints, composerEngaged) = selection
-                    if (!availability.first || !features.readiness.enabled) return@collectLatest
+                    if (!availability.first) return@collectLatest
+                    val effective = features.resolveAssistPolicy()
+                    val requested = features.localAssistPolicy
+                    // Explicit preload is separate from per-task cold loading. Never auto-select/download weights.
+                    val target = profiles.firstOrNull { it.uid == requested.profileUid && effective.effective.allowsProcessing(it) }
+                    if (!composerEngaged && effective.enabled && requested.preloadInForeground && requested.preparation == AssistPreparation.PREPARE_AUTOMATICALLY && target != null) {
+                        scheduler.requestFor("helper:${target.uid}", ::idle, ReadinessResource.LOCAL) {
+                            if (!helper.eligible(target, effective.effective.copy(preparation = requested.preparation))) {
+                                helper.recoveryRetryAtMillis?.let { until ->
+                                    delay((until - android.os.SystemClock.elapsedRealtime()).coerceIn(1, 30_000))
+                                    if (idle()) helper.eligible(target, effective.effective.copy(preparation = requested.preparation))
+                                }
+                            }
+                        }
+                    }
+                    if (!features.readiness.enabled) return@collectLatest
                     if (!composerEngaged) delay(500)
                     if (!idle()) return@collectLatest
                     val count = when {
@@ -115,20 +130,6 @@ class ChatReadinessCoordinator @Inject constructor(
                     if (composerEngaged && features.readiness.prepareSelectedLocalModel) {
                         targets.firstOrNull { it.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.LITERT_LM }?.let { primary ->
                             scheduler.requestFor("primary:${primary.uid}", ::idle, ReadinessResource.LOCAL) { helper.preparePrimary(primary) }
-                        }
-                    }
-                    val effective = features.resolveAssistPolicy()
-                    val requested = features.localAssistPolicy
-                    // Explicit preload is separate from per-task cold loading. Never auto-select/download weights.
-                    val target = profiles.firstOrNull { it.uid == requested.profileUid && effective.effective.allowsProcessing(it) }
-                    if (!composerEngaged && effective.enabled && requested.preloadInForeground && requested.preparation == AssistPreparation.PREPARE_AUTOMATICALLY && target != null) {
-                        scheduler.requestFor("helper:${target.uid}", ::idle, ReadinessResource.LOCAL) {
-                            if (!helper.eligible(target, effective.effective.copy(preparation = requested.preparation))) {
-                                helper.recoveryRetryAtMillis?.let { until ->
-                                    delay((until - android.os.SystemClock.elapsedRealtime()).coerceIn(1, 30_000))
-                                    if (idle()) helper.eligible(target, effective.effective.copy(preparation = requested.preparation))
-                                }
-                            }
                         }
                     }
                 }

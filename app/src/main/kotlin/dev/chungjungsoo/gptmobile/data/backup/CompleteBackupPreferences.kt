@@ -22,11 +22,27 @@ internal class CompleteBackupPreferences(private val context: Context, private v
         context.getSharedPreferences(name, Context.MODE_PRIVATE).all.mapValues { (_, value) -> encode(requireNotNull(value)) }
     }
 
+    suspend fun normalizeAssist() {
+        dataStore.edit { prefs ->
+            val key = stringPreferencesKey("advanced_feature_settings_json")
+            prefs[key]?.let { raw ->
+                val next = dev.chungjungsoo.gptmobile.data.assist.LocalAssistSettingsMigration.normalize(raw)
+                if (next != raw) {
+                    prefs[stringPreferencesKey("advanced_feature_settings_before_assist_v1")] = raw
+                    prefs[key] = next
+                }
+            }
+        }
+    }
+
     suspend fun replace(values: Map<String, BackupValue>, shared: Map<String, Map<String, BackupValue>>) {
         validate(values, shared)
+        val normalized = values.mapValues { (key, value) ->
+            if (key == "advanced_feature_settings_json") value.copy(value = dev.chungjungsoo.gptmobile.data.assist.LocalAssistSettingsMigration.normalize(value.value)) else value
+        }
         dataStore.edit { prefs ->
             prefs.clear()
-            values.forEach { (name, value) ->
+            normalized.forEach { (name, value) ->
                 when (val decoded = decode(value)) {
                     is Boolean -> prefs[booleanPreferencesKey(name)] = decoded
                     is Int -> prefs[intPreferencesKey(name)] = decoded
@@ -98,4 +114,4 @@ internal class CompleteBackupPreferences(private val context: Context, private v
 }
 
 // History and qualification mirrors belong to Statistics, never generic Settings.
-internal val SECTION_OWNED_SHARED_PREFERENCES = setOf("complete_backup_ui_v1", "profile_benchmarks_v1")
+internal val SECTION_OWNED_SHARED_PREFERENCES = setOf("complete_backup_ui_v1", "profile_benchmarks_v1", "generation_completion_inbox_v1", "conversation_read_state_v1")

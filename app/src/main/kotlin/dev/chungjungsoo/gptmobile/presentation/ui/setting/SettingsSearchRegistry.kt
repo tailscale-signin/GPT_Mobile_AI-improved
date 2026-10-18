@@ -44,13 +44,12 @@ internal object SettingsSearchRegistry {
         else -> "Research & Efficiency"
     }
 
-    val entries: List<SettingsSearchEntry> = AppFeature.entries.filterNot { it == AppFeature.OPENROUTER_BATCH }.map {
+    val entries: List<SettingsSearchEntry> = AppFeature.entries.filterNot { it in setOf(AppFeature.OPENROUTER_BATCH, AppFeature.LOCAL_ASSIST) }.map {
         SettingsSearchEntry("feature.${it.name}", it.title, "Advanced Settings › ${group(it)}", SettingsSearchDestination.ADVANCED, it.name, it.description)
-    } + DebugMetric.entries.map {
+    } + listOf(SettingsSearchEntry("local-assist", "Local Assist", "AI › Local Models", SettingsSearchDestination.LOCAL_MODELS, "assist", "helper local research sources")) + DebugMetric.entries.map {
         SettingsSearchEntry("debug.${it.name}", it.title, "Debug › Display", SettingsSearchDestination.DEBUG, it.name, it.description)
     } + listOf(
         SettingsSearchEntry("research", "Research", "Plugins & Tools › Research", SettingsSearchDestination.TOOLS, "research", "archive article examine evidence appraisal papers study statistics"),
-        SettingsSearchEntry("execution", "Execution & efficiency", "Plugins › Execution & Efficiency", SettingsSearchDestination.LOCAL_MODELS, "execution", "optimization balanced savings fast local assist budgets shared usage handoff diagnostics"),
         SettingsSearchEntry("appearance.presets", "Theme Styles", "Appearance › Style", SettingsSearchDestination.APPEARANCE, "0", "theme colours colors graphite cyan midnight"),
         SettingsSearchEntry("appearance.custom", "Custom Colours", "Appearance › Colours", SettingsSearchDestination.APPEARANCE, "1", "palette contrast accent secondary background cards hex save theme"),
         SettingsSearchEntry("appearance.saved", "Saved Themes", "Appearance › Saved", SettingsSearchDestination.APPEARANCE, "3", "saved theme rename duplicate delete backup colours colors"),

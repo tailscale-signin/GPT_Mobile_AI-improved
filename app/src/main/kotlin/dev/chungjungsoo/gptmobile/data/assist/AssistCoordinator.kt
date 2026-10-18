@@ -46,13 +46,24 @@ internal class AssistCoordinator(
             return {
                 val acquired = prepared()
                 val requested = policy.validated()
-                val started = (System.nanoTime() / 1_000_000L)
-                LocalAssistQueue.run(minOf(requested.queueWaitSeconds, requested.optionalWaitSeconds) * 1000L) {
-                    val remaining = (requested.optionalWaitSeconds * 1000L - ((System.nanoTime() / 1_000_000L) - started)).coerceAtLeast(1)
-                    reduceShared(acquired, authority, remaining)
-                } ?: run {
-                    publish(AssistTaskState(taskId = UUID.randomUUID().toString(), admission = AssistAdmission.ELIGIBLE, execution = AssistExecution.SKIPPED, reason = "HELPER_QUEUE_DEADLINE"))
-                    acquired
+                if (requested.optionalWaitSeconds == 0) {
+                    dev.chungjungsoo.gptmobile.data.assist.OptionalAssistArtifacts.enqueue(
+                        kotlinx.coroutines.currentCoroutineContext(),
+                        acquired,
+                        stillEnabled,
+                        runtimeFingerprint
+                    ) {
+                        LocalAssistQueue.run(1L) { reduceShared(acquired, authority, 30_000L) } ?: acquired
+                    }
+                } else {
+                    val started = (System.nanoTime() / 1_000_000L)
+                    LocalAssistQueue.run(minOf(requested.queueWaitSeconds, requested.optionalWaitSeconds) * 1000L) {
+                        val remaining = (requested.optionalWaitSeconds * 1000L - ((System.nanoTime() / 1_000_000L) - started)).coerceAtLeast(1)
+                        reduceShared(acquired, authority, remaining)
+                    } ?: run {
+                        publish(AssistTaskState(taskId = UUID.randomUUID().toString(), admission = AssistAdmission.ELIGIBLE, execution = AssistExecution.SKIPPED, reason = "HELPER_QUEUE_DEADLINE"))
+                        acquired
+                    }
                 }
             }
         }

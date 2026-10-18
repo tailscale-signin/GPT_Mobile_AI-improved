@@ -753,10 +753,15 @@ class ChatViewModel @Inject constructor(
         _pendingFreeToolConsent.value = null
     }
 
-    fun markCurrentChatViewed() {
-        val chatId = chatRoom.value.id
-        conversationReadStateStore.markViewed(chatId)
-        generationCompletionStore.clearChat(chatId)
+    val pendingReplies = generationCompletionStore.items
+
+    fun acknowledgeDisplayedReplies(displayed: List<MessageV2>, captured: List<dev.chungjungsoo.gptmobile.data.chat.CompletedGeneration>) {
+        val byId = displayed.associateBy { it.id }
+        viewModelScope.launch {
+            captured.filter { it.chatId == chatRoom.value.id }.forEach { item ->
+                byId[item.assistantMessageId]?.let { generationCompletionStore.acknowledge(item, it.content) }
+            }
+        }
     }
 
     private val conversationDelegationMutex = Mutex()

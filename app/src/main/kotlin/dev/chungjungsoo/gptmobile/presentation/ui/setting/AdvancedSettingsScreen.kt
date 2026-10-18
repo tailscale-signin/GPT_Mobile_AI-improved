@@ -52,7 +52,7 @@ fun AdvancedSettingsScreen(
 ) {
     val settings by viewModel.featureSettings.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
-    val groups = remember { AppFeature.entries.filterNot { it == AppFeature.OPENROUTER_BATCH }.groupBy(SettingsSearchRegistry::group) }
+    val groups = remember { AppFeature.entries.filterNot { it in setOf(AppFeature.OPENROUTER_BATCH, AppFeature.LOCAL_ASSIST) }.groupBy(SettingsSearchRegistry::group) }
     val categories = remember { listOf("Privacy & Storage", "Performance", "New Chat") + groups.keys }
     var category by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("Performance") }
     LaunchedEffect(initialFocus) {

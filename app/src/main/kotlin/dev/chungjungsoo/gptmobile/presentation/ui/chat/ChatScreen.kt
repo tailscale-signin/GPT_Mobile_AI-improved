@@ -296,11 +296,7 @@ fun ChatScreen(
     val indexStates by chatViewModel.indexStates.collectAsStateWithLifecycle()
     val loadingStates by chatViewModel.loadingStates.collectAsStateWithLifecycle()
 
-    LaunchedEffect(chatRoom.id, groupedMessages, activeAgentRuns) {
-        if (chatRoom.id > 0) {
-            chatViewModel.markCurrentChatViewed()
-        }
-    }
+    val pendingReplies by chatViewModel.pendingReplies.collectAsStateWithLifecycle()
     var dismissedRecovery by rememberSaveable(chatRoom.id) { mutableStateOf<String?>(null) }
     val recoveryTurn = groupedMessages.assistantMessages.lastIndex
     val blockedResponse = groupedMessages.assistantMessages.lastOrNull()?.withIndex()?.firstOrNull { (_, message) ->
@@ -678,6 +674,9 @@ fun ChatScreen(
                 ) { visibleIndex, message ->
                     val index = firstVisibleTurn + visibleIndex
                     ChatMessagePair(
+                        replyRevision = pendingReplies.hashCode().toLong(),
+                        replyVisible = listState.layoutInfo.visibleItemsInfo.any { it.key == chatMessagePairKey(message, index) },
+                        onAnswerDisplayed = { displayed -> chatViewModel.acknowledgeDisplayedReplies(listOf(displayed), pendingReplies) },
                         currentResearchTools = { chatViewModel.chatToolConfig.value },
                         messageIndex = index,
                         message = message,
@@ -1086,6 +1085,9 @@ fun ChatScreen(
 
 @Composable
 private fun ChatMessagePair(
+    replyRevision: Long,
+    replyVisible: Boolean,
+    onAnswerDisplayed: (MessageV2) -> Unit,
     currentResearchTools: () -> dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig,
     messageIndex: Int,
     message: MessageV2,
@@ -1201,6 +1203,14 @@ private fun ChatMessagePair(
             } else {
                 timeline
             }
+        }
+    }
+    val readLifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    val readLifecycleState by readLifecycle.lifecycle.currentStateFlow.collectAsStateWithLifecycle()
+    LaunchedEffect(replyRevision, replyVisible, selectedAssistantMessage, rawAssistantContent, readLifecycleState) {
+        if (replyVisible && !isSourceResponse && readLifecycle.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
+            androidx.compose.runtime.withFrameNanos { }
+            selectedAssistantMessage?.let { onAnswerDisplayed(it.copy(content = rawAssistantContent)) }
         }
     }
     val selectedRunId = selectedAssistantMessage?.effectiveRunId()

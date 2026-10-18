@@ -8,6 +8,17 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface ConversationFolderDao {
+    @Query("UPDATE chats_v2 SET is_favorite = :pinned WHERE chat_id IN (:ids) AND is_favorite != :pinned")
+    suspend fun setPinned(ids: List<Int>, pinned: Boolean): Int
+
+    @Query("SELECT * FROM conversation_folders WHERE id = :id")
+    suspend fun folder(id: String): ConversationFolder?
+
+    @Query("SELECT * FROM conversation_folder_moves WHERE chatId = :chatId")
+    suspend fun moveVersion(chatId: Int): ConversationFolderMove?
+
+    @Upsert suspend fun saveMoveVersion(value: ConversationFolderMove)
+
     @Query("SELECT * FROM conversation_folders ORDER BY createdAt, id")
     fun observeFolders(): Flow<List<ConversationFolder>>
 

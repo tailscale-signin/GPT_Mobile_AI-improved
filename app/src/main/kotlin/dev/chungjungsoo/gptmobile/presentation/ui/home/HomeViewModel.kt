@@ -77,8 +77,10 @@ class HomeViewModel @Inject constructor(
         val isSelectionMode: Boolean = false,
         val isSearchMode: Boolean = false,
         val selectedPlatforms: List<Boolean> = listOf(),
-        val selectedChats: List<Boolean> = listOf()
-    )
+        val selectedChatIds: Set<Int> = emptySet()
+    ) {
+        val selectedChats: List<Boolean> get() = chats.map { it.id in selectedChatIds }
+    }
 
     val featureSettings = settingRepository.observeFeatureSettings().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings())
 
@@ -98,7 +100,7 @@ class HomeViewModel @Inject constructor(
 
     private fun publishFolderChats() {
         val visible = allChats.filter { _selectedFolderId.value == null || folderMembers[it.id] == _selectedFolderId.value }
-        _chatListState.update { it.copy(chats = sortChats(visible), selectedChats = List(visible.size) { false }, isSelectionMode = false) }
+        _chatListState.update { it.copy(chats = sortChats(visible), selectedChatIds = it.selectedChatIds.intersect(visible.mapTo(mutableSetOf()) { room -> room.id })) }
     }
 
     fun selectFolder(id: String?) {
@@ -131,6 +133,34 @@ class HomeViewModel @Inject constructor(
                 _folderError.value = if (failure is IllegalArgumentException) failure.message else "Could not update this folder. Please try again."
             }
         }
+    }
+
+    val folderBusy = MutableStateFlow(false)
+    val lastFolderMove = MutableStateFlow<dev.chungjungsoo.gptmobile.data.chat.FolderMoveReceipt?>(null)
+
+    fun moveSelectedToFolder(ids: Set<Int>, destination: String?, newName: String? = null, color: Long = dev.chungjungsoo.gptmobile.data.chat.ConversationFolderStyle.colors.first(), committed: () -> Unit) {
+        if (!folderBusy.compareAndSet(false, true)) return
+        viewModelScope.launch {
+            try {
+                val receipt = if (newName == null) foldersRepository.moveMany(ids, destination) else foldersRepository.createAndMove(ids, newName, color)
+                lastFolderMove.value = receipt
+                _folderError.value = null
+                disableSelectionMode()
+                committed()
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                _folderError.value = error.message ?: "Could not move conversations. Try again."
+            } finally {
+                folderBusy.value = false
+            }
+        }
+    }
+
+    fun undoFolderMove(receipt: dev.chungjungsoo.gptmobile.data.chat.FolderMoveReceipt) = folderAction {
+        val (_, missing) = foldersRepository.undo(receipt)
+        lastFolderMove.value = null
+        if (missing > 0) _folderError.value = "$missing conversations returned to No folder because the previous folder was deleted."
     }
 
     private val _platformState = MutableStateFlow(listOf<PlatformV2>())
@@ -188,6 +218,7 @@ class HomeViewModel @Inject constructor(
                 .thenBy { if (it.isFavorite) pinnedOrder.indexOf(it.id).takeIf { index -> index >= 0 } ?: Int.MAX_VALUE else Int.MAX_VALUE }
                 .thenByDescending { activeIds.contains(it.id) }
                 .thenByDescending { it.updatedAt }
+                .thenBy { it.id }
         )
 
     init {
@@ -255,8 +286,6 @@ class HomeViewModel @Inject constructor(
         agentRunCoordinator.activeRuns
             .onEach { runs ->
                 val newActiveIds = runs.values.mapTo(mutableSetOf()) { it.chatId }
-                val finishedIds = _activeChatIds.value - newActiveIds
-                finishedIds.forEach(conversationReadStateStore::markUnread)
                 _activeChatIds.update { newActiveIds }
                 _chatListState.update { current ->
                     if (!current.isSelectionMode) {
@@ -470,20 +499,21 @@ class HomeViewModel @Inject constructor(
         _chatListState.update { it.copy(selectedPlatforms = List(it.selectedPlatforms.size) { false }) }
     }
 
-    fun deleteSelectedChats() {
-        viewModelScope.launch {
-            val selectedChats = _chatListState.value.chats.filterIndexed { index, _ ->
-                _chatListState.value.selectedChats.getOrElse(index) { false }
-            }
-            val expanded = selectedChats.flatMap { workspaceRooms(it) }.distinctBy { it.id }
-            agentRunCoordinator.withChatGate(expanded.map { it.id }) {
-                expanded.forEach { agentRunCoordinator.cancelChatAndJoin(it.id, dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.CHAT_DELETED) }
-                chatRepository.deleteChatsV2(expanded)
-            }
-            forgetWorkspaceMappings(expanded)
-            disableSelectionMode()
-            fetchChats()
+    private suspend fun deleteConversations(roots: List<ChatRoomV2>) {
+        val expanded = roots.flatMap { workspaceRooms(it) }.distinctBy { it.id }
+        agentRunCoordinator.withChatGate(expanded.map { it.id }) {
+            expanded.forEach { agentRunCoordinator.cancelChatAndJoin(it.id, dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.CHAT_DELETED) }
+            chatRepository.deleteChatsV2(expanded)
         }
+        forgetWorkspaceMappings(expanded)
+        disableSelectionMode()
+        fetchChats()
+        fetchArchivedChats()
+    }
+
+    fun deleteSelectedChats() {
+        val selected = _chatListState.value.let { state -> state.chats.filter { it.id in state.selectedChatIds } }
+        viewModelScope.launch { deleteConversations(selected) }
     }
 
     fun openConversation(room: ChatRoomV2, onOpen: (ChatRoomV2, Int?) -> Unit) {
@@ -497,7 +527,6 @@ class HomeViewModel @Inject constructor(
             } else {
                 null
             }
-            markChatViewed(room.id)
             onOpen(room, target)
         }
     }
@@ -512,23 +541,11 @@ class HomeViewModel @Inject constructor(
     }
 
     fun deleteChat(chatRoom: ChatRoomV2) {
-        viewModelScope.launch {
-            val members = workspaceRooms(chatRoom)
-            members.forEach {
-                conversationReadStateStore.remove(it.id)
-                completionStore.clearChat(it.id)
-            }
-            agentRunCoordinator.withChatGate(members.map { it.id }) {
-                members.forEach { agentRunCoordinator.cancelChatAndJoin(it.id, dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.CHAT_DELETED) }
-                chatRepository.deleteChatsV2(members)
-            }
-            forgetWorkspaceMappings(members)
-            fetchChats()
-        }
+        viewModelScope.launch { deleteConversations(listOf(chatRoom)) }
     }
 
     fun selectAllChats() {
-        _chatListState.update { it.copy(isSelectionMode = true, selectedChats = List(it.chats.size) { true }) }
+        _chatListState.update { it.copy(isSelectionMode = true, selectedChatIds = if (it.selectedChatIds.size == it.chats.size) emptySet() else it.chats.mapTo(mutableSetOf()) { chat -> chat.id }) }
     }
 
     fun pinSelectedChats(pinned: Boolean) {
@@ -536,10 +553,9 @@ class HomeViewModel @Inject constructor(
         val selected = state.chats.filterIndexed { index, _ -> state.selectedChats.getOrElse(index) { false } }
         if (selected.isEmpty()) return
         viewModelScope.launch {
-            val ids = selected.map { it.id }
+            val ids = foldersRepository.setPinnedMany(selected.mapTo(mutableSetOf()) { it.id }, pinned)
             pinnedOrder = if (pinned) (ids + pinnedOrder).distinct() else pinnedOrder - ids.toSet()
             pinnedOrderStore.save(pinnedOrder)
-            selected.forEach { chatRepository.setChatFavorite(it.id, pinned) }
             disableSelectionMode()
             fetchChats()
         }
@@ -605,7 +621,7 @@ class HomeViewModel @Inject constructor(
     fun disableSelectionMode() {
         _chatListState.update {
             it.copy(
-                selectedChats = List(it.chats.size) { false },
+                selectedChatIds = emptySet(),
                 isSelectionMode = false
             )
         }
@@ -617,7 +633,6 @@ class HomeViewModel @Inject constructor(
     }
 
     fun enableSelectionMode() {
-        disableSearchMode()
         _chatListState.update { it.copy(isSelectionMode = true) }
     }
 
@@ -682,17 +697,8 @@ class HomeViewModel @Inject constructor(
     fun selectChat(chatRoomIdx: Int) {
         if (chatRoomIdx < 0 || chatRoomIdx >= _chatListState.value.chats.size) return
 
-        _chatListState.update {
-            it.copy(
-                selectedChats = it.selectedChats.mapIndexed { index, b ->
-                    if (index == chatRoomIdx) {
-                        !b
-                    } else {
-                        b
-                    }
-                }
-            )
-        }
+        val id = _chatListState.value.chats[chatRoomIdx].id
+        _chatListState.update { it.copy(selectedChatIds = if (id in it.selectedChatIds) it.selectedChatIds - id else it.selectedChatIds + id) }
 
         if (_chatListState.value.selectedChats.count { it } == 0) {
             disableSelectionMode()

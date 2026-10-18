@@ -25,5 +25,5 @@ data class LocalAssistPolicy(
     val optionalWaitSeconds: Int = 2,
     val perTurnQueryPlanning: Boolean = false
 ) {
-    fun validated() = copy(optionalWaitSeconds = optionalWaitSeconds.coerceIn(1, 60), queueWaitSeconds = queueWaitSeconds.coerceIn(1, 60), contextTokens = contextTokens.coerceIn(1024, 16384), loadTimeoutSeconds = loadTimeoutSeconds.coerceIn(10, 120), taskTimeoutSeconds = taskTimeoutSeconds.coerceIn(2, 90), maxAttempts = maxAttempts.coerceIn(1, 8), candidateRecords = candidateRecords.coerceIn(5, 24), selectedRecords = selectedRecords.coerceIn(1, 5))
+    fun validated() = copy(optionalWaitSeconds = optionalWaitSeconds.coerceIn(0, 60), queueWaitSeconds = queueWaitSeconds.coerceIn(1, 60), contextTokens = contextTokens.coerceIn(1024, 16384), loadTimeoutSeconds = loadTimeoutSeconds.coerceIn(10, 120), taskTimeoutSeconds = taskTimeoutSeconds.coerceIn(2, 90), maxAttempts = maxAttempts.coerceIn(1, 8), candidateRecords = candidateRecords.coerceIn(5, 24), selectedRecords = selectedRecords.coerceIn(1, 5))
 }

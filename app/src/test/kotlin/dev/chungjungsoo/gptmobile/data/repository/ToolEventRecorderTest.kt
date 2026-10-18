@@ -443,6 +443,10 @@ private class FakeAgentRunDao : AgentRunDao {
 }
 
 private class FakeAgentPersistenceDao : AgentPersistenceDao {
+    override suspend fun publication(key: String): dev.chungjungsoo.gptmobile.data.chat.ReplyPublication? = null
+    override suspend fun nextPublicationSequence(): Long = 1
+    override suspend fun savePublication(row: dev.chungjungsoo.gptmobile.data.chat.ReplyPublication) = Unit
+
     override suspend fun answerSegmentsForChat(chatId: Int): List<dev.chungjungsoo.gptmobile.data.database.entity.AnswerSegment> = emptyList()
     override suspend fun answerSegments(runId: String): List<dev.chungjungsoo.gptmobile.data.database.entity.AnswerSegment> = emptyList()
     override suspend fun insertAnswerSegments(segments: List<dev.chungjungsoo.gptmobile.data.database.entity.AnswerSegment>) = Unit

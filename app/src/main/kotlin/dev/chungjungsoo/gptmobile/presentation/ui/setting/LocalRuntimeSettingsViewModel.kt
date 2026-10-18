@@ -93,7 +93,11 @@ class LocalRuntimeSettingsViewModel @Inject constructor(
     }
 
     fun updateAssist(change: (dev.chungjungsoo.gptmobile.data.assist.LocalAssistPolicy) -> dev.chungjungsoo.gptmobile.data.assist.LocalAssistPolicy) = perform {
-        repository.mutateFeatureSettings { it.copy(localAssistPolicy = change(it.localAssistPolicy).validated()) }
+        repository.mutateFeatureSettings {
+            val next = change(it.localAssistPolicy).validated()
+            if (next.profileUid != it.localAssistPolicy.profileUid) dev.chungjungsoo.gptmobile.data.assist.AssistReadinessResolver.publish(dev.chungjungsoo.gptmobile.data.assist.AssistReadiness.CHECKING, "Selected helper changed; readiness requires verification", next.profileUid)
+            it.copy(localAssistPolicy = next)
+        }
     }
     fun pinProfile(profile: PlatformV2) = perform { repository.updatePlatformV2(profile.copy(isFavorite = !profile.isFavorite)) }
     fun duplicateProfile(profile: PlatformV2) = perform { repository.addPlatformV2(profile.copy(id = 0, uid = java.util.UUID.randomUUID().toString(), name = "${profile.name} (copy)", isFavorite = false)) }

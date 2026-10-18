@@ -101,14 +101,6 @@ interface InvocationDao {
     suspend fun rootExecutionPolicy(turnKey: String): String?
 
     @Transaction suspend fun reserve(invocation: ModelInvocation, limit: Int, spend: SpendBudgetSettings = SpendBudgetSettings()) {
-        invocation.executionPolicyJson?.let { encoded ->
-            val requested = kotlinx.serialization.json.Json.decodeFromString<dev.chungjungsoo.gptmobile.data.orchestration.ExecutionPolicy>(encoded)
-            val rows = forRootBudget(invocation.turnKey)
-            val effective = rows.mapNotNull { it.executionPolicyJson }.fold(requested) { current, saved ->
-                kotlinx.serialization.json.Json.decodeFromString<dev.chungjungsoo.gptmobile.data.orchestration.ExecutionPolicy>(saved).restrictWith(current)
-            }
-            dev.chungjungsoo.gptmobile.data.orchestration.ModelBudgetAdmission.check(rows, invocation, effective)
-        }
         if (limit != Int.MAX_VALUE && committedTokens(invocation.turnKey) + invocation.inputTokens + invocation.outputTokens > limit) throw TokenAllowanceReached()
         if (spend.enforced && invocation.costMicros == null) throw SpendAllowanceReached("Add a current model price and a finite output cap before using a monetary budget.")
         val cost = invocation.costMicros ?: 0
@@ -163,10 +155,7 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
         override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
             val features = settings?.getFeatureSettings()
             val spend = features?.spendBudget ?: SpendBudgetSettings()
-            val selectedPolicy = features?.executionPolicy ?: dev.chungjungsoo.gptmobile.data.orchestration.ExecutionPolicy()
-            val retainedPolicy = if (settings != null) dao.rootExecutionPolicy(turnKey)?.let { kotlinx.serialization.json.Json.decodeFromString<dev.chungjungsoo.gptmobile.data.orchestration.ExecutionPolicy>(it) } else null
-            val executionPolicy = (retainedPolicy?.restrictWith(selectedPolicy) ?: selectedPolicy).validate()
-            val retainAccounting = forceAccounting || preparedAssistEvidence.isNotEmpty() || totalLimit != Int.MAX_VALUE || spend.enforced || executionPolicy.unifiedRunAccounting || executionPolicy.sharedRunBudget || LocalDiagnosticsPolicy.enabled
+            val retainAccounting = forceAccounting || preparedAssistEvidence.isNotEmpty() || totalLimit != Int.MAX_VALUE || spend.enforced || LocalDiagnosticsPolicy.enabled
             if (!retainAccounting && !LocalDiagnosticsPolicy.enabled) {
                 emitAll(session.streamRound(tools, exchanges))
                 return@flow
@@ -180,10 +169,6 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
             val price = if (provider == "LITERT_LM") ModelPrice(model, 0, 0, "On-device inference", System.currentTimeMillis()) else configured
             val estimatedInput = (inputEstimate.toLong() + replay).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
             val reservedCost = price?.takeIf { provider == "LITERT_LM" || outputLimit > 0 }?.cost(estimatedInput, outputLimit)
-            val activeAllowance = executionPolicy.modelActiveMillis?.takeIf { executionPolicy.sharedRunBudget }?.let { limit ->
-                val used = dao.forRootBudget(turnKey).sumOf { it.durationMs }
-                ((limit - used).coerceAtLeast(1) / executionPolicy.concurrentModels).coerceAtLeast(1)
-            }
             val record = ModelInvocation(
                 java.util.UUID.randomUUID().toString(),
                 parentRunId,
@@ -194,15 +179,12 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
                 (inputEstimate.toLong() + replay).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
                 outputLimit,
                 profileUid = profileUid,
-                durationMs = activeAllowance ?: 0,
+                durationMs = 0,
                 costMicros = reservedCost, currency = spend.currency, priceSource = price?.let { "${it.source} · ${it.checkedAt}" },
-                executionPolicyJson = if (executionPolicy.sharedRunBudget) kotlinx.serialization.json.Json.encodeToString(executionPolicy) else null
+                executionPolicyJson = null
             )
             try {
                 if (retainAccounting) dao.reserve(record, totalLimit, spend)
-            } catch (error: dev.chungjungsoo.gptmobile.data.orchestration.ExecutionAllowanceReached) {
-                emit(ProviderEvent.Failed("${error.message} No model request was sent; completed evidence remains available."))
-                return@flow
             } catch (error: SpendAllowanceReached) {
                 emit(ProviderEvent.TextDelta("\n\n${error.message} No model request was sent."))
                 emit(ProviderEvent.Completed)
@@ -293,10 +275,10 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
                                 it + (
                                     record.id to record.copy(
                                         inputTokens = input ?: record.inputTokens,
-                                        outputTokens = output ?: if (status != "COMPLETED" && executionPolicy.sharedRunBudget) maxOf(record.outputTokens, ((generatedBytes + 2) / 3).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()) else ((generatedBytes + 2) / 3).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+                                        outputTokens = output ?: ((generatedBytes + 2) / 3).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
                                         estimated = input == null || output == null || inputSource == "estimated" || outputSource == "estimated",
                                         inputTokenSource = inputSource,
-                                        outputTokenSource = if (output == null && status != "COMPLETED" && executionPolicy.sharedRunBudget) "reserved_unknown" else outputSource,
+                                        outputTokenSource = outputSource,
                                         finishReason = finishReason,
                                         actualRuntime = actualRuntime,
                                         durationMs = (now - started) / 1_000_000,
@@ -308,20 +290,7 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
                         emit(event)
                     }
                 }
-                val completed = if (activeAllowance == null) {
-                    collectRound()
-                    true
-                } else {
-                    kotlinx.coroutines.withTimeoutOrNull(activeAllowance) {
-                        collectRound()
-                        true
-                    } ?: false
-                }
-                if (!completed) {
-                    status = if (generatedBytes > 0) "PARTIAL" else "FAILED"
-                    finishReason = "operation_deadline"
-                    emit(ProviderEvent.Failed("Active model time allowance reached; completed evidence and partial output are retained."))
-                }
+                collectRound()
             } catch (cancelled: CancellationException) {
                 status = "CANCELED"
                 throw cancelled
@@ -344,10 +313,10 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
                             dao.save(
                                 record.copy(
                                     inputTokens = input ?: record.inputTokens,
-                                    outputTokens = output ?: if (status != "COMPLETED" && executionPolicy.sharedRunBudget) maxOf(record.outputTokens, ((generatedBytes + 2) / 3).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()) else ((generatedBytes + 2) / 3).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+                                    outputTokens = output ?: ((generatedBytes + 2) / 3).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
                                     estimated = input == null || output == null || inputSource == "estimated" || outputSource == "estimated",
                                     inputTokenSource = inputSource,
-                                    outputTokenSource = if (output == null && status != "COMPLETED" && executionPolicy.sharedRunBudget) "reserved_unknown" else outputSource,
+                                    outputTokenSource = outputSource,
                                     finishReason = finishReason,
                                     actualRuntime = actualRuntime,
                                     status = status,

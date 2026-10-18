@@ -83,7 +83,8 @@ data class AgentToolResult(
     val errorCode: String? = null,
     val dispatched: Boolean = true,
     val assistMetadata: List<JsonObject> = emptyList(),
-    val media: List<AgentToolMedia> = emptyList()
+    val media: List<AgentToolMedia> = emptyList(),
+    val optionalAssistKey: String? = null
 )
 
 /** Managed content reference, never an arbitrary local path or remote download instruction. */

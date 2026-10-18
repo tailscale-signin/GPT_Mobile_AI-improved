@@ -325,7 +325,7 @@ class AppBackupManager @Inject constructor(
      */
     suspend fun exportDatabase(uri: Uri, passphrase: String? = null): BackupRestoreResult = withContext(Dispatchers.IO) {
         runCatching {
-            val chatRooms = chatRoomV2Dao.getChatRooms()
+            val chatRooms = chatRoomV2Dao.getChatRooms() + chatRoomV2Dao.getArchivedChatRooms()
             val allMessages = chatRooms.flatMap { room ->
                 messageV2Dao.loadMessages(room.id)
             }
@@ -339,6 +339,7 @@ class AppBackupManager @Inject constructor(
                 version = 2,
                 exportedAt = System.currentTimeMillis(),
                 chatRooms = chatRooms,
+                replyPublications = database.replyPublicationDao().all(),
                 conversationFolders = database.conversationFolderDao().folders(),
                 conversationFolderMembers = database.conversationFolderDao().members().filter { member -> chatRooms.any { it.id == member.chatId } },
                 messages = allMessages,
@@ -378,7 +379,7 @@ class AppBackupManager @Inject constructor(
             // Replace relational chat data atomically. Foreign-key or disk failures
             // roll back the whole restore instead of leaving a half-empty database.
             database.withTransaction {
-                val existingChats = chatRoomV2Dao.getChatRooms()
+                val existingChats = chatRoomV2Dao.getChatRooms() + chatRoomV2Dao.getArchivedChatRooms()
                 if (existingChats.isNotEmpty()) {
                     chatRoomV2Dao.deleteChatRooms(*existingChats.toTypedArray())
                 }
@@ -387,6 +388,7 @@ class AppBackupManager @Inject constructor(
                     chatRoomV2Dao.addChatRoom(room)
                 }
 
+                database.openHelper.writableDatabase.execSQL("DELETE FROM conversation_folders")
                 payload.conversationFolders.forEach { database.conversationFolderDao().restoreFolder(it) }
                 payload.conversationFolderMembers.forEach { database.conversationFolderDao().move(it) }
 
@@ -394,6 +396,7 @@ class AppBackupManager @Inject constructor(
                     messageV2Dao.addMessages(*payload.messages.toTypedArray())
                 }
 
+                database.replyPublicationDao().restore(payload.replyPublications)
                 if (payload.chatPlatformModels.isNotEmpty()) {
                     chatPlatformModelV2Dao.upsertAll(*payload.chatPlatformModels.toTypedArray())
                 }

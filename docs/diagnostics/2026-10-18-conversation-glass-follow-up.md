@@ -6,11 +6,11 @@ The requested 50% arrow and 85% composer tints were merged, but their existing t
 
 ## Changes
 
-- Capture unfaded messages inside the viewport mask. The visible messages still fade at the top/bottom, but the glass controls sample the original content.
+- Capture unfaded messages inside the viewport mask. The visible messages still fade at the top/bottom, but the glass controls sample the original content. Entry visibility stays inside the capture so restored chats cannot reveal an unpositioned message list through the glass.
 - Give each conversation an independent same-window backdrop state. Its arrow and composer cannot sample outgoing destinations or other conversations. Dialogs/popups continue using the enclosing window state and opening order.
 - Remove the arrow's shadow paint above its glass. Keep its 26dp plate, sharp icon, 48dp hit area and 50% material tint; keep the composer at 85%.
 - Skip the viewport mask when edge fades are disabled, including the previous residual bottom 4% fade.
-- Add pixel assertions for both controls in light/dark themes: red/blue background transmission verifies opacity, and stripe variance verifies actual blur. The opacity fixture uses the production viewport modifier with edge fades enabled. Controls stay outside the source. An unrelated global source checks conversation isolation.
+- Add pixel assertions for both controls in light/dark themes: red/blue background transmission verifies opacity, and stripe variance verifies actual blur. The opacity fixture uses the production viewport modifier with edge fades enabled. Controls stay outside the source. An unrelated global source checks conversation isolation. A third case verifies that hidden messages remain absent from the blur until entry restoration finishes.
 - Require the new instrumentation protocol results and six screenshots in Android acceptance. Existing send/stop/latest and Settings-transition tests remain required.
 
 ## Feature audit
@@ -22,4 +22,4 @@ The requested 50% arrow and 85% composer tints were merged, but their existing t
 
 ## Validation
 
-Kotlin formatting and whitespace checks pass locally. Full Android compilation and pixel tests run in the PR workflows; results will be recorded after completion. Earlier local builds cannot resolve the uncached Android Gradle plugin in this environment. No fresh phone screenshot or diagnostic export was supplied for this report.
+Kotlin formatting, shell/Python syntax, resource/regex checks and all 138 repository-script tests pass locally. Android acceptance run 39138580562 passed on initial head 6b560eb: measured transmission was 14.64–14.66% for the composer and 48.92–49.12% for the arrow, with background stripe variance reduced by over 99.9% in both themes. Screenshots were inspected. The final entry-visibility adjustment adds a third required pixel case; its exact-head result is tracked in PR #718 checks. Earlier local builds cannot resolve the uncached Android Gradle plugin in this environment. No fresh phone screenshot or diagnostic export was supplied for this report.

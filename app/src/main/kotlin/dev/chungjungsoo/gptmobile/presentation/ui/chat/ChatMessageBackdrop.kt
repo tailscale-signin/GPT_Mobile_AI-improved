@@ -16,7 +16,8 @@ internal fun Modifier.chatMessageBackdrop(
     topFadeStart: Dp,
     topFade: Dp,
     bottomFadeStartFromBottom: Dp,
-    bottomFadeEndFromBottom: Dp
+    bottomFadeEndFromBottom: Dp,
+    contentVisible: Boolean = true
 ): Modifier = this
     .graphicsLayer {
         compositingStrategy = if (topFade.value > 0f || bottomFadeStartFromBottom.value > 0f) CompositingStrategy.Offscreen else CompositingStrategy.Auto
@@ -46,3 +47,5 @@ internal fun Modifier.chatMessageBackdrop(
     // Record the unfaded messages. The outer mask affects only their visible draw,
     // so the composer still samples real content after the viewport fades it out.
     .glassBackdropSource()
+    // Entry visibility belongs inside the source; only viewport edge masks are excluded.
+    .graphicsLayer { alpha = if (contentVisible) 1f else 0f }

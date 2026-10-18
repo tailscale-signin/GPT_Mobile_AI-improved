@@ -48,6 +48,7 @@ class ConversationGlassInstrumentedTest {
     private var blur by mutableStateOf(true)
     private var edgeFades by mutableStateOf(true)
     private var pattern by mutableStateOf(Pattern.RED)
+    private var contentVisible by mutableStateOf(true)
 
     @Test fun conversationGlassKeepsRequestedOpacityOverFadedMessages() {
         showConversation()
@@ -67,6 +68,28 @@ class ConversationGlassInstrumentedTest {
                 println("CONVERSATION_GLASS_OPACITY tag=$tag dark=$darkTheme transmission=$transmission")
             }
             saveScreenshot("conversation-glass-opacity-${if (darkTheme) "dark" else "light"}.png")
+        }
+    }
+
+    @Test fun conversationGlassDoesNotRevealMessagesBeforeEntryRestores() {
+        contentVisible = false
+        showConversation()
+        val hiddenRed = samples()
+        compose.runOnIdle { pattern = Pattern.BLUE }
+        val hiddenBlue = samples()
+        for (tag in hiddenRed.keys) {
+            assertEquals("$tag must not reveal an unrestored message list", hiddenRed.getValue(tag).average(), hiddenBlue.getValue(tag).average(), 0.01)
+        }
+        compose.runOnIdle {
+            contentVisible = true
+            pattern = Pattern.RED
+        }
+        val visibleRed = samples()
+        compose.runOnIdle { pattern = Pattern.BLUE }
+        val visibleBlue = samples()
+        for (tag in visibleRed.keys) {
+            val transmission = (visibleRed.getValue(tag).average() - visibleBlue.getValue(tag).average()) / 2.0
+            assertTrue("$tag must resume sampling messages when restoration finishes: $transmission", transmission > 0.10)
         }
     }
 
@@ -113,7 +136,8 @@ class ConversationGlassInstrumentedTest {
                                     topFadeStart = 0.dp,
                                     topFade = 0.dp,
                                     bottomFadeStartFromBottom = if (edgeFades) composerHeight + dockInset else 0.dp,
-                                    bottomFadeEndFromBottom = if (edgeFades) composerHeight * 0.5f + dockInset else 0.dp
+                                    bottomFadeEndFromBottom = if (edgeFades) composerHeight * 0.5f + dockInset else 0.dp,
+                                    contentVisible = contentVisible
                                 )
                             ) {
                                 when (pattern) {

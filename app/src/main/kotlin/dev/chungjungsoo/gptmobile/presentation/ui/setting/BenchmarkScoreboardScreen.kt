@@ -53,7 +53,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -65,7 +64,9 @@ import dev.chungjungsoo.gptmobile.data.benchmark.ScoreboardKind
 import dev.chungjungsoo.gptmobile.data.benchmark.ScoreboardRepository
 import dev.chungjungsoo.gptmobile.data.benchmark.ScoreboardSubmission
 import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
+import dev.chungjungsoo.gptmobile.presentation.common.FadingDialog as Dialog
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
+import dev.chungjungsoo.gptmobile.presentation.common.glassWindowBackdrop
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -219,7 +220,7 @@ private fun ScoreboardDetail(entry: ScoreboardEntry, previous: ScoreboardEntry?,
     val uri = LocalUriHandler.current
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         BackHandler(onBack = onClose)
-        Scaffold(topBar = {
+        Scaffold(modifier = Modifier.glassWindowBackdrop(), containerColor = dev.chungjungsoo.gptmobile.presentation.common.overlayWindowContainerColor(), topBar = {
             TopAppBar(title = { Text("Full benchmark data") }, navigationIcon = { IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to scoreboard") } }, actions = {
                 if (data.issueNumber == null) IconButton(onClick = onShare) { Icon(Icons.Rounded.Share, "Share result online") }
             })

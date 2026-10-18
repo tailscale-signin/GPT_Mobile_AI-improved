@@ -9,7 +9,6 @@ import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -143,6 +142,10 @@ import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as Alert
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as DropdownMenu
 import dev.chungjungsoo.gptmobile.presentation.common.FadingModalBottomSheet as ModalBottomSheet
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
+import dev.chungjungsoo.gptmobile.presentation.common.appOverlayTokens
+import dev.chungjungsoo.gptmobile.presentation.common.glassBackdrop
+import dev.chungjungsoo.gptmobile.presentation.common.glassBackdropSource
+import dev.chungjungsoo.gptmobile.presentation.common.hasGlassBackdrop
 import dev.chungjungsoo.gptmobile.util.isAssistantErrorMessage
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -630,6 +633,9 @@ fun ChatScreen(
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
+                    // Capture only messages: the composer and floating arrow consume
+                    // this sibling source and must never become part of their own blur.
+                    .glassBackdropSource()
                     .nestedScroll(boundaryConnection)
                     .pointerInput(responseBoundary) {
                         awaitEachGesture {
@@ -1740,8 +1746,9 @@ fun ChatInputBox(
     onSendButtonClick: () -> Unit = {}
 ) {
     val localStyle = LocalTextStyle.current
-    val inputColor = MaterialTheme.colorScheme.background
-    val mergedStyle = localStyle.merge(TextStyle(color = MaterialTheme.colorScheme.onBackground))
+    val inputTokens = appOverlayTokens(opacity = CHAT_INPUT_OPACITY)
+    val inputShape = MaterialTheme.shapes.large
+    val mergedStyle = localStyle.merge(TextStyle(color = inputTokens.foreground))
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val chatInputLineLimits = TextFieldLineLimits.MultiLine(maxHeightInLines = 5)
@@ -1768,10 +1775,10 @@ fun ChatInputBox(
             .padding(horizontal = 16.dp, vertical = 8.dp)
     ) {
         Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = MaterialTheme.shapes.large,
-            color = inputColor,
-            contentColor = MaterialTheme.colorScheme.onBackground,
+            modifier = Modifier.fillMaxWidth().glassBackdrop(inputShape, opacity = CHAT_INPUT_OPACITY).testTag("chat_input_glass"),
+            shape = inputShape,
+            color = if (hasGlassBackdrop()) Color.Transparent else inputTokens.background,
+            contentColor = inputTokens.foreground,
             tonalElevation = 0.dp,
             border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)),
             shadowElevation = 0.dp
@@ -1786,7 +1793,7 @@ fun ChatInputBox(
                 }
                 BasicTextField(
                     state = inputState,
-                    modifier = Modifier.fillMaxWidth().background(inputColor).onFocusChanged { onComposerFocusChanged(it.isFocused) },
+                    modifier = Modifier.fillMaxWidth().onFocusChanged { onComposerFocusChanged(it.isFocused) },
                     enabled = chatEnabled,
                     textStyle = mergedStyle,
                     cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
@@ -1795,7 +1802,6 @@ fun ChatInputBox(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .background(inputColor)
                                 .padding(8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -2082,30 +2088,25 @@ private fun isImageFile(extension: String?): Boolean {
     return extension?.lowercase() in imageExtensions
 }
 
+internal const val CHAT_INPUT_OPACITY = 0.85f
+internal const val CHAT_LATEST_OPACITY = 0.50f
+
 @Composable
 fun ScrollToBottomButton(isGenerating: Boolean = false, onClick: () -> Unit) {
-    val opacity = if (isGenerating) {
-        val transition = androidx.compose.animation.core.rememberInfiniteTransition(label = "latest-response-pulse")
-        val pulse by transition.animateFloat(
-            initialValue = 0.82f,
-            targetValue = 1f,
-            animationSpec = androidx.compose.animation.core.infiniteRepeatable(
-                animation = androidx.compose.animation.core.tween(750, easing = androidx.compose.animation.core.FastOutSlowInEasing),
-                repeatMode = androidx.compose.animation.core.RepeatMode.Reverse
-            ),
-            label = "latest-response-opacity"
-        )
-        pulse
-    } else {
-        1f
-    }
-    // The visual is half-size; the touch target remains accessible.
-    Box(Modifier.size(48.dp).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+    val tokens = appOverlayTokens(opacity = CHAT_LATEST_OPACITY)
+    val shape = androidx.compose.foundation.shape.CircleShape
+    // Keep the glass at exactly 50%; animate neither the backdrop nor the icon's alpha.
+    // Generation remains distinguishable through the themed outline.
+    Box(Modifier.size(48.dp).testTag("chat_jump_to_bottom").clickable(onClick = onClick), contentAlignment = Alignment.Center) {
         Surface(
-            modifier = Modifier.size(26.dp).graphicsLayer { alpha = opacity },
-            shape = androidx.compose.foundation.shape.CircleShape,
-            color = MaterialTheme.colorScheme.primary,
-            contentColor = MaterialTheme.colorScheme.onPrimary,
+            modifier = Modifier.size(26.dp).glassBackdrop(shape, opacity = CHAT_LATEST_OPACITY),
+            shape = shape,
+            color = if (hasGlassBackdrop()) Color.Transparent else tokens.background,
+            contentColor = tokens.foreground,
+            border = androidx.compose.foundation.BorderStroke(
+                if (isGenerating) 2.dp else 1.dp,
+                MaterialTheme.colorScheme.primary.copy(alpha = if (isGenerating) 0.8f else 0.3f)
+            ),
             shadowElevation = 3.dp
         ) {
             Box(contentAlignment = Alignment.Center) {

@@ -33,7 +33,7 @@ import kotlinx.serialization.json.put
 class CalculatorTool(private val decimalPlaces: Int = 8) : AgentTool {
     override val definition = AgentToolDefinition(
         name = BuiltInAgentTool.CALCULATE_EXPRESSION,
-        description = "Evaluates a mathematical expression safely and accurately. Supports arithmetic (+, -, *, /, %, ^), standard functions (sqrt, cbrt, sin, cos, tan, asin, acos, atan, sinh, cosh, tanh, log, ln, log2, abs, round, floor, ceil, min, max, pow), and constants (pi, e).",
+        description = "Evaluates a mathematical expression safely and accurately. Supports arithmetic (+, -, *, /, %, ^), standard functions (sqrt, cbrt, sin, cos, tan, asin, acos, atan, sinh, cosh, tanh, log, ln, log2, abs, round, floor, ceil, min, max, pow, random), random() returns a non-cryptographic value in [0,1). Also supports constants (pi, e).",
         inputSchema = buildJsonObject {
             put("type", "object")
             put(
@@ -291,6 +291,10 @@ class CalculatorTool(private val decimalPlaces: Int = 8) : AgentTool {
             }
 
             return when (name) {
+                "random" -> {
+                    requireArgs(0)
+                    kotlin.random.Random.nextDouble()
+                }
                 "sqrt" -> {
                     requireArgs(1)
                     if (args[0] < 0) throw ArithmeticException("Square root of negative number: ${args[0]}")

@@ -83,24 +83,21 @@ fun SetupNavGraph(
     onLaunchOAuth: (String) -> Unit = {}
 ) {
     val currentEntry by navController.currentBackStackEntryAsState()
-    dev.chungjungsoo.gptmobile.presentation.navigation.AppNavigationShell(navController, currentEntry?.destination?.route) {
-        Column(Modifier.fillMaxSize()) {
-            Box(Modifier.weight(1f)) {
-                val navHost: @Composable () -> Unit = {
-                    AppNavHost(navController, toolConnectionsViewModel, onLaunchOAuth)
+    SettingsGlassBackdropHost(isSettingsDestination(currentEntry?.destination?.route)) {
+        dev.chungjungsoo.gptmobile.presentation.navigation.AppNavigationShell(navController, currentEntry?.destination?.route) {
+            Column(Modifier.fillMaxSize()) {
+                Box(Modifier.weight(1f)) {
+                    SettingsTypographyScope(enabled = isSettingsDestination(currentEntry?.destination?.route)) {
+                        AppNavHost(navController, toolConnectionsViewModel, onLaunchOAuth)
+                    }
                 }
-                if (isSettingsDestination(currentEntry?.destination?.route)) {
-                    SettingsTypographyScope(content = navHost)
-                } else {
-                    navHost()
-                }
+                BenchmarkExecutionBanner(
+                    Modifier.navigationBarsPadding(),
+                    onOpen = {
+                        if (currentEntry?.destination?.route != Route.PROFILE_BENCHMARKS) navController.navigate(Route.PROFILE_BENCHMARKS.replace("{profileUid}", ""))
+                    }
+                )
             }
-            BenchmarkExecutionBanner(
-                Modifier.navigationBarsPadding(),
-                onOpen = {
-                    if (currentEntry?.destination?.route != Route.PROFILE_BENCHMARKS) navController.navigate(Route.PROFILE_BENCHMARKS.replace("{profileUid}", ""))
-                }
-            )
         }
     }
 }
@@ -169,6 +166,8 @@ private fun isSettingsDestination(route: String?): Boolean {
     val baseRoute = route.substringBefore('?')
     return baseRoute == Route.APPEARANCE ||
         baseRoute == Route.SETTINGS ||
+        baseRoute == Route.ACTIVITY ||
+        baseRoute == Route.BACKUP_RESTORE ||
         route == Route.AI_PLATFORMS ||
         route == Route.ADD_PLATFORM ||
         (route == Route.OPENROUTER_SETTINGS || route == Route.OPENROUTER_CONNECTION) ||
@@ -182,7 +181,8 @@ private fun isSettingsDestination(route: String?): Boolean {
         route.startsWith("profile_benchmarks") ||
         route.startsWith("tool_connections") ||
         route.startsWith("platform_settings/") ||
-        route.startsWith("provider_settings/")
+        route.startsWith("provider_settings/") ||
+        baseRoute == "workspaces"
 }
 
 fun NavGraphBuilder.migrationScreenNavigation(navController: NavHostController) {
@@ -279,6 +279,7 @@ fun NavGraphBuilder.setupNavigation(
 fun NavGraphBuilder.homeScreenNavigation(navController: NavHostController) {
     composable(Route.CHAT_LIST) {
         HomeScreen(
+            modifier = Modifier.captureHomeGlassBackdrop(),
             settingOnClick = { navController.navigate(Route.SETTING_ROUTE) },
             onExistingChatClick = { chatRoom, targetMessageId ->
                 val targetSuffix = if (targetMessageId != null) "&targetMessageId=$targetMessageId" else ""

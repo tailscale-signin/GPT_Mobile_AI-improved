@@ -25,6 +25,8 @@ timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.p
 bubble_status=${PIPESTATUS[0]}
 timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.common.GlassBackdropInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/glass-instrumentation.txt"
 glass_status=${PIPESTATUS[0]}
+timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.ui.chat.ComposerControlsInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/composer-controls-instrumentation.txt"
+composer_status=${PIPESTATUS[0]}
 set -e
 adb logcat -d > "$acceptance_output/logcat.txt"
 adb exec-out run-as dev.melo.gptmobile.improved cat files/acceptance-0950-performance.json > "$acceptance_output/performance.json" || true
@@ -36,6 +38,8 @@ done
 for glass_state in off 40dp stacked; do
   adb exec-out run-as dev.melo.gptmobile.improved cat "files/glass-$glass_state.png" > "$acceptance_output/glass-$glass_state.png"
 done
+adb exec-out run-as dev.melo.gptmobile.improved cat files/chat-glass-controls.png > "$acceptance_output/chat-glass-controls.png"
+if [ "$composer_status" -ne 0 ]; then exit "$composer_status"; fi
 if [ "$glass_status" -ne 0 ]; then exit "$glass_status"; fi
 if [ "$bubble_status" -ne 0 ]; then exit "$bubble_status"; fi
 if [ "$picker_status" -ne 0 ]; then exit "$picker_status"; fi
@@ -55,11 +59,13 @@ for test in ('encryptedCutoverPreservesIdentityAndRejectsStaleWrites', 'portable
     check_instrumentation(folder / 'memory-durability-instrumentation.txt', 'dev.chungjungsoo.gptmobile.data.memory.MemoryDurabilityInstrumentedTest', test)
 for test in ('compactLightSelectionAndAccessibleFavorite', 'compactDarkRtlSelectionAndAccessibleFavorite'):
     check_instrumentation(folder / 'picker-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.home.PlatformPickerInstrumentedTest', test)
-for test in ('dialogBlurSwitchActuallyFiltersTheBackground', 'stackedDialogSamplesItsVisibleParentInsteadOfOnlyTheActivity'):
+for test in ('dialogBlurSwitchActuallyFiltersTheBackground', 'stackedDialogSamplesItsVisibleParentInsteadOfOnlyTheActivity', 'settingsBackdropAndTypographyChangesKeepNavigationContentComposed', 'openingSettingsWhileHomeBlurStillDrawsDoesNotReplayLiveHomeLayers'):
     check_instrumentation(folder / 'glass-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.common.GlassBackdropInstrumentedTest', test)
+for test in ('typingFollowUpKeepsStopAndSendIndependent', 'glassComposerKeepsSendStopAndLatestActionsIndependent'):
+    check_instrumentation(folder / 'composer-controls-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.chat.ComposerControlsInstrumentedTest', test)
 for test in ('shortHoldDoesNotOpenMenuAndOneSecondHoldPreservesAction', 'movingToScrollCancelsTheHold'):
     check_instrumentation(folder / 'bubble-actions-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.chat.BubbleActionMenuInstrumentedTest', test)
-for name in ('picker-light-200-percent.png', 'picker-dark-rtl-200-percent.png', 'glass-off.png', 'glass-40dp.png', 'glass-stacked.png'):
+for name in ('picker-light-200-percent.png', 'picker-dark-rtl-200-percent.png', 'glass-off.png', 'glass-40dp.png', 'glass-stacked.png', 'chat-glass-controls.png'):
     assert (folder / name).read_bytes().startswith(b'\x89PNG\r\n\x1a\n')
 data = json.loads((folder / 'performance.json').read_text())
 assert data['samples'] == 100 and data['representativeDevice'] is False

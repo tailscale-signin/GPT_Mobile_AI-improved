@@ -1748,9 +1748,9 @@ fun LazyListState.isScrollingUp(): Boolean {
 fun NewChatButton(onClick: () -> Unit) {
     LargeFloatingActionButton(
         onClick = onClick,
-        modifier = Modifier.size(72.dp).glassBackdrop(CircleShape, opacity = 0.90f).testTag("home_new_chat_icon"),
+        modifier = Modifier.size(72.dp).glassBackdrop(CircleShape).testTag("home_new_chat_icon"),
         shape = CircleShape,
-        containerColor = if (hasGlassBackdrop()) Color.Transparent else MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.90f),
+        containerColor = if (hasGlassBackdrop()) Color.Transparent else MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = dev.chungjungsoo.gptmobile.presentation.common.GLASS_OPACITY),
         contentColor = MaterialTheme.colorScheme.onSurface
     ) {
         Icon(

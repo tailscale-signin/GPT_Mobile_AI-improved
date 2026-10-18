@@ -30,6 +30,25 @@ class LocalImportPreviewTest {
         assertThrows(IllegalArgumentException::class.java) { LocalImportPreview.inspect(ByteArray(262_145).inputStream(), "folder", null, true, folder = true) }
     }
 
+    @Test fun singleFileBundlePreviewAcceptsPackagedAssetsWithoutFolderSelection() {
+        val manifest = ModelArtifactManifest(familyId = "model", artifactId = "id", runtime = ArtifactRuntime.GENIEX_LLAMA_CPP, format = "gguf", entryFile = "model.gguf", files = listOf(ArtifactFile("model.gguf", 100, "a".repeat(64))), contextTokens = 4096, supportedBackends = setOf("cpu"))
+        val bytes = ByteArrayOutputStream()
+        ZipOutputStream(bytes).use { zip ->
+            zip.putNextEntry(ZipEntry("manifest.json"))
+            zip.write(Json.encodeToString(manifest).toByteArray())
+            zip.closeEntry()
+            zip.putNextEntry(ZipEntry("model.gguf"))
+            zip.write(ByteArray(100))
+            zip.closeEntry()
+        }
+        for (extension in listOf("zip", "localmodel")) {
+            val preview = LocalImportPreview.inspect(bytes.toByteArray().inputStream(), "model.$extension", bytes.size().toLong(), true)
+            assertEquals(100L, preview.installedBytes)
+            assertEquals(1, preview.assets)
+            assertEquals(4096, preview.contextTokens)
+        }
+    }
+
     @Test fun ordinaryZipCannotMasqueradeAsModelBundle() {
         val bytes = ByteArrayOutputStream()
         ZipOutputStream(bytes).use { zip ->

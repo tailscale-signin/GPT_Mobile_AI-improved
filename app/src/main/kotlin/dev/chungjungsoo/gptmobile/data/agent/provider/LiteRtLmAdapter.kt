@@ -160,11 +160,9 @@ class LiteRtLmAdapter(
                     return@channelFlow
                 }
                 val visionCapable = metadata?.vision ?: (catalogEntry?.capabilities?.vision == true)
-                // Tool execution is provided by LiteRT-LM's OpenAPI bridge. The
-                // catalogue flag is a recommendation, not a runtime capability;
-                // using it as a gate hid all MCP tools from imported, legacy and
-                // most bundled local models.
-                val nativeToolsCapable = metadata?.tools != false
+                // Only verified runtime support can enable native function decoding.
+                // Imported/legacy exports with unknown support use app-managed tools.
+                val nativeToolsCapable = metadata?.tools == true
                 // Expose the app-managed tool catalog even when this model lacks native
                 // function-call parsing; the prompt bridge validates and executes calls.
                 val usePromptToolBridge = !nativeToolsCapable && boundTools.isNotEmpty()
@@ -615,6 +613,7 @@ class LiteRtLmAdapter(
                                 var generationImages = latestImages
                                 var promptToolCallCount = 0
                                 var promptToolsClosed = false
+                                var promptToolRepairs = 0
                                 while (true) {
                                     val fallbackOutput = LocalPromptToolOutput()
                                     var templateFailure: String? = null
@@ -714,8 +713,16 @@ class LiteRtLmAdapter(
                                             }
                                             if (parsed is PromptToolParseResult.Rejected) {
                                                 dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("LocalModel", "LOCAL_TOOL_CALL_REJECTED · reason=${parsed.reason} · authorizedToolCount=${runToolsByName.size} · dispatched=false", "W")
+                                                if (usePromptToolBridge && !promptToolsClosed && promptToolRepairs++ < 1) {
+                                                    generationInput = "The previous tool call was rejected (${parsed.reason}) and was not executed. " +
+                                                        "Use exactly one authorized tool name and a JSON arguments object, or answer normally if no tool is needed. " +
+                                                        "Do not claim that the rejected call succeeded."
+                                                    generationImages = emptyList()
+                                                    physicalSegment = UUID.randomUUID().toString()
+                                                    continue
+                                                }
                                                 failed = true
-                                                send(ProviderEvent.Failed("The local model emitted a malformed, unsupported, disabled, or unavailable tool call. No tool was executed."))
+                                                send(ProviderEvent.Failed("The local model emitted a malformed, unsupported, disabled, or unavailable tool call. No tool was executed for the rejected call."))
                                                 break
                                             }
                                             dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(

@@ -4,20 +4,25 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.unit.dp
 import androidx.test.filters.SdkSuppress
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -26,6 +31,78 @@ import org.junit.Test
 @SdkSuppress(minSdkVersion = 32)
 class GlassBackdropInstrumentedTest {
     @get:Rule val compose = createComposeRule()
+
+    @Test fun settingsBackdropAndTypographyChangesKeepNavigationContentComposed() {
+        var settings by mutableStateOf(false)
+        val allocations = java.util.concurrent.atomic.AtomicInteger()
+        compose.setContent {
+            MaterialTheme {
+                GlassBackdropHost {
+                    SettingsGlassBackdropHost(settings) {
+                        dev.chungjungsoo.gptmobile.presentation.ui.setting.SettingsTypographyScope(enabled = settings) {
+                            val contentIdentity = remember { allocations.incrementAndGet() }
+                            if (!settings) {
+                                Canvas(Modifier.fillMaxSize().captureHomeGlassBackdrop()) { drawRect(Color.Blue) }
+                            }
+                            Text("Navigation content $contentIdentity")
+                        }
+                    }
+                }
+            }
+        }
+        compose.waitForIdle()
+        assertEquals(1, allocations.get())
+        repeat(3) {
+            compose.runOnIdle { settings = true }
+            compose.waitForIdle()
+            assertEquals("Opening settings must preserve remembered navigation content", 1, allocations.get())
+            compose.runOnIdle { settings = false }
+            compose.waitForIdle()
+            assertEquals("Returning home must preserve remembered navigation content", 1, allocations.get())
+        }
+    }
+
+    @Test fun openingSettingsWhileHomeBlurStillDrawsDoesNotReplayLiveHomeLayers() {
+        var settings by mutableStateOf(false)
+        var outgoingHome by mutableStateOf(true)
+        compose.setContent {
+            MaterialTheme {
+                CompositionLocalProvider(LocalOverlayMaterial provides "glass", LocalOverlayBlur provides "auto") {
+                    GlassBackdropHost {
+                        SettingsGlassBackdropHost(settings) {
+                            // NavHost retains the outgoing destination during its exit animation.
+                            // Include HomeScreen's nested source and floating glass control: a
+                            // plain Canvas fixture cannot detect a circular blur dependency.
+                            if (outgoingHome) {
+                                Box(Modifier.fillMaxSize().captureHomeGlassBackdrop()) {
+                                    Canvas(Modifier.fillMaxSize().glassBackdropSource()) {
+                                        drawRect(Color.Blue)
+                                        drawCircle(Color.Red, radius = size.minDimension / 3f)
+                                    }
+                                    AppGlassSurface(Modifier.size(72.dp)) { Text("New chat") }
+                                }
+                            }
+                            if (settings) Text("Settings", Modifier.testTag("settings_destination"))
+                        }
+                    }
+                }
+            }
+        }
+        repeat(3) {
+            compose.waitForIdle()
+            compose.runOnIdle { settings = true }
+            compose.waitForIdle()
+            compose.onNodeWithTag("settings_destination").assertIsDisplayed()
+            // Remove Home only after Settings has drawn with the outgoing glass control.
+            compose.runOnIdle { outgoingHome = false }
+            compose.waitForIdle()
+            compose.onNodeWithTag("settings_destination").assertIsDisplayed()
+            compose.runOnIdle {
+                settings = false
+                outgoingHome = true
+            }
+        }
+    }
 
     @Test fun dialogBlurSwitchActuallyFiltersTheBackground() {
         var blur by mutableStateOf(false)

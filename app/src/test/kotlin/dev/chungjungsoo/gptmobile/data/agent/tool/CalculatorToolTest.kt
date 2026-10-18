@@ -15,6 +15,16 @@ class CalculatorToolTest {
     private val tool = CalculatorTool()
 
     @Test
+    fun supportsRandomExpressionFromDiagnosticsAndRejectsArguments() {
+        repeat(100) {
+            val result = CalculatorTool.evaluate("floor(random()*200000)+1")
+            assertTrue(result in 1.0..200000.0)
+            assertEquals(result, kotlin.math.floor(result), 0.0)
+        }
+        org.junit.Assert.assertThrows(IllegalArgumentException::class.java) { CalculatorTool.evaluate("random(10)") }
+    }
+
+    @Test
     fun evaluatesBasicArithmetic() = runTest {
         val result = tool.execute(
             callId = "call_1",

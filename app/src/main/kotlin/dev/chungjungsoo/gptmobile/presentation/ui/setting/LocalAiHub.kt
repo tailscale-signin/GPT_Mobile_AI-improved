@@ -88,12 +88,10 @@ fun LocalModelsScreen(
         )
     }
     var marketplace by rememberSaveable { mutableStateOf(false) }
-    var importOpen by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
     val ui by viewModel.uiState.collectAsStateWithLifecycle()
     val importActive by viewModel.importActive.collectAsStateWithLifecycle()
     var pendingUri by rememberSaveable { mutableStateOf<String?>(null) }
-    var pendingFolder by rememberSaveable { mutableStateOf(false) }
     val importStatus by viewModel.importStatus.collectAsStateWithLifecycle()
     val importedModelId by viewModel.importedModelId.collectAsStateWithLifecycle()
     val runtimeStatus by runtimeViewModel.status.collectAsStateWithLifecycle()
@@ -105,24 +103,15 @@ fun LocalModelsScreen(
     val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             pendingUri = uri.toString()
-            pendingFolder = false
-            importOpen = false
-        }
-    }
-    val folderImporter = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-        if (uri != null) {
-            pendingUri = uri.toString()
-            pendingFolder = true
-            importOpen = false
         }
     }
     if (pendingUri != null) {
         val sourceUri = requireNotNull(pendingUri)
         var inspectionFailure by remember(pendingUri) { mutableStateOf<Exception?>(null) }
-        val preview by produceState<dev.chungjungsoo.gptmobile.data.localmodel.LocalImportPreview?>(null, pendingUri, pendingFolder) {
+        val preview by produceState<dev.chungjungsoo.gptmobile.data.localmodel.LocalImportPreview?>(null, pendingUri) {
             value = null
             try {
-                value = viewModel.inspectImport(android.net.Uri.parse(sourceUri), pendingFolder)
+                value = viewModel.inspectImport(android.net.Uri.parse(sourceUri), false)
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
@@ -144,14 +133,14 @@ fun LocalModelsScreen(
                         details.installedBytes?.let { Text(stringResource(R.string.local_ai_installed_size, dev.chungjungsoo.gptmobile.data.catalog.ModelCatalogParser.formatDownloadSize(it))) }
                         if (details.backends.isNotEmpty()) Text(stringResource(R.string.local_ai_declared_processors, details.backends.joinToString().uppercase()))
                         details.contextTokens?.let { Text(stringResource(R.string.local_ai_import_context, it, details.assets)) }
-                        Text(stringResource(if (pendingFolder) R.string.local_ai_folder_review else R.string.local_ai_file_review))
+                        Text(stringResource(R.string.local_ai_file_review))
                         Text(stringResource(R.string.local_ai_import_verification), style = MaterialTheme.typography.bodySmall)
                     }
                 }
             },
             confirmButton = {
                 TextButton(enabled = preview != null && !importActive, onClick = {
-                    pendingUri?.let { viewModel.importCustomModel(context.contentResolver, android.net.Uri.parse(it), pendingFolder) }
+                    pendingUri?.let { viewModel.importCustomModel(context.contentResolver, android.net.Uri.parse(it)) }
                     pendingUri = null
                 }) { Text(stringResource(R.string.local_ai_import)) }
             },
@@ -187,7 +176,7 @@ fun LocalModelsScreen(
                     viewModel.updateFilter(LocalModelFilter.DOWNLOADING)
                 })
                 LocalAiTab.MODELS -> LazyColumn(state = listState, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    item(key = "import") { LocalAiActionCard(Icons.Rounded.FileOpen, stringResource(R.string.local_ai_import), stringResource(R.string.local_ai_import_description), { importOpen = true }) }
+                    item(key = "import") { LocalAiActionCard(Icons.Rounded.FileOpen, stringResource(R.string.local_ai_import), stringResource(R.string.local_ai_import_description), { importer.launch(arrayOf("*/*")) }) }
                     runtimeStatus?.let { status -> item(key = "runtime-status") { Text(status) } }
                     activeRuntime.fallbackReason?.takeIf { activeRuntime.lifecycle == "FAILED" }?.let { reason ->
                         item(key = "runtime-recovery") {
@@ -320,14 +309,7 @@ fun LocalModelsScreen(
             }
         }
     }
-    if (importOpen) {
-        AlertDialog(onDismissRequest = { importOpen = false }, title = { Text(stringResource(R.string.local_ai_import)) }, text = { Text(stringResource(if (dev.chungjungsoo.gptmobile.BuildConfig.GENIEX_ENABLED) R.string.local_ai_import_geniex else R.string.local_ai_import_litert)) }, confirmButton = {
-            Column {
-                TextButton(onClick = { folderImporter.launch(null) }) { Text(stringResource(R.string.local_ai_choose_folder)) }
-                TextButton(onClick = { importer.launch(arrayOf("*/*")) }) { Text(stringResource(R.string.local_ai_choose_file)) }
-            }
-        }, dismissButton = { TextButton(onClick = { importOpen = false }) { Text(stringResource(R.string.cancel)) } })
-    }
+
     LocalModelDownloadDialogHost(dialog = ui.dialog, onConfirmRamWarning = viewModel::confirmRamWarning, onConfirmMeteredDownload = viewModel::confirmMeteredDownload, onConfirmDelete = { viewModel.confirmDeleteWith(runtimeViewModel::deleteModelSafely) }, onDismissDialog = viewModel::dismissDialog, onStartSignIn = viewModel::startHuggingFaceSignIn, onAuthActivityResult = viewModel::onAuthActivityResult, onLicenseTabClosed = viewModel::onLicenseTabClosed, onRetryAfterLicense = viewModel::retryAfterLicense, onEnterAccessToken = viewModel::openAccessTokenDialog, onSaveAccessToken = viewModel::saveHuggingFaceAccessToken)
 }
 

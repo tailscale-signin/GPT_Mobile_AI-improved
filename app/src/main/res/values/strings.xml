@@ -969,7 +969,7 @@
     <string name="local_ai_marketplace_description">Find models selected for your phone.</string>
     <string name="local_ai_explore">Explore models →</string>
     <string name="local_ai_import">Link existing model</string>
-    <string name="local_ai_import_description">Use a model from its existing location without copying its weights.</string>
+    <string name="local_ai_import_description">Choose one .litertlm, .gguf, .localmodel or ZIP model file to import.</string>
     <string name="local_ai_profiles">Local AI Profiles</string>
     <string name="local_ai_create">Create from an installed model</string>
     <string name="local_ai_search_profiles">Search local profiles</string>
@@ -993,12 +993,12 @@
     <string name="local_ai_recommended">Recommended for this phone</string>
     <string name="local_ai_other">Other compatible models</string>
     <string name="local_ai_discovery">Unverified discovery candidates</string>
-    <string name="local_ai_import_working">Checking and linking the model at its existing location</string>
-    <string name="local_ai_import_done">Linked. Create a profile to use the model at its original location. Keep that file available.</string>
+    <string name="local_ai_import_working">Copying and verifying the selected model file</string>
+    <string name="local_ai_import_done">Imported. Create a profile to use this model.</string>
     <string name="local_ai_import_review">Review model link</string>
     <string name="local_ai_choose_folder">Choose model folder</string>
     <string name="local_ai_folder_review">The folder must contain manifest.json and its exact declared assets. Model weights stay in this folder. Only a small reference and metadata are stored by the app. Keep the folder available and its read permission enabled.</string>
-    <string name="local_ai_file_review">Model weights stay at the selected location. Only a small reference is stored by the app. Moving, changing or deleting the source, or revoking read access, requires selecting it again. Removing the link never deletes your original file.</string>
+    <string name="local_ai_file_review">The selected file is copied into app storage and verified before it becomes available. Model packages are extracted automatically. Your original file is kept.</string>
     <string name="insights_local_recorded">Recorded device configuration. These measurements are not a cloud capability score or verification of your current runtime configuration.</string>
     <string name="insights_local_speed">Native median decode: %1$s tokens/s</string>
     <string name="insights_local_memory">Peak client memory: %1$d MB</string>
@@ -1031,7 +1031,7 @@
     <string name="local_ai_installed_size">Model assets: %1$s</string>
     <string name="local_ai_declared_processors">Declared processors: %1$s</string>
     <string name="local_ai_import_context">Declared context: %1$d tokens · %2$d assets</string>
-    <string name="local_ai_import_verification">Files and hashes are checked before linking. This does not certify native execution. The source must support random access; compressed packages must be extracted first.</string>
+    <string name="local_ai_import_verification">Files and package hashes are checked before installation. This does not certify native execution. Keep enough free storage for the imported model.</string>
     <string name="local_ai_loaded">Loaded in memory</string>
     <string name="local_ai_last_selected">Selected for the last new chat</string>
     <string name="local_ai_needs_verification">Inspect processors and create profile</string>

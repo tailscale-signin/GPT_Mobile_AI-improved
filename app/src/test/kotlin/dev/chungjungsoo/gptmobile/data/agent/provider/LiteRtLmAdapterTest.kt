@@ -1188,6 +1188,64 @@ class LiteRtLmAdapterTest {
     }
 
     @Test
+    fun `unknown native support uses prompt tools and repairs one rejected call`() = runBlocking {
+        var calls = 0
+        val runtime = FakeLocalRuntime().apply {
+            capabilities = LocalModelCapabilities(backends = setOf("gpu"), tools = null)
+            scriptedEvents = listOf(
+                listOf(LocalRuntimeEvent.TextDelta("""{"type":"tool_call","name":"unregistered","arguments":{}}"""), LocalRuntimeEvent.Done),
+                listOf(LocalRuntimeEvent.TextDelta("""{"name":"lookup","arguments":{"query":"weather"}}"""), LocalRuntimeEvent.Done),
+                listOf(LocalRuntimeEvent.TextDelta("Verified clear weather."), LocalRuntimeEvent.Done)
+            )
+        }
+        val events = adapter(runtime).openSession(
+            turns("Check the weather"),
+            localPlatform(),
+            listOf(
+                lookupTool { id, _ ->
+                    calls++
+                    AgentToolResult(id, ToolResultContent.Text("clear weather"), false)
+                }
+            )
+        ).streamRound(emptyList(), emptyList()).toList()
+        assertEquals(1, calls)
+        assertTrue(runtime.createConversationCalls.single().tools.isEmpty())
+        assertTrue(runtime.createConversationCalls.single().systemPrompt.orEmpty().contains("Authorized local tools"))
+        assertEquals(3, runtime.sendMessageCalls.size)
+        assertTrue(runtime.sendMessageCalls[1].contains("not executed"))
+        assertTrue(runtime.sendMessageCalls[2].contains("clear weather"))
+        assertEquals("Verified clear weather.", events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
+        assertTrue(events.last() is ProviderEvent.Completed)
+    }
+
+    @Test
+    fun `prompt tool repair stops after one retry without dispatching invalid calls`() = runBlocking {
+        var calls = 0
+        val runtime = FakeLocalRuntime().apply {
+            capabilities = LocalModelCapabilities(backends = setOf("gpu"), tools = false)
+            scriptedEvents = List(3) {
+                listOf(LocalRuntimeEvent.TextDelta("""{"type":"tool_call","name":"unregistered","arguments":{}}"""), LocalRuntimeEvent.Done)
+            }
+        }
+        val events = adapter(runtime).openSession(
+            turns("Look up the weather"),
+            localPlatform(),
+            listOf(
+                lookupTool { id, _ ->
+                    calls++
+                    AgentToolResult(id, ToolResultContent.Text("must not execute"), false)
+                }
+            )
+        ).streamRound(emptyList(), emptyList()).toList()
+        assertEquals(0, calls)
+        assertEquals(2, runtime.sendMessageCalls.size)
+        assertTrue(events.filterIsInstance<ProviderEvent.ToolCall>().isEmpty())
+        assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().isEmpty())
+        assertTrue(events.filterIsInstance<ProviderEvent.Failed>().isNotEmpty())
+        assertFalse(events.contains(ProviderEvent.Completed))
+    }
+
+    @Test
     fun `8192 output preference retains and dispatches prompt tools in 8192 context`() = runBlocking {
         var calls = 0
         val runtime = FakeLocalRuntime().apply {

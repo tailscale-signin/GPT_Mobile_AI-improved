@@ -30,6 +30,7 @@ internal val LocalGlassBackdrop = compositionLocalOf<HazeState?> { null }
 internal val LocalGlassBackdropActive = compositionLocalOf { false }
 private val LocalGlassPopupSequence = compositionLocalOf<java.util.concurrent.atomic.AtomicInteger?> { null }
 internal val LocalOverlayWindow = compositionLocalOf { false }
+internal const val GLASS_OPACITY = 0.70f
 internal val GLASS_BLUR_RADIUS = 40.dp
 
 /** Captures rendered app pixels in memory. Popup windows sample this layer, never their text. */
@@ -60,17 +61,17 @@ internal fun hasGlassBackdrop(): Boolean = LocalGlassBackdrop.current != null &&
 
 @OptIn(dev.chrisbanes.haze.ExperimentalHazeApi::class)
 @Composable
-internal fun Modifier.glassBackdrop(shape: Shape, opacity: Float = 0.85f, captureAsPopup: Boolean = false): Modifier {
+internal fun Modifier.glassBackdrop(shape: Shape, opacity: Float = GLASS_OPACITY, captureAsPopup: Boolean = false): Modifier {
     val state = LocalGlassBackdrop.current ?: return this
     // Allocate while visible, even with blur Off, so toggling does not reorder
     // already-open parent and child windows. A source excludes itself and newer windows.
     val sequence = LocalGlassPopupSequence.current
     val popupZ = if (captureAsPopup) remember(state) { (sequence?.incrementAndGet() ?: 1).toFloat() } else 0f
     if (!hasGlassBackdrop()) return this
-    val tokens = appOverlayTokens()
+    val tokens = appOverlayTokens(opacity)
     val tint = tokens.background.copy(alpha = opacity.coerceIn(0f, 1f))
     val source = if (captureAsPopup) hazeSource(state, zIndex = popupZ) else this
-    return source.clip(shape).background(tint).hazeEffect(
+    return source.clip(shape).hazeEffect(
         state = state,
         style = HazeStyle(
             backgroundColor = MaterialTheme.colorScheme.background,

@@ -53,28 +53,50 @@ class CombinedSettingsInstrumentedTest {
         assertEquals(0, saved?.settings?.effort)
     }
 
-    @Test fun cancelDiscardsStagedMembershipAndPreventsEmptySave() {
+    @Test fun membershipRowStagesChangesWithoutSavingImmediately() {
+        var isMember by mutableStateOf(true)
+        compose.setContent {
+            MaterialTheme {
+                CombinedMemberToggleRow(
+                    platformUid = "a",
+                    platformName = "AI",
+                    isMember = isMember,
+                    isTemporarilyEnabled = true,
+                    enabled = true,
+                    onCheckedChange = { isMember = it }
+                )
+            }
+        }
+        compose.onNodeWithTag("combined_member_a").assertIsOn()
+        compose.onNodeWithTag("combined_member_row_a").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag("combined_member_a").assertIsOff()
+        compose.runOnIdle { assertFalse(isMember) }
+    }
+
+    @Test fun cancelKeepsCommittedMembershipAndPreventsEmptySave() {
         var open by mutableStateOf(true)
+        var activeProfiles by mutableStateOf(emptySet<String>())
         var immediateMembershipCalled = false
         compose.setContent {
             MaterialTheme {
                 if (open) {
                     ChatModelDialog(
-                        platformOrder = listOf("a"), activePlatformUids = setOf("a"), initialModels = mapOf("a" to "model"), platformNames = mapOf("a" to "AI"),
+                        platformOrder = listOf("a"), activePlatformUids = activeProfiles, initialModels = mapOf("a" to "model"), platformNames = mapOf("a" to "AI"),
                         conversationMode = ConversationMode.COMBINED, conversationIdentity = "chat-one", chatId = 4,
                         onPlatformActiveChanged = { _, _ -> immediateMembershipCalled = true }, onDismissRequest = { open = false }, onConfirmRequest = { _, _ -> }
                     )
                 }
             }
         }
-        compose.onNodeWithTag("combined_member_a").performScrollTo().assertIsOn()
-        compose.onNodeWithTag("combined_member_row_a").performClick()
-        compose.waitForIdle()
-        compose.onNodeWithTag("combined_member_a").assertIsOff()
         compose.onNodeWithTag("combined_settings_save").assertIsNotEnabled()
         assertFalse(immediateMembershipCalled)
         compose.onNodeWithTag("combined_settings_cancel").performClick()
-        compose.runOnIdle { open = true }
+        compose.waitForIdle()
+        compose.runOnIdle {
+            activeProfiles = setOf("a")
+            open = true
+        }
         compose.onNodeWithTag("combined_settings_save").assertIsEnabled()
         assertFalse(immediateMembershipCalled)
     }

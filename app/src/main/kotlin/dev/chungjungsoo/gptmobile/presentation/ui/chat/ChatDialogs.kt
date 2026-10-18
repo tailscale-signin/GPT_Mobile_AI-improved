@@ -2,7 +2,6 @@ package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -273,33 +272,14 @@ fun ChatModelDialog(
                                 }
                             }
 
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable(enabled = !saving) { onMembershipChanged(!isMember) }
-                                    .testTag("combined_member_row_$platformUid")
-                                    .padding(horizontal = 8.dp, vertical = 2.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(platformName, modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
-                                Text(
-                                    if (!isTemporarilyEnabled) {
-                                        "Paused"
-                                    } else if (isMember) {
-                                        "Added"
-                                    } else {
-                                        "Available"
-                                    },
-                                    style = MaterialTheme.typography.labelSmall
-                                )
-                                Spacer(Modifier.width(8.dp))
-                                Switch(
-                                    modifier = Modifier.testTag("combined_member_$platformUid"),
-                                    checked = isMember,
-                                    enabled = !saving,
-                                    onCheckedChange = onMembershipChanged
-                                )
-                            }
+                            CombinedMemberToggleRow(
+                                platformUid = platformUid,
+                                platformName = platformName,
+                                isMember = isMember,
+                                isTemporarilyEnabled = isTemporarilyEnabled,
+                                enabled = !saving,
+                                onCheckedChange = onMembershipChanged
+                            )
 
                             if (clientType == ClientType.LITERT_LM) {
                                 Text(

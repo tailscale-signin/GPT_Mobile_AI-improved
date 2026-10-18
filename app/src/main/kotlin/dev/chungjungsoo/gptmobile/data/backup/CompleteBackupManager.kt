@@ -602,7 +602,8 @@ class CompleteBackupManager @Inject constructor(
                         oldShared.takeIf { restorePreferences },
                         oldSecrets.takeIf { restoreSecrets },
                         oldProtection.takeIf { restoreSettings },
-                        oldProtection.password
+                        oldProtection.password,
+                        benchmarkImportJson
                     )
                 )
                 try {
@@ -640,8 +641,8 @@ class CompleteBackupManager @Inject constructor(
                 }
 
                 if (selectedPaths.isNotEmpty()) replacement.cleanup()
-                restoreJournal.clear()
                 if (benchmarkImportJson != null) benchmarkStore.importBackupJson(benchmarkImportJson)
+                restoreJournal.clear()
                 clearRestoreMarker()
             } finally {
                 if (lockToolState) dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.unlock()
@@ -1080,6 +1081,7 @@ class CompleteBackupManager @Inject constructor(
             previous.protection?.let { saveProtection(it.copy(password = previous.protectionPassword)) }
         }
         files().recoverInterruptedRestore(committed)
+        if (previous != null && previous.transactionId == committed) previous.benchmarkJson?.let { benchmarkStore.importBackupJson(it) }
         restoreJournal.clear()
         clearRestoreMarker()
     }

@@ -447,6 +447,13 @@ class GitHubTool(
 
         return try {
             if (action in GitHubWorkspaceClient.actions) {
+                if (action == "commit_files") {
+                    repositoryContext?.let { selected ->
+                        val sameRepo = arguments["owner"]?.jsonPrimitive?.content.orEmpty().equals(selected.owner, true) &&
+                            arguments["repo"]?.jsonPrimitive?.content.orEmpty().equals(selected.repo, true)
+                        require(!sameRepo || arguments["branch"]?.jsonPrimitive?.content == selected.ref) { "The write branch disagrees with the selected workspace. Select the intended branch first." }
+                    }
+                }
                 val result = workspaceClient.execute(action, arguments)
                 return successResult(callId, result.toString())
             }

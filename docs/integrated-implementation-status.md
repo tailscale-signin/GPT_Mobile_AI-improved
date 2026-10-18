@@ -1,7 +1,7 @@
 # Integrated implementation status
 
 Branch: `feat/integrated-runtime-workspace-reliability-2026-10-18`
-Base: `42f5f1597d4bab2ff0fe2a016548dd6ed4c8df0b`; includes PR 713 at `99e47ae215697ffbca223f2f89b925c03dffec8b`.
+Base: `42f5f1597d4bab2ff0fe2a016548dd6ed4c8df0b`; includes PR 713 at `99e47ae215697ffbca223f2f89b925c03dffec8b` and reconciles its merge into main at `a13b8b5a46ece251b42818ed01e3bf651ac2cc3f`.
 
 This branch implements a substantial portion of the four supplied specifications and prioritized audit. It is a development draft, not a completed release. Source implementation is distinguished from Android compilation, real-provider tests and handset qualification. No NPU performance, hardware observation, visual acceptance or full completion claim is made.
 
@@ -9,7 +9,7 @@ This branch implements a substantial portion of the four supplied specifications
 
 | Item | Status | Implementation and remaining validation |
 | --- | --- | --- |
-| 1 | Source implemented; device gate open | Encrypted chunked store journal before mutation; unconditional DB commit marker; recovery before startup consumers; failed recovery propagates. Process-kill matrix remains required. |
+| 1 | Core stores implemented; wider restore gate open | Encrypted chunked core-store journal before mutation; unconditional DB commit marker; recovery before startup consumers; committed benchmark import is recoverable. Full cross-feature restore semantics and process-kill matrix remain required. |
 | 2 | Source implemented | Structured document/chunk receipts; scope, content and consent-generation validation inherited by physical dispatch, delegates and continuations. |
 | 3 | Source implemented | Legacy update_file requires branch/head and routes through guarded atomic commit_files; selected branch disagreement rejected. |
 | 4 | Source implemented | Memory admission sums validated actual manifest assets plus KV/compute/vision estimates; estimates remain conservative and unmeasured. |
@@ -57,6 +57,7 @@ This branch implements a substantial portion of the four supplied specifications
 - 132 Python script tests passed, including the two new APK budget fixtures.
 - 20 isolated Kotlin/JUnit parser/schema/range tests passed using production algorithms and boundary stubs.
 - 4 isolated Kotlin/JUnit Anthropic DTO and restore-journal tests passed using production implementations and a fake vault boundary.
+- 2 isolated Kotlin/JUnit model-memory and asset-receipt tests passed, including a sparse 4 GiB model and same-size in-place modification with preserved mtime.
 - Android resource, regex, exported Room-schema and QNN provenance checks passed.
 - Ktlint 1.3.1 formatting and native JNI syntax check against the pinned llama.cpp headers passed.
 - Full Gradle Android compilation was attempted with JDK 21/Gradle 9.8.0; dependency resolution could not reach the configured Maven repositories from Java in this environment. No Android unit/lint/build success is claimed.

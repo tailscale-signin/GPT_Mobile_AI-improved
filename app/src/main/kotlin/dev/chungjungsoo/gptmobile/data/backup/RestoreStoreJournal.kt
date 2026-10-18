@@ -12,7 +12,8 @@ internal data class RestoreStoreSnapshot(
     val shared: Map<String, Map<String, BackupValue>>?,
     val secrets: Map<String, String>?,
     val protection: BackupProtection?,
-    val protectionPassword: String = ""
+    val protectionPassword: String = "",
+    val benchmarkJson: String? = null
 )
 
 /** Encrypted write-ahead state. Publish its manifest only after every part is durable. */

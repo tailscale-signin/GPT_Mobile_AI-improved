@@ -8,6 +8,7 @@ import java.security.MessageDigest
 
 /** A computed digest identifies bytes; publisher trust requires an independently pinned expected digest. */
 internal object PackageDigest {
+    internal val bytesHashed = java.util.concurrent.atomic.AtomicLong()
     fun sha256(file: File, checkCurrent: () -> Unit = {}): String = file.inputStream().use { input ->
         val digest = MessageDigest.getInstance("SHA-256")
         val buffer = ByteArray(1024 * 1024)
@@ -15,7 +16,10 @@ internal object PackageDigest {
             checkCurrent()
             val count = input.read(buffer)
             if (count < 0) break
-            if (count > 0) digest.update(buffer, 0, count)
+            if (count > 0) {
+                bytesHashed.addAndGet(count.toLong())
+                digest.update(buffer, 0, count)
+            }
         }
         digest.digest().joinToString("") { "%02x".format(it) }
     }

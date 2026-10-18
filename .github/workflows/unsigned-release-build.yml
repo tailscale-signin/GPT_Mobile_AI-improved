@@ -74,6 +74,7 @@ jobs:
           ./gradlew assembleRelease --no-daemon --max-workers=1 -Pkotlin.compiler.execution.strategy=in-process '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -Dfile.encoding=UTF-8'
           python3 scripts/check_local_runtime_apk.py app/build/outputs/apk/release/*-unsigned.apk
           python3 scripts/check_no_telemetry.py app/build/outputs/apk/release/*-unsigned.apk
+          python3 scripts/check_apk_size.py app/build/outputs/apk/release --build-type release --report release-apk-size-report.json
           mkdir -p release-assets
           cp app/build/outputs/apk/release/*-unsigned.apk release-assets/
 
@@ -101,4 +102,12 @@ jobs:
         with:
           name: unsigned-release-r8-${{ github.sha }}
           path: app/build/outputs/mapping/release/
+          if-no-files-found: ignore
+
+      - name: Save release APK size diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: unsigned-apk-size-${{ github.sha }}
+          path: release-apk-size-report.json
           if-no-files-found: ignore

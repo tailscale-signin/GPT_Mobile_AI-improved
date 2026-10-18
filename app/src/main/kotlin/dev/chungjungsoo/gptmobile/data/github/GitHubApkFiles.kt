@@ -166,7 +166,13 @@ internal object GitHubApkArchive {
                     }
                     val prefix = "${index + 1}-"
                     val baseName = GitHubApkTransferPolicy.safeApkName(entry.name).dropLast(4).take(146 - prefix.length) + ".apk"
-                    val output = File(directory, prefix + baseName)
+                    // Resolve the destination against its canonical extraction root before writing.
+                    // This enforces filesystem containment even if name normalization changes.
+                    val root = directory.canonicalFile
+                    val output = File(root, prefix + baseName).canonicalFile
+                    require(output.parentFile == root && !output.isDirectory) {
+                        "The build archive contains an unsafe APK destination."
+                    }
                     written += output
                     val crc = CRC32()
                     var entryWritten = 0L

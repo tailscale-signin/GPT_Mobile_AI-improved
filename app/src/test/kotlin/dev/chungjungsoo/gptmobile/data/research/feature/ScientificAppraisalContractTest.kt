@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.research.feature
 
 import dev.chungjungsoo.gptmobile.data.research.researchHash
 import dev.chungjungsoo.gptmobile.data.research.researchTextChunks
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -81,5 +82,17 @@ class ScientificAppraisalContractTest {
     @Test fun bodyChunkBoundariesPreserveEmojiAndRoundTripUtf8() {
         val text = "a".repeat(16383) + "🧪" + "b".repeat(16384)
         assertEquals(text, researchTextChunks(text).joinToString("") { it.toByteArray().decodeToString() })
+    }
+
+    @Test fun reExaminationCannotOverwriteHistoricalPassageIdentity() {
+        val original = ScientificAppraisalContract.validate(appraisal(), version, source)
+        val previousIds = original.passages.map { it.passageId }
+        val next = namespaceScientificPassages(original, "new-review")
+        assertEquals(previousIds, original.passages.map { it.passageId })
+        assertTrue(next.passages.none { it.passageId in previousIds })
+        assertEquals(original.passages.map { it.quote }, next.passages.map { it.quote })
+        val ids = next.passages.map { it.passageId }.toSet()
+        next.fields.forEach { field -> assertTrue(Json.decodeFromString<List<String>>(field.passageIdsJson).all { it in ids }) }
+        next.judgments.forEach { judgment -> assertTrue(judgment.passageIds.all { it in ids }) }
     }
 }

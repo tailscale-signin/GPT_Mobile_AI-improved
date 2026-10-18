@@ -1,7 +1,10 @@
 package dev.chungjungsoo.gptmobile.data.research.feature
 
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ResearchReviewScoreCalculatorTest {
@@ -40,5 +43,15 @@ class ResearchReviewScoreCalculatorTest {
     @Test fun changingLimitationInvalidatesSummaryReuse() {
         val item = artifact()
         org.junit.Assert.assertNotEquals(ResearchReviewScoreCalculator.summaryHash(item), ResearchReviewScoreCalculator.summaryHash(item.copy(limitation = "Unmeasured confounding.")))
+    }
+
+    @Test fun sourceIdentifiersCannotHideIncorrectNumbersOrReversedComparators() {
+        val quote = "The trial enrolled 100 patients and reported 5 versus 3 points."
+        val passage = EvidencePassage("p", "v", "Results", 0, quote.length, "hash", quote)
+        val outcome = ResearchOutcome("outcome", "work", "v", "primary", quote, "Small sample.", "[\"p\"]", "GROUNDED", 1)
+        val correct = artifact().copy(conclusion = "The trial enrolled 100 patients.")
+        ResearchReviewScoreCalculator.validate(Json.encodeToString(correct), outcome, listOf(passage))
+        assertTrue(runCatching { ResearchReviewScoreCalculator.validate(Json.encodeToString(correct.copy(conclusion = "The trial enrolled 200 patients.")), outcome, listOf(passage)) }.isFailure)
+        assertTrue(runCatching { ResearchReviewScoreCalculator.validate(Json.encodeToString(correct.copy(conclusion = "Results were 3 versus 5 points.")), outcome, listOf(passage)) }.isFailure)
     }
 }

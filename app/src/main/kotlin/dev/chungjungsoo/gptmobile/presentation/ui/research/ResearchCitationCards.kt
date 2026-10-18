@@ -24,6 +24,7 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveContent
+import dev.chungjungsoo.gptmobile.data.database.entity.effectiveRunId
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import dev.chungjungsoo.gptmobile.data.research.feature.CitationBindingResolver
 import dev.chungjungsoo.gptmobile.data.research.feature.MessageEvidenceBinding
@@ -34,6 +35,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
@@ -94,7 +97,9 @@ class ResearchCitationViewModel @Inject constructor(private val resolver: Citati
         mutable.value = emptyList()
         worker = viewModelScope.launch {
             try {
-                sessions.sessions.collectLatest {
+                sessions.sessions.map { records ->
+                    records.values.filter { it.chatId == message.chatId && (it.runId == message.effectiveRunId() || it.turnId in setOf("${message.chatId}:${message.linkedMessageId}", message.linkedMessageId.toString())) }.map { Triple(it.runId, it.authority, it.snapshot.sources) }
+                }.distinctUntilChanged().collectLatest {
                     mutable.value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { resolver.bind(message, includeCitations) }
                 }
             } catch (cancel: CancellationException) {
@@ -160,7 +165,7 @@ private fun StudyCard(binding: MessageEvidenceBinding, work: dev.chungjungsoo.gp
     var openError by remember { mutableStateOf(false) }
     val retracted = work?.retracted == true
     val active = job?.stage in setOf(dev.chungjungsoo.gptmobile.data.research.feature.ExaminationStage.RESOLVING, dev.chungjungsoo.gptmobile.data.research.feature.ExaminationStage.READING, dev.chungjungsoo.gptmobile.data.research.feature.ExaminationStage.EXTRACTING, dev.chungjungsoo.gptmobile.data.research.feature.ExaminationStage.APPRAISING, dev.chungjungsoo.gptmobile.data.research.feature.ExaminationStage.REVIEWING)
-    Card(Modifier.fillMaxWidth().padding(vertical = 4.dp), shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp), colors = androidx.compose.material3.CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.85f))) {
+    Card(Modifier.fillMaxWidth().padding(vertical = 4.dp), shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp), colors = androidx.compose.material3.CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.85f), contentColor = MaterialTheme.colorScheme.onSecondaryContainer)) {
         Column(Modifier.padding(if (compact) 14.dp else 18.dp), verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp)) {
             Text(work?.title ?: (snapshot?.get("title") as? JsonPrimitive)?.content.orEmpty(), style = MaterialTheme.typography.titleSmall)
             Text(listOfNotNull(work?.publicationYear?.toString(), work?.publicationType?.replace('_', ' ')).joinToString(" · "), style = MaterialTheme.typography.labelMedium)
@@ -170,7 +175,7 @@ private fun StudyCard(binding: MessageEvidenceBinding, work: dev.chungjungsoo.gp
                 Text(it.limitation, style = MaterialTheme.typography.bodySmall)
             }
             Text(if (retracted) "Retraction reported · score suspended" else review?.overallScore?.let { "AI review score $it / 100" } ?: (review?.status ?: "Review pending"), style = MaterialTheme.typography.labelLarge, color = if (retracted) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSecondaryContainer)
-            Text((snapshot?.get("coverage") as? JsonPrimitive)?.content.orEmpty().lowercase().replace('_', ' '), style = MaterialTheme.typography.bodySmall)
+            Text("Citation coverage: " + (snapshot?.get("coverage") as? JsonPrimitive)?.content.orEmpty().lowercase().replace('_', ' '), style = MaterialTheme.typography.bodySmall)
             if (review != null && review.versionId != binding.versionId) Text("Updated assessment · original cited version retained", style = MaterialTheme.typography.labelSmall)
             if (active) Text("Review in progress · ${job?.stage?.name?.lowercase()?.replace('_', ' ')}", style = MaterialTheme.typography.labelMedium)
             if (openError) Text("No browser is available to open this source.", color = MaterialTheme.colorScheme.error)

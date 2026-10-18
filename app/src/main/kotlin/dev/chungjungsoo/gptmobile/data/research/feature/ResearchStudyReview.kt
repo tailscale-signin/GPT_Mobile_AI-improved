@@ -81,6 +81,8 @@ internal object ResearchReviewScoreCalculator {
         val byId = passages.filter { it.versionId == outcome.versionId }.associateBy { it.passageId }
         fun valid(ids: List<String>) = ids.isNotEmpty() && ids.distinct().size == ids.size && ids.all { it in byId }
         require(valid(artifact.passageIds))
+        val quotes = artifact.passageIds.map { byId.getValue(it).quote }
+        require(dev.chungjungsoo.gptmobile.data.research.delivery.ResearchNumericalGrounding.issues(artifact.conclusion + "\n" + artifact.limitation, quotes).isEmpty()) { "Conclusion numbers, units or comparator order do not match the cited evidence" }
         require(artifact.reliability.size <= 5 && artifact.accuracy.size <= 5)
         (artifact.reliability + artifact.accuracy).forEach {
             require(it.grade == null || it.grade in 0..4)

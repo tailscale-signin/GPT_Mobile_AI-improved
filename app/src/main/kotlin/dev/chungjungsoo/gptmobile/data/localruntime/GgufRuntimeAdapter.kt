@@ -36,6 +36,7 @@ internal class GgufRuntimeAdapter(context: Context) : LocalRuntime {
     @Volatile private var activeOperationHandle = 0L
     private var tuple: String? = null
     private var modelFallbackKey: String? = null
+    private var modelReceipt: String = ""
     private var configuration: LocalConversationConfig? = null
     private val history = mutableListOf<Pair<String, String>>()
     private val gpuFallbackModelKeys = ConcurrentHashMap.newKeySet<String>()
@@ -103,6 +104,7 @@ internal class GgufRuntimeAdapter(context: Context) : LocalRuntime {
         try {
             cancellableNative(null) { loadNative(model, effectiveSpec, accelerator, templateName).also { handle = it } }
             healthy = true
+            modelReceipt = "file=${model.name};architecture=${manifest.architecture ?: "unknown"};quantization=${manifest.weightPrecision ?: "unknown"};templateHash=${dev.chungjungsoo.gptmobile.data.research.researchHash(template)};modelBytes=${model.length()}"
             loaded = effectiveSpec
             tuple = identity
             modelFallbackKey = fallbackKey
@@ -123,6 +125,7 @@ internal class GgufRuntimeAdapter(context: Context) : LocalRuntime {
                         loadNative(model, cpuSpec, LocalAccelerators.CPU, templateName).also { handle = it }
                     }
                     healthy = true
+                    modelReceipt = "file=${model.name};architecture=${manifest.architecture ?: "unknown"};quantization=${manifest.weightPrecision ?: "unknown"};templateHash=${dev.chungjungsoo.gptmobile.data.research.researchHash(template)};modelBytes=${model.length()}"
                     loaded = cpuSpec
                     tuple = cpuIdentity
                     modelFallbackKey = fallbackKey
@@ -224,7 +227,7 @@ internal class GgufRuntimeAdapter(context: Context) : LocalRuntime {
                     }
                 }) { acceptOutput ->
                     cancellableNative(engineHandle) {
-                        val configuration = "build=${GgufNative.buildInfo()};revision=${GgufNative.REVISION};accelerator=${spec.accelerator};context=${spec.maxTokens};threads=${GgufCpuThreads.resolve(spec.cpuThreads, Runtime.getRuntime().availableProcessors())};promptThreads=${GgufCpuThreads.resolve(spec.ggufPromptThreads ?: spec.cpuThreads, Runtime.getRuntime().availableProcessors())};batch=${spec.ggufBatchTokens};microbatch=${minOf(spec.ggufMicroBatchTokens, spec.ggufBatchTokens)};abi=${android.os.Build.SUPPORTED_ABIS.firstOrNull()};modelTuple=${tuple?.substringBefore('|')}"
+                        val configuration = "workerPid=${android.os.Process.myPid()};$modelReceipt;build=${GgufNative.buildInfo()};revision=${GgufNative.REVISION};accelerator=${spec.accelerator};context=${spec.maxTokens};threads=${GgufCpuThreads.resolve(spec.cpuThreads, Runtime.getRuntime().availableProcessors())};promptThreads=${GgufCpuThreads.resolve(spec.ggufPromptThreads ?: spec.cpuThreads, Runtime.getRuntime().availableProcessors())};batch=${spec.ggufBatchTokens};microbatch=${minOf(spec.ggufMicroBatchTokens, spec.ggufBatchTokens)};abi=${android.os.Build.SUPPORTED_ABIS.firstOrNull()};modelTuple=${tuple?.substringBefore('|')}"
                         trySend(LocalRuntimeEvent.PhaseChanged(LocalInferencePhase.PREFILL, GgufNativeProgress(activeOperation, "NATIVE_ENTRY", observedAtMs = SystemClock.elapsedRealtime(), configuration = configuration)))
                         GgufNative.generatePrepared(
                             engineHandle,
@@ -382,6 +385,7 @@ internal class GgufRuntimeAdapter(context: Context) : LocalRuntime {
         loaded = null
         tuple = null
         modelFallbackKey = null
+        modelReceipt = ""
         if (active != 0L) withContext(Dispatchers.IO) { GgufNative.unload(active) }
     }
 }

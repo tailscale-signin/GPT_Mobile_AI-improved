@@ -84,6 +84,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.sample
+import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.intellij.markdown.IElementType
@@ -157,6 +158,7 @@ fun ChatMarkdown(
         // Live deltas are rate-limited, but saved messages and final answers
         // render immediately rather than waiting for the next sample tick.
         merge(
+            requests.filter { it.streaming && dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.hasAnswer(it.content) }.take(1),
             requests.filter { it.streaming }.sample(MARKDOWN_PREPARATION_SAMPLE_MS),
             requests.filter { !it.streaming }
         ).filter { request ->

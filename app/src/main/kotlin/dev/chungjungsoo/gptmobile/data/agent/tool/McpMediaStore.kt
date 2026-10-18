@@ -49,16 +49,21 @@ class McpMediaStore @Inject constructor(@param:ApplicationContext private val co
                     if (total + bytes.size > 32 * 1024 * 1024 || System.currentTimeMillis() - file.lastModified() > 86_400_000) {
                         total -= file.length()
                         file.delete()
+                        managed.remove("gptmobile://media/${file.name}")
                     }
                 }
                 val file = File(directory, UUID.randomUUID().toString() + ".$extension")
                 file.writeBytes(bytes)
+                val uri = "gptmobile://media/${file.name}"
+                managed[uri] = dev.chungjungsoo.gptmobile.data.agent.AgentToolMedia(uri, mime, bytes.size.toLong(), dev.chungjungsoo.gptmobile.data.localmodel.PackageDigest.sha256(bytes))
                 remaining -= bytes.size
                 ResourceLink(name = "Tool media", uri = "gptmobile://media/${file.name}", mimeType = mime, size = bytes.size.toLong())
             }
         )
     }
     companion object {
+        private val managed = java.util.concurrent.ConcurrentHashMap<String, dev.chungjungsoo.gptmobile.data.agent.AgentToolMedia>()
+        internal fun managedReference(uri: String) = managed[uri]
         val TYPES = mapOf("image/png" to "png", "image/jpeg" to "jpg", "image/webp" to "webp", "audio/wav" to "wav", "audio/mpeg" to "mp3", "audio/ogg" to "ogg")
     }
 }

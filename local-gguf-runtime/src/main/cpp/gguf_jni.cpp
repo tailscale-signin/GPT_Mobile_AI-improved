@@ -18,6 +18,7 @@ struct Engine {
     std::unique_ptr<GgufChatTemplate> chatTemplate;
     std::atomic<bool> stop{false};
     std::mutex generation;
+    std::vector<llama_token> committedTokens;
     ~Engine() { if (context) llama_free(context); if (model) llama_model_free(model); }
 };
 std::mutex registryMutex;
@@ -145,7 +146,17 @@ extern "C" JNIEXPORT jlongArray JNICALL Java_dev_melo_gguf_GgufNative_generate(J
         if (tokenCount <= 0 || static_cast<uint64_t>(tokenCount) + outputLimit > llama_n_ctx(engine->context)) throw std::runtime_error("GGUF context limit: shorten input or select a larger compatible context");
         std::vector<llama_token> tokens(tokenCount);
         if (llama_tokenize(vocab, prompt.data(), prompt.size(), tokens.data(), tokens.size(), true, true) != tokenCount) throw std::runtime_error("GGUF tokenization failed");
-        llama_memory_clear(llama_get_memory(engine->context), true);
+        // Reuse only exact token identity. Always re-evaluate the last prompt
+        // token to obtain current logits; text-prefix equality is insufficient.
+        size_t reused = 0;
+        while (reused < engine->committedTokens.size() && reused + 1 < tokens.size() &&
+               engine->committedTokens[reused] == tokens[reused]) ++reused;
+        engine->committedTokens.clear(); // Any failure/cancellation invalidates reuse.
+        if (reused == 0 || !llama_memory_seq_rm(llama_get_memory(engine->context), 0, reused, -1)) {
+            llama_memory_clear(llama_get_memory(engine->context), true);
+            reused = 0;
+        }
+        std::vector<llama_token> decodedTokens = tokens;
         llama_perf_context_reset(engine->context);
         std::unique_ptr<llama_sampler, decltype(&llama_sampler_free)> sampler(llama_sampler_chain_init(llama_sampler_chain_default_params()), llama_sampler_free);
         if (topK < 1 || topK > 1024 || !std::isfinite(topP) || topP < 0 || topP > 1 || !std::isfinite(temperature) || temperature < 0 || temperature > 5) throw std::runtime_error("Invalid GGUF sampler");
@@ -160,9 +171,9 @@ extern "C" JNIEXPORT jlongArray JNICALL Java_dev_melo_gguf_GgufNative_generate(J
         const auto onBytes = env->GetMethodID(callbackClass, "onBytes", "([B)Z");
         env->DeleteLocalRef(callbackClass);
         if (!onBytes) return nullptr;
-        jlong input = 0, output = 0, stop = 1;
+        jlong input = reused, output = 0, stop = 1;
         const auto start = Clock::now();
-        for (int offset = 0; offset < tokenCount && !engine->stop; offset += 256) {
+        for (int offset = static_cast<int>(reused); offset < tokenCount && !engine->stop; offset += 256) {
             const int n = std::min(256, tokenCount - offset);
             auto batch = llama_batch_get_one(tokens.data() + offset, n);
             const int result = llama_decode(engine->context, batch);
@@ -188,11 +199,13 @@ extern "C" JNIEXPORT jlongArray JNICALL Java_dev_melo_gguf_GgufNative_generate(J
             if (!more) { engine->stop = true; break; }
             auto next = token;
             if (llama_decode(engine->context, llama_batch_get_one(&next, 1)) != 0) { stop = engine->stop ? 2 : 3; break; }
+            decodedTokens.push_back(token);
         }
         if (engine->stop) stop = 2;
-        jlong values[] = {input, output, prefillMs, elapsed(decodeStart), stop};
-        auto result = env->NewLongArray(5);
-        env->SetLongArrayRegion(result, 0, 5, values);
+        if (stop == 0 || stop == 1) engine->committedTokens = std::move(decodedTokens);
+        jlong values[] = {input, output, prefillMs, elapsed(decodeStart), stop, static_cast<jlong>(reused), input - static_cast<jlong>(reused)};
+        auto result = env->NewLongArray(7);
+        env->SetLongArrayRegion(result, 0, 7, values);
         return result;
     } catch (const std::exception & e) { fail(env, e.what()); return nullptr; }
 }

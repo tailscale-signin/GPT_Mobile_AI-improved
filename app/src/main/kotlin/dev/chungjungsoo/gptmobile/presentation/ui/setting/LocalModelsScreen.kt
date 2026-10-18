@@ -58,6 +58,7 @@ import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.catalog.ModelCatalogParser
 import dev.chungjungsoo.gptmobile.data.huggingface.HuggingFaceUrls
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
+import dev.chungjungsoo.gptmobile.presentation.common.glassWindowBackdrop
 import dev.chungjungsoo.gptmobile.presentation.ui.localmodel.LocalModelDownloadDialogHost
 import dev.chungjungsoo.gptmobile.presentation.ui.localmodel.LocalModelDownloadStatus
 import dev.chungjungsoo.gptmobile.presentation.ui.localmodel.LocalModelRequirements
@@ -91,18 +92,22 @@ internal fun LocalMarketplaceScreen(
     var why by rememberSaveable { mutableStateOf(false) }
     val geniex = dev.chungjungsoo.gptmobile.BuildConfig.GENIEX_ENABLED
     fun support(item: LocalModelListItem) = dev.chungjungsoo.gptmobile.data.catalog.LocalCatalogCompatibilityResolver.resolve(item.entry, geniex, runtimeViewModel.soc, item.status == LocalModelItemStatus.READY)
-    fun isGenieX(item: LocalModelListItem) = item.entry.variantLabel.startsWith("GENIEX_") || item.entry.runtimeRequirement.contains("geniex", true) || item.entry.downloadUrl.substringBefore('?').endsWith(".gguf", true)
+    fun runtimeLabel(item: LocalModelListItem): String = when {
+        item.entry.variantLabel.startsWith("GENIEX_") || item.entry.runtimeRequirement.contains("geniex", true) -> "GenieX"
+        item.entry.variantLabel.contains("GGUF", true) || item.entry.runtimeRequirement.contains("llama", true) || item.entry.downloadUrl.substringBefore('?').endsWith(".gguf", true) -> "llama.cpp"
+        else -> "LiteRT-LM"
+    }
     val recommended = remember(uiState.allItems, geniex) { dev.chungjungsoo.gptmobile.data.catalog.LocalCatalogRecommendationPolicy.recommend(uiState.allItems.map { it.entry }, geniex, runtimeViewModel.soc, runtimeViewModel.ramGb).map { it.id }.toSet() }
     val visible = uiState.items.filter { item ->
         val compatible = item.status == LocalModelItemStatus.READY ||
             everyModel ||
             (support(item).reasons.isEmpty() && (runtimeViewModel.ramGb == null || item.entry.minRamGb <= runtimeViewModel.ramGb!!))
         compatible &&
-            (runtime == "All" || (runtime == "GenieX") == isGenieX(item)) &&
+            (runtime == "All" || runtime == runtimeLabel(item)) &&
             (processor == "Any" || item.entry.supportedAccelerators.any { it.equals(processor, true) }) &&
             when (capability) {
                 "Images" -> item.entry.capabilities.vision
-                "Tools" -> true
+                "Tools" -> item.entry.capabilities.tools
                 "Thinking" -> item.entry.capabilities.thinking
                 "MTP" -> item.entry.supportsMtp
                 else -> true
@@ -112,7 +117,7 @@ internal fun LocalMarketplaceScreen(
     val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) viewModel.importCustomModel(context.contentResolver, uri) }
     Scaffold(modifier = modifier, topBar = {
         androidx.compose.material3.TopAppBar(title = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_local_models_8e4bf)) }, navigationIcon = { IconButton(onClick = onNavigationClick) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") } }, actions = {
-            IconButton(onClick = { importer.launch(arrayOf("*/*")) }) { Icon(Icons.Rounded.Add, "Import a local model") }
+            IconButton(onClick = { importer.launch(arrayOf("*/*")) }) { Icon(Icons.Rounded.Add, "Link a model at its existing location") }
             IconButton(onClick = viewModel::refreshCatalog) { Icon(Icons.Rounded.Refresh, "Refresh catalog") }
         })
     }) { insets ->
@@ -177,6 +182,7 @@ internal fun LocalMarketplaceScreen(
                     Card(onClick = { family = key }, modifier = Modifier.fillMaxWidth(), shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp)) {
                         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(item.entry.displayName, style = MaterialTheme.typography.titleLarge)
+                            if (item.entry.id.startsWith("linked_")) Text("Linked at original location", style = MaterialTheme.typography.labelMedium)
                             Text(
                                 if (item.entry.capabilities.vision) {
                                     androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_9b98c5a243)
@@ -187,7 +193,7 @@ internal fun LocalMarketplaceScreen(
                                 },
                                 style = MaterialTheme.typography.bodyMedium
                             )
-                            Text("${if (isGenieX(item)) "GenieX" else "LiteRT-LM"} · ${item.entry.variantLabel.ifBlank { item.entry.precision }} · ${if (item.downloadSizeBytes > 0) ModelCatalogParser.formatDownloadSize(item.downloadSizeBytes) else "Size unknown"}", style = MaterialTheme.typography.labelMedium)
+                            Text("${runtimeLabel(item)} · ${item.entry.variantLabel.ifBlank { item.entry.precision }} · ${if (item.downloadSizeBytes > 0) ModelCatalogParser.formatDownloadSize(item.downloadSizeBytes) else "Size unknown"}", style = MaterialTheme.typography.labelMedium)
                             Text(support(item).reasons.firstOrNull() ?: if (item.status == LocalModelItemStatus.READY) androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_dd89b29224) else androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_f1321c7b23), style = MaterialTheme.typography.bodySmall)
                             TextButton(onClick = { family = key }) { Text(if (variants.size > 1) androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_38fb1198d8, (variants.size).toString()) else androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_cd3cd14621)) }
                         }
@@ -199,7 +205,7 @@ internal fun LocalMarketplaceScreen(
     family?.let { selectedFamily ->
         val variants = (uiState.allItems + uiState.huggingFaceItems).distinctBy { it.entry.id }.filter { it.entry.familyId.ifBlank { it.entry.id } == selectedFamily }
         dev.chungjungsoo.gptmobile.presentation.common.FadingDialog(onDismissRequest = { family = null }, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
-            Scaffold(topBar = { androidx.compose.material3.TopAppBar(title = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_model_details_5ddbc)) }, navigationIcon = { IconButton(onClick = { family = null }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") } }) }) { insets ->
+            Scaffold(modifier = Modifier.glassWindowBackdrop(), containerColor = dev.chungjungsoo.gptmobile.presentation.common.overlayWindowContainerColor(), topBar = { androidx.compose.material3.TopAppBar(title = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_model_details_5ddbc)) }, navigationIcon = { IconButton(onClick = { family = null }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") } }) }) { insets ->
                 LazyColumn(Modifier.padding(insets), contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     item {
                         Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_variants_63d26), style = MaterialTheme.typography.titleLarge)
@@ -243,7 +249,7 @@ internal fun LocalMarketplaceScreen(
         androidx.compose.material3.AlertDialog(onDismissRequest = { filtersOpen = false }, title = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_model_filters_d4bb9)) }, text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_runtime_10931))
-                androidx.compose.foundation.layout.FlowRow { listOf("All", "LiteRT-LM", "GenieX").forEach { value -> TextButton(onClick = { runtime = value }) { Text(if (runtime == value) "✓ $value" else value) } } }
+                androidx.compose.foundation.layout.FlowRow { listOf("All", "LiteRT-LM", "llama.cpp", "GenieX").forEach { value -> TextButton(onClick = { runtime = value }) { Text(if (runtime == value) "✓ $value" else value) } } }
                 Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_processor_54aac))
                 Row {
                     listOf("Any", "CPU", "GPU", "NPU").forEach { value ->
@@ -261,6 +267,7 @@ internal fun LocalMarketplaceScreen(
                 runtime = "All"
                 processor = "Any"
                 capability = "Any"
+                everyModel = false
                 viewModel.setNpuOnly(false)
             }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_reset_filters_10afa)) }
         })

@@ -261,7 +261,7 @@ private fun AirbnbListingDialog(listings: List<AirbnbListing>, index: Int, owner
         openError = runCatching { uri.openUri(url) }.isFailure
     }
     FadingDialog(onDismissRequest = onDismiss) {
-        Surface(shape = RoundedCornerShape(26.dp), color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = .5f))) {
+        dev.chungjungsoo.gptmobile.presentation.common.AppGlassSurface(shape = RoundedCornerShape(26.dp)) {
             Column(Modifier.fillMaxWidth().heightIn(max = 680.dp).verticalScroll(rememberScrollState()).padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Rounded.Home, null, tint = MaterialTheme.colorScheme.primary)

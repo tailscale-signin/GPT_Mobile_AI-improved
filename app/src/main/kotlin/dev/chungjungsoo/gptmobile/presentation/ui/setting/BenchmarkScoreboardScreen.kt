@@ -18,9 +18,11 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.EmojiEvents
 import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Science
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Smartphone
@@ -76,12 +78,21 @@ internal fun BenchmarkScoreboardPanel(kind: ScoreboardKind, onRun: () -> Unit, v
     val share by viewModel.share.collectAsStateWithLifecycle()
     var online by rememberSaveable(kind) { mutableStateOf(false) }
     var plan by rememberSaveable(kind) { mutableStateOf(BenchmarkMode.QUICK) }
+    var historical by rememberSaveable(kind) { mutableStateOf(false) }
     var query by rememberSaveable(kind) { mutableStateOf("") }
     var visible by rememberSaveable(kind, plan, online, query) { mutableIntStateOf(20) }
     var detail by remember(kind) { mutableStateOf<ScoreboardEntry?>(null) }
     var showShare by remember { mutableStateOf(false) }
     var account by remember { mutableStateOf<String?>(null) }
-    val entries = (if (online) community.entries else local).filter { it.submission.kind == kind && it.submission.plan == plan }
+    val allEntries = (if (online) community.entries else local).filter { it.submission.kind == kind && it.submission.plan == plan }
+    val selectedVersion = if (kind == ScoreboardKind.DELEGATION) {
+        1
+    } else if (historical) {
+        6
+    } else {
+        dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkSuiteRegistry.VERSION
+    }
+    val entries = allEntries.filter { it.submission.suiteVersion == selectedVersion }
     val filtered = entries.filter { "${it.submission.provider} ${it.submission.model}".contains(query, ignoreCase = true) }
     LaunchedEffect(online) { if (online) viewModel.refresh() }
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -104,6 +115,13 @@ internal fun BenchmarkScoreboardPanel(kind: ScoreboardKind, onRun: () -> Unit, v
         }
         Text(if (online) "Community results · self-reported. GitHub validates the data and recalculates scores; model identity and execution are not independently verified." else "Your saved remote-model results. Renaming a profile does not create a new entry. On-device models remain in Run, Compare and History.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         BenchmarkPlanPicker(plan) { plan = it }
+        if (kind == ScoreboardKind.MODEL) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                BenchmarkAction("Current suite ${dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkSuiteRegistry.VERSION}", Icons.Rounded.Science, !historical, { historical = false })
+                BenchmarkAction("Historical suite 6", Icons.Rounded.History, historical, { historical = true })
+            }
+            if (historical) Text("Original historical grading is retained. These results do not compete with the revised suite; retained full local responses can be re-evaluated in History.", style = MaterialTheme.typography.bodySmall)
+        }
         OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("Find a model or provider") }, leadingIcon = { Icon(Icons.Rounded.Search, null) })
         if (community.loading && online) CircularProgressIndicator()
         if (online && community.updatedAt > 0) Text("${if (community.cached) "Saved copy" else "Updated"} · ${scoreboardDate(community.updatedAt)}", style = MaterialTheme.typography.labelSmall)

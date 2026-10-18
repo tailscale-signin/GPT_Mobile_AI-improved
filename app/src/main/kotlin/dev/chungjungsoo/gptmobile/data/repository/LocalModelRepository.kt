@@ -18,6 +18,7 @@ interface LocalModelRepository {
     suspend fun importCustomModel(inputStream: InputStream, fileName: String): LocalModelImportResult
     suspend fun importWithProgress(inputStream: InputStream, fileName: String, checkCurrent: () -> Unit, progress: (Long) -> Unit): LocalModelImportResult = importCustomModel(inputStream, fileName)
     suspend fun importPersisted(inputStream: InputStream, fileName: String, jobId: String, checkCurrent: () -> Unit, progress: (Long) -> Unit): LocalModelImportResult = importWithProgress(inputStream, fileName, checkCurrent, progress)
+    suspend fun linkSource(source: android.net.Uri, folder: Boolean, checkCurrent: () -> Unit, progress: (Long) -> Unit): LocalModelImportResult = error("Model source linking is unavailable")
     suspend fun totalStorageUsed(): Long
     suspend fun reconcile()
     suspend fun awaitActiveDownloadScheduling() = Unit

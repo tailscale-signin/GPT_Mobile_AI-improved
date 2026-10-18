@@ -76,7 +76,7 @@ fun CompleteBackupDialog(
     var pendingAction by rememberSaveable { mutableStateOf<BackupAction?>(null) }
 
     Dialog(onDismissRequest = { if (!state.isBusy) onDismiss() }) {
-        Surface(
+        dev.chungjungsoo.gptmobile.presentation.common.AppGlassSurface(
             modifier = Modifier.widthIn(max = 520.dp).fillMaxWidth(),
             shape = MaterialTheme.shapes.extraLarge
         ) {

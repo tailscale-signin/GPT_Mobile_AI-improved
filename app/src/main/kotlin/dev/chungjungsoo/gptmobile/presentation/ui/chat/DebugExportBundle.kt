@@ -20,7 +20,7 @@ internal object DebugExportBundle {
     fun conversation(body: String): JsonObject {
         require(body.toByteArray(Charsets.UTF_8).size <= MAX_BYTES) { "Diagnostic snapshot exceeds the export memory limit; no data was truncated." }
         val root = Json.parseToJsonElement(body) as? JsonObject ?: error("CORRUPT_EXPORT: conversation must be an object")
-        require((root["schema"] as? JsonPrimitive)?.content in setOf("gptmobile.conversation.debug.v2", "gptmobile.conversation.debug.v3")) { "UNSUPPORTED_EXPORT_SCHEMA" }
+        require((root["schema"] as? JsonPrimitive)?.content in DebugExportSchema.supportedConversations) { "UNSUPPORTED_EXPORT_SCHEMA" }
         require(root["messages"] is JsonArray && root["profiles"] is JsonArray) { "CORRUPT_EXPORT: missing required conversation records" }
         return root
     }
@@ -46,7 +46,7 @@ internal object DebugExportBundle {
         )
         require(parts.values.sumOf { it.toByteArray(Charsets.UTF_8).size.toLong() } <= MAX_BYTES) { "Diagnostic bundle exceeds the export memory limit; no data was truncated." }
         val manifest = buildJsonObject {
-            put("schema", "gptmobile.conversation.debug.bundle.v3")
+            put("schema", DebugExportSchema.BUNDLE)
             put("conversationSchema", root.getValue("schema"))
             put("eventSchema", 5)
             put(
@@ -113,7 +113,7 @@ internal object DebugExportBundle {
         }
         require(parts.keys == files) { "CORRUPT_EXPORT: missing bundle file" }
         val manifest = Json.parseToJsonElement(parts.getValue("manifest.json")) as? JsonObject ?: error("CORRUPT_EXPORT: invalid manifest")
-        require((manifest["schema"] as? JsonPrimitive)?.content == "gptmobile.conversation.debug.bundle.v3") { "UNSUPPORTED_EXPORT_SCHEMA" }
+        require((manifest["schema"] as? JsonPrimitive)?.content == DebugExportSchema.BUNDLE) { "UNSUPPORTED_EXPORT_SCHEMA" }
         val entries = manifest["files"] as? JsonArray ?: error("CORRUPT_EXPORT: missing file manifest")
         require(entries.size == files.size - 1) { "CORRUPT_EXPORT: file manifest mismatch" }
         val verified = mutableSetOf<String>()
@@ -125,7 +125,8 @@ internal object DebugExportBundle {
             require((record["sha256"] as? JsonPrimitive)?.content == debugBodyDigest(text)) { "CORRUPT_EXPORT: digest mismatch" }
             require((record["bytes"] as? JsonPrimitive)?.content?.toLongOrNull() == text.toByteArray(Charsets.UTF_8).size.toLong()) { "CORRUPT_EXPORT: byte count mismatch" }
         }
-        conversation(parts.getValue("conversation.json"))
+        val root = conversation(parts.getValue("conversation.json"))
+        require(manifest["conversationSchema"] == root["schema"]) { "CORRUPT_EXPORT: conversation schema mismatch" }
         return parts
     }
 }

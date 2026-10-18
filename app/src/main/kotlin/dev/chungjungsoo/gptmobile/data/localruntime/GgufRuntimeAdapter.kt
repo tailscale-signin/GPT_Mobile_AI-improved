@@ -270,7 +270,7 @@ internal class GgufRuntimeAdapter(context: Context) : LocalRuntime {
                 send(LocalRuntimeEvent.Error("GGUF_PREFILL_TIMEOUT: $detail after ${elapsed / 1000}s. The request was cancelled; try a smaller context, a smaller model, or another accelerator."))
                 return@channelFlow
             }
-            check(counts.size == 5) { "Malformed GGUF native receipt" }
+            check(counts.size == 5 || counts.size == 7) { "Malformed GGUF native receipt" }
             val unicodeComplete = decoder.isComplete()
             val finish = when (counts[4]) {
                 0L -> "eos"
@@ -278,13 +278,14 @@ internal class GgufRuntimeAdapter(context: Context) : LocalRuntime {
                 2L -> "canceled"
                 else -> "native_error"
             }
+            if (counts.size >= 7) AppLogRecorder.record("LocalModel", "GGUF_PREFIX_REUSE · reusedTokens=${counts[5]} · processedPromptTokens=${counts[6]} · totalPromptTokens=${counts[0]} · finish=$finish")
             // Control and final counters use suspending delivery, independent of callback queue pressure.
             send(
                 LocalRuntimeEvent.Metrics(
                     LocalInferenceMetrics(
                         totalDurationMs = SystemClock.elapsedRealtime() - started,
                         totalCharacters = output.length,
-                        native = NativeInferenceMetrics(counts[0].toInt(), counts[1].toInt(), if (counts[2] > 0) counts[0] * 1000.0 / counts[2] else 0.0, if (counts[3] > 0) counts[1] * 1000.0 / counts[3] else 0.0),
+                        native = NativeInferenceMetrics(counts[0].toInt(), counts[1].toInt(), if (counts[2] > 0) (counts.getOrNull(6) ?: counts[0]) * 1000.0 / counts[2] else 0.0, if (counts[3] > 0) counts[1] * 1000.0 / counts[3] else 0.0),
                         metricSource = "native_segment",
                         firstVisibleAnswerMs = first,
                         decodeDurationMs = counts[3],
@@ -315,7 +316,7 @@ internal class GgufRuntimeAdapter(context: Context) : LocalRuntime {
             try {
                 awaitCancellation()
             } finally {
-                if (!completed.get()) activeHandle?.let(GgufNative::cancel)
+                if (!completed.get()) GgufNative.cancel(activeHandle ?: 0L)
             }
         }
         try {

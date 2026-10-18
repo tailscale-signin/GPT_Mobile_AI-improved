@@ -753,10 +753,15 @@ class ChatViewModel @Inject constructor(
         _pendingFreeToolConsent.value = null
     }
 
-    fun markCurrentChatViewed() {
-        val chatId = chatRoom.value.id
-        conversationReadStateStore.markViewed(chatId)
-        generationCompletionStore.clearChat(chatId)
+    val pendingReplies = generationCompletionStore.items
+
+    fun acknowledgeDisplayedReplies(displayed: List<MessageV2>, captured: List<dev.chungjungsoo.gptmobile.data.chat.CompletedGeneration>) {
+        val byId = displayed.associateBy { it.id }
+        viewModelScope.launch {
+            captured.filter { it.chatId == chatRoom.value.id }.forEach { item ->
+                byId[item.assistantMessageId]?.let { generationCompletionStore.acknowledge(item, it.content) }
+            }
+        }
     }
 
     private val conversationDelegationMutex = Mutex()
@@ -1528,7 +1533,7 @@ class ChatViewModel @Inject constructor(
 
         pendingRunDispatches += 1
         val readinessLease = dev.chungjungsoo.gptmobile.data.readiness.ReadinessWorkloadSignals.enter()
-        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.checkpoint("Readiness", "SEND_TAPPED")
+        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Readiness", "SEND_TAPPED")
         viewModelScope.launch {
             try {
                 val disabled = _disabledPlatformUids.value
@@ -2272,7 +2277,7 @@ class ChatViewModel @Inject constructor(
         val fullHistory = chatRepository.fetchMessagesV2(userMessage.chatId)
         require(fullHistory.any { it.id == userMessage.id && it.platformType == null }) { "The Combined user turn is no longer available." }
         val historicalUsers = fullHistory.filter { it.platformType == null }.takeWhile { it.id != userMessage.id }
-        val historicalReplies = historicalUsers.map { prior -> fullHistory.filter { it.linkedMessageId == prior.id && it.platformType == leadUid } }
+        val historicalReplies = historicalUsers.map { prior -> fullHistory.filter { it.linkedMessageId == prior.id && it.platformType != null } }
         val selectedUids = grouped.assistantMessages.getOrNull(turnIndex).orEmpty().mapNotNull { it.platformType }
         val (synthesisPrompt, synthesisSnapshot) = withContext(Dispatchers.Default) {
             val prompt = combinedSynthesisPrompt(userMessage.content, attributedSources, sharedEvidence, evidenceLedger, turnContext)

@@ -30,6 +30,26 @@ class WorkspaceIntegrationTest {
         database.close()
     }
 
+    @Test fun preparedDocumentReceiptRejectsDeletedOrRevisedSource() = runBlocking {
+        val chat = database.chatRoomDao().addChatRoom(ChatRoomV2(title = "Recall")).toInt()
+        val repository = MemoryDocumentRepository(database, MemoryScopeResolver(database))
+        val id = repository.index("Source", "Original document evidence.", chatId = chat)
+        val original = repository.recall(chat, "document")
+        assertTrue(original.sources.isNotEmpty())
+        repository.validateRecall(original)
+        repository.index("Source", "Revised document evidence.", chatId = chat)
+        assertTrue(runCatching { repository.validateRecall(original) }.isFailure)
+        val revised = repository.recall(chat, "document")
+        repository.validateRecall(revised)
+        repository.delete(id)
+        assertTrue(runCatching { repository.validateRecall(revised) }.isFailure)
+        // Reimporting identical bytes with an old/equal clock cannot revive the receipt.
+        val oldSource = revised.sources.single()
+        database.knowledgeDao().replaceDocument(oldSource.document, listOf(oldSource.chunk), explicitlyRestore = true)
+        assertTrue(requireNotNull(database.knowledgeDao().document(id)).updatedAt > oldSource.document.updatedAt)
+        assertTrue(runCatching { repository.validateRecall(revised) }.isFailure)
+    }
+
     @Test fun projectDocumentsAreSearchableOnlyInsideTheWorkspaceAndDeletesUpdateFts() = runBlocking {
         val chats = database.chatRoomDao()
         val first = chats.addChatRoom(ChatRoomV2(title = "First")).toInt()

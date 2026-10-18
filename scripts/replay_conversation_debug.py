@@ -57,7 +57,7 @@ def load_snapshot(path: Path) -> dict:
         events = [json.loads(line) for line in parts["events.jsonl"].splitlines() if line.strip()]
         if events != root.get("runJournal", {}).get("events", []):
             raise ValueError("Journal differs between frozen bundle components")
-    if not isinstance(root, dict) or root.get("schema") not in {"gptmobile.conversation.debug.v2", "gptmobile.conversation.debug.v3"}:
+    if not isinstance(root, dict) or root.get("schema") not in {"gptmobile.conversation.debug.v2", "gptmobile.conversation.debug.v3", "gptmobile.conversation.debug.v4"}:
         raise ValueError("Unsupported conversation schema")
     if not isinstance(root.get("messages"), list) or not isinstance(root.get("profiles"), list):
         raise ValueError("Corrupt conversation records")

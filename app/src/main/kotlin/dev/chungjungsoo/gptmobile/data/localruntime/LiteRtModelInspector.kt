@@ -30,7 +30,7 @@ data class LocalModelCapabilities(
     private fun validateConfiguration(spec: LocalEngineSpec) {
         require(contextTokens == null || spec.maxTokens <= contextTokens) { "Requested context ${spec.maxTokens} exceeds this export's $contextTokens-token ceiling." }
         require(backends.isEmpty() || spec.accelerator.lowercase() in backends) { "This artifact does not support ${spec.accelerator}. Choose a compatible variant; a backend switch cannot convert compiled weights." }
-        require(!spec.isVisionEnabled || vision != false) { "This export is text-only; image input is unsupported." }
+        require(!spec.isVisionEnabled || vision == true) { "Image support is absent or unverified for this export. Select and verify a compatible vision package." }
         require(!spec.isVisionEnabled || visionBackends.isEmpty() || spec.visionAccelerator in visionBackends) { "This export does not support the requested vision backend." }
         require(spec.speculativeDecoding != true || speculative == true) { "This export has no verified speculative-decoding support. Use Model default or Off." }
         if (spec.accelerator.equals("npu", true) && !soc.isNullOrBlank()) {
@@ -54,14 +54,18 @@ internal fun runtimeVersionIsNewer(required: String, installed: String): Boolean
 }
 
 internal object LiteRtModelInspector {
-    private data class Cached(val length: Long, val modified: Long, val metadata: LocalModelCapabilities)
+    private data class Cached(val identity: String?, val metadata: LocalModelCapabilities)
     private val cache = LinkedHashMap<String, Cached>()
 
     @Synchronized
     fun inspect(path: String): LocalModelCapabilities {
-        val file = File(path).canonicalFile
+        // Descriptor aliases must retain their /proc/self/fd target; canonicalizing
+        // would turn a SAF grant back into an inaccessible raw storage path.
+        val candidate = File(path)
+        val file = if (dev.chungjungsoo.gptmobile.data.localmodel.LinkedModelSources.isOpenAlias(candidate)) candidate.absoluteFile else candidate.canonicalFile
         val key = file.path
-        cache[key]?.takeIf { it.length == file.length() && it.modified == file.lastModified() }?.let { return it.metadata }
+        val identity = dev.chungjungsoo.gptmobile.data.localmodel.PackageDigest.installedFileIdentity(file)
+        cache[key]?.takeIf { identity != null && it.identity == identity }?.let { return it.metadata }
         dev.chungjungsoo.gptmobile.data.localmodel.PackageDigest.validateInstalled(file)
         val validation = LocalModelValidator.validate(key)
         require(validation is ModelValidationResult.Valid) { "Model integrity preflight failed: $validation" }
@@ -82,7 +86,7 @@ internal object LiteRtModelInspector {
             )
         }.also {
             if (cache.size >= 32) cache.remove(cache.keys.first())
-            cache[key] = Cached(file.length(), file.lastModified(), it)
+            if (identity != null && identity == dev.chungjungsoo.gptmobile.data.localmodel.PackageDigest.installedFileIdentity(file)) cache[key] = Cached(identity, it)
         }
     }
 }

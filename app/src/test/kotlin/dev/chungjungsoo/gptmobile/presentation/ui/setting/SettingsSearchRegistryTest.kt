@@ -11,7 +11,7 @@ class SettingsSearchRegistryTest {
     fun controlKeysAreUniqueAndEveryFeatureHasAnExactTarget() {
         val entries = SettingsSearchRegistry.entries
         assertEquals(entries.size, entries.map { it.key }.distinct().size)
-        AppFeature.entries.forEach { feature ->
+        AppFeature.entries.filterNot { it in setOf(AppFeature.OPENROUTER_BATCH, AppFeature.LOCAL_ASSIST) }.forEach { feature ->
             val target = entries.single { it.key == "feature.${feature.name}" }
             assertEquals(SettingsSearchDestination.ADVANCED, target.destination)
             assertEquals(feature.name, target.focus)

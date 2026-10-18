@@ -330,7 +330,7 @@ class ChatRepositoryImpl(
             { settingRepository.getFeatureSettings().assistEnabled() && settingRepository.getFeatureSettings().effectiveAssistPolicy() == features.effectiveAssistPolicy() && settingRepository.getFeatureSettings().localAssistPolicy.preparation == features.localAssistPolicy.preparation && settingRepository.fetchPlatformV2s().any { it == target } },
             root,
             { invocation },
-            contextTokens = { localRuntime.admittedEngineSpec()?.maxTokens ?: 0 },
+            contextTokens = { minOf(localRuntime.admittedEngineSpec()?.maxTokens ?: 0, if (policy.contextMode == dev.chungjungsoo.gptmobile.data.assist.AssistContextMode.AUTO) 4096 else policy.contextTokens) },
             runtimeFingerprint = { dev.chungjungsoo.gptmobile.data.memory.MemoryEnrichmentQueue.runtimeFingerprint(localRuntime) },
             status = { dev.chungjungsoo.gptmobile.data.assist.AssistTelemetry.record(root, it) }
         )
@@ -400,7 +400,18 @@ class ChatRepositoryImpl(
         benchmarkCategory: String
     ): dev.chungjungsoo.gptmobile.data.agent.AgentProviderSession {
         val outputBudget = dev.chungjungsoo.gptmobile.data.benchmark.benchmarkCompletionBudget(platform, benchmarkCategory)
-        val constraints = RequestConstraints(maxOutputTokens = outputBudget, allowTools = tools.isNotEmpty(), allowReasoning = benchmarkCategory == dev.chungjungsoo.gptmobile.data.benchmark.IntelligenceBenchmark.CATEGORY, freshResponse = true, requestRole = "benchmark")
+        val constraints = RequestConstraints(
+            maxOutputTokens = outputBudget,
+            allowTools = tools.isNotEmpty(),
+            allowReasoning = benchmarkCategory.startsWith(dev.chungjungsoo.gptmobile.data.benchmark.IntelligenceBenchmark.CATEGORY),
+            freshResponse = true,
+            requestRole = "benchmark",
+            finalResponseSchemaJson = when (benchmarkCategory) {
+                dev.chungjungsoo.gptmobile.data.benchmark.IntelligenceBenchmark.CATEGORY -> dev.chungjungsoo.gptmobile.data.benchmark.IntelligenceBenchmark.responseSchemaJson
+                "json" -> "{\"type\":\"object\"}"
+                else -> null
+            }
+        )
         val target = dev.chungjungsoo.gptmobile.data.benchmark.benchmarkProfile(platform, tools.isNotEmpty(), benchmarkCategory)
         val session = when (target.compatibleType) {
             ClientType.OPENAI -> openAIResponsesAdapter.openSession(turns, target, constraints)
@@ -738,6 +749,7 @@ class ChatRepositoryImpl(
 
     private suspend fun delegateToProfile(target: PlatformV2, task: String, maxTokens: Int, parentRunId: String, turnKey: String, maxInputTokens: Int = Int.MAX_VALUE, onProgress: (DelegateProgress) -> Unit = {}, allowTools: Boolean = true, fixtureTools: List<AgentTool>? = null, chatToolConfig: ChatMcpToolConfig = ChatMcpToolConfig(), traceSequences: java.util.concurrent.atomic.AtomicInteger? = null, onToolTrace: (suspend (ApiState.ToolCall) -> Unit)? = null, authorizedTools: List<ResolvedAgentTool>? = null, finalizationRepairAttempted: Boolean = false, requestRole: String = "delegate"): String {
         check(parentRunId !in privateMemoryRuns || target.compatibleType == ClientType.LITERT_LM) { "This run contains local-only memory. Choose a local reviewer or delegate." }
+        val parentAuthority = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]
         val dispatchAuthority = dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.capture(settingRepository, target)
         val reviewing = requestRole == "reviewer"
         val followingUp = requestRole == "follow_up"
@@ -823,6 +835,13 @@ class ChatRepositoryImpl(
             "Child tool catalog · target=${target.uid} · source=$childToolSource · discovered=$discoveredChildToolCount · kept=${childTools.size} · names=${childTools.joinToString { it.definition.name }} · maxInputTokens=$maxInputTokens"
         )
         val estimatedRequestInputTokens = baseInputTokens + estimatedToolTokens()
+        if (requestRole == "assist") {
+            val policy = settingRepository.getFeatureSettings().effectiveAssistPolicy()
+            val warm = requireNotNull(localRuntime.admittedEngineSpec()) { "Assist requires a prepared engine" }
+            val decision = dev.chungjungsoo.gptmobile.data.assist.AssistContextDecision.resolve(policy, warm.maxTokens, false)
+            decision.requireFits(estimatedRequestInputTokens.toLong(), maxTokens, if (childTools.isEmpty()) 0 else 256)
+            AppLogRecorder.record("LocalAssist", "CONTEXT_ADMISSION · method=estimated · requested=${decision.requestedTokens} · allocated=${decision.allocatedTokens} · logical=${decision.logicalTokens} · estimatedInput=$estimatedRequestInputTokens · outputReserve=$maxTokens · qualified=unknown")
+        }
         if (estimatedRequestInputTokens > maxInputTokens) {
             AppLogRecorder.record(
                 "Delegation",
@@ -875,6 +894,7 @@ class ChatRepositoryImpl(
             nativeLocationToolName = childTools.firstOrNull { it.definition.name == BuiltInAgentTool.DEVICE_LOCATION }?.definition?.name
         )
         val authorizedSession = session.withRequestAuthorization(dispatchAuthority.revision) {
+            parentAuthority?.validate()
             dispatchAuthority.validate()
             // Each child tool validates its own grant at execution. An unused unavailable tool must not veto the model request.
         }
@@ -1514,7 +1534,7 @@ class ChatRepositoryImpl(
                 }
                 val memoryBoundary = effectiveUserMessages.lastOrNull()?.let { factVault?.scopeForChat(it.chatId) }
                 val privateConversation = memoryBoundary?.isTemporary == true
-                suspend fun resolveAuthorizedTools(cachedOnly: Boolean = preparationPlan.kind == dev.chungjungsoo.gptmobile.data.readiness.PreparationKind.CONTEXTUAL) = (
+                suspend fun resolveAuthorizedTools(cachedOnly: Boolean = true) = (
                     if (preparationPlan.kind == dev.chungjungsoo.gptmobile.data.readiness.PreparationKind.DIRECT || platform.disableAllTools || (!supportsTools && !sourceAcquisitionRequested)) {
                         emptyList()
                     } else {
@@ -1701,7 +1721,6 @@ class ChatRepositoryImpl(
                         ?.takeUnless { it.isTemporary }?.project?.instructions.orEmpty()
                     val responseFeatures = settingRepository.getFeatureSettings()
                     val quickRepliesEnabled = responseFeatures.smartSuggestions
-                    val subjectInstruction = if (!synthesisRun && responseFeatures.automaticConversationTitles && effectiveUserMessages.size == 1) dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.INSTRUCTION else ""
                     fun baseSystemPrompt(): String {
                         val recoveryInstruction = taskRecovery?.let { "\nRecovery action: ${it.action.name}. Resume unfinished stages using saved evidence; preserve prior constraints and verify unknown action outcomes before retrying." }.orEmpty()
                         val progressInstruction = if (resolvedTools.isNotEmpty()) {
@@ -1735,7 +1754,7 @@ class ChatRepositoryImpl(
                             platform.systemPrompt,
                             exposedTools.map { it.modelToolName },
                             compact = localResearch || limits.contextTokens < 4096
-                        ) + subjectInstruction + (if (quickRepliesEnabled && !synthesisRun) dev.chungjungsoo.gptmobile.data.agent.CHAT_QUICK_REPLY_INSTRUCTION else "") + projectInstructions.takeIf { it.isNotBlank() }?.let { "\nProject instructions supplied by the user:\n$it" }.orEmpty() + recoveryInstruction + progressInstruction + delegationInstruction + synthesisInstruction +
+                        ) + (if (quickRepliesEnabled && !synthesisRun) dev.chungjungsoo.gptmobile.data.agent.CHAT_QUICK_REPLY_INSTRUCTION else "") + projectInstructions.takeIf { it.isNotBlank() }?.let { "\nProject instructions supplied by the user:\n$it" }.orEmpty() + recoveryInstruction + progressInstruction + delegationInstruction + synthesisInstruction +
                             if (reviewedPreparationUnavailable) "\nRequired delegate preparation or independent review could not finish. Do not do the task independently or present rejected delegate claims as verified facts. Explain the limitation and suggest retrying with a working delegate/reviewer or explicitly choosing primary-only recovery." else ""
                     }
                     val memorySettings = factVault?.state?.value
@@ -1749,7 +1768,22 @@ class ChatRepositoryImpl(
                         !platform.disableLocalTools
                     val connectedMemoryTools = if (canRecallDocuments && memorySettings != null && !platform.excludesMemory()) ConnectedMemoryRecall.select(taskRoutedTools, memorySettings.settings) else emptyList()
                     val researchMemory = prepareResearchMemory(platform, researchTask, latestUser?.chatId, preparationPlan.kind == dev.chungjungsoo.gptmobile.data.readiness.PreparationKind.REQUIRED_WORK && !synthesisRun && !privateConversation)
-                    val documentContext = measurePreparation(runId, PreparationPhase.SOURCE_COLLECTION) { if (exclusions.documents || platform.excludesMemory() || !canRecallDocuments) "" else latestUser?.let { knowledge?.context(it.chatId, it.content) }.orEmpty() }
+                    val documentConsentGeneration = factVault?.recallGeneration()
+                    val documentRecall = measurePreparation(runId, PreparationPhase.SOURCE_COLLECTION) {
+                        if (exclusions.documents || platform.excludesMemory() || !canRecallDocuments) null else latestUser?.let { knowledge?.recall(it.chatId, it.content) }
+                    }
+                    val documentContext = documentRecall?.text.orEmpty()
+                    suspend fun validateDocuments() {
+                        if (documentRecall?.sources.isNullOrEmpty()) return
+                        require(factVault?.recallGeneration() == documentConsentGeneration) { "DOCUMENT_RECALL_STALE: Document consent changed while queued. Prepare the request again." }
+                        val consent = factVault?.recallConsent()
+                        require(
+                            consent?.enabled == true &&
+                                consent.settings.recallEnabled &&
+                                (platform.isPrivateDestination() || consent.settings.allowCloudRecall)
+                        ) { "DOCUMENT_RECALL_STALE: Document recall consent was revoked. Prepare the request again." }
+                        knowledge?.validateRecall(requireNotNull(documentRecall))
+                    }
                     var requestPlatform = platform.withSystemPrompt(
                         systemPrompt = recalled.prefix() + researchMemory.text + documentContext + baseSystemPrompt()
                     )
@@ -1826,7 +1860,12 @@ class ChatRepositoryImpl(
                         toolBudget
                     }
 
-                    runPreparedDispatch preparedDispatch@{
+                    runPreparedDispatch(
+                        dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard("${dispatchAuthority.revision}:documents:${documentConsentGeneration.orEmpty()}") {
+                            dispatchAuthority.validate()
+                            validateDocuments()
+                        }
+                    ) preparedDispatch@{
                         val authorizedBoundedTools = bindAuthorizedTools(taskRoutedTools, behavior, connectedMemoryTools, localResearch, explicitResearch, contextPlan, acquisitionBudget, toolBudget, runId)
                         val boundedTools = dev.chungjungsoo.gptmobile.data.assist.LocalAssistToolBinder.bind(
                             tools = authorizedBoundedTools,
@@ -1860,7 +1899,7 @@ class ChatRepositoryImpl(
                             generate = { target, task, cap -> generateDelegate(target, task, cap, inputCap = delegationInputBudget(target, cap), allowTools = false, requestRole = "assist") },
                             notice = { emit(ApiState.Notice(it)) },
                             producerInvocationId = { latestAssistInvocationId },
-                            contextTokens = { localRuntime.admittedEngineSpec()?.maxTokens ?: 0 },
+                            contextTokens = { minOf(localRuntime.admittedEngineSpec()?.maxTokens ?: 0, if (runFeatures.localAssistPolicy.contextMode == dev.chungjungsoo.gptmobile.data.assist.AssistContextMode.AUTO) 4096 else runFeatures.localAssistPolicy.contextTokens) },
                             runtimeFingerprint = { dev.chungjungsoo.gptmobile.data.research.researchHash("${localRuntime.state.value.backend}|${localRuntime.state.value.engineSpec}|${dev.chungjungsoo.gptmobile.data.localmodel.LocalModelInstallationEpoch.current()}") },
                             status = {
                                 dev.chungjungsoo.gptmobile.data.assist.AssistTelemetry.record(runId, it)
@@ -2104,6 +2143,7 @@ class ChatRepositoryImpl(
                                 preparedAssistEvidence = preparedAssistEvidence,
                                 recoveredResearch = { recovery?.researchSnapshotForDelivery() },
                                 validateSavedEvidence = {
+                                    validateDocuments()
                                     val allowed = recovery?.isAuthorized() != false && researchMemory.validate()
                                     if (!allowed) dispatchDenial.set(recovery?.blocked() ?: dev.chungjungsoo.gptmobile.data.agent.recoveryBlock(turnKey, runId, dev.chungjungsoo.gptmobile.data.agent.recoveryDestinationIdentity(platform), dispatchAuthority.revision, researchMemory.evidenceIds, assistantMessages.flatten(), taskRecovery?.action?.name ?: "CONTINUE_RUN"))
                                     allowed
@@ -2193,7 +2233,7 @@ class ChatRepositoryImpl(
      * Keep dispatch in a separate coroutine method so JVM coverage/shrinker instrumentation
      * stays below the method-size limit. This adds no scope, dispatcher or ownership change.
      */
-    private suspend fun runPreparedDispatch(block: suspend () -> Unit) = block()
+    private suspend fun runPreparedDispatch(authority: dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard, block: suspend () -> Unit) = withContext(authority) { block() }
 
     private fun measureBenchmarkAdmission(upstream: Flow<ApiState>, runId: String): Flow<ApiState> = channelFlow {
         val waitingAt = System.nanoTime()
@@ -3485,7 +3525,7 @@ internal fun isLikelyDelegatedTruncation(text: String, outputCapReached: Boolean
 }
 
 internal fun MessageV2.sendableAssistantContent(): String {
-    val strippedContent = stripAssistantErrorNote(effectiveContent()).trim()
+    val strippedContent = dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.text(stripAssistantErrorNote(effectiveContent())).trim()
     return if (strippedContent.startsWith("Error: ")) "" else strippedContent
 }
 

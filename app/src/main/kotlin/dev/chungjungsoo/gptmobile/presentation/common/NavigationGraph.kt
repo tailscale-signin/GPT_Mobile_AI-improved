@@ -376,7 +376,7 @@ fun NavGraphBuilder.settingNavigation(
         composable(Route.ACTIVITY) {
             dev.chungjungsoo.gptmobile.presentation.ui.setting.ActivityScreen(
                 onBack = { navController.navigateUp() },
-                onRuns = { navController.navigate("workspaces?tab=Tasks") },
+                onRuns = { navController.navigate("runs") },
                 onUsage = { navController.navigate(Route.USAGE_STATISTICS) },
                 onBenchmarks = { navController.navigate("profile_benchmarks") },
                 onDiagnostics = { navController.navigate(Route.DEBUG_DIAGNOSTICS) }
@@ -413,7 +413,7 @@ fun NavGraphBuilder.settingNavigation(
                         "ADVANCED" -> Route.ADVANCED_SETTINGS + "?focus=$encoded"
                         "APPEARANCE" -> Route.APPEARANCE + "?tab=$encoded"
                         "MEMORY" -> Route.FACT_VAULT + "?tab=$encoded"
-                        "LOCAL_MODELS" -> Route.LOCAL_MODELS + "?runtime=${focus == "runtime"}"
+                        "LOCAL_MODELS" -> Route.LOCAL_MODELS + "?runtime=${focus == "runtime" || focus == "assist"}"
                         "PROFILES" -> if (focus.isBlank()) {
                             Route.AI_PLATFORMS
                         } else {
@@ -459,6 +459,13 @@ fun NavGraphBuilder.settingNavigation(
                     modifier = Modifier.fillMaxSize()
                 )
             }
+        }
+        composable("runs") {
+            dev.chungjungsoo.gptmobile.presentation.ui.workspace.WorkspaceScreen(
+                onBack = { navController.navigateUp() },
+                onChat = { chatId -> navController.navigate("chat_room/$chatId") },
+                initialTab = "Tasks"
+            )
         }
         composable(Route.OPENROUTER_SETTINGS) {
             val viewModel: OpenRouterSettingsViewModel = hiltViewModel()

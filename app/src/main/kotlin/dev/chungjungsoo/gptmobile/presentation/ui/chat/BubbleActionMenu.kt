@@ -56,6 +56,7 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import dev.chungjungsoo.gptmobile.R
+import dev.chungjungsoo.gptmobile.presentation.common.glassBackdrop
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
@@ -196,12 +197,12 @@ internal fun BubbleActionHost(identity: Any, actions: List<BubbleAction>, conten
                         scaleY = scale.value
                         alpha = scale.value
                         transformOrigin = TransformOrigin.Center
-                    },
+                    }.glassBackdrop(RoundedCornerShape(22.dp), captureAsPopup = true),
                     shape = RoundedCornerShape(22.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    contentColor = MaterialTheme.colorScheme.onSurface,
+                    color = if (dev.chungjungsoo.gptmobile.presentation.common.hasGlassBackdrop()) androidx.compose.ui.graphics.Color.Transparent else dev.chungjungsoo.gptmobile.presentation.common.appOverlayTokens().background,
+                    contentColor = dev.chungjungsoo.gptmobile.presentation.common.appOverlayTokens().foreground,
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)),
-                    tonalElevation = 8.dp,
+                    tonalElevation = 0.dp,
                     shadowElevation = 16.dp
                 ) {
                     // Leave room above/below a central thumb when neither horizontal side fits.

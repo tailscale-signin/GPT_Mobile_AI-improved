@@ -17,7 +17,8 @@ class BenchmarkProfileTest {
     fun intelligencePreservesReasoningWhileKeepingLocalOutputBounded() {
         val profile = PlatformV2(name = "Local", compatibleType = ClientType.LITERT_LM, reasoning = true)
         assertTrue(benchmarkProfile(profile, false, IntelligenceBenchmark.CATEGORY).reasoning)
-        assertEquals(512, benchmarkProfile(profile, false, IntelligenceBenchmark.CATEGORY).maxTokens)
+        assertEquals(2048, benchmarkProfile(profile, false, IntelligenceBenchmark.CATEGORY).maxTokens)
+        assertEquals(512, benchmarkProfile(profile.copy(reasoning = false), false, IntelligenceBenchmark.CATEGORY).maxTokens)
         assertFalse(benchmarkProfile(profile, false, "speed").reasoning)
         assertEquals(256, benchmarkProfile(profile, false, "task").maxTokens)
     }

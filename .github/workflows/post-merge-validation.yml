@@ -1,0 +1,21 @@
+name: Post-merge correctness
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: post-merge-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  contracts:
+    name: Post-merge contracts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - run: python3 -m unittest discover -s scripts/tests
+      - run: python3 scripts/check_android_resources.py
+      - run: python3 scripts/check_android_regex.py
+      - run: python3 scripts/check_room_schemas.py
+      - run: python3 scripts/check_qnn_provenance.py

@@ -161,7 +161,12 @@ internal fun mapMcpToolResult(
         when (block) {
             is TextContent -> addText(block.text)
 
-            is ResourceLink -> addLink(block.uri, block.title ?: block.name, block.mimeType)
+            is ResourceLink -> {
+                addLink(block.uri, block.title ?: block.name, block.mimeType)
+                McpMediaStore.managedReference(block.uri)?.let { media ->
+                    addText("Managed ${media.mimeType} attachment (${media.sizeBytes} bytes). Text-only runtimes cannot inspect its bytes; a supported media input path is required.")
+                }
+            }
 
             is EmbeddedResource -> when (val resource = block.resource) {
                 is TextResourceContents -> {
@@ -201,6 +206,7 @@ internal fun mapMcpToolResult(
         content = modelContent,
         isError = result.isError == true,
         traceContent = traceContent,
+        media = links.mapNotNull { McpMediaStore.managedReference(it.uri) }.take(4),
         retainedContent = if (omitted.isEmpty()) null else ToolResultContent.Json(Json.encodeToJsonElement(result))
     )
 }

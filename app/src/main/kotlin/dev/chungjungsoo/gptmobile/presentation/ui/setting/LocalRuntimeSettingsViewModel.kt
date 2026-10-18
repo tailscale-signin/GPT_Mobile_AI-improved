@@ -93,7 +93,11 @@ class LocalRuntimeSettingsViewModel @Inject constructor(
     }
 
     fun updateAssist(change: (dev.chungjungsoo.gptmobile.data.assist.LocalAssistPolicy) -> dev.chungjungsoo.gptmobile.data.assist.LocalAssistPolicy) = perform {
-        repository.mutateFeatureSettings { it.copy(localAssistPolicy = change(it.localAssistPolicy).validated()) }
+        repository.mutateFeatureSettings {
+            val next = change(it.localAssistPolicy).validated()
+            if (next != it.localAssistPolicy) dev.chungjungsoo.gptmobile.data.assist.AssistReadinessResolver.publish(dev.chungjungsoo.gptmobile.data.assist.AssistReadiness.CHECKING, "Selected helper changed; readiness requires verification", next.profileUid)
+            it.copy(localAssistPolicy = next)
+        }
     }
     fun pinProfile(profile: PlatformV2) = perform { repository.updatePlatformV2(profile.copy(isFavorite = !profile.isFavorite)) }
     fun duplicateProfile(profile: PlatformV2) = perform { repository.addPlatformV2(profile.copy(id = 0, uid = java.util.UUID.randomUUID().toString(), name = "${profile.name} (copy)", isFavorite = false)) }
@@ -108,6 +112,9 @@ class LocalRuntimeSettingsViewModel @Inject constructor(
     fun selectBackend(value: LocalRuntimeBackend) = perform {
         require(value != LocalRuntimeBackend.QUALCOMM_QNN || _qnnAvailable.value) { "NPU is unavailable on this device" }
         repository.updateLocalRuntimeBackend(value)
+    }
+    fun prepareSelectedLocalModel(enabled: Boolean) = perform {
+        repository.mutateFeatureSettings { it.copy(readiness = it.readiness.copy(prepareSelectedLocalModel = enabled)) }
     }
     fun updateTuning(
         threads: Int? = null,
@@ -216,7 +223,9 @@ class LocalRuntimeSettingsViewModel @Inject constructor(
             temperature = entry.defaultConfig.temperature,
             topP = entry.defaultConfig.topP,
             topK = entry.defaultConfig.topK,
-            disableAllTools = capabilities?.tools == false
+            // Native tool support and the app prompt bridge are separate capabilities.
+            // Explicit user denials on existing profiles are never migrated here.
+            disableAllTools = false
         )
         repository.addPlatformV2(profile)
         _status.value = "AI profile created"

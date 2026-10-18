@@ -14,5 +14,6 @@ data class ReadinessSettings(
     val warmMeteredNetworks: Boolean = false,
     val strategy: PreparationStrategy = PreparationStrategy.BALANCED,
     val lazyCatalogues: Boolean = true,
-    val cacheGeneration: Long = 0
+    val cacheGeneration: Long = 0,
+    val prepareSelectedLocalModel: Boolean = false
 )

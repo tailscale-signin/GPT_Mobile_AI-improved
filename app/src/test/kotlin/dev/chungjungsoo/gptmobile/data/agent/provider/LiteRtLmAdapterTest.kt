@@ -674,7 +674,7 @@ class LiteRtLmAdapterTest {
     }
 
     @Test
-    fun `attachment turns produce the notice event and continue with text`() = runBlocking {
+    fun `unsupported current images fail before text generation`() = runBlocking {
         val runtime = FakeLocalRuntime().apply {
             scriptedEvents = listOf(listOf(LocalRuntimeEvent.TextDelta("ok"), LocalRuntimeEvent.Done))
         }
@@ -701,18 +701,10 @@ class LiteRtLmAdapterTest {
 
         val events = adapter.openSession(attachmentTurns, localPlatform()).streamRound(emptyList(), emptyList()).toList()
 
-        assertEquals(
-            listOf(
-                ProviderEvent.Notice("The local platform ignored attachments", persistent = true),
-                configuredLocalRequest(),
-                ProviderEvent.TextDelta("ok"),
-                ProviderEvent.Completed
-            ),
-            events
-        )
-        assertEquals(listOf("describe this"), runtime.sendMessageCalls)
-        assertTrue(runtime.sendMessageImages.single().isEmpty())
-        assertEquals(false, runtime.loadEngineCalls.single().isVisionEnabled)
+        assertEquals(1, events.filterIsInstance<ProviderEvent.Failed>().size)
+        assertTrue(events.filterIsInstance<ProviderEvent.Failed>().single().message.contains("attached images"))
+        assertTrue(runtime.sendMessageCalls.isEmpty())
+        assertTrue(runtime.loadEngineCalls.isEmpty())
     }
 
     @Test
@@ -740,7 +732,7 @@ class LiteRtLmAdapterTest {
         ).streamRound(emptyList(), emptyList()).toList()
 
         assertEquals(
-            listOf(configuredLocalRequest(), ProviderEvent.TextDelta("a cat"), ProviderEvent.Completed),
+            listOf(configuredLocalRequest(images = 1), ProviderEvent.TextDelta("a cat"), ProviderEvent.Completed),
             events
         )
         assertEquals(listOf("describe this"), runtime.sendMessageCalls)
@@ -814,7 +806,7 @@ class LiteRtLmAdapterTest {
         assertEquals(
             listOf(
                 ProviderEvent.Notice(LiteRtLmAdapter.DEFAULT_IGNORED_ATTACHMENTS, persistent = true),
-                configuredLocalRequest(),
+                configuredLocalRequest(images = 1),
                 ProviderEvent.TextDelta("ok"),
                 ProviderEvent.Completed
             ),
@@ -824,7 +816,7 @@ class LiteRtLmAdapterTest {
     }
 
     @Test
-    fun `non vision model declines an image with the notice`() = runBlocking {
+    fun `non vision model cannot silently discard current images`() = runBlocking {
         val runtime = FakeLocalRuntime().apply {
             scriptedEvents = listOf(listOf(LocalRuntimeEvent.TextDelta("ok"), LocalRuntimeEvent.Done))
         }
@@ -840,17 +832,36 @@ class LiteRtLmAdapterTest {
             localPlatform()
         ).streamRound(emptyList(), emptyList()).toList()
 
-        assertEquals(
-            listOf(
-                ProviderEvent.Notice(LiteRtLmAdapter.DEFAULT_IGNORED_ATTACHMENTS, persistent = true),
-                configuredLocalRequest(),
-                ProviderEvent.TextDelta("ok"),
-                ProviderEvent.Completed
-            ),
-            events
-        )
-        assertTrue(runtime.sendMessageImages.single().isEmpty())
-        assertEquals(false, runtime.loadEngineCalls.single().isVisionEnabled)
+        assertEquals(1, events.filterIsInstance<ProviderEvent.Failed>().size)
+        assertTrue(runtime.sendMessageCalls.isEmpty())
+        assertTrue(runtime.loadEngineCalls.isEmpty())
+    }
+
+    @Test fun missingOrEmptyCurrentImageBytesCannotFallThroughToTextGeneration() = runBlocking {
+        for (bytes in listOf<ByteArray?>(null, byteArrayOf())) {
+            val runtime = FakeLocalRuntime()
+            val events = adapter(runtime, catalog = visionCatalog(), loadImageBytes = { bytes }).openSession(
+                listOf(pendingTurn("read this image", listOf(imageAttachment()))),
+                visionPlatform()
+            ).streamRound(emptyList(), emptyList()).toList()
+            assertEquals(1, events.filterIsInstance<ProviderEvent.Failed>().size)
+            assertTrue(events.filterIsInstance<ProviderEvent.Failed>().single().message.contains("prepared"))
+            assertTrue(runtime.loadEngineCalls.isEmpty())
+            assertTrue(runtime.sendMessageCalls.isEmpty())
+        }
+    }
+
+    @Test fun declaredTextOnlyWarmEngineRejectsImagesEvenWhenCatalogueClaimsVision() = runBlocking {
+        val runtime = FakeLocalRuntime().apply {
+            capabilities = dev.chungjungsoo.gptmobile.data.localruntime.LocalModelCapabilities(vision = false, backends = setOf("gpu"))
+        }
+        val warm = dev.chungjungsoo.gptmobile.data.localruntime.LocalEngineSpec("/models/gemma3n.litertlm", "gpu", 4096)
+        runtime.loadEngine(warm)
+        val events = adapter(runtime, catalog = visionCatalog()).openSession(listOf(pendingTurn("read this image", listOf(imageAttachment()))), visionPlatform())
+            .streamRound(emptyList(), emptyList()).toList()
+        assertEquals(1, events.filterIsInstance<ProviderEvent.Failed>().size)
+        assertEquals(listOf(warm), runtime.loadEngineCalls)
+        assertTrue(runtime.sendMessageCalls.isEmpty())
     }
 
     @Test
@@ -871,7 +882,7 @@ class LiteRtLmAdapterTest {
         assertEquals(
             listOf(
                 ProviderEvent.Notice(LiteRtLmAdapter.DEFAULT_TOO_MANY_IMAGES, persistent = true),
-                configuredLocalRequest(),
+                configuredLocalRequest(images = 10),
                 ProviderEvent.TextDelta("ok"),
                 ProviderEvent.Completed
             ),
@@ -2273,13 +2284,19 @@ class LiteRtLmAdapterTest {
         assertTrue(events.last() is ProviderEvent.Completed)
     }
 
-    private fun configuredLocalRequest() = ProviderEvent.RequestConfigured(
+    private fun configuredLocalRequest(images: Int = 0) = ProviderEvent.RequestConfigured(
         configuredProfileOutputTokens = 1024,
         requestedOutputTokens = 1024,
         effectiveOutputTokens = 1024,
         configuredProfileType = ClientType.LITERT_LM.name,
         actualAccelerator = LocalAccelerators.GPU,
-        artifactRuntime = "LITERT_MODEL"
+        artifactRuntime = "LITERT_MODEL",
+        reasoningEffort = "disabled",
+        inputImageCount = images,
+        inputModalities = if (images > 0) setOf("text", "image") else setOf("text"),
+        languageBackend = LocalAccelerators.GPU,
+        visionBackend = LocalAccelerators.GPU.takeIf { images > 0 },
+        finalResponseFormat = "unconstrained"
     )
 
     private fun visionPlatform() = localPlatform(model = "gemma-3n-e2b-it")

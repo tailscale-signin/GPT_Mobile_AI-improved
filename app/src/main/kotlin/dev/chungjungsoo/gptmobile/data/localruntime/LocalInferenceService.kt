@@ -111,6 +111,10 @@ class LocalInferenceService : Service() {
                         settings = packet.settings ?: AppFeatureSettings()
                         backend = packet.preferredBackend ?: LocalRuntimeBackend.DEFAULT
                         sessionId = ""
+                        // A model switch must not retain descriptors owned by the old engine.
+                        // The operation lock keeps generations and inspection out of this boundary.
+                        runtime.unloadEngine()
+                        dev.chungjungsoo.gptmobile.data.localmodel.LinkedModelSources.closeLeases()
                         runtime.loadEngine(spec)
                         reply.send("RESULT", state = runtime.state.value.copy(processIsolated = true, lifecycle = "READY"))
                     }
@@ -187,6 +191,7 @@ class LocalInferenceService : Service() {
                     }
                     "UNLOAD" -> {
                         runtime.unloadEngine()
+                        dev.chungjungsoo.gptmobile.data.localmodel.LinkedModelSources.closeLeases()
                         sessionId = ""
                         reply.send("RESULT", state = LocalRuntimeState(processIsolated = true))
                     }

@@ -11,8 +11,10 @@ import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.viewModels
 import androidx.browser.auth.AuthTabIntent
 import androidx.browser.customtabs.CustomTabsIntent
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.unit.dp
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -65,6 +67,8 @@ class MainActivity : dev.chungjungsoo.gptmobile.presentation.ui.main.ProtectedAc
         setContent {
             val navController = rememberNavController()
             val isReady by mainViewModel.isReady.collectAsStateWithLifecycle()
+            val startupError by mainViewModel.startupError.collectAsStateWithLifecycle()
+            LaunchedEffect(startupError) { if (startupError != null) keepSplashOnScreen = false }
 
             ThemeSettingProvider {
                 GPTMobileTheme(
@@ -73,12 +77,16 @@ class MainActivity : dev.chungjungsoo.gptmobile.presentation.ui.main.ProtectedAc
                     customPrimaryArgb = LocalCustomPrimaryArgb.current,
                     customPalette = dev.chungjungsoo.gptmobile.presentation.common.LocalCustomPalette.current
                 ) {
-                    if (isReady) {
-                        SetupNavGraph(
-                            navController = navController,
-                            toolConnectionsViewModel = toolConnectionsViewModel,
-                            onLaunchOAuth = ::launchOAuth
-                        )
+                    if (startupError != null) {
+                        androidx.compose.material3.Text(requireNotNull(startupError), modifier = androidx.compose.ui.Modifier.padding(24.dp))
+                    } else if (isReady) {
+                        dev.chungjungsoo.gptmobile.presentation.common.GlassBackdropHost {
+                            SetupNavGraph(
+                                navController = navController,
+                                toolConnectionsViewModel = toolConnectionsViewModel,
+                                onLaunchOAuth = ::launchOAuth
+                            )
+                        }
                         LaunchedEffect(navController) {
                             navController.checkForExistingSettings()
                             navController.observeNotificationDeepLinks()

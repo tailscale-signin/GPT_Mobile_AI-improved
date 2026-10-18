@@ -336,6 +336,27 @@ class GitHubTool(
                         }
                     )
                     put(
+                        "event",
+                        buildJsonObject {
+                            put("type", "string")
+                            put("description", "Review event: APPROVE, REQUEST_CHANGES, or COMMENT.")
+                        }
+                    )
+                    put(
+                        "merge_method",
+                        buildJsonObject {
+                            put("type", "string")
+                            put("description", "Merge method: squash, merge, or rebase.")
+                        }
+                    )
+                    put(
+                        "workflow_run_id",
+                        buildJsonObject {
+                            put("type", "integer")
+                            put("description", "Exact run ID from the workflow dispatch receipt; not an unrelated recent run.")
+                        }
+                    )
+                    put(
                         "expected_head_sha",
                         buildJsonObject {
                             put("type", "string")
@@ -413,7 +434,7 @@ class GitHubTool(
                 if (normalizedArguments["repo"] == null) put("repo", selected.repo)
                 val effectiveOwner = normalizedArguments["owner"]?.jsonPrimitive?.content ?: selected.owner
                 val effectiveRepo = normalizedArguments["repo"]?.jsonPrimitive?.content ?: selected.repo
-                val sameRepo = effectiveOwner == selected.owner && effectiveRepo == selected.repo
+                val sameRepo = effectiveOwner.equals(selected.owner, true) && effectiveRepo.equals(selected.repo, true)
                 if (sameRepo && normalizedArguments["ref"] == null) put("ref", selected.ref)
             }
         }
@@ -426,6 +447,13 @@ class GitHubTool(
 
         return try {
             if (action in GitHubWorkspaceClient.actions) {
+                if (action == "commit_files") {
+                    repositoryContext?.let { selected ->
+                        val sameRepo = arguments["owner"]?.jsonPrimitive?.content.orEmpty().equals(selected.owner, true) &&
+                            arguments["repo"]?.jsonPrimitive?.content.orEmpty().equals(selected.repo, true)
+                        require(!sameRepo || arguments["branch"]?.jsonPrimitive?.content == selected.ref) { "The write branch disagrees with the selected workspace. Select the intended branch first." }
+                    }
+                }
                 val result = workspaceClient.execute(action, arguments)
                 return successResult(callId, result.toString())
             }
@@ -760,6 +788,7 @@ class GitHubTool(
                     val ref = arguments["ref"]?.jsonPrimitive?.content.orEmpty()
                     require(ref.isNotBlank()) { "A branch or tag ref is required for dispatch_workflow." }
                     put("ref", ref)
+                    put("return_run_details", true)
                     arguments["inputs"]?.let {
                         require(it is JsonObject) { "Inputs must be an object." }
                         put("inputs", it)
@@ -902,23 +931,33 @@ class GitHubTool(
             ?: return errorResult(callId, "Parameter 'content' is required.")
         val message = arguments["message"]?.jsonPrimitive?.content?.trim().orEmpty().ifBlank { "Update $path" }
         val branch = arguments["branch"]?.jsonPrimitive?.content?.trim()
-        val fileSha = arguments["file_sha"]?.jsonPrimitive?.content?.trim()
+            ?.takeIf(String::isNotBlank)
+            ?: return errorResult(callId, "An explicit working branch and expected_head_sha are required for update_file.")
+        repositoryContext?.let { selected ->
+            if (owner.equals(selected.owner, true) && repo.equals(selected.repo, true) && branch != selected.ref) {
+                return errorResult(callId, "The write branch disagrees with the selected workspace. Select the intended branch first.")
+            }
+        }
         if (owner.isEmpty() || repo.isEmpty() || path.isEmpty()) {
             return errorResult(callId, "Parameters 'owner', 'repo', and 'path' are required.")
         }
-        val body = buildJsonObject {
+        val guarded = buildJsonObject {
+            arguments.forEach { (key, value) -> put(key, value) }
+            put("branch", branch)
             put("message", message)
-            put("content", Base64.getEncoder().encodeToString(content.toByteArray(StandardCharsets.UTF_8)))
-            branch?.takeIf(String::isNotBlank)?.let { put("branch", it) }
-            fileSha?.takeIf(String::isNotBlank)?.let { put("sha", it) }
+            put(
+                "files",
+                buildJsonArray {
+                    add(
+                        buildJsonObject {
+                            put("path", path)
+                            put("content", content)
+                        }
+                    )
+                }
+            )
         }
-        val response = writeGitHubApi("$BASE_URL/repos/$owner/$repo/contents/$path", HttpMethod.Put, body)
-        val text = response.bodyAsText()
-        return if (response.status.isSuccess()) {
-            successResult(callId, truncate(text, MAX_OUTPUT_CHARS))
-        } else {
-            classifyGitHubHttpFailure(callId, "update_file", arguments, response, text)
-        }
+        return successResult(callId, workspaceClient.execute("commit_files", guarded).toString())
     }
 
     private suspend fun handleCreatePullRequest(callId: String, arguments: JsonObject): AgentToolResult {

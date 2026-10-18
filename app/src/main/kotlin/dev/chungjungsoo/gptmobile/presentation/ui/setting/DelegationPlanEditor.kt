@@ -10,7 +10,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -30,6 +29,7 @@ import dev.chungjungsoo.gptmobile.data.delegation.DelegationReadinessInspector
 import dev.chungjungsoo.gptmobile.data.delegation.DelegationTaskPlan
 import dev.chungjungsoo.gptmobile.data.delegation.DelegationTemplate
 import dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings
+import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
 import java.util.UUID
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json

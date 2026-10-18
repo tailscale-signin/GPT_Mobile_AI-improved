@@ -184,7 +184,7 @@ class AppBackupManager @Inject constructor(
                     customPrimaryArgb = theme.customPrimaryArgb,
                     customPalette = theme.customPalette,
                     savedProfiles = theme.savedProfiles,
-                    activeProfileId = theme.activeProfileId,
+                    activeProfileId = theme.activeProfileId, overlayMaterial = theme.overlayMaterial, overlayBlur = theme.overlayBlur,
                     dynamicTheme = theme.dynamicTheme == DynamicTheme.ON,
                     debugMode = settingRepository.getDebugMode(),
                     localRuntimeBackend = settingRepository.getLocalRuntimeBackend().name
@@ -205,7 +205,9 @@ class AppBackupManager @Inject constructor(
                     customPrimaryArgb = theme.customPrimaryArgb,
                     customPalette = theme.customPalette,
                     savedProfiles = theme.savedProfiles,
-                    activeProfileId = theme.activeProfileId
+                    activeProfileId = theme.activeProfileId,
+                    overlayMaterial = theme.overlayMaterial,
+                    overlayBlur = theme.overlayBlur
                 ),
                 platforms = platforms,
                 toolConnections = connectionsWithCreds,
@@ -247,13 +249,13 @@ class AppBackupManager @Inject constructor(
             payload.uiPreferences?.let { uiPrefs ->
                 val dynamicTheme = if (uiPrefs.dynamicTheme) DynamicTheme.ON else DynamicTheme.OFF
                 val themeMode = ThemeMode.getByValue(uiPrefs.themeMode) ?: ThemeMode.SYSTEM
-                settingRepository.updateThemes(ThemeSetting(dynamicTheme = dynamicTheme, themeMode = themeMode, customPrimaryArgb = uiPrefs.customPrimaryArgb, customPalette = uiPrefs.customPalette, savedProfiles = uiPrefs.savedProfiles, activeProfileId = uiPrefs.activeProfileId))
+                settingRepository.updateThemes(ThemeSetting(dynamicTheme = dynamicTheme, themeMode = themeMode, customPrimaryArgb = uiPrefs.customPrimaryArgb, customPalette = uiPrefs.customPalette, savedProfiles = uiPrefs.savedProfiles, activeProfileId = uiPrefs.activeProfileId, overlayMaterial = uiPrefs.overlayMaterial, overlayBlur = uiPrefs.overlayBlur))
                 settingRepository.updateDebugMode(uiPrefs.debugMode)
                 settingRepository.updateLocalRuntimeBackend(LocalRuntimeBackend.fromString(uiPrefs.localRuntimeBackend))
             } ?: payload.theme?.let { themeDto ->
                 val dynamicTheme = if (themeDto.dynamicTheme) DynamicTheme.ON else DynamicTheme.OFF
                 val themeMode = ThemeMode.getByValue(themeDto.themeMode) ?: ThemeMode.SYSTEM
-                settingRepository.updateThemes(ThemeSetting(dynamicTheme = dynamicTheme, themeMode = themeMode, customPrimaryArgb = themeDto.customPrimaryArgb, customPalette = themeDto.customPalette, savedProfiles = themeDto.savedProfiles, activeProfileId = themeDto.activeProfileId))
+                settingRepository.updateThemes(ThemeSetting(dynamicTheme = dynamicTheme, themeMode = themeMode, customPrimaryArgb = themeDto.customPrimaryArgb, customPalette = themeDto.customPalette, savedProfiles = themeDto.savedProfiles, activeProfileId = themeDto.activeProfileId, overlayMaterial = themeDto.overlayMaterial, overlayBlur = themeDto.overlayBlur))
             }
 
             // Restore Tool Connections
@@ -323,7 +325,7 @@ class AppBackupManager @Inject constructor(
      */
     suspend fun exportDatabase(uri: Uri, passphrase: String? = null): BackupRestoreResult = withContext(Dispatchers.IO) {
         runCatching {
-            val chatRooms = chatRoomV2Dao.getChatRooms()
+            val chatRooms = chatRoomV2Dao.getChatRooms() + chatRoomV2Dao.getArchivedChatRooms()
             val allMessages = chatRooms.flatMap { room ->
                 messageV2Dao.loadMessages(room.id)
             }
@@ -337,6 +339,7 @@ class AppBackupManager @Inject constructor(
                 version = 2,
                 exportedAt = System.currentTimeMillis(),
                 chatRooms = chatRooms,
+                replyPublications = database.replyPublicationDao().all(),
                 conversationFolders = database.conversationFolderDao().folders(),
                 conversationFolderMembers = database.conversationFolderDao().members().filter { member -> chatRooms.any { it.id == member.chatId } },
                 messages = allMessages,
@@ -376,7 +379,7 @@ class AppBackupManager @Inject constructor(
             // Replace relational chat data atomically. Foreign-key or disk failures
             // roll back the whole restore instead of leaving a half-empty database.
             database.withTransaction {
-                val existingChats = chatRoomV2Dao.getChatRooms()
+                val existingChats = chatRoomV2Dao.getChatRooms() + chatRoomV2Dao.getArchivedChatRooms()
                 if (existingChats.isNotEmpty()) {
                     chatRoomV2Dao.deleteChatRooms(*existingChats.toTypedArray())
                 }
@@ -385,6 +388,7 @@ class AppBackupManager @Inject constructor(
                     chatRoomV2Dao.addChatRoom(room)
                 }
 
+                database.openHelper.writableDatabase.execSQL("DELETE FROM conversation_folders")
                 payload.conversationFolders.forEach { database.conversationFolderDao().restoreFolder(it) }
                 payload.conversationFolderMembers.forEach { database.conversationFolderDao().move(it) }
 
@@ -392,6 +396,7 @@ class AppBackupManager @Inject constructor(
                     messageV2Dao.addMessages(*payload.messages.toTypedArray())
                 }
 
+                database.replyPublicationDao().restore(payload.replyPublications)
                 if (payload.chatPlatformModels.isNotEmpty()) {
                     chatPlatformModelV2Dao.upsertAll(*payload.chatPlatformModels.toTypedArray())
                 }

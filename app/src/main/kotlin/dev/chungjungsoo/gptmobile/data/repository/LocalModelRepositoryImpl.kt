@@ -165,6 +165,7 @@ class LocalModelRepositoryImpl(
                 LocalModelTransferGuard.begin(context.noBackupFilesDir, catalogEntryId)
                 roots().forEach { root ->
                     val directory = File(File(root, LocalModelDownloadPaths.MODELS_DIR), catalogEntryId)
+                    directory.listFiles().orEmpty().filter { it.isDirectory }.forEach { dev.chungjungsoo.gptmobile.data.localmodel.LinkedModelSources.forget(it) }
                     check(directory.deleteRecursively()) { "Model files could not be deleted. Retry cleanup." }
                 }
                 localModelDao.deleteById(catalogEntryId)
@@ -198,6 +199,17 @@ class LocalModelRepositoryImpl(
                 stagingId = stagingId
             )
         }
+        registerInstallation(result, fileName, checkCurrent)
+        result
+    }
+
+    override suspend fun linkSource(source: android.net.Uri, folder: Boolean, checkCurrent: () -> Unit, progress: (Long) -> Unit): LocalModelImportResult = withContext(ioDispatcher) {
+        val result = dev.chungjungsoo.gptmobile.data.localmodel.LocalModelReferenceInstaller.install(context, source, folder, storageRoot(), checkCurrent, progress)
+        registerInstallation(result, (result as? LocalModelImportResult.Success)?.record?.fileName.orEmpty(), checkCurrent)
+        result
+    }
+
+    private suspend fun registerInstallation(result: LocalModelImportResult, fileName: String, checkCurrent: () -> Unit) {
         if (result is LocalModelImportResult.Success) {
             LocalModelTransferGuard.mutex(result.record.catalogEntryId).withLock {
                 checkCurrent()
@@ -247,7 +259,7 @@ class LocalModelRepositoryImpl(
                         commitHash = result.record.commitHash,
                         fileName = result.record.fileName,
                         relativeDirectory = result.record.relativeDirectory,
-                        totalBytes = if (result.record.fileName == "manifest.json") File(result.absoluteFilePath).length() else result.sizeBytes,
+                        totalBytes = if (result.record.fileName == "manifest.json" || dev.chungjungsoo.gptmobile.data.localmodel.LinkedModelSources.isLinked(File(result.absoluteFilePath).parentFile!!)) File(result.absoluteFilePath).length() else result.sizeBytes,
                         status = LocalModelStatus.READY,
                         createdAt = existing?.createdAt ?: now,
                         updatedAt = now
@@ -256,7 +268,6 @@ class LocalModelRepositoryImpl(
                 dev.chungjungsoo.gptmobile.data.localmodel.LocalModelInstallationEpoch.changed()
             }
         }
-        result
     }
 
     override suspend fun totalStorageUsed(): Long = withContext(ioDispatcher) {

@@ -17,6 +17,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CombinedDeliverySessionTest {
+    @Test fun failedOrUnterminatedRepairCannotReplaceCompletedOriginal() = runTest {
+        val original = "Original. ".repeat(20)
+        for (terminal in listOf<ProviderEvent?>(ProviderEvent.Failed("timeout"), null)) {
+            val repair = object : AgentProviderSession {
+                override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                    emit(ProviderEvent.TextDelta("Partial replacement"))
+                    terminal?.let { emit(it) }
+                }
+            }
+            val wrapper = CombinedDeliverySession(session(original), sources, 10000, validateAccess = {}, originalRequest = "One fact under 10 words") { _, _ -> repair }
+            val events = wrapper.streamRound(emptyList(), emptyList()).toList()
+            assertTrue(events.answer().startsWith("Original"))
+            assertFalse(events.answer().contains("Partial replacement"))
+            assertEquals(ProviderEvent.Completed, events.last())
+        }
+    }
+
     private val sources = listOf(
         CombinedModelResponse("alpha", "Alpha", content = "The silver mines of Athens financed construction of naval ships."),
         CombinedModelResponse("beta", "Beta", content = "Persian merchants carried ceramics along the Silk Road during the Tang era.")
@@ -74,7 +91,7 @@ class CombinedDeliverySessionTest {
     @Test fun targetLengthRepairReceivesUnresolvedClaimsForBroadRequests() = runTest {
         var repairs = 0
         val draft = "The silver mines in Athens financed naval ships. Athens' regional naval history reflects the city's changing political and economic priorities across ancient Greek society. Researchers continue to examine these connections through material evidence, inscriptions, and comparison with neighboring city-states, placing the subject in a wider historical framework."
-        val repaired = "Silver mines funded Athenian ships. Persian merchants carried ceramics along the Silk Road during the Tang era."
+        val repaired = "Silver mines funded Athenian ships. Persian merchants carried ceramics along the Silk Road during the Tang era. These findings describe distinct historical settings. The first concerns silver and naval construction in Athens, while the second concerns Persian merchants, ceramics, and Silk Road exchange in the Tang era."
         val wrapper = CombinedDeliverySession(session(draft), sources, 10000, validateAccess = {}, originalRequest = "Summarize both findings in 50 words") { _, missing ->
             repairs++
             assertEquals(1, missing.size)

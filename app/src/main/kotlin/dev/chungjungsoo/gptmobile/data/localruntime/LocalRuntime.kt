@@ -81,7 +81,8 @@ data class LocalConversationConfig(
     val toolExecutor: LocalToolExecutor? = null,
     val maxOutputTokens: Int? = null,
     val thinkingEnabled: Boolean? = null,
-    val speculativeDecoding: Boolean? = null
+    val speculativeDecoding: Boolean? = null,
+    val finalResponseSchemaJson: String? = null
 )
 
 /** Execution phase of local on-device inference. */

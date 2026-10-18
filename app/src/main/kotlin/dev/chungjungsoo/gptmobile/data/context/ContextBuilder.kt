@@ -23,7 +23,8 @@ class ContextBuilder @Inject constructor() {
         for (index in userMessages.indices) {
             val userMessage = userMessages[index]
             val candidates = assistantMessages.getOrNull(index)
-            val assistantMessage = candidates?.firstValidAssistantCandidate(platform.uid)
+            val assistantMessage = candidates?.canonicalCombinedAssistant()?.let(::sanitizeAssistantMessageForContext)
+                ?: candidates?.firstValidAssistantCandidate(platform.uid)
 
             val turn = RawConversationTurn(
                 userMessage = userMessage,

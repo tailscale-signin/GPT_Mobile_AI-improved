@@ -20,10 +20,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.MoreVert
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -59,8 +57,11 @@ import dev.chungjungsoo.gptmobile.data.dto.SavedThemeProfile
 import dev.chungjungsoo.gptmobile.data.dto.ThemePresets
 import dev.chungjungsoo.gptmobile.data.model.DynamicTheme
 import dev.chungjungsoo.gptmobile.data.model.ThemeMode
+import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDialog as Dialog
+import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as DropdownMenu
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
+import dev.chungjungsoo.gptmobile.presentation.common.glassWindowBackdrop
 import dev.chungjungsoo.gptmobile.presentation.theme.paletteContrastChecks
 import dev.chungjungsoo.gptmobile.presentation.theme.resolveThemeColorScheme
 import dev.chungjungsoo.gptmobile.presentation.theme.suggestPaletteAccent
@@ -122,6 +123,8 @@ fun ThemeSettingsScreen(onDismiss: () -> Unit, asDialog: Boolean = true, initial
     BackHandler { exit() }
     val body: @Composable () -> Unit = {
         Scaffold(
+            modifier = Modifier.glassWindowBackdrop(),
+            containerColor = dev.chungjungsoo.gptmobile.presentation.common.overlayWindowContainerColor(),
             topBar = {
                 TopAppBar(title = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_appearance_3907f)) }, navigationIcon = {
                     IconButton(onClick = ::exit) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") }
@@ -249,6 +252,23 @@ fun ThemeSettingsScreen(onDismiss: () -> Unit, asDialog: Boolean = true, initial
                                         }
                                     }
                                     2 -> {
+                                        item {
+                                            Text("Menus and popups", style = MaterialTheme.typography.titleMedium)
+                                            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                listOf("glass", "solid").forEach { value ->
+                                                    FilterChip(selected = draft.overlayMaterial == value, onClick = { editor.edit { it.copy(overlayMaterial = value) } }, label = { Text(value.replaceFirstChar { it.uppercase() }) })
+                                                }
+                                            }
+                                            Text("Glass uses an 85% opaque theme background. Text and icons stay sharp.", style = MaterialTheme.typography.bodySmall)
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Text("Background blur", Modifier.weight(1f))
+                                                Switch(checked = draft.overlayBlur == "auto", onCheckedChange = { enabled -> editor.edit { it.copy(overlayBlur = if (enabled) "auto" else "off") } })
+                                            }
+                                            Text("Strong 40 dp background blur. Turning this off keeps the theme tint; text and icons remain sharp.", style = MaterialTheme.typography.bodySmall)
+                                            androidx.compose.runtime.CompositionLocalProvider(dev.chungjungsoo.gptmobile.presentation.common.LocalOverlayMaterial provides draft.overlayMaterial, dev.chungjungsoo.gptmobile.presentation.common.LocalOverlayBlur provides draft.overlayBlur) {
+                                                dev.chungjungsoo.gptmobile.presentation.common.GlassMaterialPreview()
+                                            }
+                                        }
                                         item { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_appearance_mode_3a6b5), style = MaterialTheme.typography.titleMedium) }
                                         item { FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) { ThemeMode.entries.forEach { mode -> FilterChip(selected = draft.mode == mode, onClick = { editor.edit { it.copy(mode = mode) } }, label = { Text(mode.name.lowercase().replaceFirstChar { it.uppercase() }) }) } } }
                                         item {

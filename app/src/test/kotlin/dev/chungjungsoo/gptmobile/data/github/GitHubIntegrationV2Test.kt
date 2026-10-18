@@ -394,8 +394,9 @@ class GitHubIntegrationV2Test {
                             """.trimIndent()
                         )
                     }
+                    request.url.encodedPath == "/repos/owner/repo/commits/main" -> respond("""{"sha":"${"a".repeat(40)}"}""")
                     request.url.encodedPath == "/repos/owner/repo/contents/app/build.gradle.kts" -> {
-                        assertEquals("main", request.url.parameters["ref"])
+                        assertEquals("a".repeat(40), request.url.parameters["ref"])
                         val gradle = """android { defaultConfig { versionName = "1.2.3" } }"""
                         val encoded = java.util.Base64.getEncoder().encodeToString(gradle.toByteArray())
                         respond("""{"type":"file","encoding":"base64","content":"$encoded"}""")
@@ -423,7 +424,7 @@ class GitHubIntegrationV2Test {
             assertEquals("workflow", result["strategy"]!!.jsonPrimitive.content)
             assertEquals("release_status", result["verification_action"]!!.jsonPrimitive.content)
             assertEquals("v1.2.3", result["version_preflight"]!!.jsonObject["expected_tag"]!!.jsonPrimitive.content)
-            assertEquals(4, requests)
+            assertEquals(5, requests)
         } finally {
             http.close()
         }
@@ -462,6 +463,7 @@ class GitHubIntegrationV2Test {
                         }
                         """.trimIndent()
                     )
+                    request.url.encodedPath == "/repos/owner/repo/commits/main" -> respond("""{"sha":"${"a".repeat(40)}"}""")
                     request.url.encodedPath == "/repos/owner/repo/contents/app/build.gradle.kts" -> respond(
                         """{"type":"file","encoding":"base64","content":"$encodedGradle"}"""
                     )

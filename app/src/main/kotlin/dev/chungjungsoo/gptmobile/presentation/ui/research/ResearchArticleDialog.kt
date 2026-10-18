@@ -29,6 +29,7 @@ import dev.chungjungsoo.gptmobile.data.research.feature.AppraisalJudgment
 import dev.chungjungsoo.gptmobile.data.research.feature.ExaminationRequest
 import dev.chungjungsoo.gptmobile.data.research.feature.ExaminationStage
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDialog
+import dev.chungjungsoo.gptmobile.presentation.common.glassWindowBackdrop
 import kotlinx.serialization.json.Json
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -45,7 +46,7 @@ fun ResearchArticleDialog(workId: String, versionId: String? = null, authority: 
     val relevantJobs = jobs.filter { it.workId == workId && it.authority == authority && it.chatId == chatId }
     LaunchedEffect(workId, versionId, authority, relevantJobs.map { it.updatedAt }) { viewModel.open(workId, versionId, authority) }
     FadingDialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Scaffold(Modifier.fillMaxSize(), topBar = { TopAppBar(title = { Text("Article evidence") }, navigationIcon = { TextButton(onClick = onClose) { Text("Back") } }) }) { padding ->
+        Scaffold(Modifier.fillMaxSize().glassWindowBackdrop(), containerColor = dev.chungjungsoo.gptmobile.presentation.common.overlayWindowContainerColor(), topBar = { TopAppBar(title = { Text("Article evidence") }, navigationIcon = { TextButton(onClick = onClose) { Text("Back") } }) }) { padding ->
             LazyColumn(Modifier.padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (state.loading) item { Text("Loading saved article…") }
                 state.error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }

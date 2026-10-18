@@ -30,8 +30,8 @@ import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -57,6 +57,8 @@ class GPTMobileApp :
 
     @Inject
     lateinit var semanticMemory: javax.inject.Provider<dev.chungjungsoo.gptmobile.data.memory.LocalSemanticMemory>
+
+    @Inject lateinit var completeBackup: javax.inject.Provider<dev.chungjungsoo.gptmobile.data.backup.CompleteBackupManager>
 
     @Inject lateinit var conversationDatabase: javax.inject.Provider<dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2>
 
@@ -89,6 +91,7 @@ class GPTMobileApp :
         // Provider fields keep the child process from eagerly opening Room or starting app services.
         if (!dev.chungjungsoo.gptmobile.data.localruntime.isInferenceProcess()) SanitizedChatBackup.restoreIfPresent(this)
         super.onCreate()
+        dev.chungjungsoo.gptmobile.data.localmodel.LinkedModelSources.initialize(this)
         if (dev.chungjungsoo.gptmobile.data.localruntime.isInferenceProcess()) return
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.initialize(this)
         if (dev.chungjungsoo.gptmobile.BuildConfig.DEBUG) {
@@ -105,6 +108,7 @@ class GPTMobileApp :
         registerActivityLifecycleCallbacks(AppForegroundTracker)
         StartupRecoveryGate.start(applicationScope) {
             val gateStartTime = SystemClock.elapsedRealtime()
+            completeBackup.get().recoverAtStartup()
             val startup = startupDependencies()
             val temporary = conversationDatabase.get().chatRoomDao().temporaryChats()
             if (temporary.isNotEmpty()) {
@@ -153,6 +157,7 @@ class GPTMobileApp :
         }
 
         applicationScope.launch {
+            StartupRecoveryGate.await()
             while (isActive) {
                 delay(60_000L)
                 semanticMemory.get().releaseWhenIdle()
@@ -166,7 +171,7 @@ class GPTMobileApp :
 
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
-        if (dev.chungjungsoo.gptmobile.data.localruntime.isInferenceProcess()) return
+        if (dev.chungjungsoo.gptmobile.data.localruntime.isInferenceProcess() || !StartupRecoveryGate.ready) return
         applicationScope.launch {
             val memoryPressure = dev.chungjungsoo.gptmobile.data.memory.MemoryTrimPolicy.releaseImmediately(level)
             semanticMemory.get().releaseWhenIdle(if (memoryPressure) 0L else 180_000L, memoryPressure = memoryPressure)
@@ -231,14 +236,19 @@ interface StartupDependencies {
 
 object StartupRecoveryGate {
     @Volatile
-    private var job: Job? = null
+    private var job: kotlinx.coroutines.Deferred<Unit>? = null
 
     fun start(scope: CoroutineScope, block: suspend () -> Unit) {
-        job = scope.launch { block() }
+        // Publish the gate before recovery can construct repositories that launch consumers.
+        val recovery = scope.async(start = kotlinx.coroutines.CoroutineStart.LAZY) { block() }
+        job = recovery
+        recovery.start()
     }
 
+    val ready: Boolean get() = job?.let { it.isCompleted && !it.isCancelled } == true
+
     suspend fun await() {
-        job?.join()
+        job?.await()
     }
 }
 

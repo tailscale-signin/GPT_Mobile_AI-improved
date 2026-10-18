@@ -99,7 +99,9 @@ data class AgentRun(
     @ColumnInfo(name = "synthesis_key")
     val synthesisKey: String? = null,
     @ColumnInfo(name = "synthesis_snapshot")
-    val synthesisSnapshot: String? = null
+    val synthesisSnapshot: String? = null,
+    @ColumnInfo(name = "display_role", defaultValue = "'INTERNAL'")
+    val displayRole: String = dev.chungjungsoo.gptmobile.data.chat.ReplyDisplayRole.INTERNAL
 )
 
 data class AgentRunDraft(
@@ -109,7 +111,8 @@ data class AgentRunDraft(
     val modelSnapshot: String,
     val createdAt: Long = System.currentTimeMillis() / 1000,
     val synthesisKey: String? = null,
-    val synthesisSnapshot: String? = null
+    val synthesisSnapshot: String? = null,
+    val displayRole: String? = null
 )
 
 data class PersistAgentTurnRequest(

@@ -4,17 +4,16 @@ import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.excludesMemory
-import dev.chungjungsoo.gptmobile.data.orchestration.OptimizationMode
 import kotlinx.serialization.Serializable
 
 @Serializable
 enum class AssistProcessingPermission { ALLOWED, DENIED, REVIEW_REQUIRED }
 
-/** Migration snapshots historical exclusions once; memory learning is independent afterwards. */
+/** Preserve explicit grants; new policies cannot derive consent from memory eligibility. */
 fun LocalAssistPolicy.migrateProcessingPermissions(profiles: List<PlatformV2>): LocalAssistPolicy {
     if (permissionVersion >= 1) return this
     val inherited = profiles.filter { it.compatibleType == ClientType.LITERT_LM }.associate { profile ->
-        profile.uid to if (profile.excludesMemory()) AssistProcessingPermission.REVIEW_REQUIRED else AssistProcessingPermission.ALLOWED
+        profile.uid to if (version >= 4 || profile.excludesMemory()) AssistProcessingPermission.REVIEW_REQUIRED else AssistProcessingPermission.ALLOWED
     }
     return copy(permissionVersion = 1, profilePermissions = inherited + profilePermissions)
 }
@@ -37,26 +36,11 @@ data class EffectiveAssistPolicy(
 /** The settings UI and execution binder consume exactly this same resolution. */
 fun AppFeatureSettings.resolveAssistPolicy(): EffectiveAssistPolicy {
     val requested = localAssistPolicy
-    val tuning = executionPolicy
-    val active = tuning.mode != OptimizationMode.OFF
-    val reasons = mutableListOf<String>()
-    val enabled = localAssist && (!active || tuning.warmLocalAssist)
-    if (!localAssist) reasons += "Local Assist is off."
-    if (localAssist && !enabled) reasons += "The execution policy disables Local Assist."
-    val effective = requested.copy(
-        evidenceSelection = requested.evidenceSelection && (!active || tuning.evidenceHandoff),
-        summarizeRetrievedText = requested.summarizeRetrievedText && (!active || tuning.assistCompression),
-        preparation = if (active && !(tuning.coldLoadAssist && tuning.mode in setOf(OptimizationMode.MAXIMUM_SAVINGS, OptimizationMode.CUSTOM))) AssistPreparation.WARM_ONLY else requested.preparation,
-        optionalWaitSeconds = if (tuning.mode == OptimizationMode.FAST_RESPONSE) minOf(1, requested.optionalWaitSeconds) else requested.optionalWaitSeconds,
-        queueWaitSeconds = if (tuning.mode == OptimizationMode.FAST_RESPONSE) minOf(1, requested.queueWaitSeconds) else requested.queueWaitSeconds,
-        maxAttempts = if (tuning.mode == OptimizationMode.FAST_RESPONSE) minOf(1, requested.maxAttempts) else requested.maxAttempts,
-        taskTimeoutSeconds = if (tuning.mode == OptimizationMode.FAST_RESPONSE) minOf(3, requested.taskTimeoutSeconds) else requested.taskTimeoutSeconds
-    ).validated()
-    if (requested.preloadInForeground && enabled) reasons += "Explicit foreground preloading may prepare the approved helper while idle; remote Send never waits for it."
-    if (requested.preparation != effective.preparation) reasons += "The execution policy restricts preparation to an already loaded matching model."
-    if (requested.evidenceSelection != effective.evidenceSelection) reasons += "Evidence selection is disabled by the execution policy."
-    if (requested.summarizeRetrievedText != effective.summarizeRetrievedText) reasons += "Compression is disabled by the execution policy."
-    if (requested.maxAttempts != effective.maxAttempts || requested.taskTimeoutSeconds != effective.taskTimeoutSeconds) reasons += "Fast response mode narrows the requested attempt or time allowance."
-    if (effective.profileUid != null && effective.profilePermissions[effective.profileUid] != AssistProcessingPermission.ALLOWED) reasons += "The selected helper needs explicit permission to process task data."
-    return EffectiveAssistPolicy(requestedEnabled = localAssist, enabled = enabled, requested = requested, effective = effective, explanations = reasons)
+    val effective = requested.validated()
+    val reasons = buildList {
+        if (!localAssist) add("Local Assist is off.")
+        if (requested.profileUid == null) add("Choose a helper.")
+        if (requested.profileUid != null && requested.profilePermissions[requested.profileUid] != AssistProcessingPermission.ALLOWED) add("The selected helper needs processing permission.")
+    }
+    return EffectiveAssistPolicy(requestedEnabled = localAssist, enabled = localAssist, requested = requested, effective = effective, explanations = reasons)
 }

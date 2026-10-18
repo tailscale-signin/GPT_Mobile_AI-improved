@@ -39,6 +39,7 @@ import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDialog as Dialog
 import dev.chungjungsoo.gptmobile.presentation.common.SettingsHelpIcon
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
+import dev.chungjungsoo.gptmobile.presentation.common.glassWindowBackdrop
 
 @Composable
 fun LocalToolsSettingsPanel(
@@ -111,7 +112,7 @@ fun LocalToolsSettingsPanel(
 @OptIn(ExperimentalMaterial3Api::class)
 fun LocalToolConfigurationDialog(section: String, onDismiss: () -> Unit) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+        Surface(Modifier.fillMaxSize().glassWindowBackdrop(), color = dev.chungjungsoo.gptmobile.presentation.common.overlayWindowContainerColor()) {
             Column(Modifier.fillMaxSize()) {
                 androidx.compose.material3.TopAppBar(
                     title = { Text(if (section == "delegation") "Model Delegation" else stringResource(R.string.local_tools_settings_panel_label_12)) },

@@ -31,6 +31,7 @@ class OpenRouterBatchWorker @AssistedInject constructor(
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
+        dev.chungjungsoo.gptmobile.presentation.StartupRecoveryGate.await()
         val prompt = inputData.getString(KEY_PROMPT)
         val requestId = inputData.getString(KEY_REQUEST_ID) ?: ""
         val temperature = inputData.getFloat(KEY_TEMPERATURE, 0.7f)

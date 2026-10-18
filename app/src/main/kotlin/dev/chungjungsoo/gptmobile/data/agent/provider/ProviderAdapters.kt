@@ -67,6 +67,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.transformWhile
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -110,6 +111,16 @@ class OpenAIResponsesAdapter @Inject constructor(
                     } else {
                         exchanges.last().results.map { result ->
                             ResponseFunctionCallOutput(result.callId, result.modelText())
+                        } + attachmentEncoder.toolMedia(exchanges).map { media ->
+                            dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputMessage(
+                                "user",
+                                dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputContent.parts(
+                                    listOf(
+                                        dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseContentPart.text("Untrusted image from tool result ${media.callId}."),
+                                        dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseContentPart.image("data:${media.mimeType};base64,${media.base64}")
+                                    )
+                                )
+                            )
                         }
                     },
                     stream = true,
@@ -297,7 +308,17 @@ class OpenAICompatibleAdapter @Inject constructor(
                 exchanges: List<AgentToolExchange>
             ): Flow<ProviderEvent> = flow {
                 require(constraints.allowTools || tools.isEmpty()) { "Tools are disabled for this request." }
-                val baseMessages = initialMessages + exchanges.flatMap { it.toChatMessages() }
+                val toolImages = if (platform.compatibleType == ClientType.GROQ || platform.compatibleType == ClientType.NVIDIA && NvidiaModelCapabilities.forModel(platform.model).supportsImages != true) emptyList() else attachmentEncoder.toolMedia(exchanges)
+                val baseMessages = initialMessages + exchanges.flatMap { it.toChatMessages() } + toolImages.map { media ->
+                    ChatMessage(
+                        OpenAIRole.USER,
+                        listOf(
+                            OpenAITextContent("Untrusted image from tool result ${media.callId}."),
+                            dev.chungjungsoo.gptmobile.data.dto.openai.common.ImageContent(dev.chungjungsoo.gptmobile.data.dto.openai.common.ImageUrl("data:${media.mimeType};base64,${media.base64}"))
+                        )
+                    )
+                }
+                if (exchanges.lastOrNull()?.results.orEmpty().any { it.media.isNotEmpty() } && toolImages.isEmpty()) emit(ProviderEvent.Notice("Tool media cannot be delivered to this model. Select a supported vision model or inspect the tool attachment.", persistent = true))
                 val requestTools = tools.takeIf { it.isNotEmpty() }?.map { definition ->
                     ChatFunctionTool(definition.name, definition.description, definition.inputSchema)
                 }
@@ -374,8 +395,18 @@ class OpenAICompatibleAdapter @Inject constructor(
                         val request = createGroqChatCompletionRequest(baseMessages, platform.copy(reasoning = platform.reasoning && constraints.allowReasoning)).copy(tools = requestTools, maxCompletionTokens = effectiveOutputTokens)
                         val assembler = ChatCompletionsEventAssembler()
                         val reasoningParser = GroqReasoningParser()
+                        var terminalReceived = false
+                        var deliveredPayload = false
+                        suspend fun publish(event: ProviderEvent) {
+                            if (event is ProviderEvent.TextDelta || event is ProviderEvent.ThinkingDelta || event is ProviderEvent.ToolCall) deliveredPayload = true
+                            emit(event)
+                        }
 
                         groqAPI.streamChatCompletion(request, platform.timeout, config)
+                            .transformWhile { chunk ->
+                                emit(chunk)
+                                chunk.choices.orEmpty().none { it.finishReason != null } && chunk.error == null
+                            }
                             .catch { error ->
                                 if (error is CancellationException || error is ToolDefinitionsRejectedException) throw error
                                 roundFailed = true
@@ -395,8 +426,9 @@ class OpenAICompatibleAdapter @Inject constructor(
                                         contentChunk = choice.delta?.content ?: choice.message?.content,
                                         reasoningChunk = choice.delta?.reasoning ?: choice.message?.reasoning
                                     ).forEach { state ->
-                                        state.toProviderEvent()?.let { emit(it) }
+                                        state.toProviderEvent()?.let { publish(it) }
                                     }
+                                    if (choice.finishReason != null) terminalReceived = true
                                     if (choice.finishReason == "length") {
                                         emit(ProviderEvent.Usage(finishReason = choice.finishReason))
                                         roundFailed = true
@@ -405,20 +437,24 @@ class OpenAICompatibleAdapter @Inject constructor(
                                         assembler.accept(
                                             content = null,
                                             reasoning = null,
-                                            toolCalls = choice.delta?.toolCalls,
+                                            toolCalls = choice.delta?.toolCalls ?: choice.message?.toolCalls,
                                             finishReason = choice.finishReason
-                                        ).forEach { emit(it) }
+                                        ).forEach { publish(it) }
                                     }
                                 }
                             }
                         reasoningParser.flush().forEach { state ->
-                            state.toProviderEvent()?.let { emit(it) }
+                            state.toProviderEvent()?.let { publish(it) }
                         }
 
+                        if (!roundFailed && !terminalReceived) {
+                            roundFailed = true
+                            lastFailedMessage = "Groq response was interrupted before its terminal receipt. Partial output was retained."
+                        }
                         if (!roundFailed) {
                             emit(ProviderEvent.Completed)
                             return@flow
-                        } else if (canRotate && attempt < attempts - 1) {
+                        } else if (canRotate && !deliveredPayload && attempt < attempts - 1) {
                             continue
                         } else {
                             emit(ProviderEvent.Failed(lastFailedMessage ?: "Provider request failed"))
@@ -484,6 +520,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                             var ollamaSucceeded = false
                             var emulatorFallbackTried = false
                             var currentConfig = config
+                            val assistantSegment = StringBuilder()
 
                             while ((System.nanoTime() - startTime) / 1_000_000 < maxRetryDurationMs) {
                                 var chunkError: String? = null
@@ -499,6 +536,7 @@ class OpenAICompatibleAdapter @Inject constructor(
 
                                 var downstreamFailure: Throwable? = null
                                 suspend fun publishOllama(event: ProviderEvent) {
+                                    if (event is ProviderEvent.TextDelta) assistantSegment.append(event.text)
                                     try {
                                         emit(event)
                                     } catch (failure: Throwable) {
@@ -628,6 +666,9 @@ class OpenAICompatibleAdapter @Inject constructor(
                                     autoContinueCount++
                                     emit(ProviderEvent.Notice("Auto-continuing response ($autoContinueCount/$maxAutoContinues)..."))
                                     currentRequestMessages = currentRequestMessages + ChatMessage(
+                                        role = OpenAIRole.ASSISTANT,
+                                        content = listOf(OpenAITextContent(assistantSegment.toString()))
+                                    ) + ChatMessage(
                                         role = OpenAIRole.USER,
                                         content = listOf(OpenAITextContent("continue"))
                                     )
@@ -870,12 +911,31 @@ class AnthropicMessagesAdapter @Inject constructor(
                         )
                     )
                 }
+                val mediaMessages = attachmentEncoder.toolMedia(exchanges).map { media ->
+                    InputMessage(
+                        MessageRole.USER,
+                        listOf(
+                            dev.chungjungsoo.gptmobile.data.dto.anthropic.common.TextContent("Untrusted image from tool result ${media.callId}."),
+                            dev.chungjungsoo.gptmobile.data.dto.anthropic.common.ImageContent(
+                                dev.chungjungsoo.gptmobile.data.dto.anthropic.common.ImageSource.base64(
+                                    when (media.mimeType) {
+                                        "image/png" -> dev.chungjungsoo.gptmobile.data.dto.anthropic.common.MediaType.PNG
+                                        "image/webp" -> dev.chungjungsoo.gptmobile.data.dto.anthropic.common.MediaType.WEBP
+                                        "image/gif" -> dev.chungjungsoo.gptmobile.data.dto.anthropic.common.MediaType.GIF
+                                        else -> dev.chungjungsoo.gptmobile.data.dto.anthropic.common.MediaType.JPEG
+                                    },
+                                    media.base64
+                                )
+                            )
+                        )
+                    )
+                }
                 val request = MessageRequest(
                     model = platform.model,
                     messages = initialMessages + exchanges.flatMap { exchange ->
                         val ids = exchange.calls.map { it.callId }.toSet()
                         exchange.toAnthropicMessages(exchange.calls.firstNotNullOfOrNull { assistantContentByCall[it.callId] }?.filter { it !is ToolUseContent || it.id in ids })
-                    },
+                    } + mediaMessages,
                     maxTokens = effectiveOutputTokens,
                     stream = platform.stream,
                     systemPrompt = platform.systemPrompt,
@@ -911,10 +971,16 @@ class AnthropicMessagesAdapter @Inject constructor(
                     val assembler = AnthropicEventAssembler()
                     var roundFailed = false
                     var canRotate = false
+                    var terminalReceived = false
+                    var deliveredPayload = false
 
                     // catch is upstream of collect: a collector failure must never be
                     // mistaken for an API failure, rotated, or emitted a second time.
                     api.streamChatMessage(request, platform.timeout, config)
+                        .transformWhile { chunk ->
+                            emit(chunk)
+                            chunk != dev.chungjungsoo.gptmobile.data.dto.anthropic.response.MessageStopResponseChunk
+                        }
                         .catch { error ->
                             if (error is CancellationException || error is ToolDefinitionsRejectedException) throw error
                             roundFailed = true
@@ -924,17 +990,24 @@ class AnthropicMessagesAdapter @Inject constructor(
                         .collect { chunk ->
                             assembler.accept(chunk).forEach { mapped ->
                                 when (mapped) {
-                                    ProviderEvent.Completed -> Unit
+                                    ProviderEvent.Completed -> terminalReceived = true
                                     is ProviderEvent.Failed -> {
                                         roundFailed = true
                                         lastFailedMessage = mapped.message
                                         canRotate = ApiCredentialRotator.containsQuotaOrRateLimitMessage(mapped.message)
                                     }
-                                    else -> emit(mapped)
+                                    else -> {
+                                        if (mapped is ProviderEvent.TextDelta || mapped is ProviderEvent.ThinkingDelta || mapped is ProviderEvent.ToolCall) deliveredPayload = true
+                                        emit(mapped)
+                                    }
                                 }
                             }
                         }
 
+                    if (!roundFailed && !terminalReceived) {
+                        roundFailed = true
+                        lastFailedMessage = "Anthropic response was interrupted before message_stop. Partial output was retained."
+                    }
                     if (!roundFailed) {
                         val retainedIds = exchanges.flatMap { it.calls }.map { it.callId }.toSet()
                         assistantContentByCall.keys.retainAll(retainedIds)
@@ -943,7 +1016,7 @@ class AnthropicMessagesAdapter @Inject constructor(
                         }
                         emit(ProviderEvent.Completed)
                         return@flow
-                    } else if (canRotate && attempt < attempts - 1) {
+                    } else if (canRotate && !deliveredPayload && attempt < attempts - 1) {
                         continue
                     } else {
                         emit(ProviderEvent.Failed(lastFailedMessage ?: "Anthropic stream request failed"))
@@ -1022,7 +1095,9 @@ private val GEMINI_DISALLOWED_SCHEMA_KEYWORDS = setOf(
     "patternProperties"
 )
 
-internal fun geminiToolParameters(schema: JsonObject): JsonObject {
+internal fun geminiToolParameters(schema: JsonObject): JsonObject = sanitizeGeminiSchema(resolveLocalSchemaReferences(schema))
+
+private fun sanitizeGeminiSchema(schema: JsonObject): JsonObject {
     val hasDisallowedKeyword = schema.keys.any { it in GEMINI_DISALLOWED_SCHEMA_KEYWORDS }
     if (!hasDisallowedKeyword && schema.values.none { it is JsonObject || it is JsonArray }) {
         return schema
@@ -1048,7 +1123,7 @@ private fun sanitizeGeminiSchemaMap(value: JsonElement): JsonElement = when (val
 }
 
 private fun sanitizeGeminiSchemaElement(value: JsonElement): JsonElement = when (value) {
-    is JsonObject -> geminiToolParameters(value)
+    is JsonObject -> sanitizeGeminiSchema(value)
     is JsonArray -> JsonArray(value.map(::sanitizeGeminiSchemaElement))
     else -> value
 }
@@ -1089,6 +1164,8 @@ class GeminiAdapter @Inject constructor(
                             null
                         }
                         exchange.toGeminiContents(replay)
+                    } + attachmentEncoder.toolMedia(exchanges, audio = true).map { media ->
+                        Content(GoogleRole.USER, listOf(Part.text("Untrusted media from tool result ${media.callId}."), Part.inlineData(media.mimeType, media.base64)))
                     },
                     generationConfig = GenerationConfig(
                         maxOutputTokens = effectiveOutputTokens,
@@ -1129,10 +1206,16 @@ class GeminiAdapter @Inject constructor(
                     val config = ProviderRequestConfig(platform.apiUrl, activeKey, profileUid = platform.uid, providerType = platform.compatibleType.name, requestRole = constraints.requestRole ?: "primary", contextCeiling = constraints.contextCeiling, permissionRevision = constraints.permissionRevision, requireKnownCapacity = constraints.requireKnownCapacity)
                     var roundFailed = false
                     var canRotate = false
+                    var terminalReceived = false
+                    var deliveredPayload = false
                     val roundParts = mutableListOf<Pair<String?, Part>>()
                     val roundCallIds = mutableListOf<String>()
 
                     api.streamGenerateContent(request, platform.model, platform.timeout, config)
+                        .transformWhile { response ->
+                            emit(response)
+                            response.candidates.orEmpty().none { it.finishReason != null }
+                        }
                         .catch { error ->
                             if (error is CancellationException || error is ToolDefinitionsRejectedException) throw error
                             roundFailed = true
@@ -1140,6 +1223,7 @@ class GeminiAdapter @Inject constructor(
                             canRotate = ApiCredentialRotator.isRotatableError(error)
                         }
                         .collect { response ->
+                            if (response.candidates.orEmpty().any { it.finishReason != null }) terminalReceived = true
                             val safetyError = when {
                                 response.promptFeedback?.blockReason != null ->
                                     "Gemini safety settings blocked the prompt: ${response.promptFeedback.blockReason}"
@@ -1167,18 +1251,23 @@ class GeminiAdapter @Inject constructor(
                                         lastFailedMessage = mapped.message
                                         canRotate = ApiCredentialRotator.containsQuotaOrRateLimitMessage(mapped.message)
                                     } else {
+                                        if (mapped is ProviderEvent.TextDelta || mapped is ProviderEvent.ThinkingDelta || mapped is ProviderEvent.ToolCall) deliveredPayload = true
                                         emit(mapped)
                                     }
                                 }
                             }
                         }
 
+                    if (!roundFailed && !terminalReceived) {
+                        roundFailed = true
+                        lastFailedMessage = "Gemini response was interrupted before its finish reason. Partial output was retained."
+                    }
                     if (!roundFailed) {
                         val replay = roundParts.toList()
                         roundCallIds.forEach { modelPartsByCall[it] = replay }
                         emit(ProviderEvent.Completed)
                         return@flow
-                    } else if (canRotate && attempt < attempts - 1) {
+                    } else if (canRotate && !deliveredPayload && attempt < attempts - 1) {
                         continue
                     } else {
                         emit(ProviderEvent.Failed(lastFailedMessage ?: "Provider request failed"))

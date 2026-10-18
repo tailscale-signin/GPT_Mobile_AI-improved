@@ -64,6 +64,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.amazon.AmazonProducts
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDialog
+import dev.chungjungsoo.gptmobile.presentation.common.glassWindowBackdrop
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.amazonProductPrice
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -123,7 +124,7 @@ internal fun AmazonProductDetailContent(
 
     FadingDialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(
-            modifier = Modifier.testTag("amazon-product-gallery").padding(horizontal = 16.dp).widthIn(max = 560.dp).fillMaxWidth().heightIn(max = dialogHeight)
+            modifier = Modifier.glassWindowBackdrop(MaterialTheme.shapes.extraLarge).testTag("amazon-product-gallery").padding(horizontal = 16.dp).widthIn(max = 560.dp).fillMaxWidth().heightIn(max = dialogHeight)
                 .pointerInput(selectedIndex, productCount, swipeThreshold) {
                     if (productCount > 1) {
                         var distance = 0f
@@ -142,7 +143,9 @@ internal fun AmazonProductDetailContent(
                     }
                 },
             shape = MaterialTheme.shapes.extraLarge,
-            color = MaterialTheme.colorScheme.surfaceContainerHigh
+            color = dev.chungjungsoo.gptmobile.presentation.common.overlayWindowContainerColor(),
+            contentColor = dev.chungjungsoo.gptmobile.presentation.common.appOverlayTokens().foreground,
+            tonalElevation = 0.dp
         ) {
             Column {
                 Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {

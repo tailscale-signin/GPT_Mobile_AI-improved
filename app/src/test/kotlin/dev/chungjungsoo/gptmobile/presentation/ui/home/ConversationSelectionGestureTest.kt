@@ -30,7 +30,7 @@ class ConversationSelectionGestureTest {
             MaterialTheme {
                 ChatListItem(
                     chatRoom = ChatRoomV2(id = 1, title = "Conversation"), idx = 0,
-                    chatListState = HomeViewModel.ChatListState(isSelectionMode = selected, selectedChats = listOf(selected)),
+                    chatListState = HomeViewModel.ChatListState(chats = listOf(ChatRoomV2(id = 1, title = "Conversation")), isSelectionMode = selected, selectedChatIds = if (selected) setOf(1) else emptySet()),
                     isGenerating = false, hasUnreadResponse = false, usingPlatform = "AI", profileLabels = emptyList(),
                     onItemClick = { opens++ }, onItemLongClick = { selected = true },
                     rowActions = mapOf("Archive selected" to {})

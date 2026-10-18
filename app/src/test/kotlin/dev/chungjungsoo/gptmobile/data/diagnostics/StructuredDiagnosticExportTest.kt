@@ -8,6 +8,15 @@ import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class StructuredDiagnosticExportTest {
+    @Test fun identityDoesNotAbsorbEventLabelAndCountersKeepTheirTypes() {
+        val record = Json.parseToJsonElement(structuredDiagnosticLine("2026-10-10T12:00:00Z I/CombinedSynthesis: eventId=abc-123 · SYNTHESIS_QUALITY · candidateUnits=48 · missing=29 · semanticCoverageVerified=false")).jsonObject
+        val fields = record.getValue("fields").jsonObject
+        assertEquals("abc-123", fields.getValue("eventId").jsonPrimitive.content)
+        assertFalse(fields.getValue("candidateUnits").jsonPrimitive.isString)
+        assertFalse(fields.getValue("missing").jsonPrimitive.isString)
+        assertFalse(fields.getValue("semanticCoverageVerified").jsonPrimitive.isString)
+    }
+
     @Test fun `export keeps status usage source and correlation independently`() {
         val record = Json.parseToJsonElement(structuredDiagnosticLine("2026-10-10T12:00:00Z E/Delegation: Child returned · parentRun=run-1 · status=FAILED · usageTotal=3337 · usageTotalEstimated=true")).jsonObject
         assertEquals("FAILED", record.getValue("fields").jsonObject.getValue("status").jsonPrimitive.content)

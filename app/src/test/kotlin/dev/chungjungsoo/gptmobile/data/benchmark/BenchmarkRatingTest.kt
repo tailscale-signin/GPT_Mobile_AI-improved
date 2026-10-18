@@ -37,7 +37,7 @@ class BenchmarkRatingTest {
         val rating = benchmarkRating(listOf(run(listOf(sample(), sample("task", BenchmarkOutcome.TIMED_OUT), sample("tools", BenchmarkOutcome.FAILED)))))
         assertEquals(2, rating.completed)
         assertEquals(0.0, rating.toolSuccessPercent!!, .001)
-        assertEquals(100.0 * 2 / 3, rating.dimensions.first { it.label == "Completion reliability" }.score!!, .001)
+        assertEquals(100.0 * 2 / 3, rating.dimensions.first { it.label == "Request completion" }.score!!, .001)
         assertNull(rating.score)
     }
 

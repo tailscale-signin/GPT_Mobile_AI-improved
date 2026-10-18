@@ -40,14 +40,14 @@ internal object RuntimeEvidenceIdentity {
     }
 
     internal fun artifactDigest(model: File, cache: File): String {
-        val manifestDigest = PackageDigest.validateInstalledCached(model, cache)
+        val manifestDigest = PackageDigest.validateInstalledCached(dev.chungjungsoo.gptmobile.data.localmodel.LinkedModelSources.resolveFile(model), cache)
         if (!model.name.endsWith("manifest.json")) return manifestDigest
         val manifest = dev.chungjungsoo.gptmobile.data.localmodel.ArtifactManifestStore.read(model)
         require(manifest.files.isNotEmpty() && manifest.files.size <= 256 && manifest.files.map { it.path.lowercase() }.distinct().size == manifest.files.size) { "Invalid artifact file inventory" }
         val actualFiles = manifest.files.sortedBy { it.path }.map { declared ->
             val file = dev.chungjungsoo.gptmobile.data.localmodel.ModelArtifactManifest.safeFile(requireNotNull(model.parentFile), declared.path)
             require(file.isFile && file.length() == declared.sizeBytes && declared.sizeBytes > 0) { "Missing or truncated model asset" }
-            val actual = PackageDigest.journalIdentity(file, cache)
+            val actual = PackageDigest.verifyInstalledAssetCached(file, declared.sha256)
             require(actual.equals(declared.sha256, ignoreCase = true)) { "Model asset checksum mismatch; native initialization blocked" }
             declared.path + ":" + actual
         }

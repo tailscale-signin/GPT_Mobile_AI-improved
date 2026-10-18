@@ -40,7 +40,7 @@ class PlannedLocalRuntime(
     private var admissionFailure: String? = null
 
     private suspend fun artifactIdentity(spec: LocalEngineSpec): String = kotlinx.coroutines.withContext(Dispatchers.IO) {
-        dev.chungjungsoo.gptmobile.data.localmodel.PackageDigest.validateInstalledCached(File(spec.modelPath), File(context.noBackupFilesDir, "model-identity-cache"))
+        RuntimeEvidenceIdentity.artifactDigest(File(spec.modelPath), File(context.noBackupFilesDir, "model-identity-cache"))
     }
     init {
         stateScope.launch {
@@ -96,7 +96,6 @@ class PlannedLocalRuntime(
         val artifact = artifactIdentity(spec)
         val current = settings.getFeatureSettings()
         val tuning = current.localEngineTuning()
-        val isLiteRt = !spec.modelPath.endsWith("manifest.json")
         val capabilities = delegate.inspectModel(spec.modelPath)
         val speculative = compatibleSpeculativeDecoding(tuning.speculativeDecoding, capabilities)
         val tuned = if (spec.tuningLocked) spec else spec.copy(cpuThreads = tuning.cpuThreads, cacheEnabled = tuning.cacheEnabled, speculativeDecoding = speculative, nativeMetricsEnabled = tuning.nativeMetricsEnabled, tuningLocked = true)
@@ -106,7 +105,7 @@ class PlannedLocalRuntime(
             null
         }
         var evidenceKey: RuntimeQualificationKey? = null
-        val decision = if (isLiteRt) {
+        val decision = run {
             evidence.load()
             val key = RuntimeEvidenceIdentity.key(context, tuned, tuned.samplerIdentity, tuned.workload)
             evidenceKey = key
@@ -115,15 +114,14 @@ class PlannedLocalRuntime(
                     (it.plan.speculativeDecoding != true || capabilities?.speculative == true)
             }
             planner.select(if (spec.tuningLocked) LocalExecutionPolicy.PROFILE else current.localExecutionPolicy, RuntimeEvidenceIdentity.plan(key), key, allowed, spec.expectedOutputTokens, delegate.loadedEngineSpec()?.let { state.value.decision?.selected?.id })
-        } else {
-            null
         }
         val chosen = tuned.copy(accelerator = decision?.selected?.languageBackend ?: tuned.accelerator, speculativeDecoding = decision?.selected?.speculativeDecoding ?: tuned.speculativeDecoding)
         val warm = delegate.loadedEngineSpec()
+        val assetBytes = localModelAssetBytes(File(spec.modelPath))
         val estimate = if (warm?.engineConfiguration() == chosen.engineConfiguration()) {
             128L * 1024 * 1024
         } else {
-            File(spec.modelPath).length() + spec.maxTokens * 256L * 1024 + (if (chosen.speculativeDecoding == true) File(spec.modelPath).length() / 3 else 0) + (if (spec.isVisionEnabled) 256L * 1024 * 1024 else 0)
+            assetBytes + chosen.maxTokens * 256L * 1024 + 128L * 1024 * 1024 + (if (chosen.speculativeDecoding == true) assetBytes / 3 else 0) + (if (spec.isVisionEnabled) 256L * 1024 * 1024 else 0)
         }
         val memoryEstimate = LocalMemoryEstimate(estimate, current.localMemoryReserveMb.coerceIn(256, 4096) * 1024L * 1024, availableMemory(), chosen.maxTokens, if (warm?.engineConfiguration() == chosen.engineConfiguration()) "warm_incremental_reserve" else "conservative_unmeasured")
         mutableState.value = state.value.copy(decision = decision)
@@ -139,7 +137,7 @@ class PlannedLocalRuntime(
             val actualDecision = decision?.let {
                 if (actual.engineSpec?.accelerator == it.selected.languageBackend) it else it.copy(qualification = QualificationStatus.NOT_TESTED, reason = "Runtime used a fallback; its configuration requires separate measurement")
             }
-            mutableState.value = actual.copy(decision = actualDecision, lifecycle = "READY", requestedMtp = chosen.speculativeDecoding, fallbackReason = actual.fallbackReason ?: tuningNotice)
+            mutableState.value = actual.copy(decision = actualDecision?.copy(actualLanguageBackend = actual.engineSpec?.accelerator), lifecycle = "READY", requestedMtp = chosen.speculativeDecoding, fallbackReason = actual.fallbackReason ?: tuningNotice)
             if (actualDecision != null && evidenceKey != null) {
                 evidence.saveRuntimeDecision(RuntimePlanDecisionRecord(java.util.UUID.randomUUID().toString(), System.currentTimeMillis(), evidenceKey, actualDecision, actual.engineSpec?.accelerator))
             }
@@ -169,8 +167,21 @@ class PlannedLocalRuntime(
             method = "generation_incremental_reserve"
         )
         requireAdmission(estimate, stage = "generate", nativeLoadAttempted = loaded != null)
+        mutableState.value = state.value.copy(decision = state.value.decision?.copy(requestCompleted = null))
         delegate.sendMessage(text, images).collect { event ->
-            mutableState.value = state.value.copy(lifecycle = delegate.state.value.lifecycle)
+            mutableState.value = state.value.copy(
+                lifecycle = delegate.state.value.lifecycle,
+                decision = state.value.decision?.let { decision ->
+                    decision.copy(
+                        actualLanguageBackend = delegate.state.value.engineSpec?.accelerator,
+                        requestCompleted = when (event) {
+                            LocalRuntimeEvent.Done -> true
+                            is LocalRuntimeEvent.Error -> false
+                            else -> decision.requestCompleted
+                        }
+                    )
+                }
+            )
             emit(if (event is LocalRuntimeEvent.Metrics) event.copy(metrics = event.metrics.copy(planId = state.value.decision?.selected?.id)) else event)
         }
     }

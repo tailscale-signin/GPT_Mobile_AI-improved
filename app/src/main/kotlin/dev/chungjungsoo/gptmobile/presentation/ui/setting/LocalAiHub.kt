@@ -3,7 +3,6 @@ package dev.chungjungsoo.gptmobile.presentation.ui.setting
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -24,13 +23,10 @@ import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.FileOpen
 import androidx.compose.material.icons.rounded.Memory
 import androidx.compose.material.icons.rounded.MoreVert
-import androidx.compose.material.icons.rounded.Storefront
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.IconButton
@@ -51,7 +47,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -61,11 +56,13 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.model.ClientType
+import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
+import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as DropdownMenu
 import dev.chungjungsoo.gptmobile.presentation.common.SettingsHelpIcon
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import dev.chungjungsoo.gptmobile.presentation.ui.localmodel.LocalModelDownloadDialogHost
 
-internal enum class LocalAiTab { MODELS, ASSIST, SETTINGS }
+internal enum class LocalAiTab { MODELS, MARKETPLACE, SETTINGS }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -79,8 +76,18 @@ fun LocalModelsScreen(
     onUseProfile: (String) -> Unit = {},
     onNavigationClick: () -> Unit
 ) {
-    var tab by rememberSaveable { mutableStateOf(if (startInDelegation && !startInMarketplace) LocalAiTab.ASSIST else LocalAiTab.MODELS) }
-    var marketplace by rememberSaveable { mutableStateOf(startInMarketplace) }
+    var tab by rememberSaveable {
+        mutableStateOf(
+            if (startInMarketplace) {
+                LocalAiTab.MARKETPLACE
+            } else if (startInDelegation) {
+                LocalAiTab.SETTINGS
+            } else {
+                LocalAiTab.MODELS
+            }
+        )
+    }
+    var marketplace by rememberSaveable { mutableStateOf(false) }
     var importOpen by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
     val ui by viewModel.uiState.collectAsStateWithLifecycle()
@@ -158,41 +165,28 @@ fun LocalModelsScreen(
         return
     }
     Scaffold(modifier = modifier, topBar = {
-        TopAppBar(title = { Text(stringResource(R.string.local_ai_title)) }, navigationIcon = { IconButton(onClick = onNavigationClick) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.go_back)) } }, actions = { SettingsHelpIcon(stringResource(R.string.local_ai_help), title = stringResource(R.string.local_ai_title)) })
+        TopAppBar(title = { Text(stringResource(R.string.local_ai_title)) }, navigationIcon = { IconButton(onClick = onNavigationClick) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.go_back)) } }, actions = {
+            IconButton(onClick = { tab = LocalAiTab.SETTINGS }) { Icon(Icons.Rounded.MoreVert, "Local model settings") }
+            SettingsHelpIcon(stringResource(R.string.local_ai_help), title = stringResource(R.string.local_ai_title))
+        })
     }) { insets ->
         Column(Modifier.fillMaxSize().padding(insets)) {
-            TabRow(tab.ordinal) {
-                LocalAiTab.entries.forEach { value ->
+            TabRow(if (tab == LocalAiTab.MARKETPLACE) 1 else 0) {
+                listOf(LocalAiTab.MODELS, LocalAiTab.MARKETPLACE).forEach { value ->
                     Tab(tab == value, onClick = { tab = value }, text = {
                         Text(
-                            stringResource(
-                                when (value) {
-                                    LocalAiTab.MODELS -> R.string.local_ai_models
-                                    LocalAiTab.ASSIST -> R.string.local_ai_assist
-                                    LocalAiTab.SETTINGS -> R.string.local_ai_settings
-                                }
-                            )
+                            if (value == LocalAiTab.MARKETPLACE) "Marketplace" else "My models"
                         )
                     }, modifier = Modifier.testTag("local_ai_${value.name}"))
                 }
             }
             when (tab) {
-                LocalAiTab.ASSIST -> LocalAssistScreen(runtimeViewModel, onMarketplace = { marketplace = true })
+                LocalAiTab.MARKETPLACE -> LocalMarketplaceScreen(viewModel = viewModel, runtimeViewModel = runtimeViewModel, onOpenProfile = onOpenProfile, onNavigationClick = { tab = LocalAiTab.MODELS })
                 LocalAiTab.SETTINGS -> LocalAiSettingsScreen(viewModel, runtimeViewModel, onDownloads = {
                     marketplace = true
                     viewModel.updateFilter(LocalModelFilter.DOWNLOADING)
                 })
                 LocalAiTab.MODELS -> LazyColumn(state = listState, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    item(key = "marketplace") {
-                        Card(onClick = { marketplace = true }, shape = RoundedCornerShape(28.dp), modifier = Modifier.fillMaxWidth().testTag("local_ai_marketplace")) {
-                            Column(Modifier.background(Brush.linearGradient(listOf(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.secondaryContainer))).padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                Icon(Icons.Rounded.Storefront, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
-                                Text(stringResource(R.string.local_ai_marketplace), style = MaterialTheme.typography.headlineSmall)
-                                Text(stringResource(R.string.local_ai_marketplace_description))
-                                Text(stringResource(R.string.local_ai_explore), style = MaterialTheme.typography.labelLarge)
-                            }
-                        }
-                    }
                     item(key = "import") { LocalAiActionCard(Icons.Rounded.FileOpen, stringResource(R.string.local_ai_import), stringResource(R.string.local_ai_import_description), { importOpen = true }) }
                     runtimeStatus?.let { status -> item(key = "runtime-status") { Text(status) } }
                     activeRuntime.fallbackReason?.takeIf { activeRuntime.lifecycle == "FAILED" }?.let { reason ->
@@ -215,6 +209,9 @@ fun LocalModelsScreen(
                                 TextButton(enabled = item != null, onClick = { item?.let { runtimeViewModel.createProfile(it.entry, onOpenProfile) } }) { Text(stringResource(R.string.local_ai_create)) }
                             }
                         }
+                    }
+                    item(key = "local-assist") {
+                        TextButton(onClick = { tab = LocalAiTab.SETTINGS }) { Text("Local Assist and tools") }
                     }
                     item(key = "profiles-title") {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -266,7 +263,7 @@ fun LocalModelsScreen(
                                         DropdownMenuItem(text = { Text(stringResource(R.string.local_ai_assign)) }, onClick = {
                                             menu = false
                                             runtimeViewModel.updateAssist { it.copy(profileUid = profile.uid) }
-                                            tab = LocalAiTab.ASSIST
+                                            tab = LocalAiTab.SETTINGS
                                         })
                                         DropdownMenuItem(text = { Text(stringResource(R.string.delete)) }, onClick = {
                                             menu = false
@@ -326,7 +323,7 @@ fun LocalModelsScreen(
     if (importOpen) {
         AlertDialog(onDismissRequest = { importOpen = false }, title = { Text(stringResource(R.string.local_ai_import)) }, text = { Text(stringResource(if (dev.chungjungsoo.gptmobile.BuildConfig.GENIEX_ENABLED) R.string.local_ai_import_geniex else R.string.local_ai_import_litert)) }, confirmButton = {
             Column {
-                if (dev.chungjungsoo.gptmobile.BuildConfig.GENIEX_ENABLED) TextButton(onClick = { folderImporter.launch(null) }) { Text(stringResource(R.string.local_ai_choose_folder)) }
+                TextButton(onClick = { folderImporter.launch(null) }) { Text(stringResource(R.string.local_ai_choose_folder)) }
                 TextButton(onClick = { importer.launch(arrayOf("*/*")) }) { Text(stringResource(R.string.local_ai_choose_file)) }
             }
         }, dismissButton = { TextButton(onClick = { importOpen = false }) { Text(stringResource(R.string.cancel)) } })

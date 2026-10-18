@@ -57,10 +57,51 @@ internal fun benchmarkExport(raw: String, detailed: Boolean): String {
                                         }
                                     )
                                 )
+                                put(
+                                    "timingExclusions",
+                                    buildJsonArray {
+                                        run.samples.forEach { sample ->
+                                            sample.timingExclusionReason?.let { reason ->
+                                                add(
+                                                    buildJsonObject {
+                                                        put("testId", sample.testId)
+                                                        put("reason", reason)
+                                                        put("requestCompleted", sample.completed)
+                                                    }
+                                                )
+                                            }
+                                        }
+                                    }
+                                )
+                                put(
+                                    "reasoningReevaluation",
+                                    buildJsonArray {
+                                        run.samples.forEach { sample ->
+                                            IntelligenceBenchmark.gradeRetained(sample, if (run.suiteVersion >= 7) 3 else 2)?.let { grade ->
+                                                add(
+                                                    buildJsonObject {
+                                                        put("testId", sample.testId)
+                                                        put("fixtureVersion", grade.fixtureVersion)
+                                                        put("rawJsonCompliant", grade.formatCompliant)
+                                                        put("parseable", grade.parseable)
+                                                        put("correct", grade.answers.values.count { it })
+                                                        put("total", grade.answers.size)
+                                                        put("answers", buildJsonObject { grade.answers.forEach { (key, value) -> put(key, value) } })
+                                                        grade.correction?.let { put("correction", it) }
+                                                        put("scope", "Re-evaluation of complete retained text; original run evidence unchanged")
+                                                    }
+                                                )
+                                            }
+                                        }
+                                    }
+                                )
                                 put("completedWithoutInterruption", run.finished && !run.canceled && run.stoppedReason == null)
                                 put("scope", "Isolated-run diagnostic; active eligible aggregate scores are in scoreTable")
-                                put("grade", rating.grade)
-                                put("score", rating.score?.let(::JsonPrimitive) ?: JsonNull)
+                                put("scoringPolicy", "benchmark-score-v3")
+                                put("baselineProvenance", "No cohort anchors supplied for this isolated diagnostic. Active aggregate rows carry compatible baseline evidence.")
+                                put("grade", if (run.mode == BenchmarkMode.DELEGATION) rating.grade else "Observed metrics only")
+                                put("ratingUnavailableReason", if (run.mode == BenchmarkMode.DELEGATION) "" else "Isolated run has no compatible speed and latency anchors; see activeScoreRows.")
+                                put("score", if (run.mode == BenchmarkMode.DELEGATION) rating.score?.let(::JsonPrimitive) ?: JsonNull else JsonNull)
                                 put("measuredWeight", rating.measuredWeight)
                                 put(
                                     "dimensions",

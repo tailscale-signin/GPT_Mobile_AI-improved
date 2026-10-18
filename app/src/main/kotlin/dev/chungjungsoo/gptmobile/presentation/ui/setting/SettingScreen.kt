@@ -73,7 +73,6 @@ fun SettingScreen(
     val debugMode by settingViewModel.debugMode.collectAsStateWithLifecycle()
     val featureSettings by settingViewModel.featureSettings.collectAsStateWithLifecycle()
     var showResearch by rememberSaveable { mutableStateOf(false) }
-    var showExecution by rememberSaveable { mutableStateOf(false) }
     var showDelegation by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
     val searchEntries = SettingsSearchRegistry.entries.filter { (githubWorkspaceEnabled || it.destination != SettingsSearchDestination.WORKSPACE) && (it.key != "research" || featureSettings.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH)) } +
@@ -109,8 +108,6 @@ fun SettingScreen(
                     onSelect = { entry ->
                         if (entry.key == "research") {
                             showResearch = true
-                        } else if (entry.key == "execution") {
-                            showExecution = true
                         } else {
                             when (entry.destination) {
                                 SettingsSearchDestination.BACKUP -> settingViewModel.openBackupRestoreDialog()
@@ -137,7 +134,6 @@ fun SettingScreen(
                             SettingsDestination(Icons.Rounded.Psychology, "Research", { showResearch = true })
                         }
                         if (githubWorkspaceEnabled) SettingsDestination(Icons.Rounded.Build, "GitHub Workspace", onNavigateToWorkspaces)
-                        SettingsDestination(Icons.Rounded.Tune, "Execution & Efficiency", { showExecution = true })
                     }
                 }
                 item {
@@ -165,7 +161,6 @@ fun SettingScreen(
     }
 
     if (showResearch) ResearchFeatureScreen(onClose = { showResearch = false })
-    if (showExecution) ExecutionEfficiencyScreen(onClose = { showExecution = false })
 
     if (showDelegation) {
         LocalToolConfigurationDialog(section = "delegation", onDismiss = { showDelegation = false })

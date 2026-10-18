@@ -29,6 +29,7 @@ class MemoryEnrichmentWorker @AssistedInject constructor(
     private val runtime: LocalRuntime
 ) : CoroutineWorker(context, parameters) {
     override suspend fun doWork(): Result {
+        dev.chungjungsoo.gptmobile.presentation.StartupRecoveryGate.await()
         AppLogRecorder.record("Memory", "ENRICHMENT_STARTED · work=$id · attempt=$runAttemptCount · message=${inputData.getInt("messageId", 0)}")
         var reason = "NO_ELIGIBLE_FACTS"
         return try {

@@ -28,6 +28,35 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class WebSearchToolTest {
+    @Test
+    fun `automatic outcomes distinguish unusable 202 challenge parser failure rate limit and cached failure`() = runBlocking {
+        for ((status, body, expected) in listOf(
+            Triple(202, "Accepted but no usable results", "UNAVAILABLE"),
+            Triple(202, "<form class='challenge-form'>captcha</form>", "CHALLENGE"),
+            Triple(200, "<html>unrecognized search markup</html>", "PARSE_FAILED"),
+            Triple(429, "rate limit", "RATE_LIMITED")
+        )) {
+            val endpoint = server("/typed", body, status)
+            val client = NetworkClient(CIO).also { networkClients += it }
+            val search = WebSearchTool(
+                WebSearchProviderConfig(WebSearchProvider.AUTO, "", ""),
+                client,
+                clock,
+                autoSearchEndpointTemplates = listOf(endpoint.url("/typed?q={query}")),
+                autoSearchBlockedUntilMs = AtomicLong(0L)
+            )
+            val first = search.execute("first", arguments())
+            val second = search.execute("second", arguments())
+            assertTrue(first.isError)
+            assertEquals(expected, first.errorCode)
+            assertEquals(expected, second.errorCode)
+            val cached = (second.content as ToolResultContent.Json).value.jsonObject
+            assertEquals("true", cached.getValue("cachedFailure").jsonPrimitive.content)
+            assertEquals("false", cached.getValue("requestSent").jsonPrimitive.content)
+            assertEquals(1, endpoint.requestCount)
+        }
+    }
+
     @Test fun `Perplexity auth block survives elapsed cooldown and resets for corrected credentials`() = runBlocking {
         val server = server("/search", "{}", status = 401)
         val client = NetworkClient(CIO).also { networkClients += it }

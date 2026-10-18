@@ -78,7 +78,6 @@ internal object ConfiguredDispatchAuthority {
             put("conversationResearch", Json.encodeToJsonElement(chatId?.let { features.conversationResearch[it] }))
             put("reasoning", Json.encodeToJsonElement(chatId?.let { features.conversationReasoning[it] }))
             put("llamaReasoning", Json.encodeToJsonElement(features.llamaReasoningModes[uid]))
-            put("execution", Json.encodeToJsonElement(features.executionPolicy))
         }.toString()
     )
 }

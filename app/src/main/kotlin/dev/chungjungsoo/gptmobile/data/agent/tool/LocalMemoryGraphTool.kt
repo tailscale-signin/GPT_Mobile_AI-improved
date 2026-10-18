@@ -204,9 +204,9 @@ class LocalMemoryGraphTool(
                                 boundary.accepts(document, message.chatId)
                         ) { "Document unavailable under current memory permissions." }
                         val limit = ((arguments["limit"] as? JsonPrimitive)?.intOrNull ?: 4000).coerceIn(1, 6000)
-                        val content = source.dao.chunks(document.id).joinToString("\n") { it.text }
-                        "Document: ${document.title}\nOffset: $offset\n" + content.drop(offset).take(limit) +
-                            if (offset + limit < content.length) "\nContinue at offset ${offset + limit}." else "\nEnd of document."
+                        val range = source.readRange(document.id, offset, limit)
+                        "Document: ${document.title}\nOffset: $offset\n" + range.text +
+                            if (range.nextOffset < range.totalCharacters) "\nContinue at offset ${range.nextOffset}." else "\nEnd of document."
                     }
                 }
 

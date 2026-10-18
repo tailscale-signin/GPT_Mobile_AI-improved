@@ -30,7 +30,9 @@ public final class GgufNativeSmoke {
                 long[] usage = GgufNative.generate(engine, new String[]{"user"}, new byte[][]{"Once upon a time".getBytes(StandardCharsets.UTF_8)}, 16, 1, 1f, 0f, bytes -> {
                     output.writeBytes(bytes); return true;
                 });
-                check(usage.length == 5 && usage[0] > 0 && usage[1] > 0 && usage[1] <= 16, "Invalid native token receipt");
+                check(usage.length == 7 && usage[0] > 0 && usage[1] > 0 && usage[1] <= 16, "Invalid native token receipt");
+                check(usage[5] >= 0 && usage[6] > 0 && usage[5] + usage[6] == usage[0], "Invalid prefix reuse accounting");
+                if (attempt > 0) check(usage[5] > 0, "Repeated prompt did not reuse its exact token prefix");
                 check(usage[4] == 0 || usage[4] == 1, "Unexpected terminal reason");
                 check(output.size() > 0, "No visible output");
                 System.out.println("warm attempt " + attempt + ": " + Arrays.toString(usage));

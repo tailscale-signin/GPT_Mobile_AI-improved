@@ -10,6 +10,17 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RunDiagnosticJournalTest {
+    @Test fun repeatedRendererMountsPublishOneFirstVisibleReceiptPerOwnedAnswer() = kotlinx.coroutines.test.runTest {
+        val journal = RunDiagnosticJournal(MemoryVault(), backgroundScope).apply {
+            enabled = true
+            setRunPrivacy("answer", false)
+        }
+        repeat(3) { journal.record("answer", RunDiagnosticKind.FIRST_VISIBLE_TEXT, fence = 1) }
+        journal.record("answer", RunDiagnosticKind.FIRST_VISIBLE_TEXT, fence = 2)
+        val snapshot = journal.snapshot(setOf("answer"))
+        assertEquals(listOf(1L, 2L), snapshot.events.filter { it.kind == RunDiagnosticKind.FIRST_VISIBLE_TEXT }.map { it.fence })
+    }
+
     @Test fun outputTracingStoresRepresentationBoundFingerprintsWithoutContentOrPrivateRuns() = runTest {
         val vault = MemoryVault()
         val journal = RunDiagnosticJournal(vault, backgroundScope).apply {

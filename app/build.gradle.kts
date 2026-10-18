@@ -242,6 +242,8 @@ extensions.configure<ApplicationExtension> {
         unitTests {
             isIncludeAndroidResources = true
             all {
+                // Robolectric's real-descriptor interceptor needs these JDK 21 test-only APIs.
+                it.jvmArgs("--add-exports=java.base/jdk.internal.access=ALL-UNNAMED", "--add-opens=java.base/java.io=ALL-UNNAMED")
                 it.systemProperty("room.schemas", file("schemas").absolutePath)
                 it.systemProperty("robolectric.dependency.repo.url", "https://repo.maven.apache.org/maven2")
                 it.testLogging {
@@ -463,6 +465,9 @@ dependencies {
     implementation(libs.gson)
 
     // On-device LiteRT-LM serving
+    // AndroidX Compose, Activity, Collection and tracing are already supplied by this app.
+    // Avoid parallel JetBrains Compose wrappers selecting a second platform dependency graph.
+    implementation("dev.chrisbanes.haze:haze-android:1.7.3") { isTransitive = false }
     implementation(libs.litertlm)
 
     // QAIRT host libraries and matching HTP stubs/skeletons for LiteRT-LM NPU dispatch.

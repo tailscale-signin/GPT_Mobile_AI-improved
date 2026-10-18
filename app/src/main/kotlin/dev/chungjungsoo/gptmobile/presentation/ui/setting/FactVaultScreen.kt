@@ -61,6 +61,7 @@ import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as Alert
 import dev.chungjungsoo.gptmobile.presentation.common.LocalSettingSearchFocus
 import dev.chungjungsoo.gptmobile.presentation.common.SettingsHelpIcon
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
+import dev.chungjungsoo.gptmobile.presentation.common.glassWindowBackdrop
 import dev.chungjungsoo.gptmobile.presentation.common.settingSearchFocus
 import java.io.File
 import kotlinx.coroutines.CancellationException
@@ -158,7 +159,7 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
     }
     val settings = vault.settings
     CompositionLocalProvider(LocalSettingSearchFocus provides initialTab.substringAfter(':', "")) {
-        Scaffold(topBar = {
+        Scaffold(modifier = Modifier.glassWindowBackdrop(), containerColor = dev.chungjungsoo.gptmobile.presentation.common.overlayWindowContainerColor(), topBar = {
             TopAppBar(
                 title = { Text(stringResource(R.string.settings_memory)) },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") } },

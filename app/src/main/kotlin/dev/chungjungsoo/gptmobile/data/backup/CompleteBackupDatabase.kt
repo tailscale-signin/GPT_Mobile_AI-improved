@@ -181,7 +181,7 @@ internal object CompleteBackupDatabase {
         return buildSet {
             if (CompleteBackupSection.CONVERSATIONS in sections) {
                 add("chats_v2")
-                addAll(listOf("conversation_folders", "conversation_folder_members"))
+                addAll(listOf("conversation_folders", "conversation_folder_members", "conversation_folder_moves", "reply_publications"))
                 add("workspace_records")
                 add("pending_prompts")
                 addAll(listOf("knowledge_projects", "knowledge_project_chats", "knowledge_documents", "knowledge_chunks"))

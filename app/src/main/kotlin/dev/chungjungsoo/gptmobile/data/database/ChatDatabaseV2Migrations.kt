@@ -437,6 +437,17 @@ object ChatDatabaseV2Migrations {
         }
     }
 
+    val MIGRATION_40_41 = object : Migration(40, 41) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS `conversation_folder_moves` (`chatId` INTEGER NOT NULL, `version` TEXT NOT NULL, PRIMARY KEY(`chatId`), FOREIGN KEY(`chatId`) REFERENCES `chats_v2`(`chat_id`) ON UPDATE NO ACTION ON DELETE CASCADE)")
+            db.execSQL("ALTER TABLE `agent_runs` ADD COLUMN `display_role` TEXT NOT NULL DEFAULT 'INTERNAL'")
+            db.execSQL("CREATE TABLE IF NOT EXISTS `reply_publications` (`logicalReplyKey` TEXT NOT NULL, `chatId` INTEGER NOT NULL, `messageId` INTEGER NOT NULL, `userTurnId` INTEGER NOT NULL, `profileUid` TEXT NOT NULL, `displayRole` TEXT NOT NULL, `ownerFence` INTEGER NOT NULL, `committedRevision` INTEGER NOT NULL, `publishedAt` INTEGER NOT NULL, `publicationSequence` INTEGER NOT NULL, `acknowledgedRevision` INTEGER NOT NULL, `deliveryKind` TEXT NOT NULL, `contentDigest` TEXT NOT NULL, PRIMARY KEY(`logicalReplyKey`), FOREIGN KEY(`chatId`) REFERENCES `chats_v2`(`chat_id`) ON UPDATE NO ACTION ON DELETE CASCADE, FOREIGN KEY(`messageId`) REFERENCES `messages_v2`(`message_id`) ON UPDATE NO ACTION ON DELETE CASCADE)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_reply_publications_chatId_profileUid` ON `reply_publications` (`chatId`, `profileUid`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_reply_publications_messageId` ON `reply_publications` (`messageId`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_reply_publications_publicationSequence` ON `reply_publications` (`publicationSequence`)")
+        }
+    }
+
     val ALL_MIGRATIONS: Array<Migration> = arrayOf(
         MIGRATION_10_11,
         MIGRATION_11_12,
@@ -467,7 +478,8 @@ object ChatDatabaseV2Migrations {
         MIGRATION_36_37,
         MIGRATION_37_38,
         MIGRATION_38_39,
-        MIGRATION_39_40
+        MIGRATION_39_40,
+        MIGRATION_40_41
     )
     private fun columns(db: SupportSQLiteDatabase, table: String): Set<String> = db.query("PRAGMA table_info(`$table`)").use { cursor -> buildSet { while (cursor.moveToNext()) add(cursor.getString(1)) } }
     private fun addColumnIfMissing(db: SupportSQLiteDatabase, table: String, column: String, definition: String) {

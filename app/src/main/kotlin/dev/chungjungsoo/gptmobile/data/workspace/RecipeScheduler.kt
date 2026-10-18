@@ -54,6 +54,7 @@ class RecipeWorker @AssistedInject constructor(
     private val queue: DurablePromptQueue
 ) : CoroutineWorker(context, parameters) {
     override suspend fun doWork(): Result {
+        dev.chungjungsoo.gptmobile.presentation.StartupRecoveryGate.await()
         val id = inputData.getString("recipe") ?: return Result.failure()
         try {
             val entry = workspace.dao.get(id) ?: return Result.success()

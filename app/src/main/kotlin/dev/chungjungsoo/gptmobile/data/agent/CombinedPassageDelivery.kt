@@ -30,7 +30,7 @@ data class CombinedClaimReview(val claimId: String, val disposition: String, val
 /** Completion, textual accounting, evidence support and semantic truth are separate dimensions. */
 @Serializable
 data class CombinedQualityReport(
-    val version: Int = 2,
+    val version: Int = 3,
     val answerDigest: String = "",
     val complete: Boolean = false,
     val status: String = "WRITING",
@@ -44,6 +44,9 @@ data class CombinedQualityReport(
     val factualAccuracyVerified: Boolean = false,
     val duplicatePassagesRemoved: Int = 0,
     val repairRounds: Int = 0,
+    val repairAccepted: Int = 0,
+    val repairRejected: Int = 0,
+    val repairSkippedReason: String? = null,
     val turnContext: CombinedTurnContext? = null
 )
 

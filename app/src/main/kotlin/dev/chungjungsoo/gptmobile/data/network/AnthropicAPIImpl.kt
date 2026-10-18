@@ -122,7 +122,7 @@ class AnthropicAPIImpl @Inject constructor(
                         applyPlatformStreamingTimeout(timeoutSeconds, workerBudget)
                         contentType(ContentType.Application.Json)
                         setBody(admittedPayload)
-                        accept(ContentType.Text.EventStream)
+                        accept(if (messageRequest.stream) ContentType.Text.EventStream else ContentType.Application.Json)
                         headers {
                             append(API_KEY_HEADER, config.token ?: "")
                             append(VERSION_HEADER, ANTHROPIC_VERSION)
@@ -151,6 +151,12 @@ class AnthropicAPIImpl @Inject constructor(
                             return@execute
                         }
 
+                        if (!messageRequest.stream) {
+                            val chunks = anthropicCompleteResponseChunks(response.body<String>())
+                            receivedPayload = true
+                            chunks.forEach { emit(it) }
+                            return@execute
+                        }
                         val channel = response.bodyAsChannel()
                         while (!channel.isClosedForRead) {
                             val line = channel.readLine() ?: break

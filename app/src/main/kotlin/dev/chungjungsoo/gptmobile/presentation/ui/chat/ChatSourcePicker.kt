@@ -79,6 +79,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
+import dev.chungjungsoo.gptmobile.presentation.common.glassBackdrop
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -205,10 +206,12 @@ private fun SourceListDialog(sources: ChatSources, origin: Offset, onDismiss: ()
                                 translationY = (origin.y - target.y) * (1f - amount)
                             }
                         }
+                        .glassBackdrop(RoundedCornerShape(28.dp), captureAsPopup = true)
                         .pointerInput(Unit) { detectTapGestures(onTap = {}) },
                     shape = RoundedCornerShape(28.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    tonalElevation = 6.dp
+                    color = if (dev.chungjungsoo.gptmobile.presentation.common.hasGlassBackdrop()) androidx.compose.ui.graphics.Color.Transparent else dev.chungjungsoo.gptmobile.presentation.common.appOverlayTokens().background,
+                    contentColor = dev.chungjungsoo.gptmobile.presentation.common.appOverlayTokens().foreground,
+                    tonalElevation = 0.dp
                 ) {
                     Column {
                         Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {

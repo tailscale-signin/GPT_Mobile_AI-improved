@@ -296,11 +296,7 @@ fun ChatScreen(
     val indexStates by chatViewModel.indexStates.collectAsStateWithLifecycle()
     val loadingStates by chatViewModel.loadingStates.collectAsStateWithLifecycle()
 
-    LaunchedEffect(chatRoom.id, groupedMessages, activeAgentRuns) {
-        if (chatRoom.id > 0) {
-            chatViewModel.markCurrentChatViewed()
-        }
-    }
+    val pendingReplies by chatViewModel.pendingReplies.collectAsStateWithLifecycle()
     var dismissedRecovery by rememberSaveable(chatRoom.id) { mutableStateOf<String?>(null) }
     val recoveryTurn = groupedMessages.assistantMessages.lastIndex
     val blockedResponse = groupedMessages.assistantMessages.lastOrNull()?.withIndex()?.firstOrNull { (_, message) ->
@@ -486,7 +482,7 @@ fun ChatScreen(
                 val responseOffset = kotlinx.coroutines.withTimeoutOrNull(1_000L) {
                     snapshotFlow { targetResponseOffset }.filterNotNull().first()
                 }
-                if (responseOffset != null) listState.scrollToConversationEntry(itemIndex, responseOffset, centerResponse = true)
+                if (responseOffset != null) listState.scrollToConversationEntry(itemIndex, responseOffset, centerResponse = featureSettings.centerUnread)
             }
         } else {
             // Explicitly override a restored list position on each conversation entry.
@@ -509,7 +505,7 @@ fun ChatScreen(
         snapshotFlow { Triple(listState.layoutInfo.beforeContentPadding, listState.layoutInfo.afterContentPadding, targetResponseOffset) }
             .distinctUntilChanged()
             .collect { (_, _, offset) ->
-                if (offset != null) listState.scrollToConversationEntry(itemIndex, offset, centerResponse = true)
+                if (offset != null) listState.scrollToConversationEntry(itemIndex, offset, centerResponse = featureSettings.centerUnread)
             }
     }
 
@@ -678,6 +674,9 @@ fun ChatScreen(
                 ) { visibleIndex, message ->
                     val index = firstVisibleTurn + visibleIndex
                     ChatMessagePair(
+                        replyRevision = pendingReplies.hashCode().toLong(),
+                        replyVisible = listState.layoutInfo.visibleItemsInfo.any { it.key == chatMessagePairKey(message, index) },
+                        onAnswerDisplayed = { displayed -> chatViewModel.acknowledgeDisplayedReplies(listOf(displayed), pendingReplies) },
                         currentResearchTools = { chatViewModel.chatToolConfig.value },
                         messageIndex = index,
                         message = message,
@@ -1086,6 +1085,9 @@ fun ChatScreen(
 
 @Composable
 private fun ChatMessagePair(
+    replyRevision: Long,
+    replyVisible: Boolean,
+    onAnswerDisplayed: (MessageV2) -> Unit,
     currentResearchTools: () -> dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig,
     messageIndex: Int,
     message: MessageV2,
@@ -1201,6 +1203,14 @@ private fun ChatMessagePair(
             } else {
                 timeline
             }
+        }
+    }
+    val readLifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    val readLifecycleState by readLifecycle.lifecycle.currentStateFlow.collectAsStateWithLifecycle()
+    LaunchedEffect(replyRevision, replyVisible, selectedAssistantMessage, rawAssistantContent, readLifecycleState) {
+        if (replyVisible && !isSourceResponse && readLifecycle.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
+            androidx.compose.runtime.withFrameNanos { }
+            selectedAssistantMessage?.let { onAnswerDisplayed(it.copy(content = rawAssistantContent)) }
         }
     }
     val selectedRunId = selectedAssistantMessage?.effectiveRunId()
@@ -1649,12 +1659,20 @@ private suspend fun exportChat(context: Context, chatViewModel: ChatViewModel, f
             Toast.makeText(context, "No AI responses to export yet.", Toast.LENGTH_SHORT).show()
             return
         }
-        val file = File(context.getExternalFilesDir(null), fileName)
-        withContext(Dispatchers.IO) {
-            if (format == ChatExportFormat.DEBUG) {
-                file.outputStream().use { DebugExportBundle.write(fileContent, it) }
-            } else {
-                file.writeText(fileContent)
+        val file = withContext(Dispatchers.IO) {
+            val destination = File(context.getExternalFilesDir(null), fileName)
+            val staging = File(destination.parentFile, ".${destination.name}.partial")
+            try {
+                if (format == ChatExportFormat.DEBUG) {
+                    staging.outputStream().use { DebugExportBundle.write(fileContent, it) }
+                    staging.inputStream().use(DebugExportBundle::read)
+                } else {
+                    staging.writeText(fileContent)
+                }
+                check(staging.renameTo(destination)) { "Unable to publish the completed export" }
+                destination
+            } finally {
+                staging.delete()
             }
         }
         val uri = getUriForFile(context, "${context.packageName}.fileprovider", file)

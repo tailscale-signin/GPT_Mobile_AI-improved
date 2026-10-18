@@ -157,10 +157,45 @@ interface AgentPersistenceDao {
         if (run.gatewayJobId != jobId || run.status != "INTERRUPTED" || run.terminalError == "BACKUP_RESTORED") return false
         val message = recoveryMessage(run.assistantMessageId) ?: return false
         if (message.currentRunId != runId || message.chatId != run.chatId || message.ownershipFence != run.ownershipFence) return false
-        updateMessage(message.copy(content = content, thoughts = "", timeline = emptyList()))
+        val restored = message.copy(content = content, thoughts = "", timeline = emptyList())
+        updateMessage(restored)
+        publishReply(run, restored, "COMPLETED", completedAt)
         updateRunStatus(runId, "COMPLETED", run.startedAt, completedAt, null)
         cancelActiveToolEvents(runId, completedAt)
         return true
+    }
+
+    @Query("SELECT * FROM reply_publications WHERE logicalReplyKey = :key")
+    suspend fun publication(key: String): dev.chungjungsoo.gptmobile.data.chat.ReplyPublication?
+
+    @Query("SELECT COALESCE(MAX(publicationSequence), 0) + 1 FROM reply_publications")
+    suspend fun nextPublicationSequence(): Long
+
+    @Upsert
+    suspend fun savePublication(row: dev.chungjungsoo.gptmobile.data.chat.ReplyPublication)
+
+    suspend fun publishReply(run: AgentRun, message: MessageV2, status: String, at: Long) {
+        if (!dev.chungjungsoo.gptmobile.data.chat.ReplyDisplayRole.visible(run.displayRole)) return
+        if (status != "COMPLETED" && status !in setOf("FAILED", "CANCELED", "INTERRUPTED")) return
+        val answerText = dev.chungjungsoo.gptmobile.util.stripAssistantErrorNote(message.content)
+        // A host-created error message alone is not a partial answer publication.
+        if (status != "COMPLETED" && answerText == message.content && dev.chungjungsoo.gptmobile.util.isAssistantErrorMessage(message.content)) return
+        val content = dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.text(answerText)
+        if (content.isBlank()) return
+        val channel = if (run.displayRole == dev.chungjungsoo.gptmobile.data.chat.ReplyDisplayRole.COMBINED) "combined" else run.profileUid
+        val key = "${run.chatId}:${run.userMessageId}:$channel"
+        val previous = publication(key)
+        if (previous != null && previous.ownerFence > run.ownershipFence) return
+        val kind = if (status == "COMPLETED") "FINAL" else "PARTIAL"
+        val digest = dev.chungjungsoo.gptmobile.data.research.researchHash(content)
+        if (previous?.contentDigest == digest && previous.deliveryKind == kind && previous.ownerFence == run.ownershipFence) return
+        savePublication(
+            dev.chungjungsoo.gptmobile.data.chat.ReplyPublication(
+                key, run.chatId, message.id, run.userMessageId, run.profileUid, run.displayRole, run.ownershipFence,
+                (previous?.committedRevision ?: 0L) + 1, at, nextPublicationSequence(),
+                previous?.acknowledgedRevision ?: 0L, kind, digest
+            )
+        )
     }
 
     @Query("SELECT * FROM pending_prompts WHERE id = :id AND userMessageId IS NULL")
@@ -273,7 +308,12 @@ interface AgentPersistenceDao {
                 profileUid = draft.profileUid,
                 providerSnapshot = draft.providerSnapshot,
                 modelSnapshot = draft.modelSnapshot,
-                createdAt = draft.createdAt
+                createdAt = draft.createdAt,
+                displayRole = draft.displayRole ?: when {
+                    chatRoom.conversationMode == dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode.COMBINED -> if (request.runs.size == 1) "COMBINED_FINAL" else "COMBINED_CONTRIBUTOR"
+                    request.runs.size > 1 -> "MULTI_REPLY"
+                    else -> "DIRECT_REPLY"
+                }
             ).also { insertRun(it) }
         }
         upsertModels(
@@ -392,6 +432,15 @@ interface AgentPersistenceDao {
             ownershipFence = nextFence,
             synthesisKey = request.run.synthesisKey,
             synthesisSnapshot = request.run.synthesisSnapshot,
+            displayRole = request.run.displayRole ?: if (request.run.synthesisKey != null) {
+                "COMBINED_FINAL"
+            } else {
+                previousRun?.displayRole?.takeIf { it != "INTERNAL" } ?: when {
+                    getChatRoom(request.userMessage.chatId)?.conversationMode == "COMBINED" -> "COMBINED_CONTRIBUTOR"
+                    getChatRoom(request.userMessage.chatId)?.enabledPlatform.orEmpty().size > 1 -> "MULTI_REPLY"
+                    else -> "DIRECT_REPLY"
+                }
+            },
             createdAt = request.run.createdAt
         )
         insertRun(run)
@@ -412,6 +461,7 @@ interface AgentPersistenceDao {
         val run = recoveryRun(runId) ?: return
         if (current.currentRunId != runId || current.ownershipFence != run.ownershipFence || assistantMessage.ownershipFence != run.ownershipFence) return
         updateMessage(assistantMessage)
+        publishReply(run, assistantMessage, status, completedAt ?: System.currentTimeMillis() / 1000)
         updateRunStatus(runId, status, startedAt, completedAt, terminalError)
         if (getChatRoom(assistantMessage.chatId)?.isArchived == true) setArchivedWithCompression(assistantMessage.chatId, true)
     }
@@ -440,6 +490,7 @@ interface AgentPersistenceDao {
         }
         preserveCombinedPrefix(assistantMessage)
         updateMessage(assistantMessage)
+        publishReply(run, assistantMessage, status, completedAt)
         updateRunStatus(runId, status, run.startedAt, completedAt, terminalError)
         cancelActiveToolEvents(runId, completedAt)
         if (getChatRoom(run.chatId)?.isArchived == true) setArchivedWithCompression(run.chatId, true)

@@ -16,7 +16,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.HelpOutline
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.IconButton
@@ -51,9 +50,11 @@ import dev.chungjungsoo.gptmobile.data.model.ProfileLabel
 import dev.chungjungsoo.gptmobile.data.model.collectReusableProfileLabels
 import dev.chungjungsoo.gptmobile.data.model.parseProfileLabels
 import dev.chungjungsoo.gptmobile.data.pricing.priceContextKey
+import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
 import dev.chungjungsoo.gptmobile.presentation.common.ProfileLabelChip
 import dev.chungjungsoo.gptmobile.presentation.common.ProfileSearchField
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
+import dev.chungjungsoo.gptmobile.presentation.common.glassBackdrop
 import dev.chungjungsoo.gptmobile.presentation.common.profileMatchesQuery
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -90,7 +91,13 @@ internal fun SelectPlatformDialog(
     val detail = detailsUid?.let { uid -> insights[uid]?.takeIf { insight -> platforms.any { it.uid == uid && insight.matches(it) && priceContextKey(it) == detailsContext } } }
     LaunchedEffect(detailsUid, detail) { if (detailsUid != null && detail == null) detailsUid = null }
     Dialog(onDismissRequest = onDismissRequest, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Surface(Modifier.imePadding().padding(12.dp).widthIn(max = 560.dp).fillMaxWidth().heightIn(max = (height - 48.dp).coerceAtLeast(160.dp)).testTag("select_platform_dialog"), shape = RoundedCornerShape(24.dp)) {
+        Surface(
+            Modifier.imePadding().padding(12.dp).widthIn(max = 560.dp).fillMaxWidth().heightIn(max = (height - 48.dp).coerceAtLeast(160.dp)).glassBackdrop(RoundedCornerShape(24.dp), captureAsPopup = true).testTag("select_platform_dialog"),
+            shape = RoundedCornerShape(24.dp),
+            color = if (dev.chungjungsoo.gptmobile.presentation.common.hasGlassBackdrop()) androidx.compose.ui.graphics.Color.Transparent else dev.chungjungsoo.gptmobile.presentation.common.appOverlayTokens().background,
+            contentColor = dev.chungjungsoo.gptmobile.presentation.common.appOverlayTokens().foreground,
+            tonalElevation = 0.dp
+        ) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(stringResource(R.string.select_platform), Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)

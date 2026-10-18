@@ -62,7 +62,8 @@ class MultiEngineSearchTool(
     override val definition = AgentToolDefinition(
         "web_search",
         "Search all selected compatible engines concurrently with shared permissions/budgets. Sources are interleaved in selected-engine order and retain attribution. maxResults is the per-engine contribution cap (1–10). totalResults is the final source count (1–50); request 20 for a new search. If omitted, the legacy per-engine ceiling applies. Slow or failed engines do not discard sibling evidence.",
-        buildJsonObject {
+        capabilities = setOf(dev.chungjungsoo.gptmobile.data.agent.AgentToolCapability.WEB_SEARCH),
+        inputSchema = buildJsonObject {
             put("type", "object")
             put(
                 "properties",
@@ -226,6 +227,11 @@ class MultiEngineSearchTool(
                 result.outputBudgetExhausted || result.toolCallBudgetExhausted -> "budget_exhausted"
                 result.isError && result.errorCode in setOf("DUPLICATE_ACTION", "DUPLICATE_INVOCATION") -> "duplicate"
                 result.isError && (result.errorCode == "AUTH_REQUIRED" || text.contains("permission", true)) -> "denied"
+                result.isError && result.errorCode == SearchEvidenceOutcome.RATE_LIMITED.name -> "rate_limited"
+                result.isError && result.errorCode == SearchEvidenceOutcome.CHALLENGE.name -> "challenge"
+                result.isError && result.errorCode == SearchEvidenceOutcome.TIMEOUT.name -> "timeout"
+                result.isError && result.errorCode == SearchEvidenceOutcome.PARSE_FAILED.name -> "malformed_response"
+                result.isError && result.errorCode == SearchEvidenceOutcome.UNAVAILABLE.name -> "unavailable"
                 result.isError && text.startsWith("Repeated valid empty searches") -> "empty_budget"
                 result.isError && Regex("(?i)cooling down").containsMatchIn(text) -> "cooldown"
                 result.isError && Regex("(?i)invalid|exceeds.*limit").containsMatchIn(text) -> "invalid_request"

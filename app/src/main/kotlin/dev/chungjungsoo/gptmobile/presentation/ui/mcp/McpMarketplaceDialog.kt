@@ -49,11 +49,9 @@ import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material.icons.rounded.TravelExplore
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -88,7 +86,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -113,7 +110,9 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType
 import dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceCatalog
 import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
+import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDialog as Dialog
+import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as DropdownMenu
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.ToolConnectionHealth
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.ToolConnectionHealthStatus
@@ -673,7 +672,7 @@ fun PricingIcon(pricing: McpPricingType, modifier: Modifier = Modifier.size(16.d
 fun ServiceIcon(iconName: String, category: McpCategory, modifier: Modifier = Modifier) {
     val brand = getServiceBrand(iconName, category)
     Box(modifier.size(48.dp).clip(RoundedCornerShape(14.dp)).background(brand.containerColor), contentAlignment = Alignment.Center) {
-        brand.iconResId?.let { Icon(painterResource(it), null, tint = brand.brandColor, modifier = Modifier.size(28.dp)) }
+        brand.iconResId?.let { dev.chungjungsoo.gptmobile.presentation.common.BrandMark(it, null, Modifier.size(28.dp), monochrome = it == dev.chungjungsoo.gptmobile.R.drawable.ic_github || it == dev.chungjungsoo.gptmobile.R.drawable.mcp_brand_protocol) }
             ?: Icon(brand.iconVector ?: Icons.Rounded.Extension, null, tint = brand.brandColor, modifier = Modifier.size(28.dp))
     }
 }
@@ -904,7 +903,7 @@ fun McpPresetConfigureDialog(
     val requiredColors = OutlinedTextFieldDefaults.colors(errorBorderColor = MaterialTheme.colorScheme.error, errorLabelColor = MaterialTheme.colorScheme.error, errorSupportingTextColor = MaterialTheme.colorScheme.error, errorCursorColor = MaterialTheme.colorScheme.error)
     val canSave = name.isNotBlank() && validAlias && validEndpoint && validKey
     Dialog(onDismissRequest = onDismissRequest, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Surface(Modifier.fillMaxWidth(.95f).padding(8.dp), shape = RoundedCornerShape(24.dp), tonalElevation = 6.dp) {
+        dev.chungjungsoo.gptmobile.presentation.common.AppGlassSurface(Modifier.fillMaxWidth(.95f).padding(8.dp), shape = RoundedCornerShape(24.dp)) {
             Column(Modifier.padding(20.dp).verticalScroll(rememberScrollState()).imePadding(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Set up ${preset.name}", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)

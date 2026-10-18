@@ -59,6 +59,7 @@ class GitHubApkDownloadWorker @AssistedInject constructor(
     private val notificationId = id.hashCode()
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
+        dev.chungjungsoo.gptmobile.presentation.StartupRecoveryGate.await()
         val key = inputData.getString(GitHubApkDownloadManager.DOWNLOAD_KEY)
             ?: return@withContext failure("The download request is missing. Choose a build again.")
         val record = GitHubApkDownloadStore.record(applicationContext, key)
@@ -143,6 +144,7 @@ class GitHubApkDownloadWorker @AssistedInject constructor(
     }
 
     override suspend fun getForegroundInfo(): ForegroundInfo {
+        dev.chungjungsoo.gptmobile.presentation.StartupRecoveryGate.await()
         val key = inputData.getString(GitHubApkDownloadManager.DOWNLOAD_KEY)
         val record = key?.let { GitHubApkDownloadStore.record(applicationContext, it) }
         return foreground(record?.title.orEmpty(), 0, record?.sizeBytes ?: 0, "Downloading")

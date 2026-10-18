@@ -12,6 +12,29 @@ class IntelligenceBenchmarkTest {
     }
 
     @Test
+    fun exactRetainedNpuAnswersRecover17UnderOriginalKeyAnd18WithAmbiguityPolicy() {
+        val input = checkNotNull(javaClass.getResourceAsStream("/benchmark/npu-intelligence-v2-retained.json")).bufferedReader().use { it.readText() }
+        val rows = kotlinx.serialization.json.Json.parseToJsonElement(input) as kotlinx.serialization.json.JsonArray
+        val original = linkedMapOf<String, Int>()
+        var corrected = 0
+        rows.forEach { element ->
+            val row = element as kotlinx.serialization.json.JsonObject
+            val id = (row.getValue("testId") as kotlinx.serialization.json.JsonPrimitive).content
+            val answer = (row.getValue("preview") as kotlinx.serialization.json.JsonPrimitive).content
+            assertEquals((row.getValue("outputCharacters") as kotlinx.serialization.json.JsonPrimitive).content.toInt(), answer.length)
+            val test = IntelligenceBenchmark.batches.single { it.id == id }
+            val oldKey = IntelligenceBenchmark.evaluateBatch(test, answer)
+            assertTrue(oldKey.parseable)
+            assertFalse(oldKey.formatCompliant)
+            oldKey.answers.forEach { (domain, correct) -> original[domain] = original.getOrDefault(domain, 0) + if (correct) 1 else 0 }
+            corrected += IntelligenceBenchmark.evaluateBatch(test, answer, 2).answers.values.count { it }
+        }
+        assertEquals(listOf(0, 5, 5, 0, 1, 6), original.values.toList())
+        assertEquals(17, original.values.sum())
+        assertEquals(18, corrected)
+    }
+
+    @Test
     fun balancedDomainsUseAbsoluteAccuracyWithoutSpeedWeighting() {
         val samples = answers().mapIndexed { index, sample -> if (index < 3) sample.copy(outcome = BenchmarkOutcome.FAILED) else sample }
         val score = IntelligenceBenchmark.score(samples)
@@ -79,5 +102,39 @@ class IntelligenceBenchmarkTest {
         assertTrue(IntelligenceBenchmark.gradeBatch(test, "{}").values.none { it })
         val bad = batchAnswers().mapIndexed { index, sample -> if (index == 0) sample.copy(intelligenceAnswers = grades, outcome = BenchmarkOutcome.FAILED) else sample }
         assertEquals(100.0 * 35 / 36, IntelligenceBenchmark.scoreBatches(bad, false).score!!, .0001)
+    }
+
+    @Test
+    fun fencedObjectKeepsSemanticCreditAndFailsRawFormatOnly() {
+        val test = IntelligenceBenchmark.batches.first()
+        val grade = IntelligenceBenchmark.evaluateBatch(test, "```json\n${test.expected}\n```")
+        assertTrue(grade.parseable)
+        assertFalse(grade.formatCompliant)
+        assertEquals(6, grade.answers.values.count { it })
+        assertTrue(IntelligenceBenchmark.evaluateBatch(test, test.expected!!).formatCompliant)
+        for (answer in listOf("prefix ${test.expected}", "${test.expected} ${test.expected}", "```json\n${test.expected}\n```\nextra", "```json\n{}")) {
+            assertFalse(IntelligenceBenchmark.evaluateBatch(test, answer).parseable)
+        }
+    }
+
+    @Test
+    fun historicalAmbiguityIsExplicitAndNewFixtureHasOneSolution() {
+        assertEquals(listOf("B", "C"), IntelligenceBenchmark.validCoinLocations(legacy = true))
+        assertEquals(listOf("C"), IntelligenceBenchmark.validCoinLocations(legacy = false))
+        val test = IntelligenceBenchmark.batches.last()
+        val answer = test.expected!!.replace("\"Logic\":\"C\"", "\"Logic\":\"B\"")
+        assertFalse(IntelligenceBenchmark.evaluateBatch(test, answer).answers.getValue("Logic"))
+        val historical = IntelligenceBenchmark.evaluateBatch(test, answer, fixtureVersion = 2)
+        assertTrue(historical.answers.getValue("Logic"))
+        assertTrue(historical.correction!!.contains("denominator retained"))
+    }
+
+    @Test
+    fun finalSchemaContainsOnlyShapeAndNeverExpectedAnswers() {
+        val schema = IntelligenceBenchmark.responseSchemaJson
+        assertTrue(schema.contains("additionalProperties"))
+        assertFalse(schema.contains("138"))
+        assertFalse(schema.contains("oxygen"))
+        assertFalse(schema.contains("enum"))
     }
 }

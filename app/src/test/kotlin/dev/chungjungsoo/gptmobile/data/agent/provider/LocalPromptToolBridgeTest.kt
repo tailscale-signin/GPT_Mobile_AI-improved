@@ -8,6 +8,37 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class LocalPromptToolBridgeTest {
+    @Test fun ordinaryCodeAndJsonStreamBeforeCompletionAcrossEverySplit() {
+        listOf("```kotlin\nfun greet() = \"Hi\"", "{\"temperature\": 24}", "{\"type\":\"message\",\"content\":\"Hi\"}").forEach { text ->
+            for (split in 0..text.length) {
+                val output = LocalPromptToolOutput()
+                val visible = output.accept(text.take(split)) + output.accept(text.drop(split))
+                assertEquals(text, visible)
+                assertEquals("", output.buffered())
+            }
+        }
+    }
+
+    @Test fun toolEnvelopeNeverLeaksAcrossChunkBoundariesOrOverflow() {
+        val text = "{\"type\":\"tool_call\",\"name\":\"web_search\",\"arguments\":{}}"
+        for (split in 0..text.length) {
+            val output = LocalPromptToolOutput()
+            assertEquals("", output.accept(text.take(split)) + output.accept(text.drop(split)))
+        }
+        val output = LocalPromptToolOutput()
+        assertEquals("", output.accept(text.dropLast(2) + " ".repeat(70000)))
+        assertEquals(true, LocalPromptToolBridge.parseResult(output.buffered(), setOf("web_search")) is PromptToolParseResult.Rejected)
+    }
+
+    @Test fun reorderedToolEnvelopeDoesNotLeakBeforeRecognition() {
+        val text = """{"name":"web_search","arguments":{},"type":"tool_call"}"""
+        for (split in 0..text.length) {
+            val output = LocalPromptToolOutput()
+            assertEquals("", output.accept(text.take(split)) + output.accept(text.drop(split)))
+            assertEquals(true, LocalPromptToolBridge.parseResult(output.buffered(), setOf("web_search")) is PromptToolParseResult.Call)
+        }
+    }
+
     private val schema = buildJsonObject { put("type", "object") }
     private val tool = AgentToolDefinition("web_search", "Search the web", schema)
 
@@ -135,6 +166,29 @@ class LocalPromptToolBridgeTest {
             val output = LocalPromptToolOutput()
             assertEquals("", payload.chunked(size).joinToString("") { output.accept(it) })
             assertEquals("web_search", LocalPromptToolBridge.parse(output.buffered(), setOf("web_search"))?.name)
+        }
+    }
+
+    @Test fun bareCallsRequireExplicitBridgeModeAndStillEnforceAuthorization() {
+        val payload = """{"name":"web_search","arguments":{"query":"news"}}"""
+        assertEquals(PromptToolParseResult.NoCall, LocalPromptToolBridge.parseResult(payload, setOf("web_search")))
+        for (size in 1..payload.length) {
+            val output = LocalPromptToolOutput()
+            assertEquals("", payload.chunked(size).joinToString("") { output.accept(it) })
+            val parsed = LocalPromptToolBridge.parseResult(output.buffered(), setOf("web_search"), allowBareCalls = true)
+            assertEquals("web_search", (parsed as PromptToolParseResult.Call).value.name)
+        }
+        assertEquals(PromptToolParseResult.Rejected("tools_disabled"), LocalPromptToolBridge.parseResult(payload, emptySet(), allowBareCalls = true))
+        assertEquals(PromptToolParseResult.Rejected("tool_unavailable"), LocalPromptToolBridge.parseResult(payload, setOf("read_url"), allowBareCalls = true))
+    }
+
+    @Test fun bridgeModeDoesNotExecuteOrdinaryJsonOrOverrideExplicitTypes() {
+        listOf(
+            """{"name":"web_search","description":"Example","arguments":{}}""",
+            """{"type":"message","name":"web_search","arguments":{}}""",
+            """{"name":"web_search"}"""
+        ).forEach {
+            assertEquals(PromptToolParseResult.NoCall, LocalPromptToolBridge.parseResult(it, setOf("web_search"), allowBareCalls = true))
         }
     }
 }

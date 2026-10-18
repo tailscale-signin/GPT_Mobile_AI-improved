@@ -73,6 +73,7 @@ import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as Alert
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDialog as Dialog
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as DropdownMenu
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
+import dev.chungjungsoo.gptmobile.presentation.common.glassWindowBackdrop
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.jsonObject
 
@@ -108,17 +109,18 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
     }
     fun close() {
         if (state.busy) return
-        if (state.staged.isNotEmpty() || editorDirty) {
+        if (state.staged.isNotEmpty() || state.editorDrafts.isNotEmpty() || editorDirty) {
             confirmClose = true
         } else {
             viewModel.close()
             onDismiss()
         }
     }
-    val canNavigate = !state.busy && !editorDirty && state.staged.isEmpty()
+    val canNavigate = !state.busy && !editorDirty && state.staged.isEmpty() && state.editorDrafts.isEmpty()
     Dialog(onDismissRequest = { close() }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Scaffold(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().glassWindowBackdrop(),
+            containerColor = dev.chungjungsoo.gptmobile.presentation.common.overlayWindowContainerColor(),
             topBar = {
                 TopAppBar(
                     title = {
@@ -245,7 +247,10 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
                                     val file = requireNotNull(state.file)
                                     val original = file.text("content")
                                     val path = file.text("path")
-                                    var edited by rememberSaveable(path, state.headSha) { mutableStateOf(state.staged.firstOrNull { it.path == path }?.content ?: original) }
+                                    var edited by rememberSaveable(path, state.headSha) { mutableStateOf(state.editorDrafts[path] ?: state.staged.firstOrNull { it.path == path }?.content ?: original) }
+                                    LaunchedEffect(path, state.headSha) {
+                                        editorDirty = edited != (state.staged.firstOrNull { it.path == path }?.content ?: original)
+                                    }
                                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                         Text(path.substringAfterLast('/'), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                                         IconButton(onClick = { copy(path) }) { Icon(Icons.Rounded.ContentCopy, "Copy file path") }
@@ -260,6 +265,7 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
                                         OutlinedTextField(edited, {
                                             if (it.toByteArray().size <= 256_000) {
                                                 edited = it
+                                                viewModel.editDraft(path, it, original)
                                                 editorDirty = edited != (state.staged.firstOrNull { staged -> staged.path == path }?.content ?: original)
                                             }
                                         }, modifier = Modifier.fillMaxWidth().heightIn(min = 240.dp, max = 480.dp), label = { Text("File content") }, textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace), readOnly = !state.canWrite || state.busy || state.selection?.ref == state.defaultBranch)
@@ -270,6 +276,7 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
                                             }
                                             TextButton(onClick = {
                                                 edited = state.staged.firstOrNull { it.path == path }?.content ?: original
+                                                viewModel.editDraft(path, edited, original)
                                                 editorDirty = false
                                             }, enabled = !state.busy && editorDirty) { Text("Reset editor") }
                                         }

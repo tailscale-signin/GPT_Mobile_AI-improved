@@ -71,12 +71,19 @@ object BenchmarkScoreboard {
     const val MODEL_FORMULA = "Task accuracy 35% · JSON 20% · tools 20% · intelligence 15% · completion 10%. Capped by completion. Timing is reported separately."
     const val DELEGATION_FORMULA = "Objective task accuracy 50% · tool calls 15% · research handoff 15% · independent reviewer 20%. Capped by objective task accuracy."
 
-    fun manifest(kind: ScoreboardKind, plan: BenchmarkMode): List<BenchmarkCase> =
-        if (kind == ScoreboardKind.DELEGATION) delegationBenchmarkSuite(plan) else benchmarkSuite(plan)
+    fun manifest(kind: ScoreboardKind, plan: BenchmarkMode, version: Int = BenchmarkSuiteRegistry.VERSION): List<BenchmarkCase> =
+        if (kind == ScoreboardKind.DELEGATION) {
+            delegationBenchmarkSuite(plan)
+        } else if (version == 6) {
+            BenchmarkSuiteRegistry.historical(plan)
+        } else {
+            benchmarkSuite(plan)
+        }
 
     fun fromRun(run: BenchmarkRun): ScoreboardSubmission? {
         if (!run.finished || run.canceled || run.stoppedReason != null) return null
         val delegation = run.mode == BenchmarkMode.DELEGATION
+        if (!delegation && run.suiteVersion != BenchmarkSuiteRegistry.VERSION) return null
         val worker = run.samples.mapNotNull { it.delegation }.firstOrNull()
         if ((!delegation && run.local) || (delegation && worker == null)) return null
         val plan = if (delegation) run.delegationPlan ?: return null else run.mode
@@ -124,11 +131,11 @@ object BenchmarkScoreboard {
         if (data.provider !in providers || !validModel(data.model)) return null
         if (!data.id.matches(Regex("[A-Za-z0-9-]{1,80}")) || data.startedAt !in 0..253402300799999L || (data.issueNumber != null && data.issueNumber <= 0)) return null
         val delegation = data.kind == ScoreboardKind.DELEGATION
-        if (data.suiteVersion != if (delegation) 1 else BenchmarkSuiteRegistry.VERSION) return null
+        if (if (delegation) data.suiteVersion != 1 else data.suiteVersion !in setOf(6, BenchmarkSuiteRegistry.VERSION)) return null
         if (delegation && (data.primaryProvider !in providers + "LITERT_LM" || data.reviewerProvider !in providers + "LITERT_LM" || !validModel(data.primaryModel) || !validModel(data.reviewerModel))) return null
         if (!delegation && listOf(data.primaryProvider, data.primaryModel, data.reviewerProvider, data.reviewerModel).any { it != null }) return null
         if (delegation && data.model.equals(data.reviewerModel, ignoreCase = true)) return null
-        val manifest = manifest(data.kind, data.plan).associateBy { it.id }
+        val manifest = manifest(data.kind, data.plan, data.suiteVersion).associateBy { it.id }
         if (data.trials.size != manifest.size || data.trials.map { it.id }.toSet() != manifest.keys) return null
         if (data.trials.any { trial ->
                 trial.outcome !in allowedOutcomes ||

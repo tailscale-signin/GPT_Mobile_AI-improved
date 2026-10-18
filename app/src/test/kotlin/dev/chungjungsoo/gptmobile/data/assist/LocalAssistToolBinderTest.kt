@@ -15,7 +15,7 @@ class LocalAssistToolBinderTest {
     @Test fun planningRequiresOptInRuntimeAndLiveProcessingPermission() = runTest {
         suspend fun offered(optIn: Boolean = true, permitted: Boolean = true, runtime: Boolean = true, toolsAllowed: Boolean = true, researchOwns: Boolean = false) = LocalAssistToolBinder.bind(
             tools = emptyList(), candidates = listOf(helper), enabled = true,
-            policy = LocalAssistPolicy(profileUid = helper.uid, perTurnQueryPlanning = optIn), goal = "goal", turnId = "turn",
+            policy = LocalAssistPolicy(shareDerivedEvidence = true, profileUid = helper.uid, perTurnQueryPlanning = optIn), goal = "goal", turnId = "turn",
             eligible = { true }, profileAllowed = { permitted }, generate = { _, _, _ -> error("Binding must not run inference") },
             notice = {}, stillEnabled = { true }, supportsPrimaryRuntime = runtime, allowPerTurnTool = toolsAllowed, workflowOwnsAssistance = researchOwns
         )
@@ -32,7 +32,7 @@ class LocalAssistToolBinderTest {
         var admissions = 0
         val tools = LocalAssistToolBinder.bind(
             tools = emptyList(), candidates = listOf(helper), enabled = true,
-            policy = LocalAssistPolicy(profileUid = helper.uid, perTurnQueryPlanning = true), goal = "original complete goal", turnId = java.util.UUID.randomUUID().toString(),
+            policy = LocalAssistPolicy(shareDerivedEvidence = true, profileUid = helper.uid, perTurnQueryPlanning = true), goal = "original complete goal", turnId = java.util.UUID.randomUUID().toString(),
             eligible = { true }, profileAllowed = { true }, generate = { _, prompt, _ ->
                 assertTrue(prompt.contains("original complete goal"))
                 calls++

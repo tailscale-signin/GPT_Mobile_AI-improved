@@ -346,8 +346,8 @@ class ProfileBenchmarkViewModel @Inject constructor(
                             }
                         } else {
                             BenchmarkRunner(openSession = { turns, tools ->
-                                chats.openBenchmarkSession(profile, turns, tools, "benchmark-${run.id}-${test.id}", test.category)
-                            }).run(test, supportsTools)
+                                chats.openBenchmarkSession(profile, turns, tools, "benchmark-${run.id}-${test.id}", test.requestCategory)
+                            }).run(prepareBenchmarkTest(test), supportsTools)
                         }
                     },
                     onSample = { sample ->
@@ -450,8 +450,8 @@ class ProfileBenchmarkViewModel @Inject constructor(
                                 if (target.compatibleType == ClientType.LITERT_LM) checkLocalConditions()
                                 mutableProgress.value = BenchmarkProgress(target.name, test.label, baseProgress + index, totalTests)
                                 BenchmarkRunner(openSession = { turns, tools ->
-                                    chats.openBenchmarkSession(target, turns, tools, "benchmark-${run.id}-${test.id}", test.category)
-                                }).run(test, supportsTools)
+                                    chats.openBenchmarkSession(target, turns, tools, "benchmark-${run.id}-${test.id}", test.requestCategory)
+                                }).run(prepareBenchmarkTest(test), supportsTools)
                             },
                             onSample = { sample ->
                                 val pss = withContext(Dispatchers.IO) { Debug.getPss() }
@@ -654,6 +654,28 @@ class ProfileBenchmarkViewModel @Inject constructor(
         }
         if (launched == null) mutableProgress.value = null
         return launched
+    }
+
+    private suspend fun prepareBenchmarkTest(test: dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkCase): dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkCase {
+        val code = test.imageCode ?: return test
+        return withContext(Dispatchers.IO) {
+            val bitmap = android.graphics.Bitmap.createBitmap(512, 256, android.graphics.Bitmap.Config.ARGB_8888)
+            val file = java.io.File(context.cacheDir, "benchmark-image-v1.png")
+            try {
+                val canvas = android.graphics.Canvas(bitmap)
+                canvas.drawColor(android.graphics.Color.WHITE)
+                val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                    color = android.graphics.Color.BLACK
+                    textSize = 110f
+                    typeface = android.graphics.Typeface.MONOSPACE
+                }
+                canvas.drawText(code, 100f, 165f, paint)
+                file.outputStream().use { check(bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)) }
+            } finally {
+                bitmap.recycle()
+            }
+            test.copy(attachments = listOf(dev.chungjungsoo.gptmobile.data.model.ChatAttachment(file.path, file.path, "benchmark-image.png", "image/png", file.length(), width = 512, height = 256)))
+        }
     }
 
     private fun thermal(): Int? = context.getSystemService(PowerManager::class.java)?.currentThermalStatus

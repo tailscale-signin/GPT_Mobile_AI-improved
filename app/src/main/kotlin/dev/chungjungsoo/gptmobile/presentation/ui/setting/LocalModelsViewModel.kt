@@ -348,6 +348,7 @@ class LocalModelsViewModel @Inject constructor(
             }
             uri
         }
+        require(folder || !name.endsWith(".zip", true) && !name.endsWith(".localmodel", true)) { "Extract this package and choose its model folder. Local model weights are linked, not copied." }
         val input = resolver.openInputStream(source) ?: error("Source cannot be read; select it again.")
         dev.chungjungsoo.gptmobile.data.localmodel.LocalImportPreview.inspect(input, name, size, dev.chungjungsoo.gptmobile.BuildConfig.GENIEX_ENABLED, folder)
     }
@@ -359,16 +360,18 @@ class LocalModelsViewModel @Inject constructor(
                     val latest = preferences.getString("latest", null)
                     val worker = jobs.firstOrNull { !it.state.isFinished } ?: jobs.firstOrNull { it.id.toString() == latest }
                     if (worker?.state?.isFinished == true && worker.id.toString() == latest && preferences.getBoolean("ownsGrant", false)) {
-                        preferences.getString("source", null)?.let { source -> runCatching { context.contentResolver.releasePersistableUriPermission(Uri.parse(source), Intent.FLAG_GRANT_READ_URI_PERMISSION) } }
-                        preferences.edit().putBoolean("ownsGrant", false).apply()
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            preferences.getString("source", null)?.let { source -> if (!dev.chungjungsoo.gptmobile.data.localmodel.LinkedModelSources.usesGrant(Uri.parse(source))) runCatching { context.contentResolver.releasePersistableUriPermission(Uri.parse(source), Intent.FLAG_GRANT_READ_URI_PERMISSION) } }
+                            preferences.edit().putBoolean("ownsGrant", false).apply()
+                        }
                     }
                     if (worker?.state == androidx.work.WorkInfo.State.SUCCEEDED) catalogEntries.value = modelCatalogRepository.getCachedVisibleEntries()
                     importedModelId.value = worker?.takeIf { it.state == androidx.work.WorkInfo.State.SUCCEEDED }?.outputData?.getString("modelId")
                     importActive.value = worker != null && !worker.state.isFinished
                     importStatus.value = worker?.let {
                         when (it.state) {
-                            androidx.work.WorkInfo.State.RUNNING -> "Copying and verifying · ${it.progress.getLong("bytes", 0) / (1024 * 1024)} MB"
-                            androidx.work.WorkInfo.State.ENQUEUED, androidx.work.WorkInfo.State.BLOCKED -> "Import queued; it will restart safely if Android interrupts it."
+                            androidx.work.WorkInfo.State.RUNNING -> "Linking and verifying · ${it.progress.getLong("bytes", 0) / (1024 * 1024)} MB"
+                            androidx.work.WorkInfo.State.ENQUEUED, androidx.work.WorkInfo.State.BLOCKED -> "Link queued; source access will be checked again after an interruption."
                             androidx.work.WorkInfo.State.CANCELLED -> "Import canceled. Choose the source again to retry."
                             else -> it.outputData.getString("message") ?: "Import interrupted. Choose the source again to retry."
                         }
@@ -386,7 +389,7 @@ class LocalModelsViewModel @Inject constructor(
         if (importActive.value) return
         val ownsGrant = contentResolver.persistedUriPermissions.none { it.uri == uri && it.isReadPermission }
         runCatching { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }.onFailure {
-            importStatus.value = "This source cannot grant durable read access. Copy it to Documents and choose it again."
+            importStatus.value = "This source cannot grant durable read access. Choose an on-device document provider with persistent read access."
             return
         }
         val request = androidx.work.OneTimeWorkRequestBuilder<dev.chungjungsoo.gptmobile.data.worker.LocalModelImportWorker>()

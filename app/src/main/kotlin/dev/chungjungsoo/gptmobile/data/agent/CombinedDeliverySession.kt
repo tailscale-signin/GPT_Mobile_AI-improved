@@ -33,7 +33,7 @@ internal class CombinedDeliverySession(
     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
         val policy = CombinedAnswerPolicy.from(originalRequest)
         val coverage = withContext(Dispatchers.Default) { CombinedContentCoverage(sources) }
-        val constrained = policy.maximumWords != null || policy.targetWords != null || policy.singleExample || policy.requiresCurrentEvidence
+        val constrained = policy.maximumWords != null || policy.minimumWords != null || policy.targetWords != null || policy.singleExample || policy.requiresCurrentEvidence
         // Immutable published text is never rewritten. Constrained answers are checked before publication.
         val progressive = structured && !constrained && committedPrefix.isEmpty()
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
@@ -111,6 +111,8 @@ internal class CombinedDeliverySession(
         // A request for one fact/example remains intentionally narrow.
         val repairCoverage = policy.targetWords != null && !policy.singleExample && coverageResult.missing.isNotEmpty()
         var repairs = 0
+        var repairAccepted = 0
+        var repairRejected = 0
         if (!progressive &&
             committedPrefix.isEmpty() &&
             accepted.terminal == ProviderEvent.Completed &&
@@ -133,15 +135,24 @@ internal class CombinedDeliverySession(
             // govern the response rather than a nested timeout around Flow collection.
             val rewritten = repairSession?.let { collect(it, false) }
             validateAccess()
-            if (rewritten != null && rewritten.text.isNotBlank()) {
-                // Keep the completed rewrite. Its remaining issues are reported below, and
-                // the deterministic ceiling enforces any explicit length limit afterward.
+            if (rewritten != null &&
+                rewritten.text.isNotBlank() &&
+                rewritten.terminal == ProviderEvent.Completed &&
+                policy.violations(rewritten.text).isEmpty() &&
+                rewritten.decoder?.issues.orEmpty().isEmpty()
+            ) {
+                // Replace only with a completed, accepted candidate. A failed or partial
+                // repair must never erase the already completed original answer.
+                repairAccepted++
                 accepted = rewritten
                 violations = withContext(Dispatchers.Default) { policy.violations(rewritten.text) }
+            } else {
+                repairRejected++
+                emit(ProviderEvent.Notice("The revision did not pass completion checks. The original answer was retained.", persistent = true))
             }
         }
         var ceilingEnforced = false
-        val ceiling = policy.maximumWords ?: policy.targetWords
+        val ceiling = policy.maximumWords
         if (!progressive && committedPrefix.isEmpty() && ceiling != null && visibleWordCount(accepted.text) > ceiling) {
             val bounded = withContext(Dispatchers.Default) { enforceCombinedWordCeiling(accepted.text, ceiling) }
             accepted = accepted.copy(text = bounded)
@@ -149,7 +160,7 @@ internal class CombinedDeliverySession(
             ceilingEnforced = true
         }
         val checked = withContext(Dispatchers.Default) { coverage.check(accepted.text) }
-        onCoverage(checked, repairs > 0)
+        onCoverage(checked, repairAccepted > 0)
         val issues = (
             violations + accepted.decoder?.issues.orEmpty() + listOfNotNull("WORD_CEILING_ENFORCED_AFTER_REPAIR".takeIf { ceilingEnforced }) +
                 listOfNotNull("LEXICAL_COVERAGE_UNRESOLVED_HINTS".takeIf { checked.missing.isNotEmpty() }, "UNVERIFIED_PASSAGES".takeIf { accepted.decoder?.passages?.any { it.evidenceStatus != "PASSAGE_SUPPORTED" } == true }, "MODEL_REPORTED_MISSING_CLAIMS".takeIf { accepted.decoder?.decisions?.any { it.disposition == "MISSING" } == true })
@@ -159,18 +170,27 @@ internal class CombinedDeliverySession(
             status = if (accepted.terminal != ProviderEvent.Completed) {
                 "INTERRUPTED"
             } else if (issues.isEmpty()) {
-                "COMPLETED_CHECKS_PASSED"
+                "COMPLETED_UNVERIFIED"
             } else {
                 "COMPLETED_WITH_ISSUES"
             },
             wordCount = visibleWordCount(accepted.text), issues = issues,
             passages = accepted.decoder?.passages.orEmpty().filter { it.matches(accepted.text) }, decisions = accepted.decoder?.decisions.orEmpty().toList(),
             sourceUnits = checked.total, lexicalMissing = checked.missing.size,
-            duplicatePassagesRemoved = accepted.decoder?.duplicatesRemoved ?: 0, repairRounds = repairs, turnContext = turnContext
+            duplicatePassagesRemoved = accepted.decoder?.duplicatesRemoved ?: 0, repairRounds = repairs, repairAccepted = repairAccepted, repairRejected = repairRejected,
+            repairSkippedReason = when {
+                progressive -> "PROGRESSIVE_REVISION_REQUIRES_NEW_OWNER"
+                committedPrefix.isNotEmpty() -> "COMMITTED_PREFIX_RETAINED"
+                accepted.terminal != ProviderEvent.Completed -> "ORIGINAL_INTERRUPTED"
+                maxRepairRounds <= 0 -> "REPAIR_DISABLED"
+                repairs == 0 -> "NO_CONFIRMED_INSTRUCTION_VIOLATION"
+                else -> null
+            },
+            turnContext = turnContext
         )
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
             "CombinedSynthesis",
-            "SYNTHESIS_QUALITY · status=${report.status} · sourceCount=${sources.size} · candidateUnits=${checked.total} · exact=${checked.exactMatches} · paraphrase=${checked.paraphraseMatches} · tentative=${checked.tentativeMatches} · missing=${checked.missing.size} · passages=${report.passages.size} · decisions=${report.decisions.size} · duplicatesRemoved=${report.duplicatePassagesRemoved} · repairRounds=${report.repairRounds} · issues=${report.issues.joinToString(",").ifBlank { "none" }} · semanticCoverageVerified=false · factualAccuracyVerified=false"
+            "SYNTHESIS_QUALITY · status=${report.status} · sourceCount=${sources.size} · candidateUnits=${checked.total} · exact=${checked.exactMatches} · paraphrase=${checked.paraphraseMatches} · tentative=${checked.tentativeMatches} · missing=${checked.missing.size} · passages=${report.passages.size} · decisions=${report.decisions.size} · duplicatesRemoved=${report.duplicatePassagesRemoved} · repairRounds=${report.repairRounds} · repairAccepted=${report.repairAccepted} · repairRejected=${report.repairRejected} · issues=${report.issues.joinToString(",").ifBlank { "none" }} · semanticCoverageVerified=false · factualAccuracyVerified=false"
         )
         validateAccess()
         if (!progressive && accepted.text.isNotBlank()) emit(ProviderEvent.TextDelta(accepted.text))

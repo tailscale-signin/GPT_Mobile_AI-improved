@@ -21,7 +21,7 @@ internal object ResearchDeliveryValidator {
         if (!packet.snapshot.complete && !Regex("(?i)partial|incomplete|coverage.*limited|limited.*coverage").containsMatchIn(text.take(1200))) issues += "PARTIAL_COVERAGE_NOT_DISCLOSED"
         if (packet.claims.none { it.independentReview } && !Regex("(?i)independent.{0,40}(unavailable|not|unverified)|not.{0,25}independently|unreviewed").containsMatchIn(text)) issues += "REVIEW_STATUS_NOT_DISCLOSED"
         if (packet.detail != ResearchReportDetail.BRIEF) {
-            ResearchDeliveryPacket.SECTIONS.filterNot { text.contains(it, ignoreCase = true) }.forEach { issues += "MISSING_SECTION:$it" }
+            packet.sections.filterNot { text.contains(it, ignoreCase = true) }.forEach { issues += "MISSING_SECTION:$it" }
         }
         packet.studies.take(3).filter { it.id !in ids }.forEach { issues += "OMITTED_LEADING_STUDY:${it.id}" }
         packet.unread.take(if (packet.detail == ResearchReportDetail.BRIEF) 1 else 3).filter { it.id !in ids }.forEach { issues += "OMITTED_UNREAD_LEAD:${it.id}" }
@@ -73,5 +73,16 @@ internal object ResearchDeliveryValidator {
         append("## References\n\n")
         (packet.studies + packet.unread).forEach { append("- [${it.id}] [${it.title.replace('[', '(').replace(']', ')')}](${it.url})${if (it.doi.isBlank()) "" else " · DOI: ${it.doi}"}\n") }
         append("\nSearch date: ${packet.searchDate}. Delivery checks are structural and numerical; semantic coverage is unverified.")
+    }.let { report ->
+        if (packet.contract == ResearchReportContract.SCIENTIFIC) {
+            report
+        } else {
+            ResearchDeliveryPacket.SECTIONS.zip(packet.sections).fold(report) { text, (old, new) -> text.replace("## $old", "## $new") }
+                .replace("scientific interpretation", "interpretation")
+                .replace("scientific truth", "factual accuracy")
+                .replace("relevant study", "relevant source")
+                .replace("bibliographic metadata; issue year alone does not establish a new finding", "source metadata; publication date alone does not establish a new finding")
+                .replace("methods, adverse events or other limitations. Absence of reported harm does not establish safety", "context, tradeoffs or other limitations. Missing observations do not establish reliability")
+        }
     }
 }

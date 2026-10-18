@@ -11,9 +11,14 @@ data class RequestConstraints(
     val freshResponse: Boolean = false,
     val contextCeiling: Int? = null,
     val permissionRevision: String = "legacy-unverified",
-    val requireKnownCapacity: Boolean = false
+    val requireKnownCapacity: Boolean = false,
+    val finalResponseSchemaJson: String? = null
 ) {
     init {
+        finalResponseSchemaJson?.let { schema ->
+            require(schema.toByteArray().size <= 32 * 1024) { "Final-response schema exceeds 32 KiB" }
+            require(kotlinx.serialization.json.Json.parseToJsonElement(schema) is kotlinx.serialization.json.JsonObject) { "Final-response schema must be an object" }
+        }
         require(maxOutputTokens == null || maxOutputTokens > 0)
     }
 

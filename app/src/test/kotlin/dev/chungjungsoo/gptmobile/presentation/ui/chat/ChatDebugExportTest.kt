@@ -18,6 +18,17 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ChatDebugExportTest {
+    @Test fun actualV4ProducerPassesArchiveWriterAndReader() {
+        val body = buildChatDebugExport(ChatRoomV2(id = 1, title = "Synthetic"), emptyList(), emptyList(), ChatMcpToolConfig(), AppFeatureSettings(), "", buildJsonObject {}, emptyList(), Json { encodeDefaults = true })
+        val output = java.io.ByteArrayOutputStream()
+        DebugExportBundle.write(body, output)
+        val parts = DebugExportBundle.read(java.io.ByteArrayInputStream(output.toByteArray()))
+        assertEquals(body, parts.getValue("conversation.json"))
+        val root = Json.parseToJsonElement(body).jsonObject
+        assertEquals(DebugExportSchema.CONVERSATION, root.getValue("schema").jsonPrimitive.content)
+        assertEquals("4", root.getValue("schemaVersions").jsonObject.getValue("conversation").jsonPrimitive.content)
+    }
+
     @Test fun segmentExportHashesAndByteCountsDescribeOnlyRedactedText() {
         val text = "Credential: configured-secret-value"
         val segment = dev.chungjungsoo.gptmobile.data.database.entity.AnswerSegment("run", 0, 2, text, debugBodyDigest(text), null, text.toByteArray().size)

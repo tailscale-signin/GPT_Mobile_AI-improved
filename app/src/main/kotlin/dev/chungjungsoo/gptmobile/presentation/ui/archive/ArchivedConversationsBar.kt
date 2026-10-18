@@ -50,6 +50,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.collectReusableProfileLabels
 import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
+import dev.chungjungsoo.gptmobile.presentation.common.glassBackdrop
 import dev.chungjungsoo.gptmobile.presentation.ui.home.FancySwipeChatCard
 import dev.chungjungsoo.gptmobile.presentation.ui.home.HomeViewModel.ChatListState
 import dev.chungjungsoo.gptmobile.util.getPlatformName
@@ -104,6 +105,10 @@ fun ArchivedConversationsBar(
             onDismissRequest = { expanded = false },
             sheetState = sheetState,
             dragHandle = null,
+            modifier = Modifier.glassBackdrop(androidx.compose.material3.BottomSheetDefaults.ExpandedShape, captureAsPopup = true),
+            containerColor = if (dev.chungjungsoo.gptmobile.presentation.common.hasGlassBackdrop()) androidx.compose.ui.graphics.Color.Transparent else dev.chungjungsoo.gptmobile.presentation.common.appOverlayTokens().background,
+            contentColor = dev.chungjungsoo.gptmobile.presentation.common.appOverlayTokens().foreground,
+            tonalElevation = 0.dp,
             contentWindowInsets = { WindowInsets(0, 0, 0, 0) }
         ) {
             // The sheet measures half the window, so its only visible anchor is

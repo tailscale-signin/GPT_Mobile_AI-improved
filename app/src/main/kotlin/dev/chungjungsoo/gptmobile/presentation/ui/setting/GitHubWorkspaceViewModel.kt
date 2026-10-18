@@ -16,6 +16,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
@@ -29,6 +30,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
+@kotlinx.serialization.Serializable
 data class GitHubStagedFile(val path: String, val original: String, val content: String)
 
 data class GitHubWorkspaceState(
@@ -53,6 +55,7 @@ data class GitHubWorkspaceState(
     val moreEntries: Boolean = false,
     val file: JsonObject? = null,
     val staged: List<GitHubStagedFile> = emptyList(),
+    val editorDrafts: Map<String, String> = emptyMap(),
     val commits: List<JsonObject> = emptyList(),
     val moreCommits: Boolean = false,
     val commitPage: Int = 1,
@@ -69,6 +72,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
     private val connections: ToolConnectionRepository,
     private val vault: SecretVault,
     private val store: GitHubWorkspaceStore,
+    private val drafts: dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceDraftStore,
     private val settings: dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 ) : ViewModel() {
     private val _state = MutableStateFlow(GitHubWorkspaceState())
@@ -76,7 +80,31 @@ class GitHubWorkspaceViewModel @Inject constructor(
     private var client: GitHubWorkspaceClient? = null
     private var tool: GitHubTool? = null
 
+    @kotlinx.serialization.Serializable
+    private data class Draft(val selection: GitHubRepositoryContext?, val baseSha: String, val directory: String, val file: JsonObject?, val staged: List<GitHubStagedFile>, val edits: Map<String, String>)
+
+    init {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            _state.collect { state ->
+                val connection = state.connection ?: return@collect
+                if (state.busy || state.selection == null) return@collect
+                try {
+                    drafts.write(connection.connectionUid, Json.encodeToString(Draft.serializer(), Draft(state.selection, state.headSha, state.directory, state.file, state.staged, state.editorDrafts)))
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    _state.update { it.copy(error = "Workspace edits could not be saved for recovery. Keep this screen open and retry.") }
+                }
+            }
+        }
+    }
+
+    fun editDraft(path: String, content: String, original: String) {
+        _state.update { state -> state.copy(editorDrafts = if (content == (state.staged.firstOrNull { it.path == path }?.content ?: original)) state.editorDrafts - path else state.editorDrafts + (path to content)) }
+    }
+
     fun open(connection: ToolConnection) {
+        if (_state.value.connection?.connectionUid == connection.connectionUid && client != null) return
         if (_state.value.busy) return
         _state.value = GitHubWorkspaceState(connection = connection)
         work {
@@ -94,7 +122,21 @@ class GitHubWorkspaceViewModel @Inject constructor(
             val account = api("get_account").jsonObject
             _state.update { it.copy(connection = current, login = account.text("login")) }
             loadRepositories(1)
-            store.get(current.connectionUid)?.let { selectRepositoryInternal(it.owner, it.repo, it.ref) }
+            val recovered = drafts.read(current.connectionUid)?.let { Json.decodeFromString(Draft.serializer(), it) }
+            (recovered?.selection ?: store.get(current.connectionUid))?.let { selectRepositoryInternal(it.owner, it.repo, it.ref) }
+            recovered?.takeIf { it.selection == _state.value.selection }?.let { draft ->
+                val changed = _state.value.headSha != draft.baseSha
+                _state.update {
+                    it.copy(
+                        headSha = draft.baseSha,
+                        directory = draft.directory,
+                        file = draft.file,
+                        staged = draft.staged,
+                        editorDrafts = draft.edits,
+                        notice = if (changed) "Edits recovered at their original base. The branch moved; review before committing." else "Workspace edits recovered."
+                    )
+                }
+            }
         }
     }
 
@@ -109,7 +151,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
         if (_state.value.busy) return
         _state.update { it.copy(staged = it.staged.filterNot { file -> file.path == path }) }
     }
-    fun discard() = _state.update { it.copy(staged = emptyList()) }
+    fun discard() = _state.update { it.copy(staged = emptyList(), editorDrafts = emptyMap()) }
     fun moreRepositories() = work { loadRepositories(_state.value.repositoryPage + 1) }
 
     private suspend fun loadRepositories(page: Int) {
@@ -119,7 +161,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
     }
 
     fun selectRepository(owner: String, repo: String) = work {
-        require(_state.value.staged.isEmpty()) { "Commit or discard staged edits before switching repositories." }
+        require(_state.value.staged.isEmpty() && _state.value.editorDrafts.isEmpty()) { "Commit or discard staged edits before switching repositories." }
         selectRepositoryInternal(owner, repo)
     }
 
@@ -135,7 +177,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
         require(default.isNotBlank()) { "Repository has no default branch." }
         val selected = GitHubRepositoryContext(owner, repo, preferredRef ?: default)
         val canWrite = metadata["permissions"]?.jsonObject?.flag("push") == true && !metadata.flag("archived") && _state.value.connection?.toolPolicy != "READ_ONLY"
-        _state.update { it.copy(selection = selected, defaultBranch = default, canWrite = canWrite, branches = emptyList(), file = null, staged = emptyList(), pullRequests = emptyList(), commits = emptyList(), commitDetail = null, activityUpdatedAt = null, pullDetail = null, directory = "", headSha = "", entries = emptyList()) }
+        _state.update { it.copy(selection = selected, defaultBranch = default, canWrite = canWrite, branches = emptyList(), file = null, staged = emptyList(), editorDrafts = emptyMap(), pullRequests = emptyList(), commits = emptyList(), commitDetail = null, activityUpdatedAt = null, pullDetail = null, directory = "", headSha = "", entries = emptyList()) }
         loadBranches(1)
         loadHeadAndDirectory()
     }
@@ -148,13 +190,13 @@ class GitHubWorkspaceViewModel @Inject constructor(
     }
 
     fun selectBranch(branch: String) = work {
-        require(_state.value.staged.isEmpty()) { "Commit or discard staged edits before switching branches." }
+        require(_state.value.staged.isEmpty() && _state.value.editorDrafts.isEmpty()) { "Commit or discard staged edits before switching branches." }
         _state.update { it.copy(selection = it.selection?.copy(ref = branch), directory = "", file = null, entries = emptyList(), headSha = "", commits = emptyList(), commitDetail = null, activityUpdatedAt = null) }
         loadHeadAndDirectory()
     }
 
     fun refreshBranch() = work {
-        require(_state.value.staged.isEmpty()) { "Discard or commit staged edits before refreshing the snapshot." }
+        require(_state.value.staged.isEmpty() && _state.value.editorDrafts.isEmpty()) { "Discard or commit staged edits before refreshing the snapshot." }
         loadHeadAndDirectory()
     }
 
@@ -209,7 +251,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
                 state.copy(error = "Stage at most 20 files and 1 MB of text.")
             } else {
                 accepted = true
-                state.copy(staged = next, notice = "Changes staged for review.")
+                state.copy(staged = next, editorDrafts = state.editorDrafts - path, notice = "Changes staged for review.")
             }
         }
         return accepted
@@ -265,7 +307,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
                 )
             }
         ).jsonObject
-        _state.update { it.copy(staged = emptyList(), headSha = result.text("sha"), file = null, notice = "Committed ${state.staged.size} file(s) to ${state.selection?.ref}.") }
+        _state.update { it.copy(staged = emptyList(), editorDrafts = emptyMap(), headSha = result.text("sha"), file = null, notice = "Committed ${state.staged.size} file(s) to ${state.selection?.ref}.") }
         browseInternal(state.directory)
         loadCommits(1)
     }

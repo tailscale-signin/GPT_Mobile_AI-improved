@@ -58,6 +58,17 @@ internal object GgufImportAdapter {
         }
     }
 
+    fun describe(model: File, id: String, digest: String, checkCurrent: () -> Unit = {}): ModelArtifactManifest {
+        dev.chungjungsoo.gptmobile.data.localruntime.RuntimeCapabilityRegistry.requireRuntime(ArtifactRuntime.LLAMA_CPP)
+        val metadata = inspect(model, checkCurrent)
+        val architecture = requireNotNull(metadata["general.architecture"]) { "GGUF architecture is missing" }
+        require(architecture !in setOf("clip", "whisper", "wavtokenizer", "mamba")) { "This artifact needs a qualified manifest and its exact companion assets" }
+        require((metadata["split.count"]?.toIntOrNull() ?: 1) == 1) { "Import all GGUF shards using a manifest bundle" }
+        require(!metadata["tokenizer.chat_template"].isNullOrBlank()) { "No embedded chat template; use an explicit manifest package" }
+        val tokens = metadata["$architecture.context_length"]?.toIntOrNull()?.takeIf { it > 0 } ?: error("Context metadata missing; use a manifest bundle")
+        return ModelArtifactManifest(schemaVersion = 3, familyId = metadata["general.name"]?.take(160) ?: architecture, artifactId = id, runtime = ArtifactRuntime.LLAMA_CPP, format = "gguf", entryFile = model.name, files = listOf(ArtifactFile(model.name, model.length(), digest)), contextTokens = tokens, supportedBackends = dev.chungjungsoo.gptmobile.data.localruntime.RuntimeCapabilityRegistry.gguf(android.os.Build.SUPPORTED_ABIS?.toList().orEmpty()).backends, architecture = architecture, templateId = GgufChatTemplateIdentity.describe(metadata["tokenizer.chat_template"]), weightPrecision = metadata["general.file_type"]?.let { "GGUF type $it" }, runtimeVersion = dev.chungjungsoo.gptmobile.data.localruntime.RuntimeCapabilityRegistry.GGUF_REVISION)
+    }
+
     fun install(input: InputStream, root: File, checkCurrent: () -> Unit, progress: (Long) -> Unit, stagingId: String? = null): LocalModelImportResult {
         if (!dev.chungjungsoo.gptmobile.data.localruntime.RuntimeCapabilityRegistry.ggufPackaged) {
             input.close()
@@ -83,15 +94,10 @@ internal object GgufImportAdapter {
                 }
                 output.fd.sync()
             }
-            val metadata = inspect(model, checkCurrent)
-            val architecture = requireNotNull(metadata["general.architecture"]) { "GGUF architecture is missing" }
-            require(architecture !in setOf("clip", "whisper", "wavtokenizer", "mamba")) { "This artifact needs a qualified manifest and its exact companion assets" }
-            require((metadata["split.count"]?.toIntOrNull() ?: 1) == 1) { "Import all GGUF shards using a manifest bundle" }
-            require(!metadata["tokenizer.chat_template"].isNullOrBlank()) { "No embedded chat template; use an explicit manifest package" }
-            val tokens = metadata["$architecture.context_length"]?.toIntOrNull()?.takeIf { it > 0 } ?: error("Context metadata missing; use a manifest bundle")
+            val described = describe(model, "pending-import-id", "0".repeat(64), checkCurrent)
             val digest = PackageDigest.sha256(model, checkCurrent)
             val id = "local_gguf_${digest.take(32)}"
-            val manifest = ModelArtifactManifest(schemaVersion = 3, familyId = metadata["general.name"]?.take(160) ?: architecture, artifactId = id, runtime = ArtifactRuntime.LLAMA_CPP, format = "gguf", entryFile = model.name, files = listOf(ArtifactFile(model.name, model.length(), digest)), contextTokens = tokens, supportedBackends = dev.chungjungsoo.gptmobile.data.localruntime.RuntimeCapabilityRegistry.gguf(android.os.Build.SUPPORTED_ABIS?.toList().orEmpty()).backends, architecture = architecture, templateId = GgufChatTemplateIdentity.describe(metadata["tokenizer.chat_template"]), weightPrecision = metadata["general.file_type"]?.let { "GGUF type $it" }, runtimeVersion = dev.chungjungsoo.gptmobile.data.localruntime.RuntimeCapabilityRegistry.GGUF_REVISION)
+            val manifest = described.copy(artifactId = id, files = listOf(ArtifactFile(model.name, model.length(), digest)))
             manifest.validate(staging, checkCurrent = checkCurrent)
             ArtifactManifestStore.write(File(staging, "manifest.json"), manifest)
             val relative = LocalModelDownloadPaths.relativeDirectory(id, LocalModelLocator.LOCAL_COMMIT_HASH)

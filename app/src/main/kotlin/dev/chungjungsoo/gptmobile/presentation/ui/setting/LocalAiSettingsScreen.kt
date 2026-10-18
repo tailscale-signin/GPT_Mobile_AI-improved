@@ -34,8 +34,6 @@ import dev.chungjungsoo.gptmobile.R
 @Composable
 internal fun LocalAiSettingsScreen(models: LocalModelsViewModel, runtime: LocalRuntimeSettingsViewModel, onDownloads: () -> Unit) {
     val ui by models.uiState.collectAsStateWithLifecycle()
-    var execution by rememberSaveable { mutableStateOf(false) }
-    if (execution) ExecutionEfficiencyScreen(onClose = { execution = false }, runtime = runtime)
     var group by rememberSaveable { mutableStateOf<String?>(null) }
     var query by rememberSaveable { mutableStateOf("") }
     val context = LocalContext.current
@@ -44,7 +42,7 @@ internal fun LocalAiSettingsScreen(models: LocalModelsViewModel, runtime: LocalR
     val sections = listOf(Triple("engine", "Engine and processor", Icons.Rounded.Memory), Triple("performance", "Performance", Icons.Rounded.Speed), Triple("memory", "Memory and power", Icons.Rounded.BatteryChargingFull), Triple("downloads", "Downloads and storage", Icons.Rounded.Download), Triple("accounts", "Accounts and privacy", Icons.Rounded.AccountCircle), Triple("diagnostics", "Diagnostics and advanced", Icons.Rounded.QueryStats))
     val keywords = mapOf("engine" to "cpu gpu npu qnn backend processor runtime", "performance" to "threads cache speculative mtp speed decoding", "memory" to "reserve idle warm heat thermal battery power unload", "downloads" to "wifi storage cancel progress repair", "accounts" to "hugging face token privacy access", "diagnostics" to "benchmark comparison metrics qualification logs")
     LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { TextButton(onClick = { execution = true }) { Text("Execution & efficiency") } }
+        item(key = "local-assist") { LocalAssistCard(runtime, onDownloads) }
         item { OutlinedTextField(query, { query = it }, label = { Text(stringResource(R.string.local_ai_settings_screen_1)) }, modifier = Modifier.fillMaxWidth()) }
         sections.filter { query.isBlank() || (it.second + " " + keywords[it.first].orEmpty()).contains(query, true) }.forEach { (id, title, icon) ->
             item(key = id) {

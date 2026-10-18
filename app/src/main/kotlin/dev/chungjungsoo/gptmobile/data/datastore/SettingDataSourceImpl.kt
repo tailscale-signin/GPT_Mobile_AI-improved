@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import dev.chungjungsoo.gptmobile.data.assist.advanceAssistEpoch
 import dev.chungjungsoo.gptmobile.data.dto.withStableProfileIds
 import dev.chungjungsoo.gptmobile.data.model.ApiType
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
@@ -104,6 +105,8 @@ class SettingDataSourceImpl @Inject constructor(
             customPalette = palette,
             savedProfiles = profiles,
             activeProfileId = pref[stringPreferencesKey("active_theme_profile_id")],
+            overlayMaterial = pref[stringPreferencesKey("overlay_material")]?.takeIf { it in setOf("glass", "solid") } ?: "glass",
+            overlayBlur = pref[stringPreferencesKey("overlay_blur")]?.takeIf { it in setOf("auto", "off") } ?: "auto",
             recoveryWarning = if (malformed) "Some saved appearance data could not be read. Valid themes remain available; the original data is preserved on the next edit." else null
         ).withStableProfileIds()
     }
@@ -126,6 +129,8 @@ class SettingDataSourceImpl @Inject constructor(
             next.customPalette?.let { pref[customPaletteKey] = json.encodeToString(it) } ?: pref.remove(customPaletteKey)
             pref[savedThemeProfilesKey] = json.encodeToString(next.savedProfiles)
             next.activeProfileId?.let { pref[stringPreferencesKey("active_theme_profile_id")] = it } ?: pref.remove(stringPreferencesKey("active_theme_profile_id"))
+            pref[stringPreferencesKey("overlay_material")] = next.overlayMaterial.takeIf { it in setOf("glass", "solid") } ?: "glass"
+            pref[stringPreferencesKey("overlay_blur")] = next.overlayBlur.takeIf { it in setOf("auto", "off") } ?: "auto"
             result = next
         }
         return checkNotNull(result)
@@ -135,8 +140,8 @@ class SettingDataSourceImpl @Inject constructor(
         var result: AppFeatureSettings? = null
         dataStore.edit { pref ->
             // Do not overwrite malformed/future configuration with defaults on an edit.
-            val current = pref[featureSettingsKey]?.let { json.decodeFromString<AppFeatureSettings>(it) } ?: AppFeatureSettings()
-            val next = transform(current)
+            val current = pref[featureSettingsKey]?.let { json.decodeFromString<AppFeatureSettings>(dev.chungjungsoo.gptmobile.data.assist.LocalAssistSettingsMigration.normalize(it)) } ?: AppFeatureSettings()
+            val next = transform(current).advanceAssistEpoch(current)
             pref[featureSettingsKey] = json.encodeToString(next)
             result = next
         }
@@ -210,28 +215,26 @@ class SettingDataSourceImpl @Inject constructor(
     }
 
     override suspend fun updateFeatureSettings(settings: AppFeatureSettings) {
-        dataStore.edit { pref ->
-            pref[featureSettingsKey] = json.encodeToString(settings)
-        }
+        mutateFeatureSettings { settings }
     }
 
     override suspend fun updateResearchSettings(settings: dev.chungjungsoo.gptmobile.data.model.DeepResearchSettings) {
         val validated = settings.migrated()
         dataStore.edit { pref ->
-            val current = pref[featureSettingsKey]?.let { json.decodeFromString<AppFeatureSettings>(it) } ?: AppFeatureSettings()
+            val current = pref[featureSettingsKey]?.let { json.decodeFromString<AppFeatureSettings>(dev.chungjungsoo.gptmobile.data.assist.LocalAssistSettingsMigration.normalize(it)) } ?: AppFeatureSettings()
             pref[featureSettingsKey] = json.encodeToString(current.copy(delegation = current.delegation.copy(deepResearch = validated)))
         }
     }
 
     override suspend fun getFeatureSettings(): AppFeatureSettings = dataStore.data.map { pref ->
         pref[featureSettingsKey]
-            ?.let { raw -> runCatching { json.decodeFromString<AppFeatureSettings>(raw) }.getOrNull() }
+            ?.let { raw -> json.decodeFromString<AppFeatureSettings>(dev.chungjungsoo.gptmobile.data.assist.LocalAssistSettingsMigration.normalize(raw)) }
             ?: AppFeatureSettings()
     }.first()
 
     override fun observeFeatureSettings(): Flow<AppFeatureSettings> = dataStore.data.map { pref ->
         pref[featureSettingsKey]
-            ?.let { raw -> runCatching { json.decodeFromString<AppFeatureSettings>(raw) }.getOrNull() }
+            ?.let { raw -> json.decodeFromString<AppFeatureSettings>(dev.chungjungsoo.gptmobile.data.assist.LocalAssistSettingsMigration.normalize(raw)) }
             ?: AppFeatureSettings()
     }
 

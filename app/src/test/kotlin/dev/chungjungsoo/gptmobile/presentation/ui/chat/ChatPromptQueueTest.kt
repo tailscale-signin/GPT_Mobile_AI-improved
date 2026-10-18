@@ -517,6 +517,8 @@ class ChatPromptQueueTest {
         coEvery { tools.listBindingsByProfile("profile-2") } returns listOf(
             AgentToolBinding("binding", "profile-2", "profile-2-tools", "search")
         )
+        val completions = mockk<dev.chungjungsoo.gptmobile.data.chat.GenerationCompletionStore>(relaxed = true)
+        every { completions.items } returns MutableStateFlow(emptyList())
         return ChatViewModel(
             savedStateHandle = SavedStateHandle(
                 mapOf("chatRoomId" to 7, "enabledPlatforms" to members.joinToString(",") { it.uid })
@@ -533,12 +535,8 @@ class ChatPromptQueueTest {
             freeModelToolConsentStore = dev.chungjungsoo.gptmobile.data.permissions.FreeModelToolConsentStore(
                 ApplicationProvider.getApplicationContext()
             ),
-            conversationReadStateStore = dev.chungjungsoo.gptmobile.data.chat.ConversationReadStateStore(
-                ApplicationProvider.getApplicationContext()
-            ),
-            generationCompletionStore = dev.chungjungsoo.gptmobile.data.chat.GenerationCompletionStore(
-                ApplicationProvider.getApplicationContext()
-            ),
+            conversationReadStateStore = dev.chungjungsoo.gptmobile.data.chat.ConversationReadStateStore(completions),
+            generationCompletionStore = completions,
             conversationExitWork = mockk(relaxed = true),
             messageGroupingDispatcher = groupingDispatcher
         ).also { store.put("chat", it) }

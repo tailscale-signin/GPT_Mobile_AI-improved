@@ -66,7 +66,20 @@ internal object LocalContextPlanner {
             rankedTools.firstOrNull { used + anchorTokens + schemaCost(listOf(it)) + safetyReserve < contextTokens }
                 ?.let(::listOf).orEmpty()
         }
-        val outputReserve = LocalOutputAllocation.reserve(contextTokens, used + anchorTokens + schemaCost(protectedTools), safetyReserve, outputLimit)
+        // A large reply preference must not reduce an otherwise usable catalog to
+        // one tool. Keep history anchors and a modest reply before optional schemas;
+        // the final reply allocation uses the remaining capacity. Small contexts
+        // retain the conservative single-capability policy.
+        val catalogTools = protectedTools.toMutableList()
+        if (contextTokens >= 4096) {
+            val minimumReply = minOf(baselineOutput, 512)
+            rankedTools.filterNot { it in catalogTools }.forEach { tool ->
+                if (used + anchorTokens + schemaCost(catalogTools + tool) + safetyReserve + minimumReply < contextTokens) {
+                    catalogTools += tool
+                }
+            }
+        }
+        val outputReserve = LocalOutputAllocation.reserve(contextTokens, used + anchorTokens + schemaCost(catalogTools), safetyReserve, outputLimit)
         val promptLimit = contextTokens.toLong() - outputReserve - templateReserve - toolResultReserve
         require(used < promptLimit) {
             "This message and system instructions exceed this local model's $contextTokens-token context. " +
@@ -136,6 +149,13 @@ internal object LocalContextPlanner {
         if ("airbnb" in lower) select("airbnb")
         if (Regex("read.*https?://|open.*https?://|crawl|read the page").containsMatchIn(lower)) select("read_url")
         if (Regex("search|research|look up|latest|browse|find online").containsMatchIn(lower)) select("web_search")
+        // Research needs to inspect search hits as well as obtain snippets. Protect
+        // the reader alongside search so a continuation can open its sources.
+        if (Regex("research|browse|verify|sources|citations").containsMatchIn(lower)) {
+            select("web_search")
+            select("read_url")
+        }
+        if (Regex("read.*file|read.*document|open.*file|inspect.*file").containsMatchIn(lower)) select("read_file_slice")
         return required
     }
 

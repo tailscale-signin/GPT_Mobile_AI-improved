@@ -52,6 +52,9 @@ jobs:
       - name: Verify local runtime native libraries
         run: python3 scripts/check_local_runtime_apk.py app/build/outputs/apk/debug/*.apk
 
+      - name: Check measured APK size budgets
+        run: python3 scripts/check_apk_size.py app/build/outputs/apk --report apk-size-report.json
+
       - name: Upload Debug APK artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

@@ -127,15 +127,15 @@ internal fun AssistantChronologicalContent(
                             Text(parsed.thinking.orEmpty(), Modifier.padding(vertical = 8.dp), style = MaterialTheme.typography.bodySmall)
                         }
                         // Resolve cards from the complete source-bearing text before display cleanup.
-                        val citationText = parsed.response
+                        val citationText = dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.text(item.content)
                         val response = remember(parsed.response, combinedWording != null) {
                             // Combined citations belong to explicit passage provenance, not the
                             // separate profile/source footer. Keep their clickable URLs intact.
-                            if (combinedWording != null) parsed.response else answerWithoutSourceLists(parsed.response)
+                            if (combinedWording != null) citationText else answerWithoutSourceLists(citationText)
                         }
                         if (response.isNotBlank()) {
                             if (isError) {
-                                Text(parsed.response, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(vertical = 8.dp))
+                                Text(citationText, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(vertical = 8.dp))
                             } else {
                                 if (isLoading) {
                                     ChatMarkdown(wording = combinedWording, outputTrace = outputTrace?.copy(partId = "$index"), proseColor = proseColor, memoryValues = recalledSources.map { it.value }, content = response, contentIdentity = "$contentIdentity:$index", streaming = true, animateStreaming = animateResponse, modifier = Modifier.padding(vertical = 8.dp))

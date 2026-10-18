@@ -98,11 +98,11 @@ internal fun buildChatDebugExport(
         }
     }
     val raw = buildJsonObject {
-        put("schema", "gptmobile.conversation.debug.v4")
+        put("schema", DebugExportSchema.CONVERSATION)
         put(
             "schemaVersions",
             buildJsonObject {
-                put("conversation", 3)
+                put("conversation", DebugExportSchema.CONVERSATION_VERSION)
                 put("combinedAnalysis", 1)
                 put("appLogSnapshot", 1)
                 put("runEvents", 5)

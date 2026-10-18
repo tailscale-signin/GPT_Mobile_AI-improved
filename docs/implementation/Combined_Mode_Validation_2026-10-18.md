@@ -4,13 +4,15 @@
 
 **Implementation baseline:** `a361beb11ddeb6ede92cc6b11fdfd9517fb2565d`
 
+**Initial implementation publication:** [`b4260f6d91967d6ed80169f2f92bbfb0cdaf12bc`](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/commit/b4260f6d91967d6ed80169f2f92bbfb0cdaf12bc)
+
 **Design and audit:** [Combined Mode and Settings implementation design](Combined_Mode_and_Settings_Implementation_2026-10-18.md)
 
 The earlier glass-rendering pull request, [#718](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/718), was merged into `main` at `d1da61ae2f21c0cab4e231fc1dac5576080afeee`. These additional changes remain on the requested branch and are reviewed in a follow-up pull request. The original glass capture, tint, and entry-visibility fixes are retained.
 
 ## Prepublication validation
 
-This record captures the checks completed before publishing the implementation commit. The unfiltered Android unit suite passed all 3,525 tests across 579 suites, with zero failures, errors, or skipped tests. The follow-up pull request records subsequent lint, APK, and CI results against the published commit; those checks are not represented as completed at this record's cutoff.
+This record captures the checks completed before the initial implementation publication above. The unfiltered Android unit suite passed all 3,525 tests across 579 suites, with zero failures, errors, or skipped tests. The [follow-up pull request's current checks](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/720/checks) record subsequent lint, APK, and CI results against its published head; those checks are not represented as completed at this record's cutoff. The subsequent emulator-dispatch change is described below and does not alter production Kotlin or the locally tested unit sources.
 
 | Check | Observed result |
 | --- | --- |
@@ -63,6 +65,14 @@ The Home render suite uses the actual Compose components with Robolectric native
 The [capture notes](assets/settings-home/README.md) give the host configuration and text-measurement details. These are production-component renders with synthetic data, not live wallet values or physical-device screenshots.
 
 The implementation also adds Android instrumentation tests for Combined settings, Home selection, and navigation. Compilation of these tests is recorded separately from their execution. No connected emulator or physical device is available in this workspace, so physical back-gesture behavior, GPU presentation, and device-specific accessibility are not claimed as validated by the native host render tests.
+
+### Executing the new UI cases in CI
+
+Final workflow review found that `scripts/run_release0950_acceptance.sh` dispatched a fixed legacy list of instrumentation classes. Compiling the new classes therefore did not execute their cases. The acceptance script now dispatches all four `CombinedSettingsInstrumentedTest` cases, all four `SettingsHomeInstrumentedTest` cases, and the `NavigationMotionInstrumentedTest` case. Each class has its own bounded invocation and recorded status; the existing protocol parser must observe every one of the nine named test methods succeeding. An empty or incomplete runner report cannot count as a pass.
+
+The Home suite receives a 600 dp device viewport so its wide-width case is not silently constrained to the legacy 320 dp screen. Its individual cases still request their compact or wide component widths. The compact viewport is restored for the remaining acceptance checks. The motion suite runs with nonzero animation duration so its intermediate slide assertion is meaningful; the workflow's disabled-animation settings are restored afterward. Home's existing device captures are collected with the acceptance artifacts, and all thirty expected PNGs are checked. All wallet and profile values in these fixtures remain synthetic.
+
+This dispatch change makes the new tests eligible for actual Android emulator execution. Their observed results belong to the current PR checks and acceptance artifacts, not to the earlier compilation-only result in the publication table. Passing emulator cases still does not establish physical-device performance, live provider availability, or authenticated wallet accuracy.
 
 The shared back transition combines eased horizontal movement and opacity changes; the internal Settings/Home transition uses the same navigation functions. Glass backgrounds have no decorative shared-surface border. The search control remains hidden until its toolbar icon is pressed and retains the requested themed outline.
 

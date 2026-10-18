@@ -163,7 +163,7 @@ internal object LocalPromptToolBridge {
         var candidate = text.trim()
         if (candidate.startsWith("```json\n") || candidate.startsWith("```\n")) {
             if (!candidate.endsWith("```")) {
-                return if (candidate.contains("\"tool_call\"") || candidate.contains("\"tool_calls\"")) PromptToolParseResult.Rejected("malformed_call") else PromptToolParseResult.NoCall
+                return if (looksLikeToolMarkup(candidate.substringAfter('\n').trimStart())) PromptToolParseResult.Rejected("malformed_call") else PromptToolParseResult.NoCall
             }
             candidate = candidate.substringAfter('\n').removeSuffix("```").trim()
         }

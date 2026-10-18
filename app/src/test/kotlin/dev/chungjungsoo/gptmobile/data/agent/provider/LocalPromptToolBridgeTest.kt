@@ -32,7 +32,8 @@ class LocalPromptToolBridgeTest {
             "<progress_update>Checking",
             "<progress_up",
             """{"type":"tool_call","name":"current_date","arguments":{}""",
-            """{"name":"current_date","arguments":"""
+            """{"name":"current_date","arguments":""",
+            "```json\n{\"name\":\"current_date\",\"arguments\":{}}"
         ).forEach { payload ->
             val output = LocalPromptToolOutput()
             payload.chunked(1).forEach { output.accept(it) }

@@ -235,6 +235,13 @@ class LiteRtLmAdapter(
 
                 val availableTools = boundTools
                 val noToolsInstruction = if (availableTools.isEmpty()) LocalPromptToolBridge.instruction(emptyList()) else ""
+                // The explicit no-tools instruction already is the final inventory
+                // for an empty catalog. Do not charge a duplicate in tiny contexts.
+                val capabilityPromptRenderer: ((List<AgentToolDefinition>) -> String)? = if (availableTools.isEmpty()) {
+                    null
+                } else {
+                    { selected -> dev.chungjungsoo.gptmobile.data.agent.localToolCapabilityPrompt(selected.map { it.name }) }
+                }
                 // Native tool templates already contain their definitions. Repeating
                 // the catalog here can evict history and tools from small contexts;
                 // text-call parsing remains available without a second catalog.
@@ -268,7 +275,7 @@ class LiteRtLmAdapter(
                         imageCount = latestImages.size,
                         historyImageCount = { turn -> visionImageIds(turn.userMessage.attachments, visionCapable).size },
                         renderToolPrompt = toolPromptRenderer,
-                        renderCapabilityPrompt = { dev.chungjungsoo.gptmobile.data.agent.localToolCapabilityPrompt(it.map { tool -> tool.name }) }
+                        renderCapabilityPrompt = capabilityPromptRenderer
                     )
                 } catch (error: IllegalArgumentException) {
                     val compactPrompt = fallbackSystemPrompt?.takeIf { it != platform.systemPrompt }
@@ -288,7 +295,7 @@ class LiteRtLmAdapter(
                             imageCount = latestImages.size,
                             historyImageCount = { turn -> visionImageIds(turn.userMessage.attachments, visionCapable).size },
                             renderToolPrompt = toolPromptRenderer,
-                            renderCapabilityPrompt = { dev.chungjungsoo.gptmobile.data.agent.localToolCapabilityPrompt(it.map { tool -> tool.name }) }
+                            renderCapabilityPrompt = capabilityPromptRenderer
                         ).also { usedCompactFallback = true }
                     } catch (_: IllegalArgumentException) {
                         send(ProviderEvent.Failed(error.message ?: "Local context is too small for this request."))
@@ -340,7 +347,7 @@ class LiteRtLmAdapter(
                 }
                 val registeredTools = availableTools.filter { it.definition.name in selectedNames }.map { toolBudget.bind(it) }
                 conversationSystemPrompt = conversationSystemPrompt.orEmpty() + noToolsInstruction + toolPromptRenderer?.invoke(plan.tools).orEmpty() +
-                    dev.chungjungsoo.gptmobile.data.agent.localToolCapabilityPrompt(selectedNames) + "\n" + LOCAL_CAPABILITY_CONTRACT
+                    capabilityPromptRenderer?.invoke(plan.tools).orEmpty() + "\n" + LOCAL_CAPABILITY_CONTRACT
                 val descriptors = if (nativeToolsCapable) registeredTools.map { it.definition.toLocalDescriptor() } else emptyList()
                 val toolsKey = toolsFingerprint(descriptors) + "|finalSchema=" + constraints.finalResponseSchemaJson.orEmpty()
                 val runToolsByName = registeredTools.associateBy { it.definition.name }

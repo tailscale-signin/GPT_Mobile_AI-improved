@@ -477,7 +477,7 @@ class AgentRunnerTest {
     }
 
     @Test
-    fun `approval latency is not charged to tool timeout by the runner`() = runBlocking {
+    fun `approval latency is not charged to tool timeout by the runner`() = kotlinx.coroutines.test.runTest {
         val limits = AgentRunLimits(toolTimeoutMillis = 5)
         val bound = ToolExecutionBudget(limits).bind(
             tool("write") { callId, _ ->

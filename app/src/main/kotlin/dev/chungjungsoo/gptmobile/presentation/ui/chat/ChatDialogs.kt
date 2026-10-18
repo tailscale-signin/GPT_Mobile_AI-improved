@@ -57,16 +57,21 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import dev.chungjungsoo.gptmobile.R
+import dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveContent
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveThoughts
 import dev.chungjungsoo.gptmobile.data.model.AvailableChatTool
 import dev.chungjungsoo.gptmobile.data.model.ClientType
+import dev.chungjungsoo.gptmobile.data.model.CombinedChatSettingsDraft
+import dev.chungjungsoo.gptmobile.data.model.CombinedSettingsSaveUiState
+import dev.chungjungsoo.gptmobile.data.model.ConversationCombinedSettings
 import dev.chungjungsoo.gptmobile.data.model.ConversationDelegationSettings
 import dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings
 import dev.chungjungsoo.gptmobile.data.repository.ProfileModelOption
@@ -127,27 +132,60 @@ fun ChatModelDialog(
     onForgetMemories: () -> Unit = {},
     parentChatId: Int? = null,
     onOpenParent: (Int) -> Unit = {},
+    conversationMode: String = ConversationMode.STANDARD,
+    conversationIdentity: String = "legacy",
+    chatId: Int = 0,
+    combinedSettings: ConversationCombinedSettings = ConversationCombinedSettings(),
+    combinedSaveState: CombinedSettingsSaveUiState = CombinedSettingsSaveUiState(),
+    onConfirmCombined: (CombinedChatSettingsDraft) -> Unit = {},
     onDismissRequest: () -> Unit,
     onConfirmRequest: (Map<String, String>, Float) -> Unit
 ) {
     val configuration = LocalWindowInfo.current
     val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
     val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
-    var models by rememberSaveable(platformOrder) {
+    val combinedMode = conversationMode == ConversationMode.COMBINED
+    val firstSection = if (combinedMode) "Combined" else "Models"
+    var combinedDraft by rememberSaveable(conversationIdentity, stateSaver = CombinedChatSettingsDraftSaver) {
+        mutableStateOf(
+            CombinedChatSettingsDraft(
+                conversationIdentity = conversationIdentity,
+                chatId = chatId,
+                baseRevision = combinedSettings.revision,
+                settings = combinedSettings.normalized(),
+                participantUids = platformOrder.filter { it in activePlatformUids },
+                models = platformOrder.associateWith { uid -> initialModels[uid].orEmpty() },
+                creativity = combinedSettings.creativity ?: initialCreativity.coerceIn(0f, 2f)
+            )
+        )
+    }
+    var legacyModels by rememberSaveable(conversationIdentity, platformOrder) {
         mutableStateOf(platformOrder.associateWith { uid -> initialModels[uid].orEmpty() })
     }
+    val models = if (combinedMode) combinedDraft.models else legacyModels
+    val updateModels: (Map<String, String>) -> Unit = { next ->
+        if (!combinedSaveState.isCommitting) {
+            if (combinedMode) combinedDraft = combinedDraft.copy(models = next) else legacyModels = next
+        }
+    }
+    val draftParticipants = if (combinedMode) combinedDraft.participantUids.toSet() else activePlatformUids
+    val saving = combinedMode && combinedSaveState.isCommitting
 
     var activeUnifiedPickerPlatformUid by remember { mutableStateOf<String?>(null) }
     var activeCloudPickerUid by remember { mutableStateOf<String?>(null) }
     var activeLlamaPickerPlatformUid by remember { mutableStateOf<String?>(null) }
-    var section by rememberSaveable { mutableStateOf("Models") }
-    var selectedProfile by rememberSaveable(platformOrder) { mutableStateOf(initialSelectedProfile.takeIf { it in platformOrder } ?: platformOrder.firstOrNull { it in activePlatformUids && it !in disabledPlatformUids } ?: platformOrder.firstOrNull().orEmpty()) }
-    LaunchedEffect(selectedProfile) { onSelectedProfileChanged(selectedProfile) }
+    var section by rememberSaveable(conversationIdentity) { mutableStateOf(firstSection) }
+    var selectedProfile by rememberSaveable(conversationIdentity, platformOrder) { mutableStateOf(initialSelectedProfile.takeIf { it in platformOrder } ?: platformOrder.firstOrNull { it in activePlatformUids && it !in disabledPlatformUids } ?: platformOrder.firstOrNull().orEmpty()) }
+    LaunchedEffect(selectedProfile, activePlatformUids) {
+        // Immediate tabs only address saved identities, never draft-only members.
+        onSelectedProfileChanged(if (combinedMode) selectedProfile.takeIf { it in activePlatformUids } ?: platformOrder.firstOrNull { it in activePlatformUids }.orEmpty() else selectedProfile)
+    }
     var profileMenuOpen by remember { mutableStateOf(false) }
-    var creativity by rememberSaveable(initialCreativity) { mutableStateOf(initialCreativity.coerceIn(0f, 2f)) }
+    var legacyCreativity by rememberSaveable(conversationIdentity, initialCreativity) { mutableStateOf(initialCreativity.coerceIn(0f, 2f)) }
+    val creativity = if (combinedMode) combinedDraft.creativity else legacyCreativity
 
     AlertDialog(
-        properties = DialogProperties(usePlatformDefaultWidth = false),
+        properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnBackPress = !saving, dismissOnClickOutside = !saving),
         modifier = Modifier
             .widthIn(max = screenWidth - 40.dp)
             .heightIn(max = screenHeight - 80.dp),
@@ -155,12 +193,13 @@ fun ChatModelDialog(
         title = {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("Conversation Settings", style = MaterialTheme.typography.headlineSmall)
-                Text("${activePlatformUids.size} AI profiles · Your conversation, your controls", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                Text("${draftParticipants.size} AI profiles · Your conversation, your controls", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
             }
         },
         text = {
             Column {
-                val sections = listOf("Models", "Tools", "Privacy")
+                if (combinedMode && combinedSaveState.error != null) Text(combinedSaveState.error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                val sections = listOf(firstSection, "Tools", "Privacy")
                 TabRow(selectedTabIndex = sections.indexOf(section).coerceAtLeast(0), containerColor = MaterialTheme.colorScheme.surface) {
                     sections.forEach { label ->
                         Tab(
@@ -169,7 +208,7 @@ fun ChatModelDialog(
                             icon = {
                                 Icon(
                                     when (label) {
-                                        "Models" -> Icons.Rounded.Memory
+                                        "Models", "Combined" -> Icons.Rounded.Memory
                                         "Tools" -> Icons.Rounded.Hub
                                         else -> Icons.Rounded.Shield
                                     },
@@ -181,18 +220,22 @@ fun ChatModelDialog(
                     }
                 }
                 Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(top = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (section == "Models") {
-                        ConversationDelegationCard(
-                            settings = delegationSettings,
-                            profiles = delegationProfiles,
-                            usesDefaults = usesDefaultDelegation,
-                            onChange = onDelegationChanged
-                        )
+                    if (section == firstSection) {
+                        if (combinedMode) {
+                            CombinedSettingsControls(combinedDraft.settings, { combinedDraft = combinedDraft.copy(settings = it) }, enabled = !saving)
+                        } else {
+                            ConversationDelegationCard(
+                                settings = delegationSettings,
+                                profiles = delegationProfiles,
+                                usesDefaults = usesDefaultDelegation,
+                                onChange = onDelegationChanged
+                            )
+                        }
                         HorizontalDivider(Modifier.padding(vertical = 8.dp))
                         val filteredProfiles = platformOrder
                         val displayedProfile = selectedProfile.takeIf { it in filteredProfiles } ?: filteredProfiles.firstOrNull()
                         Box(Modifier.fillMaxWidth()) {
-                            FilledTonalButton(onClick = { profileMenuOpen = true }, enabled = filteredProfiles.isNotEmpty(), modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
+                            FilledTonalButton(onClick = { profileMenuOpen = true }, enabled = !saving && filteredProfiles.isNotEmpty(), modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
                                 Icon(Icons.Rounded.Memory, null)
                                 Spacer(Modifier.width(8.dp))
                                 Text(displayedProfile?.let { platformNames[it] }.orEmpty().ifBlank { "No matching profiles" }, Modifier.weight(1f))
@@ -201,7 +244,7 @@ fun ChatModelDialog(
                             DropdownMenu(expanded = profileMenuOpen, onDismissRequest = { profileMenuOpen = false }) {
                                 filteredProfiles.forEach { uid ->
                                     DropdownMenuItem(
-                                        text = { Text("${platformNames[uid].orEmpty()} · ${if (uid in activePlatformUids) "Added" else "Available"}") },
+                                        text = { Text("${platformNames[uid].orEmpty()} · ${if (uid in draftParticipants) "Added" else "Available"}") },
                                         onClick = {
                                             selectedProfile = uid
                                             profileMenuOpen = false
@@ -213,30 +256,30 @@ fun ChatModelDialog(
                         listOfNotNull(displayedProfile).forEach { platformUid ->
                             val platformName = platformNames[platformUid] ?: stringResource(R.string.unknown)
                             val clientType = platformClientTypes[platformUid]
-                            val isMember = platformUid in activePlatformUids
+                            val isMember = platformUid in draftParticipants
                             val isTemporarilyEnabled = platformUid !in disabledPlatformUids
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(platformName, modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
-                                Text(
-                                    if (!isTemporarilyEnabled) {
-                                        "Paused"
-                                    } else if (isMember) {
-                                        "Added"
-                                    } else {
-                                        "Available"
-                                    },
-                                    style = MaterialTheme.typography.labelSmall
-                                )
-                                Spacer(Modifier.width(8.dp))
-                                Switch(
-                                    checked = isMember,
-                                    onCheckedChange = { active -> onPlatformActiveChanged(platformUid, active) }
-                                )
+                            val onMembershipChanged: (Boolean) -> Unit = { active ->
+                                if (combinedMode) {
+                                    combinedDraft = combinedDraft.copy(
+                                        participantUids = if (active) {
+                                            (combinedDraft.participantUids + platformUid).distinct()
+                                        } else {
+                                            combinedDraft.participantUids - platformUid
+                                        }
+                                    )
+                                } else {
+                                    onPlatformActiveChanged(platformUid, active)
+                                }
                             }
+
+                            CombinedMemberToggleRow(
+                                platformUid = platformUid,
+                                platformName = platformName,
+                                isMember = isMember,
+                                isTemporarilyEnabled = isTemporarilyEnabled,
+                                enabled = !saving,
+                                onCheckedChange = onMembershipChanged
+                            )
 
                             if (clientType == ClientType.LITERT_LM) {
                                 Text(
@@ -247,7 +290,7 @@ fun ChatModelDialog(
                                     models = downloadedLocalModels,
                                     selectedCatalogEntryId = models[platformUid].orEmpty(),
                                     onModelSelected = { value ->
-                                        models = models.toMutableMap().apply { put(platformUid, value) }
+                                        updateModels(models + (platformUid to value))
                                     },
                                     onNavigateToLocalModels = onNavigateToLocalModels,
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp)
@@ -260,12 +303,13 @@ fun ChatModelDialog(
                                         .padding(horizontal = 8.dp, vertical = 8.dp),
                                     value = models[platformUid].orEmpty(),
                                     onValueChange = { value ->
-                                        models = models.toMutableMap().apply { put(platformUid, value) }
+                                        updateModels(models + (platformUid to value))
                                     },
                                     singleLine = true,
+                                    enabled = !saving,
                                     label = { Text(text = stringResource(R.string.chat_model_for_platform, platformName)) },
                                     trailingIcon = {
-                                        IconButton(onClick = { activeCloudPickerUid = platformUid }) {
+                                        IconButton(enabled = !saving, onClick = { activeCloudPickerUid = platformUid }) {
                                             Icon(
                                                 imageVector = Icons.Rounded.ArrowDropDown,
                                                 contentDescription = stringResource(R.string.unified_model_picker)
@@ -281,12 +325,13 @@ fun ChatModelDialog(
                                         .padding(horizontal = 8.dp, vertical = 8.dp),
                                     value = models[platformUid].orEmpty(),
                                     onValueChange = { value ->
-                                        models = models.toMutableMap().apply { put(platformUid, value) }
+                                        updateModels(models + (platformUid to value))
                                     },
                                     singleLine = true,
+                                    enabled = !saving,
                                     label = { Text(text = stringResource(R.string.chat_model_for_platform, platformName)) },
                                     trailingIcon = {
-                                        IconButton(onClick = { activeLlamaPickerPlatformUid = platformUid }) {
+                                        IconButton(enabled = !saving, onClick = { activeLlamaPickerPlatformUid = platformUid }) {
                                             Icon(
                                                 imageVector = Icons.Rounded.ArrowDropDown,
                                                 contentDescription = stringResource(R.string.llama_select_router_model)
@@ -301,12 +346,13 @@ fun ChatModelDialog(
                                         .padding(horizontal = 8.dp, vertical = 8.dp),
                                     value = models[platformUid].orEmpty(),
                                     onValueChange = { value ->
-                                        models = models.toMutableMap().apply { put(platformUid, value) }
+                                        updateModels(models + (platformUid to value))
                                     },
                                     singleLine = true,
+                                    enabled = !saving,
                                     label = { Text(text = stringResource(R.string.chat_model_for_platform, platformName)) },
                                     trailingIcon = {
-                                        IconButton(onClick = { activeCloudPickerUid = platformUid }) {
+                                        IconButton(enabled = !saving, onClick = { activeCloudPickerUid = platformUid }) {
                                             Icon(Icons.Rounded.ArrowDropDown, contentDescription = "Browse provider models")
                                         }
                                     }
@@ -315,6 +361,8 @@ fun ChatModelDialog(
                         }
                     }
                     if (section == "Tools") {
+                        Text("Changes on this tab save immediately.", style = MaterialTheme.typography.bodySmall)
+                        if (combinedMode) Text("Tools use saved participants and model choices. Save first-tab changes before configuring new participants here.", style = MaterialTheme.typography.bodySmall)
                         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Rounded.Psychology, null, tint = MaterialTheme.colorScheme.primary)
                             Spacer(Modifier.width(10.dp))
@@ -360,20 +408,22 @@ fun ChatModelDialog(
                                 }
                             }
                         }
-                        Text("Web search queries all enabled search connections and combines their results. Individual switches control which engines participate.", style = MaterialTheme.typography.bodySmall)
+                        Text(if (combinedMode) "Enabled connections are available for research. Response effort controls how broadly they are used." else "Web search queries all enabled search connections and combines their results. Individual switches control which engines participate.", style = MaterialTheme.typography.bodySmall)
                     }
-                    if (section == "Models") {
+                    if (section == firstSection) {
                         HorizontalDivider(Modifier.padding(vertical = 8.dp))
                         Text("Creativity · %.2f".format(creativity), style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
                         Slider(
                             value = creativity,
-                            onValueChange = { creativity = it },
+                            onValueChange = { if (combinedMode) combinedDraft = combinedDraft.copy(creativity = it) else legacyCreativity = it },
+                            enabled = !saving,
                             valueRange = 0f..2f,
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp).testTag("combined_creativity")
                         )
                         Text("Focused answers at the left; more varied ideas at the right. Model and creativity changes apply when saved.", style = MaterialTheme.typography.bodySmall)
                     }
                     if (section == "Privacy") {
+                        Text("Changes on this tab save immediately.", style = MaterialTheme.typography.bodySmall)
                         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer), shape = RoundedCornerShape(20.dp)) {
                             Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 Icon(Icons.Rounded.Shield, null, tint = MaterialTheme.colorScheme.primary)
@@ -400,27 +450,35 @@ fun ChatModelDialog(
                 }
             }
         },
-        onDismissRequest = onDismissRequest,
+        onDismissRequest = { if (!saving) onDismissRequest() },
         confirmButton = {
-            val hasBlank = activePlatformUids.any { uid ->
-                models[uid].orEmpty().trim().isBlank() || downloadedLocalModels.any { it.catalogEntryId == models[uid] && it.compatibilityIssue != null }
-            }
+            val hasBlank = draftParticipants.isEmpty() ||
+                draftParticipants.any { uid ->
+                    models[uid].orEmpty().trim().isBlank() || downloadedLocalModels.any { it.catalogEntryId == models[uid] && it.compatibilityIssue != null }
+                }
             Button(
-                enabled = !hasBlank,
+                modifier = Modifier.testTag("combined_settings_save"),
+                enabled = !saving && !hasBlank && (!combinedMode || combinedDraft.settings.isSupported),
                 onClick = {
-                    onConfirmRequest(
-                        models.mapValues { (_, model) -> model.trim() },
-                        creativity
-                    )
+                    if (combinedMode) {
+                        val requested = combinedDraft.copy(chatId = chatId, operationId = java.util.UUID.randomUUID().toString())
+                        combinedDraft = requested
+                        onConfirmCombined(requested)
+                    } else {
+                        onConfirmRequest(
+                            models.mapValues { (_, model) -> model.trim() },
+                            creativity
+                        )
+                    }
                 }
             ) {
                 Icon(Icons.Rounded.Done, null)
                 Spacer(Modifier.width(8.dp))
-                Text("Save Changes")
+                Text(if (saving) "Saving…" else "Save Changes")
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismissRequest) {
+            TextButton(enabled = !saving, onClick = onDismissRequest, modifier = Modifier.testTag("combined_settings_cancel")) {
                 Text(stringResource(R.string.cancel))
             }
         }
@@ -430,7 +488,7 @@ fun ChatModelDialog(
         CloudModelPickerDialog(
             profileUid = uid,
             loadModels = loadModels,
-            onSelect = { model -> models = models + (uid to model) },
+            onSelect = { model -> updateModels(models + (uid to model)) },
             onDismiss = { activeCloudPickerUid = null }
         )
     }
@@ -452,7 +510,7 @@ fun ChatModelDialog(
             ollamaModels = ollamaModels,
             selectedModelId = currentModel,
             onModelSelected = { selected ->
-                models = models.toMutableMap().apply { put(platformUid, selected) }
+                updateModels(models + (platformUid to selected))
             },
             onNavigateToLocalModels = onNavigateToLocalModels,
             onDismissRequest = { activeUnifiedPickerPlatformUid = null }
@@ -469,7 +527,7 @@ fun ChatModelDialog(
             currentModel = currentModel,
             onDismiss = { activeLlamaPickerPlatformUid = null },
             onModelSelected = { selected ->
-                models = models.toMutableMap().apply { put(platformUid, selected) }
+                updateModels(models + (platformUid to selected))
             }
         )
     }

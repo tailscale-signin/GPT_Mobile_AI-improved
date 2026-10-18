@@ -8,6 +8,8 @@ import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
 import dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
+import dev.chungjungsoo.gptmobile.data.database.entity.effectiveCombinedSources
+import dev.chungjungsoo.gptmobile.data.database.entity.hasHistoricalRevisionSelected
 import dev.chungjungsoo.gptmobile.util.isAssistantErrorMessage
 import java.text.Normalizer
 
@@ -48,11 +50,11 @@ internal fun combinedResponseStatus(
 
 /** Keep the exact source used for synthesis, including the lead response replaced by the final answer. */
 private fun sourceMessage(message: MessageV2?, source: CombinedModelResponse): MessageV2 {
-    if (message != null && !message.isCombinedSynthesis() && dev.chungjungsoo.gptmobile.util.stripAssistantErrorNote(message.content).trim() == source.content.trim()) {
+    if (message != null && !message.isCombinedSynthesis() && (source.attemptId == null || message.currentRunId == source.attemptId) && dev.chungjungsoo.gptmobile.util.stripAssistantErrorNote(message.content).trim() == source.content.trim()) {
         return message.copy(activeRevisionIndex = ACTIVE_REVISION_LATEST)
     }
     val revision = message?.revisions?.firstOrNull {
-        it.runId?.startsWith("combined-synthesis:") != true && dev.chungjungsoo.gptmobile.util.stripAssistantErrorNote(it.content).trim() == source.content.trim()
+        it.runId?.startsWith("combined-synthesis:") != true && (source.attemptId == null || it.runId == source.attemptId) && dev.chungjungsoo.gptmobile.util.stripAssistantErrorNote(it.content).trim() == source.content.trim()
     }
     return MessageV2(
         id = message?.id ?: 0,
@@ -62,8 +64,8 @@ private fun sourceMessage(message: MessageV2?, source: CombinedModelResponse): M
         content = source.content,
         thoughts = revision?.thoughts.orEmpty(),
         timeline = revision?.timeline.orEmpty(),
-        currentRunId = revision?.runId,
-        createdAt = revision?.createdAt ?: message?.createdAt ?: 0,
+        currentRunId = source.attemptId ?: revision?.runId,
+        createdAt = source.createdAt ?: revision?.createdAt ?: message?.createdAt ?: 0,
         isFavorite = message?.isFavorite ?: false
     )
 }
@@ -76,9 +78,15 @@ internal fun combinedResponseProfiles(
     preparing: Boolean,
     runsById: Map<String, AgentRun>
 ): List<CombinedResponseProfile> {
-    val sources = responses.firstOrNull { it.isCombinedSynthesis() }?.combinedSources.orEmpty().associateBy { it.platformUid }
+    val synthesis = responses.firstOrNull { it.isCombinedSynthesis() }
+    val sources = synthesis?.effectiveCombinedSources().orEmpty().associateBy { it.platformUid }
     // Historical participants come from persisted responses, even after a profile is paused or removed.
-    val uids = (platformUids + responses.mapNotNull { it.platformType } + sources.keys).distinct()
+    // A selected archived answer can use only its own saved sources, never a newer turn's responses.
+    val uids = if (synthesis?.hasHistoricalRevisionSelected() == true) {
+        sources.keys.toList()
+    } else {
+        (platformUids + responses.mapNotNull { it.platformType } + sources.keys).distinct()
+    }
     return uids.mapIndexedNotNull { order, uid ->
         val index = responses.indexOfFirst { it.platformType == uid }
         val original = responses.getOrNull(index)
@@ -95,7 +103,11 @@ internal fun combinedResponseProfiles(
             name = combinedProfileLabel(source?.platformName ?: profileNames[uid].orEmpty(), "AI ${order + 1}"),
             assistantIndex = index.takeIf { it >= 0 } ?: platformUids.indexOf(uid),
             message = response,
-            status = combinedResponseStatus(response, run, preparing && source == null && run == null && uid in participatingUids)
+            status = if (run == null && source?.completionStatus in setOf(AgentRunStatus.FAILED, AgentRunStatus.INTERRUPTED, AgentRunStatus.CANCELED)) {
+                CombinedResponseStatus.FAILED
+            } else {
+                combinedResponseStatus(response, run, preparing && source == null && run == null && uid in participatingUids)
+            }
         )
     }
 }

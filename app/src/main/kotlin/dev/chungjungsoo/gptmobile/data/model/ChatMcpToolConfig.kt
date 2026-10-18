@@ -1,5 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.model
 
+import dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext
+import dev.chungjungsoo.gptmobile.data.delegation.DelegationPolicyResolver
 import kotlinx.serialization.Serializable
 
 /**
@@ -28,10 +30,12 @@ data class ChatMcpToolConfig(
     val maxToolCalls: Int? = null,
     val reasoning: Boolean? = null,
     val delegation: ConversationDelegationSettings? = null,
-    val research: MultiSearchResearchSelection? = null
+    val research: MultiSearchResearchSelection? = null,
+    val combined: CombinedExecutionContext? = null
 ) {
     fun effectiveDelegation(defaults: ModelDelegationSettings): ModelDelegationSettings =
         (delegation?.applyTo(defaults) ?: defaults.normalized()).let { research?.applyTo(it) ?: it }
+            .let { DelegationPolicyResolver.suppressForCombined(it, combined) }
 
     fun isToolEnabled(toolId: String): Boolean {
         if (allToolsDisabled) return false

@@ -10,6 +10,7 @@ import kotlinx.serialization.json.JsonObject
 internal class AirbnbMcpResultTool(private val delegate: AgentTool) : AgentTool {
     override val definition = delegate.definition.copy(description = delegate.definition.description + " Listings create interactive Airbnb cards. Supply travel dates and guests for relevant pricing. Never invent fees, reviews or availability; use listing details for additional photos and facts.")
     override val managesExecutionBudget = delegate.managesExecutionBudget
+    override val coordinatesChildWork = delegate.coordinatesChildWork
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
         val result = delegate.execute(callId, arguments)

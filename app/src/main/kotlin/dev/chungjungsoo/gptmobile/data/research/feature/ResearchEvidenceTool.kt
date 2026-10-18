@@ -17,6 +17,7 @@ import kotlinx.serialization.json.put
 
 /** Registered, bounded evidence access; model-supplied URLs and user-origin flags are rejected. */
 internal class ResearchEvidenceTool(private val operation: String, private val archive: ResearchArchiveRepository, private val coordinator: () -> ArticleExaminationCoordinator, private val profileUid: String, private val chatId: Int, private val authority: String, private val tools: ChatMcpToolConfig, private val permitted: suspend () -> Boolean, private val comparisonLimit: Int, private val rootWorkId: String? = null) : AgentTool {
+    override val coordinatesChildWork = operation == "examine_article"
     override val definition = AgentToolDefinition(
         "research_$operation",
         when (operation) {

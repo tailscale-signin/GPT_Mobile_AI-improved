@@ -12,7 +12,8 @@ data class RequestConstraints(
     val contextCeiling: Int? = null,
     val permissionRevision: String = "legacy-unverified",
     val requireKnownCapacity: Boolean = false,
-    val finalResponseSchemaJson: String? = null
+    val finalResponseSchemaJson: String? = null,
+    val combined: dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext? = null
 ) {
     init {
         finalResponseSchemaJson?.let { schema ->
@@ -22,5 +23,5 @@ data class RequestConstraints(
         require(maxOutputTokens == null || maxOutputTokens > 0)
     }
 
-    fun outputLimit(preferred: Int?): Int? = dev.chungjungsoo.gptmobile.data.context.RequestLimitResolver.output(preferred, maxOutputTokens).tokens
+    fun outputLimit(preferred: Int?): Int? = dev.chungjungsoo.gptmobile.data.context.RequestLimitResolver.output(preferred, maxOutputTokens ?: combined?.let { it.plan?.outputTokens(it.role) }).tokens
 }

@@ -16,6 +16,7 @@ internal class OutputLimitRecoverySession(
     private val continueEmptyOutput: Boolean = true,
     private var effectiveOutputCap: Int? = null,
     private val maxAnswerCharacters: Int = 1_048_576,
+    private val combined: CombinedExecutionContext? = null,
     private val saveProgress: suspend (draft: String, index: Int, outputCap: Int?, reason: String) -> Unit = { _, _, _, _ -> },
     private val continuation: suspend (String, List<AgentToolExchange>) -> AgentProviderSession
 ) : AgentProviderSession {
@@ -24,6 +25,9 @@ internal class OutputLimitRecoverySession(
     private var lowYieldLimitRounds = 0
     private val answer = StringBuilder(initialDraft)
     private val retainedCharacterLimit = maxAnswerCharacters.takeIf { it > 0 } ?: Int.MAX_VALUE
+    private val continuationLimit = if (combined == null) maxContinuations.coerceIn(0, 16) else maxContinuations.coerceAtLeast(0)
+
+    private fun visibleWords(): Int = if (combined == null) LongResponsePolicy.countWords(answer.toString()) else CombinedWordCounter.count(answer.toString())
 
     init {
         require(initialDraft.length <= retainedCharacterLimit) { "Saved answer exceeds the configured retention allowance; it was not truncated." }
@@ -134,18 +138,19 @@ internal class OutputLimitRecoverySession(
                 emit(requireNotNull(failure))
                 return@flow
             }
-            val shortAnswer = completed && pendingCalls.isEmpty() && LongResponsePolicy.needsMore(answer.toString(), targetWords)
+            val needsMore = if (combined == null) LongResponsePolicy.needsMore(answer.toString(), targetWords) else targetWords?.let { visibleWords() < it } == true
+            val shortAnswer = completed && pendingCalls.isEmpty() && needsMore
             if (!limitFailure && !shortAnswer && !transientFailure) {
                 pendingCalls.forEach { emit(it) }
                 saveProgress(answer.toString(), continuations, effectiveOutputCap, if (completed) "COMPLETED" else "PARTIAL")
                 if (completed) emit(ProviderEvent.Completed)
                 return@flow
             }
-            if ((!transientFailure && continuations >= maxContinuations.coerceIn(0, 16)) || answer.length >= retainedCharacterLimit || (!transientFailure && continuing && novel.isBlank())) {
+            if ((!transientFailure && continuations >= continuationLimit) || answer.length >= retainedCharacterLimit || (!transientFailure && continuing && novel.isBlank())) {
                 saveProgress(answer.toString(), continuations, effectiveOutputCap, "PARTIAL")
                 emit(
                     ProviderEvent.Failed(
-                        "The response is incomplete after bounded continuation (${LongResponsePolicy.countWords(answer.toString())} words" +
+                        "The response is incomplete after bounded continuation (${visibleWords()} words" +
                             (targetWords?.let { " of approximately $it requested" } ?: "") + "). The partial answer and completed evidence are saved; no tool actions were repeated."
                     )
                 )
@@ -158,7 +163,7 @@ internal class OutputLimitRecoverySession(
             } else {
                 continuations++
             }
-            if (!transientFailure) emit(ProviderEvent.Notice("Continuing the response ($continuations/${maxContinuations.coerceIn(0, 16)}) from the saved answer and completed evidence.", false))
+            if (!transientFailure) emit(ProviderEvent.Notice("Continuing the response ($continuations/$continuationLimit) from the saved answer and completed evidence.", false))
             active = try {
                 continuation(answer.toString(), evidence)
             } catch (cancelled: kotlinx.coroutines.CancellationException) {

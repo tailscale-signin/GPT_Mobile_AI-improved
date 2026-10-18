@@ -28,7 +28,8 @@ internal fun combinedSynthesisInputs(
     val sources = responses.mapNotNull { message ->
         val uid = message.platformType ?: return@mapNotNull null
         val original = message.combinedSources.firstOrNull { it.platformUid == uid }
-        val content = stripAssistantErrorNote(original?.content ?: message.content).trim()
+        val originalContent = original?.content ?: message.content
+        val content = stripAssistantErrorNote(originalContent).trim()
         if (isAssistantErrorMessage(content)) return@mapNotNull null
         // The synthesis run's status describes the editor, not the preserved contributor.
         val status = if (message.isCombinedSynthesis() && original != null) {
@@ -36,18 +37,23 @@ internal fun combinedSynthesisInputs(
         } else {
             runs[message.currentRunId]?.status ?: original?.completionStatus ?: AgentRunStatus.COMPLETED
         }
-        val assessment = CombinedContributionQuality.assess(status, content)
+        val assessment = CombinedContributionUsability.assess(status, content, allowPartial = true)
         if (!assessment.admitted) return@mapNotNull null
         CombinedModelResponse(
             platformUid = uid,
             platformName = names[uid] ?: original?.platformName ?: "AI",
             modelName = models[uid] ?: original?.modelName.orEmpty(),
-            content = content,
+            content = originalContent,
             completionStatus = status,
-            qualityScore = assessment.qualityScore,
+            qualityScore = assessment.structuralUsability,
+            structuralUsability = assessment.structuralUsability,
             sourceIds = original?.sourceIds.orEmpty(),
             evidenceRefs = original?.evidenceRefs.orEmpty(),
-            localOnly = original?.localOnly == true || message.containsLocalOnlyMemory()
+            localOnly = original?.localOnly == true || message.containsLocalOnlyMemory(),
+            attemptId = original?.attemptId ?: message.currentRunId,
+            createdAt = original?.createdAt ?: message.createdAt,
+            sourceDigest = dev.chungjungsoo.gptmobile.data.research.researchHash(originalContent),
+            ancestryIds = original?.ancestryIds.orEmpty()
         )
     }
     if (sources.isEmpty()) return null

@@ -13,6 +13,7 @@ import kotlinx.serialization.json.JsonObject
 class ObservedTool(private val delegate: AgentTool, private val identity: ToolIdentity) : OwnedAgentTool {
     override val definition = delegate.definition
     override val managesExecutionBudget = delegate.managesExecutionBudget
+    override val coordinatesChildWork = delegate.coordinatesChildWork
     override val executionOwner = (delegate as? OwnedAgentTool)?.executionOwner ?: AgentToolExecutionOwner.CLIENT
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
         val parent = currentCoroutineContext()[ToolStatisticsContext] ?: return delegate.execute(callId, arguments)

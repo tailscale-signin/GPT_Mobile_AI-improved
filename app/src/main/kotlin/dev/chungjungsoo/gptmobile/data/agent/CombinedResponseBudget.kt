@@ -5,17 +5,29 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
-/** Size recovery from the complete contributor envelope without imposing a shorter answer. */
+/** Continuation is capacity for unfinished requested work; it is never a required number of calls. */
 internal object CombinedResponseBudget {
-    fun continuationLimit(envelope: String, outputCap: Int?, wordGoal: Int?): Int {
-        val contributions = runCatching { (Json.parseToJsonElement(envelope) as? JsonObject)?.get("contributions") as? JsonArray }.getOrNull().orEmpty()
-        val sourceWords = contributions.sumOf { ((it as? JsonObject)?.get("response") as? JsonPrimitive)?.content?.let(LongResponsePolicy::countWords)?.toLong() ?: 0L }
-        val request = runCatching { ((Json.parseToJsonElement(envelope) as? JsonObject)?.get("original_request") as? JsonPrimitive)?.content }.getOrNull().orEmpty()
-        val policy = CombinedAnswerPolicy.from(request)
-        val requestedLength = policy.maximumWords ?: policy.targetWords ?: wordGoal
-        val estimatedOutput = (requestedLength?.toLong() ?: sourceWords) * 2.2
+    fun continuationLimit(envelope: String, outputCap: Int?, wordGoal: Int?, combined: CombinedExecutionContext? = null): Int {
+        val json = runCatching { Json.parseToJsonElement(envelope) as? JsonObject }.getOrNull()
+        val contributions = (json?.get("contributions") as? JsonArray).orEmpty()
+        val sharedClaims = (json?.get("claim_inventory") as? JsonArray).orEmpty()
+        val sourceWords = if (sharedClaims.isNotEmpty()) {
+            sharedClaims.sumOf { ((it as? JsonObject)?.get("text") as? JsonPrimitive)?.content?.let(CombinedWordCounter::count)?.toLong() ?: 0L }
+        } else {
+            contributions.sumOf { ((it as? JsonObject)?.get("response") as? JsonPrimitive)?.content?.let(CombinedWordCounter::count)?.toLong() ?: 0L }
+        }
+        val request = ((json?.get("original_request")) as? JsonPrimitive)?.content.orEmpty()
+        val policy = runCatching { json?.get("answer_policy")?.let { Json.decodeFromJsonElement(CombinedAnswerPolicy.serializer(), it) } }.getOrNull() ?: CombinedAnswerPolicy.from(request)
+        val requestedLength = policy.maximumWords ?: policy.targetWords ?: policy.minimumWords ?: wordGoal
+        if (combined?.plan?.renewable == true && requestedLength == null) return Int.MAX_VALUE
+        val estimatedOutput = requestedLength?.toDouble()?.times(2.2)
+            ?: combined?.plan?.finalOutputTokens?.toDouble()
+            ?: ((json?.get("merge_selection_policy") as? JsonObject)?.get("default_visible_output_tokens") as? JsonPrimitive)?.content?.toDoubleOrNull()
+            ?: sourceWords.toDouble() * 2.2
         val segment = outputCap?.takeIf { it > 0 } ?: 16_384
-        return (kotlin.math.ceil(estimatedOutput / (segment * 0.85)).toInt() - 1).coerceIn(1, 16)
+        // The shared turn ledger, provider admission and no-progress rules gate each actual continuation.
+        // A fixed sixteen-segment application cap must not truncate an explicit large request.
+        return (kotlin.math.ceil(estimatedOutput / (segment * 0.85)) - 1).coerceIn(1.0, Int.MAX_VALUE.toDouble()).toInt()
     }
 }
 

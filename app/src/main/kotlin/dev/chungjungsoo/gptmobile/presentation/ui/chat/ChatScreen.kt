@@ -127,10 +127,12 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
+import dev.chungjungsoo.gptmobile.data.database.entity.effectiveCombinedSources
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveContent
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveRunId
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveThoughts
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveTimeline
+import dev.chungjungsoo.gptmobile.data.database.entity.hasHistoricalRevisionSelected
 import dev.chungjungsoo.gptmobile.data.model.delegationFor
 import dev.chungjungsoo.gptmobile.data.model.excludesMemory
 import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
@@ -824,7 +826,11 @@ fun ChatScreen(
                             emptyList()
                         }
                         ChatProfileDock(
-                            profileUids = (chatViewModel.enabledPlatformsInChat + frozenProfiles.map { it.uid }).distinct(),
+                            profileUids = if (combined && replies.firstOrNull { it.isCombinedSynthesis() }?.hasHistoricalRevisionSelected() == true) {
+                                frozenProfiles.map { it.uid }
+                            } else {
+                                (chatViewModel.enabledPlatformsInChat + frozenProfiles.map { it.uid }).distinct()
+                            },
                             names = enabledPlatformLookup.mapValues { it.value.name } + frozenProfiles.associate { it.uid to it.name },
                             selectedUid = if (combined) inspectedCombinedProfileUid.takeIf { inspectedCombinedTurn == dockKey } else chatViewModel.enabledPlatformsInChat.getOrNull(indexStates.getOrElse(dockTurn) { 0 }),
                             pausedUids = disabledPlatformUids,
@@ -898,7 +904,15 @@ fun ChatScreen(
                 ?.takeIf { it in activePlatformUids && it !in disabledPlatformUids }
                 ?: activePlatformUids.firstOrNull { it !in disabledPlatformUids }.orEmpty()
             var currentProfileUid by remember(initialProfileUid) { mutableStateOf(initialProfileUid) }
+            val combinedSaveState by chatViewModel.combinedSettingsSaveState.collectAsStateWithLifecycle()
+            val combinedConversationIdentity by chatViewModel.combinedConversationIdentity.collectAsStateWithLifecycle()
             ChatModelDialog(
+                conversationMode = chatRoom.conversationMode,
+                conversationIdentity = combinedConversationIdentity,
+                chatId = chatRoom.id,
+                combinedSettings = featureSettings.conversationCombined[chatRoom.id] ?: dev.chungjungsoo.gptmobile.data.model.ConversationCombinedSettings(),
+                combinedSaveState = combinedSaveState,
+                onConfirmCombined = chatViewModel::saveCombinedChatSettings,
                 onSelectedProfileChanged = { currentProfileUid = it },
                 isTemporary = chatRoom.isTemporary,
                 onTemporaryChanged = chatViewModel::setTemporary,
@@ -952,7 +966,9 @@ fun ChatScreen(
                     chatViewModel.setChatToolsEnabled(webSearchToolIds, enabled)
                 },
                 onNavigateToLocalModels = onNavigateToLocalModels,
-                onDismissRequest = chatViewModel::closeChatModelDialog,
+                onDismissRequest = {
+                    if (chatRoom.conversationMode == ConversationMode.COMBINED) chatViewModel.abortCombinedChatSettingsSave() else chatViewModel.closeChatModelDialog()
+                },
                 onConfirmRequest = { models, creativity ->
                     chatViewModel.updateChatPlatformModels(models)
                     chatViewModel.updateChatCreativity(creativity)
@@ -1192,21 +1208,21 @@ private fun ChatMessagePair(
         activeProfileUids = activePlatformUids - disabledPlatformUids,
         eventsByRun = toolEventsByRun
     )
-    val canShowPreviousRevision = !hasCombinedTabs &&
+    val canShowPreviousRevision = !isSourceResponse &&
         (
             selectedAssistantMessage?.let { assistantMessage ->
                 assistantMessage.revisions.isNotEmpty() &&
                     assistantMessage.activeRevisionIndex < assistantMessage.revisions.lastIndex
             } ?: false
             )
-    val canShowNextRevision = !hasCombinedTabs &&
+    val canShowNextRevision = !isSourceResponse &&
         (
             selectedAssistantMessage?.let { assistantMessage ->
                 assistantMessage.revisions.isNotEmpty() &&
                     assistantMessage.activeRevisionIndex != ACTIVE_REVISION_LATEST
             } ?: false
             )
-    val selectedPlatformUid = selectedProfile?.uid ?: enabledPlatformsInChat.getOrElse(displayPlatformIndex) { "" }
+    val selectedPlatformUid = selectedProfile?.uid ?: selectedAssistantMessage?.platformType ?: enabledPlatformsInChat.getOrElse(displayPlatformIndex) { "" }
     val isCurrentPlatformLoading = when {
         isCombinedConversation -> combinedStatus == CombinedResponseStatus.GENERATING
         isSourceResponse -> selectedProfile.status == CombinedResponseStatus.GENERATING
@@ -1251,16 +1267,25 @@ private fun ChatMessagePair(
                 if (!hasCombinedTabs) {
                     GPTMobileIcon(loading = shouldShowReplyLoadingIndicator(isActiveMessage, loadingStates))
                 }
-                if (debugMode && hasCombinedTabs && selectedProfile == null) {
+                if (hasCombinedTabs && selectedProfile == null) {
+                    if (selectedAssistantMessage?.hasHistoricalRevisionSelected() == true && selectedAssistantMessage.effectiveCombinedSources().isEmpty()) {
+                        Text(
+                            stringResource(R.string.combined_archived_sources_unavailable),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp)
+                        )
+                    }
                     assistantTimeline.lastOrNull { it.combinedQuality != null }?.combinedQuality?.let { report ->
-                        CombinedQualityInspector(report, assistantContent)
+                        CombinedDeliveryStatus(report, assistantContent)
+                        if (debugMode) CombinedQualityInspector(report, assistantContent)
                     }
                 }
                 if (showCombinedTextMatches) {
                     val synthesis = assistantMessages.getOrNull(combinedSynthesisIndex)
                     CombinedContributionInspector(
                         answer = assistantContent,
-                        sources = synthesis?.combinedSources.orEmpty(),
+                        sources = synthesis?.effectiveCombinedSources().orEmpty(),
                         selectedProfileUids = combinedProfiles.map { it.uid },
                         identities = combinedIdentities,
                         primaryUid = synthesis?.platformType,
@@ -1274,12 +1299,26 @@ private fun ChatMessagePair(
                         .padding(horizontal = 2.dp)
                         .widthIn(max = maximumOpponentChatBubbleWidth),
                     canEdit = canUseChat && isIdle && !isSourceResponse,
-                    canRetry = !hasCombinedTabs &&
+                    canRetry = if (isCombinedConversation) {
                         canUseChat &&
-                        (isActiveMessage || agentRun?.status in setOf(AgentRunStatus.FAILED, AgentRunStatus.INTERRUPTED, AgentRunStatus.CANCELED)) &&
-                        !isCurrentPlatformLoading &&
-                        selectedPlatformUid in activePlatformUids &&
-                        selectedPlatformUid !in disabledPlatformUids,
+                            isIdle &&
+                            !isCurrentPlatformLoading &&
+                            activeAgentRun == null &&
+                            selectedAssistantMessage != null &&
+                            selectedPlatformUid in participatingUids &&
+                            enabledPlatformLookup[selectedPlatformUid]?.enabled == true
+                    } else {
+                        !isSourceResponse &&
+                            canUseChat &&
+                            (isActiveMessage || agentRun?.status in setOf(AgentRunStatus.FAILED, AgentRunStatus.INTERRUPTED, AgentRunStatus.CANCELED)) &&
+                            !isCurrentPlatformLoading &&
+                            selectedPlatformUid in participatingUids
+                    },
+                    retryLabel = if (isCombinedConversation) {
+                        stringResource(if (combinedStatus == CombinedResponseStatus.FAILED) R.string.combined_retry else R.string.combined_regenerate)
+                    } else {
+                        null
+                    },
                     isLoading = if (hasCombinedTabs) {
                         isCurrentPlatformLoading
                     } else {
@@ -1303,7 +1342,7 @@ private fun ChatMessagePair(
                     showSourceBar = !isCombinedConversation,
                     combinedWording = if (hasCombinedTabs && selectedProfile == null) {
                         CombinedWordingPresentation(
-                            assistantMessages.getOrNull(combinedSynthesisIndex)?.combinedSources.orEmpty(),
+                            assistantMessages.getOrNull(combinedSynthesisIndex)?.effectiveCombinedSources().orEmpty(),
                             attributionColors
                         )
                     } else {
@@ -1312,7 +1351,7 @@ private fun ChatMessagePair(
                     splitForPassageIndicators = showCombinedTextMatches,
                     passageIndicators = { segment ->
                         if (showCombinedTextMatches) {
-                            CombinedPassageIndicators(segment, assistantMessages.getOrNull(combinedSynthesisIndex)?.combinedSources.orEmpty(), combinedIdentities, onCombinedProfileClick)
+                            CombinedPassageIndicators(segment, assistantMessages.getOrNull(combinedSynthesisIndex)?.effectiveCombinedSources().orEmpty(), combinedIdentities, onCombinedProfileClick)
                         }
                     },
                     articleCards = { segment ->
@@ -1332,7 +1371,7 @@ private fun ChatMessagePair(
                     sourceToolEvents = provenanceToolEvents,
                     sourceProfilesByRun = agentRunsById.mapValues { it.value.profileUid },
                     contentIdentity = "$messageIndex:$selectedPlatformUid:${selectedRunId.orEmpty()}:${selectedAssistantMessage?.activeRevisionIndex}",
-                    revisionIndexLabel = selectedAssistantMessage?.takeIf { !isCombinedConversation && it.revisions.isNotEmpty() }?.let { assistantMessage ->
+                    revisionIndexLabel = selectedAssistantMessage?.takeIf { !isSourceResponse && it.revisions.isNotEmpty() }?.let { assistantMessage ->
                         val totalRevisions = assistantMessage.revisions.size + 1
                         if (assistantMessage.activeRevisionIndex == ACTIVE_REVISION_LATEST) {
                             stringResource(

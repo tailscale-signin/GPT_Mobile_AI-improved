@@ -406,6 +406,7 @@ class ToolEventRecorderTest {
 }
 
 private class FakeAgentRunDao : AgentRunDao {
+    override fun observeHomeActivity(limit: Int): Flow<List<dev.chungjungsoo.gptmobile.data.model.SettingsHomeActivity>> = MutableStateFlow(emptyList())
     override fun observeActive(): Flow<List<AgentRun>> = MutableStateFlow(emptyList())
     override fun observeUnreportedOutputLengths(limit: Int): Flow<List<dev.chungjungsoo.gptmobile.data.database.dao.RunOutputLength>> = MutableStateFlow(emptyList())
 
@@ -443,6 +444,9 @@ private class FakeAgentRunDao : AgentRunDao {
 }
 
 private class FakeAgentPersistenceDao : AgentPersistenceDao {
+    override suspend fun deleteCombinedModels(chatId: Int, profileUids: List<String>) = unused<Unit>()
+    override suspend fun archiveCombinedSegments(runId: String, archivedRunId: String) = unused<Unit>()
+    override suspend fun advanceCombinedFence(runId: String, expectedFence: Long, nextFence: Long): Int = unused()
     override suspend fun publication(key: String): dev.chungjungsoo.gptmobile.data.chat.ReplyPublication? = null
     override suspend fun nextPublicationSequence(): Long = 1
     override suspend fun savePublication(row: dev.chungjungsoo.gptmobile.data.chat.ReplyPublication) = Unit

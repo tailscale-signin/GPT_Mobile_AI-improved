@@ -9,6 +9,7 @@ import dev.chungjungsoo.gptmobile.data.agent.ActiveAgentRun
 import dev.chungjungsoo.gptmobile.data.agent.AgentRunCoordinator
 import dev.chungjungsoo.gptmobile.data.agent.AgentRunNotice
 import dev.chungjungsoo.gptmobile.data.agent.AgentRunRequest
+import dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentToolBinding
@@ -440,6 +441,10 @@ class ChatPromptQueueTest {
         coEvery { repository.fetchChatListV2() } returns listOf(room)
         coEvery { repository.fetchMessagesV2(7) } answers { messages.value }
         coEvery { repository.fetchChatPlatformModels(7) } returns profiles.associate { it.uid to it.model }
+        // This queue fixture uses a pass-through planner; relaxed context mocks cannot be serialized.
+        coEvery { repository.prepareCombinedTurn(any(), any(), any(), any(), any()) } answers {
+            firstArg<CombinedExecutionContext>()
+        }
         coEvery { repository.updateChatPlatforms(any(), any()) } coAnswers {
             membershipGate?.await()
             check(!failMembershipUpdate) { "Database unavailable" }

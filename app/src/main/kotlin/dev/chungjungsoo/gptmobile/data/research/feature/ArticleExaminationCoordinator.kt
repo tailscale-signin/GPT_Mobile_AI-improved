@@ -43,7 +43,24 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 @Serializable
-data class ExaminationCheckpoint(val schemaVersion: Int = 1, val rootWorkId: String? = null, val parentRunId: String? = null, val archiveEpoch: Long = 0, val versionId: String? = null, val nextChunk: Int = 0, val chunkCount: Int = 0, val invocationIds: List<String> = emptyList(), val limitations: List<String> = emptyList(), val coverage: ArticleSectionCoverage = ArticleSectionCoverage(), val pendingAppraisalIds: List<String> = emptyList(), val independentReports: List<IndependentAppraisalReport> = emptyList(), val sourceValidation: SourceValidationReceipt? = null, val pendingReviews: List<ResearchStudyReview> = emptyList(), val profileSnapshotJson: String? = null)
+data class ExaminationCheckpoint(
+    val schemaVersion: Int = 1,
+    val rootWorkId: String? = null,
+    val parentRunId: String? = null,
+    val archiveEpoch: Long = 0,
+    val versionId: String? = null,
+    val nextChunk: Int = 0,
+    val chunkCount: Int = 0,
+    val invocationIds: List<String> = emptyList(),
+    val limitations: List<String> = emptyList(),
+    val coverage: ArticleSectionCoverage = ArticleSectionCoverage(),
+    val pendingAppraisalIds: List<String> = emptyList(),
+    val independentReports: List<IndependentAppraisalReport> = emptyList(),
+    val sourceValidation: SourceValidationReceipt? = null,
+    val pendingReviews: List<ResearchStudyReview> = emptyList(),
+    val profileSnapshotJson: String? = null,
+    val combined: dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext? = null
+)
 
 @Serializable
 data class IndependentAppraisalReport(val appraisalId: String, val artifactHash: String, val reviewerProfileUid: String, val reviewerModel: String, val verdict: String, val reasons: List<String>, val invocationIds: List<String>)
@@ -78,7 +95,8 @@ class ArticleExaminationCoordinator @Inject constructor(
     private val academic: AcademicNativeClient,
     private val models: ChatRepository,
     private val toolResolver: javax.inject.Provider<dev.chungjungsoo.gptmobile.data.agent.tool.AgentToolResolver>,
-    private val sessions: dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore
+    private val sessions: dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore,
+    private val combinedBudgets: dev.chungjungsoo.gptmobile.data.agent.CombinedTurnBudgetStore? = null
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lock = Mutex()
@@ -102,11 +120,16 @@ class ArticleExaminationCoordinator @Inject constructor(
     }
     private suspend fun submit(request: ExaminationRequest, currentTools: () -> ChatMcpToolConfig): String {
         recover()
+        val acceptedCombined = if (request.origin == ExaminationOrigin.USER_EXAMINE) {
+            null
+        } else {
+            dev.chungjungsoo.gptmobile.data.agent.CombinedAcquisitionBoundary.context() ?: currentTools().combined
+        }
         return lock.withLock {
             val features = settings.getFeatureSettings()
             val profile = requireNotNull(settings.fetchPlatformV2s().firstOrNull { it.uid == request.profileUid.ifBlank { (features.conversationResearch[request.chatId] ?: currentTools().research)?.crawlerProfileUid ?: features.researchFeature.crawlerProfileUid.orEmpty() } }) { "Choose an enabled examination profile" }
             examinationAdmission(features, profile, request, currentTools())?.let { error(it) }
-            val reviewPolicy = features.delegationFor(profile.uid).normalized()
+            val reviewPolicy = dev.chungjungsoo.gptmobile.data.delegation.DelegationPolicyResolver.suppressForCombined(features.delegationFor(profile.uid).normalized(), acceptedCombined)
             if (reviewPolicy.reviewerEnabled && reviewPolicy.reviewMode == dev.chungjungsoo.gptmobile.data.delegation.DelegationReviewMode.REQUIRED) {
                 check(resolveReviewer(reviewPolicy, settings.fetchPlatformV2s(), profile) != null) { "Required independent reviewer unavailable; examination paused before reading" }
             }
@@ -118,20 +141,39 @@ class ArticleExaminationCoordinator @Inject constructor(
                 check(chat != null && !chat.isTemporary) { "Durable examination is unavailable in a deleted or temporary chat" }
             }
             val policy = policyHash(features, profile, currentTools())
-            val baseKey = researchHash("${request.workId}|${source.versionId}|${request.authority}|${request.chatId}|${profile.uid}|$policy")
-            val running = archive.dao.allJobs().firstOrNull { it.workId == request.workId && it.profileUid == profile.uid && it.authority == request.authority && it.policyHash == policy && it.requestedVersionId == source.versionId && active[it.jobId]?.isActive == true }
+            val acceptedRoot = acceptedCombined?.let { "|combined:${it.rootBudgetId}:${it.workItemId.orEmpty()}" }.orEmpty()
+            val baseKey = researchHash("${request.workId}|${source.versionId}|${request.authority}|${request.chatId}|${profile.uid}|$policy|${request.origin}$acceptedRoot")
+            val running = archive.dao.allJobs().firstOrNull {
+                it.workId == request.workId &&
+                    it.profileUid == profile.uid &&
+                    it.authority == request.authority &&
+                    it.policyHash == policy &&
+                    it.requestedVersionId == source.versionId &&
+                    runCatching { Json.decodeFromString<ExaminationCheckpoint>(it.checkpointJson).combined == acceptedCombined }.getOrDefault(false) &&
+                    active[it.jobId]?.isActive == true
+            }
             if (running != null) return@withLock running.jobId
             val dedup = if (request.reexamine) researchHash("$baseKey|${UUID.randomUUID()}") else baseKey
             val old = archive.dao.jobForKey(dedup)
             if (old != null && (active[old.jobId]?.isActive == true || old.stage in COMPLETE)) return@withLock old.jobId
-            val checkpoint = old?.checkpointJson ?: Json.encodeToString(ExaminationCheckpoint(rootWorkId = request.rootWorkId, parentRunId = request.parentRunId, archiveEpoch = archive.dao.sequence()?.archiveEpoch ?: 0, profileSnapshotJson = Json.encodeToString(profile.copy(token = null, secretRef = null))))
+            val checkpoint = old?.checkpointJson ?: Json.encodeToString(
+                ExaminationCheckpoint(
+                    rootWorkId = request.rootWorkId,
+                    parentRunId = request.parentRunId,
+                    archiveEpoch = archive.dao.sequence()?.archiveEpoch ?: 0,
+                    profileSnapshotJson = Json.encodeToString(profile.copy(token = null, secretRef = null)),
+                    combined = acceptedCombined
+                )
+            )
             val record = ExaminationJob(old?.jobId ?: UUID.randomUUID().toString(), dedup, request.workId, source.versionId, request.origin, request.chatId, profile.uid, request.authority, policy, ExaminationStage.RESOLVING, checkpoint, updatedAt = System.currentTimeMillis(), lease = (old?.lease ?: 0) + 1)
             archive.database.withTransaction {
                 check(archive.dao.deleted("chat:${request.chatId}") == null)
                 archive.dao.job(record)
                 archive.dao.root(BodyReference("job", record.jobId, source.versionId))
             }
-            val task = scope.launch(start = CoroutineStart.LAZY) {
+            val savedCombined = Json.decodeFromString<ExaminationCheckpoint>(checkpoint).combined
+            check(savedCombined == acceptedCombined) { "An examination cannot move to another accepted Combined turn." }
+            val task = scope.launch(context = savedCombined?.forRole(dev.chungjungsoo.gptmobile.data.agent.CombinedRunRole.RESEARCH, profile.uid, savedCombined.workItemId)?.let { dev.chungjungsoo.gptmobile.data.agent.CombinedRunScope(it) } ?: kotlin.coroutines.EmptyCoroutineContext, start = CoroutineStart.LAZY) {
                 permits.acquire()
                 try {
                     execute(record, request, profile, currentTools)
@@ -141,6 +183,7 @@ class ArticleExaminationCoordinator @Inject constructor(
             }
             active[record.jobId] = task
             task.invokeOnCompletion { active.remove(record.jobId, task) }
+            savedCombined?.let { requireNotNull(combinedBudgets ?: dev.chungjungsoo.gptmobile.data.agent.CombinedTurnBudgetStore.installedOrNull()) { "Combined accounting is unavailable" }.open(it).registerChild(task) }
             task.start()
             record.jobId
         }
@@ -161,8 +204,11 @@ class ArticleExaminationCoordinator @Inject constructor(
     }
     private suspend fun execute(record: ExaminationJob, request: ExaminationRequest, profile: PlatformV2, currentTools: () -> ChatMcpToolConfig) {
         var checkpoint = runCatching { Json.decodeFromString<ExaminationCheckpoint>(record.checkpointJson) }.getOrDefault(ExaminationCheckpoint())
+        val combined = checkpoint.combined?.let { it.forRole(dev.chungjungsoo.gptmobile.data.agent.CombinedRunRole.RESEARCH, profile.uid, it.workItemId) }
+        val turnBudget = combined?.let { requireNotNull(combinedBudgets ?: dev.chungjungsoo.gptmobile.data.agent.CombinedTurnBudgetStore.installedOrNull()) { "Combined accounting is unavailable" }.open(it) }
         var activeReviewer: PlatformV2? = null
         suspend fun allowed(): Boolean {
+            if (turnBudget?.snapshot()?.let { it.cancelled || it.closed } == true) return false
             val live = archive.dao.job(record.jobId) ?: return false
             if (live.lease != record.lease || live.stage in setOf(ExaminationStage.PAUSED, ExaminationStage.CANCELED) || archive.dao.deleted("chat:${request.chatId}") != null) return false
             val features = settings.getFeatureSettings()
@@ -192,7 +238,7 @@ class ArticleExaminationCoordinator @Inject constructor(
                     try {
                         check(allowed()) { "Examination permission changed" }
                         val features = settings.getFeatureSettings()
-                        val reviewPolicy = features.delegationFor(profile.uid).normalized()
+                        val reviewPolicy = dev.chungjungsoo.gptmobile.data.delegation.DelegationPolicyResolver.suppressForCombined(features.delegationFor(profile.uid).normalized(), combined)
                         val reviewer = resolveReviewer(reviewPolicy, settings.fetchPlatformV2s(), profile)
                         val options = features.delegationFor(profile.uid).deepResearch
                         val selection = features.conversationResearch[request.chatId] ?: currentTools().research ?: MultiSearchResearchSelection()
@@ -223,7 +269,16 @@ class ArticleExaminationCoordinator @Inject constructor(
                                 suspend fun payload(operation: String): String {
                                     check(allowed())
                                     val tool = available.singleOrNull { it.modelToolName == "deep_research_$operation" } ?: error("Approved gateway article reader unavailable")
-                                    val result = tool.tool.execute("${record.jobId}:$operation", kotlinx.serialization.json.buildJsonObject { put("identifier", kotlinx.serialization.json.JsonPrimitive(identifier)) })
+                                    val bound = if (combined == null) {
+                                        tool.tool
+                                    } else {
+                                        dev.chungjungsoo.gptmobile.data.agent.ToolExecutionBudget(
+                                            dev.chungjungsoo.gptmobile.data.agent.AgentRunLimits(maxToolCalls = dev.chungjungsoo.gptmobile.data.agent.CombinedPolicyResolver.toolCallLimit(combined, profile.maxToolCalls, currentTools().maxToolCalls), combined = combined),
+                                            combined = combined,
+                                            combinedBudgets = combinedBudgets
+                                        ).bind(tool.tool)
+                                    }
+                                    val result = bound.execute("${record.jobId}:$operation", kotlinx.serialization.json.buildJsonObject { put("identifier", kotlinx.serialization.json.JsonPrimitive(identifier)) })
                                     check(!result.isError && allowed()) { "Gateway article retrieval failed or permission changed" }
                                     return when (val value = result.content) {
                                         is dev.chungjungsoo.gptmobile.data.agent.ToolResultContent.Json -> value.value.toString()

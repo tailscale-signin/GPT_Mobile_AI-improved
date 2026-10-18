@@ -14,6 +14,48 @@ import org.junit.Test
 
 class CombinedResponseStateTest {
     @Test
+    fun `archived Combined source tabs use only that revision snapshot`() {
+        val archived = CombinedModelResponse("old", "Old profile", content = "Original contribution", attemptId = "original-run")
+        val lead = response("lead", "Latest combined", "combined-synthesis:latest").copy(
+            combinedSources = listOf(CombinedModelResponse("other", "New profile", content = "New contribution")),
+            activeRevisionIndex = 0,
+            revisions = listOf(AssistantRevision("Old combined", createdAt = 1, runId = "combined-synthesis:old", combinedSources = listOf(archived)))
+        )
+        val current = response("other", "New contribution", "new-run")
+
+        val profiles = profiles(listOf(lead, current))
+
+        assertEquals(listOf("old"), profiles.map { it.uid })
+        assertEquals("Original contribution", profiles.single().message?.content)
+        assertEquals("original-run", profiles.single().message?.currentRunId)
+    }
+
+    @Test
+    fun `legacy archived Combined without snapshots never borrows current sources`() {
+        val lead = response("lead", "Latest combined", "combined-synthesis:latest").copy(
+            combinedSources = listOf(CombinedModelResponse("other", "Other", content = "New contribution")),
+            activeRevisionIndex = 0,
+            revisions = listOf(AssistantRevision("Old combined", createdAt = 1, runId = "combined-synthesis:old"))
+        )
+
+        assertEquals(emptyList<CombinedResponseProfile>(), profiles(listOf(lead, response("other", "New contribution", "new-run"))))
+    }
+
+    @Test
+    fun `identical text from a newer attempt cannot replace an archived source identity`() {
+        val lead = response("lead", "Combined", "combined-synthesis:final").copy(
+            combinedSources = listOf(CombinedModelResponse("other", "Other", content = "Same wording", attemptId = "original", completionStatus = AgentRunStatus.INTERRUPTED))
+        )
+        val newer = response("other", "Same wording", "newer").copy(thoughts = "Different reasoning")
+
+        val profile = profiles(listOf(lead, newer)).first { it.uid == "other" }
+
+        assertEquals("original", profile.message?.currentRunId)
+        assertEquals("", profile.message?.thoughts)
+        assertEquals(CombinedResponseStatus.FAILED, profile.status)
+    }
+
+    @Test
     fun `lead source keeps its original answer and completed status while synthesis is running`() {
         val lead = response("lead", "Combined answer in progress", "combined-synthesis:final").copy(
             revisions = listOf(AssistantRevision("Lead answer", thoughts = "Lead reasoning", createdAt = 1, runId = "lead-run")),

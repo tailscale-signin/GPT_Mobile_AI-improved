@@ -5,9 +5,11 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class ModelPrice(val model: String, val inputMicrosPerMillion: Long, val outputMicrosPerMillion: Long, val source: String, val checkedAt: Long) {
-    fun cost(input: Int, output: Int): Long {
+    fun cost(input: Int, output: Int): Long = cost(input.toLong(), output.toLong())
+
+    fun cost(input: Long, output: Long): Long {
         require(input >= 0 && output >= 0 && inputMicrosPerMillion >= 0 && outputMicrosPerMillion >= 0)
-        val numerator = BigInteger.valueOf(input.toLong()).multiply(BigInteger.valueOf(inputMicrosPerMillion)) + BigInteger.valueOf(output.toLong()).multiply(BigInteger.valueOf(outputMicrosPerMillion))
+        val numerator = BigInteger.valueOf(input).multiply(BigInteger.valueOf(inputMicrosPerMillion)) + BigInteger.valueOf(output).multiply(BigInteger.valueOf(outputMicrosPerMillion))
         return numerator.add(BigInteger.valueOf(999999)).divide(BigInteger.valueOf(1000000)).longValueExact()
     }
 }

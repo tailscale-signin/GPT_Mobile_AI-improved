@@ -13,8 +13,15 @@ internal class CombinedCoverage(envelope: String) {
     private val items: List<Item>
     val inventoryTruncated: Boolean
     init {
-        val contributions = runCatching { (Json.parseToJsonElement(envelope) as? JsonObject)?.get("contributions") as? JsonArray }.getOrNull().orEmpty()
+        val root = runCatching { Json.parseToJsonElement(envelope) as? JsonObject }.getOrNull()
+        val contributions = (root?.get("contributions") as? JsonArray).orEmpty()
         val collected = mutableListOf<Item>()
+        (root?.get("claim_inventory") as? JsonArray).orEmpty().forEach { entry ->
+            val row = entry as? JsonObject ?: return@forEach
+            val text = (row["text"] as? JsonPrimitive)?.content.orEmpty()
+            val id = (row["id"] as? JsonPrimitive)?.content.orEmpty()
+            if (id.isNotBlank() && text.isNotBlank()) collected += Item(id, text, emptyList())
+        }
         contributions.forEachIndexed { contributor, element ->
             val source = element as? JsonObject ?: return@forEachIndexed
             val response = (source["response"] as? JsonPrimitive)?.content.orEmpty()

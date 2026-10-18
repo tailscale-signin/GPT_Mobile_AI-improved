@@ -118,15 +118,17 @@ class CombinedDeliverySessionTest {
 
     @Test fun progressivePassagesArriveBeforeProviderCompletesAndRetainJointOwnership() = runTest {
         var firstDisplayed = false
+        val laterDetail = "The Tang dynasty ruled from 618 to 907."
+        val sharedSources = listOf(sources.first(), sources[1].copy(content = sources[1].content + " " + laterDetail))
         val base = object : AgentProviderSession {
             override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
-                emit(ProviderEvent.TextDelta(passage("A rewritten shared finding about the ancient world.", listOf("C2", "C1"), listOf("C1.1", "C2.1"))))
+                emit(ProviderEvent.TextDelta(passage(sources[0].content + " " + sources[1].content, listOf("C2", "C1"), listOf("C1.1", "C2.1"))))
                 assertTrue(firstDisplayed)
-                emit(ProviderEvent.TextDelta(passage("A different detail from the Tang era.", listOf("C2"), listOf("C2.1"))))
+                emit(ProviderEvent.TextDelta(passage(laterDetail, listOf("C2"), listOf("C2.2"))))
                 emit(ProviderEvent.Completed)
             }
         }
-        val wrapper = CombinedDeliverySession(base, sources, 10000, validateAccess = {}, structured = true) { _, _ -> error("No rewrite after publication") }
+        val wrapper = CombinedDeliverySession(base, sharedSources, 10000, validateAccess = {}, structured = true) { _, _ -> error("No rewrite after publication") }
         val events = mutableListOf<ProviderEvent>()
         wrapper.streamRound(emptyList(), emptyList()).collect {
             events += it
@@ -150,7 +152,7 @@ class CombinedDeliverySessionTest {
 
     @Test fun duplicateMergeRetainsBothProfilesWithoutRepeatingTheAnswer() = runTest {
         val same = sources.first().content
-        val wrapper = CombinedDeliverySession(session(passage(same) + passage(same, listOf("C2"), listOf("C2.1"))), sources, 10000, validateAccess = {}, structured = true) { _, _ -> error("No repair") }
+        val wrapper = CombinedDeliverySession(session(passage(same) + passage(same, listOf("C2"), listOf("C2.1"))), listOf(sources.first(), sources[1].copy(content = same)), 10000, validateAccess = {}, structured = true) { _, _ -> error("No repair") }
         val events = wrapper.streamRound(emptyList(), emptyList()).toList()
         assertEquals(same, events.answer())
         assertEquals(setOf("alpha", "beta"), events.quality().passages.single().profileUids)
@@ -240,7 +242,7 @@ class CombinedDeliverySessionTest {
             assertFalse(decoder.answer().contains("\"type\""))
             assertFalse(decoder.answer().startsWith("["))
             assertEquals(1, decoder.passages.size)
-            assertEquals(setOf("alpha", "beta"), decoder.passages.single().profileUids)
+            assertTrue(decoder.passages.single().profileUids.isEmpty())
             assertEquals(1, decoder.decisions.size)
         }
     }
@@ -252,7 +254,7 @@ class CombinedDeliverySessionTest {
             val decoder = CombinedPassageDecoder(sources, CombinedEvidenceLedger(), 10000)
             val deltas = payload.chunked(size).flatMap { decoder.accept(it) } + decoder.accept("", true)
             assertEquals("Chunk size $size", answer, deltas.joinToString(""))
-            assertEquals(setOf("alpha"), decoder.passages.single().profileUids)
+            assertTrue(decoder.passages.single().profileUids.isEmpty())
         }
     }
 

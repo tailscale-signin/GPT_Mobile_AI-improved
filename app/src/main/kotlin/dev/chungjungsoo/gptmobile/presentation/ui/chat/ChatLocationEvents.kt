@@ -2,7 +2,9 @@ package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
+import dev.chungjungsoo.gptmobile.data.database.entity.effectiveCombinedSources
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveRunId
+import dev.chungjungsoo.gptmobile.data.database.entity.hasHistoricalRevisionSelected
 
 /** Keep candidate tool provenance visible after a combined answer replaces its lead response. */
 internal fun toolEventsForResponse(
@@ -17,8 +19,13 @@ internal fun toolEventsForResponse(
 
     val runIds = mutableSetOf<String>()
     selected.effectiveRunId()?.let(runIds::add)
-    if (selected.combinedSources.isNotEmpty()) {
-        selected.combinedSources.forEach { source ->
+    val sources = selected.effectiveCombinedSources()
+    if (sources.isNotEmpty()) {
+        sources.forEach { source ->
+            if (!source.attemptId.isNullOrBlank()) {
+                runIds.add(source.attemptId)
+                return@forEach
+            }
             val response = responses.firstOrNull { it.platformType == source.platformUid } ?: return@forEach
             // The lead candidate is saved as a revision when synthesis starts. Match
             // the actual candidate, so a later retry cannot replace its sources or map result.
@@ -29,7 +36,7 @@ internal fun toolEventsForResponse(
             }
             sourceRunId?.let(runIds::add)
         }
-    } else {
+    } else if (!selected.hasHistoricalRevisionSelected()) {
         responses.filter { it.platformType in activeProfileUids }
             .mapNotNullTo(runIds) { it.effectiveRunId() }
     }

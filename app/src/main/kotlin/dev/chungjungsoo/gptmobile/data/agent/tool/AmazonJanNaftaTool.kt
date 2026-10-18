@@ -25,6 +25,7 @@ internal class AmazonJanNaftaTool(
     private val settings = settings.normalized()
     override val definition = delegate.definition.copy(description = "$MARKER ${delegate.definition.description} Prices may come from the host cache. Price watches are checked on demand on the host, not background phone alerts.")
     override val managesExecutionBudget = delegate.managesExecutionBudget
+    override val coordinatesChildWork = delegate.coordinatesChildWork
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
         var bounded = arguments

@@ -11,6 +11,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.agent.AgentRunCoordinator
 import dev.chungjungsoo.gptmobile.data.agent.AgentRunRequest
+import dev.chungjungsoo.gptmobile.data.agent.temperatureFor
 import dev.chungjungsoo.gptmobile.data.agent.tool.DelegationRecoveryInteractions
 import dev.chungjungsoo.gptmobile.data.catalog.CatalogEntry
 import dev.chungjungsoo.gptmobile.data.database.entity.ACTIVE_REVISION_LATEST
@@ -29,6 +30,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.PersistAgentTurnRequest
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
+import dev.chungjungsoo.gptmobile.data.database.entity.effectiveCombinedSources
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveContent
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveThoughts
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveTimeline
@@ -269,6 +271,15 @@ class ChatViewModel @Inject constructor(
 
     private val _isChatModelDialogOpen = MutableStateFlow(false)
     val isChatModelDialogOpen = _isChatModelDialogOpen.asStateFlow()
+    private val _combinedConversationIdentity = MutableStateFlow(
+        savedStateHandle.get<String>("combinedConversationIdentity") ?: UUID.randomUUID().toString().also {
+            savedStateHandle["combinedConversationIdentity"] = it
+        }
+    )
+    val combinedConversationIdentity = _combinedConversationIdentity.asStateFlow()
+    private val _combinedSettingsSaveState = MutableStateFlow(dev.chungjungsoo.gptmobile.data.model.CombinedSettingsSaveUiState())
+    val combinedSettingsSaveState = _combinedSettingsSaveState.asStateFlow()
+    private val combinedSettingsJournal by lazy { dev.chungjungsoo.gptmobile.data.repository.CombinedSettingsSaveJournal(settingRepository) }
 
     private val _isChatToolSheetOpen = MutableStateFlow(false)
     val isChatToolSheetOpen = _isChatToolSheetOpen.asStateFlow()
@@ -375,7 +386,12 @@ class ChatViewModel @Inject constructor(
         savedStateHandle["nextMessageProfileUid"] = uid
     }
 
-    private data class QueuedPrompt(val text: String, val attachments: List<ChatAttachmentDraft>, val profileUid: String? = null)
+    private data class QueuedPrompt(
+        val text: String,
+        val attachments: List<ChatAttachmentDraft>,
+        val profileUid: String? = null,
+        val tools: ChatMcpToolConfig
+    )
     private val queuedPrompts = ArrayDeque<QueuedPrompt>()
     private val _pendingPrompts = MutableStateFlow<List<dev.chungjungsoo.gptmobile.data.queue.PendingPrompt>>(emptyList())
     val followUpProgress = dev.chungjungsoo.gptmobile.data.queue.FollowUpProgressStore.state
@@ -471,11 +487,23 @@ class ChatViewModel @Inject constructor(
     }
 
     private fun submitOrQueueQuestion(questionText: String, attachments: List<ChatAttachmentDraft>) {
+        if (_combinedSettingsSaveState.value.isCommitting) {
+            _attachmentNotice.value = "Saving the Combined setup. Your message draft is kept."
+            return
+        }
         val oneMessageUid = nextMessageProfileUid.value
         if (oneMessageUid != null && (oneMessageUid !in _activePlatformUids.value || oneMessageUid in _disabledPlatformUids.value || _platformsInApp.value.none { it.uid == oneMessageUid && it.enabled })) {
             _attachmentNotice.value = "The one-message profile is unavailable. Choose another profile; your draft is kept."
             return
         }
+        val acceptedTools = try {
+            captureCombinedTools(questionText)
+        } catch (error: IllegalArgumentException) {
+            _attachmentNotice.value = error.message ?: "Could not accept the Combined setup. Your draft is kept."
+            return
+        }
+        val acceptedProfiles = acceptedTools.combined?.requested?.participantUids ?: oneMessageUid?.let(::listOf) ?: _activePlatformUids.value
+        val acceptedModels = acceptedTools.combined?.requested?.requestedModels ?: _chatPlatformModels.value
         if (isGenerationBusy() || !hasUnpausedProfile() || _pendingPrompts.value.isNotEmpty()) {
             if (durablePromptQueue != null) {
                 if (queueSubmissionPending) return
@@ -493,9 +521,9 @@ class ChatViewModel @Inject constructor(
                             questionText,
                             dev.chungjungsoo.gptmobile.data.queue.PendingPromptPayload(
                                 snapshot.mapNotNull { it.attachment },
-                                oneMessageUid?.let(::listOf) ?: _activePlatformUids.value,
-                                _chatPlatformModels.value,
-                                _chatToolConfig.value
+                                acceptedProfiles,
+                                acceptedModels,
+                                acceptedTools
                             )
                         )
                         if (nextMessageProfileUid.value == oneMessageUid) savedStateHandle["nextMessageProfileUid"] = null
@@ -512,7 +540,7 @@ class ChatViewModel @Inject constructor(
                 }
                 return
             }
-            queuedPrompts.addLast(QueuedPrompt(questionText, attachments.toList(), oneMessageUid))
+            queuedPrompts.addLast(QueuedPrompt(questionText, attachments.toList(), oneMessageUid, acceptedTools))
             savedStateHandle["nextMessageProfileUid"] = null
             _queuedPromptCount.value = queuedPrompts.size
             question.clearText()
@@ -521,7 +549,35 @@ class ChatViewModel @Inject constructor(
             return
         }
         savedStateHandle["nextMessageProfileUid"] = null
-        sendQuestion(questionText, attachments, profileUid = oneMessageUid)
+        sendQuestion(questionText, attachments, profileUid = oneMessageUid, acceptedTools = acceptedTools)
+    }
+
+    private fun captureCombinedTools(text: String): ChatMcpToolConfig {
+        val tools = _chatToolConfig.value
+        val room = _chatRoom.value
+        if (room.conversationMode != ConversationMode.COMBINED) return tools.copy(combined = null)
+        val selected = _activePlatformUids.value.filterNot { it in _disabledPlatformUids.value }
+            .ifEmpty { _activePlatformUids.value }
+        val profiles = _platformsInApp.value.filter { it.enabled }.associateBy { it.uid }
+        require(selected.isNotEmpty() && selected.all { it in profiles }) { "Select an available profile before sending." }
+        val preferences = featureSettings.value.conversationCombined[room.id]
+            ?: dev.chungjungsoo.gptmobile.data.model.ConversationCombinedSettings()
+        val requested = dev.chungjungsoo.gptmobile.data.agent.CombinedPolicyResolver.accept(
+            settings = preferences,
+            participantUids = selected,
+            requestedModels = selected.associateWith { _chatPlatformModels.value[it] ?: profiles.getValue(it).model },
+            userPrompt = text,
+            preferredOwnerUid = room.combinedPrimaryUid,
+            requestedTemperatures = selected.associateWith { preferences.creativity ?: resolvePlatformModel(profiles.getValue(it)).temperature }
+        )
+        return tools.copy(
+            combined = dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext(
+                requested = requested,
+                rootBudgetId = UUID.randomUUID().toString(),
+                chatId = room.id,
+                persistBudget = !room.isTemporary
+            )
+        )
     }
 
     private fun isGenerationBusy(): Boolean =
@@ -537,7 +593,7 @@ class ChatViewModel @Inject constructor(
         if (selected != null && (selected !in _activePlatformUids.value || selected in _disabledPlatformUids.value)) return
         val next = queuedPrompts.removeFirst()
         _queuedPromptCount.value = queuedPrompts.size
-        sendQuestion(next.text, next.attachments, clearComposer = false, profileUid = next.profileUid)
+        sendQuestion(next.text, next.attachments, clearComposer = false, profileUid = next.profileUid, acceptedTools = next.tools)
     }
 
     fun removeQueuedPrompt(id: String) {
@@ -665,6 +721,9 @@ class ChatViewModel @Inject constructor(
 
     fun openChatTitleDialog() = _isChatTitleDialogOpen.update { true }
     fun openChatModelDialog() {
+        if (!_combinedSettingsSaveState.value.isCommitting) {
+            _combinedSettingsSaveState.value = dev.chungjungsoo.gptmobile.data.model.CombinedSettingsSaveUiState()
+        }
         loadAvailableChatTools()
         _isChatModelDialogOpen.update { true }
     }
@@ -1044,6 +1103,78 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    /** The first tab commits only its owned settings; immediate Tools/Privacy edits have separate revisions. */
+    fun saveCombinedChatSettings(draft: dev.chungjungsoo.gptmobile.data.model.CombinedChatSettingsDraft) {
+        if (_combinedSettingsSaveState.value.isCommitting || _chatRoom.value.conversationMode != ConversationMode.COMBINED) return
+        _combinedSettingsSaveState.value = dev.chungjungsoo.gptmobile.data.model.CombinedSettingsSaveUiState(dev.chungjungsoo.gptmobile.data.model.CombinedSettingsSavePhase.VALIDATING)
+        viewModelScope.launch {
+            try {
+                val validated = draft.validated()
+                check(validated.conversationIdentity == _combinedConversationIdentity.value) { "The dialog belongs to another conversation." }
+                val profiles = settingRepository.fetchPlatformV2s().associateBy { it.uid }
+                check(validated.participantUids.all { profiles[it]?.enabled == true }) { "A selected AI profile is unavailable." }
+                var room = _chatRoom.value
+                if (room.id <= 0) {
+                    room = chatRepository.createDraftChat(room.activePlatform, ConversationMode.COMBINED, room.title, room.combinedPrimaryUid)
+                    _chatRoom.value = room
+                    settingRepository.ensureConversationIdentity(room.id, _combinedConversationIdentity.value)
+                }
+                val features = settingRepository.getFeatureSettings()
+                val previousSettings = features.conversationCombined[room.id] ?: dev.chungjungsoo.gptmobile.data.model.ConversationCombinedSettings()
+                val previous = dev.chungjungsoo.gptmobile.data.model.CombinedChatSettingsDraft(
+                    conversationIdentity = _combinedConversationIdentity.value,
+                    chatId = room.id,
+                    baseRevision = previousSettings.revision,
+                    settings = previousSettings,
+                    participantUids = room.activePlatform,
+                    models = room.activePlatform.associateWith { _chatPlatformModels.value[it] ?: profiles[it]?.model.orEmpty() },
+                    creativity = previousSettings.creativity ?: profiles[room.activePlatform.firstOrNull()]?.temperature ?: 0.7f,
+                    primaryProfileUid = room.combinedPrimaryUid
+                )
+                val next = validated.copy(chatId = room.id)
+                savedStateHandle["combinedSettingsOperationId"] = next.operationId
+                _combinedSettingsSaveState.value = dev.chungjungsoo.gptmobile.data.model.CombinedSettingsSaveUiState(dev.chungjungsoo.gptmobile.data.model.CombinedSettingsSavePhase.COMMITTING)
+                combinedSettingsJournal.save(next, previous) { before, after -> chatRepository.applyCombinedChatSettings(before, after) }
+                val committedRoom = (chatRepository.fetchChatListV2() + chatRepository.fetchArchivedChatListV2()).first { it.id == room.id }
+                _chatRoom.value = committedRoom
+                _chatPlatformModels.value = chatRepository.fetchChatPlatformModels(room.id)
+                applyChatPlatformState(committedRoom)
+                _combinedSettingsSaveState.value = dev.chungjungsoo.gptmobile.data.model.CombinedSettingsSaveUiState(dev.chungjungsoo.gptmobile.data.model.CombinedSettingsSavePhase.COMMITTED)
+                _isChatModelDialogOpen.value = false
+                loadAvailableChatTools()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                _combinedSettingsSaveState.value = dev.chungjungsoo.gptmobile.data.model.CombinedSettingsSaveUiState(
+                    dev.chungjungsoo.gptmobile.data.model.CombinedSettingsSavePhase.FAILED,
+                    error.message ?: "The Combined setup could not be saved. Your edits are kept."
+                )
+            }
+        }
+    }
+
+    fun abortCombinedChatSettingsSave() {
+        if (_combinedSettingsSaveState.value.isCommitting) return
+        viewModelScope.launch {
+            try {
+                savedStateHandle.get<String>("combinedSettingsOperationId")?.let { operation ->
+                    if (_chatRoom.value.id > 0) {
+                        combinedSettingsJournal.abort(_chatRoom.value.id, operation) { before, after ->
+                            chatRepository.applyCombinedChatSettings(before, after)
+                        }
+                    }
+                }
+                savedStateHandle.remove<String>("combinedSettingsOperationId")
+                _combinedSettingsSaveState.value = dev.chungjungsoo.gptmobile.data.model.CombinedSettingsSaveUiState(dev.chungjungsoo.gptmobile.data.model.CombinedSettingsSavePhase.ABORTED)
+                _isChatModelDialogOpen.value = false
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                _combinedSettingsSaveState.value = dev.chungjungsoo.gptmobile.data.model.CombinedSettingsSaveUiState(dev.chungjungsoo.gptmobile.data.model.CombinedSettingsSavePhase.FAILED, error.message ?: "The discarded save could not be settled. Retry Cancel.")
+            }
+        }
+    }
+
     /** Explicit fresh scope: never copy the blocked answer, receipts, attachments, or recovery root. */
     fun retryWithoutSavedEvidence(turnIndex: Int, platformIndex: Int) {
         if (branching || _loadingStates.value.any { it == LoadingState.Loading }) return
@@ -1069,17 +1200,30 @@ class ChatViewModel @Inject constructor(
     }
 
     fun retryChat(turnIndex: Int, platformIndex: Int) {
-        if (_loadingStates.value.getOrNull(platformIndex) == LoadingState.Loading) return
-        if (enabledPlatformsInChat.getOrNull(platformIndex) in _disabledPlatformUids.value) return
-        if (turnIndex !in _groupedMessages.value.assistantMessages.indices) return
-        if (platformIndex >= enabledPlatformsInChat.size || platformIndex < 0) return
-        val platform = _platformsInApp.value.firstOrNull { it.uid == enabledPlatformsInChat[platformIndex] } ?: return
-        val platformWithChatModel = resolvePlatformModel(platform)
         val currentAssistantMessage = _groupedMessages.value.assistantMessages
             .getOrNull(turnIndex)
             ?.getOrNull(platformIndex)
             ?: return
+        val ownerProfileUid = currentAssistantMessage.platformType ?: return
+        val ownerLoadingIndex = enabledPlatformsInChat.indexOf(ownerProfileUid)
+        if (_loadingStates.value.getOrNull(ownerLoadingIndex) == LoadingState.Loading) return
         val userMessage = _groupedMessages.value.userMessages.getOrNull(turnIndex) ?: return
+        val previousRun = currentAssistantMessage.currentRunId?.let { _agentRunsById.value[it] }
+        val needsFreshCombinedTurn = previousRun?.status in setOf(AgentRunStatus.COMPLETED, AgentRunStatus.CANCELED, "CANCELLED") || currentAssistantMessage.timeline.any { it.combinedTurn?.deliveryStatus == "MERGE_UNAVAILABLE" }
+        if (_chatRoom.value.conversationMode == ConversationMode.COMBINED && previousRun != null && needsFreshCombinedTurn) {
+            regenerateCombinedTurn(turnIndex, currentAssistantMessage, userMessage, previousRun)
+            return
+        }
+        if (ownerProfileUid in _disabledPlatformUids.value) return
+        val platform = _platformsInApp.value.firstOrNull { it.uid == ownerProfileUid && it.enabled } ?: return
+        val accepted = dev.chungjungsoo.gptmobile.data.agent.CombinedAcceptedTurn.decode(previousRun?.synthesisSnapshot)
+        val platformWithChatModel = resolvePlatformModel(platform).let { current ->
+            current.copy(
+                model = accepted?.context?.requested?.requestedModels?.get(current.uid) ?: current.model,
+                temperature = if (accepted != null) accepted.context.requested.temperatureFor(current.uid, current.temperature) else current.temperature
+            )
+        }
+        val retryTools = accepted?.tools?.copy(combined = accepted.context.forRole(dev.chungjungsoo.gptmobile.data.agent.CombinedRunRole.CONTRIBUTOR, platform.uid)) ?: _chatToolConfig.value
         if (currentAssistantMessage.currentRunId?.startsWith(COMBINED_RUN_PREFIX) == true) {
             retryFrozenCombined(turnIndex, platformIndex, currentAssistantMessage, platformWithChatModel)
             return
@@ -1094,7 +1238,7 @@ class ChatViewModel @Inject constructor(
             runId,
             if (prior?.primaryOnly == true) dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.CONTINUE_PRIMARY_ONLY else dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.RETRY_FAILED_STAGE
         )
-        _loadingStates.update { states -> states.mapIndexed { index, state -> if (index == platformIndex) LoadingState.Loading else state } }
+        _loadingStates.update { states -> states.mapIndexed { index, state -> if (enabledPlatformsInChat.getOrNull(index) == ownerProfileUid) LoadingState.Loading else state } }
 
         viewModelScope.launch {
             persistBeforeProvider(
@@ -1109,6 +1253,7 @@ class ChatViewModel @Inject constructor(
                                 profileUid = platformWithChatModel.uid,
                                 providerSnapshot = platformWithChatModel.compatibleType.name,
                                 modelSnapshot = platformWithChatModel.model,
+                                synthesisSnapshot = accepted?.encode(),
                                 createdAt = currentTimeStamp
                             )
                         )
@@ -1116,7 +1261,9 @@ class ChatViewModel @Inject constructor(
                 },
                 startProvider = { persisted ->
                     _groupedMessages.update { groupedMessages ->
-                        updateAssistantSlot(groupedMessages, turnIndex, platformIndex) { persisted.assistantMessage }
+                        updateAssistantSlot(groupedMessages, turnIndex, platformIndex) { current ->
+                            if (current.id == currentAssistantMessage.id && current.platformType == ownerProfileUid) persisted.assistantMessage else current
+                        }
                     }
                     val contextMessages = groupedMessagesThroughTurn(_groupedMessages.value, turnIndex)
                     agentRunCoordinator.start(
@@ -1128,23 +1275,113 @@ class ChatViewModel @Inject constructor(
                                 platform = platformWithChatModel,
                                 userMessages = contextMessages.userMessages,
                                 assistantMessages = contextMessages.assistantMessages,
-                                chatToolConfig = _chatToolConfig.value
+                                chatToolConfig = retryTools
                             )
                         )
                     )
                 },
                 onFailure = { error ->
-                    showPersistenceFailure(turnIndex, listOf(platformIndex), error)
+                    _attachmentNotice.value = error.message ?: "The retry could not be saved. The previous response is retained."
+                    _loadingStates.update { states -> states.mapIndexed { index, state -> if (enabledPlatformsInChat.getOrNull(index) == ownerProfileUid) LoadingState.Idle else state } }
                 }
             )
         }
     }
 
+    /** Explicit regeneration accepts a new turn policy and all participants before any provider dispatch. */
+    private fun regenerateCombinedTurn(turnIndex: Int, owner: MessageV2, user: MessageV2, previousRun: AgentRun) {
+        if (isGenerationBusy() || _combinedSettingsSaveState.value.isCommitting) {
+            _attachmentNotice.value = "Wait for current work and settings changes to finish before regenerating."
+            return
+        }
+        val captured = try {
+            captureCombinedTools(user.content)
+        } catch (failure: IllegalArgumentException) {
+            _attachmentNotice.value = failure.message ?: "The current Combined setup could not be accepted."
+            return
+        }
+        val requested = captured.combined ?: return
+        val profiles = requested.requested.participantUids.map { uid ->
+            val profile = _platformsInApp.value.firstOrNull { it.uid == uid && it.enabled } ?: return
+            resolvePlatformModel(profile).copy(model = requested.requested.requestedModels.getValue(uid), temperature = requested.requested.temperatureFor(uid, profile.temperature))
+        }
+        val originalContext = groupedMessagesThroughTurn(_groupedMessages.value, turnIndex)
+        val context = originalContext.copy(assistantMessages = originalContext.assistantMessages.dropLast(1) + listOf(emptyList()))
+        val parentRoot = dev.chungjungsoo.gptmobile.data.agent.CombinedAcceptedTurn.context(previousRun.synthesisSnapshot)?.rootBudgetId
+        combinedSynthesisMessages += user.id
+        pendingRunDispatches += 1
+        _loadingStates.value = enabledPlatformsInChat.map { if (it in requested.requested.participantUids) LoadingState.Loading else LoadingState.Idle }
+        viewModelScope.launch {
+            try {
+                val planned = chatRepository.prepareCombinedTurn(requested, context.userMessages, context.assistantMessages, profiles, captured)
+                val dispatchTools = captured.copy(combined = planned)
+                val accepted = dev.chungjungsoo.gptmobile.data.agent.CombinedAcceptedTurn(context = planned, tools = dispatchTools, parentRootBudgetId = parentRoot)
+                val runs = profiles.map { profile ->
+                    AgentRunDraft(UUID.randomUUID().toString(), profile.uid, profile.compatibleType.name, profile.model, currentTimeStamp, synthesisSnapshot = accepted.encode())
+                }
+                persistBeforeProvider(
+                    persist = { chatRepository.regenerateCombinedTurn(user, owner, runs, accepted) },
+                    startProvider = { persisted ->
+                        _agentRunsById.update { it + persisted.runs.associateBy(AgentRun::runId) }
+                        val refreshed = chatRepository.fetchMessagesV2(user.chatId).filter { it.linkedMessageId == user.id && it.platformType != null }.associateBy { it.platformType }
+                        _groupedMessages.update { grouped ->
+                            val index = grouped.userMessages.indexOfFirst { it.id == user.id }
+                            if (index < 0) {
+                                grouped
+                            } else {
+                                grouped.copy(
+                                    assistantMessages = grouped.assistantMessages.toMutableList().apply {
+                                        this[index] = enabledPlatformsInChat.map { uid -> refreshed[uid] ?: MessageV2(chatId = user.chatId, linkedMessageId = user.id, platformType = uid, content = "") }
+                                    }
+                                )
+                            }
+                        }
+                        combinedSynthesisAttempts.reset(user.id)
+                        agentRunCoordinator.start(
+                            profiles.mapIndexed { index, profile ->
+                                AgentRunRequest(
+                                    runId = persisted.runs[index].runId,
+                                    chatId = user.chatId,
+                                    assistantMessage = persisted.assistantMessages[index],
+                                    platform = profile,
+                                    userMessages = context.userMessages,
+                                    assistantMessages = context.assistantMessages,
+                                    chatToolConfig = dispatchTools.copy(combined = planned.forRole(dev.chungjungsoo.gptmobile.data.agent.CombinedRunRole.CONTRIBUTOR, profile.uid))
+                                )
+                            }
+                        )
+                    },
+                    onFailure = { failure -> _attachmentNotice.value = failure.message ?: "Combined regeneration could not be saved. The previous revisions are retained." }
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                _attachmentNotice.value = failure.message ?: "Combined regeneration could not start. The previous revisions are retained."
+            } finally {
+                combinedSynthesisMessages -= user.id
+                pendingRunDispatches -= 1
+                syncLoadingStates(_agentRunsById.value)
+            }
+        }
+    }
+
     private fun retryFrozenCombined(turnIndex: Int, platformIndex: Int, message: MessageV2, platform: PlatformV2) {
-        _loadingStates.update { states -> states.mapIndexed { index, state -> if (index == platformIndex) LoadingState.Loading else state } }
+        _loadingStates.update { states -> states.mapIndexed { index, state -> if (enabledPlatformsInChat.getOrNull(index) == platform.uid) LoadingState.Loading else state } }
         viewModelScope.launch {
             try {
                 val snapshot = requireNotNull(chatRepository.prepareCombinedRetry(requireNotNull(message.currentRunId), platform)) { "The original Combined input is unavailable; no replacement was sent." }
+                val acceptedPlatform = platform.copy(
+                    model = snapshot.model,
+                    temperature = if (snapshot.version >= 5 && snapshot.combined != null) snapshot.temperature else platform.temperature,
+                    systemPrompt = listOf(snapshot.systemPrompt, combinedEditorialInstruction(snapshot.deliveryProtocol)).joinToString("\n\n"),
+                    disableAllTools = true,
+                    disableLocalTools = true
+                )
+                val acceptedTools = (snapshot.acceptedTools ?: _chatToolConfig.value).copy(
+                    allToolsDisabled = true,
+                    delegation = dev.chungjungsoo.gptmobile.data.model.ConversationDelegationSettings(enabled = false),
+                    combined = snapshot.combined?.forRole(dev.chungjungsoo.gptmobile.data.agent.CombinedRunRole.SYNTHESIS, snapshot.profileUid)
+                )
                 val raw = kotlinx.serialization.json.Json.encodeToString(snapshot)
                 val nextRunId = COMBINED_RUN_PREFIX + UUID.randomUUID().toString()
                 persistBeforeProvider(
@@ -1168,27 +1405,34 @@ class ChatViewModel @Inject constructor(
                     },
                     startProvider = { persisted ->
                         _agentRunsById.update { it + (persisted.run.runId to persisted.run) }
-                        _groupedMessages.update { current -> updateAssistantSlot(current, turnIndex, platformIndex) { persisted.assistantMessage } }
+                        _groupedMessages.update { current ->
+                            updateAssistantSlot(current, turnIndex, platformIndex) { selected ->
+                                if (selected.id == message.id && selected.platformType == platform.uid) persisted.assistantMessage else selected
+                            }
+                        }
                         agentRunCoordinator.start(
                             listOf(
                                 AgentRunRequest(
                                     runId = persisted.run.runId,
                                     chatId = message.chatId,
                                     assistantMessage = persisted.assistantMessage,
-                                    platform = platform.copy(systemPrompt = listOf(snapshot.systemPrompt, combinedEditorialInstruction(snapshot.deliveryProtocol)).joinToString("\n\n"), disableAllTools = true, disableLocalTools = true),
+                                    platform = acceptedPlatform,
                                     userMessages = snapshot.history + snapshot.userMessage.copy(content = snapshot.prompt),
                                     assistantMessages = snapshot.replies + listOf(emptyList()),
-                                    chatToolConfig = _chatToolConfig.value.copy(allToolsDisabled = true, delegation = dev.chungjungsoo.gptmobile.data.model.ConversationDelegationSettings(enabled = false))
+                                    chatToolConfig = acceptedTools
                                 )
                             )
                         )
                     },
-                    onFailure = { error -> showPersistenceFailure(turnIndex, listOf(platformIndex), error) }
+                    onFailure = { error ->
+                        _attachmentNotice.value = error.message ?: "Combined recovery could not be saved. The previous response is retained."
+                        _loadingStates.update { states -> states.mapIndexed { index, state -> if (enabledPlatformsInChat.getOrNull(index) == platform.uid) LoadingState.Idle else state } }
+                    }
                 )
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
-                _loadingStates.update { states -> states.mapIndexed { index, state -> if (index == platformIndex) LoadingState.Idle else state } }
+                _loadingStates.update { states -> states.mapIndexed { index, state -> if (enabledPlatformsInChat.getOrNull(index) == platform.uid) LoadingState.Idle else state } }
                 _attachmentNotice.update { failure.message ?: "Combined recovery could not validate its saved input." }
             }
         }
@@ -1486,7 +1730,7 @@ class ChatViewModel @Inject constructor(
                 addAll(enabledPlatformsInChat)
                 messages.forEach { message ->
                     message.platformType?.let(::add)
-                    message.combinedSources.forEach { add(it.platformUid) }
+                    (message.combinedSources + message.revisions.flatMap { it.combinedSources }).forEach { add(it.platformUid) }
                     (message.timeline + message.revisions.flatMap { it.timeline }).mapNotNull { it.assistDiagnostic?.profileUid }.forEach(::add)
                 }
                 (records["invocations"] as? kotlinx.serialization.json.JsonArray).orEmpty().forEach { row ->
@@ -1526,7 +1770,11 @@ class ChatViewModel @Inject constructor(
         return "export_${safeTitle}_${System.currentTimeMillis()}.${format.extension}" to content
     }
 
-    private fun completeChat(persistSnapshotFirst: Boolean = false, oneMessageUid: String? = null) {
+    private fun completeChat(
+        persistSnapshotFirst: Boolean = false,
+        oneMessageUid: String? = null,
+        acceptedTools: ChatMcpToolConfig = _chatToolConfig.value
+    ) {
         // Update all the platform loading states to Loading
         _loadingStates.update { List(enabledPlatformsInChat.size) { LoadingState.Loading } }
         val turnIndex = _groupedMessages.value.assistantMessages.lastIndex
@@ -1537,10 +1785,20 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val disabled = _disabledPlatformUids.value
-                val activeUids = _activePlatformUids.value.filterNot { it in disabled }.toSet()
+                val activeUids = acceptedTools.combined?.requested?.participantUids?.toSet()
+                    ?: _activePlatformUids.value.filterNot { it in disabled }.toSet()
                 val platforms = resolveSelectedPlatforms(enabledPlatformsInChat, _platformsInApp.value)
                     .filter { it.value.uid in activeUids && (oneMessageUid == null || it.value.uid == oneMessageUid) }
-                    .map { IndexedValue(it.index, resolvePlatformModel(it.value)) }
+                    .map {
+                        val resolved = resolvePlatformModel(it.value)
+                        IndexedValue(
+                            it.index,
+                            resolved.copy(
+                                model = acceptedTools.combined?.requested?.requestedModels?.get(resolved.uid) ?: resolved.model,
+                                temperature = if (acceptedTools.combined == null) resolved.temperature else acceptedTools.combined.requested.temperatureFor(resolved.uid, resolved.temperature)
+                            )
+                        )
+                    }
                 val unavailableIndexes = enabledPlatformsInChat.indices - platforms.mapTo(mutableSetOf()) { it.index }
                 _loadingStates.update { states ->
                     states.toMutableList().apply {
@@ -1557,13 +1815,29 @@ class ChatViewModel @Inject constructor(
                     _loadingStates.update { List(enabledPlatformsInChat.size) { LoadingState.Idle } }
                     return@launch
                 }
+                var dispatchTools = acceptedTools
+                acceptedTools.combined?.let { accepted ->
+                    dispatchTools = acceptedTools.copy(
+                        combined = chatRepository.prepareCombinedTurn(
+                            accepted,
+                            _groupedMessages.value.userMessages,
+                            _groupedMessages.value.assistantMessages,
+                            platforms.map { it.value },
+                            acceptedTools
+                        )
+                    )
+                }
+                val acceptedRecord = dispatchTools.combined?.let {
+                    dev.chungjungsoo.gptmobile.data.agent.CombinedAcceptedTurn(context = it, tools = dispatchTools).encode()
+                }
                 val runs = platforms.map { (_, platform) ->
                     AgentRunDraft(
                         runId = UUID.randomUUID().toString(),
                         profileUid = platform.uid,
                         providerSnapshot = platform.compatibleType.name,
                         modelSnapshot = platform.model,
-                        createdAt = timestamp
+                        createdAt = timestamp,
+                        synthesisSnapshot = acceptedRecord
                     )
                 }
                 val chatRoom = _chatRoom.value.copy(
@@ -1596,6 +1870,22 @@ class ChatViewModel @Inject constructor(
                         _agentRunsById.update { it + persisted.runs.associateBy(AgentRun::runId) }
                         val wasNewConversation = _chatRoom.value.id <= 0
                         _chatRoom.update { persisted.chatRoom }
+                        if (wasNewConversation) {
+                            _combinedConversationIdentity.value = settingRepository.ensureConversationIdentity(
+                                persisted.chatRoom.id,
+                                _combinedConversationIdentity.value
+                            )
+                        }
+                        dispatchTools = dispatchTools.copy(combined = dispatchTools.combined?.copy(chatId = persisted.chatRoom.id))
+                        dispatchTools.combined?.let {
+                            chatRepository.prepareCombinedTurn(
+                                it,
+                                _groupedMessages.value.userMessages,
+                                _groupedMessages.value.assistantMessages,
+                                platforms.map { entry -> entry.value },
+                                dispatchTools
+                            )
+                        }
                         if (wasNewConversation) _chatToolConfig.value.research?.let(::setConversationResearch)
                         if (wasNewConversation) _chatToolConfig.value.reasoning?.let(::setConversationReasoning)
                         if (wasNewConversation && _chatToolConfig.value.delegation != null) {
@@ -1632,7 +1922,12 @@ class ChatViewModel @Inject constructor(
                                     platform = platform,
                                     userMessages = contextMessages.userMessages,
                                     assistantMessages = contextMessages.assistantMessages,
-                                    chatToolConfig = _chatToolConfig.value
+                                    chatToolConfig = dispatchTools.copy(
+                                        combined = dispatchTools.combined?.forRole(
+                                            dev.chungjungsoo.gptmobile.data.agent.CombinedRunRole.CONTRIBUTOR,
+                                            platform.uid
+                                        )
+                                    )
                                 )
                             }
                         )
@@ -1641,6 +1936,13 @@ class ChatViewModel @Inject constructor(
                         showPersistenceFailure(turnIndex, platforms.map { it.index }, error)
                     }
                 )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                val user = _groupedMessages.value.userMessages.getOrNull(turnIndex)
+                if (user != null && user.id <= 0 && question.text.isEmpty()) question.edit { append(user.content) }
+                _attachmentNotice.value = error.message ?: "The accepted request could not start. Your question is kept."
+                showPersistenceFailure(turnIndex, enabledPlatformsInChat.indices.toList(), error)
             } finally {
                 pendingRunDispatches -= 1
                 syncLoadingStates(_agentRunsById.value)
@@ -1812,7 +2114,8 @@ class ChatViewModel @Inject constructor(
         questionText: String,
         attachments: List<ChatAttachmentDraft>,
         clearComposer: Boolean = true,
-        profileUid: String? = null
+        profileUid: String? = null,
+        acceptedTools: ChatMcpToolConfig = captureCombinedTools(questionText)
     ) {
         MessageV2(
             chatId = chatRoomId,
@@ -1829,7 +2132,7 @@ class ChatViewModel @Inject constructor(
             val index = enabledPlatformsInChat.indexOf(uid)
             if (index >= 0) _indexStates.update { states -> states.dropLast(1) + index }
         }
-        completeChat(oneMessageUid = profileUid)
+        completeChat(oneMessageUid = profileUid, acceptedTools = acceptedTools)
     }
 
     private fun rejectDraftAttachment(
@@ -1961,6 +2264,15 @@ class ChatViewModel @Inject constructor(
     private fun fetchChatRoom() {
         viewModelScope.launch {
             conversationExitWork.awaitPending(chatRoomId)
+            if (chatRoomId > 0) {
+                try {
+                    combinedSettingsJournal.recover(chatRoomId) { before, after -> chatRepository.applyCombinedChatSettings(before, after) }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    _combinedSettingsSaveState.value = dev.chungjungsoo.gptmobile.data.model.CombinedSettingsSaveUiState(dev.chungjungsoo.gptmobile.data.model.CombinedSettingsSavePhase.FAILED, error.message)
+                }
+            }
             val room = if (chatRoomId == 0) {
                 ChatRoomV2(
                     id = 0,
@@ -1971,6 +2283,10 @@ class ChatViewModel @Inject constructor(
                 )
             } else {
                 (chatRepository.fetchChatListV2() + chatRepository.fetchArchivedChatListV2()).first { it.id == chatRoomId }
+            }
+            if (room.id > 0) {
+                _combinedConversationIdentity.value = settingRepository.ensureConversationIdentity(room.id)
+                savedStateHandle["combinedConversationIdentity"] = _combinedConversationIdentity.value
             }
             val features = settingRepository.getFeatureSettings()
             _chatToolConfig.update { it.copy(delegation = features.conversationDelegation[room.id], reasoning = features.conversationReasoning[room.id], research = features.conversationResearch[room.id]) }
@@ -2073,7 +2389,8 @@ class ChatViewModel @Inject constructor(
         modelsRestored = _chatRoom.value.id > 0
         resumeBranchIfReady()
 
-        if (chatRoomId != 0 && mergedModels != persistedModels) {
+        val operation = featureSettings.value.combinedSettingsJournal[chatRoomId]
+        if (chatRoomId != 0 && mergedModels != persistedModels && (operation == null || operation.roomSettled || operation.phase == dev.chungjungsoo.gptmobile.data.model.CombinedSettingsSavePhase.COMMITTED)) {
             chatRepository.saveChatPlatformModels(chatRoomId, mergedModels)
         }
     }
@@ -2144,14 +2461,8 @@ class ChatViewModel @Inject constructor(
 
     private fun maybeStartCombinedSynthesis(runsById: Map<String, AgentRun>) {
         val room = _chatRoom.value
-        val activeCombinedUids = _activePlatformUids.value
-            .filterNot { it in _disabledPlatformUids.value }
-            .toSet()
         val slotUids = enabledPlatformsInChat
-        val activeSlotIndexes = slotUids.mapIndexedNotNull { index, uid ->
-            index.takeIf { uid in activeCombinedUids }
-        }
-        if (room.conversationMode != ConversationMode.COMBINED || activeSlotIndexes.size < 2) return
+        if (room.conversationMode != ConversationMode.COMBINED || slotUids.isEmpty()) return
 
         val grouped = _groupedMessages.value
         grouped.userMessages.indices.forEach { turnIndex ->
@@ -2159,10 +2470,16 @@ class ChatViewModel @Inject constructor(
             // Optimistic, unsaved turns share ID 0. They have no durable owner
             // and must never consume the one-shot synthesis reservation.
             if (userId <= 0 || userId in combinedSynthesisMessages) return@forEach
+            val accepted = acceptedCombinedTurn(userId, runsById)
+            val activeCombinedUids = accepted?.context?.requested?.participantUids?.toSet()
+                ?: _activePlatformUids.value.filterNot { it in _disabledPlatformUids.value }.toSet()
+            val activeSlotIndexes = slotUids.mapIndexedNotNull { index, uid -> index.takeIf { uid in activeCombinedUids } }
+            if (activeSlotIndexes.size != activeCombinedUids.size || activeSlotIndexes.isEmpty()) return@forEach
             val row = grouped.assistantMessages.getOrNull(turnIndex).orEmpty()
+            if (row.any { it.timeline.any { item -> item.combinedTurn?.deliveryStatus == "MERGE_UNAVAILABLE" } }) return@forEach
             val activeRow = activeSlotIndexes.mapNotNull { row.getOrNull(it) }
             if (activeRow.size != activeSlotIndexes.size) return@forEach
-            val sources = combinedSynthesisInputs(activeRow, runsById, _platformsInApp.value.associate { it.uid to it.name }, _chatPlatformModels.value)
+            val sources = combinedSynthesisInputs(activeRow, runsById, _platformsInApp.value.associate { it.uid to it.name }, accepted?.context?.requested?.requestedModels ?: _chatPlatformModels.value)
                 ?: return@forEach
             if (!combinedSynthesisAttempts.reserve(userId, sources)) return@forEach
             combinedSynthesisMessages += userId
@@ -2206,6 +2523,18 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    private fun acceptedCombinedTurn(
+        userId: Int,
+        runs: Map<String, AgentRun> = _agentRunsById.value
+    ): dev.chungjungsoo.gptmobile.data.agent.CombinedAcceptedTurn? {
+        val turnIndex = _groupedMessages.value.userMessages.indexOfFirst { it.id == userId }
+        val currentRunIds = _groupedMessages.value.assistantMessages.getOrNull(turnIndex).orEmpty().mapNotNull { it.currentRunId }.toSet()
+        val records = runs.values.filter { it.userMessageId == userId && it.runId in currentRunIds && it.synthesisKey == null }
+            .mapNotNull { dev.chungjungsoo.gptmobile.data.agent.CombinedAcceptedTurn.decode(it.synthesisSnapshot) }
+        if (records.map { it.context.requested.requestedPolicyDigest }.distinct().size > 1) return null
+        return records.firstOrNull()
+    }
+
     private suspend fun startCombinedSynthesis(
         turnIndex: Int,
         sources: List<CombinedModelResponse>,
@@ -2213,10 +2542,26 @@ class ChatViewModel @Inject constructor(
     ): Boolean {
         val grouped = _groupedMessages.value
         val userMessage = grouped.userMessages.getOrNull(turnIndex) ?: return false
-        val pinnedPrimary = _chatRoom.value.combinedPrimaryUid ?: _chatRoom.value.activePlatform.firstOrNull()
-        val candidates = sources.filter { it.platformUid == pinnedPrimary }.mapNotNull { source ->
-            _platformsInApp.value.firstOrNull { it.uid == source.platformUid && it.enabled }
-                ?.let(::resolvePlatformModel)
+        val accepted = acceptedCombinedTurn(userMessage.id)
+        if (accepted != null && chatRepository.isCombinedTurnCancelled(accepted.context.rootBudgetId)) return false
+        val combined = accepted?.context?.copy(chatId = userMessage.chatId)
+        val pinnedPrimary = combined?.requested?.preferredOwnerUid ?: _chatRoom.value.combinedPrimaryUid ?: _chatRoom.value.activePlatform.firstOrNull()
+        val acceptedUids = combined?.requested?.participantUids ?: sources.map { it.platformUid }.distinct()
+        val candidates = CombinedOwnerResolver.eligibleOrder(
+            sources,
+            acceptedUids,
+            pinnedPrimary,
+            _platformsInApp.value.filter { it.enabled }.mapTo(hashSetOf()) { it.uid }
+        ).mapNotNull { uid ->
+            _platformsInApp.value.firstOrNull { it.uid == uid && it.enabled }?.let { profile ->
+                val capturedModel = sources.firstOrNull { it.platformUid == uid }?.modelName?.takeIf(String::isNotBlank)
+                resolvePlatformModel(profile).let {
+                    it.copy(
+                        model = capturedModel ?: it.model,
+                        temperature = if (combined == null) it.temperature else combined.requested.temperatureFor(it.uid, it.temperature)
+                    )
+                }
+            }
         }
         val leadPlatform = candidates.filter { sources.none { it.localOnly } || it.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.LITERT_LM }.firstOrNull { platform ->
             if (platform.compatibleType != dev.chungjungsoo.gptmobile.data.model.ClientType.FREE) {
@@ -2228,6 +2573,7 @@ class ChatViewModel @Inject constructor(
             }
         }
         if (leadPlatform == null) {
+            combined?.let { chatRepository.markCombinedMergeUnavailable(userMessage.chatId, userMessage.id, it.rootBudgetId) }
             if (sources.any { it.localOnly }) {
                 _attachmentNotice.update { "These responses contain local-only memory. Choose a local AI profile to combine them; the individual responses remain available." }
                 return false
@@ -2242,11 +2588,15 @@ class ChatViewModel @Inject constructor(
             _attachmentNotice.update {
                 coolingProvider?.let { (provider, retryAt) ->
                     "Combined synthesis is paused because ${provider.displayName} is cooling down. Try again in ${((retryAt - System.currentTimeMillis()).coerceAtLeast(0) + 999) / 1000} seconds; no synthesis request was sent."
-                } ?: "Combined synthesis is paused because the pinned primary is unavailable. Restore that profile or explicitly choose a new primary; no substitute was dispatched."
+                } ?: "Combined synthesis could not start because no selected, usable contributor is currently available to finish it. The individual responses remain available."
             }
             return false
         }
         val leadUid = leadPlatform.uid
+        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
+            "CombinedSynthesis",
+            "OWNER_SELECTED · preferred=$pinnedPrimary · selected=$leadUid · reason=${if (leadUid == pinnedPrimary) "HEALTHY_PRIMARY" else "HEALTHY_SELECTED_FALLBACK"} · usable=${sources.size}"
+        )
         val leadIndex = enabledPlatformsInChat.indexOf(leadUid).takeIf { it >= 0 } ?: return false
         val leadMessage = grouped.assistantMessages.getOrNull(turnIndex)?.getOrNull(leadIndex) ?: return false
         if (leadMessage.id <= 0) return false
@@ -2270,7 +2620,7 @@ class ChatViewModel @Inject constructor(
             dev.chungjungsoo.gptmobile.data.agent.CombinedEvidenceLedger.freeze(sharedEvidence, turnEvents, turnRuns.associate { it.runId to it.profileUid })
         }
         val turnContext = dev.chungjungsoo.gptmobile.data.agent.CombinedTurnContext.capture(userMessage.createdAt)
-        val attributedSources = combinedSourcesWithEvidence(sources, sharedEvidence).map { source ->
+        var attributedSources = combinedSourcesWithEvidence(sources, sharedEvidence).map { source ->
             val owned = evidenceLedger.records.filter { source.platformUid in it.profileUids || source.content.contains(it.url) }
             source.copy(sourceIds = (source.sourceIds + owned.map { it.id }).distinct(), evidenceRefs = (source.evidenceRefs + owned.map { it.url }).distinct())
         }
@@ -2278,14 +2628,20 @@ class ChatViewModel @Inject constructor(
         require(fullHistory.any { it.id == userMessage.id && it.platformType == null }) { "The Combined user turn is no longer available." }
         val historicalUsers = fullHistory.filter { it.platformType == null }.takeWhile { it.id != userMessage.id }
         val historicalReplies = historicalUsers.map { prior -> fullHistory.filter { it.linkedMessageId == prior.id && it.platformType != null } }
-        val selectedUids = grouped.assistantMessages.getOrNull(turnIndex).orEmpty().mapNotNull { it.platformType }
+        val inheritedOrigins = historicalReplies.flatten().flatMap { previous ->
+            previous.effectiveCombinedSources().flatMap { source -> source.ancestryIds + "contribution:${source.sourceDigest.ifBlank { dev.chungjungsoo.gptmobile.data.research.researchHash(source.content) }}" }
+        }.toSet()
+        attributedSources = attributedSources.map { it.copy(ancestryIds = it.ancestryIds + inheritedOrigins) }
+        val selectedUids = acceptedUids
+        val answerContract = dev.chungjungsoo.gptmobile.data.agent.CombinedAnswerPolicy.from(userMessage.content)
+        val editorialContext = combined?.forRole(dev.chungjungsoo.gptmobile.data.agent.CombinedRunRole.SYNTHESIS, leadUid)
         val (synthesisPrompt, synthesisSnapshot) = withContext(Dispatchers.Default) {
-            val prompt = combinedSynthesisPrompt(userMessage.content, attributedSources, sharedEvidence, evidenceLedger, turnContext)
+            val prompt = combinedSynthesisPrompt(userMessage.content, attributedSources, sharedEvidence, evidenceLedger, turnContext, combined = editorialContext, answerContract = answerContract)
             val lineage = dev.chungjungsoo.gptmobile.data.agent.ContributionLineage.freeze(selectedUids, attributedSources)
             val inventory = dev.chungjungsoo.gptmobile.data.agent.CombinedClaimInventory.freeze(attributedSources)
             prompt to kotlinx.serialization.json.Json.encodeToString(
                 dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot(
-                    version = 4,
+                    version = if (combined == null) 4 else 5,
                     deliveryProtocol = "PASSAGES_V2",
                     evidence = evidenceLedger,
                     turnContext = turnContext,
@@ -2296,10 +2652,15 @@ class ChatViewModel @Inject constructor(
                     prompt = prompt,
                     profileUid = leadPlatform.uid,
                     model = leadPlatform.model,
+                    temperature = leadPlatform.temperature,
                     systemPrompt = leadPlatform.systemPrompt.orEmpty(),
                     configKey = dev.chungjungsoo.gptmobile.data.benchmark.benchmarkConfigKey(leadPlatform),
                     lineage = lineage,
-                    claimInventory = inventory
+                    claimInventory = inventory,
+                    combined = editorialContext,
+                    answerContract = answerContract,
+                    revisionId = UUID.randomUUID().toString(),
+                    acceptedTools = accepted?.tools
                 )
             )
         }
@@ -2358,9 +2719,10 @@ class ChatViewModel @Inject constructor(
                     ),
                     userMessages = historicalUsers + userMessage.copy(content = synthesisPrompt),
                     assistantMessages = historicalReplies + listOf(emptyList()),
-                    chatToolConfig = _chatToolConfig.value.copy(
+                    chatToolConfig = (accepted?.tools ?: _chatToolConfig.value).copy(
                         allToolsDisabled = true,
-                        delegation = dev.chungjungsoo.gptmobile.data.model.ConversationDelegationSettings(enabled = false)
+                        delegation = dev.chungjungsoo.gptmobile.data.model.ConversationDelegationSettings(enabled = false),
+                        combined = editorialContext
                     )
                 )
             )
@@ -2430,7 +2792,7 @@ class ChatViewModel @Inject constructor(
             .takeIf(String::isNotBlank)
             ?: return
         val proposedTitle = latestAssistantMessages.asSequence()
-            .flatMap { message -> sequenceOf(message.effectiveContent()) + message.combinedSources.asSequence().map { it.content } }
+            .flatMap { message -> sequenceOf(message.effectiveContent()) + message.effectiveCombinedSources().asSequence().map { it.content } }
             .mapNotNull(dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject::extract)
             .firstOrNull()
 

@@ -11,10 +11,15 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -28,8 +33,11 @@ internal fun SettingsDiscoveryPanel(
     onQueryChange: (String) -> Unit,
     entries: List<SettingsSearchEntry>,
     onSelect: (SettingsSearchEntry) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    requestFocus: Boolean = false
 ) {
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(requestFocus) { if (requestFocus) focusRequester.requestFocus() }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         OutlinedTextField(
             query,
@@ -41,7 +49,13 @@ internal fun SettingsDiscoveryPanel(
             },
             singleLine = true,
             shape = AppShapes.input,
-            modifier = Modifier.fillMaxWidth().testTag("settings_search")
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                unfocusedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.65f),
+                focusedLabelColor = MaterialTheme.colorScheme.primary,
+                cursorColor = MaterialTheme.colorScheme.primary
+            ),
+            modifier = Modifier.fillMaxWidth().focusRequester(focusRequester).testTag("settings_search")
         )
         if (query.isNotBlank()) {
             val matches = SettingsSearchRegistry.search(query, entries)

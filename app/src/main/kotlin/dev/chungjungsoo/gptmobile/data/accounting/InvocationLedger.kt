@@ -67,6 +67,9 @@ class TokenAllowanceReached : IllegalStateException("The conversation turn reach
 interface InvocationDao {
     @Upsert suspend fun save(invocation: ModelInvocation)
 
+    @Query("SELECT * FROM model_invocations WHERE id = :id")
+    suspend fun byId(id: String): ModelInvocation?
+
     @Query("SELECT i.* FROM model_invocations i INNER JOIN agent_runs r ON r.run_id = i.parentRunId WHERE r.chat_id = :chatId ORDER BY i.startedAt, i.id")
     suspend fun forChat(chatId: Int): List<ModelInvocation>
 
@@ -101,18 +104,26 @@ interface InvocationDao {
     suspend fun rootExecutionPolicy(turnKey: String): String?
 
     @Transaction suspend fun reserve(invocation: ModelInvocation, limit: Int, spend: SpendBudgetSettings = SpendBudgetSettings()) {
-        if (limit != Int.MAX_VALUE && committedTokens(invocation.turnKey) + invocation.inputTokens + invocation.outputTokens > limit) throw TokenAllowanceReached()
+        val previous = byId(invocation.id)
+        val previousTokens = previous?.takeIf { it.turnKey == invocation.turnKey }?.let { it.inputTokens.toLong() + it.outputTokens } ?: 0
+        if (limit != Int.MAX_VALUE && committedTokens(invocation.turnKey) - previousTokens + invocation.inputTokens + invocation.outputTokens > limit) throw TokenAllowanceReached()
         if (spend.enforced && invocation.costMicros == null) throw SpendAllowanceReached("Add a current model price and a finite output cap before using a monetary budget.")
         val cost = invocation.costMicros ?: 0
         val start = java.time.LocalDate.now(java.time.ZoneOffset.UTC).atStartOfDay(java.time.ZoneOffset.UTC).toInstant().toEpochMilli()
-        if (spend.perTurnMicros > 0 && cost > spend.perTurnMicros - turnCost(invocation.turnKey, spend.currency)) throw SpendAllowanceReached("The per-turn spending allowance is reserved or exhausted.")
-        if (spend.perDayMicros > 0 && cost > spend.perDayMicros - dailyCost(start, spend.currency)) throw SpendAllowanceReached("The UTC daily spending allowance is reserved or exhausted.")
+        val previousTurnCost = previous?.takeIf { it.turnKey == invocation.turnKey && it.currency == spend.currency }?.costMicros ?: 0
+        val previousDailyCost = previous?.takeIf { it.startedAt >= start && it.currency == spend.currency }?.costMicros ?: 0
+        if (spend.perTurnMicros > 0 && cost > spend.perTurnMicros - turnCost(invocation.turnKey, spend.currency) + previousTurnCost) throw SpendAllowanceReached("The per-turn spending allowance is reserved or exhausted.")
+        if (spend.perDayMicros > 0 && cost > spend.perDayMicros - dailyCost(start, spend.currency) + previousDailyCost) throw SpendAllowanceReached("The UTC daily spending allowance is reserved or exhausted.")
         save(invocation)
     }
 }
 
 @Singleton
-class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val settings: dev.chungjungsoo.gptmobile.data.repository.SettingRepository? = null) {
+class InvocationLedger @Inject constructor(
+    database: ChatDatabaseV2,
+    private val settings: dev.chungjungsoo.gptmobile.data.repository.SettingRepository? = null,
+    private val combinedBudgets: dev.chungjungsoo.gptmobile.data.agent.CombinedTurnBudgetStore? = null
+) {
     val dao = database.invocationDao()
     val recent = dao.recent()
     private val liveRequests = MutableStateFlow<Map<String, ModelInvocation>>(emptyMap())
@@ -149,13 +160,14 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
         profileUid: String? = null,
         forceAccounting: Boolean = false,
         preparedAssistEvidence: Set<kotlinx.serialization.json.JsonObject> = emptySet(),
+        combined: dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext? = null,
         onInvocation: (String) -> Unit = {}
     ): AgentProviderSession = object : AgentProviderSession {
         override val handlesToolsInternally = session.handlesToolsInternally
         override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
             val features = settings?.getFeatureSettings()
             val spend = features?.spendBudget ?: SpendBudgetSettings()
-            val retainAccounting = forceAccounting || preparedAssistEvidence.isNotEmpty() || totalLimit != Int.MAX_VALUE || spend.enforced || LocalDiagnosticsPolicy.enabled
+            val retainAccounting = combined != null || forceAccounting || preparedAssistEvidence.isNotEmpty() || totalLimit != Int.MAX_VALUE || spend.enforced || LocalDiagnosticsPolicy.enabled
             if (!retainAccounting && !LocalDiagnosticsPolicy.enabled) {
                 emitAll(session.streamRound(tools, exchanges))
                 return@flow
@@ -172,7 +184,7 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
             val record = ModelInvocation(
                 java.util.UUID.randomUUID().toString(),
                 parentRunId,
-                turnKey,
+                combined?.rootBudgetId ?: turnKey,
                 provider,
                 model,
                 kind,
@@ -181,7 +193,7 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
                 profileUid = profileUid,
                 durationMs = 0,
                 costMicros = reservedCost, currency = spend.currency, priceSource = price?.let { "${it.source} · ${it.checkedAt}" },
-                executionPolicyJson = null
+                executionPolicyJson = combined?.takeIf { it.persistBudget }?.let { kotlinx.serialization.json.Json.encodeToString(it) }
             )
             try {
                 if (retainAccounting) dao.reserve(record, totalLimit, spend)
@@ -190,11 +202,18 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
                 emit(ProviderEvent.Completed)
                 return@flow
             } catch (_: TokenAllowanceReached) {
-                emit(ProviderEvent.TextDelta("\n\nThe response reached its total token allowance. I have paused further model and tool work. Would you like to continue in a new response?"))
-                emit(ProviderEvent.Completed)
+                if (combined != null) {
+                    emit(ProviderEvent.Failed("The accepted Combined turn reached its configured total token ceiling before dispatch. Completed evidence is retained."))
+                } else {
+                    emit(ProviderEvent.TextDelta("\n\nThe response reached its total token allowance. I have paused further model and tool work. Would you like to continue in a new response?"))
+                    emit(ProviderEvent.Completed)
+                }
                 return@flow
             }
             val dispatch = dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext(exchanges.flatMap { it.results }.flatMap { it.assistMetadata }.toSet(), parentRunId, record.id, preparedAssistEvidence)
+            val combinedAccounting = combined?.let {
+                CombinedInvocationAccounting(it, requireNotNull(combinedBudgets ?: dev.chungjungsoo.gptmobile.data.agent.CombinedTurnBudgetStore.installedOrNull()) { "Combined budget store is unavailable; no dispatch is allowed." }, price, dao, record, totalLimit, spend)
+            }
             onInvocation(record.id)
             dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(parentRunId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.INVOCATION_STARTED, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticRole.from(kind), invocationId = record.id)
             dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "Request ${record.id} · profileType=$provider · model=$model · runtime=not_resolved_at_dispatch · $kind · input estimate=${record.inputTokens} · parentRunId=$parentRunId · turnKey=$turnKey · requestKind=$kind · profileUid=${profileUid.orEmpty()} · requestedOutputCap=$outputLimit")
@@ -219,7 +238,7 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
             liveRequests.update { it + (record.id to record.copy(outputTokens = 0)) }
             try {
                 suspend fun collectRound() {
-                    session.streamRound(tools, exchanges).flowOn(dispatch).collect { event ->
+                    session.streamRound(tools, exchanges).flowOn(dispatch + (combinedAccounting ?: kotlin.coroutines.EmptyCoroutineContext)).collect { event ->
                         when (event) {
                             is ProviderEvent.TextDelta -> {
                                 if (first == null && event.text.isNotEmpty()) {
@@ -310,26 +329,25 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
                     dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "Finished ${record.id} · status=$status · durationMs=${(System.nanoTime() - started) / 1_000_000} · output=$recordedOutput · estimated=${input == null || output == null} · inputSource=$inputSource · outputSource=$outputSource · visibleBytes=$visibleBytes · reasoningBytes=$reasoningBytes · reportedReasoningTokens=${providerReasoningTokens ?: "unknown"} · toolCallTokens=unknown · visibleOutputTokens=unknown · finishReason=${finishReason ?: "unreported"} · settingsConfirmed=$settingsConfirmed · parentRunId=$parentRunId · turnKey=$turnKey · requestKind=$kind", if (status in setOf("COMPLETED", "CANCELED")) "I" else "W")
                     try {
                         if (retainAccounting) {
-                            dao.save(
-                                record.copy(
-                                    inputTokens = input ?: record.inputTokens,
-                                    outputTokens = output ?: ((generatedBytes + 2) / 3).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
-                                    estimated = input == null || output == null || inputSource == "estimated" || outputSource == "estimated",
-                                    inputTokenSource = inputSource,
-                                    outputTokenSource = outputSource,
-                                    finishReason = finishReason,
-                                    actualRuntime = actualRuntime,
-                                    status = status,
-                                    consumedAssistInvocationIds = dispatch.includedProducers.sorted().takeIf { it.isNotEmpty() }?.let { kotlinx.serialization.json.Json.encodeToString(it) },
-                                    assistInclusionVerified = dispatch.receipts.isNotEmpty(),
-                                    requestAdmissionReceipts = dispatch.receipts.toList().takeIf { it.isNotEmpty() }?.let { kotlinx.serialization.json.Json.encodeToString(it) },
-                                    observedInputTokens = input?.toLong(),
-                                    observedOutputTokens = output?.toLong(),
-                                    costMicros = if (status == "COMPLETED" && input != null && output != null) price?.cost(requireNotNull(input), requireNotNull(output)) else record.costMicros,
-                                    durationMs = (System.nanoTime() - started) / 1_000_000,
-                                    firstTokenMs = first
-                                )
+                            val observation = record.copy(
+                                inputTokens = input ?: record.inputTokens,
+                                outputTokens = output ?: ((generatedBytes + 2) / 3).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+                                estimated = input == null || output == null || inputSource == "estimated" || outputSource == "estimated",
+                                inputTokenSource = inputSource,
+                                outputTokenSource = outputSource,
+                                finishReason = finishReason,
+                                actualRuntime = actualRuntime,
+                                status = status,
+                                consumedAssistInvocationIds = dispatch.includedProducers.sorted().takeIf { it.isNotEmpty() }?.let { kotlinx.serialization.json.Json.encodeToString(it) },
+                                assistInclusionVerified = dispatch.receipts.isNotEmpty(),
+                                requestAdmissionReceipts = dispatch.receipts.toList().takeIf { it.isNotEmpty() }?.let { kotlinx.serialization.json.Json.encodeToString(it) },
+                                observedInputTokens = input?.toLong(),
+                                observedOutputTokens = output?.toLong(),
+                                costMicros = if (status == "COMPLETED" && input != null && output != null) price?.cost(requireNotNull(input), requireNotNull(output)) else record.costMicros,
+                                durationMs = (System.nanoTime() - started) / 1_000_000,
+                                firstTokenMs = first
                             )
+                            if (combinedAccounting != null) combinedAccounting.finish(observation, providerReasoningTokens) else dao.save(observation)
                         }
                     } finally {
                         liveRequests.update { it - record.id }

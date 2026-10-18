@@ -31,7 +31,8 @@ class ContextBuilderTest {
         val replies = listOf(listOf(MessageV2(content = "Different helper draft", platformType = "helper"), canonical), emptyList())
         for (uid in listOf("helper", "new-lead", "old-lead")) {
             val selected = ContextBuilder().build(users, replies, PlatformV2(uid = uid, name = uid)).first().assistantMessage!!
-            assertEquals(text, selected.content)
+            assertTrue(selected.content.startsWith(text))
+            assertTrue(selected.content.contains("not independent corroboration"))
             assertTrue(selected.combinedSources.single().localOnly)
         }
     }

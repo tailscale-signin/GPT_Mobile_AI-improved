@@ -12,6 +12,7 @@ data class AppFeatureSettings(
     val newChatBackgroundPrices: Boolean = false,
     val manualPrices: List<dev.chungjungsoo.gptmobile.data.pricing.ManualPrice> = emptyList(),
     val compactChatList: Boolean = false,
+    val settingsHome: SettingsHomeConfiguration = SettingsHomeConfiguration(),
     /** Legacy serialized preference; all new Combined runs preserve full contribution coverage. */
     val combinedComprehensive: Boolean = true,
     val lastChatProfileUids: List<String> = emptyList(),
@@ -85,6 +86,11 @@ data class AppFeatureSettings(
     val profileProgressDeadlines: Map<String, dev.chungjungsoo.gptmobile.data.agent.ProgressDeadlineSettings> = emptyMap(),
     val llamaReasoningModes: Map<String, dev.chungjungsoo.gptmobile.data.context.ReasoningMode> = emptyMap(),
     val conversationDelegation: Map<Int, ConversationDelegationSettings> = emptyMap(),
+    val conversationCombined: Map<Int, ConversationCombinedSettings> = emptyMap(),
+    val conversationIdentities: Map<Int, String> = emptyMap(),
+    val deferredConversationCombined: Map<String, ConversationCombinedSettings> = emptyMap(),
+    val combinedSettingsJournal: Map<Int, CombinedSettingsSaveOperation> = emptyMap(),
+    val combinedSettingsDeletions: Map<Int, String> = emptyMap(),
     val spendBudget: dev.chungjungsoo.gptmobile.data.accounting.SpendBudgetSettings = dev.chungjungsoo.gptmobile.data.accounting.SpendBudgetSettings(),
     val tokenBudget: dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings = dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings()
 ) {

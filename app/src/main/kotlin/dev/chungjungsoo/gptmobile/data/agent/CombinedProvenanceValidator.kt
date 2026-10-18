@@ -103,6 +103,19 @@ data class ValidatedCombinedProvenance internal constructor(
  * Semantic correctness additionally requires a separately qualified verifier revision.
  */
 object CombinedProvenanceValidator {
+    /** Citation resolution and revision binding are separate from contributor-color qualification. */
+    fun validateEvidenceReceipts(
+        answer: String,
+        revisionId: String,
+        evidence: CombinedEvidenceLedger,
+        receipts: List<CombinedVerificationReceipt>
+    ): List<String> = buildList {
+        if (receipts.map { it.id }.distinct().size != receipts.size) add("DUPLICATE_VERIFICATION_RECEIPT")
+        receipts.forEach { receipt ->
+            if (!CombinedEvidenceVerifier.validateReceipt(answer, revisionId, evidence, receipt)) add("STALE_OR_UNSUPPORTED_VERIFICATION_RECEIPT:${receipt.id}")
+        }
+    }
+
     fun validate(
         answer: String,
         sources: List<CombinedModelResponse>,
@@ -213,6 +226,21 @@ object CombinedProvenanceValidator {
                             evidence.toSet().size == evidence.size
                         if (!evidenceValid) warning = "Unresolvable or duplicate support evidence"
                         if (evidenceValid && comparison.supportSpanIds.isNotEmpty()) {
+                            val target = answer.substring(claim.startUtf16, claim.endUtf16)
+                            val sourceTexts = comparison.supportSpanIds.mapNotNull { lineage.resolve(it, sources, allowLocalOnly) }
+                            val hasApplicableSupport = sourceTexts.any { sourceText ->
+                                CombinedContentCoverage.sentences(sourceText).any { proposition ->
+                                    val original = CombinedClaimMatcher.fingerprint(proposition)
+                                    val final = CombinedClaimMatcher.fingerprint(target)
+                                    CombinedClaimSemantics.lostQualifiers(CombinedClaimSemantics.qualifiers(proposition), CombinedClaimSemantics.qualifiers(target)).isEmpty() &&
+                                        !CombinedClaimMatcher.possibleConflict(original, final) &&
+                                        (
+                                            CombinedContentCoverage.normalized(proposition) == CombinedContentCoverage.normalized(target) ||
+                                                original.terms.intersect(final.terms).size >= minOf(3, original.terms.size, final.terms.size).coerceAtLeast(2)
+                                            )
+                                }
+                            }
+                            if (!hasApplicableSupport) warning = "Claim support fails deterministic applicability or qualifier checks"
                             claimSupporters += comparison.profileUid
                             supportingSpans += comparison.supportSpanIds
                         }

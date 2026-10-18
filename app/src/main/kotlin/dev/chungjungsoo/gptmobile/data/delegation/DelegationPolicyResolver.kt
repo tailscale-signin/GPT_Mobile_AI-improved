@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.delegation
 
+import dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.ClientType
@@ -32,10 +33,14 @@ enum class DelegationBlockReason {
 
 /** Metadata inspection only: no network, native load, or billable request. */
 object DelegationPolicyResolver {
-    fun resolve(features: AppFeatureSettings, primaryUid: String, chat: ConversationDelegationSettings?): ModelDelegationSettings {
+    fun resolve(features: AppFeatureSettings, primaryUid: String, chat: ConversationDelegationSettings?, combined: CombinedExecutionContext? = null): ModelDelegationSettings {
         val defaults = features.delegationFor(primaryUid).normalized()
-        return chat?.applyTo(defaults) ?: defaults
+        return suppressForCombined(chat?.applyTo(defaults) ?: defaults, combined)
     }
+
+    /** Apply after normalization/research selection: normalization can enable automatic research. */
+    fun suppressForCombined(config: ModelDelegationSettings, combined: CombinedExecutionContext?): ModelDelegationSettings =
+        if (combined == null) config else config.copy(enabled = false, reviewerEnabled = false, automaticResearch = false, processingOwnership = 100)
 
     fun reasons(candidate: PlatformV2, config: ModelDelegationSettings, primary: PlatformV2? = null, reviewer: PlatformV2? = null): List<DelegationBlockReason> = buildList {
         if (!candidate.enabled) add(DelegationBlockReason.DISABLED)

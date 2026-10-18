@@ -26,6 +26,7 @@ internal class AmazonCombinedTool(private val children: List<ResolvedAgentTool>,
         (markets?.singleOrNull() as? JsonPrimitive)?.content?.let(AmazonProducts::marketplace)
     }
     override val managesExecutionBudget = true
+    override val coordinatesChildWork = true
     private val lock = Mutex()
     private val cache = linkedMapOf<String, AgentToolResult>()
     override val definition = AgentToolDefinition(

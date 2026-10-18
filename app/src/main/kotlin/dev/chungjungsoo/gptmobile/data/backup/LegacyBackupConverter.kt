@@ -154,5 +154,5 @@ internal object LegacyBackupConverter {
         return manifest.copy(version = CURRENT_VERSION, sections = CompleteBackupSelection(sections).normalized().sections.mapTo(linkedSetOf()) { it.name })
     }
 
-    const val CURRENT_VERSION = 4
+    const val CURRENT_VERSION = 5
 }

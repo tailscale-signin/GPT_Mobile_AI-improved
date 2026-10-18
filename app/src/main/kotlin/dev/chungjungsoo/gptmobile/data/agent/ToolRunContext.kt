@@ -14,6 +14,7 @@ fun AgentTool.withRunContext(runId: String): AgentTool {
     return object : OwnedAgentTool {
         override val definition = original.definition
         override val managesExecutionBudget = original.managesExecutionBudget
+        override val coordinatesChildWork = original.coordinatesChildWork
         override val executionOwner = (original as? OwnedAgentTool)?.executionOwner ?: AgentToolExecutionOwner.CLIENT
         override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult = withContext(ToolRunContext(runId)) { original.execute(callId, arguments) }
     }

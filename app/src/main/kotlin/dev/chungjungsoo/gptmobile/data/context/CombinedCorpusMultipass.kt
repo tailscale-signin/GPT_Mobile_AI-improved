@@ -1,5 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.context
 
+import dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext
+import dev.chungjungsoo.gptmobile.data.agent.CombinedResourceQuota
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -29,8 +31,19 @@ data class CombinedCorpusMultipassPlan(
     val frozenTurns: List<ConversationTurn>,
     val inspectionOutputTokens: Int,
     val passes: List<CombinedCorpusInspectionPass>,
-    val comprehensive: Boolean = false
+    val comprehensive: Boolean = false,
+    val rootBudgetId: String? = null
 ) {
+    /** Controller-owned required work, excluding inspections restored from immutable checkpoints. */
+    fun requiredInspectionResources(completedSourceIds: Set<String> = emptySet()): CombinedResourceQuota {
+        val remaining = passes.filter { it.source.sourceId !in completedSourceIds }
+        return CombinedResourceQuota(
+            inputTokens = remaining.sumOf { it.estimatedPromptTokens.toLong() },
+            generatedTokens = remaining.size.toLong() * inspectionOutputTokens,
+            toolOperations = 0
+        )
+    }
+
     /** Final writing may only use accepted reports from every source pass. */
     fun finalTurns(reports: List<String>): List<ConversationTurn> {
         require(reports.size == passes.size && reports.all { it.isNotBlank() }) {
@@ -48,22 +61,30 @@ data class CombinedCorpusMultipassPlan(
                 appendLine(reports[index])
                 appendLine()
             }
-            val envelope = runCatching { Json.parseToJsonElement(current.userMessage.content) as? JsonObject }.getOrNull()
+            val outer = runCatching { Json.parseToJsonElement(current.userMessage.content) as? JsonObject }.getOrNull()
+            val replacement = (outer?.get("operation") as? JsonPrimitive)?.content == "REPLACE_DRAFT"
+            val envelope = if (replacement) outer?.get("frozen_inputs") as? JsonObject else outer
+            if (replacement && outer != null) {
+                appendLine("Required operation: REPLACE_DRAFT. Every part of the complete draft and current evidence was inspected above.")
+                appendLine("Return a complete replacement from the original request. Do not append a correction, preserve an incorrect prefix, or continue the old draft. Recompute every final span and source link against this replacement.")
+                appendLine(JsonObject(outer.filterKeys { it in setOf("operation", "original_request", "previous_revision_id", "answer_contract", "failed_checks", "unresolved_candidate_hints", "instruction") }).toString())
+            }
             if ((envelope?.get("delivery_protocol") as? JsonPrimitive)?.content == "PASSAGES_V2") {
-                val contract = envelope.filterKeys { it in setOf("delivery_protocol", "instruction_priority", "answer_policy", "authoritative_turn_context") }.toMutableMap()
+                val contract = envelope.filterKeys { it in setOf("delivery_protocol", "instruction_priority", "answer_policy", "authoritative_turn_context", "merge_selection_policy", "requested_policy_digest", "effective_plan_digest", "request_to_claims", "input_representation") }.toMutableMap()
+                if (replacement) outer?.get("answer_contract")?.let { contract["answer_policy"] = it }
                 contract["contributions"] = JsonArray(
                     (envelope["contributions"] as? JsonArray).orEmpty().mapNotNull { row ->
                         (row as? JsonObject)?.let { JsonObject(it.filterKeys { key -> key in setOf("id", "profile", "profile_uid", "model") }) }
                     }
                 )
-                (envelope["evidence_ledger"] as? JsonObject)?.let { ledger ->
+                ((if (replacement) outer?.get("evidence_ledger") else null) as? JsonObject ?: envelope["evidence_ledger"] as? JsonObject)?.let { ledger ->
                     contract["evidence_ledger"] = JsonObject(
                         ledger.toMutableMap().apply {
                             put(
                                 "records",
                                 JsonArray(
                                     (ledger["records"] as? JsonArray).orEmpty().mapNotNull { row ->
-                                        (row as? JsonObject)?.let { JsonObject(it.filterKeys { key -> key != "passage" }) }
+                                        (row as? JsonObject)?.let { JsonObject(it.filterKeys { key -> key !in setOf("passage", "excerpts") }) }
                                     }
                                 )
                             )
@@ -72,6 +93,7 @@ data class CombinedCorpusMultipassPlan(
                 }
                 appendLine("Frozen delivery contract and canonical citation registry; passages were inspected above:")
                 appendLine(JsonObject(contract).toString())
+                appendLine("Follow the frozen merge_selection_policy within the answer_policy; no style or effort anchor changes permissions, truthfulness, user limits or claim qualifications.")
                 appendLine("Use PASSAGES_V2 paragraph and decision records. Preserve the inspected C and claim IDs, all contributing profiles and evidence IDs; never invent or renumber source IDs.")
             }
             appendLine("Produce one complete final answer from the original request.")
@@ -96,13 +118,15 @@ data class CombinedCorpusMultipassPlan(
  * Unsupported attachments and over-budget plans fail rather than vanishing.
  */
 object CombinedCorpusMultipass {
-    private const val MAX_PASSES = 64
+    private const val LEGACY_MAX_PASSES = 64
 
     fun plan(
         turns: List<ConversationTurn>,
         system: String,
-        settings: TokenBudgetSettings
+        settings: TokenBudgetSettings,
+        combined: CombinedExecutionContext? = null
     ): CombinedCorpusMultipassPlan {
+        require(combined == null || combined.plan != null && combined.rootBudgetId.isNotBlank()) { "COMBINED_MULTIPASS_POLICY: A resolved root budget is required before planning modern inspections." }
         val config = settings.normalized()
         val capacity = config.contextTokens
         require(capacity != Int.MAX_VALUE) {
@@ -137,8 +161,10 @@ object CombinedCorpusMultipass {
         sourceTexts.forEach { (index, role, text) ->
             var offset = 0
             while (offset < text.length) {
-                require(passes.size < MAX_PASSES) {
-                    "COMBINED_MULTIPASS_BUDGET: More than $MAX_PASSES source passes needed; originals were preserved."
+                // Modern passes are finite exact source spans. Actual calls share the accepted root
+                // budget, reserve and stop signal; an old UI-era pass count must not replace them.
+                require(combined != null || passes.size < LEGACY_MAX_PASSES) {
+                    "COMBINED_MULTIPASS_BUDGET: Legacy application limit of $LEGACY_MAX_PASSES source passes reached; originals were preserved."
                 }
                 val ordinal = passes.size + 1
                 val maxEnd = minOf(text.length, offset + capacity * 3)
@@ -207,6 +233,6 @@ object CombinedCorpusMultipass {
                 offset = bestEnd
             }
         }
-        return CombinedCorpusMultipassPlan(originalTask, turns, output, passes, comprehensive = dev.chungjungsoo.gptmobile.data.agent.comprehensiveCombinedEnvelope(current.userMessage.content))
+        return CombinedCorpusMultipassPlan(originalTask, turns, output, passes, comprehensive = dev.chungjungsoo.gptmobile.data.agent.comprehensiveCombinedEnvelope(current.userMessage.content), rootBudgetId = combined?.rootBudgetId)
     }
 }

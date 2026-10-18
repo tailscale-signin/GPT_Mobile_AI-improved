@@ -33,6 +33,7 @@ internal class ConfiguredPluginTool(private val delegate: AgentTool, settings: P
         }
     }
     override val managesExecutionBudget = delegate.managesExecutionBudget
+    override val coordinatesChildWork = delegate.coordinatesChildWork
     override val executionOwner = (delegate as? OwnedAgentTool)?.executionOwner ?: AgentToolExecutionOwner.CLIENT
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {

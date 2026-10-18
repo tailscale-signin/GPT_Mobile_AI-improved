@@ -506,6 +506,7 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
             val eventId = UUID.randomUUID().toString()
             var responseCode: Int? = null
             var successful = false
+            val combinedAttempt = dev.chungjungsoo.gptmobile.data.agent.CombinedAcquisitionBoundary.reserve("academic-http:$eventId", 1, freePublicEndpoint = true)
             val result = try {
                 http.prepareGet(target) {
                     header("User-Agent", "GPTMobileAcademic/1 (keyless public research)")
@@ -554,6 +555,7 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
                     }
                 }
             } finally {
+                combinedAttempt?.finish(if (responseCode != null) 1 else null)
                 telemetry.record(
                     dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchAttempt(
                         eventId = eventId,

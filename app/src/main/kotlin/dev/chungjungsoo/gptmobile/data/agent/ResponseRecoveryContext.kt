@@ -130,6 +130,7 @@ internal class ResponseRecoveryContext(
             )
         }
         override val managesExecutionBudget get() = tool.managesExecutionBudget
+        override val coordinatesChildWork get() = tool.coordinatesChildWork
         override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
             if (!isAuthorized()) return AgentToolResult(callId, ToolResultContent.Text("Saved evidence access was revoked or its conversation was deleted. No saved content was returned or action repeated."), true)
             val effectId = (arguments["_recovery_effect_id"] as? kotlinx.serialization.json.JsonPrimitive)?.content

@@ -39,6 +39,9 @@ internal enum class AppRootDestination(val route: String, val label: String) {
 internal fun rootDestinationForRoute(route: String?): AppRootDestination? =
     AppRootDestination.entries.firstOrNull { it.route == route?.substringBefore('?') }
 
+internal fun showsCompactRootNavigation(destination: AppRootDestination?, rail: Boolean): Boolean =
+    !rail && destination in setOf(AppRootDestination.AI, AppRootDestination.TOOLS)
+
 private val AppRootDestination.icon: ImageVector
     get() = when (this) {
         AppRootDestination.CHATS -> Icons.AutoMirrored.Rounded.Chat
@@ -70,8 +73,8 @@ internal fun AppNavigationShell(navController: NavHostController, route: String?
                 }
             }
             Column(Modifier.weight(1f)) {
-                Box(Modifier.weight(1f).then(if (selected != null && selected != AppRootDestination.CHATS && !rail) Modifier.consumeWindowInsets(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom)) else Modifier)) { content() }
-                if (selected != null && selected != AppRootDestination.CHATS && !rail) {
+                Box(Modifier.weight(1f).then(if (showsCompactRootNavigation(selected, rail)) Modifier.consumeWindowInsets(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom)) else Modifier)) { content() }
+                if (showsCompactRootNavigation(selected, rail)) {
                     NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp) {
                         AppRootDestination.entries.forEach { root ->
                             NavigationBarItem(selected = root == selected, onClick = { navigate(root) }, icon = { Icon(root.icon, null) }, label = { Text(root.label) })

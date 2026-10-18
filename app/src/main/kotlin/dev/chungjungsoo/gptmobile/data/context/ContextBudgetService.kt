@@ -43,12 +43,17 @@ object ContextBudgetService {
     }
 
     /** Keep strict full-input planning available while allowing an explicit, bounded fallback. */
-    fun planFullInputOrMultipass(turns: List<ConversationTurn>, system: String, settings: TokenBudgetSettings): ContextPlan =
+    fun planFullInputOrMultipass(
+        turns: List<ConversationTurn>,
+        system: String,
+        settings: TokenBudgetSettings,
+        combined: dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext? = null
+    ): ContextPlan =
         try {
             planFullInput(turns, system, settings)
         } catch (overflow: IllegalArgumentException) {
             if (overflow.message?.startsWith("COMBINED_CONTEXT_CAPACITY:") != true) throw overflow
-            val stages = CombinedCorpusMultipass.plan(turns, system, settings)
+            val stages = CombinedCorpusMultipass.plan(turns, system, settings, combined)
             ContextPlan(
                 turns = turns,
                 system = system,

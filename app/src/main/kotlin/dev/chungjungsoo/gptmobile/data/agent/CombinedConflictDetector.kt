@@ -8,7 +8,9 @@ internal data class CombinedConflictCandidate(
     val rightUid: String,
     val leftText: String,
     val rightText: String,
-    val kind: String
+    val kind: String,
+    val leftClaimId: String = "",
+    val rightClaimId: String = ""
 )
 
 internal data class CombinedConflictScan(
@@ -19,32 +21,36 @@ internal data class CombinedConflictScan(
 
 /** Do not treat agreement among models as independent external evidence. */
 internal object CombinedConflictDetector {
-    fun scan(sources: List<CombinedModelResponse>): CombinedConflictScan {
+    fun scan(sources: List<CombinedModelResponse>, maxPairChecks: Long = 1_000_000L, maxCandidates: Int = Int.MAX_VALUE): CombinedConflictScan {
         data class Claim(
             val uid: String,
             val text: String,
-            val fingerprint: CombinedClaimMatcher.Fingerprint
+            val fingerprint: CombinedClaimMatcher.Fingerprint,
+            val id: String
         )
-        val claims = sources.flatMap { source ->
+        val claims = sources.flatMapIndexed { sourceIndex, source ->
             CombinedContentCoverage.sentences(CombinedContentCoverage.sourceCoverageText(source.content))
-                .filter { it.length >= 16 }
-                .map { Claim(source.platformUid, it, CombinedClaimMatcher.fingerprint(it)) }
+                .mapIndexed { index, text -> Claim(source.platformUid, text, CombinedClaimMatcher.fingerprint(text), "C${sourceIndex + 1}.${index + 1}") }
+                .filter { it.text.length >= 16 }
         }
-        // Full source responses are passed unchanged to the editor. This scan is a hint
-        // only; on oversized corpora we explicitly report that scanning was incomplete.
-        if (claims.size > 1500) return CombinedConflictScan(emptyList(), 0, false)
         val conflicts = mutableListOf<CombinedConflictCandidate>()
         var scanned = 0L
         var overflow = false
-        claims.forEachIndexed { index, first ->
+        for ((index, first) in claims.withIndex()) {
             for (other in index + 1 until claims.size) {
                 val second = claims[other]
-                if (first.uid == second.uid) continue
+                if (scanned >= maxPairChecks) return CombinedConflictScan(conflicts, scanned, false)
                 scanned++
                 if (CombinedClaimMatcher.possibleConflict(first.fingerprint, second.fingerprint)) {
-                    if (conflicts.size < 256) {
-                        val kind = if (first.fingerprint.negative != second.fingerprint.negative) "POLARITY" else "NUMERIC"
-                        conflicts += CombinedConflictCandidate(first.uid, second.uid, first.text, second.text, kind)
+                    if (conflicts.size < maxCandidates) {
+                        val kind = when {
+                            first.fingerprint.qualifiers.outcome != second.fingerprint.qualifiers.outcome &&
+                                "NULL_EFFECT" in setOf(first.fingerprint.qualifiers.outcome, second.fingerprint.qualifiers.outcome) -> "OUTCOME"
+                            first.fingerprint.negative != second.fingerprint.negative -> "POLARITY"
+                            first.fingerprint.qualifiers.causalStrength != second.fingerprint.qualifiers.causalStrength -> "CAUSAL_STRENGTH"
+                            else -> "NUMERIC"
+                        }
+                        conflicts += CombinedConflictCandidate(first.uid, second.uid, first.text, second.text, kind, first.id, second.id)
                     } else {
                         overflow = true
                     }

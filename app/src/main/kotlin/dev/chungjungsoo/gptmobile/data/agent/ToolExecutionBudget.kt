@@ -4,6 +4,8 @@ import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
@@ -17,6 +19,8 @@ class ToolExecutionBudget(
     private val statistics: dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsRepository? = null,
     private val statisticsProfile: String = "",
     private val statisticsRoot: String = "",
+    private val combined: CombinedExecutionContext? = null,
+    private val combinedBudgets: CombinedTurnBudgetStore? = null,
     private val failureMessage: (Exception) -> String = { "Tool execution failed. Check the connection diagnostics before repeating an action." }
 ) {
     private val terminalToolFailures = java.util.concurrent.ConcurrentHashMap<String, String>()
@@ -29,9 +33,11 @@ class ToolExecutionBudget(
     private val remainingBytes = AtomicInteger(limits.maxToolOutputBytes)
     private val permits = Semaphore(limits.maxConcurrentTools.coerceAtLeast(1))
     private val executionLimit = ToolBudgetPolicy.executionLimit(limits)
+    private val combinedMode = combined != null || limits.combined != null
+    private val separateResultAllowance = limits.researchAcquisition || combinedMode
 
-    fun canExecute(): Boolean = (limits.researchAcquisition || remainingBytes.get() > 0) && !callBudgetIsExhausted()
-    fun remainingOutputBytes(): Int = if (limits.researchAcquisition) 64 * 1024 else remainingBytes.get().coerceAtLeast(0)
+    fun canExecute(): Boolean = (separateResultAllowance || remainingBytes.get() > 0) && !callBudgetIsExhausted()
+    fun remainingOutputBytes(): Int = if (separateResultAllowance) limits.maxToolOutputBytes.coerceAtLeast(0) else remainingBytes.get().coerceAtLeast(0)
 
     fun bind(
         tool: AgentTool,
@@ -41,13 +47,22 @@ class ToolExecutionBudget(
     ): AgentTool = object : PreparableAgentTool, OwnedAgentTool {
         override val definition = tool.definition
         override val managesExecutionBudget = true
+        override val coordinatesChildWork = tool.coordinatesChildWork
         override val executionOwner = (tool as? OwnedAgentTool)?.executionOwner ?: AgentToolExecutionOwner.CLIENT
 
         override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult = prepareExecution(callId, arguments).invoke()
 
         override suspend fun prepareExecution(callId: String, arguments: JsonObject): suspend () -> AgentToolResult {
             fun failure(message: String) = ToolResultEnvelope.error(callId, "BUDGET_EXHAUSTED", message)
-            if ((!limits.researchAcquisition && attempts.incrementAndGet() > limits.maxObservedToolCalls.coerceIn(1, 1024)) || callId.length > 256 || boundedJsonBytes(arguments, 16 * 1024) > 16 * 1024) {
+            val inherited = currentCoroutineContext()[CombinedToolDispatchScope]
+            val activeRole = inherited?.context ?: currentCoroutineContext()[CombinedRunScope]?.context
+            val boundContext = combined ?: limits.combined
+            require(activeRole == null || boundContext == null || activeRole.rootBudgetId == boundContext.rootBudgetId) { "A tool cannot move between accepted Combined turns." }
+            val executionContext = activeRole ?: boundContext
+            val physicalIdentity = "$executionOwner:$callId"
+            val alreadyBudgeted = inherited?.context?.rootBudgetId == executionContext?.rootBudgetId && inherited?.identity == physicalIdentity
+            val observedLimit = if (executionContext == null) limits.maxObservedToolCalls.coerceIn(1, 1024) else limits.maxObservedToolCalls.coerceAtLeast(0)
+            if ((!limits.researchAcquisition && !alreadyBudgeted && attempts.incrementAndGet() > observedLimit) || callId.length > 256 || boundedJsonBytes(arguments, 16 * 1024) > 16 * 1024) {
                 return { withBudgetState(ToolResultEnvelope.error(callId.take(256), "TOOL_BATCH_OVERSIZE", "Observed tool attempt or argument limit reached. No action dispatched.")) }
             }
             val invocation = "$executionOwner:${tool.definition.name}:$callId"
@@ -66,7 +81,7 @@ class ToolExecutionBudget(
                     tool.definition.inputSchema.toString().take(6000)
                 return { withBudgetState(ToolResultEnvelope.error(callId, "INVALID_ARGUMENTS", message)) }
             }
-            if (!tryAcquireCall()) {
+            if (!alreadyBudgeted && !tryAcquireCall(enforceResearchLimit = executionContext != null)) {
                 val message = toolCallBudgetMessage()
                 AppLogRecorder.record(
                     "ToolBudget",
@@ -82,7 +97,7 @@ class ToolExecutionBudget(
                     )
                 }
             }
-            if (!limits.researchAcquisition && remainingBytes.get() <= 0) {
+            if (!separateResultAllowance && remainingBytes.get() <= 0) {
                 val message = outputBudgetMessage()
                 AppLogRecorder.record(
                     "ToolBudget",
@@ -119,15 +134,52 @@ class ToolExecutionBudget(
                 var reason: String? = null
                 var shared = false
                 var producer: String? = null
+                var sharedBudget: CombinedTurnBudget? = null
+                var reservationId: String? = null
+                var combinedResult: AgentToolResult? = null
+                var physicalToolStarted = false
+                var assignedWorkId: String? = null
+                var physicalContext = executionContext
+                val workUnits = CombinedToolWork.units(arguments)
                 suspend fun invokeObserved(): AgentToolResult {
                     // Admission and semaphore waiting do not count as uses.
+                    currentCoroutineContext().ensureActive()
+                    if (executionContext != null && !alreadyBudgeted) {
+                        val store = combinedBudgets ?: CombinedTurnBudgetStore.installedOrNull()
+                            ?: throw CombinedBudgetExceeded("Combined budget store is unavailable; no tool was dispatched.")
+                        val budget = store.open(executionContext)
+                        if (budget.snapshot().let { it.cancelled || it.closed }) throw CombinedBudgetExceeded("Combined turn is closed; no tool was dispatched.")
+                        assignedWorkId = budget.assignEvidenceWork(executionContext, arguments.toString(), CombinedToolWork.isInspection(tool.definition.name))
+                        if (assignedWorkId == null && tool.coordinatesChildWork && AgentToolCapability.WEB_SEARCH !in tool.definition.capabilities && CombinedWorkInventory.urls(arguments.toString()).isEmpty()) {
+                            assignedWorkId = budget.assignedContext(executionContext).workItemId
+                        }
+                        physicalContext = assignedWorkId?.let { executionContext.copy(workItemId = it) } ?: executionContext
+                        sharedBudget = budget
+                        if (!tool.coordinatesChildWork) {
+                            val attemptId = "tool:${executionContext.role}:${executionContext.profileUid}:$statisticsRoot:$physicalIdentity"
+                            val effectFingerprint = if (CombinedToolWork.isInspection(tool.definition.name) || AgentToolCapability.WEB_SEARCH in tool.definition.capabilities) null else combinedDigest(statisticsIdentity.key + ":" + dev.chungjungsoo.gptmobile.data.permissions.ScopedToolGrant.canonicalHash(arguments))
+                            when (val admission = budget.reserve(requireNotNull(physicalContext), attemptId, CombinedResourceQuota(toolOperations = workUnits), effectFingerprint = effectFingerprint)) {
+                                is CombinedBudgetAdmission.Denied -> return failure(admission.reason).copy(toolCallBudgetExhausted = true)
+                                is CombinedBudgetAdmission.Granted -> {
+                                    sharedBudget = budget
+                                    reservationId = attemptId
+                                }
+                            }
+                        }
+                    }
                     val attributedProfile = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsProfile]?.uid ?: statisticsProfile
                     statisticsId = statistics?.begin(statisticsIdentity, attributedProfile, statisticsRoot, executionOwner.name, callId)
                     startedNanos = System.nanoTime()
                     val recorder = statistics
                     val recordedId = statisticsId
-                    val result = if (recorder != null && recordedId != null) withContext(dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsContext(recorder, recordedId, statisticsIdentity.key, attributedProfile, statisticsRoot)) { tool.execute(callId, arguments) } else tool.execute(callId, arguments)
+                    val sharedContext = physicalContext?.let { CombinedToolDispatchScope(it, physicalIdentity) } ?: kotlin.coroutines.EmptyCoroutineContext
+                    val result = withContext(sharedContext) {
+                        currentCoroutineContext().ensureActive()
+                        physicalToolStarted = true
+                        if (recorder != null && recordedId != null) withContext(dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsContext(recorder, recordedId, statisticsIdentity.key, attributedProfile, statisticsRoot)) { tool.execute(callId, arguments) } else tool.execute(callId, arguments)
+                    }
                     return result.also { raw ->
+                        combinedResult = raw
                         if (!raw.dispatched) {
                             statistics?.rejectedBeforeDispatch(statisticsId)
                             statisticsId = null
@@ -207,6 +259,9 @@ class ToolExecutionBudget(
                         "W"
                     )
                     throw cancellation
+                } catch (error: CombinedBudgetExceeded) {
+                    reason = "COMBINED_BUDGET_EXHAUSTED"
+                    return@execution failure(error.reason).copy(toolCallBudgetExhausted = true)
                 } catch (error: Exception) {
                     val readOnly = dev.chungjungsoo.gptmobile.data.research.ResearchTimeouts.isAcademicRead(tool.definition.name)
                     reason = if (readOnly) "READ_FAILED" else "DISPATCH_OUTCOME_UNKNOWN"
@@ -223,6 +278,41 @@ class ToolExecutionBudget(
                         deliveryOutcome = dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolDelivery.PENDING
                     }
                     withContext(NonCancellable) {
+                        val budget = sharedBudget
+                        val attemptId = reservationId
+                        val raw = combinedResult
+                        if (budget != null && attemptId != null) {
+                            if (!physicalToolStarted || raw != null && !raw.dispatched) {
+                                budget.releaseNotDispatched(attemptId)
+                            } else if (raw != null && raw.errorCode !in setOf("TIMEOUT_OUTCOME_UNKNOWN", "DISPATCH_OUTCOME_UNKNOWN")) {
+                                budget.settle(attemptId, CombinedUsage(CombinedResourceQuota(toolOperations = workUnits)))
+                            } else {
+                                budget.unknown(attemptId, reason ?: "Tool completion unknown; work reservation retained.")
+                            }
+                        }
+                        if (budget != null && raw != null && raw.dispatched && raw.errorCode !in setOf("TIMEOUT_OUTCOME_UNKNOWN", "DISPATCH_OUTCOME_UNKNOWN")) {
+                            val item = assignedWorkId
+                            var madeProgress = false
+                            if (!raw.isError && item != null) {
+                                if (AgentToolCapability.WEB_SEARCH in tool.definition.capabilities) budget.recordDiscovery(item, raw.content.toString())
+                                if (CombinedToolWork.isInspection(tool.definition.name)) {
+                                    // Citation links in a returned article were not themselves inspected.
+                                    // An identifier-based paper read may supply its one canonical URL.
+                                    val payload = (raw.content as? ToolResultContent.Json)?.value as? kotlinx.serialization.json.JsonObject
+                                    val status = (payload?.get("retrievalStatus") as? kotlinx.serialization.json.JsonPrimitive)?.content
+                                    val inspected = if (tool.definition.name == "deep_research_read_paper" && status !in setOf("read", "partially_read")) {
+                                        ""
+                                    } else if (CombinedWorkInventory.urls(arguments.toString()).isNotEmpty()) {
+                                        arguments.toString()
+                                    } else {
+                                        (payload?.get("canonicalUrl") as? kotlinx.serialization.json.JsonPrimitive)?.content
+                                            ?: (payload?.get("sourceUrl") as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty()
+                                    }
+                                    madeProgress = budget.recordInspection(item, inspected, executionContext?.workItemId == item)
+                                }
+                            }
+                            budget.completedAcquisitionBatch(madeProgress)
+                        }
                         statistics?.complete(
                             statisticsId,
                             executionOutcome,
@@ -239,8 +329,8 @@ class ToolExecutionBudget(
         }
     }
 
-    private fun tryAcquireCall(): Boolean {
-        if (limits.researchAcquisition || executionLimit == Int.MAX_VALUE) {
+    private fun tryAcquireCall(enforceResearchLimit: Boolean = false): Boolean {
+        if (limits.researchAcquisition && !enforceResearchLimit || executionLimit == Int.MAX_VALUE) {
             calls.incrementAndGet()
             return true
         }
@@ -283,7 +373,7 @@ class ToolExecutionBudget(
             minOf(16 * 1024, limits.maxToolOutputBytes)
         }
         val chargedBytes = minOf(size, resultAllowance)
-        val sharedAvailable = if (limits.researchAcquisition) 64 * 1024 else remainingBytes.getAndUpdate { (it.toLong() - chargedBytes).coerceAtLeast(0).toInt() }.coerceAtLeast(0)
+        val sharedAvailable = if (separateResultAllowance) remainingOutputBytes() else remainingBytes.getAndUpdate { (it.toLong() - chargedBytes).coerceAtLeast(0).toInt() }.coerceAtLeast(0)
         val handoffReserve = if (
             preserveSuccessfulHandoff &&
             !result.isError &&
@@ -364,16 +454,16 @@ class ToolExecutionBudget(
                 },
                 retainedContent = result.retainedContent ?: result.content.takeIf { changed },
                 traceContent = trace,
-                outputBudgetExhausted = result.outputBudgetExhausted || !limits.researchAcquisition && remainingBytes.get() <= 0,
+                outputBudgetExhausted = result.outputBudgetExhausted || !separateResultAllowance && remainingBytes.get() <= 0,
                 toolCallBudgetExhausted = result.toolCallBudgetExhausted || callBudgetIsExhausted()
             )
         )
     }
 
     private fun withBudgetState(result: AgentToolResult): AgentToolResult {
-        val configuredCalls = limits.maxToolCalls.takeUnless { limits.researchAcquisition || it == Int.MAX_VALUE }
-        val callLimit = executionLimit.takeUnless { limits.researchAcquisition || it == Int.MAX_VALUE }
-        val resultByteLimit = limits.maxToolOutputBytes.takeUnless { limits.researchAcquisition || it == Int.MAX_VALUE }
+        val configuredCalls = limits.maxToolCalls.takeUnless { limits.researchAcquisition && !combinedMode || it == Int.MAX_VALUE }
+        val callLimit = executionLimit.takeUnless { limits.researchAcquisition && !combinedMode || it == Int.MAX_VALUE }
+        val resultByteLimit = limits.maxToolOutputBytes.takeUnless { separateResultAllowance || it == Int.MAX_VALUE }
         val resultBytesUsed = resultByteLimit?.let { limit ->
             (limit.toLong() - remainingBytes.get().toLong()).coerceIn(0L, limit.toLong()).toInt()
         }
@@ -392,7 +482,7 @@ class ToolExecutionBudget(
             text.startsWith("<!-- delegation:local -->") || text.startsWith("<!-- delegation:remote -->")
         } == true
     private fun callBudgetIsExhausted(): Boolean =
-        !limits.researchAcquisition && executionLimit != Int.MAX_VALUE && calls.get() >= executionLimit
+        (!limits.researchAcquisition || combinedMode) && executionLimit != Int.MAX_VALUE && calls.get() >= executionLimit
 
     private fun toolCallBudgetMessage(): String {
         val reserve = limits.finalResponseToolCallReserve.coerceAtLeast(0)

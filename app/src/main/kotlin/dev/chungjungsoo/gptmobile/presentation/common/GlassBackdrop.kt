@@ -68,7 +68,7 @@ internal fun Modifier.glassBackdrop(shape: Shape, opacity: Float = GLASS_OPACITY
     val sequence = LocalGlassPopupSequence.current
     val popupZ = if (captureAsPopup) remember(state) { (sequence?.incrementAndGet() ?: 1).toFloat() } else 0f
     if (!hasGlassBackdrop()) return this
-    val tokens = appOverlayTokens()
+    val tokens = appOverlayTokens(opacity)
     val tint = tokens.background.copy(alpha = opacity.coerceIn(0f, 1f))
     val source = if (captureAsPopup) hazeSource(state, zIndex = popupZ) else this
     return source.clip(shape).hazeEffect(

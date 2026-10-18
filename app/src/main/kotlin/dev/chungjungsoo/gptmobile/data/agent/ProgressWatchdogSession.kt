@@ -105,7 +105,12 @@ internal fun AgentProviderSession.withProgressWatchdog(
                                 is ProviderEvent.TextDelta -> if (event.text.isNotEmpty()) ObservedProgressStage.ANSWER else prior.stage
                                 is ProviderEvent.ThinkingDelta -> if (event.text.isNotEmpty()) ObservedProgressStage.REASONING else prior.stage
                                 is ProviderEvent.ToolCall, is ProviderEvent.ToolResult -> ObservedProgressStage.TOOL
-                                is ProviderEvent.PhaseChanged -> if (event.phase == dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase.PREFILL) ObservedProgressStage.PREFILL else prior.stage
+                                is ProviderEvent.PhaseChanged -> when (event.phase) {
+                                    dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase.QUEUED -> ObservedProgressStage.QUEUED
+                                    dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase.INSPECTING, dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase.LOADING, dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase.RESETTING -> ObservedProgressStage.LOADING
+                                    dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase.PREFILL -> ObservedProgressStage.PREFILL
+                                    else -> prior.stage
+                                }
                                 is ProviderEvent.GatewayProgressUpdate -> when (event.progress.phase?.lowercase()) {
                                     "queued", "queue" -> ObservedProgressStage.QUEUED
                                     "loading", "load" -> ObservedProgressStage.LOADING

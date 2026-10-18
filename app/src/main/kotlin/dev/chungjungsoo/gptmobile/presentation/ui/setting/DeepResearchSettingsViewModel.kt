@@ -20,6 +20,7 @@ data class DeepResearchSettingsUiState(val draft: DeepResearchSettings? = null, 
 
 @HiltViewModel
 class DeepResearchSettingsViewModel @Inject constructor(private val repository: SettingRepository, private val savedState: SavedStateHandle, private val sessions: dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore, private val archive: dev.chungjungsoo.gptmobile.data.research.feature.ResearchArchiveRepository, private val academic: dev.chungjungsoo.gptmobile.data.research.academic.AcademicNativeClient) : ViewModel() {
+    val crawlerProfiles = repository.observePlatformV2s().stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), emptyList())
     private val mutable = MutableStateFlow(DeepResearchSettingsUiState())
     val state = mutable.asStateFlow()
     val settings = repository.observeFeatureSettings().stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings())
@@ -54,7 +55,11 @@ class DeepResearchSettingsViewModel @Inject constructor(private val repository: 
     private var archiveQuery = ""
     private var archiveTopic = ""
     private var archiveOffset = 0
-    fun loadArchive(query: String = archiveQuery, topic: String = archiveTopic, offset: Int = 0) {
+    private var archiveAssessed = false
+    private var archiveRank = false
+    fun loadArchive(query: String = archiveQuery, topic: String = archiveTopic, offset: Int = 0, assessed: Boolean = archiveAssessed, rank: Boolean = archiveRank) {
+        archiveAssessed = assessed
+        archiveRank = rank
         archiveQuery = query
         archiveTopic = topic
         archiveOffset = offset
@@ -63,7 +68,7 @@ class DeepResearchSettingsViewModel @Inject constructor(private val repository: 
             try {
                 kotlinx.coroutines.delay(250)
                 archive.initialize()
-                archive.observePage(query, topic, settings.value.researchFeature.peerReviewedOnly, offset).collect { rows.value = it }
+                archive.observePage(query, topic, settings.value.researchFeature.peerReviewedOnly, offset, assessed, rank).collect { rows.value = it }
             } catch (cancel: CancellationException) {
                 throw cancel
             } catch (_: Exception) {

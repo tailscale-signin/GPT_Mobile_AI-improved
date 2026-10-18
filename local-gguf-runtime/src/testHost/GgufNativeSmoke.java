@@ -8,6 +8,7 @@ public final class GgufNativeSmoke {
         if (!value) throw new AssertionError(message);
     }
     public static void main(String[] args) {
+        check(GgufNative.buildInfo().contains("operationControl=1"), "Packaged build identity missing operation control");
         GgufNative.validateChatTemplate("{% for m in messages %}{{ m.role|upper }}: {{ m.content }}{% endfor %}".getBytes(StandardCharsets.UTF_8));
         try {
             GgufNative.validateChatTemplate("{% if true %}unclosed".getBytes(StandardCharsets.UTF_8));
@@ -50,6 +51,25 @@ public final class GgufNativeSmoke {
             check(historyUsage[4] == 0 || historyUsage[4] == 1, "Multi-turn generation returned an error");
             long[] stopped = GgufNative.generate(engine, new String[]{"user"}, new byte[][]{"Once upon a time".getBytes(StandardCharsets.UTF_8)}, 64, 1, 1f, 0f, bytes -> false);
             check(stopped[4] == 2 && stopped[0] > 0 && stopped[1] == 1, "Cancellation lost partial counters");
+            long cancelledBeforeEntry = GgufNative.nextOperationId();
+            GgufNative.prepareOperation(engine, cancelledBeforeEntry);
+            GgufNative.cancelOperation(engine, cancelledBeforeEntry);
+            long[] notEntered = GgufNative.generatePrepared(engine, new String[]{"user"}, new byte[][]{"Hello".getBytes(StandardCharsets.UTF_8)}, 16, 1, 1f, 0f, bytes -> { throw new AssertionError("Canceled operation emitted text"); }, null, cancelledBeforeEntry);
+            check(notEntered[4] == 2 && notEntered[0] == 0, "Cancellation before entry was cleared");
+            long duringPrefill = GgufNative.nextOperationId();
+            GgufNative.prepareOperation(engine, duringPrefill);
+            var stages = new java.util.ArrayList<String>();
+            long[] prefillStop = GgufNative.generatePrepared(engine, new String[]{"user"}, new byte[][]{"Tell a new short story about a bird".getBytes(StandardCharsets.UTF_8)}, 16, 1, 1f, 0f, bytes -> { throw new AssertionError("Prefill cancellation emitted text"); }, (phase,total,processed,sampled,elapsed,code) -> {
+                stages.add(phase);
+                if (phase.equals("PREFILL_BATCH_BEGIN")) GgufNative.cancelOperation(engine, duringPrefill);
+            }, duringPrefill);
+            check(prefillStop[4] == 2 && prefillStop[1] == 0, "Prefill cancellation did not retain partial receipt");
+            check(stages.contains("RENDER_BEGIN") && stages.contains("TOKENIZE_END") && stages.contains("NATIVE_RETURN"), "Native stage evidence missing");
+            long fresh = GgufNative.nextOperationId();
+            GgufNative.prepareOperation(engine, fresh);
+            GgufNative.cancelOperation(engine, duringPrefill); // Delayed cancel must not hit the new operation.
+            long[] freshResult = GgufNative.generatePrepared(engine, new String[]{"user"}, new byte[][]{"Once upon a time".getBytes(StandardCharsets.UTF_8)}, 16, 1, 1f, 0f, bytes -> true, null, fresh);
+            check(freshResult[1] > 0 && freshResult[4] != 2, "Stale cancellation stopped a fresh operation");
             try {
                 GgufNative.generate(engine, new String[]{"user"}, new byte[][]{"x ".repeat(1000).getBytes(StandardCharsets.UTF_8)}, 64, 1, 1f, 0f, bytes -> true);
                 throw new AssertionError("Oversized prompt admitted");
@@ -65,6 +85,15 @@ public final class GgufNativeSmoke {
         } catch (IllegalStateException expected) { }
         long reopened = GgufNative.load(args[0].getBytes(StandardCharsets.UTF_8), 512, 2, 0);
         GgufNative.unload(reopened);
+        for (int batch : new int[]{64, 128, 256}) {
+            long operation = GgufNative.nextOperationId();
+            GgufNative.prepareOperation(0, operation);
+            long configured = GgufNative.loadConfigured(args[0].getBytes(StandardCharsets.UTF_8), 512, 1, 0, operation, 2, batch, Math.min(128, batch));
+            try {
+                long[] result = GgufNative.generate(configured, new String[]{"user"}, new byte[][]{"Once upon a time".getBytes(StandardCharsets.UTF_8)}, 16, 1, 1f, 0f, bytes -> true);
+                check(result[1] > 0 && result[4] != 3, "Configured batch failed real inference");
+            } finally { GgufNative.unload(configured); }
+        }
         System.out.println("GGUF JNI smoke passed: repeated sessions, native counts, cancellation, context rejection, stale handles, reopening");
     }
 }

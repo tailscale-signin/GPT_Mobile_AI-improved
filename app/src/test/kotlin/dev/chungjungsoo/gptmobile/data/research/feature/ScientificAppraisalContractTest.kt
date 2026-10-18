@@ -60,7 +60,8 @@ class ScientificAppraisalContractTest {
     @Test fun readableTextDoesNotImplyFullArticleExamination() {
         assertFalse(ArticleSectionCoverage(inspected = setOf("methods", "results", "limitations")).complete)
         assertFalse(ArticleSectionCoverage(inspected = setOf("methods"), figuresAvailable = true, supplementsAvailable = true).complete)
-        assertTrue(ArticleSectionCoverage(inspected = setOf("methods", "results", "limitations"), figuresAvailable = true, supplementsAvailable = true).complete)
+        assertFalse(ArticleSectionCoverage(inspected = setOf("methods", "results", "limitations"), figuresAvailable = true, supplementsAvailable = true).complete)
+        assertTrue(ArticleSectionCoverage(inspected = setOf("methods", "results", "limitations"), figuresInspection = ContentInspection.INSPECTED, supplementsInspection = ContentInspection.NOT_APPLICABLE, supplementsReason = "No supplement declared by the complete structured article").complete)
     }
 
     @Test fun countsCannotUseUnrelatedNumbersOrSubstringsFromTheSamePassage() {

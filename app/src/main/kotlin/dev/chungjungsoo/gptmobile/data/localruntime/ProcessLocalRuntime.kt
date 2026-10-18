@@ -101,7 +101,7 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
 
     private suspend fun readinessIdentity(spec: LocalEngineSpec, snapshot: dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings): String {
         val tuning = snapshot.localEngineTuning()
-        val effective = if (spec.tuningLocked) spec else spec.copy(cpuThreads = tuning.cpuThreads, cacheEnabled = tuning.cacheEnabled, speculativeDecoding = tuning.speculativeDecoding)
+        val effective = if (spec.tuningLocked) spec else spec.copy(cpuThreads = tuning.cpuThreads, ggufBatchTokens = tuning.ggufBatchTokens, ggufMicroBatchTokens = minOf(tuning.ggufMicroBatchTokens, tuning.ggufBatchTokens), ggufPromptThreads = tuning.ggufPromptThreads, cacheEnabled = tuning.cacheEnabled, speculativeDecoding = tuning.speculativeDecoding)
         return RuntimeEvidenceIdentity.key(context, effective, effective.samplerIdentity, effective.workload).toString()
     }
 
@@ -185,7 +185,7 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
                     val elapsed = SystemClock.elapsedRealtime() - startedAtMs
                     AppLogRecorder.record(
                         "LocalModel",
-                        "LOCAL_PREFILL_TIMEOUT · backend=${engine.backend ?: "UNKNOWN"} · accelerator=${engine.engineSpec?.accelerator ?: "UNKNOWN"} · promptCharacters=${text.length} · watchdogBudgetMs=$watchdogBudgetMs · elapsedMs=$elapsed · workerPssBytes=${processPssBytes ?: -1} · nativeOutputTokens=0 · action=cancel_and_quarantine_if_unresponsive",
+                        "LOCAL_PREFILL_TIMEOUT · backend=${engine.backend ?: "UNKNOWN"} · accelerator=${engine.engineSpec?.accelerator ?: "UNKNOWN"} · promptCharacters=${text.length} · watchdogBudgetMs=$watchdogBudgetMs · elapsedMs=$elapsed · workerPssBytes=${processPssBytes ?: -1} · nativeOutputTokens=unknown · action=cancel_and_quarantine_if_unresponsive",
                         "E"
                     )
                     throw IllegalStateException("LOCAL_PREFILL_TIMEOUT: The native engine produced no tokens after ${elapsed / 1000}s. Generation was cancelled; check the selected backend and model compatibility, then retry manually.")
@@ -208,7 +208,7 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
     }
 
     override fun cancelActive() {
-        mutableState.value = state.value.copy(lifecycle = "CANCELLING")
+        mutableState.value = state.value.copy(lifecycle = "CANCELLING", engineHealth = "RESTART_REQUIRED")
         pending.values.forEach { request ->
             request.cancelling = true
             request.toolJobs.values.forEach { it.cancel() }
@@ -236,6 +236,7 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
     override suspend fun isEngineLoaded(spec: LocalEngineSpec) = requestedSpec?.engineConfiguration() == spec.engineConfiguration() &&
         remote != null &&
         state.value.engineSpec != null &&
+        state.value.engineHealth == "HEALTHY" &&
         (spec.tuningLocked || tuning == settings.getFeatureSettings().localEngineTuning())
 
     private suspend fun execute(operation: String, text: String = ""): RuntimeWire = command(RuntimeWire(operation, UUID.randomUUID().toString(), sessionId, generation, text = text))
@@ -263,7 +264,7 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
         if (!request.finished.isCompleted) {
             request.cancelling = true
             request.toolJobs.values.forEach { it.cancel() }
-            mutableState.value = state.value.copy(lifecycle = "CANCELLING")
+            mutableState.value = state.value.copy(lifecycle = "CANCELLING", engineHealth = "RESTART_REQUIRED")
             runCatching { sendCancel(request.packet) }
             if (withTimeoutOrNull(12_000) {
                     runCatching { request.finished.await() }
@@ -351,7 +352,11 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
             }
             "PHASE" -> {
                 mutableState.value = state.value.copy(lifecycle = if (packet.text == "PREFILL") "PREFILLING" else "DECODING")
-                request.events?.offer(LocalRuntimeEvent.PhaseChanged(LocalInferencePhase.valueOf(packet.text)))
+                packet.nativeProgress?.let { progress ->
+                    AppLogRecorder.record("LocalModel", "GGUF_NATIVE_PROGRESS · request=${packet.requestId} · session=${packet.sessionId} · generation=${packet.generation} · sequence=${packet.sequence} · operation=${progress.operationId} · stage=${progress.stage} · promptTokens=${progress.promptTokens} · processedTokens=${progress.processedTokens} · sampledTokens=${progress.sampledTokens} · elapsedMs=${progress.elapsedMs} · nativeCode=${progress.nativeCode} · observationMs=${progress.observedAtMs} · workerPssBytes=${processPssBytes ?: -1} · config=${progress.configuration.orEmpty()}")
+                    if (progress.stage == "TIMEOUT_CANCEL_REQUESTED") mutableState.value = state.value.copy(lifecycle = "CANCELLING", engineHealth = "RESTART_REQUIRED")
+                }
+                if (packet.nativeProgress == null || packet.nativeProgress.stage == "FIRST_BYTES") request.events?.offer(LocalRuntimeEvent.PhaseChanged(LocalInferencePhase.valueOf(packet.text), packet.nativeProgress))
             }
             "METRICS" -> packet.metrics?.let { request.events?.offer(LocalRuntimeEvent.Metrics(it)) }
             "TOOL" -> runTool(request, packet)
@@ -396,6 +401,7 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
     }
 
     @Synchronized private fun disconnect(reason: String) {
+        processPssBytes = null
         unbind()
         generation = ""
         sessionId = ""

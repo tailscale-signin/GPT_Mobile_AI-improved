@@ -88,6 +88,29 @@ class GgufNativeInstrumentedTest {
                     assertTrue(usage[4] in 0L..1L)
                     assertTrue(output.size() > 0)
                 }
+                val beforeEntry = GgufNative.nextOperationId()
+                GgufNative.prepareOperation(handle, beforeEntry)
+                GgufNative.cancelOperation(handle, beforeEntry)
+                val preCancelled = GgufNative.generatePrepared(handle, arrayOf("user"), arrayOf("Hello".toByteArray()), 16, 1, 1f, 0f, {
+                    fail("Canceled operation emitted bytes")
+                    false
+                }, null, beforeEntry)
+                assertEquals(2L, preCancelled[4])
+                assertEquals(0L, preCancelled[0])
+                val prefillOperation = GgufNative.nextOperationId()
+                GgufNative.prepareOperation(handle, prefillOperation)
+                val phases = mutableSetOf<String>()
+                val prefillCancelled = GgufNative.generatePrepared(handle, arrayOf("user"), arrayOf("Tell a different story about a bird".toByteArray()), 16, 1, 1f, 0f, {
+                    fail("Prefill cancellation emitted bytes")
+                    false
+                }, { phase, _, _, _, _, _ ->
+                    phases += phase
+                    if (phase == "PREFILL_BATCH_BEGIN") GgufNative.cancelOperation(handle, prefillOperation)
+                }, prefillOperation)
+                assertEquals(2L, prefillCancelled[4])
+                assertEquals(0L, prefillCancelled[1])
+                assertTrue(phases.containsAll(setOf("RENDER_BEGIN", "TOKENIZE_END", "NATIVE_RETURN")))
+                assertTrue(GgufNative.buildInfo().contains("operationControl=1"))
                 val stopped = GgufNative.generate(handle, arrayOf("user"), arrayOf("Once upon a time".toByteArray()), 64, 1, 1f, 0f) { false }
                 assertEquals(2L, stopped[4])
                 assertTrue(stopped[0] > 0)

@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -34,7 +33,7 @@ import kotlinx.serialization.json.Json
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ResearchArticleDialog(workId: String, versionId: String? = null, authority: String = "public", chatId: Int = 0, initialProfileUid: String = "", currentTools: () -> ChatMcpToolConfig = { ChatMcpToolConfig() }, onClose: () -> Unit, viewModel: ResearchArticleViewModel = hiltViewModel()) {
+fun ResearchArticleDialog(workId: String, versionId: String? = null, authority: String = "public", chatId: Int = 0, initialProfileUid: String = "", currentTools: () -> ChatMcpToolConfig = { ChatMcpToolConfig() }, onClose: () -> Unit, viewModel: ResearchArticleViewModel = hiltViewModel(), originalVersionId: String? = null) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
     var actionError by rememberSaveable(workId) { mutableStateOf<String?>(null) }
@@ -43,8 +42,13 @@ fun ResearchArticleDialog(workId: String, versionId: String? = null, authority: 
     val features by viewModel.features.collectAsStateWithLifecycle()
     val jobs by viewModel.jobs.collectAsStateWithLifecycle()
     var profileUid by rememberSaveable(workId) { mutableStateOf(initialProfileUid) }
+    LaunchedEffect(features.researchFeature.crawlerProfileUid) {
+        if (profileUid.isBlank()) profileUid = (features.conversationResearch[chatId] ?: currentTools().research)?.crawlerProfileUid ?: features.researchFeature.crawlerProfileUid.orEmpty()
+    }
+    var showingOriginal by rememberSaveable(workId, versionId) { mutableStateOf(false) }
+    val displayedVersionId = if (showingOriginal) originalVersionId ?: versionId else versionId
     val relevantJobs = jobs.filter { it.workId == workId && it.authority == authority && it.chatId == chatId }
-    LaunchedEffect(workId, versionId, authority, relevantJobs.map { it.updatedAt }) { viewModel.open(workId, versionId, authority) }
+    LaunchedEffect(workId, displayedVersionId, authority, relevantJobs.map { it.updatedAt }) { viewModel.open(workId, displayedVersionId, authority) }
     FadingDialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Scaffold(Modifier.fillMaxSize().glassWindowBackdrop(), containerColor = dev.chungjungsoo.gptmobile.presentation.common.overlayWindowContainerColor(), topBar = { TopAppBar(title = { Text("Article evidence") }, navigationIcon = { TextButton(onClick = onClose) { Text("Back") } }) }) { padding ->
             LazyColumn(Modifier.padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -76,16 +80,33 @@ fun ResearchArticleDialog(workId: String, versionId: String? = null, authority: 
                 }
                 state.version?.let { version ->
                     item {
+                        if (originalVersionId != null && originalVersionId != versionId) TextButton(onClick = { showingOriginal = !showingOriginal }) { Text(if (showingOriginal) "View updated assessment" else "View original cited version") }
                         Text("Coverage: ${version.coverage.name.lowercase().replace('_', ' ')}")
                         Text("Captured ${java.time.Instant.ofEpochMilli(version.retrievedAt)} · ${version.textBytes} UTF-8 bytes", style = MaterialTheme.typography.bodySmall)
                         Text("Version ${version.versionId.take(16)} · ${if (state.bodyAvailable) "Body integrity verified" else "Body unavailable or incomplete; historical metadata retained"}")
                         Text("Source capture, AI appraisal, publication review and independent review are separate.")
                     }
                     item {
-                        Text("Examination model", style = MaterialTheme.typography.titleMedium)
-                        profiles.filter { it.enabled }.forEach { profile -> FilterChip(profileUid == profile.uid, { profileUid = profile.uid }, label = { Text("${profile.name} · ${profile.model}") }) }
+                        dev.chungjungsoo.gptmobile.presentation.ui.setting.DelegateModelDropdown(profiles = profiles.filter { it.enabled }, selectedProfileUid = profileUid, enabled = true, onSelected = { profileUid = it?.uid.orEmpty() }, automaticLabel = "Choose profile", roleLabel = "Crawler AI profile")
+                        if (chatId > 0) TextButton(onClick = { viewModel.saveCrawlerForChat(chatId, profileUid, currentTools()) }, enabled = profileUid.isNotBlank()) { Text("Use this crawler for this chat") }
                         TextButton(onClick = { viewModel.examine(ExaminationRequest(workId, profileUid, chatId, version.versionId, authority), currentTools) }, enabled = profileUid.isNotBlank() && features.researchFeature.enabled && features.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH)) { Text("Examine / Resume") }
+                        TextButton(onClick = { viewModel.examine(ExaminationRequest(workId, profileUid, chatId, version.versionId, authority, reexamine = true), currentTools) }, enabled = profileUid.isNotBlank() && relevantJobs.any { it.stage in setOf(ExaminationStage.COMPLETE_FULL, ExaminationStage.COMPLETE_PARTIAL, ExaminationStage.ABSTRACT_ONLY) }) { Text("Re-examine as a new revision") }
                         Text("Uses the selected model and permitted article reader. Provider usage may be billable. Research Depth remains unchanged; all paper and profile permissions still apply.", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                state.reviews.forEachIndexed { index, review ->
+                    item(key = "review:${review.reviewId}") {
+                        val artifact = runCatching { Json.decodeFromString<dev.chungjungsoo.gptmobile.data.research.feature.StudyReviewArtifact>(review.artifactJson) }.getOrNull()
+                        Text(if (index == 0) "Current assessment · ${artifact?.outcomeKey.orEmpty()}" else "Assessment history · ${artifact?.outcomeKey.orEmpty()}", style = MaterialTheme.typography.titleMedium)
+                        Text(artifact?.conclusion.orEmpty())
+                        Text(artifact?.limitation.orEmpty(), style = MaterialTheme.typography.bodySmall)
+                        Text(if (state.work?.retracted == true) "Retraction reported · score suspended" else "${review.status} · AI review score ${review.overallScore ?: "Pending"}")
+                        Text("Reliability ${review.reliabilityScore ?: "Pending"} · Summary accuracy ${review.accuracyScore ?: "Pending"} · Rubric ${review.rubricVersion}")
+                        Text("${review.model} · ${java.time.Instant.ofEpochMilli(review.createdAt)}", style = MaterialTheme.typography.bodySmall)
+                        (artifact?.reliability.orEmpty() + artifact?.accuracy.orEmpty()).forEach { domain ->
+                            Text("${domain.domain.replace('_', ' ')}: ${domain.grade ?: "Unknown"} · ${domain.rationale}", style = MaterialTheme.typography.bodySmall)
+                            state.passages.filter { it.passageId in domain.passageIds }.forEach { Text("${it.locator}: ${it.quote}", style = MaterialTheme.typography.bodySmall) }
+                        }
                     }
                 }
                 relevantJobs.forEach { job ->

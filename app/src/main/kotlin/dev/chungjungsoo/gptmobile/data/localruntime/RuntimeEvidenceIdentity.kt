@@ -35,6 +35,9 @@ internal object RuntimeEvidenceIdentity {
             speculativeDecoding = spec.speculativeDecoding,
             workload = workload,
             cpuThreads = spec.cpuThreads,
+            ggufBatchTokens = spec.ggufBatchTokens,
+            ggufMicroBatchTokens = spec.ggufMicroBatchTokens,
+            ggufPromptThreads = spec.ggufPromptThreads,
             cacheEnabled = spec.cacheEnabled
         )
     }

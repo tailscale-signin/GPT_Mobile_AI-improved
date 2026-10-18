@@ -15,8 +15,10 @@ namespace {
 struct Engine {
     llama_model * model = nullptr;
     llama_context * context = nullptr;
+    int batchTokens = 256;
     std::unique_ptr<GgufChatTemplate> chatTemplate;
     std::atomic<bool> stop{false};
+    std::atomic<jlong> operation{0};
     std::mutex generation;
     std::vector<llama_token> committedTokens;
     ~Engine() { if (context) llama_free(context); if (model) llama_model_free(model); }
@@ -25,6 +27,8 @@ std::mutex registryMutex;
 std::unordered_map<jlong, std::shared_ptr<Engine>> engines;
 std::atomic<jlong> nextId{1};
 std::atomic<bool> cancelLoad{false};
+std::atomic<jlong> loadOperation{0};
+std::mutex operationMutex;
 std::once_flag initialized;
 using Clock = std::chrono::steady_clock;
 long elapsed(Clock::time_point from) { return std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - from).count(); }
@@ -46,6 +50,11 @@ std::shared_ptr<Engine> get(jlong handle) {
 bool aborted(void * data) { return static_cast<Engine *>(data)->stop.load(); }
 }
 
+extern "C" JNIEXPORT jstring JNICALL Java_dev_melo_gguf_GgufNative_buildInfo(JNIEnv * env, jclass) {
+    const std::string info = std::string("compiler=") + __VERSION__ + ";variant=" + GGUF_BUILD_TYPE + ";unoptimizedStepping=" + std::to_string(GGUF_NATIVE_DEBUG) + ";nativeProgress=1;operationControl=1";
+    return env->NewStringUTF(info.c_str());
+}
+
 extern "C" JNIEXPORT jboolean JNICALL Java_dev_melo_gguf_GgufNative_supportsGpuOffload(JNIEnv * env, jclass) {
     try {
         std::call_once(initialized, [] { llama_backend_init(); });
@@ -59,12 +68,13 @@ extern "C" JNIEXPORT void JNICALL Java_dev_melo_gguf_GgufNative_validateChatTemp
     } catch (const std::exception & e) { fail(env, e.what()); }
 }
 
-extern "C" JNIEXPORT jlong JNICALL Java_dev_melo_gguf_GgufNative_load(JNIEnv * env, jclass, jbyteArray path, jint contextTokens, jint threads, jint gpuLayers) {
+extern "C" JNIEXPORT jlong JNICALL Java_dev_melo_gguf_GgufNative_loadConfigured(JNIEnv * env, jclass, jbyteArray path, jint contextTokens, jint threads, jint gpuLayers, jlong operationId, jint promptThreads, jint batchTokens, jint microBatchTokens) {
     try {
         if (contextTokens < 128 || contextTokens > 32768 || threads < 1 || threads > 64 || gpuLayers < 0 || gpuLayers > 999) throw std::runtime_error("Unsupported GGUF context, thread, or GPU layer limit");
+        if (promptThreads < 1 || promptThreads > 64 || (batchTokens != 64 && batchTokens != 128 && batchTokens != 256) || (microBatchTokens != 64 && microBatchTokens != 128 && microBatchTokens != 256) || microBatchTokens > batchTokens) throw std::runtime_error("Invalid GGUF prompt thread or batch configuration");
         std::call_once(initialized, [] { llama_backend_init(); });
         if (gpuLayers > 0 && !llama_supports_gpu_offload()) throw std::runtime_error("GGUF Vulkan GPU offload is unavailable on this device or build; select CPU");
-        cancelLoad = false;
+        if (loadOperation != operationId || cancelLoad) throw std::runtime_error("GGUF load canceled before entry");
         auto engine = std::make_shared<Engine>();
         auto mp = llama_model_default_params();
         ggml_backend_dev_t cpuOnly[] = {nullptr};
@@ -96,9 +106,11 @@ extern "C" JNIEXPORT jlong JNICALL Java_dev_melo_gguf_GgufNative_load(JNIEnv * e
         if (llama_model_has_encoder(engine->model)) throw std::runtime_error("This GGUF route supports decoder-only text models");
         auto cp = llama_context_default_params();
         cp.n_ctx = contextTokens;
-        cp.n_batch = 256;
+        cp.n_batch = batchTokens;
+        cp.n_ubatch = microBatchTokens;
+        engine->batchTokens = batchTokens;
         cp.n_threads = threads;
-        cp.n_threads_batch = threads;
+        cp.n_threads_batch = promptThreads;
         cp.offload_kqv = gpuLayers > 0;
         cp.op_offload = gpuLayers > 0;
         cp.no_perf = false;
@@ -113,12 +125,34 @@ extern "C" JNIEXPORT jlong JNICALL Java_dev_melo_gguf_GgufNative_load(JNIEnv * e
     } catch (const std::exception & e) { fail(env, e.what()); return 0; }
 }
 
-extern "C" JNIEXPORT jlongArray JNICALL Java_dev_melo_gguf_GgufNative_generate(JNIEnv * env, jclass, jlong handle, jobjectArray roles, jobjectArray contents, jint outputLimit, jint topK, jfloat topP, jfloat temperature, jobject callback) {
+extern "C" JNIEXPORT jlongArray JNICALL Java_dev_melo_gguf_GgufNative_generatePrepared(JNIEnv * env, jclass, jlong handle, jobjectArray roles, jobjectArray contents, jint outputLimit, jint topK, jfloat topP, jfloat temperature, jobject callback, jobject progress, jlong operationId) {
     try {
         auto engine = get(handle);
         std::unique_lock<std::mutex> lease(engine->generation, std::try_to_lock);
         if (!lease.owns_lock()) throw std::runtime_error("GGUF generation is already running");
-        engine->stop = false;
+        if (engine->operation != operationId) throw std::runtime_error("Stale GGUF operation rejected");
+        if (engine->stop) {
+            jlong values[] = {0, 0, 0, 0, 2, 0, 0};
+            auto result = env->NewLongArray(7);
+            env->SetLongArrayRegion(result, 0, 7, values);
+            return result;
+        }
+        const auto operationStart = Clock::now();
+        jmethodID onProgress = nullptr;
+        if (progress) {
+            auto type = env->GetObjectClass(progress);
+            onProgress = env->GetMethodID(type, "onProgress", "(Ljava/lang/String;JJJJI)V");
+            env->DeleteLocalRef(type);
+            if (!onProgress) return nullptr;
+        }
+        auto report = [&](const char * phase, jlong total, jlong processed, jlong sampled, int code = 0) {
+            if (!progress || env->ExceptionCheck()) return;
+            auto name = env->NewStringUTF(phase);
+            env->CallVoidMethod(progress, onProgress, name, total, processed, sampled, static_cast<jlong>(elapsed(operationStart)), code);
+            env->DeleteLocalRef(name);
+            if (env->ExceptionCheck()) engine->stop = true;
+        };
+        report("RENDER_BEGIN", -1, -1, 0);
         if (!roles || !contents || !callback || outputLimit <= 0 || outputLimit > 8192) throw std::runtime_error("Invalid GGUF generation parameters");
         const int count = env->GetArrayLength(roles);
         if (count < 1 || count > 512 || env->GetArrayLength(contents) != count) throw std::runtime_error("Invalid bounded GGUF history");
@@ -141,11 +175,14 @@ extern "C" JNIEXPORT jlongArray JNICALL Java_dev_melo_gguf_GgufNative_generate(J
         GgufChatTemplate::Messages messages;
         for (int i = 0; i < count; ++i) messages.emplace_back(roleText[i], contentText[i]);
         const auto prompt = engine->chatTemplate->render(messages);
+        report("RENDER_END", -1, -1, 0);
+        report("TOKENIZE_BEGIN", -1, -1, 0);
         const auto vocab = llama_model_get_vocab(engine->model);
         const int tokenCount = -llama_tokenize(vocab, prompt.data(), prompt.size(), nullptr, 0, true, true);
         if (tokenCount <= 0 || static_cast<uint64_t>(tokenCount) + outputLimit > llama_n_ctx(engine->context)) throw std::runtime_error("GGUF context limit: shorten input or select a larger compatible context");
         std::vector<llama_token> tokens(tokenCount);
         if (llama_tokenize(vocab, prompt.data(), prompt.size(), tokens.data(), tokens.size(), true, true) != tokenCount) throw std::runtime_error("GGUF tokenization failed");
+        report("TOKENIZE_END", tokenCount, 0, 0);
         // Reuse only exact token identity. Always re-evaluate the last prompt
         // token to obtain current logits; text-prefix equality is insufficient.
         size_t reused = 0;
@@ -173,17 +210,22 @@ extern "C" JNIEXPORT jlongArray JNICALL Java_dev_melo_gguf_GgufNative_generate(J
         if (!onBytes) return nullptr;
         jlong input = reused, output = 0, stop = 1;
         const auto start = Clock::now();
-        for (int offset = static_cast<int>(reused); offset < tokenCount && !engine->stop; offset += 256) {
-            const int n = std::min(256, tokenCount - offset);
+        report("PREFILL_BEGIN", tokenCount, input, output);
+        for (int offset = static_cast<int>(reused); offset < tokenCount && !engine->stop; offset += engine->batchTokens) {
+            const int n = std::min(engine->batchTokens, tokenCount - offset);
             auto batch = llama_batch_get_one(tokens.data() + offset, n);
+            report("PREFILL_BATCH_BEGIN", tokenCount, input, output);
             const int result = llama_decode(engine->context, batch);
+            report("PREFILL_BATCH_END", tokenCount, result == 0 ? input + n : input, output, result);
             if (result != 0) { stop = engine->stop ? 2 : 3; break; }
             input += n;
         }
         const jlong prefillMs = elapsed(start);
         const auto decodeStart = Clock::now();
+        report("PREFILL_END", tokenCount, input, output, static_cast<int>(stop));
         if (input == tokenCount) for (int i = 0; i < outputLimit && !engine->stop; ++i) {
             const auto token = llama_sampler_sample(sampler.get(), engine->context, -1);
+            if (i == 0) report("FIRST_SAMPLE", tokenCount, input, output);
             if (llama_vocab_is_eog(vocab, token)) { stop = 0; break; }
             llama_sampler_accept(sampler.get(), token);
             std::vector<char> piece(256);
@@ -191,6 +233,7 @@ extern "C" JNIEXPORT jlongArray JNICALL Java_dev_melo_gguf_GgufNative_generate(J
             if (n < 0) { piece.resize(-n); n = llama_token_to_piece(vocab, token, piece.data(), piece.size(), 0, true); }
             if (n < 0) { stop = 3; break; }
             ++output;
+            report(output == 1 ? "FIRST_BYTES" : "DECODING", tokenCount, input, output);
             auto chunk = env->NewByteArray(n);
             env->SetByteArrayRegion(chunk, 0, n, reinterpret_cast<const jbyte *>(piece.data()));
             const bool more = env->CallBooleanMethod(callback, onBytes, chunk);
@@ -203,6 +246,7 @@ extern "C" JNIEXPORT jlongArray JNICALL Java_dev_melo_gguf_GgufNative_generate(J
         }
         if (engine->stop) stop = 2;
         if (stop == 0 || stop == 1) engine->committedTokens = std::move(decodedTokens);
+        report("NATIVE_RETURN", tokenCount, input, output, static_cast<int>(stop));
         jlong values[] = {input, output, prefillMs, elapsed(decodeStart), stop, static_cast<jlong>(reused), input - static_cast<jlong>(reused)};
         auto result = env->NewLongArray(7);
         env->SetLongArrayRegion(result, 0, 7, values);
@@ -210,6 +254,25 @@ extern "C" JNIEXPORT jlongArray JNICALL Java_dev_melo_gguf_GgufNative_generate(J
     } catch (const std::exception & e) { fail(env, e.what()); return nullptr; }
 }
 
+extern "C" JNIEXPORT void JNICALL Java_dev_melo_gguf_GgufNative_prepareOperation(JNIEnv * env, jclass, jlong handle, jlong id) {
+    try {
+        std::lock_guard<std::mutex> lock(operationMutex);
+        if (id <= 0) throw std::runtime_error("Invalid GGUF operation identity");
+        if (handle == 0) { loadOperation = id; cancelLoad = false; }
+        else {
+            auto engine = get(handle);
+            std::unique_lock<std::mutex> lease(engine->generation, std::try_to_lock);
+            if (!lease.owns_lock()) throw std::runtime_error("Cannot prepare an active GGUF engine");
+            engine->operation = id;
+            engine->stop = false;
+        }
+    } catch (const std::exception & e) { fail(env, e.what()); }
+}
+extern "C" JNIEXPORT void JNICALL Java_dev_melo_gguf_GgufNative_cancelOperation(JNIEnv *, jclass, jlong handle, jlong id) {
+    std::lock_guard<std::mutex> lock(operationMutex);
+    if (handle == 0) { if (loadOperation == id) cancelLoad = true; }
+    else { try { auto engine = get(handle); if (engine->operation == id) engine->stop = true; } catch (...) {} }
+}
 extern "C" JNIEXPORT void JNICALL Java_dev_melo_gguf_GgufNative_cancel(JNIEnv *, jclass, jlong handle) {
     cancelLoad = true;
     if (handle != 0) { try { get(handle)->stop = true; } catch (...) {} }

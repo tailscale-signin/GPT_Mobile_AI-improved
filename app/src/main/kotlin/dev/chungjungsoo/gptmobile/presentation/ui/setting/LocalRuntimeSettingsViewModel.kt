@@ -118,6 +118,9 @@ class LocalRuntimeSettingsViewModel @Inject constructor(
     }
     fun updateTuning(
         threads: Int? = null,
+        ggufBatch: Int? = null,
+        ggufMicroBatch: Int? = null,
+        ggufPromptThreads: Int? = null,
         cache: Boolean? = null,
         idle: Int? = null,
         fallback: Boolean? = null,
@@ -131,6 +134,9 @@ class LocalRuntimeSettingsViewModel @Inject constructor(
                 current.copy(
                     localExecutionPolicy = policy ?: current.localExecutionPolicy,
                     localCpuThreads = threads?.coerceIn(0, cores) ?: current.localCpuThreads,
+                    ggufBatchTokens = ggufBatch?.takeIf { it in setOf(64, 128, 256) } ?: current.ggufBatchTokens,
+                    ggufMicroBatchTokens = ggufMicroBatch?.takeIf { it in setOf(64, 128, 256) } ?: current.ggufMicroBatchTokens,
+                    ggufPromptThreads = ggufPromptThreads?.coerceIn(0, cores) ?: current.ggufPromptThreads,
                     localModelCache = cache ?: current.localModelCache,
                     localSpeculativeDecoding = speculative ?: current.localSpeculativeDecoding,
                     localNativeMetrics = nativeMetrics ?: current.localNativeMetrics,

@@ -140,10 +140,14 @@ class LiteRtLmAdapter(
                     // Inspection also takes the native engine lock. Surface contention here,
                     // before planning, so queued requests remain visibly cancellable.
                     requestExclusiveFlow(
-                        onContended = { send(ProviderEvent.Notice(waitingForEngineNotice)) }
+                        onContended = {
+                            send(ProviderEvent.PhaseChanged(dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase.QUEUED))
+                            send(ProviderEvent.Notice(waitingForEngineNotice))
+                        }
                     ) {
                         flow {
                             kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]?.validate?.invoke()
+                            send(ProviderEvent.PhaseChanged(dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase.INSPECTING))
                             emit(inspectModel(modelPath))
                         }
                     }.single()
@@ -414,7 +418,10 @@ class LiteRtLmAdapter(
                         formatTelemetryNotice(metrics, localRuntime).takeIf { it.isNotBlank() }?.let { send(ProviderEvent.Notice(it)) }
                     }
                     requestExclusiveFlow(
-                        onContended = { send(ProviderEvent.Notice(waitingForEngineNotice)) }
+                        onContended = {
+                            send(ProviderEvent.PhaseChanged(dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase.QUEUED))
+                            send(ProviderEvent.Notice(waitingForEngineNotice))
+                        }
                     ) {
                         flow<Unit> {
                             try {
@@ -423,6 +430,7 @@ class LiteRtLmAdapter(
                                 exclusiveToolsByName = runToolsByName
                                 exclusiveToolEventSink = runToolEventSink
                                 if (!isEngineLoaded(requestSpec) && loadingModelNotice.isNotBlank()) {
+                                    send(ProviderEvent.PhaseChanged(dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase.LOADING))
                                     send(ProviderEvent.Notice(loadingModelNotice))
                                 }
                                 val selectedManifest = if (modelPath.endsWith("manifest.json")) {

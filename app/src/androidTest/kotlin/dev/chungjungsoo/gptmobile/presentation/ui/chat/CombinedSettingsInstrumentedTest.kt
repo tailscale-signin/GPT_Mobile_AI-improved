@@ -14,6 +14,7 @@ import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -21,6 +22,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.test.performTouchInput
 import dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode
 import dev.chungjungsoo.gptmobile.data.model.CombinedChatSettingsDraft
 import dev.chungjungsoo.gptmobile.data.model.ConversationCombinedSettings
@@ -67,9 +69,10 @@ class CombinedSettingsInstrumentedTest {
                 }
             }
         }
-        val member = compose.onNodeWithTag("combined_member_a").performScrollTo()
-        member.assertIsOn()
-        member.performClick().assertIsOff()
+        compose.onNodeWithTag("combined_member_a").performScrollTo().assertIsOn()
+        compose.onNodeWithTag("combined_member_a").performTouchInput { click() }
+        compose.waitForIdle()
+        compose.onNodeWithTag("combined_member_a").assertIsOff()
         compose.onNodeWithTag("combined_settings_save").assertIsNotEnabled()
         assertFalse(immediateMembershipCalled)
         compose.onNodeWithTag("combined_settings_cancel").performClick()

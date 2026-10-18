@@ -91,7 +91,8 @@ internal object LocalModelReferenceInstaller {
                 }
             }
             checkCurrent()
-            val id = "linked_${PackageDigest.sha256((source.toString() + assets.joinToString { it.path + ":" + it.sha256 }).toByteArray()).take(32)}"
+            val configuredManifest = manifest?.copy(artifactId = "", entryFile = if (folder) checkNotNull(manifest).entryFile else name, files = assets.map { ArtifactFile(it.path, it.sizeBytes, it.sha256) }, evidence = ArtifactEvidence.DISCOVERED, validations = emptyList())
+            val id = linkedModelIdentity(source.toString(), assets, configuredManifest)
             val relative = LocalModelDownloadPaths.relativeDirectory(id, LocalModelLocator.LOCAL_COMMIT_HASH)
             val root = File(storage, relative)
             val existed = root.exists()
@@ -99,7 +100,7 @@ internal object LocalModelReferenceInstaller {
             if (!existed) created = root
             LinkedModelSources.register(root, source, assets)
             val file = if (manifest != null) {
-                val model = checkNotNull(manifest).copy(artifactId = id, entryFile = if (folder) checkNotNull(manifest).entryFile else name, files = assets.map { ArtifactFile(it.path, it.sizeBytes, it.sha256) }, evidence = ArtifactEvidence.DISCOVERED, validations = emptyList())
+                val model = checkNotNull(configuredManifest).copy(artifactId = id)
                 model.validate(root, checkCurrent = checkCurrent)
                 File(root, "manifest.json").also { ArtifactManifestStore.write(it, model) }
             } else {
@@ -150,4 +151,15 @@ internal object LocalModelReferenceInstaller {
             }
         }
     }
+}
+
+/** Storage references and effective manifest settings are part of a warm model's identity. */
+internal fun linkedModelIdentity(grant: String, assets: List<LinkedModelAsset>, manifest: ModelArtifactManifest?): String {
+    val json = Json { encodeDefaults = true }
+    val identity = kotlinx.serialization.json.buildJsonObject {
+        put("grant", kotlinx.serialization.json.JsonPrimitive(grant))
+        put("assets", json.encodeToJsonElement(kotlinx.serialization.builtins.ListSerializer(LinkedModelAsset.serializer()), assets.sortedBy { it.path }))
+        put("manifest", manifest?.let { json.encodeToJsonElement(ModelArtifactManifest.serializer(), it) } ?: kotlinx.serialization.json.JsonNull)
+    }
+    return "linked_" + PackageDigest.sha256(identity.toString().toByteArray()).take(32)
 }

@@ -78,6 +78,10 @@ class LinkedModelSourcesTest {
         assertTrue(appFiles.walkTopDown().filter { it.isFile }.sumOf { it.length() } < 1024 * 1024)
         assertEquals(original.length(), localModelAssetBytes(marker))
         assertEquals(PackageDigest.sha256(original), PackageDigest.sha256(LinkedModelSources.resolveFile(marker)))
+        val receipt = File(context.noBackupFilesDir, "model-source-references").listFiles()!!.single { it.extension == "json" }
+        check(receipt.setLastModified(1_000L))
+        assertEquals(linked.record.catalogEntryId, link().record.catalogEntryId)
+        assertEquals("Duplicate linking must not rewrite an active source receipt", 1_000L, receipt.lastModified())
         LinkedModelSources.closeLeases()
         LinkedModelSources.initialize(context)
         assertEquals(original.length(), LinkedModelSources.resolveFile(marker).length())
@@ -123,6 +127,16 @@ class LinkedModelSourcesTest {
         assertTrue(ModelArtifactManifest.safeFile(root, manifest.entryFile).path.endsWith("sub/model.gguf"))
         assertTrue(runCatching { ModelArtifactManifest.safeFile(root, "../model.gguf") }.isFailure)
         assertTrue(root.walkTopDown().filter { it.isFile }.sumOf { it.length() } < 1024 * 1024)
+    }
+
+    @Test fun newDocumentIdsAndManifestPoliciesCannotReuseAnOldWarmReference() {
+        val asset = LinkedModelAsset("model.gguf", uri.toString(), 1024, "a".repeat(64))
+        val manifest = ModelArtifactManifest(schemaVersion = 3, familyId = "fixture", artifactId = "", runtime = ArtifactRuntime.LLAMA_CPP, format = "gguf", entryFile = asset.path, files = listOf(ArtifactFile(asset.path, asset.sizeBytes, asset.sha256)), contextTokens = 2048, supportedBackends = setOf("cpu"))
+        val identity = linkedModelIdentity(uri.toString(), listOf(asset), manifest)
+        assertEquals(identity, linkedModelIdentity(uri.toString(), listOf(asset), manifest))
+        assertTrue(identity != linkedModelIdentity(uri.toString(), listOf(asset.copy(uri = "content://model-source-fixture/replaced")), manifest))
+        assertTrue(identity != linkedModelIdentity(uri.toString(), listOf(asset), manifest.copy(contextTokens = 4096)))
+        assertTrue(identity != linkedModelIdentity(uri.toString(), listOf(asset), manifest.copy(runtime = ArtifactRuntime.GENIEX_LLAMA_CPP)))
     }
 
     @Test fun compressedSourcesAreRejectedWithoutAnImplicitCopy() {

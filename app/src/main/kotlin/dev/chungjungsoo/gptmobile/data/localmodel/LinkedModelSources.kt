@@ -52,11 +52,15 @@ internal object LinkedModelSources {
             require(Uri.parse(it.uri).scheme == "content" && it.sizeBytes > 0 && it.sha256.matches(Regex("[a-f0-9]{64}")))
         }
         require(app.contentResolver.persistedUriPermissions.any { it.uri == grant && it.isReadPermission }) { "Durable source access is missing. Select the model again." }
+        val source = LinkedModelSource(root = root.canonicalPath, grantUri = grant.toString(), assets = assets)
+        val existing = read(root)
+        require(existing == null || existing == source) { "This saved model link conflicts with its source. Remove the link, then select the original model again." }
+        if (existing == source) return
         val receipt = AtomicFile(receiptFile(app, root))
         check(receipt.baseFile.parentFile!!.mkdirs() || receipt.baseFile.parentFile!!.isDirectory)
         val output = receipt.startWrite()
         try {
-            val encoded = json.encodeToString(LinkedModelSource(root = root.canonicalPath, grantUri = grant.toString(), assets = assets)).toByteArray()
+            val encoded = json.encodeToString(source).toByteArray()
             require(encoded.size <= 262_144) { "Linked model reference metadata is oversized" }
             output.write(encoded)
             receipt.finishWrite(output)

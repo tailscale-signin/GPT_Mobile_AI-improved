@@ -396,7 +396,7 @@ class GitHubIntegrationV2Test {
                     }
                     request.url.encodedPath == "/repos/owner/repo/commits/main" -> respond("""{"sha":"${"a".repeat(40)}"}""")
                     request.url.encodedPath == "/repos/owner/repo/contents/app/build.gradle.kts" -> {
-                        assertEquals("main", request.url.parameters["ref"])
+                        assertEquals("a".repeat(40), request.url.parameters["ref"])
                         val gradle = """android { defaultConfig { versionName = "1.2.3" } }"""
                         val encoded = java.util.Base64.getEncoder().encodeToString(gradle.toByteArray())
                         respond("""{"type":"file","encoding":"base64","content":"$encoded"}""")

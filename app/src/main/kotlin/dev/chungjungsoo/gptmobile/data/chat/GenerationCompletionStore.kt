@@ -37,7 +37,7 @@ class GenerationCompletionStore @Inject constructor(database: ChatDatabaseV2) {
     }.stateIn(scope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     suspend fun acknowledge(item: CompletedGeneration, displayedText: String) {
-        val digest = dev.chungjungsoo.gptmobile.data.research.researchHash(dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.text(displayedText))
+        val digest = dev.chungjungsoo.gptmobile.data.research.researchHash(dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.text(dev.chungjungsoo.gptmobile.util.stripAssistantErrorNote(displayedText)))
         if (digest == item.contentDigest) dao.acknowledge(item.runId, item.revision, digest)
     }
 

@@ -3,7 +3,6 @@ package dev.chungjungsoo.gptmobile.data.localmodel
 import java.io.File
 import java.io.IOException
 import java.nio.file.Files
-import java.nio.file.attribute.BasicFileAttributes
 import java.security.MessageDigest
 
 /** A computed digest identifies bytes; publisher trust requires an independently pinned expected digest. */
@@ -59,13 +58,13 @@ internal object PackageDigest {
         val canonical = file.canonicalPath
         val size = file.length()
         val modified = file.lastModified()
-        val fileKey = runCatching {
-            Files.readAttributes(file.toPath(), BasicFileAttributes::class.java).fileKey()?.toString().orEmpty()
-        }.getOrDefault("")
+        val strongIdentity = installedFileIdentity(file)
+        val fileKey = strongIdentity.orEmpty()
         val key = sha256(canonical.toByteArray())
         val cache = File(cacheDirectory, "model-identity-$key")
         val cached = cache.takeIf { it.isFile && it.length() <= 512 }?.readLines().orEmpty()
-        if (cached.size == 5 &&
+        if (strongIdentity != null &&
+            cached.size == 5 &&
             cached[0] == canonical &&
             cached[1] == size.toString() &&
             cached[2] == modified.toString() &&
@@ -75,6 +74,7 @@ internal object PackageDigest {
             return cached[4]
         }
         val digest = sha256(file)
+        if (strongIdentity != null && strongIdentity != installedFileIdentity(file)) throw IOException("Model changed during identity validation; retry after installation finishes")
         val directory = cache.parentFile
         check(directory != null && (directory.isDirectory || directory.mkdirs())) { "Could not prepare model identity cache" }
         val temporary = File(cache.parentFile, "${cache.name}.tmp")
@@ -85,6 +85,12 @@ internal object PackageDigest {
         }
         return digest
     }
+    internal fun installedFileIdentity(file: File): String? = runCatching {
+        val attributes = Files.readAttributes(file.toPath(), "unix:dev,ino,ctime,size,lastModifiedTime")
+        require(attributes.keys.containsAll(setOf("dev", "ino", "ctime", "size", "lastModifiedTime")))
+        "${file.canonicalPath}|${LocalModelInstallationEpoch.current()}|$attributes"
+    }.getOrNull()
+
     private val assetReceipts = java.util.concurrent.ConcurrentHashMap<String, String>()
 
     /** Kernel change time and inode detect in-place edits as well as atomic replacements.
@@ -92,11 +98,7 @@ internal object PackageDigest {
      */
     fun verifyInstalledAssetCached(file: File, expected: String, checkCurrent: () -> Unit = {}): String {
         checkCurrent()
-        fun identity(): String? = runCatching {
-            val attributes = Files.readAttributes(file.toPath(), "unix:dev,ino,ctime,size,lastModifiedTime")
-            require(attributes.keys.containsAll(setOf("dev", "ino", "ctime", "size", "lastModifiedTime")))
-            "${file.canonicalPath}|$expected|${LocalModelInstallationEpoch.current()}|$attributes"
-        }.getOrNull()
+        fun identity(): String? = installedFileIdentity(file)?.let { "$it|$expected" }
         val before = identity()
         if (before != null) assetReceipts[before]?.let { return it }
         val digest = verify(file, expected, checkCurrent)

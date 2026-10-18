@@ -7,6 +7,24 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PackageDigestReceiptTest {
+    @Test fun standaloneIdentityInvalidatesSameSizeEditWithPreservedModificationTime() {
+        val root = kotlin.io.path.createTempDirectory("standalone-identity").toFile()
+        try {
+            val file = java.io.File(root, "model.bin").apply { writeText("original") }
+            val cache = java.io.File(root, "cache")
+            val first = PackageDigest.journalIdentity(file, cache)
+            val afterFirst = PackageDigest.bytesHashed.get()
+            assertEquals(first, PackageDigest.journalIdentity(file, cache))
+            if (PackageDigest.installedFileIdentity(file) != null) assertEquals(afterFirst, PackageDigest.bytesHashed.get())
+            val timestamp = file.lastModified()
+            file.writeText("replaced")
+            check(file.setLastModified(timestamp))
+            org.junit.Assert.assertNotEquals(first, PackageDigest.journalIdentity(file, cache))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
     @Test fun warmValidationAvoidsHashingAndSameSizeReplacementInvalidatesReceipt() {
         val root = Files.createTempDirectory("asset-receipt").toFile()
         try {

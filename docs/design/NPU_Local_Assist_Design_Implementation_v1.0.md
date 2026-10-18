@@ -286,7 +286,7 @@ data class AssistTaskRequest(
     val imageIds: List<String>,
     val deadlineElapsedMs: Long
 )
- 
+
 data class AssistContextDecision(
     val requestedTokens: Int?, // null means Auto
     val artifactCeiling: Int,

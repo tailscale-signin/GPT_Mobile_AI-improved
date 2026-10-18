@@ -177,7 +177,10 @@ interface AgentPersistenceDao {
     suspend fun publishReply(run: AgentRun, message: MessageV2, status: String, at: Long) {
         if (!dev.chungjungsoo.gptmobile.data.chat.ReplyDisplayRole.visible(run.displayRole)) return
         if (status != "COMPLETED" && status !in setOf("FAILED", "CANCELED", "INTERRUPTED")) return
-        val content = dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.text(message.content)
+        val answerText = dev.chungjungsoo.gptmobile.util.stripAssistantErrorNote(message.content)
+        // A host-created error message alone is not a partial answer publication.
+        if (status != "COMPLETED" && answerText == message.content && dev.chungjungsoo.gptmobile.util.isAssistantErrorMessage(message.content)) return
+        val content = dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.text(answerText)
         if (content.isBlank()) return
         val channel = if (run.displayRole == dev.chungjungsoo.gptmobile.data.chat.ReplyDisplayRole.COMBINED) "combined" else run.profileUid
         val key = "${run.chatId}:${run.userMessageId}:$channel"

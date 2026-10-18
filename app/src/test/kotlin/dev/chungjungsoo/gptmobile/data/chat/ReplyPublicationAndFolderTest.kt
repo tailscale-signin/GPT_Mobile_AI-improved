@@ -34,12 +34,25 @@ class ReplyPublicationAndFolderTest {
     @After fun close() = db.close()
     private fun draft(uid: String, role: String? = null) = AgentRunDraft(UUID.randomUUID().toString(), uid, "fixture", "fixture", displayRole = role)
     private suspend fun turn(count: Int = 1, mode: String = "STANDARD") = db.agentPersistenceDao().persistAgentTurn(
-        PersistAgentTurnRequest(ChatRoomV2(title = "fixture", enabledPlatform = (1..count).map { "p$it" }, conversationMode = mode), MessageV2(content = "question"), (1..count).map { draft("p$it") }, emptyMap())
+        PersistAgentTurnRequest(ChatRoomV2(title = "fixture", enabledPlatform = (1..count).map { "p$it" }, conversationMode = mode), MessageV2(content = "question", platformType = null), (1..count).map { draft("p$it") }, emptyMap())
     )
     private suspend fun finish(message: MessageV2, text: String, status: String = "COMPLETED"): Boolean {
         val runId = requireNotNull(message.currentRunId)
         db.agentPersistenceDao().updateRunStatus(runId, "RUNNING", 1, null, null)
         return db.agentPersistenceDao().finishRunningWithMessage(message.copy(content = text), runId, status, 2, null)
+    }
+
+    @Test fun errorsAloneDoNotPublishButPartialAnswersRemainAcknowledgableWithStopNotice() = runBlocking {
+        val empty = turn()
+        assertTrue(finish(empty.assistantMessages.single(), "Error: transport failed", "FAILED"))
+        assertTrue(db.replyPublicationDao().all().isEmpty())
+        val partial = turn()
+        val text = dev.chungjungsoo.gptmobile.util.buildAssistantErrorContent("Useful partial answer", "transport failed")
+        assertTrue(finish(partial.assistantMessages.single(), text, "FAILED"))
+        val row = db.replyPublicationDao().all().single()
+        val store = GenerationCompletionStore(db)
+        store.acknowledge(CompletedGeneration(row.logicalReplyKey, row.chatId, row.messageId, row.publishedAt, row.committedRevision, contentDigest = row.contentDigest), text)
+        assertTrue(db.replyPublicationDao().observeUnread().first().isEmpty())
     }
 
     @Test fun partialRetryUsesOneLogicalReplyAndStaleAcknowledgementCannotClearRevision() = runBlocking {

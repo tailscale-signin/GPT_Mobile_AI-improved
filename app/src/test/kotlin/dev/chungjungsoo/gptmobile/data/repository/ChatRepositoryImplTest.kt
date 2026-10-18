@@ -101,7 +101,7 @@ class ChatRepositoryImplTest {
     @Test
     fun optedInAssistPlannerReachesSerializedToolCatalogueAndRespectsToolDisable() = runBlocking {
         val helper = PlatformV2(uid = "assist-helper", name = "Helper", compatibleType = ClientType.LITERT_LM, model = "fixture")
-        for (toolsDisabled in listOf(false, true)) {
+        for ((toolsDisabled, sharingAllowed) in listOf(false to true, true to true, false to false)) {
             val primary = customPlatform().copy(disableLocalTools = toolsDisabled)
             val settings = mockk<SettingRepository>(relaxed = true)
             coEvery { settings.fetchPlatformV2s() } returns listOf(primary, helper)
@@ -109,6 +109,7 @@ class ChatRepositoryImplTest {
                 localAssist = true,
                 localAssistPolicy = dev.chungjungsoo.gptmobile.data.assist.LocalAssistPolicy(
                     profileUid = helper.uid,
+                    shareDerivedEvidence = sharingAllowed,
                     perTurnQueryPlanning = true,
                     permissionVersion = 1,
                     profilePermissions = mapOf(helper.uid to dev.chungjungsoo.gptmobile.data.assist.AssistProcessingPermission.ALLOWED)
@@ -119,11 +120,11 @@ class ChatRepositoryImplTest {
                 listOf(MessageV2(content = "Hi", platformType = null)),
                 emptyList(),
                 primary,
-                "assist-catalogue-$toolsDisabled"
+                "assist-catalogue-$toolsDisabled-$sharingAllowed"
             ).toList()
             assertTrue(states.toString(), states.none { it is ApiState.Error })
             assertEquals(1, api.requests.size)
-            assertEquals(!toolsDisabled, api.requests.single().tools.orEmpty().any { it.function.name == "local_assist_plan" })
+            assertEquals(sharingAllowed && !toolsDisabled, api.requests.single().tools.orEmpty().any { it.function.name == "local_assist_plan" })
         }
     }
 

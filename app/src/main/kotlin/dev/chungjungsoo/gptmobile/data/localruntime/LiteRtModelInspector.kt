@@ -54,14 +54,15 @@ internal fun runtimeVersionIsNewer(required: String, installed: String): Boolean
 }
 
 internal object LiteRtModelInspector {
-    private data class Cached(val length: Long, val modified: Long, val metadata: LocalModelCapabilities)
+    private data class Cached(val identity: String?, val metadata: LocalModelCapabilities)
     private val cache = LinkedHashMap<String, Cached>()
 
     @Synchronized
     fun inspect(path: String): LocalModelCapabilities {
         val file = File(path).canonicalFile
         val key = file.path
-        cache[key]?.takeIf { it.length == file.length() && it.modified == file.lastModified() }?.let { return it.metadata }
+        val identity = dev.chungjungsoo.gptmobile.data.localmodel.PackageDigest.installedFileIdentity(file)
+        cache[key]?.takeIf { identity != null && it.identity == identity }?.let { return it.metadata }
         dev.chungjungsoo.gptmobile.data.localmodel.PackageDigest.validateInstalled(file)
         val validation = LocalModelValidator.validate(key)
         require(validation is ModelValidationResult.Valid) { "Model integrity preflight failed: $validation" }
@@ -82,7 +83,7 @@ internal object LiteRtModelInspector {
             )
         }.also {
             if (cache.size >= 32) cache.remove(cache.keys.first())
-            cache[key] = Cached(file.length(), file.lastModified(), it)
+            if (identity != null && identity == dev.chungjungsoo.gptmobile.data.localmodel.PackageDigest.installedFileIdentity(file)) cache[key] = Cached(identity, it)
         }
     }
 }

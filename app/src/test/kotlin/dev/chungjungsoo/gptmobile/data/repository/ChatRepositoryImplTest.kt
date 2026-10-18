@@ -49,6 +49,7 @@ import dev.chungjungsoo.gptmobile.data.dto.openai.response.Choice
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.Delta
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponsesStreamEvent
 import dev.chungjungsoo.gptmobile.data.localruntime.FakeLocalRuntime
+import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntime
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntimeEvent
 import dev.chungjungsoo.gptmobile.data.localruntime.ScriptedToolInvocation
@@ -675,6 +676,8 @@ class ChatRepositoryImplTest {
         assertEquals(
             listOf(
                 ApiState.Loading,
+                ApiState.PhaseChanged(LocalInferencePhase.INSPECTING),
+                ApiState.PhaseChanged(LocalInferencePhase.LOADING),
                 ApiState.Notice(LiteRtLmAdapter.DEFAULT_LOADING_MODEL),
                 ApiState.Thinking("plan"),
                 ApiState.Success("hello"),
@@ -724,6 +727,8 @@ class ChatRepositoryImplTest {
         assertEquals(
             listOf(
                 ApiState.Loading,
+                ApiState.PhaseChanged(LocalInferencePhase.INSPECTING),
+                ApiState.PhaseChanged(LocalInferencePhase.LOADING),
                 ApiState.Notice(LiteRtLmAdapter.DEFAULT_LOADING_MODEL),
                 ApiState.Success("before"),
                 ApiState.ToolCall(toolSequence = 0),

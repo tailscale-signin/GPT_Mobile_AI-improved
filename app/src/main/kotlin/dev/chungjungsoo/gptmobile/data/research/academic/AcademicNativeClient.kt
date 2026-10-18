@@ -340,7 +340,7 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
             } else {
                 paper.sourceProviders.firstOrNull() ?: "crossref"
             }
-            require(policy.allows(provider)) { "Academic provider disabled" }
+            require(provider == "source-url" || policy.allows(provider)) { "Academic provider disabled" }
             val readerIdentity = if (pmc.isNotBlank() || arxiv.isNotBlank()) provider else "source:${URI(url).host.orEmpty().lowercase()}"
             val readerPermit = permits[readerIdentity] ?: sourcePermits[(readerIdentity.hashCode() and Int.MAX_VALUE) % sourcePermits.size]
             var body = readerPermit.withPermit {
@@ -382,7 +382,11 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
                 } else {
                     "read"
                 },
-                contentLicense = paper.contentLicense, providerReceipts = paper.providerReceipts, canonicalUrl = paper.canonicalUrl
+                contentLicense = paper.contentLicense, providerReceipts = paper.providerReceipts, canonicalUrl = paper.canonicalUrl,
+                structuredFullText = pmc.isNotBlank() && document.selectFirst("article > body") != null && fullText.length == text.length && !challenge,
+                sectionNames = if (pmc.isNotBlank() && fullText.length == text.length) document.select("body sec > title").map { it.text().lowercase() }.toSet() else emptySet(),
+                declaredFigures = if (pmc.isNotBlank()) document.select("body fig").size else null,
+                declaredSupplements = if (pmc.isNotBlank()) document.select("supplementary-material").size else null
             )
             if (evidence.retrievalStatus in setOf("read", "partially_read")) {
                 if (persistent) {

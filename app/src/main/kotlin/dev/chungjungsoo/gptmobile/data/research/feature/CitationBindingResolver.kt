@@ -47,19 +47,39 @@ internal fun articleCitationOccurrences(text: String): List<CitationOccurrence> 
 
 @Singleton
 class CitationBindingResolver @Inject constructor(private val archive: ResearchArchiveRepository, private val sessions: ResearchSessionStore, private val chats: dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2) {
-    suspend fun bind(message: MessageV2): List<MessageEvidenceBinding> {
+    suspend fun bind(message: MessageV2, includeCitations: Boolean = true): List<MessageEvidenceBinding> {
         require(message.id > 0 && message.chatId > 0)
         if (chats.chatRoomDao().getChatRoomsByIds(listOf(message.chatId)).singleOrNull()?.isTemporary != false) return emptyList()
         val text = message.effectiveContent()
         val revision = researchHash("${message.effectiveRunId()}|${message.activeRevisionIndex}|$text")
-        val saved = archive.dao.bindings(message.id.toString(), revision)
-        if (saved.isNotEmpty()) return saved
+        val collectionRevision = researchHash("collection|${message.effectiveRunId()}|${message.activeRevisionIndex}")
+        // Reconcile while discovery streams; a saved citation is not a complete result registry.
         if (archive.dao.deleted("chat:${message.chatId}") != null) return emptyList()
         val runs = sessions.exportChat(message.chatId).filter { it.runId == message.effectiveRunId() || it.turnId in setOf("${message.chatId}:${message.linkedMessageId}", message.linkedMessageId.toString()) }
         val registry = runs.flatMap { run -> run.snapshot.sources.map { Triple(it, run.authority, run.runId) } }
-        val occurrences = articleCitationOccurrences(text)
+        val occurrences = if (includeCitations) articleCitationOccurrences(text) else emptyList()
         return archive.database.withTransaction {
             check(archive.dao.deleted("chat:${message.chatId}") == null)
+            registry.forEach { (source, authority, runId) ->
+                val aliases = sourceCitationKeys(source).filterNot { it.matches(Regex("S[0-9a-f]+")) }
+                val scoped = aliases.mapNotNull { archive.dao.aliasWork("${researchHash(authority)}|$it") }.distinct()
+                val ids = scoped.ifEmpty { aliases.mapNotNull { archive.dao.aliasWork("public|$it") }.distinct() }
+                if (ids.size == 1) {
+                    val versions = archive.dao.versions(ids.single()).filter { (it.publicSource || it.authority == authority) && it.sourceVersion == source.versionId }
+                    val version = versions.singleOrNull { it.bodyChunksJson == Json.encodeToString(source.bodyChunks) } ?: versions.singleOrNull()
+                    if (version != null) {
+                        val snapshot = buildJsonObject {
+                            put("title", source.title)
+                            put("canonicalUrl", source.canonicalUrl)
+                            put("coverage", version.coverage.name)
+                            put("peerReview", source.reviewStatus)
+                            put("runId", runId)
+                        }
+                        archive.dao.binding(MessageEvidenceBinding(message.id.toString(), collectionRevision, "collection:${version.workId}", message.chatId, version.workId, version.versionId, "collection", snapshot.toString(), authority))
+                        archive.dao.root(BodyReference("citation", "${message.chatId}:${message.id}:$collectionRevision", version.versionId))
+                    }
+                }
+            }
             val explicit = occurrences.mapNotNull { occurrence -> exactArchivedReference(occurrence.key)?.let { occurrence.paragraphId to it } }.groupBy({ it.first }, { it.second })
             occurrences.forEach { occurrence ->
                 val candidates = registry.filter { (source, _, _) -> sourceCitationKeys(source).contains(occurrence.key) }
@@ -118,7 +138,7 @@ class CitationBindingResolver @Inject constructor(private val archive: ResearchA
                 archive.dao.binding(binding)
                 archive.dao.root(BodyReference("citation", "${message.chatId}:${message.id}:$revision", version.versionId))
             }
-            archive.dao.bindings(message.id.toString(), revision)
+            archive.dao.bindings(message.id.toString(), collectionRevision) + archive.dao.bindings(message.id.toString(), revision)
         }
     }
 

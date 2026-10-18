@@ -13,8 +13,27 @@ import kotlinx.serialization.json.intOrNull
 data class AppraisalJudgment(val domain: String, val concern: ScientificConcern, val rationale: String, val passageIds: List<String>, val applicability: String)
 
 @Serializable
-data class ArticleSectionCoverage(val inspected: Set<String> = emptySet(), val required: Set<String> = setOf("methods", "results", "limitations"), val omitted: Set<String> = emptySet(), val figuresAvailable: Boolean? = null, val supplementsAvailable: Boolean? = null) {
-    val complete: Boolean get() = required.isNotEmpty() && inspected.containsAll(required) && omitted.isEmpty() && figuresAvailable == true && supplementsAvailable == true
+enum class ContentInspection { UNKNOWN, INSPECTED, UNAVAILABLE, NOT_APPLICABLE }
+
+@Serializable
+data class ArticleSectionCoverage(
+    val inspected: Set<String> = emptySet(),
+    val required: Set<String> = setOf("methods", "results", "limitations"),
+    val omitted: Set<String> = emptySet(),
+    val figuresAvailable: Boolean? = null,
+    val supplementsAvailable: Boolean? = null,
+    val figuresInspection: ContentInspection = ContentInspection.UNKNOWN,
+    val supplementsInspection: ContentInspection = ContentInspection.UNKNOWN,
+    val figuresReason: String = "",
+    val supplementsReason: String = ""
+) {
+    // Old availability booleans are not proof that content was actually inspected.
+    val complete: Boolean get() = required.isNotEmpty() &&
+        inspected.containsAll(required) &&
+        omitted.isEmpty() &&
+        sufficient(figuresInspection, figuresReason) &&
+        sufficient(supplementsInspection, supplementsReason)
+    private fun sufficient(state: ContentInspection, reason: String) = state == ContentInspection.INSPECTED || state == ContentInspection.NOT_APPLICABLE && reason.isNotBlank()
 }
 
 data class ValidatedScientificAppraisal(val passages: List<EvidencePassage>, val fields: List<StudyField>, val judgments: List<AppraisalJudgment>, val design: StudyDesign, val limitations: List<String>)

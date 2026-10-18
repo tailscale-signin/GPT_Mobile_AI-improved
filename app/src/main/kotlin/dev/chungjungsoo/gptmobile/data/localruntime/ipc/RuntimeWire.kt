@@ -60,7 +60,8 @@ internal data class RuntimeWire(
     val toolName: String = "",
     val errorCode: String? = null,
     val loadAttempts: List<dev.chungjungsoo.gptmobile.data.localruntime.LocalLoadAttempt> = emptyList(),
-    val processPssBytes: Long? = null
+    val processPssBytes: Long? = null,
+    val nativeProgress: dev.chungjungsoo.gptmobile.data.localruntime.GgufNativeProgress? = null
 )
 
 /** Large input travels through an unlinked app-private descriptor, never a Binder byte array. */

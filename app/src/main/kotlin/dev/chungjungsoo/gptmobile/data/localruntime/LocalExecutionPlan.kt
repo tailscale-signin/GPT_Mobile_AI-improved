@@ -43,6 +43,9 @@ data class RuntimeQualificationKey(
     val precisionIdentity: String = "artifact_defined",
     val suiteVersion: Int = 1,
     val cpuThreads: Int? = null,
+    val ggufBatchTokens: Int = 256,
+    val ggufMicroBatchTokens: Int = 128,
+    val ggufPromptThreads: Int? = null,
     val cacheEnabled: Boolean = true
 )
 

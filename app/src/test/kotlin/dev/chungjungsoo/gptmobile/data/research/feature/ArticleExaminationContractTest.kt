@@ -36,7 +36,9 @@ class ArticleExaminationContractTest {
     @Test fun chunkOffsetsRoundTripUnicodeAndDoNotPretendToInspectFigures() {
         val body = ("🧪 Study methods and results. ".repeat(4000))
         val chunks = examinationChunks(body)
-        assertEquals(body, chunks.joinToString("") { it.second.toByteArray().decodeToString() })
+        assertEquals(0, chunks.first().first)
+        assertEquals(body.length, chunks.last().first + chunks.last().second.length)
+        chunks.zipWithNext().forEach { (a, b) -> assertTrue(b.first > a.first && b.first < a.first + a.second.length) }
         chunks.forEach { (offset, text) -> assertEquals(text, body.substring(offset, offset + text.length)) }
         assertFalse(ExaminationCheckpoint(nextChunk = chunks.size, chunkCount = chunks.size).coverage.complete)
         assertTrue(runCatching { examinationChunks("x".repeat(240001)) }.isFailure)
@@ -91,5 +93,13 @@ class ArticleExaminationContractTest {
         assertTrue(blocks.first().text.contains("First finding"))
         assertTrue(blocks.last().text.contains("```\nnot a citation [S999]\n\ncode continues\n```"))
         assertEquals(listOf("Sabc", "doi:10.1234/example"), blocks.flatMap { articleCitationOccurrences(it.citationText).map { occurrence -> occurrence.key } })
+    }
+
+    @Test fun onlyCompleteStructuredTextCanJustifyAbsentFiguresAndSupplements() {
+        val evidence = dev.chungjungsoo.gptmobile.data.research.academic.AcademicEvidence("paper", "v1", "https://example.org/article", 1, "hash", "methods results limitations", "read", structuredFullText = true, sectionNames = setOf("Methods", "Results", "Limitations").map { it.lowercase() }.toSet(), declaredFigures = 0, declaredSupplements = 0)
+        assertTrue(verifiedStructuredCoverage(evidence).complete)
+        assertFalse(verifiedStructuredCoverage(evidence.copy(structuredFullText = false)).complete)
+        assertFalse(verifiedStructuredCoverage(evidence.copy(declaredFigures = 1)).complete)
+        assertFalse(verifiedStructuredCoverage(evidence.copy(retrievalStatus = "partially_read")).complete)
     }
 }

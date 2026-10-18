@@ -18,7 +18,7 @@ import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
 
-@Database(entities = [ResearchOrganizationOverride::class, ResearchDiscovery::class, ResearchOutcome::class, ResearchRecallExclusion::class, ResearchHandoff::class, ResearchWork::class, ResearchAlias::class, ResearchWorkVersion::class, ResearchCategory::class, ResearchTopic::class, ArchiveMembership::class, WorkTopic::class, ResearchStudyFamily::class, EvidencePassage::class, StudyField::class, EvidenceAppraisal::class, MessageEvidenceBinding::class, ExaminationJob::class, BodyReference::class, ResearchDeletionTombstone::class, ResearchOutbox::class, ResearchSequence::class, ResearchImportReceipt::class, dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchAttempt::class, dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchStatisticsEpoch::class], version = 2, exportSchema = true)
+@Database(entities = [ResearchStudyReview::class, WorkStudyRelationship::class, ResearchOrganizationOverride::class, ResearchDiscovery::class, ResearchOutcome::class, ResearchRecallExclusion::class, ResearchHandoff::class, ResearchWork::class, ResearchAlias::class, ResearchWorkVersion::class, ResearchCategory::class, ResearchTopic::class, ArchiveMembership::class, WorkTopic::class, ResearchStudyFamily::class, EvidencePassage::class, StudyField::class, EvidenceAppraisal::class, MessageEvidenceBinding::class, ExaminationJob::class, BodyReference::class, ResearchDeletionTombstone::class, ResearchOutbox::class, ResearchSequence::class, ResearchImportReceipt::class, dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchAttempt::class, dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchStatisticsEpoch::class], version = 3, exportSchema = true)
 abstract class ResearchDatabase : RoomDatabase() {
     abstract fun research(): ResearchDao
     abstract fun statistics(): dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchStatisticsDao
@@ -28,15 +28,35 @@ abstract class ResearchDatabase : RoomDatabase() {
 @InstallIn(SingletonComponent::class)
 object ResearchDatabaseModule {
     @Provides @Singleton
-    fun database(@ApplicationContext context: Context): ResearchDatabase = Room.databaseBuilder(context, ResearchDatabase::class.java, "research-feature.db").addMigrations(ResearchWorkspaceMigration).build().also {
+    fun database(@ApplicationContext context: Context): ResearchDatabase = Room.databaseBuilder(context, ResearchDatabase::class.java, "research-feature.db").addMigrations(ResearchWorkspaceMigration, ResearchStudyCardsMigration).build().also {
         dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchTelemetryStore.attach(java.io.File(context.filesDir, "research-telemetry"), it.statistics())
     }
 }
 
-data class ArchiveRow(val workId: String, val title: String, val canonicalUrl: String, val publicationYear: Int?, val peerReview: PublicationReview, val retracted: Boolean?, val latestVersionId: String, val archiveSequence: Long, val primaryTopicId: String, val coverage: ArticleCoverage, val retrievedAt: Long, val textBytes: Long)
+data class ArchiveRow(val workId: String, val title: String, val canonicalUrl: String, val publicationYear: Int?, val peerReview: PublicationReview, val retracted: Boolean?, val latestVersionId: String, val archiveSequence: Long, val primaryTopicId: String, val coverage: ArticleCoverage, val retrievedAt: Long, val textBytes: Long, val reviewScore: Int? = null, val reviewStatus: String? = null)
 
 @Dao
 interface ResearchDao {
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun studyReview(value: ResearchStudyReview): Long
+
+    @Upsert suspend fun workStudy(value: WorkStudyRelationship)
+
+    @Query("SELECT * FROM research_work_studies")
+    suspend fun allWorkStudies(): List<WorkStudyRelationship>
+
+    @Query("SELECT * FROM research_study_reviews")
+    suspend fun allStudyReviews(): List<ResearchStudyReview>
+
+    @Query("SELECT * FROM research_study_reviews WHERE versionId=:id ORDER BY createdAt DESC, reviewId DESC")
+    suspend fun studyReviews(id: String): List<ResearchStudyReview>
+
+    @Query("SELECT r.* FROM research_study_reviews r WHERE r.reviewId=(SELECT reviewId FROM research_study_reviews WHERE workId=r.workId ORDER BY createdAt DESC, reviewId DESC LIMIT 1) ORDER BY createdAt DESC")
+    fun observeStudyReviews(): Flow<List<ResearchStudyReview>>
+
+    @Query("SELECT * FROM research_works")
+    fun observeWorks(): Flow<List<ResearchWork>>
+
     @Upsert suspend fun organizationOverride(value: ResearchOrganizationOverride)
 
     @Query("SELECT EXISTS(SELECT 1 FROM research_organization_overrides WHERE workId=:id)")
@@ -169,11 +189,11 @@ interface ResearchDao {
     @Query("SELECT * FROM research_topics WHERE topicId = :id")
     suspend fun topic(id: String): ResearchTopic?
 
-    @Query("SELECT w.workId,w.title,w.canonicalUrl,w.publicationYear,w.peerReview,w.retracted,a.latestVersionId,a.archiveSequence,a.primaryTopicId,v.coverage,v.retrievedAt,v.textBytes FROM research_archive a JOIN research_works w ON w.workId=a.workId JOIN research_versions v ON v.versionId=a.latestVersionId WHERE (:topic='' OR a.primaryTopicId=:topic OR EXISTS(SELECT 1 FROM research_work_topics t WHERE t.workId=w.workId AND t.topicId=:topic)) AND (:query='' OR w.title LIKE '%' || :query || '%' ESCAPE '\\' OR w.workId IN (SELECT workId FROM research_aliases WHERE alias LIKE '%' || :query || '%' ESCAPE '\\')) AND (:reviewed=0 OR w.peerReview='CONFIRMED') ORDER BY a.archiveSequence DESC LIMIT :limit OFFSET :offset")
-    suspend fun page(query: String, topic: String, reviewed: Boolean, limit: Int = 40, offset: Int = 0): List<ArchiveRow>
+    @Query("SELECT w.workId,w.title,w.canonicalUrl,w.publicationYear,w.peerReview,w.retracted,a.latestVersionId,a.archiveSequence,a.primaryTopicId,v.coverage,v.retrievedAt,v.textBytes,r.overallScore AS reviewScore,r.status AS reviewStatus FROM research_archive a JOIN research_works w ON w.workId=a.workId JOIN research_versions v ON v.versionId=a.latestVersionId LEFT JOIN research_study_reviews r ON r.reviewId=(SELECT reviewId FROM research_study_reviews WHERE versionId=v.versionId ORDER BY createdAt DESC,reviewId DESC LIMIT 1) WHERE (:topic='' OR a.primaryTopicId=:topic OR EXISTS(SELECT 1 FROM research_work_topics t WHERE t.workId=w.workId AND t.topicId=:topic)) AND (:query='' OR w.title LIKE '%' || :query || '%' ESCAPE '\\' OR w.workId IN (SELECT workId FROM research_aliases WHERE alias LIKE '%' || :query || '%' ESCAPE '\\')) AND (:reviewed=0 OR w.peerReview='CONFIRMED') AND (:assessed=0 OR r.reviewId IS NOT NULL) ORDER BY CASE WHEN :rank=1 AND COALESCE(w.retracted,0)=0 THEN r.overallScore ELSE NULL END DESC,a.archiveSequence DESC LIMIT :limit OFFSET :offset")
+    suspend fun page(query: String, topic: String, reviewed: Boolean, limit: Int = 40, offset: Int = 0, assessed: Boolean = false, rank: Boolean = false): List<ArchiveRow>
 
-    @Query("SELECT w.workId,w.title,w.canonicalUrl,w.publicationYear,w.peerReview,w.retracted,a.latestVersionId,a.archiveSequence,a.primaryTopicId,v.coverage,v.retrievedAt,v.textBytes FROM research_archive a JOIN research_works w ON w.workId=a.workId JOIN research_versions v ON v.versionId=a.latestVersionId WHERE (:topic='' OR a.primaryTopicId=:topic OR EXISTS(SELECT 1 FROM research_work_topics t WHERE t.workId=w.workId AND t.topicId=:topic)) AND (:query='' OR w.title LIKE '%' || :query || '%' ESCAPE '\\' OR w.workId IN (SELECT workId FROM research_aliases WHERE alias LIKE '%' || :query || '%' ESCAPE '\\')) AND (:reviewed=0 OR w.peerReview='CONFIRMED') ORDER BY a.archiveSequence DESC LIMIT :limit OFFSET :offset")
-    fun observePage(query: String, topic: String, reviewed: Boolean, limit: Int = 40, offset: Int = 0): Flow<List<ArchiveRow>>
+    @Query("SELECT w.workId,w.title,w.canonicalUrl,w.publicationYear,w.peerReview,w.retracted,a.latestVersionId,a.archiveSequence,a.primaryTopicId,v.coverage,v.retrievedAt,v.textBytes,r.overallScore AS reviewScore,r.status AS reviewStatus FROM research_archive a JOIN research_works w ON w.workId=a.workId JOIN research_versions v ON v.versionId=a.latestVersionId LEFT JOIN research_study_reviews r ON r.reviewId=(SELECT reviewId FROM research_study_reviews WHERE versionId=v.versionId ORDER BY createdAt DESC,reviewId DESC LIMIT 1) WHERE (:topic='' OR a.primaryTopicId=:topic OR EXISTS(SELECT 1 FROM research_work_topics t WHERE t.workId=w.workId AND t.topicId=:topic)) AND (:query='' OR w.title LIKE '%' || :query || '%' ESCAPE '\\' OR w.workId IN (SELECT workId FROM research_aliases WHERE alias LIKE '%' || :query || '%' ESCAPE '\\')) AND (:reviewed=0 OR w.peerReview='CONFIRMED') AND (:assessed=0 OR r.reviewId IS NOT NULL) ORDER BY CASE WHEN :rank=1 AND COALESCE(w.retracted,0)=0 THEN r.overallScore ELSE NULL END DESC,a.archiveSequence DESC LIMIT :limit OFFSET :offset")
+    fun observePage(query: String, topic: String, reviewed: Boolean, limit: Int = 40, offset: Int = 0, assessed: Boolean = false, rank: Boolean = false): Flow<List<ArchiveRow>>
 
     @Query("SELECT * FROM research_archive ORDER BY archiveSequence LIMIT MAX(0, (SELECT COUNT(*) FROM research_archive)-:keep)")
     suspend fun oldestExcess(keep: Int): List<ArchiveMembership>

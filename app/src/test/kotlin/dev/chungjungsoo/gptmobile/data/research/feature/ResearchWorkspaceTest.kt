@@ -45,9 +45,9 @@ class ResearchWorkspaceTest {
             old.execSQL("INSERT INTO research_tombstones (`key`,epoch) VALUES ('archive:removed',42)")
             old.version = 1
         }
-        val db = Room.databaseBuilder(context, ResearchDatabase::class.java, name).addMigrations(ResearchWorkspaceMigration).allowMainThreadQueries().build()
+        val db = Room.databaseBuilder(context, ResearchDatabase::class.java, name).addMigrations(ResearchWorkspaceMigration, ResearchStudyCardsMigration).allowMainThreadQueries().build()
         try {
-            assertEquals(2, db.openHelper.writableDatabase.version)
+            assertEquals(3, db.openHelper.writableDatabase.version)
             runBlocking {
                 assertEquals(42L, db.research().deleted("archive:removed"))
                 db.research().handoff(ResearchHandoff("handoff", "trial", "AWAITING_IMPORT", 1))

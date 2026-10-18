@@ -13,6 +13,7 @@ data class MultiSearchResearchSelection(
     val scope: ResearchContentScope = ResearchContentScope.WEB_AND_PAPERS,
     val gatewayConnectionUid: String? = null,
     val allowNativeFallback: Boolean = false,
+    val crawlerProfileUid: String? = null,
     val enabledProviders: Set<String> = emptySet()
 ) {
     val academicEligibleByUi: Boolean get() = researchToggle && depth > 0 && scope != ResearchContentScope.WEB_ONLY

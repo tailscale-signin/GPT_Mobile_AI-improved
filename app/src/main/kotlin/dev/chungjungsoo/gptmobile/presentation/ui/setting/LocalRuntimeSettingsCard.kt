@@ -167,6 +167,23 @@ internal fun LocalRuntimeSettingsCard(viewModel: LocalRuntimeSettingsViewModel, 
                 Text("CPU threads: ${if (threads.toInt() == 0) "Automatic" else threads.toInt().toString()}")
                 Slider(value = threads.coerceIn(0f, viewModel.cores.toFloat()), onValueChange = { threads = it }, onValueChangeFinished = { viewModel.updateTuning(threads = threads.toInt()) }, valueRange = 0f..viewModel.cores.toFloat(), steps = (viewModel.cores - 1).coerceAtLeast(0), enabled = !busy, modifier = Modifier.semantics { contentDescription = "CPU threads; zero uses runtime defaults" })
                 Text("Automatic uses the runtime default. More threads can increase heat without improving token speed.", style = MaterialTheme.typography.bodySmall)
+                var ggufAdvanced by remember { mutableStateOf(false) }
+                TextButton(onClick = { ggufAdvanced = !ggufAdvanced }) { Text(if (ggufAdvanced) "Hide GGUF tuning" else "Advanced GGUF tuning") }
+                if (ggufAdvanced) {
+                    Text("Prompt batch", style = MaterialTheme.typography.labelLarge)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf(64, 128, 256).forEach { value -> FilterChip(settings.ggufBatchTokens == value, { viewModel.updateTuning(ggufBatch = value) }, enabled = !busy, label = { Text("$value tokens") }) }
+                    }
+                    Text("Physical microbatch", style = MaterialTheme.typography.labelLarge)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf(64, 128, 256).filter { it <= settings.ggufBatchTokens }.forEach { value -> FilterChip(minOf(settings.ggufMicroBatchTokens, settings.ggufBatchTokens) == value, { viewModel.updateTuning(ggufMicroBatch = value) }, enabled = !busy, label = { Text("$value tokens") }) }
+                    }
+                    Text("Prompt-processing threads", style = MaterialTheme.typography.labelLarge)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf(0, 1, 2, 4, 8).filter { it <= viewModel.cores }.forEach { value -> FilterChip(settings.ggufPromptThreads == value, { viewModel.updateTuning(ggufPromptThreads = value) }, enabled = !busy, label = { Text(if (value == 0) "Auto" else "$value") }) }
+                    }
+                    Text("Changes apply on the next load. Smaller batches can reduce memory and cancellation delay; compare measured prompt and decode speed on your device.", style = MaterialTheme.typography.bodySmall)
+                }
                 Text("Speculative decoding", style = MaterialTheme.typography.labelLarge)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     SpeculativeDecodingMode.entries.forEach { option ->

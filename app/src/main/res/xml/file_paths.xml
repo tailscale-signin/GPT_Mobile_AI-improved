@@ -7,4 +7,5 @@
     <files-path name="restored_attachments" path="attachments/" />
     <cache-path name="attachment_previews" path="attachment-previews/" />
     <cache-path name="clipboard_exports" path="clipboard-exports/" />
+    <files-path name="github_apks" path="github-apks/" />
 </paths>

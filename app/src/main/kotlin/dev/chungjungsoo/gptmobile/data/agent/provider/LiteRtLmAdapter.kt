@@ -666,7 +666,7 @@ class LiteRtLmAdapter(
                                                         templateFailure = event.message
                                                     } else {
                                                         val retained = fallbackOutput.buffered()
-                                                        if (textToolFallbackEnabled && LocalPromptToolBridge.parseResult(retained, runToolsByName.keys) is PromptToolParseResult.NoCall && retained.isNotEmpty()) {
+                                                        if (textToolFallbackEnabled && LocalPromptToolBridge.parseResult(retained, runToolsByName.keys, allowBareCalls = usePromptToolBridge) is PromptToolParseResult.NoCall && retained.isNotEmpty()) {
                                                             assistantReply.append(retained)
                                                             send(ProviderEvent.TextDelta(retained))
                                                         }
@@ -682,7 +682,7 @@ class LiteRtLmAdapter(
                                     if (templateFailure == null) {
                                         if (!failed && textToolFallbackEnabled) {
                                             val buffered = fallbackOutput.buffered()
-                                            val parsedBeforeLimit = LocalPromptToolBridge.parseResult(buffered, runToolsByName.keys)
+                                            val parsedBeforeLimit = LocalPromptToolBridge.parseResult(buffered, runToolsByName.keys, allowBareCalls = usePromptToolBridge)
                                             val parsed = if (promptToolsClosed && parsedBeforeLimit is PromptToolParseResult.Call) {
                                                 PromptToolParseResult.Rejected("call_limit")
                                             } else {
@@ -718,6 +718,10 @@ class LiteRtLmAdapter(
                                                 send(ProviderEvent.Failed("The local model emitted a malformed, unsupported, disabled, or unavailable tool call. No tool was executed."))
                                                 break
                                             }
+                                            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
+                                                "LocalModel",
+                                                "LOCAL_TOOL_BRIDGE_FINISHED · registered=${runToolsByName.size} · promptCalls=$promptToolCallCount · nativeToolsUsed=$nativeToolsUsed · parse=no_call"
+                                            )
                                             assistantReply.append(buffered)
                                             if (buffered.isNotEmpty()) send(ProviderEvent.TextDelta(buffered))
                                         }

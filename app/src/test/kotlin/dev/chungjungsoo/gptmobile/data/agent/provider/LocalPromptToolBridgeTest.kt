@@ -168,4 +168,27 @@ class LocalPromptToolBridgeTest {
             assertEquals("web_search", LocalPromptToolBridge.parse(output.buffered(), setOf("web_search"))?.name)
         }
     }
+
+    @Test fun bareCallsRequireExplicitBridgeModeAndStillEnforceAuthorization() {
+        val payload = """{"name":"web_search","arguments":{"query":"news"}}"""
+        assertEquals(PromptToolParseResult.NoCall, LocalPromptToolBridge.parseResult(payload, setOf("web_search")))
+        for (size in 1..payload.length) {
+            val output = LocalPromptToolOutput()
+            assertEquals("", payload.chunked(size).joinToString("") { output.accept(it) })
+            val parsed = LocalPromptToolBridge.parseResult(output.buffered(), setOf("web_search"), allowBareCalls = true)
+            assertEquals("web_search", (parsed as PromptToolParseResult.Call).value.name)
+        }
+        assertEquals(PromptToolParseResult.Rejected("tools_disabled"), LocalPromptToolBridge.parseResult(payload, emptySet(), allowBareCalls = true))
+        assertEquals(PromptToolParseResult.Rejected("tool_unavailable"), LocalPromptToolBridge.parseResult(payload, setOf("read_url"), allowBareCalls = true))
+    }
+
+    @Test fun bridgeModeDoesNotExecuteOrdinaryJsonOrOverrideExplicitTypes() {
+        listOf(
+            """{"name":"web_search","description":"Example","arguments":{}}""",
+            """{"type":"message","name":"web_search","arguments":{}}""",
+            """{"name":"web_search"}"""
+        ).forEach {
+            assertEquals(PromptToolParseResult.NoCall, LocalPromptToolBridge.parseResult(it, setOf("web_search"), allowBareCalls = true))
+        }
+    }
 }

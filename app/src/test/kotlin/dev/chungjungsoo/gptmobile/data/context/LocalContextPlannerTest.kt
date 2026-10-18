@@ -153,5 +153,29 @@ class LocalContextPlannerTest {
         assertTrue(plan.estimatedPromptTokens + plan.outputReserveTokens + plan.toolResultBytes / 2 + 256 <= 8192)
     }
 
+    @Test
+    fun largeOutputPreferencePreservesUsableCatalogInsteadOfOneTool() {
+        val tools = (1..9).map { AgentToolDefinition("tool$it", "Description ".repeat(30), buildJsonObject {}) }
+        val plan = LocalContextPlanner.plan(emptyList(), "What can you do?", "Instructions ".repeat(270), tools, 8192, 8192)
+        assertEquals(tools.toSet(), plan.tools.toSet())
+        assertTrue(plan.outputReserveTokens >= 512)
+        assertTrue(plan.estimatedPromptTokens + plan.outputReserveTokens + plan.toolResultBytes / 2 + 256 < 8192)
+    }
+
+    @Test
+    fun researchPreservesSearchAndReaderUnderCatalogPressure() {
+        val search = AgentToolDefinition("web_search", "Search", buildJsonObject {})
+        val reader = AgentToolDefinition("read_url", "Read", buildJsonObject {})
+        val others = (1..20).map { AgentToolDefinition("tool$it", "Unrelated ".repeat(80), buildJsonObject {}) }
+        val plan = LocalContextPlanner.plan(emptyList(), "Research with sources", "", others + search + reader, 1024, null)
+        assertTrue(plan.tools.containsAll(listOf(search, reader)))
+    }
+
+    @Test
+    fun fileReadingRemainsAvailableWithLargeOutputPreference() {
+        val reader = AgentToolDefinition("read_file_slice", "Read file", buildJsonObject {})
+        assertEquals(setOf(reader.name), LocalContextPlanner.requiredToolNames("Read the file", listOf(reader)))
+    }
+
     private fun turn(text: String) = ConversationTurn(MessageV2(content = text, platformType = null), null, false)
 }

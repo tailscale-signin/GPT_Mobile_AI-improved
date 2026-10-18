@@ -88,7 +88,9 @@ internal object LocalPromptToolBridge {
             "\n\nAuthorized local tools (the app enforces permissions and executes calls). " +
                 "If a tool is needed, output exactly one JSON object with type=\"tool_call\", " +
                 "the exact registered name, and an arguments object. Do not wrap it in prose or Markdown. " +
-                "If no tool is needed, answer normally. Never claim a tool ran unless the app returns its result.\n"
+                "If no tool is needed, answer normally. Never claim a tool ran unless the app returns its result.\n" +
+                "Call format: {\"type\":\"tool_call\",\"name\":\"REGISTERED_NAME\",\"arguments\":{}}. " +
+                "Replace REGISTERED_NAME and supply arguments matching that tool's parameters.\n"
         )
         tools.sortedBy { it.name }.forEach { tool ->
             append("{\"name\":")
@@ -106,7 +108,7 @@ internal object LocalPromptToolBridge {
     fun parse(text: String, registeredNames: Set<String>): PromptToolCall? =
         (parseResult(text, registeredNames) as? PromptToolParseResult.Call)?.value
 
-    fun parseResult(text: String, registeredNames: Set<String>): PromptToolParseResult {
+    fun parseResult(text: String, registeredNames: Set<String>, allowBareCalls: Boolean = false): PromptToolParseResult {
         var candidate = text.trim()
         if (candidate.startsWith("```json\n") || candidate.startsWith("```\n")) {
             if (!candidate.endsWith("```")) {
@@ -136,7 +138,15 @@ internal object LocalPromptToolBridge {
         val call = (nested as? JsonObject) ?: function
         val isTypedCall = (root["type"] as? JsonPrimitive)?.contentOrNull() == "tool_call"
         val stringNamedCall = (nested as? JsonPrimitive)?.contentOrNull()
-        if (call == null && !isTypedCall && stringNamedCall == null && !tagged && !mistral) {
+        // Some prompt-only models omit the discriminator. Accept only an exact
+        // call-shaped object, only when the adapter explicitly enables this bridge.
+        // Ordinary JSON and native-mode output retain the strict default.
+        val bareCall = allowBareCalls &&
+            "type" !in root &&
+            root.keys.all { it in setOf("name", "arguments") } &&
+            root["name"] is JsonPrimitive &&
+            "arguments" in root
+        if (call == null && !isTypedCall && stringNamedCall == null && !tagged && !mistral && !bareCall) {
             return if (looksLikeToolMarkup(candidate)) PromptToolParseResult.Rejected("unsupported_format") else PromptToolParseResult.NoCall
         }
         val name = stringNamedCall ?: (call?.get("name") ?: call?.get("tool") ?: root["name"] ?: root["tool"])

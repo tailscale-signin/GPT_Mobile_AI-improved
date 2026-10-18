@@ -57,9 +57,10 @@ This branch implements a substantial portion of the four supplied specifications
 - 132 Python script tests passed, including the two new APK budget fixtures.
 - 21 isolated Kotlin/JUnit parser/schema/range tests passed using production algorithms and boundary stubs.
 - 4 isolated Kotlin/JUnit Anthropic DTO and restore-journal tests passed using production implementations and a fake vault boundary.
+- 12 isolated Kotlin/JUnit text-guard tests passed, including explicit search capability metadata and trusted preceding-round evidence.
 - 2 isolated Kotlin/JUnit model-memory and asset-receipt tests passed, including a sparse 4 GiB model and same-size in-place modification with preserved mtime.
 - Android resource, regex, exported Room-schema and QNN provenance checks passed.
-- Ktlint 1.3.1 formatting and native JNI syntax check against the pinned llama.cpp headers passed.
+- Ktlint 1.3.1 formatting passed. Production GGUF JNI compiled against the pinned llama.cpp source; chat-template test and both ChatML/Jinja real-inference smoke fixtures passed (repeat-prefix reuse, partial cancellation counters, context rejection, stale handles and reopen).
 - The gateway launcher validated its complete v14.2.0 manifest; 180 gateway Python tests and the Node contract suite passed after updating the reviewed README checksum.
 - Full Gradle Android compilation was attempted with JDK 21/Gradle 9.8.0; dependency resolution could not reach the configured Maven repositories from Java in this environment. No Android unit/lint/build success is claimed.
 
@@ -69,6 +70,6 @@ Do not merge as a completed implementation of all four documents. Complete the o
 
 ## Wiring review follow-up
 
-All files changed from current main were reviewed again, including supplied specification exports, implementation, tests, gateway manifest and CI. The follow-up corrected Android compiler integration errors, inherited document authorization for child requests, staged-versus-editor draft recovery/reset/navigation, load-time startup access, reordered prompt-tool envelopes, Anthropic GIF MIME mapping, and prefix retention after a length stop. Added GitHub mock-transport regressions for branch rejection and selected-revision blob search. These tests still require the full Android unit job; isolated tests do not substitute for that job.
+All files changed from current main were reviewed again, including supplied specification exports, implementation, tests, gateway manifest and CI. The follow-up corrected Android compiler integration errors, inherited document authorization for child requests, staged-versus-editor draft recovery/reset/navigation, load-time startup access, reordered prompt-tool envelopes, Anthropic GIF MIME mapping, prefix retention after a length stop, and policy availability using the planner’s current eligible candidates. Added GitHub mock-transport regressions for branch rejection and selected-revision blob search. These tests still require the full Android unit job; isolated tests do not substitute for that job.
 
 CI caught the original native receipt assertion and then the missing reuse after a length stop. The new seven-field assertion checks reused plus newly processed tokens against total prompt tokens. Final Android/native CI and device qualification remain release gates.

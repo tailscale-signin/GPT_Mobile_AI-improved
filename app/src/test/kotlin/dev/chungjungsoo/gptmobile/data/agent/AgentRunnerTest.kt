@@ -21,6 +21,29 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentRunnerTest {
+    @Test fun successfulClientSearchEvidenceReachesFollowingProviderRound() = runBlocking {
+        var calls = 0
+        val search = object : AgentTool {
+            override val definition = AgentToolDefinition("trusted_lookup", "Search", buildJsonObject {}, setOf(AgentToolCapability.WEB_SEARCH))
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                calls++
+                return AgentToolResult(callId, ToolResultContent.Text("Verified search evidence"), false)
+            }
+        }
+        val events = AgentRunner().run(
+            session { _, exchanges ->
+                flow {
+                    if (exchanges.isEmpty()) emit(toolCall("search", "trusted_lookup")) else emit(ProviderEvent.TextDelta("I searched the web and found evidence."))
+                    emit(ProviderEvent.Completed)
+                }
+            },
+            listOf(search)
+        ).toList()
+        assertEquals(1, calls)
+        assertTrue(events.any { it is AgentRunEvent.Provider && it.event is ProviderEvent.TextDelta })
+        assertFalse(events.any { it is AgentRunEvent.Provider && it.event is ProviderEvent.Failed })
+    }
+
     @Test fun `output limit finalizes from completed evidence without replaying tools`() = kotlinx.coroutines.test.runTest {
         var rounds = 0
         var calls = 0

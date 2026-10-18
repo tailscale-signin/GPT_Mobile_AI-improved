@@ -76,7 +76,8 @@ internal fun LocalRuntimeSettingsCard(viewModel: LocalRuntimeSettingsViewModel, 
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     dev.chungjungsoo.gptmobile.data.localruntime.LocalExecutionPolicy.entries.forEach { policy ->
                         val matching = qualifications.filter { result ->
-                            result.status == dev.chungjungsoo.gptmobile.data.localruntime.QualificationStatus.QUALIFIED &&
+                            result.plan.id in active.decision?.candidateIds.orEmpty() &&
+                                result.status == dev.chungjungsoo.gptmobile.data.localruntime.QualificationStatus.QUALIFIED &&
                                 result.actualBackendConfirmed &&
                                 result.qualityEquivalent &&
                                 result.plan.artifactDigest == active.decision?.selected?.artifactDigest &&

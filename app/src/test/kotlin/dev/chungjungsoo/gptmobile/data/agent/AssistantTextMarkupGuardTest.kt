@@ -127,9 +127,24 @@ class AssistantTextMarkupGuardTest {
             ProviderEvent.ToolResult(call, result),
             ProviderEvent.TextDelta("I searched the web and found three headlines."),
             ProviderEvent.Completed
-        ).withAssistantTextMarkupGuard().toList()
+        ).withAssistantTextMarkupGuard(searchToolNames = setOf(call.name)).toList()
 
         assertEquals("I searched the web and found three headlines.", events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
         assertTrue(events.filterIsInstance<ProviderEvent.Failed>().isEmpty())
+    }
+
+    @Test fun trustedPreviousRoundSearchAuthorizesNextRoundClaim() = runBlocking {
+        val events = flowOf(ProviderEvent.TextDelta("I searched the web and found evidence."), ProviderEvent.Completed)
+            .withAssistantTextMarkupGuard(initialSuccessfulSearch = true).toList()
+        assertTrue(events.none { it is ProviderEvent.Failed })
+        assertTrue(events.any { it is ProviderEvent.TextDelta })
+    }
+
+    @Test fun toolNameAloneCannotAuthorizeSearchClaim() = runBlocking {
+        val call = ProviderEvent.ToolCall("s", "web_search", kotlinx.serialization.json.buildJsonObject {})
+        val result = AgentToolResult("s", ToolResultContent.Text("data"), false)
+        val events = flowOf(ProviderEvent.ToolResult(call, result), ProviderEvent.TextDelta("I searched the web."), ProviderEvent.Completed)
+            .withAssistantTextMarkupGuard().toList()
+        assertTrue(events.any { it is ProviderEvent.Failed })
     }
 }

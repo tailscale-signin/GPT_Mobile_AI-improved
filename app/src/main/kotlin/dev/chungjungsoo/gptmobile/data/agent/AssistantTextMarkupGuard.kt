@@ -28,6 +28,7 @@ internal fun Flow<ProviderEvent>.withAssistantTextMarkupGuard(
     collect { event ->
         if (event is ProviderEvent.ToolResult &&
             !event.result.isError &&
+            event.result.dispatched &&
             event.call.name in searchToolNames
         ) {
             successfulWebSearch = true

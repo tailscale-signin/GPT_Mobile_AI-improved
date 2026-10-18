@@ -10,7 +10,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.yield
 
 class FakeLocalRuntime : LocalRuntime {
-    var capabilities: LocalModelCapabilities? = LocalModelCapabilities(backends = setOf("cpu", "gpu", "npu"))
+    var capabilities: LocalModelCapabilities? = LocalModelCapabilities(backends = setOf("cpu", "gpu", "npu"), tools = true)
     val inspectModelCalls = mutableListOf<String>()
     var metadataGate: CompletableDeferred<Unit>? = null
     override suspend fun inspectModel(modelPath: String): LocalModelCapabilities? {

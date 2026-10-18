@@ -11,7 +11,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -31,6 +30,7 @@ import dev.chungjungsoo.gptmobile.data.agent.ValidatedCombinedProvenance
 import dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse
 import dev.chungjungsoo.gptmobile.data.model.ProfileColorIdentity
 import dev.chungjungsoo.gptmobile.data.research.researchHash
+import dev.chungjungsoo.gptmobile.presentation.common.FadingModalBottomSheet as ModalBottomSheet
 import java.net.URI
 import java.text.BreakIterator
 import java.util.Locale
@@ -114,7 +114,7 @@ internal fun CombinedContributionInspector(
     }
     var selectedRange by remember(openedAnswer, sources) { mutableStateOf<Pair<Int, Int>?>(null) }
     val uriHandler = LocalUriHandler.current
-    ModalBottomSheet(onDismissRequest = { open = false }, containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
+    ModalBottomSheet(onDismissRequest = { open = false }) {
         val snapshot = data
         if (snapshot == null) {
             Text(stringResource(R.string.combined_inspection_loading), Modifier.padding(20.dp))

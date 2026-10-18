@@ -17,7 +17,7 @@ import kotlin.math.min
 data class OverlayMaterialTokens(val background: Color, val foreground: Color, val border: Color)
 
 internal fun overlayMaterialTokens(base: Color, foreground: Color, outline: Color, glass: Boolean): OverlayMaterialTokens {
-    val alpha = if (glass) 0.85f else 1f
+    val alpha = if (glass) GLASS_OPACITY else 1f
     fun ratio(a: Color, b: Color): Float = (max(a.luminance(), b.luminance()) + 0.05f) / (min(a.luminance(), b.luminance()) + 0.05f)
     fun worst(text: Color, plate: Color): Float = min(ratio(text, plate.compositeOver(Color.Black)), ratio(text, plate.compositeOver(Color.White)))
     var plate = base.copy(alpha = alpha)

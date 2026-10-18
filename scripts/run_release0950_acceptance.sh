@@ -126,7 +126,7 @@ for test in ('typingFollowUpKeepsStopAndSendIndependent', 'glassComposerKeepsSen
     check_instrumentation(folder / 'composer-controls-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.chat.ComposerControlsInstrumentedTest', test)
 for test in ('conversationGlassKeepsRequestedOpacityOverFadedMessages', 'conversationGlassFiltersDetailInBothControls', 'conversationGlassDoesNotRevealMessagesBeforeEntryRestores'):
     check_instrumentation(folder / 'conversation-glass-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.chat.ConversationGlassInstrumentedTest', test)
-for test in ('combinedTabStagesBothAxesAndRemovesDelegationCard', 'cancelDiscardsStagedMembershipAndPreventsEmptySave', 'saveableDraftRestoresTheTwoAxesTogether', 'unsupportedFutureControlsStayVisibleButCannotBeEdited'):
+for test in ('combinedTabStagesBothAxesAndRemovesDelegationCard', 'cancelKeepsCommittedMembershipAndPreventsEmptySave', 'membershipRowStagesChangesWithoutSavingImmediately', 'saveableDraftRestoresTheTwoAxesTogether', 'unsupportedFutureControlsStayVisibleButCannotBeEdited'):
     check_instrumentation(folder / 'combined-settings-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.chat.CombinedSettingsInstrumentedTest', test)
 for test in ('oneToFiveItemsAtCompactWidth', 'oneToFiveItemsAtWideWidth', 'oneToFiveItemsAtLargeFontAndRtl', 'homeScreenNamesItsDestinationEnforcesFiveAndAllowsZero'):
     check_instrumentation(folder / 'settings-home-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.setting.SettingsHomeInstrumentedTest', test)

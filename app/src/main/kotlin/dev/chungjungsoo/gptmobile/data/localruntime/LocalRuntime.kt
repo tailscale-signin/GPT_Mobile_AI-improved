@@ -21,7 +21,10 @@ data class LocalEngineSpec(
     val tuningLocked: Boolean = false,
     val samplerIdentity: String = "runtime_default",
     val workload: String = "plain_text",
-    val expectedOutputTokens: Int = 128
+    val expectedOutputTokens: Int = 128,
+    val ggufBatchTokens: Int = 256,
+    val ggufMicroBatchTokens: Int = 128,
+    val ggufPromptThreads: Int? = null
 )
 
 /** Workload labels affect plan selection, but do not invalidate the native engine configuration. */
@@ -87,8 +90,13 @@ data class LocalConversationConfig(
 
 /** Execution phase of local on-device inference. */
 enum class LocalInferencePhase {
+    QUEUED,
+    INSPECTING,
+    LOADING,
     PREFILL,
-    GENERATING
+    GENERATING,
+    CANCELLING,
+    RESETTING
 }
 
 /** Performance and generation telemetry emitted during local model execution. */
@@ -130,10 +138,24 @@ data class NativeInferenceMetrics(
         decodeTokensPerSecond > 0
 }
 
+/** Redacted, sampled worker observation. Negative counters mean unknown, never measured zero. */
+@kotlinx.serialization.Serializable
+data class GgufNativeProgress(
+    val operationId: Long,
+    val stage: String,
+    val promptTokens: Long = -1,
+    val processedTokens: Long = -1,
+    val sampledTokens: Long = -1,
+    val elapsedMs: Long = 0,
+    val nativeCode: Int = 0,
+    val observedAtMs: Long = 0,
+    val configuration: String? = null
+)
+
 sealed interface LocalRuntimeEvent {
     /** Internal ordering fence, consumed by the native adapter before crossing IPC. */
     data class Drain(val acknowledged: kotlinx.coroutines.CompletableDeferred<Unit>) : LocalRuntimeEvent
-    data class PhaseChanged(val phase: LocalInferencePhase) : LocalRuntimeEvent
+    data class PhaseChanged(val phase: LocalInferencePhase, val nativeProgress: GgufNativeProgress? = null) : LocalRuntimeEvent
     data class TextDelta(val text: String) : LocalRuntimeEvent
     data class ThinkingDelta(val text: String) : LocalRuntimeEvent
     data class Metrics(val metrics: LocalInferenceMetrics) : LocalRuntimeEvent
@@ -151,6 +173,7 @@ data class LocalRuntimeState(
     val decision: LocalPlanDecision? = null,
     val processIsolated: Boolean = false,
     val lifecycle: String = "IDLE",
+    val engineHealth: String = "HEALTHY",
     val requestedMtp: Boolean? = null,
     val effectiveMtp: Boolean? = null
 )

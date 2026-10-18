@@ -12,6 +12,7 @@ enum class AutoExamination { OFF, WHEN_NEEDED, ALL_ELIGIBLE }
 data class ResearchFeatureSettings(
     val schemaVersion: Int = 1,
     val enabled: Boolean = true,
+    val crawlerProfileUid: String? = null,
     val appraisalMode: ScientificAppraisalMode = ScientificAppraisalMode.ADAPTIVE,
     val peerReviewedOnly: Boolean = false,
     val archiveEnabled: Boolean = true,

@@ -436,6 +436,11 @@ internal fun resolveNotificationContentText(context: Context, activeRuns: List<A
         when (singleRun.phase) {
             LocalInferencePhase.PREFILL -> return context.getString(R.string.agent_run_phase_prefill)
             LocalInferencePhase.GENERATING -> return context.getString(R.string.agent_run_phase_generating)
+            LocalInferencePhase.QUEUED -> return "Waiting for local model"
+            LocalInferencePhase.INSPECTING -> return "Checking model"
+            LocalInferencePhase.LOADING -> return "Loading model"
+            LocalInferencePhase.CANCELLING -> return "Stopping local model"
+            LocalInferencePhase.RESETTING -> return "Resetting local runtime"
             null -> Unit
         }
     }

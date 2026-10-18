@@ -57,6 +57,12 @@ internal fun CompactAgentActivityBar(
         run == null ->
             stringResource(R.string.agent_live_preparing)
 
+        run.phase == LocalInferencePhase.QUEUED -> "Waiting for local model"
+        run.phase == LocalInferencePhase.INSPECTING -> "Checking model"
+        run.phase == LocalInferencePhase.LOADING -> "Loading model"
+        run.phase == LocalInferencePhase.CANCELLING -> "Stopping local model"
+        run.phase == LocalInferencePhase.RESETTING -> "Resetting local runtime"
+
         run.phase == LocalInferencePhase.PREFILL ->
             stringResource(R.string.agent_live_prefill)
 

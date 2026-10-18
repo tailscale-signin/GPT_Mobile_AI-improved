@@ -158,9 +158,7 @@ internal fun AssistantChronologicalContent(
                                             blocks.forEachIndexed { blockIndex, block ->
                                                 ChatMarkdown(wording = combinedWording, outputTrace = outputTrace?.copy(partId = "$index:$blockIndex"), proseColor = proseColor, memoryValues = recalledSources.map { it.value }, content = block.text, contentIdentity = "$contentIdentity:$index:$blockIndex", streaming = false, modifier = Modifier.padding(vertical = 8.dp))
                                                 passageIndicators(block.text)
-                                                if (block.citationText.isNotBlank()) articleCards(block.citationText)
                                             }
-                                            if (blocks.none { it.citationText.isNotBlank() }) articleCards(citationText)
                                         }
                                     }
                                 }
@@ -198,6 +196,7 @@ internal fun AssistantChronologicalContent(
                 }
             }
         }
+        articleCards(fallbackText)
     }
 }
 

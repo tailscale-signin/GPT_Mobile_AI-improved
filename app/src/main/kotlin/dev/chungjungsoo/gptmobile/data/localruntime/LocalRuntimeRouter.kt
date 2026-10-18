@@ -62,6 +62,9 @@ class LocalRuntimeRouter(
         } else {
             requested.copy(
                 cpuThreads = tuning.cpuThreads,
+                ggufBatchTokens = tuning.ggufBatchTokens,
+                ggufMicroBatchTokens = minOf(tuning.ggufMicroBatchTokens, tuning.ggufBatchTokens),
+                ggufPromptThreads = tuning.ggufPromptThreads,
                 cacheEnabled = tuning.cacheEnabled,
                 speculativeDecoding = tuning.speculativeDecoding,
                 nativeMetricsEnabled = tuning.nativeMetricsEnabled
@@ -256,7 +259,10 @@ internal data class LocalEngineTuning(
     val cpuThreads: Int?,
     val cacheEnabled: Boolean,
     val speculativeDecoding: Boolean?,
-    val nativeMetricsEnabled: Boolean
+    val nativeMetricsEnabled: Boolean,
+    val ggufBatchTokens: Int = 256,
+    val ggufMicroBatchTokens: Int = 128,
+    val ggufPromptThreads: Int? = null
 )
 
 internal fun dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings.localEngineTuning(
@@ -265,5 +271,8 @@ internal fun dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings.localEngin
     localCpuThreads.takeIf { it > 0 }?.coerceIn(1, availableCores.coerceIn(1, 64)),
     localModelCache,
     localSpeculativeDecoding.enabled,
-    localNativeMetrics
+    localNativeMetrics,
+    ggufBatchTokens.takeIf { it in setOf(64, 128, 256) } ?: 256,
+    ggufMicroBatchTokens.takeIf { it in setOf(64, 128, 256) }?.coerceAtMost(ggufBatchTokens.coerceIn(64, 256)) ?: 128,
+    ggufPromptThreads.takeIf { it > 0 }?.coerceIn(1, availableCores.coerceIn(1, 64))
 )

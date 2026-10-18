@@ -45,8 +45,8 @@ class ResearchArchiveRepository @Inject constructor(val database: ResearchDataba
             // Durable outbox remains pending; a missing or corrupt manifest cannot cause body deletion.
         }
     }
-    fun observePage(query: String = "", topic: String = "", peerReviewedOnly: Boolean = false, offset: Int = 0) =
-        dao.observePage(query.trim().take(300).replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_"), topic, peerReviewedOnly, 40, offset.coerceAtLeast(0))
+    fun observePage(query: String = "", topic: String = "", peerReviewedOnly: Boolean = false, offset: Int = 0, assessed: Boolean = false, rank: Boolean = false) =
+        dao.observePage(query.trim().take(300).replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_"), topic, peerReviewedOnly, 40, offset.coerceAtLeast(0), assessed, rank)
 
     suspend fun page(query: String = "", topic: String = "", peerReviewedOnly: Boolean = false, offset: Int = 0): List<ArchiveRow> {
         initialize()
@@ -211,6 +211,9 @@ internal object ResearchArchiveIngestor {
                 bodyChunksJson = Json.encodeToString(source.bodyChunks), authority = authority, publicSource = public, textBytes = textBytes
             )
             dao.version(captured)
+            dao.work(workId)?.studyFamilyId?.let { familyId ->
+                dao.allFamilies().firstOrNull { it.familyId == familyId }?.let { family -> dao.workStudy(WorkStudyRelationship(workId, familyId, family.provenance, family.revisedAt)) }
+            }
             dao.root(BodyReference(ownerKind, ownerId, versionId))
             if (archive && public) dao.archive(workId, versionId, dao.membership(workId)?.primaryTopicId ?: DEFAULT_TOPIC, System.currentTimeMillis(), epoch)
             val membership = dao.membership(workId)

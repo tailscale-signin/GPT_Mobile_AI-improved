@@ -163,7 +163,17 @@ class LocalInferenceService : Service() {
                                 when (event) {
                                     is LocalRuntimeEvent.TextDelta -> reply.stream("TEXT", event.text)
                                     is LocalRuntimeEvent.ThinkingDelta -> reply.stream("THINKING", event.text)
-                                    is LocalRuntimeEvent.PhaseChanged -> reply.send("PHASE", text = event.phase.name, state = runtime.state.value.copy(processIsolated = true))
+                                    is LocalRuntimeEvent.PhaseChanged -> {
+                                        reply.send("PHASE", text = event.phase.name, state = runtime.state.value.copy(processIsolated = true), nativeProgress = event.nativeProgress)
+                                        if (event.nativeProgress?.stage == "TIMEOUT_CANCEL_REQUESTED") {
+                                            // Same worker-death bound as explicit cancellation, without discarding the partial native receipt.
+                                            val owner = jobs[packet.requestId]
+                                            scope.launch {
+                                                delay(10_000)
+                                                if (owner?.isCompleted == false) Process.killProcess(Process.myPid())
+                                            }
+                                        }
+                                    }
                                     is LocalRuntimeEvent.Metrics -> reply.send("METRICS", metrics = event.metrics)
                                     is LocalRuntimeEvent.Error -> terminal = event
                                     is LocalRuntimeEvent.Drain -> event.acknowledged.complete(Unit)
@@ -174,7 +184,8 @@ class LocalInferenceService : Service() {
                             val final = terminal
                             if (final is LocalRuntimeEvent.Error) {
                                 val code = generateSequence(final.cause) { it.cause }.filterIsInstance<LocalToolLimitException>().firstOrNull()?.code
-                                reply.send("ERROR", text = final.message, errorCode = code, state = runtime.state.value.copy(processIsolated = true))
+                                val safeToReuse = runtime.state.value.engineSpec?.let { runtime.isEngineLoaded(it) } == true
+                                reply.send("ERROR", text = final.message, errorCode = code, state = runtime.state.value.copy(processIsolated = true, engineHealth = if (safeToReuse) "HEALTHY" else "RESET_REQUIRED"))
                             } else if (final is LocalRuntimeEvent.Done) {
                                 reply.send("DONE", state = runtime.state.value.copy(processIsolated = true))
                             } else {
@@ -199,7 +210,8 @@ class LocalInferenceService : Service() {
                 }
             } catch (cancelled: CancellationException) {
                 withContext(NonCancellable) { runCatching { runtime.closeConversation() }.onFailure { if (it is NativeCancellationTimeoutException || it is NativeResourceCleanupException) Process.killProcess(Process.myPid()) } }
-                reply.send("CANCELLED", text = "Local request cancelled after native cleanup")
+                val safeToReuse = withContext(NonCancellable) { runtime.state.value.engineSpec?.let { runtime.isEngineLoaded(it) } == true }
+                reply.send("CANCELLED", text = "Local request cancelled after native cleanup", state = runtime.state.value.copy(processIsolated = true, engineHealth = if (safeToReuse) "HEALTHY" else "RESET_REQUIRED"))
             } catch (error: Throwable) {
                 if (error is NativeCancellationTimeoutException || error is NativeResourceCleanupException) Process.killProcess(Process.myPid())
                 val errorCode = when (error) {
@@ -263,11 +275,12 @@ class LocalInferenceService : Service() {
             }
         }
 
-        @Synchronized fun send(kind: String, text: String = "", metrics: LocalInferenceMetrics? = null, state: LocalRuntimeState? = null, capabilities: LocalModelCapabilities? = null, callId: String = "", toolName: String = "", errorCode: String? = null, loadAttempts: List<LocalLoadAttempt> = emptyList()) {
+        @Synchronized fun send(kind: String, text: String = "", metrics: LocalInferenceMetrics? = null, state: LocalRuntimeState? = null, capabilities: LocalModelCapabilities? = null, callId: String = "", toolName: String = "", errorCode: String? = null, loadAttempts: List<LocalLoadAttempt> = emptyList(), nativeProgress: GgufNativeProgress? = null) {
             val packet = RuntimeWire(
                 operation = kind, requestId = request.requestId, sessionId = request.sessionId, generation = generation, sequence = ++sequence,
                 text = text, metrics = metrics, state = state, capabilities = capabilities, callId = callId, toolName = toolName, errorCode = errorCode, loadAttempts = loadAttempts,
-                processPssBytes = if (kind == "METRICS") android.os.Debug.getPss() * 1024 else null
+                processPssBytes = if (kind in setOf("METRICS", "ERROR", "CANCELLED", "RESULT") || nativeProgress?.stage in setOf("PREFILL_BEGIN", "TIMEOUT_CANCEL_REQUESTED", "NATIVE_RETURN")) android.os.Debug.getPss() * 1024 else null,
+                nativeProgress = nativeProgress
             )
             if (deferTerminal && kind in setOf("RESULT", "DONE", "ERROR", "CANCELLED")) {
                 terminal = packet

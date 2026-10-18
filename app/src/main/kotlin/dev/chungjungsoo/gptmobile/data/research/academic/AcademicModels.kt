@@ -60,7 +60,11 @@ data class AcademicEvidence(
     val section: String = "Extracted text",
     val contentLicense: String? = null,
     val providerReceipts: List<String> = emptyList(),
-    val canonicalUrl: String = sourceUrl
+    val canonicalUrl: String = sourceUrl,
+    val structuredFullText: Boolean = false,
+    val sectionNames: Set<String> = emptySet(),
+    val declaredFigures: Int? = null,
+    val declaredSupplements: Int? = null
 ) {
     fun verify(quote: String, requestedVersion: String): String = when {
         requestedVersion != versionId -> "version_mismatch"

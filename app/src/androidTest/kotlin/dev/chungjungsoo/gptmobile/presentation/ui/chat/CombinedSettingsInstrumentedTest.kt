@@ -12,6 +12,8 @@ import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsOff
+import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -65,7 +67,9 @@ class CombinedSettingsInstrumentedTest {
                 }
             }
         }
-        compose.onNodeWithTag("combined_member_a").performScrollTo().performClick()
+        val member = compose.onNodeWithTag("combined_member_a").performScrollTo()
+        member.assertIsOn()
+        member.performClick().assertIsOff()
         compose.onNodeWithTag("combined_settings_save").assertIsNotEnabled()
         assertFalse(immediateMembershipCalled)
         compose.onNodeWithTag("combined_settings_cancel").performClick()

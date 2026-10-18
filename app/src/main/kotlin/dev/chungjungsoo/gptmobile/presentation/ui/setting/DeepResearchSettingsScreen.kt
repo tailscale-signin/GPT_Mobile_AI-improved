@@ -75,6 +75,8 @@ internal fun ResearchFeatureScreen(onClose: () -> Unit, viewModel: DeepResearchS
     var query by rememberSaveable { mutableStateOf("") }
     var topic by rememberSaveable { mutableStateOf("") }
     var topicLabel by rememberSaveable { mutableStateOf("") }
+    var assessed by rememberSaveable { mutableStateOf(false) }
+    var rank by rememberSaveable { mutableStateOf(false) }
     var offset by rememberSaveable { mutableIntStateOf(0) }
     var confirmClose by rememberSaveable { mutableStateOf(false) }
     var articleId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -100,6 +102,14 @@ internal fun ResearchFeatureScreen(onClose: () -> Unit, viewModel: DeepResearchS
                 query = it
                 offset = 0
             }, label = { Text("Title, DOI or identifier") }, modifier = Modifier.fillMaxWidth())
+            FilterChip(assessed, {
+                assessed = !assessed
+                offset = 0
+            }, label = { Text("Examined studies") })
+            FilterChip(rank, {
+                rank = !rank
+                offset = 0
+            }, label = { Text("Sort by review score") })
             FilterChip(topic.isBlank(), {
                 topic = ""
                 offset = 0
@@ -142,7 +152,7 @@ internal fun ResearchFeatureScreen(onClose: () -> Unit, viewModel: DeepResearchS
     }
     val enabled = settings.isToolPluginEnabled(ToolPluginId.DEEP_RESEARCH)
     LaunchedEffect(Unit) { viewModel.open() }
-    LaunchedEffect(query, topic, offset, tab) { if (tab == 1) viewModel.loadArchive(query, topic, offset) }
+    LaunchedEffect(query, topic, offset, tab, assessed, rank) { if (tab == 1) viewModel.loadArchive(query, topic, offset, assessed, rank) }
     val close = {
         if (!state.saving) {
             if (state.dirty) {
@@ -224,7 +234,17 @@ internal fun ResearchFeatureScreen(onClose: () -> Unit, viewModel: DeepResearchS
                                 item {
                                     SettingsPanel("Examination") {
                                         val feature = state.featureDraft
-                                        AutoExamination.entries.forEach { value -> FilterChip(feature.autoExamination == value, { viewModel.editFeature(feature.copy(autoExamination = value)) }, enabled = enabled, label = { Text(value.name.lowercase().replace('_', ' ')) }) }
+                                        val crawlerProfiles by viewModel.crawlerProfiles.collectAsStateWithLifecycle()
+                                        Text("Crawler AI profile", style = MaterialTheme.typography.titleMedium)
+                                        DelegateModelDropdown(
+                                            selectedProfileUid = feature.crawlerProfileUid.orEmpty(),
+                                            profiles = crawlerProfiles.filter { it.enabled },
+                                            enabled = enabled,
+                                            onSelected = { viewModel.editFeature(feature.copy(crawlerProfileUid = it?.uid)) },
+                                            roleLabel = "Examination profile",
+                                            automaticLabel = "Choose profile"
+                                        )
+                                        AutoExamination.entries.forEach { value -> FilterChip(feature.autoExamination == value, { viewModel.editFeature(feature.copy(autoExamination = value)) }, enabled = enabled, label = { Text(if (value == AutoExamination.OFF) "Manual" else value.name.lowercase().replace('_', ' ')) }) }
                                         ResearchFeatureSwitch("Auto-examine in ordinary chat", feature.ordinaryChatAutoExamination, enabled) { viewModel.editFeature(feature.copy(ordinaryChatAutoExamination = it)) }
                                         ResearchFeatureSwitch("Allow background examination", feature.backgroundExamination, enabled) { viewModel.editFeature(feature.copy(backgroundExamination = it)) }
                                         Text("Native discovery follows up to two explicit full-text HTML links on the same site. Access refusal is terminal; figures and supplements remain unverified.")
@@ -337,6 +357,7 @@ internal fun ResearchFeatureScreen(onClose: () -> Unit, viewModel: DeepResearchS
                                 SettingsPanel(row.title) {
                                     Text("${row.coverage.name.lowercase().replace('_', ' ')} · ${row.publicationYear ?: "Year unknown"}")
                                     Text("Peer review: ${row.peerReview.name.lowercase()}")
+                                    Text(if (row.retracted == true) "Review score suspended" else row.reviewScore?.let { "AI review score $it / 100" } ?: row.reviewStatus ?: "Review pending", style = MaterialTheme.typography.labelLarge)
                                     if (row.retracted == true) Text("Retraction reported", color = MaterialTheme.colorScheme.error)
                                     Text(row.canonicalUrl, style = MaterialTheme.typography.bodySmall)
                                     TextButton(onClick = {

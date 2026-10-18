@@ -98,7 +98,7 @@ class PlannedLocalRuntime(
         val tuning = current.localEngineTuning()
         val capabilities = delegate.inspectModel(spec.modelPath)
         val speculative = compatibleSpeculativeDecoding(tuning.speculativeDecoding, capabilities)
-        val tuned = if (spec.tuningLocked) spec else spec.copy(cpuThreads = tuning.cpuThreads, cacheEnabled = tuning.cacheEnabled, speculativeDecoding = speculative, nativeMetricsEnabled = tuning.nativeMetricsEnabled, tuningLocked = true)
+        val tuned = if (spec.tuningLocked) spec else spec.copy(cpuThreads = tuning.cpuThreads, ggufBatchTokens = tuning.ggufBatchTokens, ggufMicroBatchTokens = minOf(tuning.ggufMicroBatchTokens, tuning.ggufBatchTokens), ggufPromptThreads = tuning.ggufPromptThreads, cacheEnabled = tuning.cacheEnabled, speculativeDecoding = speculative, nativeMetricsEnabled = tuning.nativeMetricsEnabled, tuningLocked = true)
         tuningNotice = if (!spec.tuningLocked && tuning.speculativeDecoding == true && tuned.speculativeDecoding == false) {
             "Speculative decoding is unavailable for this package; using ordinary decoding."
         } else {

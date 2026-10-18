@@ -84,8 +84,9 @@ internal fun AppLogPanel() {
             TextButton(onClick = {
                 scope.launch {
                     try {
-                        val file = withContext(Dispatchers.IO) { AppLogRecorder.export(structured = structuredExport) } ?: return@launch
-                        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+                        val uri = withContext(Dispatchers.IO) {
+                            AppLogRecorder.export(structured = structuredExport)?.let { file -> FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file) }
+                        } ?: return@launch
                         context.startActivity(
                             Intent.createChooser(
                                 Intent(Intent.ACTION_SEND).apply {

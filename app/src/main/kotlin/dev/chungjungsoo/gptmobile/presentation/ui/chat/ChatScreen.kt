@@ -1357,7 +1357,7 @@ private fun ChatMessagePair(
                     articleCards = { segment ->
                         if (debugSettings.researchFeature.articleCards) {
                             selectedAssistantMessage?.let { articleMessage ->
-                                dev.chungjungsoo.gptmobile.presentation.ui.research.ResearchCitationCards(articleMessage, segment, selectedPlatformUid.orEmpty(), debugSettings.researchFeature.compactCards, currentResearchTools)
+                                dev.chungjungsoo.gptmobile.presentation.ui.research.ResearchCitationCards(articleMessage, segment, selectedPlatformUid.orEmpty(), debugSettings.researchFeature.compactCards, currentResearchTools, isStreaming = isCurrentPlatformLoading)
                             }
                         }
                     },

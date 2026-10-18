@@ -23,10 +23,10 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-data class ArticleDetailState(val work: ResearchWork? = null, val version: ResearchWorkVersion? = null, val fields: List<StudyField> = emptyList(), val passages: List<EvidencePassage> = emptyList(), val appraisals: List<EvidenceAppraisal> = emptyList(), val bodyAvailable: Boolean = false, val loading: Boolean = false, val error: String? = null)
+data class ArticleDetailState(val work: ResearchWork? = null, val version: ResearchWorkVersion? = null, val fields: List<StudyField> = emptyList(), val passages: List<EvidencePassage> = emptyList(), val appraisals: List<EvidenceAppraisal> = emptyList(), val bodyAvailable: Boolean = false, val loading: Boolean = false, val error: String? = null, val reviews: List<dev.chungjungsoo.gptmobile.data.research.feature.ResearchStudyReview> = emptyList())
 
 @HiltViewModel
-class ResearchArticleViewModel @Inject constructor(private val archive: ResearchArchiveRepository, private val coordinator: ArticleExaminationCoordinator, settings: SettingRepository) : ViewModel() {
+class ResearchArticleViewModel @Inject constructor(private val archive: ResearchArchiveRepository, private val coordinator: ArticleExaminationCoordinator, private val settings: SettingRepository) : ViewModel() {
     val profiles = settings.observePlatformV2s().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     val features = settings.observeFeatureSettings().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings())
     val jobs = coordinator.jobs.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -44,12 +44,19 @@ class ResearchArticleViewModel @Inject constructor(private val archive: Research
                 val work = requireNotNull(archive.dao.work(workId)) { "Saved article is unavailable" }
                 val version = requireNotNull(versionId?.let { archive.dao.version(it) } ?: archive.dao.latestVersion(workId)) { "Saved version is missing" }
                 require(version.workId == workId && (version.publicSource || version.authority == authority)) { "Article access is no longer authorized" }
-                mutable.value = ArticleDetailState(work, version, archive.dao.fields(version.versionId), archive.dao.passages(version.versionId), archive.dao.appraisals(version.versionId), archive.text(version, authority) != null)
+                mutable.value = ArticleDetailState(work, version, archive.dao.fields(version.versionId), archive.dao.passages(version.versionId), archive.dao.appraisals(version.versionId), archive.text(version, authority) != null, reviews = archive.dao.studyReviews(version.versionId))
             } catch (cancel: CancellationException) {
                 throw cancel
             } catch (error: Exception) {
                 mutable.value = ArticleDetailState(error = error.message ?: "Article details unavailable")
             }
+        }
+    }
+    fun saveCrawlerForChat(chatId: Int, profileUid: String, tools: ChatMcpToolConfig) = action {
+        require(chatId > 0 && profiles.value.any { it.uid == profileUid && it.enabled })
+        settings.mutateFeatureSettings { current ->
+            val selection = current.conversationResearch[chatId] ?: tools.research ?: dev.chungjungsoo.gptmobile.data.model.MultiSearchResearchSelection()
+            current.copy(conversationResearch = current.conversationResearch + (chatId to selection.copy(crawlerProfileUid = profileUid)))
         }
     }
     fun examine(request: ExaminationRequest, tools: () -> ChatMcpToolConfig) = action { coordinator.userExamine(request, tools) }

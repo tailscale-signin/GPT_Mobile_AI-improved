@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.research.feature
 
 import dev.chungjungsoo.gptmobile.data.research.researchHash
 import dev.chungjungsoo.gptmobile.data.research.researchTextChunks
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -60,7 +61,8 @@ class ScientificAppraisalContractTest {
     @Test fun readableTextDoesNotImplyFullArticleExamination() {
         assertFalse(ArticleSectionCoverage(inspected = setOf("methods", "results", "limitations")).complete)
         assertFalse(ArticleSectionCoverage(inspected = setOf("methods"), figuresAvailable = true, supplementsAvailable = true).complete)
-        assertTrue(ArticleSectionCoverage(inspected = setOf("methods", "results", "limitations"), figuresAvailable = true, supplementsAvailable = true).complete)
+        assertFalse(ArticleSectionCoverage(inspected = setOf("methods", "results", "limitations"), figuresAvailable = true, supplementsAvailable = true).complete)
+        assertTrue(ArticleSectionCoverage(inspected = setOf("methods", "results", "limitations"), figuresInspection = ContentInspection.INSPECTED, supplementsInspection = ContentInspection.NOT_APPLICABLE, supplementsReason = "No supplement declared by the complete structured article").complete)
     }
 
     @Test fun countsCannotUseUnrelatedNumbersOrSubstringsFromTheSamePassage() {
@@ -80,5 +82,17 @@ class ScientificAppraisalContractTest {
     @Test fun bodyChunkBoundariesPreserveEmojiAndRoundTripUtf8() {
         val text = "a".repeat(16383) + "🧪" + "b".repeat(16384)
         assertEquals(text, researchTextChunks(text).joinToString("") { it.toByteArray().decodeToString() })
+    }
+
+    @Test fun reExaminationCannotOverwriteHistoricalPassageIdentity() {
+        val original = ScientificAppraisalContract.validate(appraisal(), version, source)
+        val previousIds = original.passages.map { it.passageId }
+        val next = namespaceScientificPassages(original, "new-review")
+        assertEquals(previousIds, original.passages.map { it.passageId })
+        assertTrue(next.passages.none { it.passageId in previousIds })
+        assertEquals(original.passages.map { it.quote }, next.passages.map { it.quote })
+        val ids = next.passages.map { it.passageId }.toSet()
+        next.fields.forEach { field -> assertTrue(Json.decodeFromString<List<String>>(field.passageIdsJson).all { it in ids }) }
+        next.judgments.forEach { judgment -> assertTrue(judgment.passageIds.all { it in ids }) }
     }
 }

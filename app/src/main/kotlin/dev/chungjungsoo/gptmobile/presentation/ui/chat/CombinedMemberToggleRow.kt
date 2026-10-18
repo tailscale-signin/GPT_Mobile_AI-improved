@@ -34,7 +34,13 @@ internal fun CombinedMemberToggleRow(
     ) {
         Text(platformName, modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
         Text(
-            if (!isTemporarilyEnabled) "Paused" else if (isMember) "Added" else "Available",
+            if (!isTemporarilyEnabled) {
+                "Paused"
+            } else if (isMember) {
+                "Added"
+            } else {
+                "Available"
+            },
             style = MaterialTheme.typography.labelSmall
         )
         Spacer(Modifier.width(8.dp))

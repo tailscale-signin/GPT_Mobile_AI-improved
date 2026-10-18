@@ -682,6 +682,11 @@ class LiteRtLmAdapter(
                                                 LocalRuntimeEvent.Done -> Unit
                                             }
                                         }
+                                    val progressClosure = fallbackOutput.progressClosure()
+                                    if (!awaitingToolRepair && progressClosure.isNotEmpty()) {
+                                        assistantReply.append(progressClosure)
+                                        send(ProviderEvent.TextDelta(progressClosure))
+                                    }
                                     if (templateFailure == null) {
                                         if (!failed && textToolFallbackEnabled) {
                                             val buffered = fallbackOutput.buffered()

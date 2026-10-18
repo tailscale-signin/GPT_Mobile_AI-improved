@@ -49,6 +49,13 @@ class LocalPromptToolBridgeTest {
         assertEquals(false, prompt.contains("answer normally"))
     }
 
+    @Test fun truncatedProgressClosesPublicChannelWithoutAcceptingAnIncompleteCall() {
+        val output = LocalPromptToolOutput()
+        val public = output.accept("<progress_update>Checking") + output.progressClosure()
+        assertEquals("<progress_update>Checking</progress_update>", public)
+        assertEquals(PromptToolParseResult.Rejected("malformed_call"), LocalPromptToolBridge.parseResult(output.buffered(), setOf("current_date")))
+    }
+
     @Test fun ordinaryCodeAndJsonStreamBeforeCompletionAcrossEverySplit() {
         listOf("```kotlin\nfun greet() = \"Hi\"", "{\"temperature\": 24}", "{\"type\":\"message\",\"content\":\"Hi\"}").forEach { text ->
             for (split in 0..text.length) {

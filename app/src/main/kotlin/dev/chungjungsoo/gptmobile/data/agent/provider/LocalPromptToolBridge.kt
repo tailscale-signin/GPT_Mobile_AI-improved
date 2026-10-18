@@ -110,6 +110,10 @@ internal class LocalPromptToolOutput {
         pending.toString()
     }
 
+    // Balance the public channel on a truncated generation, while buffered()
+    // still reports the malformed control sequence for rejection and repair.
+    fun progressClosure(): String = if (inProgress) PROGRESS_END else ""
+
     private companion object {
         const val PROGRESS_START = "<progress_update>"
         const val PROGRESS_END = "</progress_update>"

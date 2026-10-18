@@ -200,7 +200,12 @@ private fun Flow<ApiState>.withPublicationTicks(intervalMillis: Long): Flow<Publ
         }
     }
     try {
-        this@withPublicationTicks.collect { send(PublicationPulse(state = it)) }
+        this@withPublicationTicks.takeWhile { state ->
+            send(PublicationPulse(state = state))
+            // Stop in the producer itself: buffered delivery must not let code after
+            // a terminal emit run before the consumer observes that receipt.
+            state != ApiState.Done && state !is ApiState.Error
+        }.collect {}
     } catch (error: Throwable) {
         // Deliver failure after earlier accepted events; a producer exception must not
         // cancel the channel and discard ordinary text waiting in its bounded buffer.

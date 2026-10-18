@@ -238,7 +238,10 @@ object StartupRecoveryGate {
     private var job: kotlinx.coroutines.Deferred<Unit>? = null
 
     fun start(scope: CoroutineScope, block: suspend () -> Unit) {
-        job = scope.async { block() }
+        // Publish the gate before recovery can construct repositories that launch consumers.
+        val recovery = scope.async(start = kotlinx.coroutines.CoroutineStart.LAZY) { block() }
+        job = recovery
+        recovery.start()
     }
 
     val ready: Boolean get() = job?.let { it.isCompleted && !it.isCancelled } == true

@@ -23,6 +23,7 @@ class PricingRefreshWorker @AssistedInject constructor(
     private val pricing: ProviderPricingRepository
 ) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
+        dev.chungjungsoo.gptmobile.presentation.StartupRecoveryGate.await()
         val policy = settings.getFeatureSettings()
         if (policy.newChatPrices && policy.newChatPriceRefresh && policy.newChatBackgroundPrices) pricing.refresh(settings.fetchPlatformV2s())
         return Result.success()

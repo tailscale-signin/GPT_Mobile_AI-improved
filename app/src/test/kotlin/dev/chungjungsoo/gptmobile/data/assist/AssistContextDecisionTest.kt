@@ -33,6 +33,7 @@ class AssistContextDecisionTest {
         assertEquals(4096L, plan.requireFits(2048, 1024, 512, 256, 256))
         assertTrue(runCatching { plan.requireFits(2049, 1024, 512, 256, 256) }.isFailure)
         assertTrue(runCatching { plan.requireFits(1, -1, 0) }.isFailure)
+        assertTrue(runCatching { plan.requireFits(Long.MAX_VALUE, 1024, 512) }.isFailure)
     }
 
     @Test fun v3CannotGrantNewScopesAndRestoreIsIdempotent() {

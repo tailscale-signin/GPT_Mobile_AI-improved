@@ -51,6 +51,7 @@ class LocalModelDownloadWorker @AssistedInject constructor(
     private val notificationId: Int = params.id.hashCode()
 
     override suspend fun doWork(): Result {
+        dev.chungjungsoo.gptmobile.presentation.StartupRecoveryGate.await()
         val catalogEntryId = inputData.getString(KEY_CATALOG_ENTRY_ID)
         val displayName = inputData.getString(KEY_DISPLAY_NAME) ?: applicationContext.getString(R.string.local_models)
         val downloadUrl = inputData.getString(KEY_DOWNLOAD_URL)
@@ -136,6 +137,7 @@ class LocalModelDownloadWorker @AssistedInject constructor(
     }
 
     override suspend fun getForegroundInfo(): ForegroundInfo {
+        dev.chungjungsoo.gptmobile.presentation.StartupRecoveryGate.await()
         val displayName = inputData.getString(KEY_DISPLAY_NAME)
         val percent = seedPercent(
             catalogEntryId = inputData.getString(KEY_CATALOG_ENTRY_ID),

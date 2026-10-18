@@ -381,6 +381,7 @@ fun HomeScreen(
                     }
                     CompletedGenerationNavigator(
                         items = completedGenerations,
+                        profileNames = platformState.associate { it.uid to plainProfileName(it.name, it.model.ifBlank { "AI profile" }) },
                         chatTitles = completedGenerations.associate { item ->
                             item.chatId to ((knownChats[item.visibleChatId]?.title ?: "Conversation ${item.visibleChatId}") + if (knownChats[item.visibleChatId]?.isArchived == true) " · Archived" else "")
                         },
@@ -900,6 +901,7 @@ fun HomeScreen(
 @Composable
 private fun CompletedGenerationNavigator(
     items: List<CompletedGeneration>,
+    profileNames: Map<String, String>,
     chatTitles: Map<Int, String>,
     onOpen: (CompletedGeneration) -> Unit
 ) {
@@ -917,12 +919,12 @@ private fun CompletedGenerationNavigator(
             enter = expandVertically(expandFrom = Alignment.Bottom) + fadeIn(),
             exit = shrinkVertically(shrinkTowards = Alignment.Bottom) + fadeOut()
         ) {
-            Column(
-                modifier = Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()),
+            LazyColumn(
+                modifier = Modifier.heightIn(max = 360.dp).widthIn(min = 210.dp, max = 320.dp),
                 horizontalAlignment = Alignment.End,
                 verticalArrangement = Arrangement.spacedBy(7.dp)
             ) {
-                items.forEach { item ->
+                items(items, key = { it.runId }) { item ->
                     Surface(
                         onClick = { onOpen(item) },
                         shape = RoundedCornerShape(18.dp),
@@ -956,7 +958,8 @@ private fun CompletedGenerationNavigator(
                                     overflow = TextOverflow.Ellipsis
                                 )
                                 Text(
-                                    if (item.deliveryKind == "PARTIAL") "Partial reply" else "New reply",
+                                    (if (item.displayRole == dev.chungjungsoo.gptmobile.data.chat.ReplyDisplayRole.COMBINED) "Combined" else profileNames[item.profileUid] ?: "AI profile") +
+                                        if (item.deliveryKind == "PARTIAL") " · Partial reply" else " · New reply",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )

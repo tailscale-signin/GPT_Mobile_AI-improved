@@ -15,9 +15,9 @@ data class AssistContextDecision(
 ) {
     fun requireFits(renderedInputTokens: Long, outputTokens: Int, toolResultReserve: Int, mediaTokens: Int = 0, safetyTokens: Int = 256): Long {
         require(renderedInputTokens >= 0 && outputTokens >= 0 && toolResultReserve >= 0 && mediaTokens >= 0 && safetyTokens >= 0)
-        val total = renderedInputTokens + outputTokens.toLong() + toolResultReserve + mediaTokens + safetyTokens
-        require(total <= logicalTokens) { "Assist request needs $total tokens including reserves; the admitted task limit is $logicalTokens." }
-        return total
+        val reserves = outputTokens.toLong() + toolResultReserve + mediaTokens + safetyTokens
+        require(reserves <= logicalTokens && renderedInputTokens <= logicalTokens.toLong() - reserves) { "Assist request input $renderedInputTokens plus $reserves reserved tokens exceeds the admitted task limit $logicalTokens." }
+        return renderedInputTokens + reserves
     }
 
     companion object {

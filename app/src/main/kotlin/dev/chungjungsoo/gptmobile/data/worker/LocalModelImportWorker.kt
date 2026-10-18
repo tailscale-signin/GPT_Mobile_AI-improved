@@ -33,6 +33,7 @@ class LocalModelImportWorker @AssistedInject constructor(
     private val repository: LocalModelRepository
 ) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
+        dev.chungjungsoo.gptmobile.presentation.StartupRecoveryGate.await()
         val uri = inputData.getString(SOURCE)?.let(Uri::parse) ?: return@withContext Result.failure()
         val notifications = applicationContext.getSystemService(NotificationManager::class.java)
         notifications.createNotificationChannel(NotificationChannel(CHANNEL, applicationContext.getString(R.string.local_ai_import), NotificationManager.IMPORTANCE_LOW))

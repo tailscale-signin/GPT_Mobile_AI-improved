@@ -188,4 +188,3 @@ jobs:
             printf '| Android lint | %s |\n' "${ANDROID_LINT_OUTCOME:-not run}"
             printf '| APK build and runtime verification | %s |\n' "${REVIEW_APK_OUTCOME:-not run}"
           } >> "$GITHUB_STEP_SUMMARY"
-

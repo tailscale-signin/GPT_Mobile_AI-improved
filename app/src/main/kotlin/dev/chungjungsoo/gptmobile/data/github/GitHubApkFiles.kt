@@ -3,6 +3,9 @@ package dev.chungjungsoo.gptmobile.data.github
 import java.io.File
 import java.io.IOException
 import java.net.URI
+import java.nio.file.Files
+import java.nio.file.LinkOption
+import java.nio.file.StandardOpenOption
 import java.security.MessageDigest
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
@@ -147,6 +150,7 @@ internal object GitHubApkArchive {
     ): List<File> {
         require(archive.length() in 1..GitHubApkTransferPolicy.MAX_TRANSFER_BYTES) { "The build archive exceeds the supported size." }
         require(directory.isDirectory || directory.mkdirs()) { "Could not create the APK download directory." }
+        val canonicalDirectory = directory.canonicalFile
         val written = mutableListOf<File>()
         try {
             ZipFile(archive).use { zip ->
@@ -161,23 +165,29 @@ internal object GitHubApkArchive {
                     checkActive()
                     require(entry.size in 1..GitHubApkTransferPolicy.MAX_APK_BYTES) { "An APK in this artifact exceeds the supported size." }
                     require(entry.size <= GitHubApkTransferPolicy.MAX_EXTRACTED_BYTES - totalWritten) { "The extracted APKs exceed the supported total size." }
-                    if (directory.usableSpace < entry.size + GitHubApkTransferPolicy.STORAGE_RESERVE_BYTES) {
+                    if (canonicalDirectory.usableSpace < entry.size + GitHubApkTransferPolicy.STORAGE_RESERVE_BYTES) {
                         throw GitHubApkDownloadException("Not enough storage to extract this build. Free space and retry.")
                     }
                     val prefix = "${index + 1}-"
                     val baseName = GitHubApkTransferPolicy.safeApkName(entry.name).dropLast(4).take(146 - prefix.length) + ".apk"
-                    // Resolve the destination against its canonical extraction root before writing.
-                    // This enforces filesystem containment even if name normalization changes.
-                    val root = directory.canonicalFile
-                    val output = File(root, prefix + baseName).canonicalFile
-                    require(output.parentFile == root && !output.isDirectory) {
-                        "The build archive contains an unsafe APK destination."
-                    }
-                    written += output
+                    val output = File(canonicalDirectory, prefix + baseName)
                     val crc = CRC32()
                     var entryWritten = 0L
                     zip.getInputStream(entry).buffered().use { input ->
-                        output.outputStream().buffered().use { target ->
+                        val outputPath = output.toPath().normalize()
+                        if (!outputPath.startsWith(canonicalDirectory.toPath())) {
+                            throw GitHubApkDownloadException("The build archive contains an unsafe output path.")
+                        }
+                        if (!output.canonicalPath.startsWith(canonicalDirectory.path + File.separator)) {
+                            throw GitHubApkDownloadException("The build archive contains an unsafe output path.")
+                        }
+                        Files.newOutputStream(
+                            outputPath,
+                            StandardOpenOption.WRITE,
+                            StandardOpenOption.CREATE_NEW,
+                            LinkOption.NOFOLLOW_LINKS
+                        ).buffered().use { target ->
+                            written += output
                             val buffer = ByteArray(128 * 1024)
                             while (true) {
                                 checkActive()
@@ -199,7 +209,17 @@ internal object GitHubApkArchive {
             }
             return written
         } catch (error: Exception) {
-            written.forEach(File::delete)
+            written.forEach { output ->
+                try {
+                    val outputPath = output.toPath().normalize()
+                    if (outputPath.startsWith(canonicalDirectory.toPath()) && output.parentFile.canonicalFile == canonicalDirectory) {
+                        // Delete the original path, so a replacement symlink cannot delete its target.
+                        Files.deleteIfExists(outputPath)
+                    }
+                } catch (cleanupError: Exception) {
+                    error.addSuppressed(cleanupError)
+                }
+            }
             throw error
         }
     }

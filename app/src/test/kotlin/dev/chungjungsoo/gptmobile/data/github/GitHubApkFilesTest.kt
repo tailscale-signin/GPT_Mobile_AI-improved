@@ -2,9 +2,14 @@ package dev.chungjungsoo.gptmobile.data.github
 
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.IOException
+import java.nio.file.FileAlreadyExistsException
+import java.nio.file.Files
+import java.nio.file.LinkOption
 import java.security.MessageDigest
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
@@ -88,6 +93,106 @@ class GitHubApkFilesTest {
         val files = GitHubApkArchive.extract(archive, output())
         assertEquals(2, files.map(File::getCanonicalPath).toSet().size)
         assertFalse(files[0].readBytes().contentEquals(files[1].readBytes()))
+    }
+
+    @Test
+    fun preExistingOutputIsNotOverwrittenOrDeleted() {
+        val destination = output()
+        val existing = File(destination, "1-app.apk").apply { writeBytes(apkBytes("existing")) }
+        val original = existing.readBytes()
+        assertThrows(FileAlreadyExistsException::class.java) {
+            GitHubApkArchive.extract(archive("app.apk" to apkBytes("download")), destination)
+        }
+        assertArrayEquals(original, existing.readBytes())
+        assertEquals(listOf(existing), destination.listFiles().orEmpty().toList())
+    }
+
+    @Test
+    fun laterPreExistingOutputPreservedWhileNewlyExtractedFilesAreCleaned() {
+        val destination = output()
+        val existing = File(destination, "2-two.apk").apply { writeBytes(apkBytes("existing")) }
+        val original = existing.readBytes()
+        assertThrows(FileAlreadyExistsException::class.java) {
+            GitHubApkArchive.extract(archive("one.apk" to apkBytes(), "two.apk" to apkBytes("download")), destination)
+        }
+        assertFalse(File(destination, "1-one.apk").exists())
+        assertArrayEquals(original, existing.readBytes())
+    }
+
+    @Test
+    fun symlinkCannotEscapeToSiblingDirectoryWithMatchingPrefix() {
+        val destination = temporary.newFolder("apks")
+        val sibling = temporary.newFolder("apks-outside")
+        val existing = File(sibling, "protected.apk").apply { writeBytes(apkBytes("existing")) }
+        val original = existing.readBytes()
+        val link = File(destination, "1-app.apk").toPath()
+        Files.createSymbolicLink(link, existing.toPath())
+        assertThrows(GitHubApkDownloadException::class.java) {
+            GitHubApkArchive.extract(archive("app.apk" to apkBytes()), destination)
+        }
+        assertArrayEquals(original, existing.readBytes())
+        assertTrue(Files.isSymbolicLink(link))
+    }
+
+    @Test
+    fun symlinkToFileInsideDestinationIsNotFollowedOrDeleted() {
+        val destination = output()
+        val existing = File(destination, "protected.apk").apply { writeBytes(apkBytes("existing")) }
+        val original = existing.readBytes()
+        val link = File(destination, "1-app.apk").toPath()
+        Files.createSymbolicLink(link, existing.toPath())
+        assertThrows(FileAlreadyExistsException::class.java) {
+            GitHubApkArchive.extract(archive("app.apk" to apkBytes()), destination)
+        }
+        assertArrayEquals(original, existing.readBytes())
+        assertTrue(Files.isSymbolicLink(link))
+    }
+
+    @Test
+    fun danglingSymlinkDoesNotCreateItsTarget() {
+        val destination = output()
+        val missing = File(temporary.newFolder("outside"), "missing.apk")
+        val link = File(destination, "1-app.apk").toPath()
+        Files.createSymbolicLink(link, missing.toPath())
+        assertThrows(IOException::class.java) {
+            GitHubApkArchive.extract(archive("app.apk" to apkBytes()), destination)
+        }
+        assertFalse(missing.exists())
+        assertTrue(Files.isSymbolicLink(link))
+    }
+
+    @Test
+    fun failureCleanupDeletesReplacementSymlinkWithoutDeletingTarget() {
+        val destination = output()
+        val existing = temporary.newFile("protected.apk").apply { writeBytes(apkBytes("existing")) }
+        val original = existing.readBytes()
+        assertThrows(IOException::class.java) {
+            GitHubApkArchive.extract(archive("app.apk" to apkBytes()), destination, validateApk = { file ->
+                Files.delete(file.toPath())
+                Files.createSymbolicLink(file.toPath(), existing.toPath())
+                throw IOException("Validation failed.")
+            })
+        }
+        assertArrayEquals(original, existing.readBytes())
+        assertFalse(Files.exists(File(destination, "1-app.apk").toPath(), LinkOption.NOFOLLOW_LINKS))
+    }
+
+    @Test
+    fun failureCleanupDoesNotFollowReplacedDestinationDirectory() {
+        val destination = temporary.newFolder("download")
+        val moved = File(temporary.root, "moved-download")
+        val outside = temporary.newFolder("outside")
+        val existing = File(outside, "1-app.apk").apply { writeBytes(apkBytes("existing")) }
+        val original = existing.readBytes()
+        assertThrows(IOException::class.java) {
+            GitHubApkArchive.extract(archive("app.apk" to apkBytes()), destination, validateApk = {
+                Files.move(destination.toPath(), moved.toPath())
+                Files.createSymbolicLink(destination.toPath(), outside.toPath())
+                throw IOException("Validation failed.")
+            })
+        }
+        assertArrayEquals(original, existing.readBytes())
+        assertTrue(Files.isSymbolicLink(destination.toPath()))
     }
 
     @Test

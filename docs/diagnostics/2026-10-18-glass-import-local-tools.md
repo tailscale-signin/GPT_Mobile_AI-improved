@@ -50,3 +50,11 @@ Branch: fix/glass-import-local-tools-2026-10-18.
 - Move import-observer preference reads to IO, persist job ownership before enqueue, and combine scheduling state with WorkManager updates using collectLatest so stale progress cannot re-enable import during enqueue.
 - Release newly owned URI grants from the worker on completion/failure/cancellation even when the screen has closed. Existing grants and grants still used by linked models remain protected. The observer remains a fallback for older jobs and jobs canceled before execution.
 - Add a local-adapter regression ensuring a second rejected prompt-tool call terminates without dispatch or visible control markup. Adapter and Compose regressions await the full Android CI environment; the 44 focused Kotlin tests and 138 repository-script tests were rerun successfully.
+
+## Settings-entry crash repair
+
+The live home display list was being replayed as a settings blur source. During the navigation exit animation Home can still redraw its floating glass control, which samples that source; the resulting render graph can reference Home again. A user reported a Settings-entry crash without a fresh stack trace, so this unsafe dependency is removed rather than treating earlier emulator passes as phone crash verification.
+
+Settings now rasterizes the last home frame once into an ImageBitmap and uses only that independent image as its blur source. No live Home RenderNode is replayed beneath Settings. Missing/failed capture uses the 70% tinted material; cancellation propagates, capture failures are logged, and stopping clears both the bitmap and recorded home layer. Navigation content remains at a single composition call site.
+
+The new instrumentation fixture keeps outgoing Home (including a nested Haze source and floating glass control) composed while Settings opens, then repeats entry/exit. The earlier plain-Canvas fixture did not exercise this feedback path. Emulator acceptance now explicitly requires successful protocol results for both settings-entry tests as well as the dialog blur tests; `am instrument` exit status alone does not prove success. A fresh phone crash export is still needed if the rebuilt APK reproduces the crash.

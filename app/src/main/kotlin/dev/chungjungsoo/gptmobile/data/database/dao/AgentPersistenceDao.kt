@@ -429,7 +429,15 @@ interface AgentPersistenceDao {
             ownershipFence = nextFence,
             synthesisKey = request.run.synthesisKey,
             synthesisSnapshot = request.run.synthesisSnapshot,
-            displayRole = request.run.displayRole ?: if (request.run.synthesisKey != null) "COMBINED_FINAL" else previousRun?.displayRole ?: "DIRECT_REPLY",
+            displayRole = request.run.displayRole ?: if (request.run.synthesisKey != null) {
+                "COMBINED_FINAL"
+            } else {
+                previousRun?.displayRole?.takeIf { it != "INTERNAL" } ?: when {
+                    getChatRoom(request.userMessage.chatId)?.conversationMode == "COMBINED" -> "COMBINED_CONTRIBUTOR"
+                    getChatRoom(request.userMessage.chatId)?.enabledPlatform.orEmpty().size > 1 -> "MULTI_REPLY"
+                    else -> "DIRECT_REPLY"
+                }
+            },
             createdAt = request.run.createdAt
         )
         insertRun(run)

@@ -330,7 +330,7 @@ class ChatRepositoryImpl(
             { settingRepository.getFeatureSettings().assistEnabled() && settingRepository.getFeatureSettings().effectiveAssistPolicy() == features.effectiveAssistPolicy() && settingRepository.getFeatureSettings().localAssistPolicy.preparation == features.localAssistPolicy.preparation && settingRepository.fetchPlatformV2s().any { it == target } },
             root,
             { invocation },
-            contextTokens = { localRuntime.admittedEngineSpec()?.maxTokens ?: 0 },
+            contextTokens = { minOf(localRuntime.admittedEngineSpec()?.maxTokens ?: 0, if (policy.contextMode == dev.chungjungsoo.gptmobile.data.assist.AssistContextMode.AUTO) 4096 else policy.contextTokens) },
             runtimeFingerprint = { dev.chungjungsoo.gptmobile.data.memory.MemoryEnrichmentQueue.runtimeFingerprint(localRuntime) },
             status = { dev.chungjungsoo.gptmobile.data.assist.AssistTelemetry.record(root, it) }
         )
@@ -824,6 +824,13 @@ class ChatRepositoryImpl(
             "Child tool catalog · target=${target.uid} · source=$childToolSource · discovered=$discoveredChildToolCount · kept=${childTools.size} · names=${childTools.joinToString { it.definition.name }} · maxInputTokens=$maxInputTokens"
         )
         val estimatedRequestInputTokens = baseInputTokens + estimatedToolTokens()
+        if (requestRole == "assist") {
+            val policy = settingRepository.getFeatureSettings().effectiveAssistPolicy()
+            val warm = requireNotNull(localRuntime.admittedEngineSpec()) { "Assist requires a prepared engine" }
+            val decision = dev.chungjungsoo.gptmobile.data.assist.AssistContextDecision.resolve(policy, warm.maxTokens, false)
+            decision.requireFits(estimatedRequestInputTokens.toLong(), maxTokens, if (childTools.isEmpty()) 0 else 256)
+            AppLogRecorder.record("LocalAssist", "CONTEXT_ADMISSION · method=estimated · requested=${decision.requestedTokens} · allocated=${decision.allocatedTokens} · logical=${decision.logicalTokens} · estimatedInput=$estimatedRequestInputTokens · outputReserve=$maxTokens · qualified=unknown")
+        }
         if (estimatedRequestInputTokens > maxInputTokens) {
             AppLogRecorder.record(
                 "Delegation",
@@ -1881,7 +1888,7 @@ class ChatRepositoryImpl(
                             generate = { target, task, cap -> generateDelegate(target, task, cap, inputCap = delegationInputBudget(target, cap), allowTools = false, requestRole = "assist") },
                             notice = { emit(ApiState.Notice(it)) },
                             producerInvocationId = { latestAssistInvocationId },
-                            contextTokens = { localRuntime.admittedEngineSpec()?.maxTokens ?: 0 },
+                            contextTokens = { minOf(localRuntime.admittedEngineSpec()?.maxTokens ?: 0, if (runFeatures.localAssistPolicy.contextMode == dev.chungjungsoo.gptmobile.data.assist.AssistContextMode.AUTO) 4096 else runFeatures.localAssistPolicy.contextTokens) },
                             runtimeFingerprint = { dev.chungjungsoo.gptmobile.data.research.researchHash("${localRuntime.state.value.backend}|${localRuntime.state.value.engineSpec}|${dev.chungjungsoo.gptmobile.data.localmodel.LocalModelInstallationEpoch.current()}") },
                             status = {
                                 dev.chungjungsoo.gptmobile.data.assist.AssistTelemetry.record(runId, it)
@@ -2470,7 +2477,6 @@ class ChatRepositoryImpl(
             )
         }
         suspend fun openPrimarySession(turns: List<dev.chungjungsoo.gptmobile.data.context.ConversationTurn>, kind: String = if (runId.startsWith("combined-synthesis:")) "synthesis" else "primary", textOnly: Boolean = false, passOutputTokens: Int? = null): AgentProviderSession {
-            if (!validateSavedEvidence()) throw dev.chungjungsoo.gptmobile.data.agent.SavedEvidenceAccessDenied()
             factVault?.validateRecall(recalled, latestUser?.chatId ?: 0, platform.isPrivateDestination())
             if (platform.compatibleType != ClientType.LITERT_LM) {
                 require(recalled.facts.none { it.localOnly } && turns.none { turn -> turn.assistantMessage?.containsLocalOnlyMemory() == true }) { "This history contains local-only memory. Continue with a local AI profile or start a conversation without that history." }

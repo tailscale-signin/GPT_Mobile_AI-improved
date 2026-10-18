@@ -7,6 +7,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -33,6 +34,8 @@ internal fun LocalAssistCard(viewModel: LocalRuntimeSettingsViewModel, onMarketp
     val selected = profiles.firstOrNull { it.uid == policy.profileUid }
     var choosing by rememberSaveable { mutableStateOf(false) }
     var reviewing by rememberSaveable { mutableStateOf(false) }
+    var advanced by rememberSaveable { mutableStateOf(false) }
+    var contextText by rememberSaveable(policy.contextTokens) { mutableStateOf(policy.contextTokens.toString()) }
     SettingsPanel("Local Assist") {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("Use Local Assist", Modifier.weight(1f))
@@ -51,6 +54,45 @@ internal fun LocalAssistCard(viewModel: LocalRuntimeSettingsViewModel, onMarketp
                     })
                 }
             }
+        }
+        Text("Tasks", style = MaterialTheme.typography.titleSmall)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("Select relevant evidence", Modifier.weight(1f))
+            Switch(policy.evidenceSelection, { value -> viewModel.updateAssist { it.copy(evidenceSelection = value) } }, enabled = !busy)
+        }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("Summarize retrieved text", Modifier.weight(1f))
+            Switch(policy.summarizeRetrievedText, { value -> viewModel.updateAssist { it.copy(summarizeRetrievedText = value) } }, enabled = !busy)
+        }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("Prepare explicit research", Modifier.weight(1f))
+            Switch(policy.researchPreparation, { value -> viewModel.updateAssist { it.copy(researchPreparation = value) } }, enabled = !busy)
+        }
+        Text("Context", style = MaterialTheme.typography.titleSmall)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("Auto · conservative package limit", Modifier.weight(1f))
+            Switch(policy.contextMode == dev.chungjungsoo.gptmobile.data.assist.AssistContextMode.AUTO, { auto ->
+                viewModel.updateAssist { it.copy(contextMode = if (auto) dev.chungjungsoo.gptmobile.data.assist.AssistContextMode.AUTO else dev.chungjungsoo.gptmobile.data.assist.AssistContextMode.MANUAL) }
+            }, enabled = !busy)
+        }
+        if (policy.contextMode == dev.chungjungsoo.gptmobile.data.assist.AssistContextMode.MANUAL) {
+            OutlinedTextField(contextText, { contextText = it }, label = { Text("Requested context tokens") }, singleLine = true, isError = contextText.toIntOrNull()?.let { it > 0 } != true)
+            TextButton(onClick = { contextText.toIntOrNull()?.takeIf { it > 0 }?.let { tokens -> viewModel.updateAssist { it.copy(contextTokens = tokens) } } }, enabled = !busy && contextText.toIntOrNull()?.let { it > 0 } == true) { Text("Apply context") }
+        }
+        Text("Package capacity, allocation and task qualification differ. Verify model checks the saved request; it does not qualify extended context or vision.", style = MaterialTheme.typography.bodySmall)
+        Text("Privacy", style = MaterialTheme.typography.titleSmall)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("Share helper-derived evidence with the primary model", Modifier.weight(1f))
+            Switch(policy.shareDerivedEvidence, { value -> viewModel.updateAssist { it.copy(shareDerivedEvidence = value) } }, enabled = !busy)
+        }
+        Text("Image reading and autonomous reads are unavailable until the installed package passes their device qualification. Private query sharing is not granted by enabling Assist.", style = MaterialTheme.typography.bodySmall)
+        TextButton(onClick = { advanced = !advanced }) { Text(if (advanced) "Hide advanced" else "Advanced") }
+        if (advanced) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("Prepare helper while foreground and idle", Modifier.weight(1f))
+                Switch(policy.preloadInForeground, { value -> viewModel.updateAssist { it.copy(preloadInForeground = value) } }, enabled = !busy)
+            }
+            Text("Ordinary remote replies do not wait for a cold helper. Local primary execution retains runtime ownership.", style = MaterialTheme.typography.bodySmall)
         }
         val status = when {
             !settings.localAssist -> "Off"

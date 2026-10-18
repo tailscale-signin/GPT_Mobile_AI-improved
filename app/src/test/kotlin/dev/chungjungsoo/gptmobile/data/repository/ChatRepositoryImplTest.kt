@@ -520,7 +520,8 @@ class ChatRepositoryImplTest {
                             delta = GroqDelta(
                                 reasoning = "Plan",
                                 content = "Answer"
-                            )
+                            ),
+                            finishReason = "stop"
                         )
                     )
                 )
@@ -788,7 +789,8 @@ class ChatRepositoryImplTest {
                     choices = listOf(
                         GroqChoice(
                             index = 0,
-                            delta = GroqDelta(content = "<think>Secret</think>\nVisible")
+                            delta = GroqDelta(content = "<think>Secret</think>\nVisible"),
+                            finishReason = "stop"
                         )
                     )
                 )
@@ -1276,8 +1278,9 @@ class ChatRepositoryImplTest {
                     append("## References\n\n")
                     (packet.studies + packet.unread).forEach { append("[${it.id}] ${it.url}\n") }
                 }
-                assertTrue(dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryValidator.validate(report, packet).accepted)
-                emit(ChatCompletionChunk(choices = listOf(Choice(0, Delta(content = report), finishReason = "stop"))))
+                val adapted = dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryPacket.SECTIONS.zip(packet.sections).fold(report) { text, (old, new) -> text.replace("## $old", "## $new") }
+                assertTrue(dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryValidator.validate(adapted, packet).accepted)
+                emit(ChatCompletionChunk(choices = listOf(Choice(0, Delta(content = adapted), finishReason = "stop"))))
             }
         )
         val api = RecordingOpenAIAPI(rounds)

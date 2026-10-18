@@ -413,7 +413,7 @@ fun NavGraphBuilder.settingNavigation(
                         "ADVANCED" -> Route.ADVANCED_SETTINGS + "?focus=$encoded"
                         "APPEARANCE" -> Route.APPEARANCE + "?tab=$encoded"
                         "MEMORY" -> Route.FACT_VAULT + "?tab=$encoded"
-                        "LOCAL_MODELS" -> Route.LOCAL_MODELS + "?runtime=${focus == "runtime"}"
+                        "LOCAL_MODELS" -> Route.LOCAL_MODELS + "?runtime=${focus == "runtime" || focus == "assist"}"
                         "PROFILES" -> if (focus.isBlank()) {
                             Route.AI_PLATFORMS
                         } else {

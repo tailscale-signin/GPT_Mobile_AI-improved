@@ -65,6 +65,7 @@ class CompleteBackupManager @Inject constructor(
         mutex.withLock {
             recoverInterruptedRestore()
             preferences.normalizeAssist()
+            dev.chungjungsoo.gptmobile.data.chat.LegacyReplyInboxMigration.migrate(context, database)
         }
     }
     private val json = Json {

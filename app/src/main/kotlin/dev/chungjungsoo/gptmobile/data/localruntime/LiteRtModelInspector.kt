@@ -30,7 +30,7 @@ data class LocalModelCapabilities(
     private fun validateConfiguration(spec: LocalEngineSpec) {
         require(contextTokens == null || spec.maxTokens <= contextTokens) { "Requested context ${spec.maxTokens} exceeds this export's $contextTokens-token ceiling." }
         require(backends.isEmpty() || spec.accelerator.lowercase() in backends) { "This artifact does not support ${spec.accelerator}. Choose a compatible variant; a backend switch cannot convert compiled weights." }
-        require(!spec.isVisionEnabled || vision != false) { "This export is text-only; image input is unsupported." }
+        require(!spec.isVisionEnabled || vision == true) { "Image support is absent or unverified for this export. Select and verify a compatible vision package." }
         require(!spec.isVisionEnabled || visionBackends.isEmpty() || spec.visionAccelerator in visionBackends) { "This export does not support the requested vision backend." }
         require(spec.speculativeDecoding != true || speculative == true) { "This export has no verified speculative-decoding support. Use Model default or Off." }
         if (spec.accelerator.equals("npu", true) && !soc.isNullOrBlank()) {

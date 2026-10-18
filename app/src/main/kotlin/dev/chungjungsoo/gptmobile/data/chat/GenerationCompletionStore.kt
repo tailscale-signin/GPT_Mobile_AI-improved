@@ -7,6 +7,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 
@@ -19,7 +20,8 @@ data class CompletedGeneration(
     val profileUid: String = "",
     val displayRole: String = ReplyDisplayRole.DIRECT,
     val deliveryKind: String = "FINAL",
-    val contentDigest: String = ""
+    val contentDigest: String = "",
+    val visibleChatId: Int = chatId
 )
 
 /** Compatibility facade. Room publication commits are the sole writer of unread truth. */
@@ -27,9 +29,12 @@ data class CompletedGeneration(
 class GenerationCompletionStore @Inject constructor(database: ChatDatabaseV2) {
     private val dao = database.replyPublicationDao()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    val items = dao.observeUnread().map { rows ->
+    val items = kotlinx.coroutines.flow.flow {
+        dev.chungjungsoo.gptmobile.presentation.StartupRecoveryGate.await()
+        emitAll(dao.observeUnread())
+    }.map { rows ->
         rows.map { CompletedGeneration(it.logicalReplyKey, it.chatId, it.messageId, it.publishedAt, it.committedRevision, it.profileUid, it.displayRole, it.deliveryKind, it.contentDigest) }
-    }.stateIn(scope, SharingStarted.Eagerly, emptyList())
+    }.stateIn(scope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     suspend fun acknowledge(item: CompletedGeneration, displayedText: String) {
         val digest = dev.chungjungsoo.gptmobile.data.research.researchHash(dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.text(displayedText))

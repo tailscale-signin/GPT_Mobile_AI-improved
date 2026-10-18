@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import dev.chungjungsoo.gptmobile.data.assist.advanceAssistEpoch
 import dev.chungjungsoo.gptmobile.data.dto.withStableProfileIds
 import dev.chungjungsoo.gptmobile.data.model.ApiType
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
@@ -140,7 +141,7 @@ class SettingDataSourceImpl @Inject constructor(
         dataStore.edit { pref ->
             // Do not overwrite malformed/future configuration with defaults on an edit.
             val current = pref[featureSettingsKey]?.let { json.decodeFromString<AppFeatureSettings>(dev.chungjungsoo.gptmobile.data.assist.LocalAssistSettingsMigration.normalize(it)) } ?: AppFeatureSettings()
-            val next = transform(current)
+            val next = transform(current).advanceAssistEpoch(current)
             pref[featureSettingsKey] = json.encodeToString(next)
             result = next
         }
@@ -214,9 +215,7 @@ class SettingDataSourceImpl @Inject constructor(
     }
 
     override suspend fun updateFeatureSettings(settings: AppFeatureSettings) {
-        dataStore.edit { pref ->
-            pref[featureSettingsKey] = json.encodeToString(settings)
-        }
+        mutateFeatureSettings { settings }
     }
 
     override suspend fun updateResearchSettings(settings: dev.chungjungsoo.gptmobile.data.model.DeepResearchSettings) {

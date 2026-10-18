@@ -95,7 +95,7 @@ class LocalRuntimeSettingsViewModel @Inject constructor(
     fun updateAssist(change: (dev.chungjungsoo.gptmobile.data.assist.LocalAssistPolicy) -> dev.chungjungsoo.gptmobile.data.assist.LocalAssistPolicy) = perform {
         repository.mutateFeatureSettings {
             val next = change(it.localAssistPolicy).validated()
-            if (next.profileUid != it.localAssistPolicy.profileUid) dev.chungjungsoo.gptmobile.data.assist.AssistReadinessResolver.publish(dev.chungjungsoo.gptmobile.data.assist.AssistReadiness.CHECKING, "Selected helper changed; readiness requires verification", next.profileUid)
+            if (next != it.localAssistPolicy) dev.chungjungsoo.gptmobile.data.assist.AssistReadinessResolver.publish(dev.chungjungsoo.gptmobile.data.assist.AssistReadiness.CHECKING, "Selected helper changed; readiness requires verification", next.profileUid)
             it.copy(localAssistPolicy = next)
         }
     }

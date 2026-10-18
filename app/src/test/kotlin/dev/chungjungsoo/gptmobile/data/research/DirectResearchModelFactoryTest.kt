@@ -24,7 +24,7 @@ class DirectResearchModelFactoryTest {
         val local = PlatformV2(uid = "local", name = "Local", compatibleType = ClientType.LITERT_LM, model = "local")
         val profiles = listOf(primary, local)
         for (allowed in listOf(false, true)) {
-            val policy = LocalAssistPolicy(permissionVersion = 1, profilePermissions = mapOf(local.uid to if (allowed) AssistProcessingPermission.ALLOWED else AssistProcessingPermission.DENIED))
+            val policy = LocalAssistPolicy(shareDerivedEvidence = true, profileUid = local.uid, permissionVersion = 1, profilePermissions = mapOf(local.uid to if (allowed) AssistProcessingPermission.ALLOWED else AssistProcessingPermission.DENIED))
             val features = AppFeatureSettings(localAssist = true, localAssistPolicy = policy, executionPolicy = ExecutionPolicy(mode = OptimizationMode.OFF))
             val invoked = mutableListOf<String>()
             val statuses = mutableListOf<dev.chungjungsoo.gptmobile.data.assist.AssistTaskState>()
@@ -49,7 +49,7 @@ class DirectResearchModelFactoryTest {
         val local = PlatformV2(uid = "local", name = "Local", compatibleType = ClientType.LITERT_LM, model = "local")
         val profiles = listOf(primary, local)
         val turn = java.util.UUID.randomUUID().toString()
-        val policy = LocalAssistPolicy(maxAttempts = 1, permissionVersion = 1, profilePermissions = mapOf(local.uid to AssistProcessingPermission.ALLOWED))
+        val policy = LocalAssistPolicy(shareDerivedEvidence = true, profileUid = local.uid, maxAttempts = 1, permissionVersion = 1, profilePermissions = mapOf(local.uid to AssistProcessingPermission.ALLOWED))
         val features = AppFeatureSettings(localAssist = true, localAssistPolicy = policy, executionPolicy = ExecutionPolicy(mode = OptimizationMode.OFF))
         var localRequests = 0
         val invoked = mutableListOf<String>()

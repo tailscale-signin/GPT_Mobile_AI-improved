@@ -45,7 +45,7 @@ internal object DirectResearchModelFactory {
             val identity = CanonicalModelIdentity.resolve(target).canonical.orEmpty()
             suspend fun permitted(): Boolean = stillEnabled() &&
                 liveProfiles().any { it == target && it.enabled } &&
-                (!local || liveFeatures().let { live -> live.assistEnabled() && live.effectiveAssistPolicy() == policy && policy.allowsProcessing(target) }) &&
+                (!local || liveFeatures().let { live -> live.assistEnabled() && policy.shareDerivedEvidence && live.effectiveAssistPolicy() == policy && policy.allowsProcessing(target) }) &&
                 (target.uid == primary.uid || local || liveFeatures().delegationFor(primary.uid).let { live -> live.reviewerEnabled && live.reviewerProfileUid == config.reviewerProfileUid && (target.isPrivateDestination() || live.remoteWorkersAllowed()) })
             return ResearchModelEndpoint(
                 target.uid,
@@ -81,9 +81,10 @@ internal object DirectResearchModelFactory {
         val helper = profiles.firstOrNull {
             features.assistEnabled() &&
                 policy.researchPreparation &&
+                policy.shareDerivedEvidence &&
                 primary.compatibleType != ClientType.LITERT_LM &&
                 policy.allowsProcessing(it) &&
-                (policy.profileUid == null || policy.profileUid == it.uid)
+                (policy.profileUid != null && policy.profileUid == it.uid)
         }
         val reviewer = reservedReviewer(config, profiles, primary)?.takeIf {
             config.reviewerEnabled &&

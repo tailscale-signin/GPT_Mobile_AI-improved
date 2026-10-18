@@ -9,6 +9,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -17,6 +19,7 @@ internal object OptionalAssistArtifacts {
     private class Entry(val original: AgentToolResult, val valid: suspend () -> Boolean, val fingerprint: () -> String) {
         val created = System.nanoTime()
         val runtime = fingerprint()
+        val sourceDigest = digest(original)
 
         @Volatile var completed: AgentToolResult? = null
     }
@@ -31,7 +34,19 @@ internal object OptionalAssistArtifacts {
         if (entries.size >= 64) entries.clear()
         entries[key] = entry
         val scope = CoroutineScope(context.minusKey(Job) + SupervisorJob())
-        scope.launch {
+        val parentCancellation = context[Job]?.invokeOnCompletion { cause ->
+            if (cause != null) scope.coroutineContext[Job]?.cancel()
+        }
+        val work = scope.launch {
+            val watcher = launch {
+                while (isActive) {
+                    delay(250)
+                    if (!valid() || entry.runtime != fingerprint()) {
+                        entries.remove(key)
+                        scope.coroutineContext[Job]?.cancel()
+                    }
+                }
+            }
             try {
                 if (valid()) entry.completed = withTimeoutOrNull(30_000L) { produce() }
             } catch (cancelled: CancellationException) {
@@ -39,9 +54,14 @@ internal object OptionalAssistArtifacts {
             } catch (_: Exception) {
                 entries.remove(key)
             } finally {
-                producing.set(false)
-                scope.coroutineContext[Job]?.cancel()
+                watcher.cancel()
             }
+        }
+        work.invokeOnCompletion { cause ->
+            if (cause != null) entries.remove(key)
+            parentCancellation?.dispose()
+            producing.set(false)
+            scope.coroutineContext[Job]?.cancel()
         }
         return original.copy(optionalAssistKey = key)
     }
@@ -50,7 +70,12 @@ internal object OptionalAssistArtifacts {
         val key = result.optionalAssistKey ?: return result
         val entry = entries[key] ?: return result
         val prepared = entry.completed ?: return result
-        if (System.nanoTime() - entry.created > 120_000_000_000L || entry.original.callId != result.callId || entry.runtime != entry.fingerprint() || !entry.valid()) return result
+        if (System.nanoTime() - entry.created > 120_000_000_000L || entry.original.callId != result.callId || entry.sourceDigest != digest(result) || entry.runtime != entry.fingerprint() || !entry.valid()) return result
         return result.copy(assistMetadata = prepared.assistMetadata)
     }
+
+    private fun digest(result: AgentToolResult): String = dev.chungjungsoo.gptmobile.data.research.researchHash(
+        dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.element(result.retainedContent ?: result.content).toString() +
+            "|${result.isError}|${result.media}"
+    )
 }

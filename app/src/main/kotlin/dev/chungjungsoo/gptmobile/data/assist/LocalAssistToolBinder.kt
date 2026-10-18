@@ -33,6 +33,10 @@ internal object LocalAssistToolBinder {
             status(expected.copy(admission = AssistAdmission.OFF, execution = AssistExecution.SKIPPED, reason = "ASSIST_OFF"))
             return tools
         }
+        if (!policy.shareDerivedEvidence) {
+            status(expected.copy(admission = AssistAdmission.INELIGIBLE, execution = AssistExecution.SKIPPED, reason = "DERIVED_EVIDENCE_SHARING_NOT_GRANTED"))
+            return tools
+        }
         if (!supportsPrimaryRuntime) {
             status(expected.copy(admission = AssistAdmission.INELIGIBLE, execution = AssistExecution.SKIPPED, reason = "PRIMARY_RUNTIME_CANNOT_YIELD_TO_HELPER"))
             return tools

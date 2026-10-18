@@ -12,7 +12,7 @@ import kotlinx.coroutines.flow.stateIn
 @Singleton
 class ConversationReadStateStore @Inject constructor(completions: GenerationCompletionStore) {
     val unreadChatIds = completions.items.map { rows -> rows.mapTo(mutableSetOf()) { it.chatId } }
-        .stateIn(CoroutineScope(SupervisorJob() + Dispatchers.IO), SharingStarted.Eagerly, emptySet())
+        .stateIn(CoroutineScope(SupervisorJob() + Dispatchers.IO), SharingStarted.WhileSubscribed(5000), emptySet())
     fun markUnread(chatId: Int) = Unit
     fun markViewed(chatId: Int) = Unit
     fun remove(chatId: Int) = Unit

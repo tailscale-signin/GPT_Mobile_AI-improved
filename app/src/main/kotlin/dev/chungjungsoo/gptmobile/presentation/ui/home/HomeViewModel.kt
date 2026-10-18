@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -208,8 +209,12 @@ class HomeViewModel @Inject constructor(
 
     private val _activeChatIds = MutableStateFlow<Set<Int>>(emptySet())
     val activeChatIds = _activeChatIds.asStateFlow()
-    val unreadChatIds = conversationReadStateStore.unreadChatIds
-    val completedGenerations = completionStore.items
+    val completedGenerations = combine(completionStore.items, featureSettings) { rows, features ->
+        val roots = features.multiChatWorkspaces.flatMap { (root, children) -> children.map { it to root } }.toMap()
+        rows.map { it.copy(visibleChatId = roots[it.chatId] ?: it.chatId) }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val unreadChatIds = completedGenerations.map { rows -> rows.mapTo(mutableSetOf()) { it.visibleChatId } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
     private var pinnedOrder = pinnedOrderStore.read()
 
     private fun sortChats(chats: List<ChatRoomV2>, activeIds: Set<Int> = _activeChatIds.value): List<ChatRoomV2> =
@@ -518,15 +523,13 @@ class HomeViewModel @Inject constructor(
 
     fun openConversation(room: ChatRoomV2, onOpen: (ChatRoomV2, Int?) -> Unit) {
         viewModelScope.launch {
-            if (room.id in settingRepository.getFeatureSettings().multiChatWorkspaces) {
-                onOpen(room, null)
+            val pending = completedGenerations.value.firstOrNull { it.visibleChatId == room.id }
+            if (pending != null && pending.chatId != room.id) {
+                val targetRoom = (chatRepository.fetchChatListV2() + chatRepository.fetchArchivedChatListV2()).firstOrNull { it.id == pending.chatId }
+                if (targetRoom != null) onOpen(targetRoom, pending.assistantMessageId)
                 return@launch
             }
-            val target = if (room.id in conversationReadStateStore.unreadChatIds.value) {
-                chatRepository.newestAssistantMessageId(room.id)
-            } else {
-                null
-            }
+            val target = pending?.assistantMessageId
             onOpen(room, target)
         }
     }
@@ -561,21 +564,41 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    data class ArchiveReceipt(val token: String, val chatIds: List<Int>)
+    val lastArchive = MutableStateFlow<ArchiveReceipt?>(null)
+    private val archiveOwners = mutableMapOf<Int, String>()
+
     fun archiveSelectedChats() {
         val state = _chatListState.value
-        val selected = state.chats.filterIndexed { index, _ -> state.selectedChats.getOrElse(index) { false } }
+        val selected = state.chats.filter { it.id in state.selectedChatIds }
+        archiveConversations(selected)
+    }
+
+    private fun archiveConversations(selected: List<ChatRoomV2>) {
         if (selected.isEmpty()) return
         viewModelScope.launch {
-            selected.flatMap { workspaceRooms(it) }.distinctBy { it.id }.forEach { chatRepository.setChatArchived(it.id, isArchived = true) }
+            val ids = selected.flatMap { workspaceRooms(it) }.filterNot { it.isArchived }.map { it.id }.distinct()
+            val token = java.util.UUID.randomUUID().toString()
+            ids.forEach { id ->
+                chatRepository.setChatArchived(id, isArchived = true)
+                archiveOwners[id] = token
+            }
+            lastArchive.value = ArchiveReceipt(token, ids)
             disableSelectionMode()
             fetchChats()
             fetchArchivedChats()
         }
     }
 
-    fun archiveChat(chatRoom: ChatRoomV2) {
+    fun archiveChat(chatRoom: ChatRoomV2) = archiveConversations(listOf(chatRoom))
+
+    fun undoArchive(receipt: ArchiveReceipt) {
         viewModelScope.launch {
-            workspaceRooms(chatRoom).forEach { chatRepository.setChatArchived(it.id, isArchived = true) }
+            receipt.chatIds.filter { archiveOwners[it] == receipt.token }.forEach { id ->
+                chatRepository.setChatArchived(id, isArchived = false)
+                archiveOwners.remove(id)
+            }
+            if (lastArchive.value == receipt) lastArchive.value = null
             fetchChats()
             fetchArchivedChats()
         }
@@ -583,7 +606,10 @@ class HomeViewModel @Inject constructor(
 
     fun unarchiveChat(chatRoom: ChatRoomV2) {
         viewModelScope.launch {
-            workspaceRooms(chatRoom).forEach { chatRepository.setChatArchived(it.id, isArchived = false) }
+            workspaceRooms(chatRoom).forEach {
+                archiveOwners.remove(it.id)
+                chatRepository.setChatArchived(it.id, isArchived = false)
+            }
             fetchChats()
             fetchArchivedChats()
         }

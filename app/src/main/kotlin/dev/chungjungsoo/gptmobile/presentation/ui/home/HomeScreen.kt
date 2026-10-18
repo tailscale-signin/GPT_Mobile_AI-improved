@@ -229,8 +229,15 @@ fun HomeScreen(
     var movingChatIds by rememberSaveable { mutableStateOf<IntArray?>(null) }
     var folderQuery by rememberSaveable { mutableStateOf("") }
     var newFolderName by rememberSaveable { mutableStateOf("") }
+    var newFolderColor by rememberSaveable { mutableStateOf(dev.chungjungsoo.gptmobile.data.chat.ConversationFolderStyle.colors.first()) }
     var choosingNewFolder by rememberSaveable { mutableStateOf(false) }
     val folderBusy by homeViewModel.folderBusy.collectAsStateWithLifecycle()
+    val archived by homeViewModel.lastArchive.collectAsStateWithLifecycle()
+    LaunchedEffect(archived) {
+        archived?.let { receipt ->
+            if (receipt.chatIds.isNotEmpty() && archiveSnackbarState.showSnackbar("Archived ${receipt.chatIds.size} conversations", "Undo", withDismissAction = true) == androidx.compose.material3.SnackbarResult.ActionPerformed) homeViewModel.undoArchive(receipt)
+        }
+    }
     val folderMove by homeViewModel.lastFolderMove.collectAsStateWithLifecycle()
     LaunchedEffect(folderMove) {
         folderMove?.let { receipt ->
@@ -375,7 +382,7 @@ fun HomeScreen(
                     CompletedGenerationNavigator(
                         items = completedGenerations,
                         chatTitles = completedGenerations.associate { item ->
-                            item.chatId to (knownChats[item.chatId]?.title ?: "Conversation ${item.chatId}")
+                            item.chatId to ((knownChats[item.visibleChatId]?.title ?: "Conversation ${item.visibleChatId}") + if (knownChats[item.visibleChatId]?.isArchived == true) " · Archived" else "")
                         },
                         onOpen = { item ->
                             homeViewModel.consumeCompletedGeneration(item.runId)
@@ -497,7 +504,7 @@ fun HomeScreen(
                                 val chatProfiles = chatRoom.enabledPlatform.mapNotNull { uid ->
                                     platformState.firstOrNull { it.uid == uid }
                                 }
-                                val usingPlatform = chatProfiles.joinToString(", ") { it.name }
+                                val usingPlatform = chatProfiles.joinToString(", ") { plainProfileName(it.name, it.model) }
                                     .ifBlank {
                                         chatRoom.enabledPlatform.joinToString(", ") { uid -> platformState.getPlatformName(uid) }
                                     }
@@ -516,16 +523,6 @@ fun HomeScreen(
                                                 // Swipe Right -> Archive
                                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                                 homeViewModel.archiveChat(chatRoom)
-                                                homeScope.launch {
-                                                    val result = archiveSnackbarState.showSnackbar(
-                                                        message = "Conversation archived",
-                                                        actionLabel = "Undo",
-                                                        withDismissAction = true
-                                                    )
-                                                    if (result == androidx.compose.material3.SnackbarResult.ActionPerformed) {
-                                                        homeViewModel.unarchiveChat(chatRoom)
-                                                    }
-                                                }
                                                 false
                                             }
                                             SwipeToDismissBoxValue.EndToStart -> {
@@ -594,10 +591,6 @@ fun HomeScreen(
                                             put("Move to folder") { movingChatIds = intArrayOf(chatRoom.id) }
                                             put("Archive") {
                                                 homeViewModel.archiveChat(chatRoom)
-                                                homeScope.launch {
-                                                    val result = archiveSnackbarState.showSnackbar("Conversation archived", "Undo", withDismissAction = true)
-                                                    if (result == androidx.compose.material3.SnackbarResult.ActionPerformed) homeViewModel.unarchiveChat(chatRoom)
-                                                }
                                             }
                                             put("Delete") { chatPendingDelete = chatRoom }
                                         },
@@ -757,8 +750,19 @@ fun HomeScreen(
                         TextButton(onClick = { choosingNewFolder = !choosingNewFolder }, enabled = !folderBusy) { Text("Create folder") }
                         if (choosingNewFolder) {
                             OutlinedTextField(newFolderName, { newFolderName = it }, label = { Text("Folder name") }, enabled = !folderBusy)
+                            Row {
+                                dev.chungjungsoo.gptmobile.data.chat.ConversationFolderStyle.colors.forEachIndexed { index, color ->
+                                    androidx.compose.material3.RadioButton(
+                                        selected = newFolderColor == color,
+                                        onClick = { newFolderColor = color },
+                                        enabled = !folderBusy,
+                                        modifier = Modifier.semantics { contentDescription = "Folder colour ${index + 1}" },
+                                        colors = androidx.compose.material3.RadioButtonDefaults.colors(selectedColor = Color(color), unselectedColor = Color(color))
+                                    )
+                                }
+                            }
                             TextButton(onClick = {
-                                homeViewModel.moveSelectedToFolder(targets.toSet(), null, newFolderName) {
+                                homeViewModel.moveSelectedToFolder(targets.toSet(), null, newFolderName, newFolderColor) {
                                     movingChatIds = null
                                     choosingNewFolder = false
                                     newFolderName = ""

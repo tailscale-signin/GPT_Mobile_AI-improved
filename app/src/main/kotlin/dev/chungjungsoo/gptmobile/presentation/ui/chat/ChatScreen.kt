@@ -1659,12 +1659,20 @@ private suspend fun exportChat(context: Context, chatViewModel: ChatViewModel, f
             Toast.makeText(context, "No AI responses to export yet.", Toast.LENGTH_SHORT).show()
             return
         }
-        val file = File(context.getExternalFilesDir(null), fileName)
-        withContext(Dispatchers.IO) {
-            if (format == ChatExportFormat.DEBUG) {
-                file.outputStream().use { DebugExportBundle.write(fileContent, it) }
-            } else {
-                file.writeText(fileContent)
+        val file = withContext(Dispatchers.IO) {
+            val destination = File(context.getExternalFilesDir(null), fileName)
+            val staging = File(destination.parentFile, ".${destination.name}.partial")
+            try {
+                if (format == ChatExportFormat.DEBUG) {
+                    staging.outputStream().use { DebugExportBundle.write(fileContent, it) }
+                    staging.inputStream().use(DebugExportBundle::read)
+                } else {
+                    staging.writeText(fileContent)
+                }
+                check(staging.renameTo(destination)) { "Unable to publish the completed export" }
+                destination
+            } finally {
+                staging.delete()
             }
         }
         val uri = getUriForFile(context, "${context.packageName}.fileprovider", file)

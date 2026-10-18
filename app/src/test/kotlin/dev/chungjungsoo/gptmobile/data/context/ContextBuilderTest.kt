@@ -11,6 +11,32 @@ import org.junit.Test
 
 class ContextBuilderTest {
     @Test
+    fun acceptedCombinedHistoryIsIndependentOfCurrentLeadAndRetainsPrivacy() {
+        val text = "Use the helper-only recommendation."
+        val canonical = MessageV2(
+            content = text,
+            platformType = "old-lead",
+            currentRunId = "combined-synthesis:accepted",
+            combinedSources = listOf(
+                dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse("helper", "Helper", content = "recommendation", localOnly = true)
+            ),
+            timeline = listOf(
+                dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(
+                    dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE,
+                    combinedQuality = dev.chungjungsoo.gptmobile.data.agent.CombinedQualityReport(answerDigest = dev.chungjungsoo.gptmobile.data.research.researchHash(text), complete = true)
+                )
+            )
+        )
+        val users = listOf(MessageV2(content = "Recommend", platformType = null), MessageV2(content = "Explain that recommendation", platformType = null))
+        val replies = listOf(listOf(MessageV2(content = "Different helper draft", platformType = "helper"), canonical), emptyList())
+        for (uid in listOf("helper", "new-lead", "old-lead")) {
+            val selected = ContextBuilder().build(users, replies, PlatformV2(uid = uid, name = uid)).first().assistantMessage!!
+            assertEquals(text, selected.content)
+            assertTrue(selected.combinedSources.single().localOnly)
+        }
+    }
+
+    @Test
     fun `tool-only historical turn keeps its user message for follow-up context`() {
         val platform = PlatformV2(
             uid = "profile",

@@ -19,6 +19,7 @@ import dev.chungjungsoo.gptmobile.data.context.ContextBuilder
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentToolBindingWithConnection
 import dev.chungjungsoo.gptmobile.data.database.dao.ToolConnectionDao
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentToolBinding
+import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
@@ -97,6 +98,63 @@ import org.junit.Test
 
 class ChatRepositoryImplTest {
     @get:org.junit.Rule val testFiles = org.junit.rules.TemporaryFolder()
+
+    @Test fun documentOnlyRecallIsRevalidatedAtPhysicalDispatchAfterDeletionOrConsentRevocation() = runBlocking {
+        for (mode in listOf("allowed", "deleted", "revoked", "regranted_during_preparation")) {
+            val storage = object : SecretVault {
+                val values = mutableMapOf<String, ByteArray>()
+                override suspend fun put(secretRef: String, secret: ByteArray) {
+                    values[secretRef] = secret.copyOf()
+                }
+                override suspend fun read(secretRef: String) = values[secretRef]?.copyOf()
+                override suspend fun delete(secretRef: String) {
+                    values.remove(secretRef)
+                }
+            }
+            val facts = FactVaultRepository(storage, dev.chungjungsoo.gptmobile.data.rag.KnowledgeGraphEngine())
+            facts.setEnabled(true)
+            facts.updateSettings(facts.state.value.settings.copy(allowCloudRecall = true))
+            assertTrue(facts.state.value.facts.isEmpty())
+            val document = dev.chungjungsoo.gptmobile.data.knowledge.KnowledgeDocument("doc", "Saved document", "revision", chatId = 1)
+            val evidence = "Document-only confidential excerpt."
+            val chunk = dev.chungjungsoo.gptmobile.data.knowledge.KnowledgeChunk("doc:0", "doc", 0, 0, evidence.length, evidence)
+            val packet = dev.chungjungsoo.gptmobile.data.knowledge.DocumentRecallPacket(1, dev.chungjungsoo.gptmobile.data.knowledge.MemoryScope(), evidence, listOf(dev.chungjungsoo.gptmobile.data.knowledge.DocumentRecallSource(document, chunk)))
+            val documents = mockk<dev.chungjungsoo.gptmobile.data.knowledge.MemoryDocumentRepository>(relaxed = true)
+            var deleted = false
+            coEvery { documents.scopeForChat(any()) } returns dev.chungjungsoo.gptmobile.data.knowledge.MemoryScope()
+            coEvery { documents.recall(any(), any(), any()) } coAnswers {
+                if (mode == "regranted_during_preparation") {
+                    facts.updateSettings(facts.state.value.settings.copy(allowCloudRecall = false))
+                    facts.updateSettings(facts.state.value.settings.copy(allowCloudRecall = true))
+                }
+                packet
+            }
+            coEvery { documents.validateRecall(any()) } coAnswers { check(!deleted) { "DOCUMENT_RECALL_STALE: document deleted" } }
+            val platform = groqPlatform(false, "model")
+            val settings = mockk<SettingRepository>(relaxed = true)
+            coEvery { settings.fetchPlatformV2s() } returns listOf(platform)
+            coEvery { settings.getFeatureSettings() } returns dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings()
+            val persistence = mockk<dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao>(relaxed = true)
+            coEvery { persistence.getChatRoom(1) } returns ChatRoomV2(id = 1, title = "Document fixture")
+            val api = FakeGroqAPI(
+                flowOf(GroqChatCompletionChunk(choices = listOf(GroqChoice(0, GroqDelta(content = "The saved document contains a private excerpt."), finishReason = "stop")))),
+                enforcePhysicalBoundary = true,
+                beforePhysicalBoundary = {
+                    if (mode == "deleted") deleted = true
+                    if (mode == "revoked") facts.updateSettings(facts.state.value.settings.copy(allowCloudRecall = false))
+                }
+            )
+            val states = createRepository(groqAPI = api, factVault = facts, settingsOverride = settings, persistenceOverride = persistence, knowledgeOverride = documents)
+                .completeChat(listOf(MessageV2(id = 2, chatId = 1, content = "Recall my saved document", platformType = null)), emptyList(), platform, runId = "document-$mode").toList()
+            if (mode == "allowed") {
+                assertEquals(1, api.streamCalls)
+                assertTrue(api.lastRequest!!.messages.first().content.toString().contains(evidence))
+            } else {
+                assertEquals(states.toString(), 0, api.streamCalls)
+                assertTrue(states.any { it is ApiState.Error })
+            }
+        }
+    }
 
     @Test
     fun optedInAssistPlannerReachesSerializedToolCatalogueAndRespectsToolDisable() = runBlocking {
@@ -1416,7 +1474,8 @@ class ChatRepositoryImplTest {
         settingsOverride: SettingRepository? = null,
         persistenceOverride: dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao? = null,
         researchOverride: dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore? = null,
-        recallOverride: dev.chungjungsoo.gptmobile.data.research.memory.ResearchRecallProvider? = null
+        recallOverride: dev.chungjungsoo.gptmobile.data.research.memory.ResearchRecallProvider? = null,
+        knowledgeOverride: dev.chungjungsoo.gptmobile.data.knowledge.MemoryDocumentRepository? = null
     ): ChatRepositoryImpl = ChatRepositoryImpl(
         context = object : ContextWrapper(null) {
             override fun getFilesDir(): File = testFiles.root
@@ -1452,7 +1511,8 @@ class ChatRepositoryImplTest {
         factVault = factVault,
         toolApprovals = toolApprovals,
         researchSessions = researchOverride,
-        researchRecall = recallOverride
+        researchRecall = recallOverride,
+        knowledge = knowledgeOverride
     )
 
     private fun emptyToolResolver(): AgentToolResolver {
@@ -1547,7 +1607,8 @@ class ChatRepositoryImplTest {
 
     private class FakeGroqAPI(
         private val chunks: Flow<GroqChatCompletionChunk>,
-        private val enforcePhysicalBoundary: Boolean = false
+        private val enforcePhysicalBoundary: Boolean = false,
+        private val beforePhysicalBoundary: suspend () -> Unit = {}
     ) : GroqAPI {
         var streamCalls = 0
         var lastRequest: GroqChatCompletionRequest? = null
@@ -1557,6 +1618,7 @@ class ChatRepositoryImplTest {
             timeoutSeconds: Int,
             config: ProviderRequestConfig
         ): Flow<GroqChatCompletionChunk> = kotlinx.coroutines.flow.flow {
+            beforePhysicalBoundary()
             if (enforcePhysicalBoundary) dev.chungjungsoo.gptmobile.data.context.PhysicalAttemptBoundary.dispatch()
             streamCalls += 1
             lastRequest = request

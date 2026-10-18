@@ -33,7 +33,7 @@ internal class CombinedDeliverySession(
     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
         val policy = CombinedAnswerPolicy.from(originalRequest)
         val coverage = withContext(Dispatchers.Default) { CombinedContentCoverage(sources) }
-        val constrained = policy.maximumWords != null || policy.targetWords != null || policy.singleExample || policy.requiresCurrentEvidence
+        val constrained = policy.maximumWords != null || policy.minimumWords != null || policy.targetWords != null || policy.singleExample || policy.requiresCurrentEvidence
         // Immutable published text is never rewritten. Constrained answers are checked before publication.
         val progressive = structured && !constrained && committedPrefix.isEmpty()
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
@@ -148,7 +148,7 @@ internal class CombinedDeliverySession(
             }
         }
         var ceilingEnforced = false
-        val ceiling = policy.maximumWords ?: policy.targetWords
+        val ceiling = policy.maximumWords
         if (!progressive && committedPrefix.isEmpty() && ceiling != null && visibleWordCount(accepted.text) > ceiling) {
             val bounded = withContext(Dispatchers.Default) { enforceCombinedWordCeiling(accepted.text, ceiling) }
             accepted = accepted.copy(text = bounded)

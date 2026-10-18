@@ -45,7 +45,8 @@ fun benchmarkSuite(mode: BenchmarkMode, contextTokens: Int? = null): List<Benchm
 internal fun benchmarkSuiteForRun(run: BenchmarkRun): List<BenchmarkCase> {
     if (run.mode == BenchmarkMode.DELEGATION && run.delegationSuiteVersion == 2) return delegationBenchmarkSuite(run.delegationPlan ?: BenchmarkMode.QUICK, paired = true)
     if (run.mode == BenchmarkMode.DELEGATION && run.delegationSuiteVersion == 1) return delegationBenchmarkSuite(run.delegationPlan ?: BenchmarkMode.QUICK)
-    if (run.suiteVersion >= 6 || run.mode == BenchmarkMode.DELEGATION) return benchmarkSuite(run.mode, run.fixtureContextTokens)
+    if (run.suiteVersion == 6) return BenchmarkWorkloadPlanner.adapt(BenchmarkSuiteRegistry.historical(run.mode), run.fixtureContextTokens)
+    if (run.suiteVersion >= 7 || run.mode == BenchmarkMode.DELEGATION) return benchmarkSuite(run.mode, run.fixtureContextTokens)
     val legacy = if (run.mode == BenchmarkMode.QUICK) {
         listOf(
             BenchmarkCase("speed-0", "Delivery", "speed", "Write about 120 words explaining how rain forms, in plain English. No heading."),
@@ -254,9 +255,13 @@ class BenchmarkRunner(
                 ).copy(failureCategory = "TIMEOUT")
             }
             val answer = text.toString().trim()
+            val intelligenceGrade = if (test.id.startsWith("intelligence-batch-")) IntelligenceBenchmark.evaluateBatch(test, answer) else null
+            val timedFixture = test.category == "speed" && listOf("short", "medium", "long").any { test.id.startsWith("speed-$it-") }
+            val referenceUnits = ReferenceTextTokenizer.starts(answer).size
+            val insufficientTiming = timedFixture && referenceUnits < BenchmarkSuiteRegistry.MIN_TIMING_REFERENCE_UNITS
             val passed = when (test.category) {
-                IntelligenceBenchmark.CATEGORY -> if (test.id.startsWith("intelligence-batch-")) IntelligenceBenchmark.gradeBatch(test, answer).values.all { it } else IntelligenceBenchmark.matches(answer, checkNotNull(test.expected))
-                "speed" -> answer.length >= 100 && calls.isEmpty() && (!test.id.startsWith("speed-short-") && !test.id.startsWith("speed-medium-") && !test.id.startsWith("speed-long-") || ReferenceTextTokenizer.starts(answer).size >= 128)
+                IntelligenceBenchmark.CATEGORY -> if (test.id.startsWith("intelligence-batch-")) intelligenceGrade!!.answers.values.all { it } else IntelligenceBenchmark.matches(answer, checkNotNull(test.expected))
+                "speed" -> answer.length >= 100 && calls.isEmpty() && (!test.id.startsWith("speed-short-") && !test.id.startsWith("speed-medium-") && !test.id.startsWith("speed-long-") || !insufficientTiming)
                 "json" -> runCatching { Json.parseToJsonElement(answer) == Json.parseToJsonElement(test.expected ?: "{\"status\":\"ready\",\"count\":3,\"items\":[\"red\",\"green\",\"blue\"]}") }.getOrDefault(false)
                 "tools" -> calls.isNotEmpty() && successful.size == calls.size && answer == code
                 else -> answer == (
@@ -270,9 +275,21 @@ class BenchmarkRunner(
             }
             val result = sample(
                 if (passed) BenchmarkOutcome.PASSED else BenchmarkOutcome.FAILED,
-                if (passed) null else "Response did not meet the fixture's expected result."
-            ).copy(intelligenceAnswers = if (test.id.startsWith("intelligence-batch-")) IntelligenceBenchmark.gradeBatch(test, answer) else emptyMap())
-            return if (passed) result else result.copy(failureCategory = "MODEL_QUALITY")
+                when {
+                    insufficientTiming -> "Insufficient timing sample: $referenceUnits reference units produced; ${BenchmarkSuiteRegistry.MIN_TIMING_REFERENCE_UNITS} required."
+                    intelligenceGrade != null -> "${intelligenceGrade.answers.values.count { it }}/${intelligenceGrade.answers.size} correct; raw JSON compliance: ${intelligenceGrade.formatCompliant}; parseable: ${intelligenceGrade.parseable}."
+                    passed -> null
+                    else -> "Response did not meet the fixture's expected result."
+                }
+            ).copy(
+                intelligenceAnswers = intelligenceGrade?.answers.orEmpty(),
+                intelligenceFormatCompliant = intelligenceGrade?.formatCompliant,
+                intelligenceParseable = intelligenceGrade?.parseable,
+                intelligenceFixtureVersion = intelligenceGrade?.fixtureVersion,
+                intelligenceCorrection = intelligenceGrade?.correction,
+                timingEligible = if (timedFixture) !insufficientTiming && passed else null
+            )
+            return if (passed) result else result.copy(failureCategory = if (insufficientTiming) "INSUFFICIENT_TIMING_SAMPLE" else "MODEL_QUALITY")
         } catch (cancel: CancellationException) {
             throw cancel
         } catch (error: Exception) {

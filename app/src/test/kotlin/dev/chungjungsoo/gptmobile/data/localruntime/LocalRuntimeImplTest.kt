@@ -43,6 +43,30 @@ class LocalRuntimeImplTest {
         return LocalEngineSpec(model.path, accelerator, 2048, vision)
     }
 
+    @OptIn(ExperimentalApi::class)
+    @Test
+    fun structuredFinalResponseEnablesNativeFormatAndSurvivesWireRoundTrip() = runTest {
+        val schema = "{\"type\":\"object\",\"properties\":{\"answer\":{\"type\":\"string\"}},\"required\":[\"answer\"]}"
+        val config = LocalConversationConfig(LocalSamplerConfig(40, .95f, .8f), null, emptyList(), finalResponseSchemaJson = schema)
+        val wire = dev.chungjungsoo.gptmobile.data.localruntime.ipc.WireConversation.from(config)
+        assertEquals(schema, wire.config(null).finalResponseSchemaJson)
+        val engine = mockk<Engine>(relaxed = true)
+        val conversation = mockk<Conversation>(relaxed = true)
+        every { engine.createConversation(any()) } answers {
+            assertTrue(firstArg<com.google.ai.edge.litertlm.ConversationConfig>().enableResponseFormat)
+            conversation
+        }
+        every { conversation.sendMessageAsync(any<Contents>(), any<MessageCallback>(), responseFormat = any()) } answers {
+            secondArg<MessageCallback>().onDone()
+        }
+        val runtime = LocalRuntimeImpl(RuntimeEnvironment.getApplication(), inspectMetadata = { null }) { engine }
+        runtime.loadEngine(spec("cpu"))
+        runtime.createConversation(config)
+        assertTrue(runtime.sendMessage("Return JSON").toList().any { it is LocalRuntimeEvent.Done })
+        verify(exactly = 1) { conversation.sendMessageAsync(any<Contents>(), any<MessageCallback>(), responseFormat = any()) }
+        runtime.unloadEngine()
+    }
+
     @Test
     fun sdkReceivesTheExactBudgetAndVisionBackend() = runTest {
         val engine = mockk<Engine>(relaxed = true)

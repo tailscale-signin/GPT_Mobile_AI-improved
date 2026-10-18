@@ -80,4 +80,38 @@ class IntelligenceBenchmarkTest {
         val bad = batchAnswers().mapIndexed { index, sample -> if (index == 0) sample.copy(intelligenceAnswers = grades, outcome = BenchmarkOutcome.FAILED) else sample }
         assertEquals(100.0 * 35 / 36, IntelligenceBenchmark.scoreBatches(bad, false).score!!, .0001)
     }
+
+    @Test
+    fun fencedObjectKeepsSemanticCreditAndFailsRawFormatOnly() {
+        val test = IntelligenceBenchmark.batches.first()
+        val grade = IntelligenceBenchmark.evaluateBatch(test, "```json\n${test.expected}\n```")
+        assertTrue(grade.parseable)
+        assertFalse(grade.formatCompliant)
+        assertEquals(6, grade.answers.values.count { it })
+        assertTrue(IntelligenceBenchmark.evaluateBatch(test, test.expected!!).formatCompliant)
+        for (answer in listOf("prefix ${test.expected}", "${test.expected} ${test.expected}", "```json\n${test.expected}\n```\nextra", "```json\n{}")) {
+            assertFalse(IntelligenceBenchmark.evaluateBatch(test, answer).parseable)
+        }
+    }
+
+    @Test
+    fun historicalAmbiguityIsExplicitAndNewFixtureHasOneSolution() {
+        assertEquals(listOf("B", "C"), IntelligenceBenchmark.validCoinLocations(legacy = true))
+        assertEquals(listOf("C"), IntelligenceBenchmark.validCoinLocations(legacy = false))
+        val test = IntelligenceBenchmark.batches.last()
+        val answer = test.expected!!.replace("\"Logic\":\"C\"", "\"Logic\":\"B\"")
+        assertFalse(IntelligenceBenchmark.evaluateBatch(test, answer).answers.getValue("Logic"))
+        val historical = IntelligenceBenchmark.evaluateBatch(test, answer, fixtureVersion = 2)
+        assertTrue(historical.answers.getValue("Logic"))
+        assertTrue(historical.correction!!.contains("denominator retained"))
+    }
+
+    @Test
+    fun finalSchemaContainsOnlyShapeAndNeverExpectedAnswers() {
+        val schema = IntelligenceBenchmark.responseSchemaJson
+        assertTrue(schema.contains("additionalProperties"))
+        assertFalse(schema.contains("138"))
+        assertFalse(schema.contains("oxygen"))
+        assertFalse(schema.contains("enum"))
+    }
 }

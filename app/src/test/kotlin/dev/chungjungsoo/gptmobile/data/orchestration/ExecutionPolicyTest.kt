@@ -36,6 +36,9 @@ class ExecutionPolicyTest {
     @Test fun malformedAndFutureSettingsArePreservedByFailingBeforeMutation() {
         assertTrue(runCatching { LocalAssistSettingsMigration.normalize("{broken") }.isFailure)
         assertTrue(runCatching { LocalAssistSettingsMigration.normalize("""{"assistConfigVersion":5}""") }.isFailure)
+        for (malformed in listOf("""{"assistConfigVersion":"future"}""", """{"localAssistPolicy":"broken"}""", """{"localAssistPolicy":null}""", """{"localAssistPolicy":{"version":-1}}""", """{"localAssistPolicy":{"version":"4"}}""")) {
+            assertTrue(runCatching { LocalAssistSettingsMigration.normalize(malformed) }.isFailure)
+        }
     }
 
     @Test fun revocationAndRegrantAdvanceConsentIdentity() {

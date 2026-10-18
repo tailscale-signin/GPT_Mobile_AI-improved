@@ -400,7 +400,18 @@ class ChatRepositoryImpl(
         benchmarkCategory: String
     ): dev.chungjungsoo.gptmobile.data.agent.AgentProviderSession {
         val outputBudget = dev.chungjungsoo.gptmobile.data.benchmark.benchmarkCompletionBudget(platform, benchmarkCategory)
-        val constraints = RequestConstraints(maxOutputTokens = outputBudget, allowTools = tools.isNotEmpty(), allowReasoning = benchmarkCategory == dev.chungjungsoo.gptmobile.data.benchmark.IntelligenceBenchmark.CATEGORY, freshResponse = true, requestRole = "benchmark")
+        val constraints = RequestConstraints(
+            maxOutputTokens = outputBudget,
+            allowTools = tools.isNotEmpty(),
+            allowReasoning = benchmarkCategory == dev.chungjungsoo.gptmobile.data.benchmark.IntelligenceBenchmark.CATEGORY,
+            freshResponse = true,
+            requestRole = "benchmark",
+            finalResponseSchemaJson = when (benchmarkCategory) {
+                dev.chungjungsoo.gptmobile.data.benchmark.IntelligenceBenchmark.CATEGORY -> dev.chungjungsoo.gptmobile.data.benchmark.IntelligenceBenchmark.responseSchemaJson
+                "json" -> "{\"type\":\"object\"}"
+                else -> null
+            }
+        )
         val target = dev.chungjungsoo.gptmobile.data.benchmark.benchmarkProfile(platform, tools.isNotEmpty(), benchmarkCategory)
         val session = when (target.compatibleType) {
             ClientType.OPENAI -> openAIResponsesAdapter.openSession(turns, target, constraints)
@@ -1757,11 +1768,11 @@ class ChatRepositoryImpl(
                         !platform.disableLocalTools
                     val connectedMemoryTools = if (canRecallDocuments && memorySettings != null && !platform.excludesMemory()) ConnectedMemoryRecall.select(taskRoutedTools, memorySettings.settings) else emptyList()
                     val researchMemory = prepareResearchMemory(platform, researchTask, latestUser?.chatId, preparationPlan.kind == dev.chungjungsoo.gptmobile.data.readiness.PreparationKind.REQUIRED_WORK && !synthesisRun && !privateConversation)
+                    val documentConsentGeneration = factVault?.recallGeneration()
                     val documentRecall = measurePreparation(runId, PreparationPhase.SOURCE_COLLECTION) {
                         if (exclusions.documents || platform.excludesMemory() || !canRecallDocuments) null else latestUser?.let { knowledge?.recall(it.chatId, it.content) }
                     }
                     val documentContext = documentRecall?.text.orEmpty()
-                    val documentConsentGeneration = factVault?.recallGeneration()
                     suspend fun validateDocuments() {
                         if (documentRecall?.sources.isNullOrEmpty()) return
                         require(factVault?.recallGeneration() == documentConsentGeneration) { "DOCUMENT_RECALL_STALE: Document consent changed while queued. Prepare the request again." }

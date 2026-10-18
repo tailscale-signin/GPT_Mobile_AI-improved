@@ -1,4 +1,6 @@
 import copy
+import json
+import tempfile
 import importlib.util
 from pathlib import Path
 import unittest
@@ -9,6 +11,17 @@ SPEC.loader.exec_module(replay)
 
 
 class ConversationReplayTest(unittest.TestCase):
+    def test_current_v4_and_legacy_versions_load_but_future_version_rejects(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "conversation.json"
+            for version in (2, 3, 4):
+                root = dict(self.fixture(), schema=f"gptmobile.conversation.debug.v{version}")
+                path.write_text(json.dumps(root), encoding="utf-8")
+                self.assertEqual(root, replay.load_snapshot(path))
+            path.write_text(json.dumps(dict(root, schema="gptmobile.conversation.debug.v99")), encoding="utf-8")
+            with self.assertRaises(ValueError):
+                replay.load_snapshot(path)
+
     def fixture(self):
         texts = ["First paragraph.\n", "Second paragraph 👩🏽‍💻."]
         rows = []

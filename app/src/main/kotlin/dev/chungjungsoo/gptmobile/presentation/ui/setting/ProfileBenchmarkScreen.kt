@@ -633,7 +633,11 @@ private fun BenchmarkHistoryCard(run: BenchmarkRun, current: Boolean, canDelete:
                     Text(sample.outcome.name.lowercase().replace('_', ' '), color = if (sample.outcome in setOf(BenchmarkOutcome.ERROR, BenchmarkOutcome.FAILED, BenchmarkOutcome.TIMED_OUT)) MaterialTheme.colorScheme.error else benchmarkTint(run.local), style = MaterialTheme.typography.labelLarge)
                     MetricLine("Duration / first text", "${formatLatency(sample.durationMs)} / ${formatLatency(sample.firstTextMs)}")
                     if (sample.reconnectAttempts > 0) MetricLine("Connection retries", sample.reconnectAttempts.toString())
-                    MetricLine("Output tokens", "${if (sample.estimatedTokens) "≈ " else ""}${sample.outputTokens}")
+                    if (sample.intelligenceAnswers.isNotEmpty()) {
+                        MetricLine("Reasoning accuracy", "${sample.intelligenceAnswers.values.count { it }}/${sample.intelligenceAnswers.size} correct")
+                        MetricLine("Raw JSON compliance / parseable", "${sample.intelligenceFormatCompliant ?: "unknown"} / ${sample.intelligenceParseable ?: "unknown"}")
+                    }
+                    MetricLine("Output tokens · cumulative request", "${if (sample.estimatedTokens) "≈ " else ""}${sample.outputTokens}")
                     MetricLine("Longest text pause", formatLatency(sample.longestGapMs))
                     sample.pairedComparison?.let { pair ->
                         MetricLine("Supported fixture facts · primary / delegated", "${pair.primaryOnlyFacts}/${pair.requiredFacts} · ${pair.delegatedFacts}/${pair.requiredFacts}")

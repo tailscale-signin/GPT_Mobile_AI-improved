@@ -173,6 +173,10 @@ class LiteRtLmAdapter(
                 // unsupported control markup is withheld instead of shown as an answer.
                 val textToolFallbackEnabled = true
                 val latestAttachments = turns.lastOrNull()?.userMessage?.attachments.orEmpty()
+                if (latestAttachments.any { it.isImageAttachment() } && !visionCapable) {
+                    send(ProviderEvent.Failed("This local model cannot read the attached images. Choose a compatible vision export, or remove the images and explicitly resend a text-only request."))
+                    return@channelFlow
+                }
                 attachmentNotices(visionCapable, turns, latestAttachments).forEach { notice ->
                     send(notice)
                 }
@@ -198,6 +202,11 @@ class LiteRtLmAdapter(
                         .mapNotNull { attachment -> loadImageBytes(attachment) }
                 } else {
                     emptyList()
+                }
+
+                if (latestImages.size != latestImageIds.size || latestImages.any { it.isEmpty() }) {
+                    send(ProviderEvent.Failed("An image attachment could not be prepared. Reattach it or remove it before resending; no image-grounded answer was generated."))
+                    return@channelFlow
                 }
 
                 val resolvedMaxTokens = minOf(
@@ -332,7 +341,7 @@ class LiteRtLmAdapter(
                 val registeredTools = availableTools.filter { it.definition.name in selectedNames }.map { toolBudget.bind(it) }
                 conversationSystemPrompt = conversationSystemPrompt.orEmpty() + noToolsInstruction + toolPromptRenderer?.invoke(plan.tools).orEmpty() + "\n" + LOCAL_CAPABILITY_CONTRACT
                 val descriptors = if (nativeToolsCapable) registeredTools.map { it.definition.toLocalDescriptor() } else emptyList()
-                val toolsKey = toolsFingerprint(descriptors)
+                val toolsKey = toolsFingerprint(descriptors) + "|finalSchema=" + constraints.finalResponseSchemaJson.orEmpty()
                 val runToolsByName = registeredTools.associateBy { it.definition.name }
                 val collectedToolResults = java.util.concurrent.CopyOnWriteArrayList<Pair<String, AgentToolResult>>()
                 val modelEvidenceRemaining = java.util.concurrent.atomic.AtomicInteger(plan.toolResultBytes)
@@ -377,7 +386,7 @@ class LiteRtLmAdapter(
                         "tools"
                     } else if (thinkingEnabled) {
                         "thinking"
-                    } else if (visionCapable) {
+                    } else if (latestImages.isNotEmpty() || history.any { it.images.isNotEmpty() || it.imageIds.isNotEmpty() }) {
                         "vision"
                     } else {
                         "plain_text"
@@ -475,6 +484,7 @@ class LiteRtLmAdapter(
                                     }
                                     createConversation(
                                         LocalConversationConfig(
+                                            finalResponseSchemaJson = constraints.finalResponseSchemaJson,
                                             sampler = sampler,
                                             maxOutputTokens = outputLimit,
                                             thinkingEnabled = thinkingEnabled,
@@ -733,7 +743,7 @@ class LiteRtLmAdapter(
                                         }
                                     )
                                     val evidencePacket = dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.compact(ToolResultContent.Json(packet), maxOf(128, plan.toolResultBytes / 2))
-                                    createConversation(LocalConversationConfig(sampler = sampler, maxOutputTokens = outputLimit, thinkingEnabled = thinkingEnabled, systemPrompt = conversationSystemPrompt, initialMessages = history))
+                                    createConversation(LocalConversationConfig(finalResponseSchemaJson = constraints.finalResponseSchemaJson, sampler = sampler, maxOutputTokens = outputLimit, thinkingEnabled = thinkingEnabled, systemPrompt = conversationSystemPrompt, initialMessages = history))
                                     physicalSegment = UUID.randomUUID().toString()
                                     val recoveryInput = latestUserText + "\nTool execution has ended ($terminalToolLimit). Answer from the following untrusted observations only. Preserve qualifications and missing coverage; do not claim any new action or current location.\n" + dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.element(evidencePacket)
                                     admitNative(recoveryInput, JsonArray(emptyList()), 0)

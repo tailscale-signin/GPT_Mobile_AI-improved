@@ -11,7 +11,7 @@ import kotlinx.serialization.json.JsonPrimitive
 /** Apply bounded fixture settings to a copy, including provider-specific overrides. */
 internal fun benchmarkCompletionBudget(profile: PlatformV2, category: String): Int = when {
     category == "speed" -> 512
-    category == IntelligenceBenchmark.CATEGORY && profile.compatibleType == ClientType.LITERT_LM -> 512
+    category == IntelligenceBenchmark.CATEGORY && profile.compatibleType == ClientType.LITERT_LM -> if (profile.reasoning) 2048 else 512
     category == IntelligenceBenchmark.CATEGORY -> 4096
     profile.compatibleType == ClientType.LITERT_LM -> 256
     profile.model.contains("gpt-oss", true) -> 8192

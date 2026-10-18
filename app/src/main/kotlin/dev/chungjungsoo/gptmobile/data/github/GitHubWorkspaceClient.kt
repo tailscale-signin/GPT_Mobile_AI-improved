@@ -92,6 +92,12 @@ class GitHubWorkspaceClient(
         }
     }
 
+    private data class ReleaseDispatchReceipt(val root: String, val workflowId: String, val sourceSha: String, val tagName: String, val correlationId: String)
+
+    // Only a run ID returned by our own accepted dispatch can prove the association.
+    // Restart/eviction loses that proof and must produce UNKNOWN, never a recent-run guess.
+    private val dispatchedRuns = java.util.concurrent.ConcurrentHashMap<Long, ReleaseDispatchReceipt>()
+
     suspend fun execute(action: String, args: JsonObject): JsonElement {
         fun field(name: String): String = args[name]?.jsonPrimitive?.content.orEmpty()
         fun required(name: String): String = field(name).also { require(it.isNotBlank()) { "$name is required." } }
@@ -846,17 +852,23 @@ class GitHubWorkspaceClient(
                 val dispatchTime = java.time.Instant.now().toString()
                 val correlationId = java.util.UUID.randomUUID().toString()
                 val versionPreflight = validateReleaseVersionHint(root, sourceSha, tagName)
-                request(
+                val dispatchResponse = request(
                     "$root/actions/workflows/${segment(workflowId)}/dispatches",
                     HttpMethod.Post,
                     buildJsonObject {
                         put("ref", ref)
+                        put("return_run_details", true)
                         args["inputs"]?.let {
                             require(it is JsonObject) { "inputs must be an object." }
                             put("inputs", it)
                         }
                     }
                 )
+                val dispatchedRunId = (dispatchResponse as? JsonObject)?.get("workflow_run_id")?.jsonPrimitive?.content?.toLongOrNull()?.takeIf { it > 0 }
+                if (dispatchedRunId != null) {
+                    if (dispatchedRuns.size >= 128) dispatchedRuns.clear()
+                    dispatchedRuns[dispatchedRunId] = ReleaseDispatchReceipt(root, workflowId, sourceSha, tagName, correlationId)
+                }
                 responseCache.clear()
                 return buildJsonObject {
                     put(
@@ -867,7 +879,8 @@ class GitHubWorkspaceClient(
                             put("tag_name", tagName)
                             put("dispatched_at", dispatchTime)
                             put("correlation_id", correlationId)
-                            put("run_correlation", "UNKNOWN_UNTIL_EXPLICIT_RUN_RECEIPT")
+                            dispatchedRunId?.let { put("workflow_run_id", it) }
+                            put("run_correlation", if (dispatchedRunId == null) "UNKNOWN_NO_RUN_RECEIPT_RETURNED" else "GITHUB_DISPATCH_RESPONSE")
                         }
                     )
                     put("status", "workflow_dispatched")
@@ -877,6 +890,18 @@ class GitHubWorkspaceClient(
                     put("workflow", workflow)
                     put("version_preflight", versionPreflight ?: JsonNull)
                     put("verification_action", "release_status")
+                    put(
+                        "verification_args",
+                        buildJsonObject {
+                            put("action", "release_status")
+                            put("owner", args["owner"] ?: JsonNull)
+                            put("repo", args["repo"] ?: JsonNull)
+                            put("tag_name", tagName)
+                            put("workflow_id", workflowId)
+                            put("expected_head_sha", sourceSha)
+                            dispatchedRunId?.let { put("workflow_run_id", it) }
+                        }
+                    )
                     put("message", "Release workflow accepted. Use release_status to verify publication and assets.")
                 }
             }
@@ -893,31 +918,42 @@ class GitHubWorkspaceClient(
     private suspend fun releaseStatus(root: String, args: JsonObject): JsonObject {
         val tagName = args["tag_name"]?.jsonPrimitive?.content.orEmpty()
         require(tagName.isNotBlank()) { "tag_name is required for release_status." }
+        val requestedRunId = args["workflow_run_id"]?.jsonPrimitive?.content?.toLongOrNull()
+        val receipt = requestedRunId?.let { dispatchedRuns[it] }
+        require(receipt == null || receipt.root.equals(root, ignoreCase = true) && receipt.tagName == tagName) { "This dispatch receipt belongs to a different repository or requested tag." }
         val release = findReleaseByTag(root, tagName)
         val workflowLookup = runCatching {
-            findReleaseWorkflow(root, args["workflow_id"]?.jsonPrimitive?.content.orEmpty())
+            if (receipt != null) request("$root/actions/workflows/${segment(receipt.workflowId)}").jsonObject else findReleaseWorkflow(root, args["workflow_id"]?.jsonPrimitive?.content.orEmpty())
         }
         val workflow = workflowLookup.getOrNull()
-        val requestedRunId = args["workflow_run_id"]?.jsonPrimitive?.content?.toLongOrNull()
-        val expectedSource = args["expected_head_sha"]?.jsonPrimitive?.content.orEmpty()
-        val latestRun = requestedRunId?.let { id ->
+        val expectedSource = args["expected_head_sha"]?.jsonPrimitive?.content.orEmpty().ifBlank { receipt?.sourceSha.orEmpty() }
+        require(receipt == null || expectedSource == receipt.sourceSha) { "The requested source disagrees with the accepted dispatch receipt." }
+        val candidate = requestedRunId?.let { id ->
             require(id > 0 && Regex("[a-fA-F0-9]{40}").matches(expectedSource)) { "Supply workflow_run_id and the dispatched source expected_head_sha." }
             request("$root/actions/runs/$id").jsonObject.also { run ->
+                val expectedWorkflow = receipt?.workflowId ?: workflow?.get("id")?.jsonPrimitive?.content
                 require(
-                    run["head_sha"]?.jsonPrimitive?.content == expectedSource &&
-                        run["workflow_id"]?.jsonPrimitive?.content == workflow?.get("id")?.jsonPrimitive?.content &&
+                    run["id"]?.jsonPrimitive?.content == id.toString() &&
+                        run["head_sha"]?.jsonPrimitive?.content == expectedSource &&
+                        run["workflow_id"]?.jsonPrimitive?.content == expectedWorkflow &&
                         run["event"]?.jsonPrimitive?.content == "workflow_dispatch"
                 ) { "Workflow receipt does not match the dispatched source and workflow." }
             }
         }
+        val correlated = receipt != null && candidate != null
+        fun compact(run: JsonObject) = project(run, "id", "name", "event", "status", "conclusion", "head_branch", "head_sha", "run_number", "run_attempt", "created_at", "updated_at", "html_url")
         return buildJsonObject {
             put("tag_name", tagName)
             put("published", release != null && release["draft"]?.jsonPrimitive?.booleanOrNull != true)
             put("release", release?.let(::compactRelease) ?: JsonNull)
             put("workflow", workflow ?: JsonNull)
             workflowLookup.exceptionOrNull()?.message?.let { put("workflow_discovery_error", it) }
-            put("workflow_correlation", if (latestRun == null) "UNKNOWN_SUPPLY_DISPATCH_RUN_RECEIPT" else "EXPLICIT_RUN_AND_SOURCE_VERIFIED")
-            put("latest_workflow_run", latestRun?.let { project(it, "id", "name", "event", "status", "conclusion", "head_branch", "head_sha", "run_number", "run_attempt", "created_at", "updated_at", "html_url") } ?: JsonNull)
+            put("dispatch_correlation_id", receipt?.correlationId)
+            put("workflow_correlation", if (correlated) "DISPATCH_RECEIPT_AND_SOURCE_VERIFIED" else "UNKNOWN_DISPATCH_RECEIPT_NOT_AVAILABLE")
+            put("latest_workflow_run", candidate?.takeIf { correlated }?.let(::compact) ?: JsonNull)
+            if (!correlated && candidate != null) put("candidate_workflow_run", compact(candidate))
+            put("release_asset_source_verified", false)
+            put("release_asset_verification", "BUILD_ATTESTATION_REQUIRED")
         }
     }
 

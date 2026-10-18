@@ -24,7 +24,7 @@ internal data class IntelligenceScore(
  * Expected answers stay in the evaluator, never in the provider prompt.
  */
 internal object IntelligenceBenchmark {
-    const val VERSION = 2
+    const val VERSION = 3
     const val CATEGORY = "intelligence"
     const val LIMITATION = "36 original text tasks, 6 per domain. A small capability screen, not full intelligence, IQ, or an official MMLU/LiveBench score. Excludes vision, creativity, long-form coding and real-world agency. Scores apply to this fixed prompt and generation policy; repeated runs are not new questions."
 
@@ -43,7 +43,7 @@ internal object IntelligenceBenchmark {
             "Exactly one of P and Q is true. Q is false. Is P true? Answer TRUE or FALSE." to "TRUE",
             "If the alarm rings then the lamp lights. The lamp did not light. Must the alarm have been silent? Answer YES or NO." to "YES",
             "Some red objects are circles. All circles are flat. Must every red object be flat? Answer YES or NO." to "NO",
-            "Exactly one of three boxes contains a coin. Label A says the coin is in B; label B says it is not in B; label C says it is in A. Exactly one label is true. Which box contains the coin?" to "C"
+            "Exactly one of three boxes contains a coin. Label A says the coin is in B; label B says it is not in B; label C says it is not in C. Exactly one label is true. Which box contains the coin?" to "C"
         ),
         "Reading" to listOf(
             "Record: batch R was approved Monday, then approval was revoked Tuesday. No later decision exists. Is batch R currently approved? Answer YES or NO." to "NO",
@@ -79,6 +79,15 @@ internal object IntelligenceBenchmark {
         )
     )
 
+    val responseSchemaJson: String by lazy {
+        buildJsonObject {
+            put("type", "object")
+            put("properties", buildJsonObject { cases.keys.forEach { key -> put(key, buildJsonObject { put("type", "string") }) } })
+            put("required", kotlinx.serialization.json.JsonArray(cases.keys.map(::JsonPrimitive)))
+            put("additionalProperties", false)
+        }.toString()
+    }
+
     val suite: List<BenchmarkCase> by lazy {
         cases.flatMap { (domain, questions) ->
             questions.mapIndexed { index, (question, expected) ->
@@ -94,21 +103,55 @@ internal object IntelligenceBenchmark {
             val selected = cases.map { (domain, questions) -> domain to questions[index] }
             val expected = buildJsonObject { selected.forEach { (domain, question) -> put(domain, question.second) } }.toString()
             val prompt = selected.joinToString("\n") { (domain, question) -> "$domain: ${question.first}" } +
-                "\nReturn only a JSON object with these six exact keys: " + selected.joinToString { (domain, _) -> "\"$domain\"" } + ". Each value must be only the answer, without explanation."
+                "\nReturn only a raw JSON object, without Markdown or code fences, with these six exact keys: " + selected.joinToString { (domain, _) -> "\"$domain\"" } + ". Each value must be only the answer, without explanation."
             BenchmarkCase("intelligence-batch-$index", "Intelligence ${index + 1}", CATEGORY, prompt, expected, workload = "Six domains", seed = index)
         }
     }
 
-    fun gradeBatch(test: BenchmarkCase, answer: String): Map<String, Boolean> {
+    data class BatchGrade(
+        val answers: Map<String, Boolean>,
+        val formatCompliant: Boolean,
+        val parseable: Boolean,
+        val fixtureVersion: Int,
+        val correction: String? = null
+    )
+
+    /** Only an entire object or one complete outer JSON fence is recoverable. */
+    fun evaluateBatch(test: BenchmarkCase, answer: String, fixtureVersion: Int = VERSION): BatchGrade {
         val expected = Json.parseToJsonElement(checkNotNull(test.expected)) as JsonObject
-        val actual = runCatching { Json.parseToJsonElement(answer.trim()) as? JsonObject }.getOrNull()
-        return expected.mapValues { (domain, value) ->
+        val trimmed = answer.trim()
+        fun objectOrNull(value: String) = runCatching { Json.parseToJsonElement(value) as? JsonObject }.getOrNull()
+        val raw = objectOrNull(trimmed)
+        val fenced = Regex("\\A```(?:json)?[ \\t]*\\r?\\n([\\s\\S]*?)\\r?\\n```\\z", RegexOption.IGNORE_CASE)
+            .matchEntire(trimmed)?.groupValues?.get(1)?.let(::objectOrNull)
+        val actual = raw ?: fenced
+        val historicalAmbiguity = fixtureVersion <= 2 && test.id == "intelligence-batch-5"
+        val answers = expected.mapValues { (domain, value) ->
             val response = actual?.get(domain) as? JsonPrimitive
-            response != null && matches(response.content, (value as JsonPrimitive).content)
+            response != null &&
+                (
+                    matches(response.content, (value as JsonPrimitive).content) ||
+                        historicalAmbiguity &&
+                        domain == "Logic" &&
+                        matches(response.content, "B")
+                    )
         }
+        return BatchGrade(
+            answers,
+            raw != null && raw.keys == expected.keys && raw.values.all { it is JsonPrimitive && it.isString },
+            actual != null,
+            fixtureVersion,
+            if (historicalAmbiguity) "Historical ambiguous logic item: accept B or C; denominator retained." else null
+        )
     }
 
-    fun scoreBatches(samples: List<BenchmarkSample>, quick: Boolean): IntelligenceScore {
+    fun gradeBatch(test: BenchmarkCase, answer: String): Map<String, Boolean> = evaluateBatch(test, answer).answers
+
+    internal fun validCoinLocations(legacy: Boolean): List<String> = listOf("A", "B", "C").filter { location ->
+        listOf(location == "B", location != "B", if (legacy) location == "A" else location != "C").count { it } == 1
+    }
+
+    fun scoreBatches(samples: List<BenchmarkSample>, quick: Boolean, fixtureVersion: Int = VERSION): IntelligenceScore {
         val plan = if (quick) batches.take(1) else batches
         val byId = samples.filter { it.category == CATEGORY }.groupBy { it.testId }
         val completed = plan.mapNotNull { test ->
@@ -117,7 +160,7 @@ internal object IntelligenceBenchmark {
         val domains = cases.keys.mapNotNull { domain ->
             if (completed.size == plan.size) domain to (100.0 * completed.count { it.intelligenceAnswers[domain] == true } / plan.size) else null
         }.toMap()
-        return IntelligenceScore(domains.values.takeIf { domains.size == cases.size }?.average(), completed.size * cases.size, plan.size * cases.size, domains, provisional = quick, questionsPerDomain = plan.size)
+        return IntelligenceScore(domains.values.takeIf { domains.size == cases.size }?.average(), completed.size * cases.size, plan.size * cases.size, domains, version = fixtureVersion, provisional = quick, questionsPerDomain = plan.size)
     }
 
     /** Tolerate a final answer label and case without searching prose for a lucky match. */

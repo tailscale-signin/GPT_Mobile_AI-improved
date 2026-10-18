@@ -151,4 +151,20 @@ class DynamicScoreEngineTest {
         assertTrue(benchmarkComparisonMetrics(first, second.copy(cohort = "different")).all { it.difference == null })
         assertNull(benchmarkComparisonMetrics(first.copy(overall = null), second).first().difference)
     }
+
+    @Test
+    fun olderInsufficientBlockDoesNotPoisonLaterEligibleTiming() {
+        val good = run("same", 150).copy(id = "new", startedAt = 1500)
+        val old = good.copy(
+            id = "old",
+            startedAt = 1000,
+            samples = good.samples.map {
+                if (it.category == "speed" && it.workload == "medium") it.copy(outcome = BenchmarkOutcome.FAILED, timingEligible = false, failureCategory = "INSUFFICIENT_TIMING_SAMPLE") else it
+            }
+        )
+        val row = DynamicScoreEngine.snapshot(listOf(old, good), 1, 2000).rows.single()
+        assertTrue(row.verified)
+        assertEquals(100.0, row.speedScore!!, .0001)
+        assertTrue(row.sourceRunIds.containsAll(listOf("old", "new")))
+    }
 }

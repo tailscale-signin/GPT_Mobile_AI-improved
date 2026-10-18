@@ -11,20 +11,24 @@ data class CombinedAnswerPolicy(
     val targetWords: Int? = null,
     val singleExample: Boolean = false,
     val exactWords: Boolean = false,
-    val requiresCurrentEvidence: Boolean = false
+    val requiresCurrentEvidence: Boolean = false,
+    val minimumWords: Int? = null
 ) {
     companion object {
-        private val words = Regex("(?i)(?:(under|fewer than|less than|at most|no more than|up to|maximum(?: of)?|max[.:]?)\\s+)?([1-9][0-9,]{0,6})\\s*[-–]?\\s*words?\\b")
+        private val words = Regex("(?i)(?:(at least|minimum(?: of)?|more than|over|under|fewer than|less than|at most|no more than|up to|maximum(?: of)?|max[.:]?)\\s+)?([1-9][0-9,]{0,6})\\s*[-–]?\\s*words?\\b")
         fun from(request: String): CombinedAnswerPolicy {
             val goal = words.findAll(request).lastOrNull()
             val count = goal?.groupValues?.get(2)?.replace(",", "")?.toIntOrNull()?.takeIf { it in 1..100_000 }
             val qualifier = goal?.groupValues?.get(1)?.lowercase().orEmpty()
+            val minimum = qualifier.startsWith("at least") || qualifier.startsWith("minimum") || qualifier in setOf("more than", "over")
             val strict = qualifier in setOf("under", "fewer than", "less than")
             val single = Regex("(?i)\\b(?:one|single|a random|random|an interesting random)\\s+(?:historical\\s+|history\\s+)?(?:fact|example|event|story)\\b").containsMatchIn(request)
             val current = Regex("(?i)\\b(?:newest|latest|breaking|current|today'?s?)\\b.*\\b(?:news|story|stories|headlines?|events?)\\b|\\b(?:news|story|stories|headlines?)\\b.*\\b(?:newest|latest|current|today)\\b").containsMatchIn(request)
             return CombinedAnswerPolicy(
                 maximumWords = count?.let {
-                    if (strict) {
+                    if (minimum) {
+                        null
+                    } else if (strict) {
                         (it - 1).coerceAtLeast(0)
                     } else if (qualifier.isNotEmpty()) {
                         it
@@ -35,13 +39,15 @@ data class CombinedAnswerPolicy(
                 targetWords = count.takeIf { qualifier.isEmpty() },
                 singleExample = single,
                 exactWords = Regex("(?i)\\bexactly\\s+[0-9,]+\\s*words?\\b").containsMatchIn(request),
-                requiresCurrentEvidence = current
+                requiresCurrentEvidence = current,
+                minimumWords = count?.takeIf { minimum }?.let { if (qualifier in setOf("more than", "over")) it + 1 else it }
             )
         }
     }
 
     fun violations(answer: String): List<String> = buildList {
         val count = visibleWordCount(answer)
+        minimumWords?.let { if (count < it) add("WORD_MINIMUM_UNMET:$count/$it") }
         maximumWords?.let { if (count > it) add("WORD_LIMIT_EXCEEDED:$count/$it") }
         targetWords?.let {
             if (exactWords && count != it) {

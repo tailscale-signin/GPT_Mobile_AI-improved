@@ -387,7 +387,7 @@ internal fun redactLogMessage(message: String): String {
     listOf("ChatRoomV2", "MessageV2", "PlatformV2").forEach { type ->
         text = text.replace(Regex("""\b$type\([^\r\n)]*\)"""), "$type([redacted])")
     }
-    text = text.replace(Regex("(?i)(authorization|proxy-authorization|cookie|set-cookie|x-api-key|x-goog-api-key|x-subscription-token|mcp-session-id)\\s*[:=]\\s*[^\\r\\n]+"), "$1: [redacted]")
+    text = text.replace(Regex("(?i)(authorization|proxy-authorization|cookie|set-cookie|x-api-key|x-goog-api-key|x-subscription-token|mcp-session-id|anthropic-organization-id|anthropic-workspace-id|openai-organization|openai-project|x-organization-id|x-workspace-id)\\s*[:=]\\s*[^\\r\\n]+"), "$1: [redacted]")
     text = text.replace(Regex("(?i)(bearer|basic)\\s+[a-z0-9._~+/=-]+"), "$1 [redacted]")
     text = text.replace(Regex("(?i)([\\\"]?(?:api_?key|access_?token|refresh_?token|password|client_?secret)[\\\"]?\\s*[:=]\\s*[\\\"]?)[^\\\"\\s,}]+"), "$1[redacted]")
     text = text.replace(Regex("\\b(?:sk-|hf_|ghp_|github_pat_)[A-Za-z0-9_-]{8,}"), "[redacted]")

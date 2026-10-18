@@ -51,12 +51,14 @@ interface KnowledgeDao {
     @Query("SELECT * FROM knowledge_documents WHERE id = :id")
     suspend fun document(id: String): KnowledgeDocument?
 
-    @Query("UPDATE knowledge_documents SET deleted = 1, title = '', hash = '' WHERE id = :id")
-    suspend fun markDeleted(id: String)
+    @Query("UPDATE knowledge_documents SET deleted = 1, title = '', hash = '', updatedAt = :revision WHERE id = :id")
+    suspend fun markDeleted(id: String, revision: Long)
 
     @Transaction suspend fun deleteDocument(id: String) {
+        val previous = document(id)
+        val revision = previous?.let { Math.addExact(it.updatedAt, 1L) }
         deleteChunks(id)
-        markDeleted(id)
+        if (revision != null) markDeleted(id, revision)
     }
 
     @Upsert suspend fun saveDocument(document: KnowledgeDocument)
@@ -87,7 +89,10 @@ interface KnowledgeDao {
     @Transaction suspend fun replaceDocument(document: KnowledgeDocument, chunks: List<KnowledgeChunk>, explicitlyRestore: Boolean = false) {
         val previous = this.document(document.id)
         if ((previous?.deleted == true && !explicitlyRestore) || (previous?.deleted != true && previous?.hash == document.hash)) return
-        saveDocument(document)
+        // updatedAt also fences recall receipts. A restore/revision cannot reuse an
+        // earlier value when the wall clock is equal or has moved backwards.
+        val revision = maxOf(document.updatedAt, previous?.let { Math.addExact(it.updatedAt, 1L) } ?: document.updatedAt)
+        saveDocument(document.copy(updatedAt = revision))
         deleteChunks(document.id)
         saveChunks(chunks)
     }

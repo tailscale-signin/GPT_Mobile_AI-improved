@@ -8,6 +8,17 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CombinedAnswerPolicyTest {
+    @Test
+    fun exactMaximumMinimumAndApproximateUseDistinctBounds() {
+        for (count in listOf(43, 45, 50, 55, 56)) {
+            val answer = List(count) { "word$it" }.joinToString(" ")
+            assertEquals(count != 50, CombinedAnswerPolicy.from("Exactly 50 words").violations(answer).isNotEmpty())
+            assertEquals(count > 50, CombinedAnswerPolicy.from("At most 50 words").violations(answer).isNotEmpty())
+            assertEquals(count < 50, CombinedAnswerPolicy.from("At least 50 words").violations(answer).isNotEmpty())
+            assertEquals(count !in 45..55, CombinedAnswerPolicy.from("About 50 words").violations(answer).isNotEmpty())
+        }
+    }
+
     @Test fun recognizesSmallTargetsAndStrictUpperBounds() {
         assertEquals(100, CombinedAnswerPolicy.from("Random historical fact, 100 words").targetWords)
         assertEquals(99, CombinedAnswerPolicy.from("Italy history under 100 words").maximumWords)

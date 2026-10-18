@@ -7,7 +7,6 @@ import kotlinx.serialization.json.put
 private val eventIdPattern = Regex("(?:^|: | · )eventId=([a-zA-Z0-9-]+)")
 private val recordPattern = Regex("^(\\S+) ([VDIWEF])/([^:]+): (.*)$")
 private val fieldPattern = Regex("(?:^| · |(?<=\\s))([A-Za-z][A-Za-z0-9_]*)=")
-private val numericFieldPattern = Regex("(?:attempt|attempts|.*(?:Ms|Bytes|Tokens|Count)|input|output|limit|budget|entries|sequence|round|calls|records)", RegexOption.IGNORE_CASE)
 
 /** Keep every record and continuation. A duplicate is not the same thing as a non-issue. */
 internal fun diagnosticEventIdentity(line: String): String = eventIdPattern.find(line)?.groupValues?.get(1)
@@ -49,10 +48,11 @@ internal fun structuredDiagnosticLine(line: String, captureSource: String = "unk
                     fields.forEachIndexed { index, field ->
                         val key = field.groupValues[1]
                         val end = fields.getOrNull(index + 1)?.range?.first ?: message.length
-                        val value = message.substring(field.range.last + 1, end).trim().trimEnd('·').trim()
+                        val formattedValue = message.substring(field.range.last + 1, end).trim().trimEnd('·').trim()
+                        val value = if (key in setOf("eventId", "parentEventId")) formattedValue.takeWhile { it.isLetterOrDigit() || it == '-' } else formattedValue
                         when {
                             value == "true" || value == "false" -> put(key, value.toBooleanStrict())
-                            numericFieldPattern.matches(key) && value.toLongOrNull() != null -> put(key, value.toLong())
+                            !key.endsWith("Id", ignoreCase = true) && value.toLongOrNull() != null -> put(key, value.toLong())
                             else -> put(key, JsonPrimitive(value))
                         }
                     }

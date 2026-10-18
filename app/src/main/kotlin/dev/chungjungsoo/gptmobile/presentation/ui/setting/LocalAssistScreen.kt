@@ -3,8 +3,6 @@ package dev.chungjungsoo.gptmobile.presentation.ui.setting
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -22,6 +20,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.data.assist.AssistProcessingPermission
 import dev.chungjungsoo.gptmobile.data.assist.processingPermission
 import dev.chungjungsoo.gptmobile.data.model.ClientType
+import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
+import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as DropdownMenu
 
 /** The single editing surface; profile assignment and search focus this same card. */
 @Composable
@@ -44,7 +44,7 @@ internal fun LocalAssistCard(viewModel: LocalRuntimeSettingsViewModel, onMarketp
         Text("Use a selected local model to help prepare research and source material.", style = MaterialTheme.typography.bodySmall)
         Column {
             TextButton(onClick = { choosing = true }, enabled = !busy) {
-                Text(selected?.name ?: if (policy.profileUid != null) "Unavailable helper (${policy.profileUid})" else "Choose helper")
+                Text(selected?.name ?: if (policy.profileUid != null) "Selected helper unavailable" else "Choose helper")
             }
             DropdownMenu(choosing, { choosing = false }) {
                 profiles.filter { it.compatibleType == ClientType.LITERT_LM }.forEach { profile ->
@@ -85,7 +85,7 @@ internal fun LocalAssistCard(viewModel: LocalRuntimeSettingsViewModel, onMarketp
             Text("Share helper-derived evidence with the primary model", Modifier.weight(1f))
             Switch(policy.shareDerivedEvidence, { value -> viewModel.updateAssist { it.copy(shareDerivedEvidence = value) } }, enabled = !busy)
         }
-        Text("Image reading and autonomous reads are unavailable until the installed package passes their device qualification. Private query sharing is not granted by enabling Assist.", style = MaterialTheme.typography.bodySmall)
+        Text("Image reading and autonomous reads are unavailable in this build. They require device-qualified processing and supervised acquisition before they can be enabled. Private query sharing is not granted by enabling Assist.", style = MaterialTheme.typography.bodySmall)
         TextButton(onClick = { advanced = !advanced }) { Text(if (advanced) "Hide advanced" else "Advanced") }
         if (advanced) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -99,6 +99,7 @@ internal fun LocalAssistCard(viewModel: LocalRuntimeSettingsViewModel, onMarketp
             policy.profileUid == null -> "Choose a helper"
             selected == null || !selected.enabled -> "Model unavailable"
             policy.processingPermission(selected) != AssistProcessingPermission.ALLOWED -> "Setup required"
+            !policy.shareDerivedEvidence -> "Local processing allowed · sharing with the primary model is off"
             readiness.profileUid != selected.uid -> "Setup required · verify the selected model"
             else -> readiness.reason
         }

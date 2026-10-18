@@ -15,7 +15,7 @@ import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class DebugExportBundleTest {
-    private fun snapshot(version: Int = 3) = buildJsonObject {
+    private fun snapshot(version: Int = DebugExportSchema.CONVERSATION_VERSION) = buildJsonObject {
         put("schema", "gptmobile.conversation.debug.v$version")
         put("messages", JsonArray(emptyList()))
         put("profiles", JsonArray(emptyList()))

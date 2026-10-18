@@ -2,13 +2,12 @@ package dev.chungjungsoo.gptmobile.data.benchmark
 
 /** Versioned isolated fixtures. Validation labels are never included in model context. */
 internal object BenchmarkSuiteRegistry {
-    const val VERSION = 6
-    private val textSuite by lazy { createStandard(false) }
-    private val agentSuite by lazy { createStandard(true) }
-    fun legacyStandard(agent: Boolean): List<BenchmarkCase> = if (agent) agentSuite else textSuite
+    const val VERSION = 7
+    const val MIN_TIMING_REFERENCE_UNITS = 128
+    fun legacyStandard(agent: Boolean): List<BenchmarkCase> = createStandard(agent, historical = true).map(::historicalIntelligence)
 
     val full: List<BenchmarkCase> by lazy {
-        val legacy = legacyStandard(true)
+        val legacy = createStandard(true)
         val json = legacy.filter { it.category == "json" }
         legacy.filter { it.category == "speed" } +
             legacy.filter { it.category == "task" }.take(8) +
@@ -18,18 +17,44 @@ internal object BenchmarkSuiteRegistry {
             } + legacy.filter { it.category == "tools" } + IntelligenceBenchmark.batches
     }
 
+    fun historical(mode: BenchmarkMode): List<BenchmarkCase> {
+        if (mode == BenchmarkMode.QUICK) {
+            return quick.map { test ->
+                if (test.category == "json") test.copy(prompt = test.prompt.replace(", without markdown", "")) else historicalIntelligence(test)
+            }
+        }
+        val legacy = createStandard(true, historical = true)
+        val json = legacy.filter { it.category == "json" }
+        return (
+            legacy.filter { it.category == "speed" } + legacy.filter { it.category == "task" }.take(8) +
+                json + json.mapIndexed { index, test ->
+                    val expected = "{\"ready\":false,\"count\":${index + 9},\"unit\":\"m\"}"
+                    test.copy(id = "json-${index + 3}", label = "JSON ${index + 4}", prompt = "Return only this JSON object, without markdown: $expected", expected = expected, seed = index + 3)
+                } + legacy.filter { it.category == "tools" } + IntelligenceBenchmark.batches
+            ).map(::historicalIntelligence)
+    }
+
+    private fun historicalIntelligence(test: BenchmarkCase): BenchmarkCase = if (test.category == IntelligenceBenchmark.CATEGORY) {
+        test.copy(
+            prompt = test.prompt.replace("label C says it is not in C.", "label C says it is in A.")
+                .replace("Return only a raw JSON object, without Markdown or code fences,", "Return only a JSON object")
+        )
+    } else {
+        test
+    }
+
     val quick: List<BenchmarkCase> by lazy {
         listOf(
             BenchmarkCase("speed-0", "Delivery", "speed", "Write about 120 words explaining how rain forms, in plain English. No heading."),
             BenchmarkCase("instruction", "Exact instruction", "task", "Reply with exactly BENCHMARK_READY and nothing else.", "BENCHMARK_READY", workload = "instruction"),
-            BenchmarkCase("json", "Structured JSON", "json", "Return only this JSON object: {\"status\":\"ready\",\"count\":3,\"items\":[\"red\",\"green\",\"blue\"]}", workload = "structured"),
+            BenchmarkCase("json", "Structured JSON", "json", "Return only this JSON object, without markdown: {\"status\":\"ready\",\"count\":3,\"items\":[\"red\",\"green\",\"blue\"]}", workload = "structured"),
             BenchmarkCase("tool", "Tool readiness", "tools", "Call benchmark_lookup with key=\"parcel\". Reply with only the code returned by that tool. Do not guess.", workload = "tools"),
             IntelligenceBenchmark.batches.first()
         )
     }
-    private fun createStandard(agent: Boolean): List<BenchmarkCase> = buildList {
+    private fun createStandard(agent: Boolean, historical: Boolean = false): List<BenchmarkCase> = buildList {
         for ((band, target) in listOf("short" to 512, "medium" to 2048, "long" to 4096)) {
-            val suffix = "\nExplain how rain forms in about 100 plain English words. No heading. Ignore the irrelevant record padding above."
+            val suffix = if (historical) "\nExplain how rain forms in about 100 plain English words. No heading. Ignore the irrelevant record padding above." else "\nExplain how rain forms in 180 to 220 plain English words, covering evaporation, condensation, cloud formation, and precipitation in separate sentences. No heading. Ignore the irrelevant record padding above."
             var padding = "Synthetic weather record. "
             while (ReferenceTextTokenizer.starts(padding + suffix).size < target) padding += "Synthetic weather record. "
             repeat(6) { trial ->

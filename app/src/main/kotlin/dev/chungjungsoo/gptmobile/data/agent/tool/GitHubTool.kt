@@ -788,6 +788,7 @@ class GitHubTool(
                     val ref = arguments["ref"]?.jsonPrimitive?.content.orEmpty()
                     require(ref.isNotBlank()) { "A branch or tag ref is required for dispatch_workflow." }
                     put("ref", ref)
+                    put("return_run_details", true)
                     arguments["inputs"]?.let {
                         require(it is JsonObject) { "Inputs must be an object." }
                         put("inputs", it)

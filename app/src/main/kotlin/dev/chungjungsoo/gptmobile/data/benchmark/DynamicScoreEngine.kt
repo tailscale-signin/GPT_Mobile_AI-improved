@@ -31,15 +31,15 @@ internal data class BenchmarkScoreRow(
 internal data class BenchmarkScoreSnapshot(
     val generation: Long,
     val createdAt: Long,
-    val policy: String = "benchmark-score-v2",
+    val policy: String = "benchmark-score-v3",
     val rows: List<BenchmarkScoreRow>
 )
 
 internal fun benchmarkScoreDimensions(row: BenchmarkScoreRow?, local: Boolean): List<BenchmarkDimension> {
     val weights = if (local) listOf(40, 25, 10, 10, 15) else listOf(35, 20, 20, 15, 10)
     return listOf(
-        BenchmarkDimension("Quality", row?.quality, weights[0], "Equal weighting of accuracy categories; unsupported capabilities are excluded"),
-        BenchmarkDimension("Reliability", row?.reliability, weights[1], "Completed requests / attempted requests"),
+        BenchmarkDimension("Functional task compliance", row?.quality, weights[0], "Equal weighting of accuracy categories; unsupported capabilities are excluded"),
+        BenchmarkDimension("Request completion", row?.reliability, weights[1], "Completed requests / attempted requests"),
         BenchmarkDimension("Speed", row?.speedScore, weights[2], "Equal average of short, medium and long rates against verified cohort leaders"),
         BenchmarkDimension("First response", row?.latencyScore, weights[3], "First text latency against verified leaders in each workload band"),
         BenchmarkDimension("Consistency", row?.consistency, weights[4], "Timing variation within each of the three workload bands")
@@ -108,18 +108,23 @@ internal object DynamicScoreEngine {
         val run = group.maxBy { it.startedAt }
         val source = complete.ifEmpty { listOf(run) }
         val samples = source.flatMap { it.samples }.filterNot { it.warmup || it.outcome in setOf(BenchmarkOutcome.CANCELED, BenchmarkOutcome.QUOTA_BLOCKED, BenchmarkOutcome.POLICY_BLOCKED, BenchmarkOutcome.UNSUPPORTED, BenchmarkOutcome.SKIPPED) }
-        val verified = run.mode in setOf(BenchmarkMode.FULL, BenchmarkMode.AGENT) &&
-            complete.isNotEmpty() &&
-            complete.all { block -> listOf("short", "medium", "long").all { band -> block.samples.count { !it.warmup && it.workload == band && it.referenceSpeed != null && it.outcome == BenchmarkOutcome.PASSED } >= 5 } }
+        val timingEligibleBlocks = complete.filter { block ->
+            block.mode in setOf(BenchmarkMode.FULL, BenchmarkMode.AGENT) &&
+                listOf("short", "medium", "long").all { band ->
+                    block.samples.count { !it.warmup && it.category == "speed" && it.workload == band && it.referenceSpeed != null && it.outcome == BenchmarkOutcome.PASSED && it.timingEligible != false } >= 5
+                }
+        }
+        val verified = timingEligibleBlocks.isNotEmpty()
+        val timingSource = timingEligibleBlocks.ifEmpty { listOf(run) }
         val speedByBand = listOf("short", "medium", "long").mapNotNull { band ->
-            median(source.mapNotNull { block -> median(block.samples.filter { !it.warmup && it.category == "speed" && it.workload == band }.mapNotNull { it.referenceSpeed }) })?.let { band to it }
+            median(timingSource.mapNotNull { block -> median(block.samples.filter { !it.warmup && it.category == "speed" && it.workload == band && it.outcome == BenchmarkOutcome.PASSED && it.timingEligible != false }.mapNotNull { it.referenceSpeed }) })?.let { band to it }
         }.toMap()
         val latencyByBand = listOf("short", "medium", "long").mapNotNull { band ->
-            median(source.mapNotNull { block -> median(block.samples.filter { !it.warmup && it.category == "speed" && it.workload == band && it.completed }.mapNotNull { it.firstTextMs?.toDouble() }) })?.let { band to it }
+            median(timingSource.mapNotNull { block -> median(block.samples.filter { !it.warmup && it.category == "speed" && it.workload == band && it.outcome == BenchmarkOutcome.PASSED && it.timingEligible != false }.mapNotNull { it.firstTextMs?.toDouble() }) })?.let { band to it }
         }.toMap()
         val speed = median(
-            source.mapNotNull { block ->
-                median(block.samples.filter { !it.warmup && it.category == "speed" }.mapNotNull { it.referenceSpeed })
+            timingSource.mapNotNull { block ->
+                median(block.samples.filter { !it.warmup && it.category == "speed" && it.outcome == BenchmarkOutcome.PASSED && it.timingEligible != false }.mapNotNull { it.referenceSpeed })
             }
         )
         val latency = median(samples.filter { it.completed }.mapNotNull { it.firstTextMs?.toDouble() })
@@ -136,13 +141,13 @@ internal object DynamicScoreEngine {
         val unsupported = source.flatMap { it.samples }.filter { it.outcome == BenchmarkOutcome.UNSUPPORTED }.map { it.category }.toSet()
         val intelligence = source.maxBy { it.startedAt }.takeIf { it.suiteVersion >= 5 }?.let {
             when {
-                it.suiteVersion >= 6 -> IntelligenceBenchmark.scoreBatches(it.samples, it.mode == BenchmarkMode.QUICK)
+                it.suiteVersion >= 6 -> IntelligenceBenchmark.scoreBatches(it.samples, it.mode == BenchmarkMode.QUICK, if (it.suiteVersion >= 7) 3 else 2)
                 it.mode != BenchmarkMode.QUICK -> IntelligenceBenchmark.score(it.samples)
                 else -> null
             }
         }
         val timingCoverage = listOf("short", "medium", "long").joinToString { band -> "$band ${run.samples.count { !it.warmup && it.workload == band && it.referenceSpeed != null && it.outcome == BenchmarkOutcome.PASSED }}/5" }
-        return BenchmarkScoreRow(run.profileUid, run.configKey, cohort(run), source.map { it.id }, speed, latency, null, null, quality, reliability, consistency, null, verified, samples.size, if (verified) "Verified warm block; median of up to five complete blocks" else "Provisional timing: $timingCoverage successful timed trials; a complete Standard run is required to establish an anchor", speedByBand, latencyByBand, accuracy, unsupported, intelligence)
+        return BenchmarkScoreRow(run.profileUid, run.configKey, cohort(run), source.map { it.id }, speed, latency, null, null, quality, reliability, consistency, null, verified, samples.size, if (verified) "Verified warm timing; median of ${timingEligibleBlocks.size} eligible complete blocks. Unsuccessful attempts retained in history." else "Provisional timing: $timingCoverage successful timed trials; each band requires five eligible trials in one complete Full block; ${run.samples.filter { it.failureCategory == "INSUFFICIENT_TIMING_SAMPLE" }.mapNotNull { it.error }.distinct().joinToString("; ")}", speedByBand, latencyByBand, accuracy, unsupported, intelligence)
     }
 
     private data class CohortAnchors(val speed: Double?, val speeds: Map<String, Double?>, val latencies: Map<String, Double?>, val count: Int)

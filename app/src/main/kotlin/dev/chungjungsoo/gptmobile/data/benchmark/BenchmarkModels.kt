@@ -103,6 +103,11 @@ data class BenchmarkSample(
     val effectiveRequestOutputTokens: Int? = null,
     val requestedReasoningEffort: String? = null,
     val intelligenceAnswers: Map<String, Boolean> = emptyMap(),
+    val intelligenceFormatCompliant: Boolean? = null,
+    val intelligenceParseable: Boolean? = null,
+    val intelligenceFixtureVersion: Int? = null,
+    val intelligenceCorrection: String? = null,
+    val timingEligible: Boolean? = null,
     val pairedComparison: PairedDelegationComparison? = null
 ) {
     val referenceSpeed: Double? get() = firstTextMs?.let { first ->

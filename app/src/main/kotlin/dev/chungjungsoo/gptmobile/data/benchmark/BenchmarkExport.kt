@@ -59,8 +59,11 @@ internal fun benchmarkExport(raw: String, detailed: Boolean): String {
                                 )
                                 put("completedWithoutInterruption", run.finished && !run.canceled && run.stoppedReason == null)
                                 put("scope", "Isolated-run diagnostic; active eligible aggregate scores are in scoreTable")
-                                put("grade", rating.grade)
-                                put("score", rating.score?.let(::JsonPrimitive) ?: JsonNull)
+                                put("scoringPolicy", "benchmark-score-v3")
+                                put("baselineProvenance", "No cohort anchors supplied for this isolated diagnostic. Active aggregate rows carry compatible baseline evidence.")
+                                put("grade", if (run.mode == BenchmarkMode.DELEGATION) rating.grade else "Observed metrics only")
+                                put("ratingUnavailableReason", if (run.mode == BenchmarkMode.DELEGATION) "" else "Isolated run has no compatible speed and latency anchors; see activeScoreRows.")
+                                put("score", if (run.mode == BenchmarkMode.DELEGATION) rating.score?.let(::JsonPrimitive) ?: JsonNull else JsonNull)
                                 put("measuredWeight", rating.measuredWeight)
                                 put(
                                     "dimensions",

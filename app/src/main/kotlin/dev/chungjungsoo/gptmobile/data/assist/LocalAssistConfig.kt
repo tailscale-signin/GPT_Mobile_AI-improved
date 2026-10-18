@@ -13,11 +13,17 @@ object LocalAssistSettingsMigration {
     private val json = Json { ignoreUnknownKeys = true }
     fun normalize(raw: String): String {
         val root = json.parseToJsonElement(raw).jsonObject
-        val version = (root["assistConfigVersion"] as? JsonPrimitive)?.intOrNull ?: 0
-        require(version <= 1) { "This Local Assist configuration needs a newer app. The original settings are preserved." }
+        fun versionOf(value: kotlinx.serialization.json.JsonElement?): Int = if (value == null) {
+            0
+        } else {
+            requireNotNull((value as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull) { "Invalid Assist version metadata. The original settings are preserved." }
+        }
+        val version = versionOf(root["assistConfigVersion"])
+        require(version in 0..1) { "This Local Assist configuration is unsupported. The original settings are preserved." }
+        require(root["localAssistPolicy"] == null || root["localAssistPolicy"] is JsonObject) { "Invalid Assist policy. The original settings are preserved." }
         val policy = (root["localAssistPolicy"] as? JsonObject) ?: JsonObject(emptyMap())
-        val policyVersion = (policy["version"] as? JsonPrimitive)?.intOrNull ?: 0
-        require(policyVersion <= 4) { "This Assist policy needs a newer app. The original settings are preserved." }
+        val policyVersion = versionOf(policy["version"])
+        require(policyVersion in 0..4) { "This Assist policy is unsupported. The original settings are preserved." }
         // Preserve explicit intent, manual context, selected UID, preload denial and grants.
         // Pre-v4 data cannot authorize newly introduced image/network/disclosure scopes.
         val scopes = if (policyVersion < 4) {

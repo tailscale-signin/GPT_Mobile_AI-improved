@@ -11,6 +11,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class EffectiveAssistPolicyTest {
+    @Test fun freshV4CannotInheritProcessingConsentFromMemoryEligibility() {
+        val helper = PlatformV2(uid = "local", name = "Local", compatibleType = ClientType.LITERT_LM)
+        val fresh = LocalAssistPolicy(profileUid = helper.uid).migrateProcessingPermissions(listOf(helper))
+        assertEquals(AssistProcessingPermission.REVIEW_REQUIRED, fresh.processingPermission(helper))
+        assertFalse(fresh.allowsProcessing(helper))
+        val explicit = LocalAssistPolicy(profilePermissions = mapOf(helper.uid to AssistProcessingPermission.ALLOWED)).migrateProcessingPermissions(listOf(helper))
+        assertTrue(explicit.allowsProcessing(helper))
+    }
+
     @Test fun migrationPreservesExplicitLimitsAndDoesNotAuthorizeNewProfiles() {
         val helper = PlatformV2(uid = "local", name = "Local", compatibleType = ClientType.LITERT_LM)
         val original = LocalAssistPolicy(version = 1, profileUid = helper.uid, maxAttempts = 2, taskTimeoutSeconds = 11, loadTimeoutSeconds = 90, preparation = AssistPreparation.WARM_ONLY)

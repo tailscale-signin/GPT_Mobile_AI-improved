@@ -9,11 +9,11 @@ import kotlinx.serialization.Serializable
 @Serializable
 enum class AssistProcessingPermission { ALLOWED, DENIED, REVIEW_REQUIRED }
 
-/** Migration snapshots historical exclusions once; memory learning is independent afterwards. */
+/** Preserve explicit grants; new policies cannot derive consent from memory eligibility. */
 fun LocalAssistPolicy.migrateProcessingPermissions(profiles: List<PlatformV2>): LocalAssistPolicy {
     if (permissionVersion >= 1) return this
     val inherited = profiles.filter { it.compatibleType == ClientType.LITERT_LM }.associate { profile ->
-        profile.uid to if (profile.excludesMemory()) AssistProcessingPermission.REVIEW_REQUIRED else AssistProcessingPermission.ALLOWED
+        profile.uid to if (version >= 4 || profile.excludesMemory()) AssistProcessingPermission.REVIEW_REQUIRED else AssistProcessingPermission.ALLOWED
     }
     return copy(permissionVersion = 1, profilePermissions = inherited + profilePermissions)
 }

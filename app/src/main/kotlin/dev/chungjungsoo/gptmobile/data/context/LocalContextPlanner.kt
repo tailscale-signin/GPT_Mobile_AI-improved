@@ -11,7 +11,8 @@ internal data class LocalContextPlan(
     val omittedTurns: Int,
     val omittedTools: Int,
     val toolDefinitionTokens: Long = 0,
-    val outputReserveTokens: Int = 0
+    val outputReserveTokens: Int = 0,
+    val toolSelectionReasons: Map<String, String> = emptyMap()
 )
 
 /**
@@ -29,13 +30,26 @@ internal object LocalContextPlanner {
         outputLimit: Int?,
         imageCount: Int = 0,
         historyImageCount: (ConversationTurn) -> Int = { 0 },
-        renderToolPrompt: ((List<AgentToolDefinition>) -> String)? = null
+        renderToolPrompt: ((List<AgentToolDefinition>) -> String)? = null,
+        renderCapabilityPrompt: ((List<AgentToolDefinition>) -> String)? = null
     ): LocalContextPlan {
         require(contextTokens > 0)
-        val requiredNames = requiredToolNames(currentUserPrompt, tools)
+        val currentRequiredNames = requiredToolNames(currentUserPrompt, tools)
+        // Follow only a contiguous, bounded chain of references to the previous
+        // task. A new substantive request ends it; disabled tools are never added.
+        val intentIndex = if (currentRequiredNames.isEmpty() && isToolFollowUp(currentUserPrompt)) {
+            priorTurns.indices.reversed().take(6).firstOrNull { !isToolFollowUp(priorTurns[it].userMessage.effectiveContent()) }
+        } else {
+            null
+        }
+        val inheritedNames = intentIndex?.let { requiredToolNames(priorTurns[it].userMessage.effectiveContent(), tools) }.orEmpty()
+        val requiredNames = currentRequiredNames + inheritedNames
         val rankedTools = tools.sortedWith(compareByDescending<AgentToolDefinition> { it.name in requiredNames }.thenByDescending { relevance(currentUserPrompt, it) }.thenBy { it.name })
-        fun schemaCost(selected: List<AgentToolDefinition>): Long = renderToolPrompt?.let { estimate(it(selected)) }
-            ?: selected.sumOf { estimate(it.name) + estimate(it.description) + estimate(it.inputSchema.toString()) + 32 }
+        fun schemaCost(selected: List<AgentToolDefinition>): Long = (
+            renderToolPrompt?.let { estimate(it(selected)) }
+                ?: selected.sumOf { estimate(it.name) + estimate(it.description) + estimate(it.inputSchema.toString()) + 32 }
+            ) +
+            renderCapabilityPrompt?.let { estimate(it(selected)) }.orZero()
         // Tool definitions are charged below at their measured cost. Reserving another
         // tool block here double-counted the same tokens and caused local conversations
         // to silently receive zero tools on small-context models.
@@ -56,7 +70,8 @@ internal object LocalContextPlanner {
         var anchorTokens = 0L
         // Keep the history anchors that fit before optional schemas are considered.
         // Reserving a capability must borrow reply space rather than evict documents.
-        listOf(0, priorTurns.lastIndex).distinct().filter { it in priorTurns.indices }.forEach { index ->
+        val anchorIndices = (listOfNotNull(intentIndex.takeIf { inheritedNames.isNotEmpty() }) + listOf(0, priorTurns.lastIndex)).distinct()
+        anchorIndices.filter { it in priorTurns.indices }.forEach { index ->
             val tokens = cost(priorTurns[index])
             if (used + requiredSchemaTokens + anchorTokens + tokens < baselinePromptLimit) anchorTokens += tokens
         }
@@ -88,7 +103,8 @@ internal object LocalContextPlanner {
         }
 
         val selectedTools = mutableListOf<AgentToolDefinition>()
-        var toolTokens = 0L
+        var toolTokens = schemaCost(emptyList())
+        used += toolTokens
         fun admitTool(tool: AgentToolDefinition) {
             val tokens = schemaCost(selectedTools + tool) - toolTokens
             if (used + tokens < promptLimit) {
@@ -110,8 +126,10 @@ internal object LocalContextPlanner {
                 retainedIndices += index
             }
         }
-        admitTurn(0)
-        admitTurn(priorTurns.lastIndex)
+        anchorIndices.forEach(::admitTurn)
+        require(inheritedNames.isEmpty() || intentIndex in retainedIndices) {
+            "The earlier task needed for this follow-up does not fit the local context. Restate the request or choose a larger-context model."
+        }
         rankedTools.filterNot { it in protectedTools }.forEach(::admitTool)
         for (index in priorTurns.indices.reversed()) {
             if (index in retainedIndices) continue
@@ -127,7 +145,15 @@ internal object LocalContextPlanner {
             priorTurns.size - retained.size,
             tools.size - selectedTools.size,
             toolTokens,
-            outputReserve
+            outputReserve,
+            tools.associate { tool ->
+                tool.name to when {
+                    tool !in selectedTools -> "context_budget"
+                    tool.name in currentRequiredNames -> "required_current_request"
+                    tool.name in inheritedNames -> "required_follow_up"
+                    else -> "optional_fits_context"
+                }
+            }
         )
     }
 
@@ -156,8 +182,18 @@ internal object LocalContextPlanner {
             select("read_url")
         }
         if (Regex("read.*file|read.*document|open.*file|inspect.*file").containsMatchIn(lower)) select("read_file_slice")
+        if (Regex("\\b(current (date|time)|today.?s date|what.?s the time|what time|tell me the time)\\b").containsMatchIn(lower)) select("current_date")
         return required
     }
+
+    private fun isToolFollowUp(prompt: String): Boolean = prompt.trim().lowercase().let { text ->
+        text.length <= 160 &&
+            Regex(
+                "^(?:(?:please|can you)\\s+)?(?:check again|try again|retry|continue|go on|do that|try it again|test tool[sa]?|test the tools|check the tools)[.!?\\s]*$"
+            ).matches(text)
+    }
+
+    private fun Long?.orZero(): Long = this ?: 0L
 
     private fun relevance(prompt: String, tool: AgentToolDefinition): Int {
         val words = Regex("[a-z]{3,}").findAll(prompt.lowercase()).map { it.value }.toSet()

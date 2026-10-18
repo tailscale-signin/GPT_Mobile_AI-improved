@@ -8,6 +8,47 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class LocalPromptToolBridgeTest {
+    @Test fun progressBeforeZeroArgumentCallStaysSeparateAcrossEveryChunkSize() {
+        val progress = "<progress_update>Checking the time.</progress_update>"
+        val call = """{"type":"tool_call","name":"current_date","arguments":{}}"""
+        val payload = progress + call
+        for (size in 1..payload.length) {
+            val output = LocalPromptToolOutput()
+            assertEquals(progress, payload.chunked(size).joinToString("") { output.accept(it) })
+            assertEquals(PromptToolCall("current_date", "{}"), LocalPromptToolBridge.parse(output.buffered(), setOf("current_date")))
+            assertEquals(PromptToolParseResult.Rejected("tools_disabled"), LocalPromptToolBridge.parseResult(output.buffered(), emptySet()))
+        }
+    }
+
+    @Test fun progressDoesNotMakeExamplesOrOrdinaryProseExecutable() {
+        val output = LocalPromptToolOutput()
+        val text = "<progress_update>Checking.</progress_update>Here is an example: {\"type\":\"tool_call\",\"name\":\"current_date\",\"arguments\":{}}"
+        assertEquals(text, text.chunked(1).joinToString("") { output.accept(it) })
+        assertEquals(PromptToolParseResult.NoCall, LocalPromptToolBridge.parseResult(output.buffered(), setOf("current_date")))
+    }
+
+    @Test fun incompleteProgressAndMalformedJsonAreRejectedInsteadOfCompleted() {
+        listOf(
+            "<progress_update>Checking",
+            "<progress_up",
+            """{"type":"tool_call","name":"current_date","arguments":{}""",
+            """{"name":"current_date","arguments":"""
+        ).forEach { payload ->
+            val output = LocalPromptToolOutput()
+            payload.chunked(1).forEach { output.accept(it) }
+            assertEquals(PromptToolParseResult.Rejected("malformed_call"), LocalPromptToolBridge.parseResult(output.buffered(), setOf("current_date")))
+        }
+    }
+
+    @Test fun repairUsesAuthorizedRelevantSchemaAndExactZeroArgumentEnvelope() {
+        val date = AgentToolDefinition("current_date", "Current date", buildJsonObject { put("type", "object") })
+        val prompt = LocalPromptToolBridge.repairInstruction("malformed_call", "call:current_date", listOf(date, tool), emptySet())
+        assertEquals(true, prompt.contains("""{"type":"tool_call","name":"current_date","arguments":{}}"""))
+        assertEquals(true, prompt.contains("Parameters for current_date: ${date.inputSchema}"))
+        assertEquals(false, prompt.contains("web_search"))
+        assertEquals(false, prompt.contains("answer normally"))
+    }
+
     @Test fun ordinaryCodeAndJsonStreamBeforeCompletionAcrossEverySplit() {
         listOf("```kotlin\nfun greet() = \"Hi\"", "{\"temperature\": 24}", "{\"type\":\"message\",\"content\":\"Hi\"}").forEach { text ->
             for (split in 0..text.length) {

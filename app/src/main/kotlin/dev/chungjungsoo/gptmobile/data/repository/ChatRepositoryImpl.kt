@@ -1753,7 +1753,8 @@ class ChatRepositoryImpl(
                         return turnContextInstruction + liveToolSystemPrompt(
                             platform.systemPrompt,
                             exposedTools.map { it.modelToolName },
-                            compact = localResearch || limits.contextTokens < 4096
+                            compact = localResearch || limits.contextTokens < 4096,
+                            deferCapabilities = platform.compatibleType == ClientType.LITERT_LM
                         ) + (if (quickRepliesEnabled && !synthesisRun) dev.chungjungsoo.gptmobile.data.agent.CHAT_QUICK_REPLY_INSTRUCTION else "") + projectInstructions.takeIf { it.isNotBlank() }?.let { "\nProject instructions supplied by the user:\n$it" }.orEmpty() + recoveryInstruction + progressInstruction + delegationInstruction + synthesisInstruction +
                             if (reviewedPreparationUnavailable) "\nRequired delegate preparation or independent review could not finish. Do not do the task independently or present rejected delegate claims as verified facts. Explain the limitation and suggest retrying with a working delegate/reviewer or explicitly choosing primary-only recovery." else ""
                     }
@@ -1796,7 +1797,7 @@ class ChatRepositoryImpl(
                     var contextPlan = measurePreparation(runId, PreparationPhase.CONTEXT_ASSEMBLY) { planRunContext(contextTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits) }
                     AppLogRecorder.record(
                         "Tools",
-                        "Tool catalog · resolved=${resolvedTools.size} · exposed=${exposedTools.size} · contextSelected=${contextPlan.tools.size} · omittedByContext=${exposedTools.size - contextPlan.tools.size} · profile=${platform.uid}"
+                        "Tool catalog · resolved=${resolvedTools.size} · exposed=${exposedTools.size} · contextSelected=${contextPlan.tools.size} · omittedByContext=${exposedTools.size - contextPlan.tools.size} · profile=${platform.uid} · preparation=${preparationPlan.kind} · supportsTools=$supportsTools · profileAllDisabled=${platform.disableAllTools} · profileLocalDisabled=${platform.disableLocalTools} · profileRemoteDisabled=${platform.disableRemoteTools} · chatAllDisabled=${chatToolConfig?.allToolsDisabled == true} · chatAllowAllByDefault=${chatToolConfig?.allowAllByDefault ?: true} · chatExcludedCount=${chatToolConfig?.disabledToolIds?.size ?: 0}"
                     )
                     if (contextPlan.authorizedTools.size < exposedTools.size) {
                         AppLogRecorder.record(
@@ -2531,7 +2532,7 @@ class ChatRepositoryImpl(
                         deliveryPlatform,
                         if (textOnly) emptyList() else effectiveTools.map { it.tool },
                         deliveryConstraints,
-                        fallbackSystemPrompt = liveToolSystemPrompt(platform.systemPrompt, emptyList(), compact = true),
+                        fallbackSystemPrompt = liveToolSystemPrompt(platform.systemPrompt, emptyList(), compact = true, deferCapabilities = true),
                         progressSettings = progressSettings
                     )
                 }

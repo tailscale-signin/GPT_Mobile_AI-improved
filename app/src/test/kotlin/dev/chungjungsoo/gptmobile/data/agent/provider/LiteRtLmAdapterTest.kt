@@ -5,6 +5,7 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
+import dev.chungjungsoo.gptmobile.data.agent.withAssistantTextMarkupGuard
 import dev.chungjungsoo.gptmobile.data.catalog.CatalogCapabilities
 import dev.chungjungsoo.gptmobile.data.catalog.CatalogEntry
 import dev.chungjungsoo.gptmobile.data.catalog.SocVariant
@@ -1184,6 +1185,93 @@ class LiteRtLmAdapterTest {
         assertTrue(runtime.sendMessageCalls[1].contains("clear weather"))
         assertEquals("lookup", events.filterIsInstance<ProviderEvent.ToolCall>().single().name)
         assertEquals("The tool returned clear weather.", events.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+        assertTrue(events.last() is ProviderEvent.Completed)
+    }
+
+    @Test
+    fun `progress followed by a zero argument date call executes before completion`() = runBlocking {
+        var calls = 0
+        val payload = "<progress_update>Checking the time.</progress_update>" +
+            """{"type":"tool_call","name":"current_date","arguments":{}}"""
+        val runtime = FakeLocalRuntime().apply {
+            capabilities = LocalModelCapabilities(backends = setOf("gpu"), tools = false)
+            scriptedEvents = listOf(
+                payload.chunked(3).map { LocalRuntimeEvent.TextDelta(it) } + LocalRuntimeEvent.Done,
+                listOf(LocalRuntimeEvent.TextDelta("It is 12:34 UTC."), LocalRuntimeEvent.Done)
+            )
+        }
+        val date = object : AgentTool {
+            override val definition = AgentToolDefinition(
+                "current_date",
+                "Current date and time",
+                buildJsonObject {
+                    put("type", "object")
+                    put("properties", buildJsonObject {})
+                    put("additionalProperties", false)
+                }
+            )
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                assertTrue(arguments.isEmpty())
+                calls++
+                return AgentToolResult(callId, ToolResultContent.Text("12:34 UTC"), false)
+            }
+        }
+        val events = adapter(runtime).openSession(turns("tell me the time"), localPlatform(), listOf(date))
+            .streamRound(emptyList(), emptyList()).withAssistantTextMarkupGuard().toList()
+        assertEquals(1, calls)
+        assertEquals("current_date", events.filterIsInstance<ProviderEvent.ToolCall>().single().name)
+        assertEquals(1, events.filterIsInstance<ProviderEvent.ToolResult>().size)
+        val visible = events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text }
+        assertTrue(visible.contains("<progress_update>Checking the time.</progress_update>"))
+        assertFalse(visible.contains("arguments"))
+        assertTrue(visible.endsWith("It is 12:34 UTC."))
+        assertEquals(ProviderEvent.Completed, events.last())
+    }
+
+    @Test
+    fun `malformed date repair returning only a promise fails without completion`() = runBlocking {
+        val runtime = FakeLocalRuntime().apply {
+            capabilities = LocalModelCapabilities(backends = setOf("gpu"), tools = false)
+            scriptedEvents = listOf(
+                listOf(LocalRuntimeEvent.TextDelta("""{"type":"tool_call","name":"current_date","arguments":{}"""), LocalRuntimeEvent.Done),
+                listOf(LocalRuntimeEvent.TextDelta("Sorry, I am trying again to get the time."), LocalRuntimeEvent.Done)
+            )
+        }
+        val events = adapter(runtime).openSession(turns("tell me the time"), localPlatform(), listOf(lookupTool("current_date")))
+            .streamRound(emptyList(), emptyList()).toList()
+        assertEquals(2, runtime.sendMessageCalls.size)
+        assertTrue(runtime.sendMessageCalls[1].contains("""{"type":"tool_call","name":"current_date","arguments":{}}"""))
+        assertTrue(runtime.sendMessageCalls[1].contains("Parameters for current_date"))
+        assertTrue(events.filterIsInstance<ProviderEvent.ToolCall>().isEmpty())
+        assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().isEmpty())
+        assertTrue(events.filterIsInstance<ProviderEvent.Failed>().single().message.contains("not completed"))
+        assertFalse(events.contains(ProviderEvent.Completed))
+    }
+
+    @Test
+    fun `follow up preserves search and final inventory excludes pruned tools`() = runBlocking {
+        val runtime = FakeLocalRuntime().apply {
+            capabilities = LocalModelCapabilities(contextTokens = 8192, backends = setOf("gpu"), tools = false)
+            scriptedEvents = listOf(
+                listOf(LocalRuntimeEvent.TextDelta("""{"type":"tool_call","name":"web_search","arguments":{"query":"hulk hogan"}}"""), LocalRuntimeEvent.Done),
+                listOf(LocalRuntimeEvent.TextDelta("Here are the results."), LocalRuntimeEvent.Done)
+            )
+        }
+        val oversized = object : AgentTool by lookupTool("unrelated") {
+            override val definition = AgentToolDefinition("unrelated", "Unused ".repeat(5000), buildJsonObject { put("type", "object") })
+        }
+        val tools = listOf(lookupTool("web_search"), oversized)
+        val prompt = dev.chungjungsoo.gptmobile.data.agent.liveToolSystemPrompt("Be helpful", tools.map { it.definition.name }, deferCapabilities = true)
+        val events = adapter(runtime).openSession(
+            listOf(completedTurn("search hulk hogan", "Search was unavailable."), completedTurn("check again", "Trying again."), pendingTurn("test toola")),
+            localPlatform().copy(systemPrompt = prompt),
+            tools
+        ).streamRound(emptyList(), emptyList()).toList()
+        val actual = runtime.createConversationCalls.single().systemPrompt.orEmpty()
+        assertTrue(actual.contains("Final local tool inventory: web_search."))
+        assertFalse(actual.contains("unrelated"))
+        assertFalse(actual.contains("Live mobile tool context"))
+        assertEquals("web_search", events.filterIsInstance<ProviderEvent.ToolCall>().single().name)
         assertTrue(events.last() is ProviderEvent.Completed)
     }
 

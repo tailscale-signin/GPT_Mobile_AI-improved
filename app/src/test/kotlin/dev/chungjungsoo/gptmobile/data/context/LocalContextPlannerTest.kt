@@ -10,6 +10,37 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LocalContextPlannerTest {
+    @Test fun relatedFollowUpsRetainSearchAndItsTaskUnderContextPressure() {
+        val search = AgentToolDefinition("web_search", "Search", buildJsonObject {})
+        val others = (1..20).map { AgentToolDefinition("a$it", "Unrelated ".repeat(80), buildJsonObject {}) }
+        val goal = turn("search hulk hogan")
+        val history = listOf(goal, turn("check again"))
+        listOf("check again", "test toola", "Please try again!").forEach { prompt ->
+            val plan = LocalContextPlanner.plan(history, prompt, "", others + search, 1024, null)
+            assertTrue(search in plan.tools)
+            assertTrue(goal in plan.priorTurns)
+            assertEquals("required_follow_up", plan.toolSelectionReasons[search.name])
+            assertTrue(plan.toolSelectionReasons.values.contains("context_budget"))
+        }
+    }
+
+    @Test fun followUpDoesNotResurrectDisabledToolsOrCrossANewTopic() {
+        val date = AgentToolDefinition("current_date", "Date", buildJsonObject {})
+        val search = AgentToolDefinition("web_search", "Search", buildJsonObject {})
+        val history = listOf(turn("search hulk hogan"), turn("Write a poem"))
+        val plan = LocalContextPlanner.plan(history, "check again", "", listOf(search, date), 1024, null)
+        assertEquals("optional_fits_context", plan.toolSelectionReasons[search.name])
+        val disabled = LocalContextPlanner.plan(listOf(turn("search hulk hogan")), "check again", "", listOf(date), 1024, null)
+        assertEquals(listOf(date), disabled.tools)
+        assertEquals("required_current_request", LocalContextPlanner.plan(history, "tell me the time", "", listOf(date, search), 1024, null).toolSelectionReasons[date.name])
+    }
+
+    @Test fun finalCapabilityInventoryIsChargedEvenWithNoTools() {
+        val plan = LocalContextPlanner.plan(emptyList(), "Hi", "", emptyList(), 1024, null, renderCapabilityPrompt = { "none" })
+        assertEquals(2L, plan.toolDefinitionTokens)
+        assertEquals(3L, plan.estimatedPromptTokens)
+    }
+
     @Test fun schemaCountHasNoArbitraryCeilingWhenAllSchemasFit() {
         val tools = (1..30).map { AgentToolDefinition("tool$it", "Short", buildJsonObject {}) }
         val plan = LocalContextPlanner.plan(emptyList(), "Compare the available actions", "", tools, 32_768, 1024)

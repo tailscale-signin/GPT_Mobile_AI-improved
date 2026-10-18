@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -258,9 +259,26 @@ fun ChatModelDialog(
                             val clientType = platformClientTypes[platformUid]
                             val isMember = platformUid in draftParticipants
                             val isTemporarilyEnabled = platformUid !in disabledPlatformUids
+                            val onMembershipChanged: (Boolean) -> Unit = { active ->
+                                if (combinedMode) {
+                                    combinedDraft = combinedDraft.copy(
+                                        participantUids = if (active) {
+                                            (combinedDraft.participantUids + platformUid).distinct()
+                                        } else {
+                                            combinedDraft.participantUids - platformUid
+                                        }
+                                    )
+                                } else {
+                                    onPlatformActiveChanged(platformUid, active)
+                                }
+                            }
 
                             Row(
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable(enabled = !saving) { onMembershipChanged(!isMember) }
+                                    .testTag("combined_member_row_$platformUid")
+                                    .padding(horizontal = 8.dp, vertical = 2.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(platformName, modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
@@ -279,13 +297,7 @@ fun ChatModelDialog(
                                     modifier = Modifier.testTag("combined_member_$platformUid"),
                                     checked = isMember,
                                     enabled = !saving,
-                                    onCheckedChange = { active ->
-                                        if (combinedMode) {
-                                            combinedDraft = combinedDraft.copy(participantUids = if (active) (combinedDraft.participantUids + platformUid).distinct() else combinedDraft.participantUids - platformUid)
-                                        } else {
-                                            onPlatformActiveChanged(platformUid, active)
-                                        }
-                                    }
+                                    onCheckedChange = onMembershipChanged
                                 )
                             }
 

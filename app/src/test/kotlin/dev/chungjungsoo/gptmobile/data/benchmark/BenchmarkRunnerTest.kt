@@ -28,6 +28,96 @@ import org.junit.Test
 @OptIn(ExperimentalCoroutinesApi::class)
 class BenchmarkRunnerTest {
     @Test
+    fun offlineSearchReadAndRecoveryRequireTheCompleteToolSequence() = runTest {
+        for (workload in listOf("research_fixture", "tool_error_recovery")) {
+            val test = BenchmarkCapabilitySuite.cases.single { it.workload == workload }
+            val runner = BenchmarkRunner({ _, _ ->
+                object : AgentProviderSession {
+                    override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                        when (exchanges.size) {
+                            0 -> emit(ProviderEvent.ToolCall("first", if (workload == "research_fixture") "benchmark_search" else "benchmark_lookup", buildJsonObject { put(if (workload == "research_fixture") "query" else "key", "parcel") }))
+                            1 -> {
+                                assertEquals(workload == "tool_error_recovery", exchanges.single().results.single().isError)
+                                emit(ProviderEvent.ToolCall("second", if (workload == "research_fixture") "benchmark_read" else "benchmark_lookup", buildJsonObject { put(if (workload == "research_fixture") "url" else "key", if (workload == "research_fixture") "fixture://parcel-record" else "parcel") }))
+                            }
+                            else -> {
+                                val body = (exchanges.last().results.single().content as ToolResultContent.Text).text
+                                emit(ProviderEvent.TextDelta(body.substringAfter("FINAL_PARCEL_CODE=")))
+                            }
+                        }
+                        emit(ProviderEvent.Completed)
+                    }
+                }
+            })
+            val result = runner.run(test, true)
+            assertEquals(result.error, BenchmarkOutcome.PASSED, result.outcome)
+            assertEquals(2, result.toolCalls)
+            assertEquals(3, result.rounds.size)
+        }
+    }
+
+    @Test
+    fun absentImageFixtureNeverDispatchesAndTypedArgumentsRejectStringNumbers() = runTest {
+        var dispatched = false
+        val absent = BenchmarkRunner({ _, _ ->
+            dispatched = true
+            session(flowOf(ProviderEvent.Completed))
+        }).run(BenchmarkCapabilitySuite.cases.single { it.imageCode != null }, false)
+        assertFalse(dispatched)
+        assertEquals("FIXTURE_INPUT", absent.failureCategory)
+        val typed = BenchmarkCapabilitySuite.cases.single { it.workload == "typed_arguments" }
+        val scenario = BenchmarkToolScenario(typed, "code")
+        val wrong = ProviderEvent.ToolCall(
+            "id",
+            "benchmark_lookup",
+            buildJsonObject {
+                put("key", "parcel")
+                put("count", "2")
+                put("includeArchived", false)
+            }
+        )
+        assertFalse(scenario.valid(wrong))
+        assertTrue(scenario.tools.single().execute("id", wrong.arguments).isError)
+    }
+
+    @Test
+    fun assistedArithmeticExecutesTheDeterministicCalculatorAndRecordsSeparateRounds() = runTest {
+        val test = BenchmarkCapabilitySuite.cases.first { it.calculatorExpression != null }
+        val runner = BenchmarkRunner({ _, supplied ->
+            assertEquals(listOf("calculate_expression"), supplied.map { it.definition.name })
+            object : AgentProviderSession {
+                override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                    if (exchanges.isEmpty()) {
+                        emit(ProviderEvent.ToolCall("calculate", "calculate_expression", buildJsonObject { put("expression", test.calculatorExpression) }))
+                    } else {
+                        val result = exchanges.single().results.single()
+                        assertFalse(result.isError)
+                        val body = (result.content as ToolResultContent.Json).value as kotlinx.serialization.json.JsonObject
+                        emit(ProviderEvent.TextDelta((body.getValue("formatted") as kotlinx.serialization.json.JsonPrimitive).content))
+                    }
+                    emit(ProviderEvent.Completed)
+                }
+            }
+        })
+        val result = runner.run(test, true)
+        assertEquals(BenchmarkOutcome.PASSED, result.outcome)
+        assertEquals("400", result.preview)
+        assertEquals("calculator_assisted", result.workload)
+        assertEquals(2, result.rounds.size)
+        assertTrue(result.rounds.all { it.terminalReceived })
+    }
+
+    @Test
+    fun imageDiagnosticRequiresAnAttachmentAndIndividualQuestionsDoNotRequestBatchSchemas() {
+        val suite = benchmarkSuite(BenchmarkMode.DIAGNOSTIC)
+        assertEquals(36, suite.count { it.category == IntelligenceBenchmark.CATEGORY })
+        assertTrue(suite.filter { it.category == IntelligenceBenchmark.CATEGORY }.all { it.requestCategory == "intelligence_individual" })
+        val image = suite.single { it.imageCode != null }
+        assertFalse(image.prompt.contains(image.expected!!))
+        assertEquals("image_reading", image.workload)
+    }
+
+    @Test
     fun `native failures stop full suites even when quality failures may continue`() = runTest {
         for (reason in listOf("Native inference worker stopped", "GPU initialize: interrupted inside native code", "Unsupported backend", "MEMORY_ADMISSION_REJECTED")) {
             var dispatched = 0

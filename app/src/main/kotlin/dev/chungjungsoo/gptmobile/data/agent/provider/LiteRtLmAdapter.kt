@@ -174,7 +174,7 @@ class LiteRtLmAdapter(
                 val textToolFallbackEnabled = true
                 val latestAttachments = turns.lastOrNull()?.userMessage?.attachments.orEmpty()
                 if (latestAttachments.any { it.isImageAttachment() } && !visionCapable) {
-                    send(ProviderEvent.Failed("This local model cannot read the attached images. Choose a compatible vision export, or remove the images and explicitly resend a text-only request."))
+                    send(ProviderEvent.Failed("UNSUPPORTED_IMAGE_INPUT: This local model cannot read the attached images. Choose a compatible vision export, or remove the images and explicitly resend a text-only request."))
                     return@channelFlow
                 }
                 attachmentNotices(visionCapable, turns, latestAttachments).forEach { notice ->
@@ -453,7 +453,13 @@ class LiteRtLmAdapter(
                                         configuredProfileType = platform.compatibleType.name,
                                         actualRuntime = activeRuntime.backend?.name,
                                         actualAccelerator = activeRuntime.engineSpec?.accelerator ?: loadedSpec.accelerator,
-                                        artifactRuntime = artifactRuntime
+                                        artifactRuntime = artifactRuntime,
+                                        reasoningEffort = if (thinkingEnabled) "enabled" else "disabled",
+                                        inputImageCount = latestImages.size + history.sumOf { it.imageIds.size },
+                                        inputModalities = if (latestImages.isNotEmpty() || history.any { it.imageIds.isNotEmpty() }) setOf("text", "image") else setOf("text"),
+                                        languageBackend = activeRuntime.engineSpec?.accelerator ?: loadedSpec.accelerator,
+                                        visionBackend = loadedSpec.visionAccelerator.takeIf { loadedSpec.isVisionEnabled },
+                                        finalResponseFormat = if (constraints.finalResponseSchemaJson == null) "unconstrained" else "json_schema_requested"
                                     )
                                 )
                                 val snapshot = openConversation

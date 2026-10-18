@@ -218,7 +218,7 @@ class AnthropicEventAssembler {
                         return listOf(ProviderEvent.Failed("Anthropic returned an incomplete tool use block."))
                     }
                     event.contentBlock.input?.let {
-                        if (dev.chungjungsoo.gptmobile.data.agent.boundedJsonBytes(it, 16 * 1024) > 16 * 1024) throw ToolBatchOversizeException()
+                        if (dev.chungjungsoo.gptmobile.data.agent.boundedJsonBytes(it, 16 * 1024) > 16 * 1024) throw ToolBatchOversizeException("ARGUMENT_BYTES_LOWER_BOUND", 16 * 1024 + 1, 16 * 1024)
                     }
                     val initialInput = event.contentBlock.input
                         ?.takeIf { it.isNotEmpty() }
@@ -311,7 +311,7 @@ object GeminiEventMapper {
             }
             part.functionCall?.let { call ->
                 val event = ProviderEvent.ToolCall(call.id ?: java.util.UUID.randomUUID().toString(), call.name, call.args)
-                if (!admission.admit(event)) throw ToolBatchOversizeException()
+                if (!admission.admit(event)) throw requireNotNull(admission.rejection)
                 events += event
             }
         }
@@ -324,7 +324,9 @@ object GeminiEventMapper {
 }
 
 private fun toolCall(callId: String, name: String, arguments: String): List<ProviderEvent> {
-    if (callId.length > 256 || name.length > 256 || arguments.length > 16 * 1024) throw ToolBatchOversizeException()
+    if (callId.length > 256) throw ToolBatchOversizeException("CALL_ID_CHARACTERS", callId.length, 256)
+    if (name.length > 256) throw ToolBatchOversizeException("TOOL_NAME_CHARACTERS", name.length, 256)
+    if (arguments.length > 16 * 1024) throw ToolBatchOversizeException("ARGUMENT_CHARACTERS", arguments.length, 16 * 1024)
     return try {
         val parsed = Json.parseToJsonElement(arguments.ifBlank { "{}" })
         if (parsed is JsonObject) {

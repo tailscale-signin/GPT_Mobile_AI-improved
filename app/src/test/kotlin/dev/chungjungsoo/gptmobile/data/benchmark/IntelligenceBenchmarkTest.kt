@@ -12,6 +12,29 @@ class IntelligenceBenchmarkTest {
     }
 
     @Test
+    fun exactRetainedNpuAnswersRecover17UnderOriginalKeyAnd18WithAmbiguityPolicy() {
+        val input = checkNotNull(javaClass.getResourceAsStream("/benchmark/npu-intelligence-v2-retained.json")).bufferedReader().use { it.readText() }
+        val rows = kotlinx.serialization.json.Json.parseToJsonElement(input) as kotlinx.serialization.json.JsonArray
+        val original = linkedMapOf<String, Int>()
+        var corrected = 0
+        rows.forEach { element ->
+            val row = element as kotlinx.serialization.json.JsonObject
+            val id = (row.getValue("testId") as kotlinx.serialization.json.JsonPrimitive).content
+            val answer = (row.getValue("preview") as kotlinx.serialization.json.JsonPrimitive).content
+            assertEquals((row.getValue("outputCharacters") as kotlinx.serialization.json.JsonPrimitive).content.toInt(), answer.length)
+            val test = IntelligenceBenchmark.batches.single { it.id == id }
+            val oldKey = IntelligenceBenchmark.evaluateBatch(test, answer)
+            assertTrue(oldKey.parseable)
+            assertFalse(oldKey.formatCompliant)
+            oldKey.answers.forEach { (domain, correct) -> original[domain] = original.getOrDefault(domain, 0) + if (correct) 1 else 0 }
+            corrected += IntelligenceBenchmark.evaluateBatch(test, answer, 2).answers.values.count { it }
+        }
+        assertEquals(listOf(0, 5, 5, 0, 1, 6), original.values.toList())
+        assertEquals(17, original.values.sum())
+        assertEquals(18, corrected)
+    }
+
+    @Test
     fun balancedDomainsUseAbsoluteAccuracyWithoutSpeedWeighting() {
         val samples = answers().mapIndexed { index, sample -> if (index < 3) sample.copy(outcome = BenchmarkOutcome.FAILED) else sample }
         val score = IntelligenceBenchmark.score(samples)

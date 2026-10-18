@@ -81,7 +81,9 @@ class GgufNativeInstrumentedTest {
                         output.write(bytes)
                         true
                     }
-                    assertEquals(5, usage.size)
+                    assertEquals(7, usage.size)
+                    assertEquals(usage[0], usage[5] + usage[6])
+                    if (it == 0) assertEquals(0L, usage[5]) else assertTrue("Warm request must reuse its unchanged prompt prefix", usage[5] > 0L)
                     assertTrue(usage[0] > 0 && usage[1] in 1L..16L)
                     assertTrue(usage[4] in 0L..1L)
                     assertTrue(output.size() > 0)

@@ -104,7 +104,10 @@ internal fun LocalRuntimeSettingsCard(viewModel: LocalRuntimeSettingsViewModel, 
             if (section == "diagnostics") {
                 Text(if (active.processIsolated) "Inference process: separate" else "Inference process: in-app fallback", style = MaterialTheme.typography.bodySmall)
                 Text("State: ${active.lifecycle.lowercase()} · MTP requested: ${active.requestedMtp ?: "model default"} · MTP active: ${active.effectiveMtp ?: "not reported"}", style = MaterialTheme.typography.bodySmall)
-                active.decision?.let { Text("${it.qualification.name.lowercase()} · ${it.reason}", style = MaterialTheme.typography.bodySmall) }
+                active.decision?.let {
+                    Text("${if (it.profilePreserved) "Profile preserved" else "Qualified alternative selected"} · evidence ${it.qualification.name.lowercase()} · language backend ${it.actualLanguageBackend ?: "unknown"}", style = MaterialTheme.typography.bodySmall)
+                    Text("${it.reason} · request ${it.requestCompleted?.let { completed -> if (completed) "completed" else "interrupted" } ?: "not yet completed"}", style = MaterialTheme.typography.bodySmall)
+                }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Compare on this device", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
                     dev.chungjungsoo.gptmobile.presentation.common.SettingsHelpIcon("Measures native prefill and decode separately, first visible answer, failures, and heat. Quick comparison is bounded to six minutes. Sustained mode adds three continuous 15-minute blocks per candidate, with a bounded 50-minute budget per candidate plus setup. Keep this screen open to start the foreground run. Native counts cover the last segment. Requested MTP is not proof of activation.")

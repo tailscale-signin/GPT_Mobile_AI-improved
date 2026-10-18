@@ -291,7 +291,7 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                     0 -> {
                         item {
                             BenchmarkPanel(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_4b446a5e52)) {
-                                BenchmarkPlanPicker(mode, progress == null) { mode = it }
+                                BenchmarkPlanPicker(mode, progress == null, includeDiagnostics = true) { mode = it }
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Column(Modifier.weight(1f)) {
                                         Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_cc97ecc157), style = MaterialTheme.typography.titleSmall)
@@ -449,7 +449,7 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                         }
                     }
                     5 -> {
-                        item { BenchmarkPlanPicker(mode, progress == null) { mode = it } }
+                        item { BenchmarkPlanPicker(mode, progress == null, includeDiagnostics = true) { mode = it } }
                         item {
                             BenchmarkSideBySide(snapshot?.rows.orEmpty().filter { it.cohort.startsWith(mode.name + "|") }.map { row -> retests.firstOrNull { it.current.profileUid == row.profileUid && it.current.revision == row.revision && it.current.cohort == row.cohort }?.current ?: row }, profiles, retests)
                         }
@@ -634,8 +634,11 @@ private fun BenchmarkHistoryCard(run: BenchmarkRun, current: Boolean, canDelete:
                     MetricLine("Duration / first text", "${formatLatency(sample.durationMs)} / ${formatLatency(sample.firstTextMs)}")
                     if (sample.reconnectAttempts > 0) MetricLine("Connection retries", sample.reconnectAttempts.toString())
                     if (sample.intelligenceAnswers.isNotEmpty()) {
-                        MetricLine("Reasoning accuracy", "${sample.intelligenceAnswers.values.count { it }}/${sample.intelligenceAnswers.size} correct")
-                        MetricLine("Raw JSON compliance / parseable", "${sample.intelligenceFormatCompliant ?: "unknown"} / ${sample.intelligenceParseable ?: "unknown"}")
+                        val retained = dev.chungjungsoo.gptmobile.data.benchmark.IntelligenceBenchmark.gradeRetained(sample, if (run.suiteVersion >= 7) 3 else 2)
+                        val answers = retained?.answers ?: sample.intelligenceAnswers
+                        MetricLine("Reasoning accuracy", "${answers.values.count { it }}/${answers.size} correct")
+                        MetricLine("Raw JSON compliance / parseable", "${retained?.formatCompliant ?: sample.intelligenceFormatCompliant ?: "unknown"} / ${retained?.parseable ?: sample.intelligenceParseable ?: "unknown"}")
+                        retained?.correction?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                     }
                     MetricLine("Output tokens · cumulative request", "${if (sample.estimatedTokens) "≈ " else ""}${sample.outputTokens}")
                     MetricLine("Longest text pause", formatLatency(sample.longestGapMs))
@@ -646,11 +649,11 @@ private fun BenchmarkHistoryCard(run: BenchmarkRun, current: Boolean, canDelete:
                         Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_015b1ee190, pair.taskClass, pair.rubricVersion, pair.order, pair.warmState, pair.cost))
                     }
                     sample.nativeMetrics?.takeIf { it.isValid }?.let { native ->
-                        MetricLine("Native decode / prefill tok/s", String.format(java.util.Locale.US, "%.1f / %.1f", native.decodeTokensPerSecond, native.prefillTokensPerSecond))
+                        MetricLine("Native decode / prefill tok/s · last segment", String.format(java.util.Locale.US, "%.1f / %.1f", native.decodeTokensPerSecond, native.prefillTokensPerSecond))
                         Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_0aa4f852ac, native.decodeTokens, native.prefillTokens), style = MaterialTheme.typography.bodySmall)
                     }
                     if (sample.category == "tools") MetricLine("Successful fixture calls", "${sample.successfulToolCalls} / ${sample.toolCalls}")
-                    sample.error?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                    (sample.timingExclusionReason ?: sample.error)?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                     if (sample.preview.isNotEmpty()) Text(sample.preview, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 TextButton(onClick = onDelete, enabled = canDelete) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_4733f5d14b), color = MaterialTheme.colorScheme.error) }

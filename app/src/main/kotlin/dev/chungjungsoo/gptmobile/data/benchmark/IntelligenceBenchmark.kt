@@ -151,9 +151,17 @@ internal object IntelligenceBenchmark {
         listOf(location == "B", location != "B", if (legacy) location == "A" else location != "C").count { it } == 1
     }
 
+    fun gradeRetained(sample: BenchmarkSample, fixtureVersion: Int): BatchGrade? {
+        if (!sample.completed || sample.preview.isEmpty() || sample.outputCharacters != sample.preview.length) return null
+        val test = batches.singleOrNull { it.id == sample.testId } ?: return null
+        return evaluateBatch(test, sample.preview, fixtureVersion)
+    }
+
     fun scoreBatches(samples: List<BenchmarkSample>, quick: Boolean, fixtureVersion: Int = VERSION): IntelligenceScore {
         val plan = if (quick) batches.take(1) else batches
-        val byId = samples.filter { it.category == CATEGORY }.groupBy { it.testId }
+        val byId = samples.filter { it.category == CATEGORY }.map { sample ->
+            if (fixtureVersion <= 2) gradeRetained(sample, fixtureVersion)?.let { sample.copy(intelligenceAnswers = it.answers) } ?: sample else sample
+        }.groupBy { it.testId }
         val completed = plan.mapNotNull { test ->
             byId[test.id]?.singleOrNull()?.takeIf { it.completed && it.workload == test.workload && it.intelligenceAnswers.keys == cases.keys }
         }

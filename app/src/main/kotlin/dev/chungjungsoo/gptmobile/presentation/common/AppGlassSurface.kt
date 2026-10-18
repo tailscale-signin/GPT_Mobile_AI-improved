@@ -48,9 +48,9 @@ fun appOverlayTokens(): OverlayMaterialTokens = with(MaterialTheme.colorScheme) 
 fun AppGlassSurface(modifier: Modifier = Modifier, shape: Shape = MaterialTheme.shapes.extraLarge, content: @Composable () -> Unit) {
     val tokens = appOverlayTokens()
     Surface(
-        modifier = modifier,
+        modifier = modifier.glassBackdrop(shape),
         shape = shape,
-        color = tokens.background,
+        color = if (hasGlassBackdrop()) Color.Transparent else tokens.background,
         contentColor = tokens.foreground,
         tonalElevation = 0.dp,
         border = BorderStroke(1.dp, tokens.border),

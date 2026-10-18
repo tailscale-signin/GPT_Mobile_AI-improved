@@ -511,6 +511,11 @@ class AgentToolResolver @Inject constructor(
                 val connection = requireNotNull(group.first().connection)
                 try {
                     resolveMcpTools(connection, group, live, profileUid)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    onConnectionError("${connection.name}: discovery unavailable; other authorized tools remain available.")
+                    emptyList()
                 } finally {
                     attemptedConnections.add(connection.connectionUid)
                 }

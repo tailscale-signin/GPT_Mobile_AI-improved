@@ -9,7 +9,7 @@ import kotlin.math.sqrt
 import kotlinx.serialization.Serializable
 
 @Serializable
-enum class BenchmarkMode(val label: String) { QUICK("Quick"), FULL("Full"), DELEGATION("Delegation"), AGENT("Legacy Agent") }
+enum class BenchmarkMode(val label: String) { QUICK("Quick"), FULL("Full"), DIAGNOSTIC("Capability diagnostics"), DELEGATION("Delegation"), AGENT("Legacy Agent") }
 
 @Serializable
 enum class BenchmarkOutcome { PASSED, FAILED, ERROR, TIMED_OUT, CANCELED, UNSUPPORTED, QUOTA_BLOCKED, POLICY_BLOCKED, PARTIAL, SKIPPED }
@@ -66,6 +66,9 @@ data class DelegationBenchmarkMetrics(
 )
 
 @Serializable
+data class BenchmarkRoundMetrics(val round: Int, val inputTokens: Int, val outputTokens: Int, val estimatedOutput: Boolean, val finishReason: String?, val terminalReceived: Boolean)
+
+@Serializable
 data class BenchmarkSample(
     val testId: String,
     val label: String,
@@ -108,6 +111,13 @@ data class BenchmarkSample(
     val intelligenceFixtureVersion: Int? = null,
     val intelligenceCorrection: String? = null,
     val timingEligible: Boolean? = null,
+    val localSegments: List<dev.chungjungsoo.gptmobile.data.localruntime.LocalInferenceMetrics> = emptyList(),
+    val rounds: List<BenchmarkRoundMetrics> = emptyList(),
+    val inputImageCount: Int? = null,
+    val inputModalities: Set<String> = emptySet(),
+    val languageBackend: String? = null,
+    val visionBackend: String? = null,
+    val finalResponseFormat: String? = null,
     val pairedComparison: PairedDelegationComparison? = null
 ) {
     val referenceSpeed: Double? get() = firstTextMs?.let { first ->
@@ -115,6 +125,17 @@ data class BenchmarkSample(
         referenceDecodeTokens?.takeIf { it > 0 && completed && chunks > 1 && last > first }
             ?.let { it * 1000.0 / (last - first) }?.takeIf { it.isFinite() && it > 0 }
     }
+    val timingExclusionReason: String? get() = if (category == "speed" &&
+        completed &&
+        referenceTokens != null &&
+        referenceTokens < BenchmarkSuiteRegistry.MIN_TIMING_REFERENCE_UNITS &&
+        listOf("short", "medium", "long").any { testId.startsWith("speed-$it-") }
+    ) {
+        "Insufficient timing sample: $referenceTokens reference units produced; ${BenchmarkSuiteRegistry.MIN_TIMING_REFERENCE_UNITS} required."
+    } else {
+        null
+    }
+
     val completed: Boolean get() = outcome == BenchmarkOutcome.PASSED || outcome == BenchmarkOutcome.FAILED
 
     // A one-chunk response has no observed decoding interval; avoid inventing a speed.
@@ -250,7 +271,7 @@ fun benchmarkRating(runs: List<BenchmarkRun>, local: Boolean = runs.firstOrNull(
     val dimensions = listOf(
         BenchmarkDimension("Generation speed", speed?.let { DynamicScoreEngine.higher(it, speedTarget) }, 20, "Cohort-relative speed; legacy rates are diagnostic only"),
         BenchmarkDimension("First response", latency?.let { DynamicScoreEngine.lower(it.toDouble(), latencyTargetMs) }, 15, "Cohort-relative first usable text"),
-        BenchmarkDimension("Completion reliability", success, 15, "Completed requests ÷ attempted requests; timeouts count as failures"),
+        BenchmarkDimension("Request completion", success, 15, "Completed requests ÷ attempted requests; timeouts count as failures"),
         BenchmarkDimension("Consistency", consistency, 10, "Variation across at least three speed trials"),
         BenchmarkDimension("Task accuracy", passRate("task"), 15, "Exact instruction, arithmetic and multi-turn fixture checks"),
         BenchmarkDimension("Structured output", passRate("json"), 10, "Strict JSON and expected field values"),

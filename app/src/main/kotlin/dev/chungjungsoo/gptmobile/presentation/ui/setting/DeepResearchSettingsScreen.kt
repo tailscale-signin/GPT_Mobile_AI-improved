@@ -40,6 +40,7 @@ import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
 import dev.chungjungsoo.gptmobile.data.research.feature.AutoExamination
 import dev.chungjungsoo.gptmobile.data.research.feature.ScientificAppraisalMode
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDialog
+import dev.chungjungsoo.gptmobile.presentation.common.glassWindowBackdrop
 import kotlinx.coroutines.launch
 
 @Composable
@@ -157,7 +158,7 @@ internal fun ResearchFeatureScreen(onClose: () -> Unit, viewModel: DeepResearchS
         onClose()
     }
     FadingDialog(onDismissRequest = close, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Scaffold(modifier = Modifier.fillMaxSize().testTag("deep-research-settings"), topBar = {
+        Scaffold(modifier = Modifier.fillMaxSize().glassWindowBackdrop().testTag("deep-research-settings"), containerColor = dev.chungjungsoo.gptmobile.presentation.common.overlayWindowContainerColor(), topBar = {
             TopAppBar(title = { Text("Research") }, navigationIcon = { TextButton(onClick = close, enabled = !state.saving) { Text("Back") } }, actions = {
                 if (tab == 4) {
                     TextButton(onClick = {

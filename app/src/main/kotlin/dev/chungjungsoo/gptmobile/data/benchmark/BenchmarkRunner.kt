@@ -2,7 +2,6 @@ package dev.chungjungsoo.gptmobile.data.benchmark
 
 import dev.chungjungsoo.gptmobile.data.agent.AgentProviderSession
 import dev.chungjungsoo.gptmobile.data.agent.AgentTool
-import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
@@ -14,11 +13,6 @@ import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonArray
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
 
 data class BenchmarkCase(
     val id: String,
@@ -29,13 +23,19 @@ data class BenchmarkCase(
     val warmup: Boolean = false,
     val workload: String = "short",
     val seed: Int = 0,
-    val benchmarkReview: Boolean = false
-)
+    val benchmarkReview: Boolean = false,
+    val calculatorExpression: String? = null,
+    val imageCode: String? = null,
+    val attachments: List<dev.chungjungsoo.gptmobile.data.model.ChatAttachment> = emptyList()
+) {
+    val requestCategory: String get() = if (category == IntelligenceBenchmark.CATEGORY && !id.startsWith("intelligence-batch-")) "intelligence_individual" else category
+}
 
 fun benchmarkSuite(mode: BenchmarkMode, contextTokens: Int? = null): List<BenchmarkCase> = BenchmarkWorkloadPlanner.adapt(
     when (mode) {
         BenchmarkMode.DELEGATION -> delegationBenchmarkSuite()
         BenchmarkMode.QUICK -> BenchmarkSuiteRegistry.quick
+        BenchmarkMode.DIAGNOSTIC -> BenchmarkCapabilitySuite.cases
         else -> BenchmarkSuiteRegistry.full
     },
     contextTokens
@@ -90,6 +90,9 @@ class BenchmarkRunner(
     }
 
     private suspend fun runOnce(test: BenchmarkCase, supportsTools: Boolean, limitMs: Long): BenchmarkSample {
+        if (test.imageCode != null && test.attachments.none { it.mimeType.startsWith("image/") }) {
+            return BenchmarkSample(test.id, test.label, test.category, BenchmarkOutcome.ERROR, error = "Required diagnostic image was not prepared; no provider request sent.", failureCategory = "FIXTURE_INPUT", workload = test.workload)
+        }
         if (test.category == "tools" && !supportsTools) {
             return BenchmarkSample(
                 test.id,
@@ -105,6 +108,9 @@ class BenchmarkRunner(
         }
         val started = now()
         val text = StringBuilder()
+        val segments = mutableListOf<dev.chungjungsoo.gptmobile.data.localruntime.LocalInferenceMetrics>()
+        val rounds = mutableListOf<BenchmarkRoundMetrics>()
+        var configured: ProviderEvent.RequestConfigured? = null
         var first: Long? = null
         var firstChunkCharacters = 0
         var lastChunk: Long? = null
@@ -128,8 +134,9 @@ class BenchmarkRunner(
         var nativeMetrics: dev.chungjungsoo.gptmobile.data.localruntime.NativeInferenceMetrics? = null
         val calls = linkedMapOf<String, ProviderEvent.ToolCall>()
         val successful = mutableSetOf<String>()
-        val code = "PKG-${UUID.randomUUID().toString().take(8)}"
-        val fixture = fixtureTool(code)
+        val code = test.expected.takeIf { test.calculatorExpression != null } ?: "PKG-${UUID.randomUUID().toString().take(8)}"
+        val scenario = BenchmarkToolScenario(test, code)
+        val expectedErrors = mutableSetOf<String>()
         fun sample(outcome: BenchmarkOutcome, error: String? = null) = BenchmarkSample(
             test.id, test.label, test.category, outcome, (now() - started).coerceAtLeast(0), first,
             tokens + if (roundAccounted) 0 else roundTokens ?: ((text.length - roundStart + 3) / 4),
@@ -154,15 +161,22 @@ class BenchmarkRunner(
                 outcome == BenchmarkOutcome.PASSED || outcome == BenchmarkOutcome.FAILED -> "complete"
                 else -> "unknown"
             },
-            effectiveSettingsConfirmed = effectiveSettingsConfirmed
+            effectiveSettingsConfirmed = effectiveSettingsConfirmed,
+            localSegments = segments.toList(),
+            rounds = rounds.toList(),
+            inputImageCount = configured?.inputImageCount,
+            inputModalities = configured?.inputModalities.orEmpty(),
+            languageBackend = configured?.languageBackend,
+            visionBackend = configured?.visionBackend,
+            finalResponseFormat = configured?.finalResponseFormat
         )
         try {
             val finished = withTimeoutOrNull(limitMs) {
                 val turns = buildList {
                     if (test.id == "context") add(ConversationTurn(message("Remember this parcel code: ORCHID-742."), message("I will remember ORCHID-742."), false))
-                    add(ConversationTurn(message(test.prompt), null, true))
+                    add(ConversationTurn(message(test.prompt).copy(attachments = test.attachments), null, true))
                 }
-                val tools = if (test.category == "tools") listOf(fixture) else emptyList()
+                val tools = if (test.category == "tools") scenario.tools else emptyList()
                 val session = openSession(turns, tools)
                 val exchanges = mutableListOf<AgentToolExchange>()
                 var done = false
@@ -174,6 +188,7 @@ class BenchmarkRunner(
                     roundInputTokens = 0
                     roundAccounted = false
                     var completed = false
+                    finishReason = null
                     session.streamRound(tools.map { it.definition }, exchanges.toList()).collect { event ->
                         when (event) {
                             is ProviderEvent.TextDelta -> if (event.text.isNotEmpty()) {
@@ -190,14 +205,17 @@ class BenchmarkRunner(
                             }
                             is ProviderEvent.ToolCall -> {
                                 check(test.category == "tools") { "Unexpected tool call in a text test" }
+                                check(event.callId !in calls) { "Duplicate completed tool call ID" }
                                 calls[event.callId] = event
                                 roundCalls[event.callId] = event
                                 check(calls.size <= 3) { "Tool call limit reached" }
                             }
-                            is ProviderEvent.ToolResult -> if (!event.result.isError && event.call.name == fixture.definition.name && validArguments(event.call.arguments)) {
-                                successful.add(event.call.callId)
+                            is ProviderEvent.ToolResult -> {
+                                if (scenario.valid(event.call) && !event.result.isError) successful.add(event.call.callId)
+                                if (scenario.expectedError(event.call, event.result)) expectedErrors.add(event.call.callId)
                             }
                             is ProviderEvent.RequestConfigured -> {
+                                configured = event
                                 requestedOutputTokens = event.requestedOutputTokens ?: event.configuredProfileOutputTokens
                                 effectiveRequestOutputTokens = event.effectiveOutputTokens
                                 requestedReasoningEffort = event.reasoningEffort
@@ -214,7 +232,10 @@ class BenchmarkRunner(
                                     roundTokens = if (event.cumulative) maxOf(roundTokens ?: 0, count) else (roundTokens ?: 0) + count
                                 }
                             }
-                            is ProviderEvent.LocalMetrics -> nativeMetrics = event.metrics.native?.takeIf { it.isValid }
+                            is ProviderEvent.LocalMetrics -> {
+                                segments.add(event.metrics)
+                                nativeMetrics = event.metrics.native?.takeIf { it.isValid }
+                            }
                             is ProviderEvent.Failed -> providerFailure = event.message
                             ProviderEvent.Completed -> completed = true
                             else -> Unit
@@ -226,17 +247,20 @@ class BenchmarkRunner(
                     if (roundTokens == null) estimated = true
                     tokens += roundTokens ?: ((text.length - roundStart + 3) / 4)
                     inputTokens += roundInputTokens
+                    rounds.add(BenchmarkRoundMetrics(rounds.size, roundInputTokens, roundTokens ?: ((text.length - roundStart + 3) / 4), roundTokens == null, finishReason, completed))
                     roundAccounted = true
                     if (roundCalls.isEmpty() || session.handlesToolsInternally) {
                         done = true
                     } else {
                         val results = roundCalls.values.map { call ->
-                            val result = if (call.name == fixture.definition.name) {
-                                fixture.execute(call.callId, call.arguments)
+                            val tool = scenario.tools.singleOrNull { it.definition.name == call.name }
+                            val result = if (tool != null && scenario.valid(call)) {
+                                tool.execute(call.callId, call.arguments)
                             } else {
-                                AgentToolResult(call.callId, ToolResultContent.Text("Unknown fixture tool"), true)
+                                AgentToolResult(call.callId, ToolResultContent.Text("Unknown fixture tool or invalid arguments"), true)
                             }
                             if (!result.isError) successful.add(call.callId)
+                            if (scenario.expectedError(call, result)) expectedErrors.add(call.callId)
                             result
                         }
                         exchanges.add(AgentToolExchange(roundCalls.values.toList(), results))
@@ -263,7 +287,7 @@ class BenchmarkRunner(
                 IntelligenceBenchmark.CATEGORY -> if (test.id.startsWith("intelligence-batch-")) intelligenceGrade!!.answers.values.all { it } else IntelligenceBenchmark.matches(answer, checkNotNull(test.expected))
                 "speed" -> answer.length >= 100 && calls.isEmpty() && (!test.id.startsWith("speed-short-") && !test.id.startsWith("speed-medium-") && !test.id.startsWith("speed-long-") || !insufficientTiming)
                 "json" -> runCatching { Json.parseToJsonElement(answer) == Json.parseToJsonElement(test.expected ?: "{\"status\":\"ready\",\"count\":3,\"items\":[\"red\",\"green\",\"blue\"]}") }.getOrDefault(false)
-                "tools" -> calls.isNotEmpty() && successful.size == calls.size && answer == code
+                "tools" -> scenario.passed(calls.values.toList(), successful, expectedErrors) && answer == code
                 else -> answer == (
                     test.expected ?: when (test.id) {
                         "instruction" -> "BENCHMARK_READY"
@@ -322,36 +346,6 @@ class BenchmarkRunner(
 }
 
 private fun message(text: String) = MessageV2(content = text, platformType = null)
-
-private fun validArguments(arguments: JsonObject): Boolean = arguments == buildJsonObject { put("key", "parcel") }
-
-private fun fixtureTool(code: String): AgentTool = object : AgentTool {
-    override val definition = AgentToolDefinition(
-        "benchmark_lookup",
-        "Look up a code in the benchmark's temporary in-memory fixture.",
-        buildJsonObject {
-            put("type", "object")
-            put(
-                "properties",
-                buildJsonObject {
-                    put(
-                        "key",
-                        buildJsonObject {
-                            put("type", "string")
-                            put("enum", buildJsonArray { add(JsonPrimitive("parcel")) })
-                        }
-                    )
-                }
-            )
-            put("required", buildJsonArray { add(JsonPrimitive("key")) })
-            put("additionalProperties", false)
-        }
-    )
-    override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
-        val valid = validArguments(arguments)
-        return AgentToolResult(callId, ToolResultContent.Text(if (valid) code else "Expected exactly key=parcel"), !valid)
-    }
-}
 
 /** Infrastructure errors are not model-quality failures, even in full-suite mode. */
 internal fun benchmarkInfrastructureFailure(sample: BenchmarkSample): Boolean {

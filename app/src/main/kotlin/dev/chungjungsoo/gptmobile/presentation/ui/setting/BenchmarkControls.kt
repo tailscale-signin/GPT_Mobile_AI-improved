@@ -65,7 +65,7 @@ internal fun BenchmarkAction(label: String, icon: ImageVector, selected: Boolean
 }
 
 @Composable
-internal fun BenchmarkPlanPicker(mode: BenchmarkMode, enabled: Boolean = true, onSelect: (BenchmarkMode) -> Unit) {
+internal fun BenchmarkPlanPicker(mode: BenchmarkMode, enabled: Boolean = true, includeDiagnostics: Boolean = false, onSelect: (BenchmarkMode) -> Unit) {
     Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         listOf(BenchmarkMode.QUICK, BenchmarkMode.FULL).forEach { option ->
             val active = mode == option
@@ -86,5 +86,11 @@ internal fun BenchmarkPlanPicker(mode: BenchmarkMode, enabled: Boolean = true, o
                 }
             }
         }
+    }
+    if (includeDiagnostics) {
+        OutlinedButton(onClick = { onSelect(BenchmarkMode.DIAGNOSTIC) }, enabled = enabled, modifier = Modifier.fillMaxWidth().semantics { selected = mode == BenchmarkMode.DIAGNOSTIC }) {
+            Text("Capability diagnostics · ${dev.chungjungsoo.gptmobile.data.benchmark.benchmarkSuite(BenchmarkMode.DIAGNOSTIC).size} offline tests")
+        }
+        if (mode == BenchmarkMode.DIAGNOSTIC) Text("Individual reasoning, raw and calculator-assisted arithmetic, tool contracts and attached-image reading. Separate from Full timing scores; no live network tools.", style = MaterialTheme.typography.bodySmall)
     }
 }

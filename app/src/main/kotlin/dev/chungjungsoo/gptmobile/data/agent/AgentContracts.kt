@@ -41,7 +41,12 @@ sealed interface ProviderEvent {
         val configuredProfileType: String? = null,
         val actualRuntime: String? = null,
         val actualAccelerator: String? = null,
-        val artifactRuntime: String? = null
+        val artifactRuntime: String? = null,
+        val inputImageCount: Int? = null,
+        val inputModalities: Set<String> = emptySet(),
+        val languageBackend: String? = null,
+        val visionBackend: String? = null,
+        val finalResponseFormat: String? = null
     ) : ProviderEvent
 
     // GatewayProgressUpdate is observational only. AgentRunner must never

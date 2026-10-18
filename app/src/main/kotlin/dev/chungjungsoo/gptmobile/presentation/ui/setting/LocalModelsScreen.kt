@@ -58,6 +58,7 @@ import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.catalog.ModelCatalogParser
 import dev.chungjungsoo.gptmobile.data.huggingface.HuggingFaceUrls
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
+import dev.chungjungsoo.gptmobile.presentation.common.glassWindowBackdrop
 import dev.chungjungsoo.gptmobile.presentation.ui.localmodel.LocalModelDownloadDialogHost
 import dev.chungjungsoo.gptmobile.presentation.ui.localmodel.LocalModelDownloadStatus
 import dev.chungjungsoo.gptmobile.presentation.ui.localmodel.LocalModelRequirements
@@ -203,7 +204,7 @@ internal fun LocalMarketplaceScreen(
     family?.let { selectedFamily ->
         val variants = (uiState.allItems + uiState.huggingFaceItems).distinctBy { it.entry.id }.filter { it.entry.familyId.ifBlank { it.entry.id } == selectedFamily }
         dev.chungjungsoo.gptmobile.presentation.common.FadingDialog(onDismissRequest = { family = null }, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
-            Scaffold(topBar = { androidx.compose.material3.TopAppBar(title = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_model_details_5ddbc)) }, navigationIcon = { IconButton(onClick = { family = null }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") } }) }) { insets ->
+            Scaffold(modifier = Modifier.glassWindowBackdrop(), containerColor = dev.chungjungsoo.gptmobile.presentation.common.overlayWindowContainerColor(), topBar = { androidx.compose.material3.TopAppBar(title = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_model_details_5ddbc)) }, navigationIcon = { IconButton(onClick = { family = null }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") } }) }) { insets ->
                 LazyColumn(Modifier.padding(insets), contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     item {
                         Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_variants_63d26), style = MaterialTheme.typography.titleLarge)

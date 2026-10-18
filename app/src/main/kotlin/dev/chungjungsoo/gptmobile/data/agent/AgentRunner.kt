@@ -176,7 +176,7 @@ class AgentRunner(
             val round = collectRound(session, exposedDefinitions, exchanges, (limits.maxObservedToolCalls.coerceIn(1, 1024) - observedToolCalls).coerceAtLeast(0), successfulSearch, searchNames)
             observedToolCalls += round.observedCalls
             if (round.batchRejected) {
-                AppLogRecorder.record("Agent", "TOOL_BATCH_OVERSIZE · rejectedBatchObserved=${round.observedCalls} · permittedPerRound=${limits.maxToolCallsPerRound} · cumulativeObserved=$observedToolCalls · dispatched=0", "W")
+                AppLogRecorder.record("Agent", "TOOL_BATCH_OVERSIZE · rejectedBatchObserved=${round.observedCalls} · permittedPerRound=${limits.maxToolCallsPerRound} · cumulativeObserved=$observedToolCalls · rejection=${round.batchRejection ?: "UNKNOWN_THRESHOLD"} · dispatched=0", "W")
                 emit(AgentRunEvent.Notice("An oversized or invalid tool batch was stopped before dispatch. Retry with at most ${limits.maxToolCallsPerRound} calls per batch; completed evidence remains available.", persistent = true))
                 if (stormFinalizationAttempted || session.handlesToolsInternally || !limits.allowToolStormFinalization) {
                     emit(failed("TOOL_BATCH_OVERSIZE: partial answer and completed evidence retained. The provider did not honor tool-free finalization."))
@@ -474,7 +474,8 @@ class AgentRunner(
         val toolDefinitionsRejected: Boolean = false,
         val batchRejected: Boolean = false,
         val observedCalls: Int = 0,
-        val progressDeadline: ProgressDeadlineOutcome? = null
+        val progressDeadline: ProgressDeadlineOutcome? = null,
+        val batchRejection: String? = null
     )
 
     private fun recoverableRoundFailure(message: String, hasToolContext: Boolean): Boolean = (
@@ -506,6 +507,7 @@ class AgentRunner(
         val calls = mutableListOf<ProviderEvent.ToolCall>()
         val admission = ToolRoundAdmission(minOf(limits.maxToolCallsPerRound, remainingObserved))
         var batchRejected = false
+        var batchRejection: String? = null
         var completed = false
         var failure: String? = null
         var progressDeadline: ProgressDeadlineOutcome? = null
@@ -569,6 +571,7 @@ class AgentRunner(
         }.catch { error ->
             if (error is CancellationException || error is VirtualMachineError || error is ThreadDeath || error is IllegalStateException && error.message?.startsWith("DISPATCH_POLICY_CHANGED:") == true) throw error
             if (error is ToolBatchOversizeException) {
+                batchRejection = error.message
                 batchRejected = true
                 return@catch
             }
@@ -584,9 +587,11 @@ class AgentRunner(
             }
         }.transformWhile { event ->
             if (event is ProviderEvent.ToolCall && !admission.admit(event)) {
+                batchRejection = admission.rejection?.message
                 batchRejected = true
                 false
             } else if (event is ProviderEvent.Failed && event.message.startsWith("TOOL_BATCH_OVERSIZE")) {
+                batchRejection = event.message
                 batchRejected = true
                 false
             } else {
@@ -660,7 +665,7 @@ class AgentRunner(
         // Do not emit from finally: a cancelled or failed consumer cannot accept
         // another event. Genuine provider failures still retain observed usage.
         emitRoundUsage()
-        return RoundResult(calls, completed, failure, textEmitted, toolDefinitionsRejected, batchRejected, admission.observed, progressDeadline)
+        return RoundResult(calls, completed, failure, textEmitted, toolDefinitionsRejected, batchRejected, admission.observed, progressDeadline, batchRejection)
     }
 
     private fun toolResultText(result: AgentToolResult): String = when (val content = result.content) {

@@ -463,6 +463,9 @@ dependencies {
     implementation(libs.gson)
 
     // On-device LiteRT-LM serving
+    // AndroidX Compose, Activity, Collection and tracing are already supplied by this app.
+    // Avoid parallel JetBrains Compose wrappers selecting a second platform dependency graph.
+    implementation("dev.chrisbanes.haze:haze-android:1.7.3") { isTransitive = false }
     implementation(libs.litertlm)
 
     // QAIRT host libraries and matching HTP stubs/skeletons for LiteRT-LM NPU dispatch.

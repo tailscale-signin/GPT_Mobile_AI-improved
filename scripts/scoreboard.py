@@ -46,7 +46,7 @@ def validate(data, *, submitted=False):
     require(type(data["schemaVersion"]) is int and data["schemaVersion"] == 1, "Unsupported scoreboard version.")
     require(type(data.get("kind")) is str and data.get("kind") in {"MODEL", "DELEGATION"} and type(data.get("plan")) is str and data.get("plan") in {"QUICK", "FULL"}, "Unsupported test plan.")
     delegation = data["kind"] == "DELEGATION"
-    require(type(data.get("suiteVersion")) is int and data["suiteVersion"] == (1 if delegation else 6), "Unsupported suite version.")
+    require(type(data.get("suiteVersion")) is int and data["suiteVersion"] in ({1} if delegation else {6, 7}), "Unsupported suite version.")
     require(isinstance(data.get("id"), str) and re.fullmatch(r"[A-Za-z0-9-]{1,80}", data["id"]), "Invalid run ID.")
     require(integer(data.get("startedAt"), 0, 253402300799999), "Invalid run timestamp.")
     require(type(data.get("provider")) is str and data.get("provider") in PROVIDERS and model(data.get("model")), "Only remote provider/model identities are accepted.")

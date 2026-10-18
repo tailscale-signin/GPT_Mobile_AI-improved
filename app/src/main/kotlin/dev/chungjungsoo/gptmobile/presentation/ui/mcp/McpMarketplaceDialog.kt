@@ -903,7 +903,7 @@ fun McpPresetConfigureDialog(
     val requiredColors = OutlinedTextFieldDefaults.colors(errorBorderColor = MaterialTheme.colorScheme.error, errorLabelColor = MaterialTheme.colorScheme.error, errorSupportingTextColor = MaterialTheme.colorScheme.error, errorCursorColor = MaterialTheme.colorScheme.error)
     val canSave = name.isNotBlank() && validAlias && validEndpoint && validKey
     Dialog(onDismissRequest = onDismissRequest, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Surface(Modifier.fillMaxWidth(.95f).padding(8.dp), shape = RoundedCornerShape(24.dp), tonalElevation = 6.dp) {
+        dev.chungjungsoo.gptmobile.presentation.common.AppGlassSurface(Modifier.fillMaxWidth(.95f).padding(8.dp), shape = RoundedCornerShape(24.dp)) {
             Column(Modifier.padding(20.dp).verticalScroll(rememberScrollState()).imePadding(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Set up ${preset.name}", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)

@@ -163,6 +163,10 @@ import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as Alert
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDialog as Dialog
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as DropdownMenu
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
+import dev.chungjungsoo.gptmobile.presentation.common.glassBackdrop
+import dev.chungjungsoo.gptmobile.presentation.common.glassBackdropSource
+import dev.chungjungsoo.gptmobile.presentation.common.glassWindowBackdrop
+import dev.chungjungsoo.gptmobile.presentation.common.hasGlassBackdrop
 import dev.chungjungsoo.gptmobile.presentation.ui.archive.ArchivedConversationsBar
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatMarkdown
 import dev.chungjungsoo.gptmobile.util.getPlatformName
@@ -407,7 +411,7 @@ fun HomeScreen(
             }
         }
     ) { innerPadding ->
-        Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
+        Box(modifier = Modifier.fillMaxSize().padding(innerPadding).glassBackdropSource()) {
             Column(modifier = Modifier.fillMaxSize()) {
                 if (!chatListState.isSelectionMode && !chatListState.isSearchMode) {
                     PrimaryTabRow(
@@ -424,6 +428,7 @@ fun HomeScreen(
                         divider = { HorizontalDivider(color = MaterialTheme.colorScheme.primary.copy(alpha = 0.24f)) }
                     ) {
                         Tab(
+                            modifier = Modifier.background(MaterialTheme.colorScheme.background),
                             selectedContentColor = MaterialTheme.colorScheme.primary,
                             unselectedContentColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.65f),
                             selected = currentTab == HomeTab.CHATS,
@@ -454,7 +459,6 @@ fun HomeScreen(
 
                 when (currentTab) {
                     HomeTab.CHATS -> {
-                        Text("Chats", Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.headlineSmall)
                         if (chatListState.isSelectionMode) {
                             Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                                 androidx.compose.material3.TriStateCheckbox(
@@ -1558,8 +1562,8 @@ fun FavoriteDetailDialog(
         Surface(
             modifier = Modifier
                 .fillMaxSize()
-                .systemBarsPadding(),
-            color = MaterialTheme.colorScheme.background
+                .systemBarsPadding().glassWindowBackdrop(),
+            color = dev.chungjungsoo.gptmobile.presentation.common.overlayWindowContainerColor()
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
                 // Top Action Bar
@@ -1744,9 +1748,9 @@ fun LazyListState.isScrollingUp(): Boolean {
 fun NewChatButton(onClick: () -> Unit) {
     LargeFloatingActionButton(
         onClick = onClick,
-        modifier = Modifier.size(72.dp).testTag("home_new_chat_icon"),
+        modifier = Modifier.size(72.dp).glassBackdrop(CircleShape, opacity = 0.90f).testTag("home_new_chat_icon"),
         shape = CircleShape,
-        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.90f),
+        containerColor = if (hasGlassBackdrop()) Color.Transparent else MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.90f),
         contentColor = MaterialTheme.colorScheme.onSurface
     ) {
         Icon(
@@ -1839,15 +1843,4 @@ fun HomeTopBar(
             scrollBehavior = scrollBehavior
         )
     }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun ChatsTitle(scrollBehavior: TopAppBarScrollBehavior) {
-    Text(
-        text = stringResource(R.string.chats),
-        style = MaterialTheme.typography.headlineMedium,
-        fontWeight = FontWeight.Bold,
-        modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp)
-    )
 }

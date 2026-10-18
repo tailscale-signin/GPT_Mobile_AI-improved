@@ -403,7 +403,7 @@ class ChatRepositoryImpl(
         val constraints = RequestConstraints(
             maxOutputTokens = outputBudget,
             allowTools = tools.isNotEmpty(),
-            allowReasoning = benchmarkCategory == dev.chungjungsoo.gptmobile.data.benchmark.IntelligenceBenchmark.CATEGORY,
+            allowReasoning = benchmarkCategory.startsWith(dev.chungjungsoo.gptmobile.data.benchmark.IntelligenceBenchmark.CATEGORY),
             freshResponse = true,
             requestRole = "benchmark",
             finalResponseSchemaJson = when (benchmarkCategory) {
@@ -1534,7 +1534,7 @@ class ChatRepositoryImpl(
                 }
                 val memoryBoundary = effectiveUserMessages.lastOrNull()?.let { factVault?.scopeForChat(it.chatId) }
                 val privateConversation = memoryBoundary?.isTemporary == true
-                suspend fun resolveAuthorizedTools(cachedOnly: Boolean = preparationPlan.kind == dev.chungjungsoo.gptmobile.data.readiness.PreparationKind.CONTEXTUAL) = (
+                suspend fun resolveAuthorizedTools(cachedOnly: Boolean = true) = (
                     if (preparationPlan.kind == dev.chungjungsoo.gptmobile.data.readiness.PreparationKind.DIRECT || platform.disableAllTools || (!supportsTools && !sourceAcquisitionRequested)) {
                         emptyList()
                     } else {

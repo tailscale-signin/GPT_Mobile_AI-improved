@@ -80,11 +80,13 @@ class MainActivity : dev.chungjungsoo.gptmobile.presentation.ui.main.ProtectedAc
                     if (startupError != null) {
                         androidx.compose.material3.Text(requireNotNull(startupError), modifier = androidx.compose.ui.Modifier.padding(24.dp))
                     } else if (isReady) {
-                        SetupNavGraph(
-                            navController = navController,
-                            toolConnectionsViewModel = toolConnectionsViewModel,
-                            onLaunchOAuth = ::launchOAuth
-                        )
+                        dev.chungjungsoo.gptmobile.presentation.common.GlassBackdropHost {
+                            SetupNavGraph(
+                                navController = navController,
+                                toolConnectionsViewModel = toolConnectionsViewModel,
+                                onLaunchOAuth = ::launchOAuth
+                            )
+                        }
                         LaunchedEffect(navController) {
                             navController.checkForExistingSettings()
                             navController.observeNotificationDeepLinks()

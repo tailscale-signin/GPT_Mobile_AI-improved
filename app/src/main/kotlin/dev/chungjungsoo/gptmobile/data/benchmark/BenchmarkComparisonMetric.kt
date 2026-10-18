@@ -17,9 +17,9 @@ internal fun benchmarkComparisonMetrics(first: BenchmarkScoreRow, second: Benchm
     fun metric(label: String, a: Double?, b: Double?) = BenchmarkComparisonMetric(label, a, b, compatible)
     return listOf(
         metric("App rating", first.overall, second.overall),
-        metric("Intelligence", first.intelligence?.score, second.intelligence?.score),
-        metric("Quality", first.quality, second.quality),
-        metric("Reliability", first.reliability, second.reliability),
+        metric("Reasoning accuracy", first.intelligence?.score, second.intelligence?.score),
+        metric("Functional task compliance", first.quality, second.quality),
+        metric("Request completion", first.reliability, second.reliability),
         metric("Speed score", first.speedScore, second.speedScore),
         metric("Response score", first.latencyScore, second.latencyScore),
         metric("Consistency", first.consistency, second.consistency),

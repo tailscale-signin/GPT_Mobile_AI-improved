@@ -18,13 +18,14 @@ import dev.chungjungsoo.gptmobile.data.research.feature.ResearchWork
 import dev.chungjungsoo.gptmobile.data.research.feature.ResearchWorkVersion
 import dev.chungjungsoo.gptmobile.data.research.feature.StudyField
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDialog
+import dev.chungjungsoo.gptmobile.presentation.common.glassWindowBackdrop
 
 data class ArticleComparison(val work: ResearchWork, val version: ResearchWorkVersion, val fields: List<StudyField>, val appraisals: List<EvidenceAppraisal>)
 
 @Composable
 fun ResearchComparisonDialog(articles: List<ArticleComparison>, onClose: () -> Unit) {
     FadingDialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Scaffold(Modifier.fillMaxSize(), topBar = { TextButton(onClick = onClose) { Text("Back to archive") } }) { padding ->
+        Scaffold(Modifier.fillMaxSize().glassWindowBackdrop(), containerColor = dev.chungjungsoo.gptmobile.presentation.common.overlayWindowContainerColor(), topBar = { TextButton(onClick = onClose) { Text("Back to archive") } }) { padding ->
             LazyColumn(Modifier.padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 item {
                     Text("Compare study evidence", style = MaterialTheme.typography.titleLarge)

@@ -15,6 +15,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class BenchmarkScoreboardTest {
+    @Test fun legacyAndRevisedFixturesKeepSeparatePublicIdentities() {
+        val current = checkNotNull(BenchmarkScoreboard.fromRun(run("current")))
+        val legacy = current.copy(id = "legacy", suiteVersion = 6)
+        assertNotNull(BenchmarkScoreboard.evaluate(legacy))
+        assertEquals(2, BenchmarkScoreboard.best(listOf(legacy, current)).size)
+        assertNull(BenchmarkScoreboard.fromRun(run("old").copy(suiteVersion = 6)))
+        assertNull(BenchmarkScoreboard.evaluate(current.copy(suiteVersion = 8)))
+    }
+
     @Test fun `Android matches the repository scoring contract for both plans and kinds`() {
         val text = checkNotNull(javaClass.classLoader?.getResourceAsStream("scoreboard-contract.json")).bufferedReader().use { it.readText() }
         Json.parseToJsonElement(text).jsonArray.forEach { item ->
@@ -84,7 +93,7 @@ class BenchmarkScoreboardTest {
 
     private fun run(id: String) = BenchmarkRun(
         id, "SECRET-uid", "SECRET-profile", "OPENAI", "model", "SECRET-config", false,
-        BenchmarkMode.QUICK, 100, suiteVersion = 6, measurementVersion = 2, plannedTrials = 5,
+        BenchmarkMode.QUICK, 100, suiteVersion = BenchmarkSuiteRegistry.VERSION, measurementVersion = 2, plannedTrials = 5,
         device = "SECRET-device",
         samples = benchmarkSuite(BenchmarkMode.QUICK).map { test ->
             BenchmarkSample(test.id, test.label, test.category, BenchmarkOutcome.PASSED, durationMs = 500, firstTextMs = 100, lastTextMs = 500, chunks = 2, referenceDecodeTokens = 20, preview = "SECRET-response", error = "SECRET-endpoint", workload = test.workload, intelligenceAnswers = if (test.category == "intelligence") BenchmarkScoreboard.domains.associateWith { true } else emptyMap())

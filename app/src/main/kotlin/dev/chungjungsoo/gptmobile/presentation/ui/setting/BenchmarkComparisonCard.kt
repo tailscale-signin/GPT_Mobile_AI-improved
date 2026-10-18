@@ -50,7 +50,7 @@ internal fun BenchmarkComparisonCard(name: String, model: String, row: Benchmark
                 }
             }
             BenchmarkRatingBar("Overall", row.overall)
-            BenchmarkRatingBar("Intelligence · text capability", row.intelligence?.score, missing = "${row.intelligence?.answered ?: 0} / ${row.intelligence?.planned ?: 36} answered")
+            BenchmarkRatingBar("Reasoning accuracy · text capability", row.intelligence?.score, missing = "${row.intelligence?.answered ?: 0} / ${row.intelligence?.planned ?: 36} answered")
             Text(if (row.intelligence?.provisional == true) "Quick Intelligence: 6 questions, provisional. Run Full for all 36." else "Intelligence is independent of speed and app rating. Open this profile for domain results and coverage.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             benchmarkScoreDimensions(row, row.cohort.contains("device:")).forEach { dimension ->
                 BenchmarkRatingBar(dimension.label, dimension.score, missing = benchmarkMissingScoreLabel(row, dimension.label))
@@ -122,7 +122,7 @@ internal fun benchmarkMissingScoreLabel(row: BenchmarkScoreRow?, dimension: Stri
 @Composable
 internal fun IntelligenceResults(result: IntelligenceScore?, quick: Boolean, previous: IntelligenceScore? = null) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        BenchmarkRatingBar(if (quick) "Intelligence · provisional" else "Intelligence", result?.score, missing = "Incomplete coverage", previous = previous?.score)
+        BenchmarkRatingBar(if (quick) "Reasoning accuracy · provisional" else "Reasoning accuracy", result?.score, missing = "Incomplete coverage", previous = previous?.score)
         Text("${result?.answered ?: 0} / ${result?.planned ?: if (quick) 6 else 36} questions answered · text capability screen v${result?.version ?: IntelligenceBenchmark.VERSION}", style = MaterialTheme.typography.labelMedium)
         if (quick) Text("One question per domain is a quick check, not a stable capability estimate. Full checks all 36 questions.", style = MaterialTheme.typography.bodySmall)
         IntelligenceBenchmark.suite.map { it.workload }.distinct().forEach { domain ->

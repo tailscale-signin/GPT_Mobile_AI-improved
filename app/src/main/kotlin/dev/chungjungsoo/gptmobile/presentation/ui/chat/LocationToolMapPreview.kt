@@ -58,6 +58,7 @@ import dev.chungjungsoo.gptmobile.data.agent.tool.PlaceRoute
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
+import dev.chungjungsoo.gptmobile.presentation.common.glassWindowBackdrop
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
@@ -343,7 +344,7 @@ internal fun EmbeddedLocationMap(
             onDismissRequest = { expanded = false },
             properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
         ) {
-            androidx.compose.material3.Surface(Modifier.fillMaxSize()) {
+            androidx.compose.material3.Surface(Modifier.fillMaxSize().glassWindowBackdrop(), color = dev.chungjungsoo.gptmobile.presentation.common.overlayWindowContainerColor()) {
                 Column(Modifier.fillMaxSize().systemBarsPadding()) {
                     TextButton(onClick = { expanded = false }) { Text(stringResource(dev.chungjungsoo.gptmobile.R.string.map_close)) }
                     mapContent(Modifier.fillMaxWidth().weight(1f))

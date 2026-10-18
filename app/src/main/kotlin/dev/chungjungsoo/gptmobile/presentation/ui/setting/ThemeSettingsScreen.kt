@@ -61,6 +61,7 @@ import dev.chungjungsoo.gptmobile.data.model.DynamicTheme
 import dev.chungjungsoo.gptmobile.data.model.ThemeMode
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDialog as Dialog
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
+import dev.chungjungsoo.gptmobile.presentation.common.glassWindowBackdrop
 import dev.chungjungsoo.gptmobile.presentation.theme.paletteContrastChecks
 import dev.chungjungsoo.gptmobile.presentation.theme.resolveThemeColorScheme
 import dev.chungjungsoo.gptmobile.presentation.theme.suggestPaletteAccent
@@ -122,6 +123,8 @@ fun ThemeSettingsScreen(onDismiss: () -> Unit, asDialog: Boolean = true, initial
     BackHandler { exit() }
     val body: @Composable () -> Unit = {
         Scaffold(
+            modifier = Modifier.glassWindowBackdrop(),
+            containerColor = dev.chungjungsoo.gptmobile.presentation.common.overlayWindowContainerColor(),
             topBar = {
                 TopAppBar(title = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_appearance_3907f)) }, navigationIcon = {
                     IconButton(onClick = ::exit) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") }
@@ -261,11 +264,9 @@ fun ThemeSettingsScreen(onDismiss: () -> Unit, asDialog: Boolean = true, initial
                                                 Text("Background blur", Modifier.weight(1f))
                                                 Switch(checked = draft.overlayBlur == "auto", onCheckedChange = { enabled -> editor.edit { it.copy(overlayBlur = if (enabled) "auto" else "off") } })
                                             }
-                                            Text("Uses tinted glass when a qualified background blur renderer is unavailable.", style = MaterialTheme.typography.bodySmall)
-                                            androidx.compose.runtime.CompositionLocalProvider(dev.chungjungsoo.gptmobile.presentation.common.LocalOverlayMaterial provides draft.overlayMaterial) {
-                                                dev.chungjungsoo.gptmobile.presentation.common.AppGlassSurface(Modifier.fillMaxWidth().padding(vertical = 12.dp)) {
-                                                    Text("Menu and dialog preview", Modifier.padding(24.dp))
-                                                }
+                                            Text("Strong 40 dp background blur. Turning this off keeps the theme tint; text and icons remain sharp.", style = MaterialTheme.typography.bodySmall)
+                                            androidx.compose.runtime.CompositionLocalProvider(dev.chungjungsoo.gptmobile.presentation.common.LocalOverlayMaterial provides draft.overlayMaterial, dev.chungjungsoo.gptmobile.presentation.common.LocalOverlayBlur provides draft.overlayBlur) {
+                                                dev.chungjungsoo.gptmobile.presentation.common.GlassMaterialPreview()
                                             }
                                         }
                                         item { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_appearance_mode_3a6b5), style = MaterialTheme.typography.titleMedium) }

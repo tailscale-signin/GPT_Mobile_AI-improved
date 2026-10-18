@@ -103,7 +103,10 @@ data class LocalPlanDecision(
     val candidateIds: List<String> = emptyList(),
     val rejections: Map<String, String> = emptyMap(),
     val reason: String,
-    val policyVersion: Int = 1
+    val policyVersion: Int = 2,
+    val profilePreserved: Boolean = true,
+    val requestCompleted: Boolean? = null,
+    val actualLanguageBackend: String? = null
 )
 
 @Serializable
@@ -161,7 +164,8 @@ class LocalExecutionPlanner {
         }
         return LocalPlanDecision(
             selected = winner?.plan ?: requested,
-            qualification = winner?.status ?: QualificationStatus.NOT_TESTED,
+            qualification = winner?.status ?: evidence.filter { it.key == key && it.plan.id == requested.id }.maxByOrNull { it.measuredAt }?.status ?: QualificationStatus.NOT_TESTED,
+            profilePreserved = winner == null || winner.plan.id == requested.id,
             candidateIds = candidates.map { it.plan.id },
             rejections = rejected,
             reason = if (winner == null) "Keeping profile configuration; no qualified replacement selected" else "Selected from comparable on-device evidence"

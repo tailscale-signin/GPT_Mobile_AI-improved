@@ -73,6 +73,7 @@ import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as Alert
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDialog as Dialog
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as DropdownMenu
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
+import dev.chungjungsoo.gptmobile.presentation.common.glassWindowBackdrop
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.jsonObject
 
@@ -118,7 +119,8 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
     val canNavigate = !state.busy && !editorDirty && state.staged.isEmpty() && state.editorDrafts.isEmpty()
     Dialog(onDismissRequest = { close() }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Scaffold(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().glassWindowBackdrop(),
+            containerColor = dev.chungjungsoo.gptmobile.presentation.common.overlayWindowContainerColor(),
             topBar = {
                 TopAppBar(
                     title = {

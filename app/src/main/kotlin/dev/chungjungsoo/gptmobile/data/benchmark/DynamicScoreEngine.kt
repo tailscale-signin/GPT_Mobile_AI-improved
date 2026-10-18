@@ -131,7 +131,7 @@ internal object DynamicScoreEngine {
         val qualityCases = samples.filter { it.category != "speed" && it.category != IntelligenceBenchmark.CATEGORY }
         val quality = qualityCases.groupBy { it.workload }.values.takeIf { it.isNotEmpty() }?.map { category -> 100.0 * category.count { it.outcome == BenchmarkOutcome.PASSED } / category.size }?.average()
         val reliability = samples.filter { it.category != IntelligenceBenchmark.CATEGORY }.takeIf { it.isNotEmpty() }?.let { 100.0 * it.count { sample -> sample.completed } / it.size }
-        val consistency = samples.filter { it.category == "speed" }.groupBy { it.workload }.values.mapNotNull { band ->
+        val consistency = timingSource.flatMap { it.samples }.filter { !it.warmup && it.category == "speed" && it.outcome == BenchmarkOutcome.PASSED && it.timingEligible != false }.groupBy { it.workload }.values.mapNotNull { band ->
             band.mapNotNull { it.referenceSpeed }.takeIf { it.size >= 3 && it.average() > 0 }?.let { values ->
                 val mean = values.average()
                 100.0 * (1 - sqrt(values.map { (it - mean) * (it - mean) }.average()) / mean).coerceIn(0.0, 1.0)
@@ -141,13 +141,14 @@ internal object DynamicScoreEngine {
         val unsupported = source.flatMap { it.samples }.filter { it.outcome == BenchmarkOutcome.UNSUPPORTED }.map { it.category }.toSet()
         val intelligence = source.maxBy { it.startedAt }.takeIf { it.suiteVersion >= 5 }?.let {
             when {
+                it.mode == BenchmarkMode.DIAGNOSTIC -> IntelligenceBenchmark.score(it.samples).copy(version = IntelligenceBenchmark.VERSION)
                 it.suiteVersion >= 6 -> IntelligenceBenchmark.scoreBatches(it.samples, it.mode == BenchmarkMode.QUICK, if (it.suiteVersion >= 7) 3 else 2)
                 it.mode != BenchmarkMode.QUICK -> IntelligenceBenchmark.score(it.samples)
                 else -> null
             }
         }
         val timingCoverage = listOf("short", "medium", "long").joinToString { band -> "$band ${run.samples.count { !it.warmup && it.workload == band && it.referenceSpeed != null && it.outcome == BenchmarkOutcome.PASSED }}/5" }
-        return BenchmarkScoreRow(run.profileUid, run.configKey, cohort(run), source.map { it.id }, speed, latency, null, null, quality, reliability, consistency, null, verified, samples.size, if (verified) "Verified warm timing; median of ${timingEligibleBlocks.size} eligible complete blocks. Unsuccessful attempts retained in history." else "Provisional timing: $timingCoverage successful timed trials; each band requires five eligible trials in one complete Full block; ${run.samples.filter { it.failureCategory == "INSUFFICIENT_TIMING_SAMPLE" }.mapNotNull { it.error }.distinct().joinToString("; ")}", speedByBand, latencyByBand, accuracy, unsupported, intelligence)
+        return BenchmarkScoreRow(run.profileUid, run.configKey, cohort(run), source.map { it.id }, speed, latency, null, null, quality, reliability, consistency, null, verified, samples.size, if (verified) "Verified warm timing; median of ${timingEligibleBlocks.size} eligible complete blocks. Unsuccessful attempts retained in history." else "Provisional timing: $timingCoverage successful timed trials; each band requires five eligible trials in one complete Full block; ${run.samples.filter { it.failureCategory == "INSUFFICIENT_TIMING_SAMPLE" || it.timingExclusionReason != null }.mapNotNull { it.timingExclusionReason ?: it.error }.distinct().joinToString("; ")}", speedByBand, latencyByBand, accuracy, unsupported, intelligence)
     }
 
     private data class CohortAnchors(val speed: Double?, val speeds: Map<String, Double?>, val latencies: Map<String, Double?>, val count: Int)

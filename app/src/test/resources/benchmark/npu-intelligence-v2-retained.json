@@ -1,0 +1,32 @@
+[
+  {
+    "testId": "intelligence-batch-0",
+    "preview": "```json\n{\n  \"Math\": \"17\",\n  \"Logic\": \"NO\",\n  \"Reading\": \"NO\",\n  \"Planning\": \"5\",\n  \"Code reasoning\": \"2\",\n  \"Knowledge\": \"Oxygen\"\n}\n```",
+    "outputCharacters": 135
+  },
+  {
+    "testId": "intelligence-batch-1",
+    "preview": "```json\n{\n  \"Math\": \"1/10\",\n  \"Logic\": \"ACBD\",\n  \"Reading\": \"Suri\",\n  \"Planning\": \"10\",\n  \"Code reasoning\": \"10\",\n  \"Knowledge\": \"Ohm\"\n}\n```",
+    "outputCharacters": 140
+  },
+  {
+    "testId": "intelligence-batch-2",
+    "preview": "```json\n{\n  \"Math\": \"150\",\n  \"Logic\": \"TRUE\",\n  \"Reading\": \"NO\",\n  \"Planning\": \"3\",\n  \"Code reasoning\": \"13\",\n  \"Knowledge\": \"Mercury\"\n}\n```",
+    "outputCharacters": 140
+  },
+  {
+    "testId": "intelligence-batch-3",
+    "preview": "```json\n{\n  \"Math\": \"5\",\n  \"Logic\": \"YES\",\n  \"Reading\": \"11\",\n  \"Planning\": \"1\",\n  \"Code reasoning\": \"B\",\n  \"Knowledge\": \"180\"\n}\n```",
+    "outputCharacters": 132
+  },
+  {
+    "testId": "intelligence-batch-4",
+    "preview": "```json\n{\n  \"Math\": 360,\n  \"Logic\": \"NO\",\n  \"Reading\": \"UNKNOWN\",\n  \"Planning\": 6,\n  \"Code reasoning\": 3,\n  \"Knowledge\": \"Photosynthesis\"\n}\n```",
+    "outputCharacters": 143
+  },
+  {
+    "testId": "intelligence-batch-5",
+    "preview": "```json\n{\n  \"Math\": 13,\n  \"Logic\": \"B\",\n  \"Reading\": \"Omar\",\n  \"Planning\": 7,\n  \"Code reasoning\": 5,\n  \"Knowledge\": \"QUEUE\"\n}\n```",
+    "outputCharacters": 129
+  }
+]

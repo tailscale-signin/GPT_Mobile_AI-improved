@@ -57,6 +57,44 @@ internal fun benchmarkExport(raw: String, detailed: Boolean): String {
                                         }
                                     )
                                 )
+                                put(
+                                    "timingExclusions",
+                                    buildJsonArray {
+                                        run.samples.forEach { sample ->
+                                            sample.timingExclusionReason?.let { reason ->
+                                                add(
+                                                    buildJsonObject {
+                                                        put("testId", sample.testId)
+                                                        put("reason", reason)
+                                                        put("requestCompleted", sample.completed)
+                                                    }
+                                                )
+                                            }
+                                        }
+                                    }
+                                )
+                                put(
+                                    "reasoningReevaluation",
+                                    buildJsonArray {
+                                        run.samples.forEach { sample ->
+                                            IntelligenceBenchmark.gradeRetained(sample, if (run.suiteVersion >= 7) 3 else 2)?.let { grade ->
+                                                add(
+                                                    buildJsonObject {
+                                                        put("testId", sample.testId)
+                                                        put("fixtureVersion", grade.fixtureVersion)
+                                                        put("rawJsonCompliant", grade.formatCompliant)
+                                                        put("parseable", grade.parseable)
+                                                        put("correct", grade.answers.values.count { it })
+                                                        put("total", grade.answers.size)
+                                                        put("answers", buildJsonObject { grade.answers.forEach { (key, value) -> put(key, value) } })
+                                                        grade.correction?.let { put("correction", it) }
+                                                        put("scope", "Re-evaluation of complete retained text; original run evidence unchanged")
+                                                    }
+                                                )
+                                            }
+                                        }
+                                    }
+                                )
                                 put("completedWithoutInterruption", run.finished && !run.canceled && run.stoppedReason == null)
                                 put("scope", "Isolated-run diagnostic; active eligible aggregate scores are in scoreTable")
                                 put("scoringPolicy", "benchmark-score-v3")

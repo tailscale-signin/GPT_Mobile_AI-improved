@@ -23,7 +23,7 @@ internal fun CombinedQualityInspector(report: CombinedQualityReport, answer: Str
     Surface(color = MaterialTheme.colorScheme.tertiaryContainer, contentColor = MaterialTheme.colorScheme.onTertiaryContainer, shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth().padding(8.dp)) {
         Column(Modifier.padding(12.dp)) {
             Text("Combined quality · " + report.status, style = MaterialTheme.typography.titleSmall)
-            Text("${report.wordCount} words · ${report.repairRounds} repair(s) · ${report.duplicatePassagesRemoved} duplicates removed", style = MaterialTheme.typography.labelSmall)
+            Text("${report.wordCount} words · ${report.repairRounds} repair attempts · ${report.repairAccepted} accepted · ${report.repairRejected} rejected · ${report.duplicatePassagesRemoved} duplicates removed", style = MaterialTheme.typography.labelSmall)
             Text("${report.lexicalMissing}/${report.sourceUnits} unresolved lexical hints · semantic/factual verification: not certified", style = MaterialTheme.typography.labelSmall)
             report.turnContext?.let { Text("${it.date} · ${it.timezone} · ${it.authority}", style = MaterialTheme.typography.labelSmall) }
             report.issues.forEach { Text(it, color = MaterialTheme.colorScheme.onTertiaryContainer, style = MaterialTheme.typography.labelSmall) }

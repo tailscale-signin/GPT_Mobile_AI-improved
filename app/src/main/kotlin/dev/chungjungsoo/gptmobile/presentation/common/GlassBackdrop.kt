@@ -1,0 +1,106 @@
+package dev.chungjungsoo.gptmobile.presentation.common
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.HazeStyle
+import dev.chrisbanes.haze.HazeTint
+import dev.chrisbanes.haze.hazeEffect
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
+
+internal val LocalGlassBackdrop = compositionLocalOf<HazeState?> { null }
+internal val LocalGlassBackdropActive = compositionLocalOf { false }
+internal val LocalOverlayWindow = compositionLocalOf { false }
+internal val GLASS_BLUR_RADIUS = 40.dp
+
+/** Captures rendered app pixels in memory. Popup windows sample this layer, never their text. */
+@Composable
+fun GlassBackdropHost(content: @Composable () -> Unit) {
+    val lifecycle by LocalLifecycleOwner.current.lifecycle.currentStateFlow.collectAsState()
+    val active = lifecycle.isAtLeast(Lifecycle.State.STARTED) && LocalOverlayMaterial.current == "glass" && LocalOverlayBlur.current == "auto"
+    val state = rememberHazeState()
+    CompositionLocalProvider(LocalGlassBackdrop provides state, LocalGlassBackdropActive provides active) {
+        // Removing the source when stopped releases its graphics layer, including private pixels.
+        Box(Modifier.fillMaxSize().then(if (active) Modifier.hazeSource(state) else Modifier)) { content() }
+    }
+}
+
+/** A sibling source for same-window controls, below the enclosing navigation source. */
+@Composable
+fun Modifier.glassBackdropSource(): Modifier {
+    val state = LocalGlassBackdrop.current
+    return if (state != null && LocalGlassBackdropActive.current) hazeSource(state, zIndex = -1f) else this
+}
+
+@Composable
+internal fun hasGlassBackdrop(): Boolean = LocalGlassBackdrop.current != null &&
+    LocalGlassBackdropActive.current &&
+    LocalOverlayMaterial.current == "glass" &&
+    LocalOverlayBlur.current == "auto"
+
+@Composable
+internal fun Modifier.glassBackdrop(shape: Shape, opacity: Float = 0.85f): Modifier {
+    val state = LocalGlassBackdrop.current ?: return this
+    if (!hasGlassBackdrop()) return this
+    val tokens = appOverlayTokens()
+    val tint = tokens.background.copy(alpha = opacity.coerceIn(0f, 1f))
+    return clip(shape).background(tint).hazeEffect(
+        state = state,
+        style = HazeStyle(
+            backgroundColor = MaterialTheme.colorScheme.background,
+            tints = listOf(HazeTint(tint)),
+            blurRadius = GLASS_BLUR_RADIUS,
+            noiseFactor = 0.035f,
+            fallbackTint = HazeTint(tint)
+        )
+    )
+}
+
+/** A patterned sibling source makes the preview demonstrate actual backdrop blur. */
+@Composable
+fun GlassMaterialPreview() {
+    val state = rememberHazeState()
+    val lifecycle by LocalLifecycleOwner.current.lifecycle.currentStateFlow.collectAsState()
+    val active = lifecycle.isAtLeast(Lifecycle.State.STARTED) && LocalOverlayMaterial.current == "glass" && LocalOverlayBlur.current == "auto"
+    val colors = listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.tertiary, MaterialTheme.colorScheme.secondary)
+    CompositionLocalProvider(LocalGlassBackdrop provides state, LocalGlassBackdropActive provides active) {
+        Box(Modifier.fillMaxWidth().height(112.dp)) {
+            androidx.compose.foundation.Canvas(Modifier.matchParentSize().then(if (active) Modifier.hazeSource(state) else Modifier)) {
+                colors.forEachIndexed { index, color ->
+                    drawCircle(color, radius = size.height * 0.6f, center = androidx.compose.ui.geometry.Offset(size.width * (index + 0.5f) / 3, size.height * 0.5f))
+                }
+            }
+            AppGlassSurface(Modifier.fillMaxSize()) {
+                androidx.compose.material3.Text("Menu and dialog preview", Modifier.padding(24.dp))
+            }
+        }
+    }
+}
+
+/** Full-screen dialog content shares the same backdrop renderer without affecting normal screens. */
+@Composable
+fun Modifier.glassWindowBackdrop(shape: Shape = androidx.compose.ui.graphics.RectangleShape): Modifier = if (LocalOverlayWindow.current) glassBackdrop(shape) else this
+
+@Composable
+fun overlayWindowContainerColor(): androidx.compose.ui.graphics.Color = when {
+    !LocalOverlayWindow.current -> MaterialTheme.colorScheme.background
+    hasGlassBackdrop() -> androidx.compose.ui.graphics.Color.Transparent
+    else -> appOverlayTokens().background
+}

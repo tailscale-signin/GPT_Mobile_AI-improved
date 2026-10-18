@@ -107,6 +107,15 @@ class WebSearchTool(
         }
     )
 
+    private class RouteFailure(
+        val outcome: SearchEvidenceOutcome,
+        val status: Int? = null,
+        val cached: Boolean = false,
+        val cooldownUntil: Long = 0
+    ) : IllegalStateException("Search outcome ${outcome.name}; HTTP ${status ?: "unknown"}; cached=$cached; cooldownUntil=$cooldownUntil")
+    private data class AutoAttempt(val results: List<JsonObject>? = null, val failure: RouteFailure? = null)
+    private val lastAutoFailure = java.util.concurrent.atomic.AtomicReference<RouteFailure?>()
+
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
         val request = parseRequest(arguments) ?: return error(callId, "Invalid web search request: ${validationErrors(arguments).joinToString("; ")}.")
 
@@ -225,17 +234,44 @@ class WebSearchTool(
         }
         val web = async {
             try {
-                withTimeoutOrNull(15_000) { queryDuckDuckGo(request) }
+                val results = withTimeoutOrNull(15_000) { queryDuckDuckGo(request) }
+                if (results == null) {
+                    val until = clock.millis() + AUTO_SEARCH_BACKOFF_MS
+                    autoSearchBlockedUntilMs.updateAndGet { maxOf(it, until) }
+                    val failure = RouteFailure(SearchEvidenceOutcome.TIMEOUT, cooldownUntil = until)
+                    lastAutoFailure.set(failure)
+                    AutoAttempt(failure = failure)
+                } else {
+                    AutoAttempt(results)
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
-            } catch (_: Exception) {
-                null
+            } catch (failure: Exception) {
+                AutoAttempt(failure = failure as? RouteFailure ?: RouteFailure(SearchEvidenceOutcome.UNAVAILABLE))
             }
         }
         val localResults = local.await()
-        val webResults = web.await()
+        val webAttempt = web.await()
+        val webResults = webAttempt.results
         if (localResults.isEmpty() && webResults == null) {
-            return@coroutineScope error(callId, "Web search failed: could not retrieve search results.")
+            val failure = requireNotNull(webAttempt.failure)
+            return@coroutineScope AgentToolResult(
+                callId,
+                ToolResultContent.Json(
+                    buildJsonObject {
+                        put("evidenceOutcome", failure.outcome.name)
+                        put("engine", "DuckDuckGo")
+                        put("error", failure.message)
+                        failure.status?.let { put("httpStatus", it) }
+                        put("cachedFailure", failure.cached)
+                        put("cooldownUntil", failure.cooldownUntil)
+                        put("requestSent", !failure.cached)
+                        put("results", JsonArray(emptyList()))
+                    }
+                ),
+                true,
+                errorCode = failure.outcome.name
+            )
         }
         val localEngine = "Local search"
         val results = (
@@ -248,7 +284,26 @@ class WebSearchTool(
             if (localResults.isNotEmpty()) add(localEngine)
             if (!webResults.isNullOrEmpty()) add("DuckDuckGo")
         }
-        AgentToolResult(callId, ToolResultContent.Json(compactSearchResults(results, request.maxResults * 2, engines)), false)
+        AgentToolResult(
+            callId,
+            ToolResultContent.Json(
+                JsonObject(
+                    compactSearchResults(results, request.maxResults * 2, engines) + mapOf(
+                        "evidenceOutcome" to JsonPrimitive(
+                            if (webAttempt.failure != null) {
+                                SearchEvidenceOutcome.PARTIAL.name
+                            } else if (results.isEmpty()) {
+                                SearchEvidenceOutcome.EMPTY_VALID.name
+                            } else {
+                                SearchEvidenceOutcome.SUCCESS.name
+                            }
+                        ),
+                        "failedEngineOutcome" to (webAttempt.failure?.outcome?.name?.let(::JsonPrimitive) ?: kotlinx.serialization.json.JsonNull)
+                    )
+                )
+            ),
+            false
+        )
     }
 
     private suspend fun tryTermuxMcpSearch(request: WebSearchRequest): List<JsonObject>? {
@@ -277,7 +332,11 @@ class WebSearchTool(
     }
 
     private suspend fun queryDuckDuckGo(request: WebSearchRequest): List<JsonObject> {
-        if (clock.millis() < autoSearchBlockedUntilMs.get()) throw IllegalStateException("SEARCH_COOLDOWN: search endpoint temporarily unavailable")
+        if (clock.millis() < autoSearchBlockedUntilMs.get()) {
+            val previous = lastAutoFailure.get()
+            throw RouteFailure(previous?.outcome ?: SearchEvidenceOutcome.UNAVAILABLE, previous?.status, cached = true, cooldownUntil = autoSearchBlockedUntilMs.get())
+        }
+        var lastFailure = RouteFailure(SearchEvidenceOutcome.UNAVAILABLE)
         val encodedQuery = URLEncoder.encode(request.query, StandardCharsets.UTF_8.name())
         val endpoints = autoSearchEndpointTemplates.map { it.replace("{query}", encodedQuery) }
 
@@ -290,11 +349,15 @@ class WebSearchTool(
                     header("Accept-Language", "en-US,en;q=0.9")
                 }
                 if (response.status.value in AUTO_SEARCH_BACKOFF_STATUSES) {
-                    autoSearchBlockedUntilMs.updateAndGet { current ->
-                        maxOf(current, clock.millis() + AUTO_SEARCH_BACKOFF_MS)
+                    val body = researchBody(response.bodyAsText())
+                    val outcome = when {
+                        response.status.value == 429 -> SearchEvidenceOutcome.RATE_LIMITED
+                        Regex("(?i)captcha|challenge-form|anomaly-modal").containsMatchIn(body) -> SearchEvidenceOutcome.CHALLENGE
+                        else -> SearchEvidenceOutcome.UNAVAILABLE
                     }
-                    throw IllegalStateException("SEARCH_UNAVAILABLE: endpoint refused the request")
+                    throw RouteFailure(outcome, response.status.value)
                 }
+                if (response.status.value !in 200..299) throw RouteFailure(SearchEvidenceOutcome.UNAVAILABLE, response.status.value)
                 if (response.status.value in 200..299) {
                     val html = researchBody(response.bodyAsText())
                     if (html.isNotBlank()) {
@@ -318,14 +381,17 @@ class WebSearchTool(
                         }
                     }
                 }
+                throw RouteFailure(SearchEvidenceOutcome.PARSE_FAILED, response.status.value)
             } catch (e: CancellationException) {
                 throw e
-            } catch (_: Exception) {
-                // Continue to next endpoint
+            } catch (failure: Exception) {
+                lastFailure = failure as? RouteFailure ?: RouteFailure(if (failure is java.net.SocketTimeoutException || failure is io.ktor.client.plugins.HttpRequestTimeoutException) SearchEvidenceOutcome.TIMEOUT else SearchEvidenceOutcome.UNAVAILABLE)
             }
         }
         autoSearchBlockedUntilMs.set(clock.millis() + AUTO_SEARCH_BACKOFF_MS)
-        throw IllegalStateException("SEARCH_PARSE_OR_TRANSPORT_FAILURE: no valid search response")
+        val saved = RouteFailure(lastFailure.outcome, lastFailure.status, cooldownUntil = autoSearchBlockedUntilMs.get())
+        lastAutoFailure.set(saved)
+        throw saved
     }
 
     private fun parseDuckDuckGoHtml(html: String, maxResults: Int): List<JsonObject> {
@@ -590,7 +656,14 @@ class WebSearchTool(
     private fun error(callId: String, message: String): AgentToolResult = AgentToolResult(
         callId = callId,
         content = ToolResultContent.Text(message.take(240)),
-        isError = true
+        isError = true,
+        errorCode = when {
+            "HTTP 429" in message -> SearchEvidenceOutcome.RATE_LIMITED.name
+            "HTTP 401" in message || "HTTP 403" in message || "API key" in message -> SearchEvidenceOutcome.AUTH_REQUIRED.name
+            "TIMEOUT" in message -> SearchEvidenceOutcome.TIMEOUT.name
+            "PARSE_" in message -> SearchEvidenceOutcome.PARSE_FAILED.name
+            else -> SearchEvidenceOutcome.UNAVAILABLE.name
+        }
     )
 
     private fun intArgument(arguments: JsonObject, name: String): Int? = runCatching {

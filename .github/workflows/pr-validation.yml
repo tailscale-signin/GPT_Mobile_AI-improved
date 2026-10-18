@@ -33,6 +33,7 @@ jobs:
   validate:
     name: Unit tests and Android lint
     runs-on: ubuntu-latest
+    timeout-minutes: 60
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -83,6 +84,8 @@ jobs:
         continue-on-error: true
 
       - name: Run Unit Tests & JaCoCo Coverage Report
+        id: unit_tests
+        timeout-minutes: 25
         shell: bash
         run: |
           set -o pipefail
@@ -106,6 +109,8 @@ jobs:
         run: python3 scripts/check_room_schemas.py
 
       - name: Run Android Lint
+        id: android_lint
+        timeout-minutes: 20
         shell: bash
         run: |
           set -o pipefail
@@ -121,8 +126,12 @@ jobs:
           require_tests: false
 
       - name: Build review APK and verify packaged runtime
+        id: review_apk
+        timeout-minutes: 20
+        shell: bash
         run: |
-          ./gradlew :app:assembleDebug --no-daemon
+          set -o pipefail
+          ./gradlew :app:assembleDebug --no-daemon 2>&1 | tee apk.log
           python3 scripts/check_local_runtime_apk.py app/build/outputs/apk/debug/*.apk
           python3 scripts/check_no_telemetry.py app/build/outputs/apk/debug/*.apk
 
@@ -150,32 +159,33 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+      - name: Upload validation logs
+        if: always()
+        timeout-minutes: 5
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pr-validation-logs
+          path: |
+            test.log
+            lint.log
+            apk.log
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Generate PR Step Summary
         if: always()
+        env:
+          UNIT_TEST_OUTCOME: ${{ steps.unit_tests.outcome }}
+          ANDROID_LINT_OUTCOME: ${{ steps.android_lint.outcome }}
+          REVIEW_APK_OUTCOME: ${{ steps.review_apk.outcome }}
         run: |
-          echo "## CI Validation Summary" >> $GITHUB_STEP_SUMMARY
-          if [ -f test.log ]; then
-            TEST_FAILURES=$(grep -E "(FAILURE|FAILED|There were failing tests)" test.log || true)
-            if [ -n "$TEST_FAILURES" ]; then
-              echo "### ❌ Unit Test Warnings / Failures" >> $GITHUB_STEP_SUMMARY
-              echo '```' >> $GITHUB_STEP_SUMMARY
-              echo "$TEST_FAILURES" | tail -n 20 >> $GITHUB_STEP_SUMMARY
-              echo '```' >> $GITHUB_STEP_SUMMARY
-            else
-              echo "### ✅ Unit Tests Succeeded" >> $GITHUB_STEP_SUMMARY
-            fi
-          fi
-          if [ -f lint.log ]; then
-            LINT_ERRORS=$(grep -E "(Error:|Fatal error:|errors occurred:)" lint.log || true)
-            if [ -n "$LINT_ERRORS" ]; then
-              echo "### ⚠️ Lint Findings" >> $GITHUB_STEP_SUMMARY
-              echo '```' >> $GITHUB_STEP_SUMMARY
-              echo "$LINT_ERRORS" | tail -n 20 >> $GITHUB_STEP_SUMMARY
-              echo '```' >> $GITHUB_STEP_SUMMARY
-            else
-              echo "### ✅ Android Lint Succeeded" >> $GITHUB_STEP_SUMMARY
-            fi
-          fi
-          if [ -d "app/build/reports/jacoco/jacocoTestReport" ]; then
-            echo "### 📊 JaCoCo Code Coverage Report Generated" >> $GITHUB_STEP_SUMMARY
-          fi
+          {
+            echo "## CI Validation Summary"
+            echo
+            echo "| Validation | Result |"
+            echo "| --- | --- |"
+            printf '| Unit tests and coverage | %s |\n' "${UNIT_TEST_OUTCOME:-not run}"
+            printf '| Android lint | %s |\n' "${ANDROID_LINT_OUTCOME:-not run}"
+            printf '| APK build and runtime verification | %s |\n' "${REVIEW_APK_OUTCOME:-not run}"
+          } >> "$GITHUB_STEP_SUMMARY"
+

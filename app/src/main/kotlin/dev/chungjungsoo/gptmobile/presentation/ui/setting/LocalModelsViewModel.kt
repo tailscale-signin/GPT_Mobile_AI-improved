@@ -360,8 +360,10 @@ class LocalModelsViewModel @Inject constructor(
                     val latest = preferences.getString("latest", null)
                     val worker = jobs.firstOrNull { !it.state.isFinished } ?: jobs.firstOrNull { it.id.toString() == latest }
                     if (worker?.state?.isFinished == true && worker.id.toString() == latest && preferences.getBoolean("ownsGrant", false)) {
-                        preferences.getString("source", null)?.let { source -> if (!dev.chungjungsoo.gptmobile.data.localmodel.LinkedModelSources.usesGrant(Uri.parse(source))) runCatching { context.contentResolver.releasePersistableUriPermission(Uri.parse(source), Intent.FLAG_GRANT_READ_URI_PERMISSION) } }
-                        preferences.edit().putBoolean("ownsGrant", false).apply()
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            preferences.getString("source", null)?.let { source -> if (!dev.chungjungsoo.gptmobile.data.localmodel.LinkedModelSources.usesGrant(Uri.parse(source))) runCatching { context.contentResolver.releasePersistableUriPermission(Uri.parse(source), Intent.FLAG_GRANT_READ_URI_PERMISSION) } }
+                            preferences.edit().putBoolean("ownsGrant", false).apply()
+                        }
                     }
                     if (worker?.state == androidx.work.WorkInfo.State.SUCCEEDED) catalogEntries.value = modelCatalogRepository.getCachedVisibleEntries()
                     importedModelId.value = worker?.takeIf { it.state == androidx.work.WorkInfo.State.SUCCEEDED }?.outputData?.getString("modelId")

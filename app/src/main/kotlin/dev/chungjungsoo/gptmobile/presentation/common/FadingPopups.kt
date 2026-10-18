@@ -64,7 +64,7 @@ fun FadingAlertDialog(
     MaterialAlertDialog(
         onDismissRequest = dismiss,
         confirmButton = confirmButton,
-        modifier = modifier.glassBackdrop(shape).graphicsLayer { alpha = opacity.value },
+        modifier = modifier.glassBackdrop(shape, captureAsPopup = true).graphicsLayer { alpha = opacity.value },
         dismissButton = dismissButton,
         icon = icon,
         title = title,
@@ -107,7 +107,7 @@ fun FadingDropdownMenu(
             shape = shape,
             expanded = true,
             onDismissRequest = dismiss,
-            modifier = modifier.glassBackdrop(shape).graphicsLayer { alpha = opacity.value },
+            modifier = modifier.glassBackdrop(shape, captureAsPopup = true).graphicsLayer { alpha = opacity.value },
             containerColor = if (hasGlassBackdrop()) androidx.compose.ui.graphics.Color.Transparent else appOverlayTokens().background,
             tonalElevation = 0.dp,
             content = content
@@ -125,7 +125,7 @@ fun FadingModalBottomSheet(
 ) {
     val (opacity, dismiss) = rememberFadeDismiss(onDismissRequest)
     val shape = androidx.compose.material3.MaterialTheme.shapes.extraLarge
-    MaterialModalBottomSheet(onDismissRequest = dismiss, shape = shape, modifier = modifier.glassBackdrop(shape).graphicsLayer { alpha = opacity.value }, sheetState = sheetState, containerColor = if (hasGlassBackdrop()) androidx.compose.ui.graphics.Color.Transparent else appOverlayTokens().background, contentColor = appOverlayTokens().foreground, tonalElevation = 0.dp) {
+    MaterialModalBottomSheet(onDismissRequest = dismiss, shape = shape, modifier = modifier.glassBackdrop(shape, captureAsPopup = true).graphicsLayer { alpha = opacity.value }, sheetState = sheetState, containerColor = if (hasGlassBackdrop()) androidx.compose.ui.graphics.Color.Transparent else appOverlayTokens().background, contentColor = appOverlayTokens().foreground, tonalElevation = 0.dp) {
         BackHandler { dismiss() }
         content()
     }

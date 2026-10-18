@@ -71,8 +71,11 @@ internal object LinkedModelSources {
 
     fun usesGrant(grant: Uri): Boolean {
         val app = context ?: return false
-        return File(app.noBackupFilesDir, "model-source-references").listFiles().orEmpty().filter { it.extension == "json" && it.length() <= 262_144 }.any {
-            runCatching { json.decodeFromString<LinkedModelSource>(it.readText()).grantUri == grant.toString() }.getOrDefault(false)
+        return File(app.noBackupFilesDir, "model-source-references").listFiles().orEmpty().filter { it.extension == "json" || it.name.endsWith(".json.bak") }.any {
+            runCatching {
+                require(it.length() <= 262_144)
+                json.decodeFromString<LinkedModelSource>(it.readText()).grantUri == grant.toString()
+            }.getOrDefault(true)
         }
     }
 
@@ -108,9 +111,12 @@ internal object LinkedModelSources {
             Os.symlink("/proc/self/fd/${descriptor.fd}", alias.path)
             try {
                 PackageDigest.verifyInstalledAssetCached(alias, asset.sha256, checkCurrent)
-            } catch (failure: Throwable) {
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 alias.delete()
-                throw failure
+                throw cancelled
+            } catch (failure: Exception) {
+                alias.delete()
+                throw IllegalStateException("The linked model source changed or cannot be verified. Select its current file again and update the profile.", failure)
             }
             leases.put(key, Lease(descriptor, identity, alias, PackageDigest.installedFileIdentity(alias)))?.descriptor?.close()
             return alias

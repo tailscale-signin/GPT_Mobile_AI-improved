@@ -27,7 +27,6 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CreateNewFolder
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.PushPin
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -52,6 +51,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.chat.ConversationFolder
 import dev.chungjungsoo.gptmobile.data.chat.ConversationFolderStyle
+import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
 
 @Composable
 internal fun ConversationFolderStrip(

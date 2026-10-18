@@ -19,7 +19,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Info
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -58,6 +57,7 @@ import dev.chungjungsoo.gptmobile.data.health.HEALTH_HISTORY_PERMISSION
 import dev.chungjungsoo.gptmobile.data.health.HealthConnectTools
 import dev.chungjungsoo.gptmobile.data.health.HealthMetric
 import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
+import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
 import dev.chungjungsoo.gptmobile.presentation.theme.GPTMobileTheme
 import dev.chungjungsoo.gptmobile.presentation.ui.main.ProtectedActivity
 import java.text.NumberFormat
@@ -76,8 +76,15 @@ class HealthConnectActivity : ProtectedActivity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         setContent {
             val theme by model.theme.collectAsStateWithLifecycle()
-            GPTMobileTheme(theme.dynamicTheme, theme.themeMode, theme.customPrimaryArgb, theme.customPalette) {
-                HealthConnectScreen(model, ::finish, ::openSystemHealth, ::showPrivacy)
+            androidx.compose.runtime.CompositionLocalProvider(
+                dev.chungjungsoo.gptmobile.presentation.common.LocalOverlayMaterial provides theme.overlayMaterial,
+                dev.chungjungsoo.gptmobile.presentation.common.LocalOverlayBlur provides theme.overlayBlur
+            ) {
+                GPTMobileTheme(theme.dynamicTheme, theme.themeMode, theme.customPrimaryArgb, theme.customPalette) {
+                    dev.chungjungsoo.gptmobile.presentation.common.GlassBackdropHost {
+                        HealthConnectScreen(model, ::finish, ::openSystemHealth, ::showPrivacy)
+                    }
+                }
             }
         }
     }

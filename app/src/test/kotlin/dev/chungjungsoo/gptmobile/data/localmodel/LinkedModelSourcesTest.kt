@@ -24,9 +24,9 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
-/** Real regular-file descriptors and hashing; the document-provider permission boundary is simulated. */
+/** Host descriptors/hashing; permissions are simulated and fstat reads real host Unix attributes. */
 @RunWith(RobolectricTestRunner::class)
-@Config(manifest = Config.NONE, application = Application::class, sdk = [36])
+@Config(manifest = Config.NONE, application = Application::class, sdk = [36], shadows = [LinkedModelHostLinux::class])
 class LinkedModelSourcesTest {
     @get:Rule val temporary = TemporaryFolder()
     private lateinit var original: File
@@ -132,5 +132,25 @@ class LinkedModelSourcesTest {
         assertTrue((result as LocalModelImportResult.Failure).message.contains("Extract"))
         assertTrue(appFiles.walkTopDown().none { it.isFile })
         assertTrue(original.isFile)
+    }
+}
+
+/** Robolectric 4.17's default fstat(fd) returns stat(null), not the descriptor's data. */
+@org.robolectric.annotation.Implements(className = "libcore.io.Linux", isInAndroidSdk = false, minSdk = 26)
+class LinkedModelHostLinux : org.robolectric.shadows.ShadowLinux() {
+    @org.robolectric.annotation.Implementation
+    override fun fstat(fd: java.io.FileDescriptor): android.system.StructStat {
+        val number = org.robolectric.util.ReflectionHelpers.getField<Int>(fd, "fd")
+        val attributes = java.nio.file.Files.readAttributes(java.nio.file.Path.of("/proc/self/fd/$number"), "unix:*")
+        fun time(key: String): android.system.StructTimespec {
+            val instant = (attributes.getValue(key) as java.nio.file.attribute.FileTime).toInstant()
+            return android.system.StructTimespec(instant.epochSecond, instant.nano.toLong())
+        }
+        return android.system.StructStat(attributes.getValue("dev") as Long, attributes.getValue("ino") as Long, attributes.getValue("mode") as Int, (attributes.getValue("nlink") as Int).toLong(), attributes.getValue("uid") as Int, attributes.getValue("gid") as Int, attributes.getValue("rdev") as Long, attributes.getValue("size") as Long, time("lastAccessTime"), time("lastModifiedTime"), time("ctime"), 0L, 0L)
+    }
+
+    @org.robolectric.annotation.Implementation
+    protected fun symlink(oldPath: String, newPath: String) {
+        java.nio.file.Files.createSymbolicLink(java.nio.file.Path.of(newPath), java.nio.file.Path.of(oldPath))
     }
 }

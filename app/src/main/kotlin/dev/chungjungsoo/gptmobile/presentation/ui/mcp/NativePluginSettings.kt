@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.MaterialTheme
@@ -33,6 +32,7 @@ import dev.chungjungsoo.gptmobile.data.marketplace.EndpointAuthType
 import dev.chungjungsoo.gptmobile.data.marketplace.NativeEndpointConfig
 import dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceCatalog
 import dev.chungjungsoo.gptmobile.data.marketplace.NativePluginInstallation
+import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
 
 /** Required fields are red immediately, including their focused outline. Secrets are never saveable state. */
 @Composable

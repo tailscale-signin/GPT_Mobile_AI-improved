@@ -67,4 +67,37 @@ class GlassBackdropInstrumentedTest {
         assertTrue("Fixture must contain visible alternating background colors", sharp > 0.002)
         assertTrue("Blur must reduce backdrop detail: sharp=$sharp blurred=$filtered", filtered < sharp * 0.6)
     }
+
+    @Test fun stackedDialogSamplesItsVisibleParentInsteadOfOnlyTheActivity() {
+        var child by mutableStateOf(false)
+        compose.setContent {
+            MaterialTheme {
+                CompositionLocalProvider(LocalOverlayMaterial provides "glass", LocalOverlayBlur provides "auto") {
+                    GlassBackdropHost {
+                        Canvas(Modifier.fillMaxSize()) { drawRect(Color.Blue) }
+                        // The child is composed before its existing parent to exercise retained
+                        // opening order rather than relying on source traversal order.
+                        if (child) FadingAlertDialog({}, { Text("Close") }, text = { Box(Modifier.height(120.dp)) })
+                        FadingDialog({}) {
+                            AppGlassSurface(Modifier.height(300.dp).fillMaxSize()) {
+                                Canvas(Modifier.fillMaxSize()) { drawRect(Color.Green) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        compose.waitForIdle()
+        compose.runOnIdle { child = true }
+        compose.waitForIdle()
+        val instrumentation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
+        val pixels = requireNotNull(instrumentation.uiAutomation.takeScreenshot())
+        java.io.File(instrumentation.targetContext.filesDir, "glass-stacked.png").outputStream().use {
+            check(pixels.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it))
+        }
+        val center = pixels.getPixel(pixels.width / 2, pixels.height / 2)
+        pixels.recycle()
+        val greenOverBlue = (android.graphics.Color.green(center) - android.graphics.Color.blue(center)) / 255.0
+        assertTrue("The child must sample its green parent, not the blue activity: green-blue=$greenOverBlue", greenOverBlue > 0.03)
+    }
 }

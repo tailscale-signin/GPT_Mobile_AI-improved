@@ -16,7 +16,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -49,6 +48,7 @@ import dev.chungjungsoo.gptmobile.data.amazon.AmazonHistoryRepository
 import dev.chungjungsoo.gptmobile.data.amazon.AmazonObservationEntity
 import dev.chungjungsoo.gptmobile.data.amazon.AmazonWatchEntity
 import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
+import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as DropdownMenu
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter

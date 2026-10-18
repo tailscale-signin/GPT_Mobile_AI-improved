@@ -242,6 +242,8 @@ extensions.configure<ApplicationExtension> {
         unitTests {
             isIncludeAndroidResources = true
             all {
+                // Robolectric's real-descriptor interceptor needs these JDK 21 test-only APIs.
+                it.jvmArgs("--add-exports=java.base/jdk.internal.access=ALL-UNNAMED", "--add-opens=java.base/java.io=ALL-UNNAMED")
                 it.systemProperty("room.schemas", file("schemas").absolutePath)
                 it.systemProperty("robolectric.dependency.repo.url", "https://repo.maven.apache.org/maven2")
                 it.testLogging {

@@ -98,7 +98,7 @@ class LocalAssistPreparation @Inject constructor(
         )
         val record = localRuntime.admittedEngineSpec()
         if (record != null) {
-            val matches = record.engineConfiguration() == expected.engineConfiguration() && localRuntime.isEngineLoaded(expected)
+            val matches = record.engineConfiguration() == expected.engineConfiguration() && localRuntime.isEngineLoaded(record)
             if (matches) {
                 if (observed.lifecycle == "FAILED" || observed.engineSpec == null || observed.backend == null) return status(unavailable, "Local Assist unavailable: loaded session health or execution backend is unverified")
                 return status(dev.chungjungsoo.gptmobile.data.assist.AssistReadiness.READY, "Local Assist ready: requested ${record.accelerator}; observed ${observed.engineSpec.accelerator} (${observed.backend.displayName}); context ${observed.engineSpec.maxTokens}")
@@ -144,7 +144,7 @@ class LocalAssistPreparation @Inject constructor(
         }
         val active = localRuntime.admittedEngineSpec()
         val observedAfterLoad = localRuntime.state.value
-        val verified = prepared && active != null && active.engineConfiguration() == expected.engineConfiguration() && localRuntime.isEngineLoaded(expected) && observedAfterLoad.backend != null && observedAfterLoad.engineSpec != null && observedAfterLoad.lifecycle !in setOf("FAILED", "CANCELLING", "SHUTDOWN")
+        val verified = prepared && active != null && active.engineConfiguration() == expected.engineConfiguration() && localRuntime.isEngineLoaded(active) && observedAfterLoad.backend != null && observedAfterLoad.engineSpec != null && observedAfterLoad.lifecycle !in setOf("FAILED", "CANCELLING", "SHUTDOWN")
         return if (verified) status(dev.chungjungsoo.gptmobile.data.assist.AssistReadiness.READY, "Local Assist loaded: requested ${target.accelerator}; observed ${observedAfterLoad.engineSpec?.accelerator} (${observedAfterLoad.backend?.displayName}); generation not yet tested") else status(unavailable, "Local Assist unavailable: preparation failed, timed out, or backend was not observed; see runtime diagnostics")
     }
 }

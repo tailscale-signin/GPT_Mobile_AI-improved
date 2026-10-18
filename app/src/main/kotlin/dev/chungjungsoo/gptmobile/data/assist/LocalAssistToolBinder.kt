@@ -59,7 +59,7 @@ internal object LocalAssistToolBinder {
         }
         val assist = AssistCoordinator(goal, {
             profileAllowed(target) && eligible(target)
-        }, { task -> generate(target, task, if (policy.summarizeRetrievedText || policy.proposeQueries) 1024 else 128) }, notice, policy.validated().copy(optionalWaitSeconds = 0, preparation = AssistPreparation.WARM_ONLY), { stillEnabled() && profileAllowed(target) }, turnId, producerInvocationId, contextTokens, runtimeFingerprint, { status(it.copy(profileUid = target.uid, model = target.model, policySnapshot = policySnapshot)) })
+        }, { task -> generate(target, task, if (policy.summarizeRetrievedText || policy.proposeQueries) 1024 else 128) }, notice, policy.validated().copy(optionalWaitSeconds = 0, preparation = AssistPreparation.WARM_ONLY), { stillEnabled() && profileAllowed(target) }, turnId, producerInvocationId, contextTokens, runtimeFingerprint, { status(it.copy(profileUid = target.uid, model = target.model, policySnapshot = policySnapshot)) }, optionalOwner = kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job])
         val bound = tools.map { tool -> if (tool.shareableReadOnly) tool.copy(tool = assist.bind(tool.tool, tool.selectionId() + target.uid + dev.chungjungsoo.gptmobile.data.benchmark.benchmarkConfigKey(target))) else tool }
         if (!allowPerTurnTool || !policy.perTurnQueryPlanning) return bound
         // An intentional planning tool permits assistance before external search produces evidence.

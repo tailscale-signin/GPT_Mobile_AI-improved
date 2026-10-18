@@ -31,7 +31,8 @@ internal class AssistCoordinator(
     private val producerInvocationId: () -> String? = { null },
     private val contextTokens: () -> Int = { 16_384 },
     private val runtimeFingerprint: () -> String = { "unspecified-test-runtime" },
-    private val status: suspend (AssistTaskState) -> Unit = {}
+    private val status: suspend (AssistTaskState) -> Unit = {},
+    private val optionalOwner: kotlinx.coroutines.Job? = null
 ) {
     private val attempts = AtomicInteger()
     private val sequence = AtomicLong()
@@ -51,7 +52,8 @@ internal class AssistCoordinator(
                         kotlinx.coroutines.currentCoroutineContext(),
                         acquired,
                         stillEnabled,
-                        runtimeFingerprint
+                        runtimeFingerprint,
+                        ownerJob = optionalOwner
                     ) {
                         LocalAssistQueue.run(1L) { reduceShared(acquired, authority, 30_000L) } ?: acquired
                     }

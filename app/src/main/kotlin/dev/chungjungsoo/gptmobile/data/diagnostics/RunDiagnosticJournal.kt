@@ -110,6 +110,7 @@ internal class RunDiagnosticJournal(
     private val writes = kotlinx.coroutines.sync.Mutex()
     private val sequences = mutableMapOf<String, Long>()
     private val terminals = mutableSetOf<String>()
+    private val firstVisible = mutableSetOf<Pair<String, Long?>>()
     private val permittedRuns = mutableSetOf<String>()
     private val privateRuns = mutableSetOf<String>()
     private val dropped = AtomicLong()
@@ -237,6 +238,7 @@ internal class RunDiagnosticJournal(
         }
         synchronized(lock) {
             if (!enabled || privateSession || runId !in permittedRuns || runId in terminals && kind in setOf(RunDiagnosticKind.RUN_TERMINAL, RunDiagnosticKind.REDUCER_CHECKPOINT, RunDiagnosticKind.SEGMENT_COMMITTED)) return
+            if (kind == RunDiagnosticKind.FIRST_VISIBLE_TEXT && (runId to fence) in firstVisible) return
             val prior = sequences[runId] ?: 0L
             if (prior == Long.MAX_VALUE || prior == 0L && sequences.size >= 10_000) {
                 dropped.incrementAndGet()
@@ -262,6 +264,7 @@ internal class RunDiagnosticJournal(
                 dropped.incrementAndGet()
             }
             if (kind == RunDiagnosticKind.RUN_TERMINAL) terminals += runId
+            if (kind == RunDiagnosticKind.FIRST_VISIBLE_TEXT) firstVisible += runId to fence
             pending.addLast(event)
         }
         wake.trySend(Unit)
@@ -321,6 +324,7 @@ internal class RunDiagnosticJournal(
             inFlight = emptyList()
             sequences.clear()
             terminals.clear()
+            firstVisible.clear()
             dropped.set(0)
         }
         try {

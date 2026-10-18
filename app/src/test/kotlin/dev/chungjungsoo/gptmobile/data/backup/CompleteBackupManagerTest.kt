@@ -689,13 +689,15 @@ class CompleteBackupManagerTest {
     }
 
     private fun removeRoadmapColumns(db: android.database.sqlite.SQLiteDatabase) {
+        db.execSQL("DROP TABLE IF EXISTS reply_publications")
+        db.execSQL("DROP TABLE IF EXISTS conversation_folder_moves")
         db.execSQL("DROP TABLE IF EXISTS workspace_records")
         db.execSQL("DROP TABLE IF EXISTS answer_segments")
         for ((table, columns) in mapOf(
             "chats_v2" to listOf("is_temporary", "parent_chat_id", "branch_message_id", "draft_attachments", "last_share_token", "combined_primary_uid"),
             "knowledge_projects" to listOf("includePersonalMemory", "defaultProfileUid"),
             "messages_v2" to listOf("ownership_fence"),
-            "agent_runs" to listOf("ownership_fence", "synthesis_key", "synthesis_snapshot")
+            "agent_runs" to listOf("ownership_fence", "synthesis_key", "synthesis_snapshot", "display_role")
         )) {
             val definitions = mutableListOf<String>()
             val names = mutableListOf<String>()

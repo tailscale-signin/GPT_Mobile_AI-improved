@@ -11,10 +11,15 @@ import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase
 import dev.chungjungsoo.gptmobile.data.rag.RecalledFactRef
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatViewModel
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.updateAssistantSlot
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.takeWhile
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
 // Target frame budgets for streaming token batching:
 // - 120Hz display refresh budget is ~8.3ms. 8ms delivers frame-synced token updates without micro-stutter.
@@ -87,8 +92,10 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
     var terminalError: String? = null
 
     try {
-        takeWhile { chunk ->
-            when (chunk) {
+        withPublicationTicks(publishIntervalMillis).takeWhile { pulse ->
+            pulse.error?.let { throw it }
+            when (val chunk = pulse.state) {
+                null -> buffer.publishIfDue(onUpdate)
                 is ApiState.CombinedQuality -> {
                     buffer.updateCombinedQuality(chunk.report)
                     buffer.publishIfDue(onUpdate)
@@ -182,6 +189,27 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
     }
 }
 
+/** One bounded consumer serializes timed flushes with provider events; no concurrent buffer writes. */
+private data class PublicationPulse(val state: ApiState? = null, val error: Throwable? = null)
+
+private fun Flow<ApiState>.withPublicationTicks(intervalMillis: Long): Flow<PublicationPulse> = channelFlow {
+    val timer = launch {
+        while (isActive) {
+            delay(intervalMillis.coerceIn(8L, 250L))
+            send(PublicationPulse())
+        }
+    }
+    try {
+        this@withPublicationTicks.collect { send(PublicationPulse(state = it)) }
+    } catch (error: Throwable) {
+        // Deliver failure after earlier accepted events; a producer exception must not
+        // cancel the channel and discard ordinary text waiting in its bounded buffer.
+        if (currentCoroutineContext().isActive) send(PublicationPulse(error = error)) else throw error
+    } finally {
+        timer.cancel()
+    }
+}
+
 private class StreamingMessageBuffer(
     private val nanoTimeProvider: () -> Long,
     private val publishIntervalMillis: Long
@@ -193,6 +221,7 @@ private class StreamingMessageBuffer(
     private val pendingTimelineText = StringBuilder()
     val hasResponse: Boolean get() = dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.hasAnswer(content.toString())
     private var lastPublishedAtNanos = 0L
+    private var hasPublishedAnswer = false
     private var publishedThoughtLength = 0
     private var publishedContentLength = 0
     private var timelineVersion = 0
@@ -348,7 +377,8 @@ private class StreamingMessageBuffer(
         if (!hasPendingChanges()) return
 
         val now = nanoTimeProvider()
-        if (lastPublishedAtNanos == 0L ||
+        if ((!hasPublishedAnswer && hasResponse) ||
+            lastPublishedAtNanos == 0L ||
             now - lastPublishedAtNanos >= adaptiveStreamIntervalMillis(publishIntervalMillis, content.length + thoughts.length) * 1_000_000
         ) {
             publish(onUpdate, now)
@@ -375,6 +405,7 @@ private class StreamingMessageBuffer(
     ) {
         flushTimelineText()
         onUpdate(content.toString(), thoughts.toString(), timeline.toList())
+        hasPublishedAnswer = hasPublishedAnswer || hasResponse
         publishedContentLength = content.length
         publishedThoughtLength = thoughts.length
         publishedTimelineVersion = timelineVersion

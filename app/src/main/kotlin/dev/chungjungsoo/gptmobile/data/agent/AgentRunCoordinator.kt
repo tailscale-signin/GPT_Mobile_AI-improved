@@ -38,6 +38,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -403,18 +404,23 @@ class AgentRunCoordinator @Inject constructor(
         const val GATEWAY_RECOVERY_MIN_INTERVAL_MS = 60_000L
         const val GATEWAY_RECOVERY_EXPIRED = "GATEWAY_RECOVERY_EXPIRED"
     }
-    private suspend fun execute(request: AgentRunRequest) {
+    private suspend fun execute(request: AgentRunRequest) = coroutineScope {
         val startedAt = currentEpochSeconds()
         var assistantMessage = request.assistantMessage
         val recoveryMarkers = request.assistantMessage.timeline.filter { it.recovery?.generationId == request.runId }
         var lastCheckpointAt = 0L
+        var firstAnswerCheckpoint = false
         suspend fun traceReducedOutput(message: MessageV2) {
             dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.let { journal ->
                 withContext(Dispatchers.Default) { journal.traceOutput(request.runId, dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceBoundary.REDUCER, message.content, fence = message.ownershipFence) }
             }
         }
+        val checkpoints = ConflatedCheckpointWriter<MessageV2>(this) { snapshot ->
+            traceReducedOutput(snapshot)
+            chatRepository.updateAgentMessage(snapshot)
+        }
         try {
-            if (!withContext(NonCancellable) { chatRepository.markAgentRunRunning(request.runId, startedAt) }) return
+            if (!withContext(NonCancellable) { chatRepository.markAgentRunRunning(request.runId, startedAt) }) return@coroutineScope
             val outcome = chatRepository.completeChat(
                 request.userMessages,
                 request.assistantMessages,
@@ -436,10 +442,11 @@ class AgentRunCoordinator @Inject constructor(
                         if (owner != null && owner.ownershipFence > assistantMessage.ownershipFence) current else current + (assistantMessage.id to assistantMessage)
                     }
                     val now = SystemClock.elapsedRealtime()
-                    if (now - lastCheckpointAt >= 500L) {
+                    val firstAnswer = !firstAnswerCheckpoint && dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.hasAnswer(retained)
+                    if (firstAnswer || now - lastCheckpointAt >= 500L) {
                         dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(request.runId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.REDUCER_CHECKPOINT, fence = assistantMessage.ownershipFence, visibleBytes = content.toByteArray(Charsets.UTF_8).size.toLong(), reasoningBytes = thoughts.toByteArray(Charsets.UTF_8).size.toLong())
-                        traceReducedOutput(assistantMessage)
-                        chatRepository.updateAgentMessage(assistantMessage)
+                        checkpoints.offer(assistantMessage)
+                        firstAnswerCheckpoint = firstAnswerCheckpoint || firstAnswer
                         lastCheckpointAt = now
                     }
                 },
@@ -461,6 +468,8 @@ class AgentRunCoordinator @Inject constructor(
                 },
                 publishIntervalMillis = publishIntervalMillis
             )
+            checkpoints.drain()
+            AppLogRecorder.record("Streaming", "CHECKPOINT_WRITER · queueAgeMs=${checkpoints.lastQueueAgeMillis} · writeMs=${checkpoints.lastWriteMillis}")
             val terminal = outcome.toTerminalUpdate()
             val completedAt = currentEpochSeconds()
             val terminalMessage = terminalAgentMessage(assistantMessage, terminal.error, completedAt)
@@ -473,6 +482,7 @@ class AgentRunCoordinator @Inject constructor(
             }
         } catch (error: CancellationException) {
             withContext(NonCancellable) {
+                checkpoints.cancelAndJoin()
                 val completedAt = currentEpochSeconds()
                 runCatching {
                     val isInterrupted = interruptingRunIds.remove(request.runId)
@@ -489,6 +499,7 @@ class AgentRunCoordinator @Inject constructor(
             throw error
         } catch (error: Throwable) {
             withContext(NonCancellable) {
+                checkpoints.cancelAndJoin()
                 val completedAt = currentEpochSeconds()
                 val message = error.message ?: "Unknown provider error."
                 runCatching {
@@ -497,6 +508,8 @@ class AgentRunCoordinator @Inject constructor(
                     chatRepository.commitAgentRun(terminalMessage, request.runId, AgentRunStatus.FAILED, completedAt, message)
                 }
             }
+        } finally {
+            withContext(NonCancellable) { checkpoints.cancelAndJoin() }
         }
     }
 }

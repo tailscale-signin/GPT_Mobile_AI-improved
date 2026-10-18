@@ -17,6 +17,27 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ApiStateFlowExtensionsTest {
+    @Test fun firstAnswerPublishesImmediatelyAfterProgressAndPendingSuffixFlushesDuringSilence() = kotlinx.coroutines.test.runTest {
+        val frames = mutableListOf<Pair<Long, String>>()
+        val scheduler = testScheduler
+        val stream = flow {
+            emit(ApiState.ProgressCheckpoint("Preparing", modelAuthored = false))
+            emit(ApiState.Success("First"))
+            kotlinx.coroutines.delay(1)
+            emit(ApiState.Success(" suffix"))
+            kotlinx.coroutines.delay(500)
+            emit(ApiState.Done)
+        }
+        val outcome = stream.collectApiStateUpdates(
+            onUpdate = { content, _, _ -> frames += scheduler.currentTime to content },
+            nanoTimeProvider = { (scheduler.currentTime + 1) * 1_000_000 },
+            publishIntervalMillis = 250
+        )
+        assertEquals(ApiStateFlowOutcome.Completed, outcome)
+        assertEquals(0L, frames.first { it.second == "First" }.first)
+        assertTrue(frames.first { it.second == "First suffix" }.first in 1L..250L)
+    }
+
     @Test fun `permission denial checkpoint survives serialization and counts only new generations`() = runBlocking {
         val block = dev.chungjungsoo.gptmobile.data.agent.recoveryBlock("7:1", "generation-1", "destination", "policy-1", listOf("source:S1:v1"), emptyList(), "RETRY_FAILED_STAGE")
         var saved = emptyList<AssistantTimelineItem>()

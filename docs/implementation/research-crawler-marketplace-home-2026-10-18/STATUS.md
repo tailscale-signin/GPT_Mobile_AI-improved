@@ -62,11 +62,12 @@ Main already contains study review records, deterministic component scoring, rel
 ## Validation evidence
 
 - Android SDK 37, JDK 21 and Gradle 9.8.0 are available. Earlier claims that Android compilation was unavailable are superseded.
-- Real Android main Kotlin compilation has passed with the new Marketplace, wallet and Home wiring. Latest changes continue through compilation and targeted unit runs; the current branch is not yet green.
-- The first isolated Android run compiled main and test sources, then reported three focused failures: record-separator whitespace, unstable snapshot hashing and pending-work closure. Fixes and regression cases are now in the branch; the expanded Android rerun is in progress. CI also identified transport fixtures using empty prompts and a local Marketplace expectation; those fixtures now express valid input and the intended local/remote distinction.
+- Android main Kotlin and Java compilation pass on follow-up `24e1ea3`. The subsequent build process was killed under concurrent workspace memory pressure (8 GiB cgroup limit); the full unit suite is being run separately against those compiled classes with a bounded heap. The branch is not yet fully qualified.
+- The first isolated Android run compiled main and test sources, then reported three focused failures: record-separator whitespace, unstable snapshot hashing and pending-work closure. Fixes and regression cases are now in the branch; the expanded Android rerun remains pending after the environment killed its build process. CI also identified transport fixtures using empty prompts and a local Marketplace expectation; those fixtures now express valid input and the intended local/remote distinction.
 - Actual isolated Combined core: 30 JUnit tests passed. Actual isolated Marketplace contracts/coordinator: 7 tests passed; additional cases are in the Android run.
 - Crawler: 39 Python tests pass with ResourceWarning promoted to an error, including actual loopback HTTP, cross-principal request-ID/cancellation isolation, persistence migration/backup, shared references, retention, quotas, parent grants, complete RPC limits, cooldowns and metered transport.
 - Repository Python suite: 140 tests pass on the current changes. Resource XML (29 files) and Android regex preflights (640 literal patterns) pass.
+- Kotlin formatting passes for all 150 changed Kotlin files. Exported Room schemas match the committed migration history.
 - Android lint, APK assembly, instrumentation, device visual QA and release acceptance are not yet complete.
 - `python scripts/check_unified_reliability_v2.py --require-done` remains failing with 48 tasks not DONE and non-PASS acceptance cases. The gate is unchanged.
 

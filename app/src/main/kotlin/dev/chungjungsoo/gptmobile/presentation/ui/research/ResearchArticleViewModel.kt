@@ -19,11 +19,15 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-data class ArticleDetailState(val work: ResearchWork? = null, val version: ResearchWorkVersion? = null, val fields: List<StudyField> = emptyList(), val passages: List<EvidencePassage> = emptyList(), val appraisals: List<EvidenceAppraisal> = emptyList(), val bodyAvailable: Boolean = false, val loading: Boolean = false, val error: String? = null, val reviews: List<dev.chungjungsoo.gptmobile.data.research.feature.ResearchStudyReview> = emptyList())
+data class ArticleDetailState(val work: ResearchWork? = null, val version: ResearchWorkVersion? = null, val fields: List<StudyField> = emptyList(), val passages: List<EvidencePassage> = emptyList(), val appraisals: List<EvidenceAppraisal> = emptyList(), val bodyAvailable: Boolean = false, val loading: Boolean = false, val acceptedJobId: String? = null, val error: String? = null, val reviews: List<dev.chungjungsoo.gptmobile.data.research.feature.ResearchStudyReview> = emptyList())
 
 @HiltViewModel
 class ResearchArticleViewModel @Inject constructor(private val archive: ResearchArchiveRepository, private val coordinator: ArticleExaminationCoordinator, private val settings: SettingRepository) : ViewModel() {
@@ -32,19 +36,26 @@ class ResearchArticleViewModel @Inject constructor(private val archive: Research
     val jobs = coordinator.jobs.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     private val mutable = MutableStateFlow(ArticleDetailState())
     val state = mutable.asStateFlow()
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val focusedJob = state.map { it.acceptedJobId }.distinctUntilChanged().flatMapLatest { id ->
+        if (id == null) flowOf<dev.chungjungsoo.gptmobile.data.research.feature.ExaminationJob?>(null) else archive.dao.observeJob(id)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
     private var loader: Job? = null
     init {
         viewModelScope.launch { coordinator.recover() }
     }
     fun open(workId: String, versionId: String?, authority: String) {
         loader?.cancel()
-        mutable.value = ArticleDetailState(loading = true)
+        val acceptedJobId = mutable.value.acceptedJobId
+        val admissionError = mutable.value.error
+        mutable.value = ArticleDetailState(loading = true, acceptedJobId = acceptedJobId)
         loader = viewModelScope.launch {
             try {
                 val work = requireNotNull(archive.dao.work(workId)) { "Saved article is unavailable" }
                 val version = requireNotNull(versionId?.let { archive.dao.version(it) } ?: archive.dao.latestVersion(workId)) { "Saved version is missing" }
                 require(version.workId == workId && (version.publicSource || version.authority == authority)) { "Article access is no longer authorized" }
-                mutable.value = ArticleDetailState(work, version, archive.dao.fields(version.versionId), archive.dao.passages(version.versionId), archive.dao.appraisals(version.versionId), archive.text(version, authority) != null, reviews = archive.dao.studyReviews(version.versionId))
+                mutable.value = ArticleDetailState(work, version, archive.dao.fields(version.versionId), archive.dao.passages(version.versionId), archive.dao.appraisals(version.versionId), archive.text(version, authority) != null, reviews = archive.dao.studyReviews(version.versionId), acceptedJobId = mutable.value.acceptedJobId, error = admissionError)
             } catch (cancel: CancellationException) {
                 throw cancel
             } catch (error: Exception) {
@@ -59,7 +70,10 @@ class ResearchArticleViewModel @Inject constructor(private val archive: Research
             current.copy(conversationResearch = current.conversationResearch + (chatId to selection.copy(crawlerProfileUid = profileUid)))
         }
     }
-    fun examine(request: ExaminationRequest, tools: () -> ChatMcpToolConfig) = action { coordinator.userExamine(request, tools) }
+    fun examine(request: ExaminationRequest, tools: () -> ChatMcpToolConfig) = action {
+        val admission = coordinator.submitUserAction(request, tools)
+        mutable.update { it.copy(acceptedJobId = admission.jobId, error = admission.message?.let { message -> "${admission.blocker}: $message" }) }
+    }
     fun pause(id: String) = action { coordinator.pause(id) }
     fun cancel(id: String) = action { coordinator.cancel(id) }
     private fun action(block: suspend () -> Unit) {

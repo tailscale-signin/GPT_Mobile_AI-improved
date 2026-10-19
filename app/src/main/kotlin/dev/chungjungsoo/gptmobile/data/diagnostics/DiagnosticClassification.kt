@@ -9,8 +9,11 @@ internal data class DiagnosticClassification(
 )
 
 internal fun classifyDiagnostic(level: String?, tag: String?, message: String): DiagnosticClassification {
-    val text = message.lowercase()
+    val text = message.replace(Regex("^eventId=[a-zA-Z0-9-]+(?: · | )"), "").lowercase()
     return when {
+        "outcome=invalid_response" in text || "status=invalid_response" in text || "schema_validation_failed" in text -> DiagnosticClassification("research_schema", "error", true, "repair_structured_output")
+        ("delivery" in text && "accepted=false" in text) || "correction_required" in text -> DiagnosticClassification("delivery_contract", "warning", true, "retain_evidence_and_repair_report")
+        tag == "MCP" && (text.startsWith("connect start") || text.startsWith("connected")) -> DiagnosticClassification("connectivity_progress", "info", false)
         "strictmode" in text && ("diskreadviolation" in text || "diskwriteviolation" in text) -> DiagnosticClassification("main_thread_disk_io", "warning", true, "move_work_to_io")
         "method exceeds compiler instruction limit" in text || "method exceeds compiler" in text -> DiagnosticClassification("compiler_method_size", "warning", true, "split_coroutine_stages")
         text.startsWith("synthesis_quality") && ("missing_contribution_link" in text || "word_target_undershot" in text || "word_limit_exceeded" in text || "exact_word_count_unmet" in text) -> DiagnosticClassification("combined_contract", "warning", true, "retain_answer_and_review_quality")
@@ -18,7 +21,7 @@ internal fun classifyDiagnostic(level: String?, tag: String?, message: String): 
         text.startsWith("gguf_template_metadata") || text.startsWith("gguf_template_compatible") -> DiagnosticClassification("model_compatibility", "info", false)
         text.startsWith("gguf_template_rejected") -> DiagnosticClassification("model_compatibility", "error", true, "choose_compatible_gguf_template")
         tag == "MCP" && text.startsWith("connect failed") -> DiagnosticClassification("mcp_connectivity", "error", true, "check_server_address_and_reachability")
-        tag == "MCP" && ("timeout" in text || "timed out" in text || "connection refused" in text) -> DiagnosticClassification("mcp_connectivity", "warning", true, "check_server_address_and_reachability")
+        tag == "MCP" && ("timed out" in text || "connection refused" in text || "connect_timeout" in text || "outcome=timeout" in text) -> DiagnosticClassification("mcp_connectivity", "warning", true, "check_server_address_and_reachability")
         text.startsWith("native_operation_interrupted") -> DiagnosticClassification("native_exit_evidence", if ("exit=low_memory" in text) "warning" else "error", true)
         text.startsWith("android_memory_trim") || text.startsWith("android_low_memory") -> DiagnosticClassification("memory_pressure", if (level == "E") "error" else "warning", true)
         text.startsWith("catalog_canceled") -> DiagnosticClassification("cancellation", "info", false)

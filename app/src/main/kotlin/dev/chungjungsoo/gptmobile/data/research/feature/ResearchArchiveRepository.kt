@@ -34,7 +34,7 @@ class ResearchArchiveRepository @Inject constructor(val database: ResearchDataba
         reconcileOutbox()
     }
     suspend fun reconcileOutbox() {
-        val rows = dao.pendingOutbox()
+        val rows = dao.pendingOutbox().filter { it.operation == "reconcile" }
         if (rows.isEmpty()) return
         try {
             bodies.reconcileFeatureBodies()
@@ -45,8 +45,8 @@ class ResearchArchiveRepository @Inject constructor(val database: ResearchDataba
             // Durable outbox remains pending; a missing or corrupt manifest cannot cause body deletion.
         }
     }
-    fun observePage(query: String = "", topic: String = "", peerReviewedOnly: Boolean = false, offset: Int = 0, assessed: Boolean = false, rank: Boolean = false) =
-        dao.observePage(query.trim().take(300).replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_"), topic, peerReviewedOnly, 40, offset.coerceAtLeast(0), assessed, rank)
+    fun observePage(query: String = "", topic: String = "", peerReviewedOnly: Boolean = false, offset: Int = 0, assessed: Boolean = false, rank: Boolean = false, state: String = "") =
+        dao.observePage(query.trim().take(300).replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_"), topic, peerReviewedOnly, 40, offset.coerceAtLeast(0), assessed, rank, state)
 
     suspend fun page(query: String = "", topic: String = "", peerReviewedOnly: Boolean = false, offset: Int = 0): List<ArchiveRow> {
         initialize()
@@ -58,7 +58,7 @@ class ResearchArchiveRepository @Inject constructor(val database: ResearchDataba
         initialize()
         val words = query.lowercase().split(Regex("[^\\p{L}\\p{N}]+")).filter { it.length >= 3 }.distinct().take(20)
         val candidates = (page(query.take(200), peerReviewedOnly = peerReviewedOnly) + words.take(5).flatMap { page(it, peerReviewedOnly = peerReviewedOnly) }).distinctBy { it.workId }
-        return candidates.filter { allowed(it.canonicalUrl) && (notBefore == null || it.retrievedAt >= notBefore) }
+        return candidates.filter { dao.version(it.latestVersionId)?.publicSource == true && allowed(it.canonicalUrl) && (notBefore == null || it.retrievedAt >= notBefore) }
             .sortedWith(compareByDescending<ArchiveRow> { row -> words.count { it in row.title.lowercase() } }.thenByDescending { it.archiveSequence }).take(30)
     }
     suspend fun text(version: ResearchWorkVersion, authority: String): String? {
@@ -105,6 +105,9 @@ class ResearchArchiveRepository @Inject constructor(val database: ResearchDataba
         dao.membership(membership.copy(primaryTopicId = id))
     }
     suspend fun remove(workId: String) = database.withTransaction {
+        dao.chatlessFence(workId, System.currentTimeMillis())
+        dao.jobsForWork(workId).forEach { dao.removeRoots("job", it.jobId) }
+        dao.removeRoots("assessment", workId)
         dao.removeMembership(workId)
         dao.removeRoots("archive", workId)
         dao.removeImportRootsForWork(workId)
@@ -147,12 +150,12 @@ internal object ResearchArchiveIngestor {
     private val taxonomy = linkedMapOf("technology" to "Technology", "health-life" to "Health & life", "environment" to "Environment", "society-humanities" to "Society & humanities", "business-economics" to "Business & economics", "methods" to "Methods", "uncategorized" to "Uncategorized")
     suspend fun seed(database: ResearchDatabase) = database.withTransaction {
         val dao = database.research()
-        if (dao.topic(DEFAULT_TOPIC) == null) {
-            taxonomy.forEach { (id, label) ->
-                dao.category(ResearchCategory(id, label))
-                dao.topic(ResearchTopic("$id:needs-classification", id, "Needs classification"))
-            }
+        val existing = dao.allCategories().mapTo(hashSetOf()) { it.categoryId }
+        taxonomy.filterKeys { it !in existing }.forEach { (id, label) ->
+            dao.category(ResearchCategory(id, label))
+            if (dao.topic("$id:needs-classification") == null) dao.topic(ResearchTopic("$id:needs-classification", id, "Needs classification"))
         }
+        if (dao.topic(DEFAULT_TOPIC) == null) dao.topic(ResearchTopic(DEFAULT_TOPIC, "uncategorized", "Needs classification"))
     }
     fun publicUrl(url: String): Boolean = runCatching {
         val uri = URI(url)
@@ -167,7 +170,7 @@ internal object ResearchArchiveIngestor {
             uri.rawQuery.orEmpty().split('&').none { it.substringBefore('=').lowercase() in setOf("token", "key", "api_key", "sig", "signature", "authorization", "credential", "session", "x-amz-signature", "x-goog-signature") }
     }.getOrDefault(false)
 
-    suspend fun capture(database: ResearchDatabase, source: ResearchSource, authority: String, publicEvidence: Boolean, chatId: Int, rootId: String, archive: Boolean, epoch: Long, contentHash: String, textBytes: Long, ownerKind: String = "chat", ownerId: String = "$chatId:$rootId", automaticOrganization: Boolean = true): ResearchWorkVersion {
+    suspend fun capture(database: ResearchDatabase, source: ResearchSource, authority: String, publicEvidence: Boolean, chatId: Int, rootId: String, archive: Boolean, epoch: Long, contentHash: String, textBytes: Long, ownerKind: String = "chat", ownerId: String = "$chatId:$rootId", automaticOrganization: Boolean = true, unexaminedLimit: Int = 1000): ResearchWorkVersion {
         seed(database)
         return database.withTransaction {
             val dao = database.research()
@@ -215,7 +218,7 @@ internal object ResearchArchiveIngestor {
                 dao.allFamilies().firstOrNull { it.familyId == familyId }?.let { family -> dao.workStudy(WorkStudyRelationship(workId, familyId, family.provenance, family.revisedAt)) }
             }
             dao.root(BodyReference(ownerKind, ownerId, versionId))
-            if (archive && public) dao.archive(workId, versionId, dao.membership(workId)?.primaryTopicId ?: DEFAULT_TOPIC, System.currentTimeMillis(), epoch)
+            if (archive) dao.archive(workId, versionId, dao.membership(workId)?.primaryTopicId ?: DEFAULT_TOPIC, System.currentTimeMillis(), epoch, unexaminedLimit)
             val membership = dao.membership(workId)
             if (automaticOrganization && membership?.primaryTopicId == DEFAULT_TOPIC && !dao.manuallyOrganized(workId)) {
                 val subjects = runCatching { Json.decodeFromString<dev.chungjungsoo.gptmobile.data.research.academic.AcademicPaper>(source.bibliographyJson).subjects }.getOrDefault(emptyList())

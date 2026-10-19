@@ -188,7 +188,12 @@ data class CombinedEvidenceLedger(
                 val blocked = Regex("(?is)^(?:access denied|forbidden|403 forbidden|checking your browser|verify you are human|just a moment[.!]?)\\b|<title>\\s*(?:just a moment|access denied|403 forbidden|attention required)").containsMatchIn(text.trim().take(4096)) ||
                     field("status").lowercase(Locale.ROOT) in setOf("blocked", "failed", "error") ||
                     field("status_code") in setOf("401", "403", "429")
-                val receivedLevel = if (blocked) "UNREADABLE_RESPONSE" else retrieval
+                val access = dev.chungjungsoo.gptmobile.data.agent.tool.classifyResearchAccess(text)
+                val receivedLevel = when {
+                    blocked || access in setOf(dev.chungjungsoo.gptmobile.data.agent.tool.ResearchAccessDisposition.CHALLENGE, dev.chungjungsoo.gptmobile.data.agent.tool.ResearchAccessDisposition.AUTH_REQUIRED) -> "UNREADABLE_RESPONSE"
+                    access == dev.chungjungsoo.gptmobile.data.agent.tool.ResearchAccessDisposition.PREVIEW && retrieval == "FULL_TEXT_AVAILABLE" -> "READABLE_PASSAGE"
+                    else -> retrieval
+                }
                 rows += CombinedEvidenceRecord(
                     id, canonical, title, date, text, receivedLevel, eventIds, setOfNotNull(event?.runId?.let(runProfiles::get)), work,
                     listOf(CombinedEvidenceExcerpt("$id:${researchHash(text).take(16)}", text, retrieval = receivedLevel, toolEventIds = eventIds, permissionScopes = scopes)),

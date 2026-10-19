@@ -116,8 +116,8 @@ class DirectResearchModelFactoryTest {
     }
 
     @Test fun researchReviewerWorksWithDelegationAndLocalAssistOffAndRevocationStopsIt() = runTest {
-        val primary = PlatformV2(uid = "primary", name = "Primary", model = "first")
-        val reviewer = PlatformV2(uid = "reviewer", name = "Reviewer", model = "second")
+        val primary = PlatformV2(uid = "primary", name = "Primary", model = "gpt-4.1")
+        val reviewer = PlatformV2(uid = "reviewer", name = "Reviewer", model = "gpt-4o")
         val profiles = listOf(primary, reviewer)
         val features = AppFeatureSettings(localAssist = false, researchFeature = dev.chungjungsoo.gptmobile.data.research.feature.ResearchFeatureSettings(reviewerProfileUid = reviewer.uid))
         var live = features

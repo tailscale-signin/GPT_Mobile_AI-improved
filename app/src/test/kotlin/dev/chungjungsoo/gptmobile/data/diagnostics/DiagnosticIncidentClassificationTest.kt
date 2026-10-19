@@ -25,4 +25,22 @@ class DiagnosticIncidentClassificationTest {
         assertTrue(classifyDiagnostic("I", "Android", "I/AdrenoVK-0(22965): Pipeline create failed").actionable)
         assertTrue(classifyDiagnostic("E", "LocalModel", "Unsupported backend").actionable)
     }
+
+    @Test fun successfulConnectionSettingsDoNotCountAsTimeoutAndStructuredFailuresDo() {
+        assertFalse(classifyDiagnostic("I", "MCP", "eventId=abc · Connect start · timeout=8000").actionable)
+        assertFalse(classifyDiagnostic("I", "MCP", "eventId=abc · DISCOVERY_NEGOTIATION · outcome=legacy_fallback").actionable)
+        assertTrue(classifyDiagnostic("I", "Research", "eventId=abc · MODEL · outcome=INVALID_RESPONSE").actionable)
+        assertTrue(classifyDiagnostic("I", "Research", "eventId=abc · DELIVERY_VALIDATED · accepted=false").actionable)
+        assertTrue(classifyDiagnostic("I", "Combined", "eventId=abc · SYNTHESIS_QUALITY · status=CORRECTION_REQUIRED").actionable)
+    }
+
+    @Test fun causalModelAndDelegationRowsCountOneIncident() {
+        val tracker = DiagnosticIncidentTracker()
+        val model = tracker.accept("2026-10-19T12:00:00Z W/Model: Finished inv · incidentId=inv-1 · status=FAILED", "event-a", null)
+        val child = tracker.accept("2026-10-19T12:00:01Z E/Delegation: Child returned · incidentId=inv-1 · status=FAILED", "event-b", null)
+        assertEquals("inv-1", model.id)
+        assertTrue(model.first)
+        assertEquals(model.id, child.id)
+        assertFalse(child.first)
+    }
 }

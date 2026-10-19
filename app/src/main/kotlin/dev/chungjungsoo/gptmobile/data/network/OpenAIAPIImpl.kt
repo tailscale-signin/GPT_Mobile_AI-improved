@@ -107,6 +107,7 @@ class OpenAIAPIImpl @Inject constructor(
         var receivedAssistantPayload = false
         var receivedGatewayToolActivity = false
         var receivedTerminal = false
+        var resolvedFreeModel: String? = null
         var transportRetries = 0
         val transportStartedNs = System.nanoTime()
         try {
@@ -127,8 +128,8 @@ class OpenAIAPIImpl @Inject constructor(
                     provider = null,
                     plugins = null,
                     topK = null,
-                    reasoningEffort = null,
-                    reasoning = null,
+                    reasoningEffort = request.reasoningEffort.takeIf { free == FreeAiProvider.KILO },
+                    reasoning = request.reasoning.takeIf { free == FreeAiProvider.KILO },
                     options = null,
                     transforms = null,
                     sessionId = null
@@ -209,7 +210,7 @@ class OpenAIAPIImpl @Inject constructor(
 
                     dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
                         "Provider",
-                        "REQUEST_ACCEPTED · model=${request.model} · server=${response.headers["Server"].orEmpty().take(120)} · requestId=${providerRequestIdentity { response.headers[it] }} · requestedOutputCap=${preparedRequest.maxTokens} · requestedReasoning=${preparedRequest.reasoningEffort ?: "provider-default"} · templateThinking=${preparedRequest.chatTemplateKwargs?.get("enable_thinking")} · serverEffectiveSettings=unverified"
+                        "REQUEST_ACCEPTED · model=${request.model} · server=${response.headers["Server"].orEmpty().take(120)} · requestId=${providerRequestIdentity { response.headers[it] }} · requestedOutputCap=${preparedRequest.maxTokens} · requestedReasoning=${preparedRequest.reasoningEffort ?: preparedRequest.reasoning?.toString() ?: "provider-default"} · reasoningCapabilityVerified=false · templateThinking=${preparedRequest.chatTemplateKwargs?.get("enable_thinking")} · serverEffectiveSettings=unverified"
                     )
                     // Capture Gateway headers from response
                     val gatewayJobId = response.headers["X-Gateway-Job-ID"]
@@ -255,6 +256,7 @@ class OpenAIAPIImpl @Inject constructor(
                                 error.copy(message = config.readableProviderError(error.message, error.code))
                             }
                         )
+                        if (free != null && !chunk.model.isNullOrBlank()) dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("FreeProvider", "MODEL_RESOLVED · profile=${config.profileUid} · requested=${free.model} · resolved=${chunk.model} · capabilityVerification=unverified")
                         emit(chunk)
                         if (free != null) {
                             freeResponseOutcome(
@@ -313,6 +315,10 @@ class OpenAIAPIImpl @Inject constructor(
                         val chunk = decoded.error?.let { error ->
                             decoded.copy(error = error.copy(message = config.readableProviderError(providerErrorDetails(data, error.message, config.token), error.code)))
                         } ?: decoded
+                        if (free != null && !chunk.model.isNullOrBlank() && resolvedFreeModel != chunk.model) {
+                            resolvedFreeModel = chunk.model
+                            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("FreeProvider", "MODEL_RESOLVED · profile=${config.profileUid} · requested=${free.model} · resolved=${chunk.model} · capabilityVerification=unverified")
+                        }
                         receivedTerminal = receivedTerminal || chunk.error != null || chunk.choices.orEmpty().any { it.finishReason != null }
                         if (receivedTerminal) terminalDrain.markTerminal()
                         receivedAnswer = receivedAnswer || chunk.choices.orEmpty().any { !it.effectiveDelta.content.isNullOrBlank() }
@@ -392,6 +398,7 @@ class OpenAIAPIImpl @Inject constructor(
         val workerBudget = kotlinx.coroutines.currentCoroutineContext()[WorkerRequestBudget]
         var receivedResponsePayload = false
         var receivedTerminal = false
+        var resolvedFreeModel: String? = null
         var preparedRequest = request.withModelSamplingPolicy()
         try {
             if (workerBudget != null) LocalServiceHealth.probe(config.apiUrl)
@@ -547,9 +554,9 @@ private data class OpenAIFileResponse(
     val mimeType: String? = null
 )
 
-private fun freeResponseOutcome(provider: FreeAiProvider, hasAnswer: Boolean, hasTools: Boolean, hasError: Boolean, limited: Boolean): ChatCompletionChunk? = when {
+internal fun freeResponseOutcome(provider: FreeAiProvider, hasAnswer: Boolean, hasTools: Boolean, hasError: Boolean, limited: Boolean): ChatCompletionChunk? = when {
     hasError || hasTools -> null
-    limited -> ChatCompletionChunk(model = provider.model, choices = listOf(Choice(delta = Delta(content = "\n\nThis model reached its response limit. Would you like me to continue?"), finishReason = "stop")))
+    limited -> ChatCompletionChunk(model = provider.model, applicationNotice = "This model reached its response limit. Would you like me to continue?", choices = listOf(Choice(delta = Delta(content = null), finishReason = "length")))
     !hasAnswer -> ChatCompletionChunk(error = ErrorDetail(message = "${provider.displayName} returned no answer. Retry later or choose another Free provider.", type = "empty_response"))
     else -> null
 }

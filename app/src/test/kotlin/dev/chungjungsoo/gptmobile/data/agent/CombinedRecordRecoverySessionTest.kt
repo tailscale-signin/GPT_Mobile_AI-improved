@@ -96,4 +96,18 @@ class CombinedRecordRecoverySessionTest {
         assertEquals(3, events.filterIsInstance<ProviderEvent.TextDelta>().size)
         assertEquals(ProviderEvent.Completed, events.last())
     }
+
+    @Test fun tinyUnfinishedDeltasAreCoalescedAndTerminalFragmentIsSaved() = runTest {
+        var writes = 0
+        var saved: CombinedRecordCheckpoint? = null
+        val fragment = first.take(60)
+        val provider = session(*fragment.map { ProviderEvent.TextDelta(it.toString()) }.toTypedArray(), ProviderEvent.Failed("interrupted"))
+        val recovery = CombinedRecordRecoverySession(provider, protocol(), 0, validateAccess = {}, save = {
+            writes++
+            saved = it
+        }) { _, _ -> error("No continuation") }
+        recovery.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(fragment, saved!!.pending)
+        assertTrue(writes < fragment.length / 2)
+    }
 }

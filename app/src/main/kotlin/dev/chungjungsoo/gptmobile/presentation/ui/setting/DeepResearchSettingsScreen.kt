@@ -65,6 +65,7 @@ internal fun ResearchFeatureScreen(onClose: () -> Unit, viewModel: DeepResearchS
     }
     val comparison by viewModel.comparison.collectAsStateWithLifecycle()
     var selectedVersions by rememberSaveable { mutableStateOf(emptyList<String>()) }
+    val protectedCount by viewModel.protectedCount.collectAsStateWithLifecycle()
     val count by viewModel.archiveCount.collectAsStateWithLifecycle()
     val rows by viewModel.archiveRows.collectAsStateWithLifecycle()
     val categories by viewModel.categories.collectAsStateWithLifecycle()
@@ -75,6 +76,7 @@ internal fun ResearchFeatureScreen(onClose: () -> Unit, viewModel: DeepResearchS
     var query by rememberSaveable { mutableStateOf("") }
     var topic by rememberSaveable { mutableStateOf("") }
     var topicLabel by rememberSaveable { mutableStateOf("") }
+    var archiveState by rememberSaveable { mutableStateOf("") }
     var assessed by rememberSaveable { mutableStateOf(false) }
     var rank by rememberSaveable { mutableStateOf(false) }
     var offset by rememberSaveable { mutableIntStateOf(0) }
@@ -97,7 +99,7 @@ internal fun ResearchFeatureScreen(onClose: () -> Unit, viewModel: DeepResearchS
         previousCount = count
     }
     val archiveNavigation: @Composable () -> Unit = {
-        SettingsPanel("Reusable archive · $count / 1,000") {
+        SettingsPanel("Research archive · $count studies") {
             OutlinedTextField(query, {
                 query = it
                 offset = 0
@@ -106,6 +108,12 @@ internal fun ResearchFeatureScreen(onClose: () -> Unit, viewModel: DeepResearchS
                 assessed = !assessed
                 offset = 0
             }, label = { Text("Examined studies") })
+            listOf("" to "All", "UNEXAMINED" to "Unexamined", "PROCESSING" to "Processing", "EXAMINED" to "Examined", "EVIDENCE_CHECKED" to "Evidence checked").forEach { (value, label) ->
+                FilterChip(archiveState == value, {
+                    archiveState = value
+                    offset = 0
+                }, label = { Text(label) })
+            }
             FilterChip(rank, {
                 rank = !rank
                 offset = 0
@@ -152,7 +160,7 @@ internal fun ResearchFeatureScreen(onClose: () -> Unit, viewModel: DeepResearchS
     }
     val enabled = settings.isToolPluginEnabled(ToolPluginId.DEEP_RESEARCH)
     LaunchedEffect(Unit) { viewModel.open() }
-    LaunchedEffect(query, topic, offset, tab, assessed, rank) { if (tab == 1) viewModel.loadArchive(query, topic, offset, assessed, rank) }
+    LaunchedEffect(query, topic, offset, tab, assessed, rank, archiveState) { if (tab == 1) viewModel.loadArchive(query, topic, offset, assessed, rank, archiveState) }
     val close = {
         if (!state.saving) {
             if (state.dirty) {
@@ -220,7 +228,10 @@ internal fun ResearchFeatureScreen(onClose: () -> Unit, viewModel: DeepResearchS
                                         ResearchFeatureSwitch("Recall grounded research outcomes", feature.researchMemory, enabled) { viewModel.editFeature(feature.copy(researchMemory = it)) }
                                         ResearchFeatureSwitch("Share research recall with remote AI", feature.shareResearchRecall, enabled && feature.researchMemory) { viewModel.editFeature(feature.copy(shareResearchRecall = it)) }
                                         Text("Research recall also requires Memory recall permission. Remote sharing additionally requires cloud-memory permission. Study findings remain separate from personal facts.")
-                                        ResearchFeatureSwitch("Archive public research", feature.archiveEnabled, enabled) { viewModel.editFeature(feature.copy(archiveEnabled = it)) }
+                                        Text("Studies save automatically. Evidence-checked results remain until you delete them.")
+                                        Text("$protectedCount protected studies · unexamined limit ${feature.unexaminedStudyLimit}")
+                                        OutlinedTextField(feature.unexaminedStudyLimit.toString(), { value -> value.toIntOrNull()?.takeIf { it in 1..50000 }?.let { viewModel.editFeature(feature.copy(unexaminedStudyLimit = it)) } }, label = { Text("Unexamined study limit") }, enabled = enabled)
+                                        TextButton(onClick = viewModel::clearUnexamined, enabled = enabled) { Text("Clear unexamined") }
                                         ResearchFeatureSwitch("Use archive leads before discovery", feature.archivePreflight, enabled) { viewModel.editFeature(feature.copy(archivePreflight = it)) }
                                         ResearchFeatureSwitch("Show article cards", feature.articleCards, enabled) { viewModel.editFeature(feature.copy(articleCards = it)) }
                                         ResearchFeatureSwitch("Compact article cards", feature.compactCards, enabled) { viewModel.editFeature(feature.copy(compactCards = it)) }
@@ -367,6 +378,7 @@ internal fun ResearchFeatureScreen(onClose: () -> Unit, viewModel: DeepResearchS
                                 SettingsPanel(row.title) {
                                     Text("${row.coverage.name.lowercase().replace('_', ' ')} · ${row.publicationYear ?: "Year unknown"}")
                                     Text("Peer review: ${row.peerReview.name.lowercase()}")
+                                    row.protectionReason?.let { Text(if (it == "EVIDENCE_CHECKED") "Evidence checked · retained until you delete" else "Historic assessment retained · integrity check needed", style = MaterialTheme.typography.labelMedium) }
                                     Text(if (row.retracted == true) "Review score suspended" else row.reviewScore?.let { "AI review score $it / 100" } ?: row.reviewStatus ?: "Review pending", style = MaterialTheme.typography.labelLarge)
                                     if (row.retracted == true) Text("Retraction reported", color = MaterialTheme.colorScheme.error)
                                     Text(row.canonicalUrl, style = MaterialTheme.typography.bodySmall)
@@ -434,7 +446,7 @@ internal fun ResearchFeatureScreen(onClose: () -> Unit, viewModel: DeepResearchS
             })
         }
         deleteId?.let { id ->
-            AlertDialog(onDismissRequest = { deleteId = null }, title = { Text(if (id == "*") "Clear archive?" else "Remove archived work?") }, text = { Text("Chat citations and active-job evidence keep their separate retention roots. The reusable archive index is removed.") }, confirmButton = {
+            AlertDialog(onDismissRequest = { deleteId = null }, title = { Text(if (id == "*") "Clear archive?" else "Remove archived work?") }, text = { Text("This explicitly deletes ${if (id == "*") "$count studies, including $protectedCount protected results" else "the selected study and its retained assessment"}. Running examinations are stopped. Old callbacks and backups cannot silently recreate deleted studies.") }, confirmButton = {
                 TextButton(onClick = {
                     if (id == "*") viewModel.clearArchive() else viewModel.removeFromArchive(id)
                     deleteId = null

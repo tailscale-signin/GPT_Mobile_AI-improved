@@ -1731,7 +1731,8 @@ class ChatViewModel @Inject constructor(
             val features = featureSettings.value
             val draft = question.text.toString()
             val live = agentRunCoordinator.streamMessages.value.values.filter { it.chatId == room.id }.toList()
-            val records = chatRepository.fetchDebugRecords(room.id)
+            val baseRecords = chatRepository.fetchDebugRecords(room.id)
+            val records = kotlinx.serialization.json.JsonObject(baseRecords + ("researchLifecycle" to (researchSessionStore?.featureDiagnostics(room.id) ?: kotlinx.serialization.json.JsonObject(emptyMap()))))
             val messages = withContext(Dispatchers.IO) {
                 chatRepository.fetchMessagesV2(room.id).associateBy { it.id }.toMutableMap().apply {
                     visible.filter { it.id > 0 }.forEach { put(it.id, it) }
@@ -2626,7 +2627,7 @@ class ChatViewModel @Inject constructor(
         val leadAuthority = turnSessions.lastOrNull { it.runId == leadMessage.currentRunId }?.authority
             ?: turnSessions.map { it.authority }.distinct().singleOrNull()
         val sharedEvidence = dev.chungjungsoo.gptmobile.data.research.ResearchCorpus.freezeAll(
-            turnSessions.filter { it.authority == leadAuthority }.map { it.snapshot }
+            dev.chungjungsoo.gptmobile.data.research.authorizedResearchTransfer(turnSessions, leadAuthority)
         )
         val turnRuns = _agentRunsById.value.values.filter { it.chatId == userMessage.chatId && it.userMessageId == userMessage.id && !it.runId.startsWith(COMBINED_RUN_PREFIX) }
         val turnRunIds = turnRuns.mapTo(hashSetOf()) { it.runId }

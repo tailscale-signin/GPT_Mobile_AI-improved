@@ -48,48 +48,23 @@ class ResearchCitationViewModel @Inject constructor(private val resolver: Citati
     private val mutable = MutableStateFlow<List<MessageEvidenceBinding>>(emptyList())
     val bindings = mutable.asStateFlow()
     val reviews = archive.dao.observeStudyReviews().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val memberships = archive.dao.observeMemberships().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     val works = archive.dao.observeWorks().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     val jobs = examinations.jobs.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     val features = settings.observeFeatureSettings().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings())
+    private val mutableReceipts = MutableStateFlow<List<dev.chungjungsoo.gptmobile.data.research.feature.ResearchSaveReceipt>>(emptyList())
+    val saveReceipts = mutableReceipts.asStateFlow()
+    private var receiptWorker: Job? = null
+    private var receiptChatId: Int? = null
     private var worker: Job? = null
     private var identity = ""
-    private val automatic = mutableSetOf<String>()
-    fun autoExamine(message: MessageV2, profileUid: String, tools: () -> ChatMcpToolConfig) {
-        viewModelScope.launch {
-            val features = settings.getFeatureSettings()
-            val policy = features.researchFeature
-            if (!policy.enabled || policy.autoExamination == dev.chungjungsoo.gptmobile.data.research.feature.AutoExamination.OFF) return@launch
-            val selection = features.conversationResearch[message.chatId] ?: tools().research
-            val research = selection?.academicEligibleByUi == true
-            if (!research && !policy.ordinaryChatAutoExamination) return@launch
-            val needed = Regex("(?i)sample|participant|randomi[sz]|causal|efficacy|evidence|[0-9]+%|confidence interval").containsMatchIn(message.effectiveContent())
-            if (policy.autoExamination == dev.chungjungsoo.gptmobile.data.research.feature.AutoExamination.WHEN_NEEDED && !needed) return@launch
-            mutable.value.distinctBy { it.versionId }.forEach { binding ->
-                if (automatic.add("${policy.crawlerProfileUid}:${binding.versionId}")) {
-                    try {
-                        examinations.automaticExamine(
-                            dev.chungjungsoo.gptmobile.data.research.feature.ExaminationRequest(
-                                binding.workId,
-                                "",
-                                message.chatId,
-                                binding.versionId,
-                                binding.authority,
-                                if (research) dev.chungjungsoo.gptmobile.data.research.feature.ExaminationOrigin.AUTHORIZED_RESEARCH else dev.chungjungsoo.gptmobile.data.research.feature.ExaminationOrigin.AUTOMATIC_CHAT,
-                                rootWorkId = "${message.chatId}:${message.linkedMessageId}",
-                                parentRunId = message.currentRunId
-                            ),
-                            tools
-                        )
-                    } catch (cancel: CancellationException) {
-                        throw cancel
-                    } catch (_: Exception) {
-                        // Automatic work cannot change permissions or divert to another profile. Manual Examine shows the exact admission reason.
-                    }
-                }
-            }
-        }
-    }
     fun bind(message: MessageV2, includeCitations: Boolean) {
+        if (receiptChatId != message.chatId) {
+            receiptChatId = message.chatId
+            receiptWorker?.cancel()
+            mutableReceipts.value = emptyList()
+            receiptWorker = viewModelScope.launch { archive.dao.observeSaveReceipts(message.chatId).collect { mutableReceipts.value = it } }
+        }
         val key = "${message.id}:${message.currentRunId}:${message.activeRevisionIndex}:$includeCitations:${if (includeCitations) message.effectiveContent().hashCode() else 0}"
         if (identity == key) return
         identity = key
@@ -115,21 +90,42 @@ class ResearchCitationViewModel @Inject constructor(private val resolver: Citati
 fun ResearchCitationCards(message: MessageV2, displayedSegment: String, profileUid: String, compact: Boolean, currentTools: () -> ChatMcpToolConfig, isStreaming: Boolean = false) {
     if (message.id <= 0 || message.chatId <= 0) return
     val viewModel: ResearchCitationViewModel = hiltViewModel(key = "research-citations:${message.id}")
+    val articleViewModel: ResearchArticleViewModel = hiltViewModel()
     val bindings by viewModel.bindings.collectAsStateWithLifecycle()
     val reviews by viewModel.reviews.collectAsStateWithLifecycle()
+    val memberships by viewModel.memberships.collectAsStateWithLifecycle()
+    val receipts by viewModel.saveReceipts.collectAsStateWithLifecycle()
     val works by viewModel.works.collectAsStateWithLifecycle()
     val jobs by viewModel.jobs.collectAsStateWithLifecycle()
     val features by viewModel.features.collectAsStateWithLifecycle()
     var selected by remember(message.id, message.activeRevisionIndex) { mutableStateOf<MessageEvidenceBinding?>(null) }
     var all by remember(message.id) { mutableStateOf(false) }
     LaunchedEffect(message.id, message.currentRunId, message.activeRevisionIndex, isStreaming, if (isStreaming) "" else message.effectiveContent()) { viewModel.bind(message, !isStreaming) }
-    LaunchedEffect(bindings, profileUid) { if (bindings.isNotEmpty()) viewModel.autoExamine(message, profileUid, currentTools) }
     val collection = bindings.distinctBy { it.workId }
+    fun selectedReview(binding: MessageEvidenceBinding) = memberships.firstOrNull { it.workId == binding.workId }?.acceptedReviewId?.let { id -> reviews.firstOrNull { it.reviewId == id } }
+        ?: reviews.firstOrNull { it.workId == binding.workId }
+    fun saveStatus(binding: MessageEvidenceBinding): String {
+        val membership = memberships.firstOrNull { it.workId == binding.workId }
+        if (membership != null) return if (membership.protectionReason != null) "Saved · assessment retained until you delete" else "Saved"
+        val receipt = receipts.firstOrNull { it.workId == binding.workId || it.sourceId == binding.citationKey }
+        return when (receipt?.disposition) {
+            "SAVE_PENDING", "DISCOVERED" -> "Saving"
+            "SAVE_FAILED" -> "Save failed · ${receipt.reason ?: "retry pending"}"
+            "SUPPRESSED_BY_EXPLICIT_DELETION" -> "Removed from archive by you"
+            else -> "Not archived"
+        }
+    }
     if (collection.isNotEmpty()) {
-        Text("Studies found · ${collection.size} publications", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 12.dp))
-        Text("Study-family identity may be unresolved · ${if (features.researchFeature.archiveEnabled) "Archive enabled" else "Archive saving off"}", style = MaterialTheme.typography.bodySmall)
+        Text("Research sources · ${collection.size} references · ${collection.count { binding -> memberships.any { it.workId == binding.workId } }} archived", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 12.dp))
+        Text("Study identity may be unresolved · studies save automatically", style = MaterialTheme.typography.bodySmall)
+        val latestReceipts = receipts.distinctBy { it.runId to it.sourceId }
+        val failedSaves = latestReceipts.count { it.disposition == "SAVE_FAILED" }
+        if (failedSaves > 0) Text("$failedSaves source save(s) failed · retry pending", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
         collection.take(3).forEach { binding ->
-            StudyCard(binding, works.firstOrNull { it.workId == binding.workId }, reviews.firstOrNull { it.workId == binding.workId }, jobs.filter { it.workId == binding.workId && it.authority == binding.authority }.maxByOrNull { it.updatedAt }, compact) { selected = binding }
+            StudyCard(binding, works.firstOrNull { it.workId == binding.workId }, selectedReview(binding), jobs.filter { it.workId == binding.workId && it.authority == binding.authority && it.chatId == message.chatId }.maxByOrNull { it.updatedAt }, compact, saveStatus = saveStatus(binding), onExamine = {
+                articleViewModel.examine(dev.chungjungsoo.gptmobile.data.research.feature.ExaminationRequest(binding.workId, chatId = message.chatId, versionId = binding.versionId, authority = binding.authority), currentTools)
+                selected = binding
+            }) { selected = binding }
         }
         if (collection.size > 3) TextButton(onClick = { all = true }) { Text("View all ${collection.size} studies") }
     }
@@ -142,7 +138,10 @@ fun ResearchCitationCards(message: MessageV2, displayedSegment: String, profileU
                     androidx.compose.foundation.lazy.LazyColumn(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
                         items(collection.size, key = { collection[it].workId }) { index ->
                             val binding = collection[index]
-                            StudyCard(binding, works.firstOrNull { it.workId == binding.workId }, reviews.firstOrNull { it.workId == binding.workId }, jobs.filter { it.workId == binding.workId && it.authority == binding.authority }.maxByOrNull { it.updatedAt }, compact) { selected = binding }
+                            StudyCard(binding, works.firstOrNull { it.workId == binding.workId }, selectedReview(binding), jobs.filter { it.workId == binding.workId && it.authority == binding.authority && it.chatId == message.chatId }.maxByOrNull { it.updatedAt }, compact, saveStatus = saveStatus(binding), onExamine = {
+                                articleViewModel.examine(dev.chungjungsoo.gptmobile.data.research.feature.ExaminationRequest(binding.workId, chatId = message.chatId, versionId = binding.versionId, authority = binding.authority), currentTools)
+                                selected = binding
+                            }) { selected = binding }
                         }
                     }
                 }
@@ -151,13 +150,13 @@ fun ResearchCitationCards(message: MessageV2, displayedSegment: String, profileU
     }
     selected?.let { binding ->
         val crawler = (features.conversationResearch[message.chatId] ?: currentTools().research)?.crawlerProfileUid ?: features.researchFeature.crawlerProfileUid.orEmpty()
-        val liveVersion = reviews.firstOrNull { it.workId == binding.workId }?.versionId ?: binding.versionId
+        val liveVersion = selectedReview(binding)?.versionId ?: binding.versionId
         ResearchArticleDialog(binding.workId, liveVersion, binding.authority, message.chatId, crawler, currentTools, { selected = null }, originalVersionId = binding.versionId)
     }
 }
 
 @Composable
-private fun StudyCard(binding: MessageEvidenceBinding, work: dev.chungjungsoo.gptmobile.data.research.feature.ResearchWork?, review: dev.chungjungsoo.gptmobile.data.research.feature.ResearchStudyReview?, job: dev.chungjungsoo.gptmobile.data.research.feature.ExaminationJob?, compact: Boolean, onOpen: () -> Unit) {
+private fun StudyCard(binding: MessageEvidenceBinding, work: dev.chungjungsoo.gptmobile.data.research.feature.ResearchWork?, review: dev.chungjungsoo.gptmobile.data.research.feature.ResearchStudyReview?, job: dev.chungjungsoo.gptmobile.data.research.feature.ExaminationJob?, compact: Boolean, saveStatus: String, onExamine: () -> Unit, onOpen: () -> Unit) {
     val snapshot = remember(binding.snapshotJson) { runCatching { Json.parseToJsonElement(binding.snapshotJson) as? JsonObject }.getOrNull() }
     val artifact = remember(review?.reviewId) { review?.let { runCatching { Json.decodeFromString<dev.chungjungsoo.gptmobile.data.research.feature.StudyReviewArtifact>(it.artifactJson) }.getOrNull() } }
     var expanded by remember(binding.workId) { mutableStateOf(false) }
@@ -175,12 +174,13 @@ private fun StudyCard(binding: MessageEvidenceBinding, work: dev.chungjungsoo.gp
                 Text(it.limitation, style = MaterialTheme.typography.bodySmall)
             }
             Text(if (retracted) "Retraction reported · score suspended" else review?.overallScore?.let { "AI review score $it / 100" } ?: (review?.status ?: "Review pending"), style = MaterialTheme.typography.labelLarge, color = if (retracted) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSecondaryContainer)
+            Text(saveStatus, style = MaterialTheme.typography.labelSmall)
             Text("Citation coverage: " + (snapshot?.get("coverage") as? JsonPrimitive)?.content.orEmpty().lowercase().replace('_', ' '), style = MaterialTheme.typography.bodySmall)
             if (review != null && review.versionId != binding.versionId) Text("Updated assessment · original cited version retained", style = MaterialTheme.typography.labelSmall)
             if (active) Text("Review in progress · ${job?.stage?.name?.lowercase()?.replace('_', ' ')}", style = MaterialTheme.typography.labelMedium)
             if (openError) Text("No browser is available to open this source.", color = MaterialTheme.colorScheme.error)
             androidx.compose.foundation.layout.Row {
-                TextButton(onClick = onOpen, modifier = Modifier.heightIn(min = 48.dp)) {
+                TextButton(onClick = if (active || review != null) onOpen else onExamine, modifier = Modifier.heightIn(min = 48.dp)) {
                     Text(
                         if (active) {
                             "View progress"

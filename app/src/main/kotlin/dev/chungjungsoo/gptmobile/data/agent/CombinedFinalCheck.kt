@@ -176,6 +176,7 @@ internal object CombinedFinalCheck {
         policy.requiredTopics.forEach { topic ->
             val terms = CombinedClaimMatcher.fingerprint(topic).terms
             if (terms.isNotEmpty() && destinations.none { (text, _) -> CombinedClaimMatcher.fingerprint(text).terms.containsAll(terms) }) {
+                needs += CombinedVerificationNeed("requested-topic:" + dev.chungjungsoo.gptmobile.data.research.researchHash(topic), topic, "Explicit requested topic lacks a final answer span; address it or disclose the evidence limitation")
                 checks += CombinedAnswerCheck("REQUIRED_TOPIC_UNRESOLVED:$topic", "SCOPE", "NEEDS_VERIFICATION", message = "Explicit requested topic lacks an established final span")
             }
         }

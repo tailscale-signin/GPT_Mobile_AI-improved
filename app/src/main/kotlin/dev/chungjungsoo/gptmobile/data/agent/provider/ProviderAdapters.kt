@@ -351,6 +351,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                                 caughtThrowable = error
                             }
                             .collect { chunk ->
+                                chunk.applicationNotice?.let { emit(ProviderEvent.Notice(it, persistent = true)) }
                                 chunk.retryDurationMs?.let { emit(ProviderEvent.Usage(retryDurationMs = it, retryAttempts = chunk.retryAttempts)) }
                                 if (chunk.streamFinished) assembler.finish().forEach { publishOllama(it) }
                                 chunk.usage?.let { usage ->
@@ -660,7 +661,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                             tools = requestTools,
                             toolChoice = if (platform.disableAllTools) "none" else null,
                             provider = parsedRouting,
-                            reasoning = if (isOpenRouter) {
+                            reasoning = if (isOpenRouter || config.freeProvider == dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.KILO) {
                                 if (platform.reasoning && constraints.allowReasoning) OpenRouterReasoning(effort = "medium") else OpenRouterReasoning(enabled = false)
                             } else {
                                 null
@@ -708,6 +709,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                                 canRotate = ApiCredentialRotator.isRotatableError(error)
                             }
                             .collect { chunk ->
+                                chunk.applicationNotice?.let { emit(ProviderEvent.Notice(it, persistent = true)) }
                                 chunk.retryDurationMs?.let { emit(ProviderEvent.Usage(retryDurationMs = it, retryAttempts = chunk.retryAttempts)) }
                                 if (chunk.streamFinished) assembler.finish().forEach { emit(it) }
                                 chunk.usage?.let { usage ->

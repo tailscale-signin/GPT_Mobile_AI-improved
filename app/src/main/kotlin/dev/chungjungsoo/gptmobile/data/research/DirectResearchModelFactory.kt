@@ -118,7 +118,7 @@ internal object DirectResearchModelFactory {
         // A missing selected profile remains unavailable; never substitute another reviewer.
         val selectedReviewer = features.researchFeature.reviewerProfileUid
         val reviewer = if (selectedReviewer != null) {
-            profiles.singleOrNull { it.uid == selectedReviewer && it.enabled && (it.compatibleType != ClientType.LITERT_LM || features.assistEnabled() && policy.allowsProcessing(it)) }
+            dev.chungjungsoo.gptmobile.data.research.feature.ResearchProfileResolver.dedicatedReviewer(features, profiles, primary)?.takeIf { it.compatibleType != ClientType.LITERT_LM || features.assistEnabled() && policy.allowsProcessing(it) }
         } else {
             reservedReviewer(config, profiles, primary)?.takeIf {
                 config.reviewerEnabled &&
@@ -133,7 +133,7 @@ internal object DirectResearchModelFactory {
             reviewer = reviewer?.let(::endpoint),
             stillEnabled = stillEnabled,
             onEvent = { event ->
-                AppLogRecorder.record("Research", "MODEL_STAGE · stage=${event.stage} · profile=${event.profileUid} · local=${event.local} · status=${event.outcome} · durationMs=${event.durationMs} · invocation=${event.invocationId ?: "none"} · reason=${event.reason} · failurePhase=${event.failurePhase.ifBlank { "none" }} · failureCategory=${event.failureCategory.ifBlank { "none" }} · exceptionType=${event.exceptionType.ifBlank { "none" }}")
+                AppLogRecorder.record("Research", "MODEL_STAGE · incidentId=${event.invocationId ?: event.id} · stage=${event.stage} · profile=${event.profileUid} · local=${event.local} · status=${event.outcome} · durationMs=${event.durationMs} · invocation=${event.invocationId ?: "none"} · reason=${event.reason} · failurePhase=${event.failurePhase.ifBlank { "none" }} · failureCategory=${event.failureCategory.ifBlank { "none" }} · exceptionType=${event.exceptionType.ifBlank { "none" }}")
                 if (event.local) {
                     onAssistStatus(
                         AssistTaskState(

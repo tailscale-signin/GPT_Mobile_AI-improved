@@ -217,4 +217,22 @@ class ResearchModelCoordinatorTest {
         release.complete(Unit)
         assertNotNull(probe.await())
     }
+
+    @Test fun noticeOnlyFailuresOpenSharedCircuitAcrossStructuredStages() = runTest {
+        var attempts = 0
+        val worker = ResearchModelCoordinator(
+            listOf(
+                endpoint("primary") {
+                    attempts++
+                    "This model reached its response limit. Would you like me to continue?"
+                }
+            )
+        )
+        assertNull(worker.generate(ResearchModelStage.PLAN, "task", 1536))
+        assertNull(worker.generate(ResearchModelStage.EXTRACT, "source", 2048))
+        assertNull(worker.generate(ResearchModelStage.FIND_GAPS, "task", 1536))
+        assertEquals(2, attempts)
+        assertEquals("MODEL_CIRCUIT_OPEN", worker.events.last().reason)
+        assertFalse(worker.completedStage("PLAN"))
+    }
 }

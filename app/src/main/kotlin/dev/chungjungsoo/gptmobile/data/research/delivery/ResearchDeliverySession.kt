@@ -20,6 +20,8 @@ internal class ResearchDeliverySession(
     private val base: AgentProviderSession,
     private val packet: suspend () -> ResearchDeliveryPacket?,
     private val expectResearch: Boolean = false,
+    private val loadSections: suspend (String) -> Map<String, String> = { emptyMap() },
+    private val saveSection: suspend (String, String, String) -> Unit = { _, _, _ -> },
     private val create: suspend (String, Boolean) -> AgentProviderSession
 ) : AgentProviderSession {
     override val handlesToolsInternally = base.handlesToolsInternally
@@ -76,6 +78,10 @@ internal class ResearchDeliverySession(
         }
         if (handlesToolsInternally || evidence == null) evidence = withContext(Dispatchers.Default) { packet() }
         val delivery = evidence
+        if (delivery == null && expectResearch) {
+            emit(ProviderEvent.Failed("RESEARCH_PARTIAL: No acquisition packet was retained; resume source collection before report delivery."))
+            return@flow
+        }
         if (delivery == null) {
             emit(ProviderEvent.TextDelta(draft.toString()))
             emit(ProviderEvent.Completed)
@@ -140,7 +146,7 @@ internal class ResearchDeliverySession(
             // text-only sections preserve evidence without redoing the acquisition.
             val sectioned = if (!repairedAccepted && delivery.detail != ResearchReportDetail.BRIEF) {
                 emit(ProviderEvent.Notice("Writing the remaining research sections in smaller, source-checked segments."))
-                trySectionedRepair(delivery, context(delivery))
+                trySectionedRepair(delivery, context(delivery), text)
             } else {
                 null
             }
@@ -154,7 +160,7 @@ internal class ResearchDeliverySession(
                 partialFallback = true
                 emit(ProviderEvent.Notice("The generated report did not pass evidence checks. Delivering a clearly labelled partial evidence report instead."))
             }
-            AppLogRecorder.record("Research", "DELIVERY_VALIDATED · repaired=true · accepted=${repairedAccepted || sectionedAccepted} · sectioned=$sectionedAccepted · partialFallback=${!repairedAccepted && !sectionedAccepted} · structuralIssues=${repaired.issues.joinToString()} · semanticCoverageVerified=false")
+            AppLogRecorder.record("Research", "DELIVERY_VALIDATED · repaired=true · accepted=${repairedAccepted || sectionedAccepted} · sectioned=$sectionedAccepted · partialFallback=${!repairedAccepted && !sectionedAccepted} · initialIssues=${result.issues.joinToString()} · repairIssues=${repaired.issues.joinToString()} · repairCompleted=$repairCompleted · repairFailed=$repairFailed · initialOverflow=$overflow · structuralIssues=${repaired.issues.joinToString()} · semanticCoverageVerified=false")
         } else {
             AppLogRecorder.record("Research", "DELIVERY_VALIDATED · repaired=false · accepted=true · cited=${result.citedIds.size} · semanticCoverageVerified=false")
         }
@@ -167,15 +173,24 @@ internal class ResearchDeliverySession(
     }
 
     /** Each chapter is a separate tool-free request; it may fail without losing captured evidence. */
-    private suspend fun trySectionedRepair(packet: ResearchDeliveryPacket, sourceContext: String): String? {
+    private suspend fun trySectionedRepair(packet: ResearchDeliveryPacket, sourceContext: String, previous: String): String? {
+        val digest = dev.chungjungsoo.gptmobile.data.research.researchHash(packet.json().toString() + packet.detail.name)
+        val reusable = (loadSections(digest) + reportSections(previous)).filter { (heading, body) -> heading in packet.sections && reusableSection(body, packet) }.toMutableMap()
         val sections = packet.sections.chunked(4)
         val report = StringBuilder()
         for ((index, headings) in sections.withIndex()) {
+            val missing = headings.filterNot(reusable::containsKey)
+            if (missing.isEmpty()) {
+                if (report.isNotEmpty()) report.append("\n\n")
+                report.append(headings.joinToString("\n\n") { reusable.getValue(it) })
+                continue
+            }
             val part = StringBuilder()
             var complete = false
+            var truncated = false
             val instruction = sourceContext +
                 "\nWrite ONLY the following report sections (Markdown ## headings), in order: " +
-                headings.joinToString("; ") +
+                missing.joinToString("; ") +
                 ". This is chapter ${index + 1} of ${sections.size}. " +
                 "Use only source IDs and URLs from the packet. Cite scientific paragraphs with [S-id] markers. " +
                 "For unread sources explicitly state that only metadata was available. " +
@@ -193,24 +208,50 @@ internal class ResearchDeliverySession(
                             is ProviderEvent.ToolCall -> throw IllegalStateException("Sectioned writer attempted a tool call")
                             is ProviderEvent.Failed -> throw IllegalStateException(event.message)
                             ProviderEvent.Completed -> complete = true
+                            is ProviderEvent.Usage -> truncated = truncated || event.finishReason in setOf("length", "max_tokens", "output_limit")
                             else -> Unit
                         }
                     }
                     true
                 }
-                if (finished != true || !complete || part.isBlank()) return null
+                AppLogRecorder.record("Research", "REPORT_CHAPTER · chapter=${index + 1} · complete=$complete · truncated=$truncated · characters=${part.length} · dispatched=true")
+                if (finished != true || !complete || truncated || part.isBlank()) return null
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
                 // A revoked research permission must abort delivery, never expose cached text.
                 if (isAuthorizationFailure(error.message.orEmpty())) throw error
+                AppLogRecorder.record("Research", "REPORT_CHAPTER_FAILED · chapter=${index + 1} · reason=${error.javaClass.simpleName}", "W")
                 return null
             }
+            val written = reportSections(part.toString())
+            if (missing.any { heading -> written[heading]?.let { reusableSection(it, packet) } != true }) return null
+            missing.forEach { heading ->
+                val body = written.getValue(heading)
+                saveSection(digest, heading, body)
+                reusable[heading] = body
+            }
             if (report.isNotEmpty()) report.append("\n\n")
-            report.append(part)
+            report.append(headings.joinToString("\n\n") { reusable.getValue(it) })
         }
         val proposed = report.toString()
         return proposed.takeIf { ResearchDeliveryValidator.validate(it, packet).accepted }
+    }
+
+    private fun reusableSection(body: String, packet: ResearchDeliveryPacket): Boolean {
+        if (body.isBlank()) return false
+        val global = listOf("MISSING_SECTION:", "OMITTED_LEADING_STUDY:", "OMITTED_UNREAD_LEAD:", "DIRECT_REFERENCE_MISSING:", "PARTIAL_COVERAGE_NOT_DISCLOSED", "REVIEW_STATUS_NOT_DISCLOSED")
+        val issues = ResearchDeliveryValidator.validate(body, packet).issues.filter { issue -> global.none(issue::startsWith) }
+        if (issues.isNotEmpty()) AppLogRecorder.record("Research", "REPORT_SECTION_REJECTED · issues=${issues.joinToString()}", "W")
+        return issues.isEmpty()
+    }
+
+    private fun reportSections(text: String): Map<String, String> {
+        val headings = Regex("(?m)^##[ \t]+([^\r\n]+)[ \t]*$").findAll(text).toList()
+        return headings.mapIndexedNotNull { index, match ->
+            val heading = match.groupValues[1].trim()
+            if (headings.count { it.groupValues[1].trim() == heading } != 1) null else heading to text.substring(match.range.first, headings.getOrNull(index + 1)?.range?.first ?: text.length).trim()
+        }.toMap()
     }
 
     companion object {

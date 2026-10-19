@@ -55,10 +55,14 @@ data class ResearchSource(
     val bodyChunks: List<String> = emptyList(),
     val accessUrl: String = "",
     val failureReason: String = "",
-    val bibliographyJson: String = "{}"
+    val bibliographyJson: String = "{}",
+    val publicCapture: Boolean = false,
+    val retrievalReceipt: String = ""
 ) {
     val readable: Boolean get() = originId.isBlank() && retrievalQuality in setOf("FULL_TEXT", "PARTIAL_TEXT") && status in setOf("Read", "Partially read", "Used as evidence") && passage.isNotBlank()
     fun json() = buildJsonObject {
+        put("publicCapture", publicCapture)
+        put("retrievalReceipt", retrievalReceipt)
         put("bibliographyJson", bibliographyJson)
         put("bodyChunks", JsonArray(bodyChunks.map(::JsonPrimitive)))
         put("accessUrl", accessUrl)
@@ -210,7 +214,7 @@ data class ResearchSnapshot(
                 ) {
                     return@mapNotNull null
                 }
-                val status = s.text("status").takeIf { it in setOf("Discovered", "Metadata only", "Abstract", "Read", "Partially read", "Used as evidence", "Blocked", "Failed") } ?: "Failed"
+                val status = s.text("status").takeIf { it in setOf("Discovered", "Metadata only", "Abstract", "Read", "Partially read", "Used as evidence", "Blocked", "Failed", "Deferred", "PENDING_DOCUMENT_EXTRACTION") } ?: "Failed"
                 val source = ResearchSource(
                     id, url, s.text("title").take(240), status, s.text("passage").take(6000), s.number("depth").coerceIn(0, 2),
                     (s["retrievedAt"] as? JsonPrimitive)?.longOrNull?.coerceAtLeast(0) ?: 0, s.text("publishedAt").take(80),
@@ -218,6 +222,8 @@ data class ResearchSnapshot(
                 )
                 source.copy(
                     bibliographyJson = s.text("bibliographyJson").ifBlank { "{}" },
+                    publicCapture = (s["publicCapture"] as? JsonPrimitive)?.booleanOrNull == true,
+                    retrievalReceipt = s.text("retrievalReceipt").take(240),
                     doi = SourceIdentity.normalizeDoi(s.text("doi")),
                     pmid = s.text("pmid").takeIf { it.matches(Regex("[0-9]{1,12}")) }.orEmpty(),
                     pmcid = s.text("pmcid").uppercase().takeIf { it.matches(Regex("PMC[0-9]{1,12}")) }.orEmpty(),

@@ -78,8 +78,10 @@ internal class AndroidResearchWorkflow(
     private val sourceTarget: Int get() = state.targetSources.takeIf { it > 0 } ?: options.maxPages
 
     @Volatile private var exhausted = false
+
+    @Volatile private var acquisitionExhausted = false
     private fun collecting(): Boolean = budget.ledger?.tick(monotonicMs()) != false
-    private fun acquiring(): Boolean = collecting() && budget.ledger?.discoveryAllowed() != false
+    private fun acquiring(): Boolean = !acquisitionExhausted && collecting() && budget.ledger?.discoveryAllowed() != false
     private var rawBytes = 0
 
     private val included = researchDomains(options.includeDomains)
@@ -149,7 +151,7 @@ internal class AndroidResearchWorkflow(
                     put("untrusted_evidence", evidence)
                 }
             }
-            val cap = minOf(config.maxOutputTokens, if (stage == dev.chungjungsoo.gptmobile.data.research.ResearchModelStage.EXTRACT) 1536 else 768)
+            val cap = minOf(config.maxOutputTokens, if (stage == dev.chungjungsoo.gptmobile.data.research.ResearchModelStage.EXTRACT) 3072 else 1536)
             val worker = modelCoordinator
             if (worker == null) {
                 withTimeoutOrNull(dev.chungjungsoo.gptmobile.data.research.ResearchTimeouts.MODEL_MS) {
@@ -226,7 +228,7 @@ internal class AndroidResearchWorkflow(
                 }
         }.forEach {
             sources[it.equivalenceGroup.ifBlank { canonicalSearchUrl(it.url) }] =
-                if (it.status == "Deferred") it.copy(status = "Discovered", failureReason = "") else it
+                if (it.status == "Deferred") it.copy(status = if (it.paperId.isNotBlank()) "Metadata only" else "Discovered", failureReason = "") else it
         }
         state = state.copy(claims = state.claims.filter { claim -> sources.values.any { it.id == claim.sourceId && it.readable } })
         queries += state.queries
@@ -347,9 +349,15 @@ internal class AndroidResearchWorkflow(
                     "Reader recovery needed"
                 } else if (exhausted || !collecting() || collectionWorkCount() < sourceTarget) {
                     if (exhausted || !collecting()) {
-                        "User limit reached"
+                        "Processing allowance or elapsed-time limit reached"
                     } else {
-                        "No more eligible evidence"
+                        if (acquisitionExhausted) {
+                            "Acquisition budget blocked; retained evidence processed"
+                        } else if (sources.values.any { it.status in setOf("Discovered", "Deferred", "Metadata only", "PENDING_DOCUMENT_EXTRACTION") }) {
+                            "Unread leads retained; reader or acquisition recovery required"
+                        } else {
+                            "No further eligible evidence"
+                        }
                     }
                 } else if (!coverage().complete) {
                     "Partial coverage"
@@ -380,7 +388,7 @@ internal class AndroidResearchWorkflow(
         if (acceptedCount < sourceTarget) notes += "PARTIAL_COVERAGE: $acceptedCount/$sourceTarget readable sources. Discovery was exhausted, blocked or stopped within the recorded run limits."
         if (acceptedCount == 0) notes += "NO_READABLE_SOURCES: search results and abstracts are discovery leads only."
         return LocalResearchResult(
-            dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryPacket.build(state.copy(notes = notes), options.reportDetail, config.handoffTokens).let { it.instruction() + "\n" + it.json() },
+            dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryPacket.build(state.copy(notes = notes), dev.chungjungsoo.gptmobile.data.model.ResearchReportDetail.BRIEF, config.handoffTokens).let { "Research evidence brief. Unreviewed passages are unverified; preserve source IDs, uncertainty and review status.\n" + it.json() },
             rawBytes,
             collectionWorkCount(),
             state.searches,
@@ -430,7 +438,12 @@ internal class AndroidResearchWorkflow(
         if (!result.isError) {
             extractSearchSources(payload).take(if (options.effort == 100) 50 else 40).forEach { source ->
                 add(source.text("url"), source.text("title"), engines = source.strings("engines"), publishedAt = source.text("publishedDate"))
-                    ?.let { returnedIds += it }
+                    ?.let { id ->
+                        returnedIds += id
+                        val key = sources.entries.first { it.value.id == id }.key
+                        val saved = sources.getValue(key)
+                        if (!saved.readable && saved.bodyChunks.isEmpty()) sources[key] = saved.copy(publicCapture = search.connectionUid == null, retrievalReceipt = callId)
+                    }
             }
         }
         val sourceIds = returnedIds.distinct()
@@ -484,6 +497,8 @@ internal class AndroidResearchWorkflow(
                         val saved = sources.getValue(key)
                         if (!saved.readable && saved.status in setOf("Discovered", "Metadata only")) {
                             sources[key] = saved.copy(
+                                publicCapture = search.connectionUid == null,
+                                retrievalReceipt = "$callId:discovery:$id",
                                 bibliographyJson = (JsonObject(paper - "abstract")).toString(),
                                 publishedAt = paper.text("publicationDate"),
                                 publicationYear = (paper["year"] as? JsonPrimitive)?.intOrNull,
@@ -600,7 +615,7 @@ internal class AndroidResearchWorkflow(
     private fun account(result: AgentToolResult?) {
         if (result == null) return
         rawBytes = (rawBytes.toLong() + result.content.researchText().toByteArray().size).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
-        if (result.toolCallBudgetExhausted || result.outputBudgetExhausted) exhausted = true
+        if (result.toolCallBudgetExhausted || result.outputBudgetExhausted) acquisitionExhausted = true
     }
 
     private val expandedPapers = mutableSetOf<String>()
@@ -653,7 +668,7 @@ internal class AndroidResearchWorkflow(
     private var academicReadsInFlight = 0
 
     private suspend fun readAcademicPagesConcurrent(callId: String, reader: ResolvedAgentTool) {
-        while (!exhausted && !stopped() && collecting()) {
+        while (!exhausted && !acquisitionExhausted && !stopped() && collecting()) {
             val remaining = sourceTarget - collectionWorkCount()
             if (remaining <= 0) return
             val batch = sources.values.filter { it.paperId.isNotBlank() && it.status == "Metadata only" }
@@ -678,14 +693,15 @@ internal class AndroidResearchWorkflow(
         var claimed = false
         try {
             if (stopped()) return
-            claimed = journal?.claimWork("paper:${source.paperId}", dev.chungjungsoo.gptmobile.data.research.ResearchTimeouts.leaseMillis(reader.realToolName, options.pageTimeoutSeconds * 1000L)) != false
+            val leaseMillis = dev.chungjungsoo.gptmobile.data.research.ResearchTimeouts.leaseMillis(reader.realToolName, options.pageTimeoutSeconds * 1000L)
+            claimed = (if (reader.connectionUid == null) journal?.claimPublicWork("paper:${source.paperId}", leaseMillis) else journal?.claimWork("paper:${source.paperId}", leaseMillis)) != false
             if (!claimed || !charge(ResearchBudget.Phase.DISCOVERY) || !startReadAttempt()) return
             val identifier = source.pmcid.takeIf(String::isNotBlank)?.let { "pmcid:$it" } ?: source.pmid.takeIf(String::isNotBlank)?.let { "pmid:$it" } ?: source.paperId
             val result = operation { invoke(reader, "$callId:academic:${source.id}", buildJsonObject { put("identifier", identifier) }) }
             val payload = (result?.retainedContent ?: result?.content)?.researchPayload() as? JsonObject
             val text = payload?.text("text").orEmpty()
             val status = payload?.text("retrievalStatus").orEmpty()
-            val readable = result?.isError == false && status in setOf("read", "partially_read", "abstract_only") && text.isNotBlank()
+            val readable = result?.isError == false && status in setOf("read", "partially_read", "abstract_only") && text.isNotBlank() && classifyResearchAccess(text) in setOf(ResearchAccessDisposition.READABLE, ResearchAccessDisposition.PREVIEW)
             // A reader limitation is not denied access. Only use already-authorized public readers.
             val denied = result?.blockedPage() == true || result?.let(::isAuthFailure) == true || status in setOf("blocked", "permission_denied")
             val accessible = source.accessUrl.takeIf { it.startsWith("https://") && researchDomainAllowed(it, included, excluded) }
@@ -694,7 +710,7 @@ internal class AndroidResearchWorkflow(
                 if (fallback != null && charge(ResearchBudget.Phase.DISCOVERY) && collecting()) {
                     val fetched = operation { invoke(fallback, "$callId:paper-reader:${source.id}", buildJsonObject { put("url", accessible) }) }
                     if (fetched?.isError == false && fetched.pageEvidenceText().length >= 80) {
-                        commitRead(source, fetched, researchTerms(state.task))
+                        commitRead(source, fetched, researchTerms(state.task), fallback.connectionUid == null, "$callId:paper-reader:${source.id}")
                         return
                     }
                 }
@@ -706,14 +722,18 @@ internal class AndroidResearchWorkflow(
                 val hash = payload?.text("textHash").orEmpty()
                 val duplicate = sources.values.firstOrNull { it.id != source.id && it.readable && hash.isNotBlank() && it.fingerprint == hash }?.id.orEmpty()
                 sources[key] = source.copy(
+                    publicCapture = if (readable) reader.connectionUid == null else source.publicCapture,
+                    retrievalReceipt = "$callId:academic:${source.id}",
                     passage = if (readable) text.take(6000) else "",
                     bodyChunks = if (readable) journal?.retainBody(text).orEmpty() else emptyList(),
-                    status = if (readable && status == "read") {
+                    status = if (readable && status == "read" && classifyResearchAccess(text) != ResearchAccessDisposition.PREVIEW) {
                         "Read"
                     } else if (readable && status == "abstract_only") {
                         "Abstract"
                     } else if (readable) {
                         "Partially read"
+                    } else if (result == null || result.toolCallBudgetExhausted || result.outputBudgetExhausted) {
+                        "Deferred"
                     } else {
                         "Failed"
                     },
@@ -721,7 +741,7 @@ internal class AndroidResearchWorkflow(
                     retrievalQuality = when {
                         !readable -> "METADATA"
                         status == "abstract_only" -> "ABSTRACT"
-                        status == "partially_read" -> "PARTIAL_TEXT"
+                        status == "partially_read" || classifyResearchAccess(text) == ResearchAccessDisposition.PREVIEW -> "PARTIAL_TEXT"
                         else -> "FULL_TEXT"
                     },
                     versionId = payload?.text("versionId").orEmpty().ifBlank { source.versionId },
@@ -735,7 +755,9 @@ internal class AndroidResearchWorkflow(
         } finally {
             withContext(NonCancellable) {
                 try {
-                    if (claimed) journal?.releaseWork("paper:${source.paperId}")
+                    if (claimed) {
+                        if (reader.connectionUid == null) journal?.releasePublicWork("paper:${source.paperId}") else journal?.releaseWork("paper:${source.paperId}")
+                    }
                 } finally {
                     sourceUpdates.withLock { academicReadsInFlight-- }
                 }
@@ -748,11 +770,12 @@ internal class AndroidResearchWorkflow(
         readAcademicPagesConcurrent(callId, reader)
     }
 
-    private suspend fun commitRead(source: ResearchSource, result: AgentToolResult?, questionTerms: Set<String>) {
+    private suspend fun commitRead(source: ResearchSource, result: AgentToolResult?, questionTerms: Set<String>, publicReader: Boolean = false, receipt: String = "") {
         sourceUpdates.withLock {
             val payload = (result?.retainedContent ?: result?.content)?.researchPayload()
             val text = result?.pageEvidenceText().orEmpty()
-            val valid = result != null && !result.isError && text.length >= 80 && !looksLikeConsentOrScriptShell(text)
+            val access = classifyResearchAccess(text)
+            val valid = result != null && !result.isError && text.length >= 80 && access in setOf(ResearchAccessDisposition.READABLE, ResearchAccessDisposition.PREVIEW)
             val passage = if (valid) relevantEvidence(text, state.task, 6000) else ""
             val finalUrl = (payload as? JsonObject)?.text("url").orEmpty().ifBlank { source.url }
             val allowed = researchDomainAllowed(finalUrl, included, excluded)
@@ -761,15 +784,17 @@ internal class AndroidResearchWorkflow(
             val origin = sources.values.firstOrNull { it.id != source.id && fingerprint.isNotEmpty() && it.fingerprint == fingerprint }?.id.orEmpty()
             val status = when {
                 !allowed -> "Blocked"
-                result?.blockedPage() == true -> "Blocked"
-                result == null || result.hasDnsFailure() -> "Deferred"
+                result?.blockedPage() == true || access in setOf(ResearchAccessDisposition.CHALLENGE, ResearchAccessDisposition.AUTH_REQUIRED) -> "Blocked"
+                result == null || result.hasDnsFailure() || result.toolCallBudgetExhausted || result.outputBudgetExhausted -> "Deferred"
                 !valid -> "Failed"
-                passage != text || (payload as? JsonObject)?.get("truncated") == JsonPrimitive(true) -> "Partially read"
+                access == ResearchAccessDisposition.PREVIEW || passage != text || (payload as? JsonObject)?.get("truncated") == JsonPrimitive(true) -> "Partially read"
                 else -> "Read"
             }
             val key = source.equivalenceGroup.ifBlank { canonicalSearchUrl(source.url) }
             sources[key] = source.copy(
                 status = status,
+                publicCapture = if (usable) publicReader else source.publicCapture,
+                retrievalReceipt = receipt,
                 failureReason = if (usable) "" else result?.errorCode?.takeIf(String::isNotBlank) ?: status.uppercase(),
                 passage = if (usable) passage else "",
                 bodyChunks = if (usable) (payload as? JsonObject)?.strings("bodyChunks").orEmpty().ifEmpty { journal?.retainBody(text).orEmpty() } else emptyList(),
@@ -778,7 +803,7 @@ internal class AndroidResearchWorkflow(
                 contentFingerprint = fingerprint,
                 retrievalQuality = when (status) {
                     "Read" -> "FULL_TEXT"
-                    "Partially read" -> "FULL_TEXT"
+                    "Partially read" -> "PARTIAL_TEXT"
                     "Blocked" -> "BLOCKED"
                     "Failed" -> "EMPTY"
                     else -> "LEAD"
@@ -805,7 +830,7 @@ internal class AndroidResearchWorkflow(
         }.sortedBy { it.connectionUid != null }
         if (readers.isEmpty()) return
         val questionTerms = researchTerms(state.task + " " + state.questions.joinToString(" "))
-        while (!exhausted && !stopped() && collecting() && collectionWorkCount() < sourceTarget) {
+        while (!exhausted && !acquisitionExhausted && !stopped() && collecting() && collectionWorkCount() < sourceTarget) {
             if (!dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.available()) {
                 checkpoint("Waiting for network")
                 break
@@ -824,6 +849,8 @@ internal class AndroidResearchWorkflow(
                     dev.chungjungsoo.gptmobile.data.research.completionPool(claimed, options.concurrency) { source ->
                         if (stopped() || !collecting()) return@completionPool
                         var last: AgentToolResult? = null
+                        var nativeReceipt = false
+                        var readReceipt = ""
                         val eligible = readers.filter { readerHealth.available(it.modelToolName, source.url) }
                         val offset = if (eligible.isEmpty()) 0 else Math.floorMod(readerRotation.getAndIncrement(), eligible.size)
                         for (reader in (eligible.drop(offset) + eligible.take(offset)).take(2)) {
@@ -837,7 +864,21 @@ internal class AndroidResearchWorkflow(
                             val callArguments = JsonObject(args)
                             val readStarted = monotonicMs()
                             last = invoke(reader, "$callId:${source.id}:${reader.modelToolName}", callArguments)
+                            nativeReceipt = reader.connectionUid == null
+                            readReceipt = "$callId:${source.id}:${reader.modelToolName}"
                             last?.let(completedAttempts::add)
+                            val handoff = (last?.content?.researchPayload() as? JsonObject)
+                            if (handoff?.text("outcome") == "DOCUMENT_EXTRACTION_REQUIRED" && handoff.text("nextTool") == "read_url" && reader.realToolName == "read_url" && reader.connectionUid == null) {
+                                sourceUpdates.withLock {
+                                    val key = source.equivalenceGroup.ifBlank { canonicalSearchUrl(source.url) }
+                                    sources[key] = source.copy(status = "PENDING_DOCUMENT_EXTRACTION")
+                                    checkpoint()
+                                }
+                                if (charge(ResearchBudget.Phase.DISCOVERY) && !stopped() && acquiring()) {
+                                    last = invoke(reader, "$callId:${source.id}:document-extraction", JsonObject(args + ("extractDocument" to JsonPrimitive(true))))
+                                    last?.let(completedAttempts::add)
+                                }
+                            }
                             val retrievedText = last?.takeUnless { it.isError }?.pageEvidenceText().orEmpty()
                             val wasTruncated = ((last?.content?.researchPayload() as? JsonObject)?.get("truncated") == JsonPrimitive(true))
                             val baseOutcome = researchReaderOutcome(last, retrievedText, minimumCharacters = 80)
@@ -872,7 +913,7 @@ internal class AndroidResearchWorkflow(
                             val text = last?.takeUnless { it.isError }?.pageEvidenceText().orEmpty()
                             if (text.length >= 80 && !looksLikeConsentOrScriptShell(text)) break
                         }
-                        commitRead(source, last, questionTerms)
+                        commitRead(source, last, questionTerms, nativeReceipt, readReceipt)
                     }
                 }
             } finally {

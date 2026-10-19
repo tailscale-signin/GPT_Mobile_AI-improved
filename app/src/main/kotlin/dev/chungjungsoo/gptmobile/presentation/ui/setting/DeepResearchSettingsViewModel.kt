@@ -24,6 +24,7 @@ class DeepResearchSettingsViewModel @Inject constructor(private val repository: 
     private val mutable = MutableStateFlow(DeepResearchSettingsUiState())
     val state = mutable.asStateFlow()
     val settings = repository.observeFeatureSettings().stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings())
+    val protectedCount = archive.dao.observeProtectedCount().stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), 0)
     val archiveCount = archive.dao.observeCount().stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), 0)
     val categories = archive.dao.categories().stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), emptyList())
     val topics = archive.dao.topics().stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), emptyList())
@@ -57,7 +58,9 @@ class DeepResearchSettingsViewModel @Inject constructor(private val repository: 
     private var archiveOffset = 0
     private var archiveAssessed = false
     private var archiveRank = false
-    fun loadArchive(query: String = archiveQuery, topic: String = archiveTopic, offset: Int = 0, assessed: Boolean = archiveAssessed, rank: Boolean = archiveRank) {
+    private var archiveState = ""
+    fun loadArchive(query: String = archiveQuery, topic: String = archiveTopic, offset: Int = 0, assessed: Boolean = archiveAssessed, rank: Boolean = archiveRank, state: String = archiveState) {
+        archiveState = state
         archiveAssessed = assessed
         archiveRank = rank
         archiveQuery = query
@@ -68,7 +71,7 @@ class DeepResearchSettingsViewModel @Inject constructor(private val repository: 
             try {
                 kotlinx.coroutines.delay(250)
                 archive.initialize()
-                archive.observePage(query, topic, settings.value.researchFeature.peerReviewedOnly, offset, assessed, rank).collect { rows.value = it }
+                archive.observePage(query, topic, settings.value.researchFeature.peerReviewedOnly, offset, assessed, rank, state).collect { rows.value = it }
             } catch (cancel: CancellationException) {
                 throw cancel
             } catch (_: Exception) {
@@ -103,11 +106,11 @@ class DeepResearchSettingsViewModel @Inject constructor(private val repository: 
                 var saved = 0
                 kotlinx.coroutines.withContext(
                     dev.chungjungsoo.gptmobile.data.research.AcademicDiscoveryObserver { records ->
-                        if (admitted.researchFeature.archiveEnabled) {
+                        if (admitted.researchFeature.enabled) {
                             records.forEach { row ->
                                 val paper = Json.decodeFromString<dev.chungjungsoo.gptmobile.data.research.academic.AcademicPaper>(row.toString())
                                 archive.ingestPaper(paper, owner, epoch, admitted.researchFeature.automaticOrganization) {
-                                    allowed() && repository.getFeatureSettings().researchFeature.archiveEnabled
+                                    allowed() && repository.getFeatureSettings().researchFeature.enabled
                                 }
                                 saved++
                             }
@@ -170,12 +173,11 @@ class DeepResearchSettingsViewModel @Inject constructor(private val repository: 
         val options = admitted.delegation.deepResearch
         val providers = dev.chungjungsoo.gptmobile.data.research.academic.AcademicNativeClient.CORE.toSet() - options.disabledEngineIds
         val policy = dev.chungjungsoo.gptmobile.data.research.academic.AcademicAccessPolicy(dev.chungjungsoo.gptmobile.data.research.researchDomains(options.includeDomains), dev.chungjungsoo.gptmobile.data.research.researchDomains(options.excludeDomains), providers)
-        check(settings.archiveEnabled) { "Enable automatic archive entries before importing" }
         val epoch = archive.dao.sequence()?.archiveEpoch ?: 0L
         val handoff = savedState.get<String>("scholarHandoff")
         val owner = handoff ?: "import:" + java.util.UUID.randomUUID()
         val origin = if (handoff == null) "user_citation_import" else "google_scholar_user_import"
-        val allowed: suspend () -> Boolean = { discoveryAllowed() && repository.getFeatureSettings().researchFeature.archiveEnabled && repository.getFeatureSettings().delegation.deepResearch == options }
+        val allowed: suspend () -> Boolean = { discoveryAllowed() && repository.getFeatureSettings().researchFeature.enabled && repository.getFeatureSettings().delegation.deepResearch == options }
         for (preview in mutablePreview.value) {
             val resolved = try {
                 if (preview.identifier.isNotBlank() && providers.isNotEmpty()) academic.getPaper(preview.identifier, allowed, policy) else null
@@ -199,6 +201,10 @@ class DeepResearchSettingsViewModel @Inject constructor(private val repository: 
         archive.dao.handoff(owner)?.let { archive.dao.handoff(it.copy(status = "IMPORTED")) }
         mutablePreview.value = emptyList()
         mutableDiscovery.value = "Selected citations imported. Unresolved bibliographic entries are labelled unverified."
+    }
+    fun clearUnexamined() = archiveAction {
+        archive.dao.clearUnexamined(System.currentTimeMillis())
+        loadArchive()
     }
     fun clearArchive() = archiveAction {
         archive.dao.clearArchive(System.currentTimeMillis())
@@ -299,6 +305,7 @@ class DeepResearchSettingsViewModel @Inject constructor(private val repository: 
             try {
                 val feature = mutable.value.featureDraft.validated()
                 repository.mutateFeatureSettings { current -> current.copy(delegation = current.delegation.copy(deepResearch = value.migrated()), researchFeature = feature) }
+                archive.dao.trimUnexamined(feature.unexaminedStudyLimit, System.currentTimeMillis())
                 discard()
                 onSuccess()
             } catch (cancelled: CancellationException) {

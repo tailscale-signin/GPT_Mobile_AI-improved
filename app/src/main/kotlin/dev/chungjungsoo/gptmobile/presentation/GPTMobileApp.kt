@@ -33,6 +33,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -109,6 +110,14 @@ class GPTMobileApp :
         StartupRecoveryGate.start(applicationScope) {
             val gateStartTime = SystemClock.elapsedRealtime()
             completeBackup.get().recoverAtStartup()
+            withContext(Dispatchers.Main) {
+                androidx.lifecycle.ProcessLifecycleOwner.get().lifecycle.addObserver(object : androidx.lifecycle.DefaultLifecycleObserver {
+                    override fun onStart(owner: androidx.lifecycle.LifecycleOwner) {
+                        dev.chungjungsoo.gptmobile.data.research.work.ResearchExaminationWorker.enqueue(this@GPTMobileApp)
+                    }
+                })
+            }
+            dev.chungjungsoo.gptmobile.data.research.work.ResearchExaminationWorker.enqueue(this@GPTMobileApp)
             val startup = startupDependencies()
             val temporary = conversationDatabase.get().chatRoomDao().temporaryChats()
             if (temporary.isNotEmpty()) {
@@ -136,6 +145,13 @@ class GPTMobileApp :
                 kotlinx.coroutines.flow.combine(startup.settingRepository().observeFeatureSettings(), startup.settingRepository().observePlatformV2s()) { settings, profiles ->
                     settings to profiles.any { dev.chungjungsoo.gptmobile.data.pricing.billingProvider(it) == "OPENROUTER" }
                 }.collect { (settings, eligible) -> dev.chungjungsoo.gptmobile.data.pricing.PricingRefreshSchedule.reconcile(this@GPTMobileApp, settings, eligible) }
+            }
+            applicationScope.launch {
+                kotlinx.coroutines.flow.combine(startup.settingRepository().observeFeatureSettings(), startup.settingRepository().observePlatformV2s()) { settings, profiles ->
+                    listOf(settings.researchFeature.copy(articleCards = true, compactCards = true, showWarnings = true, showMethodMetrics = true, automaticOrganization = true, archivePreflight = true, researchMemory = false, shareResearchRecall = false), settings.conversationResearch, settings.delegation, settings.profileBehavior, settings.toolPluginStates, settings.pluginExecution, profiles.map { listOf(it.uid, it.enabled, it.disableAllTools, it.disableRemoteTools, it.model, it.apiUrl) })
+                }.distinctUntilChanged().collect {
+                    dev.chungjungsoo.gptmobile.data.research.work.ResearchExaminationWorker.enqueue(this@GPTMobileApp, reconsider = true)
+                }
             }
             secretMigrationErrors = runStartupMaintenance(
                 interruptPersistedWork = {

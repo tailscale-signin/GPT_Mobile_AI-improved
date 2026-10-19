@@ -314,7 +314,12 @@ internal class CombinedDeliverySession(
                     else -> "REPLACEMENT_ADDED_FAILED_CHECKS"
                 }
                 emit(ProviderEvent.Notice(if (correctionRequired) "The correction did not pass its checks. The retained draft remains marked as needing correction." else "The revision did not pass its checks. The earlier draft was retained.", persistent = true))
-                // Repeating an unavailable or unfinished provider call is not useful editorial progress.
+                val targetedFormatting = rewritten != null && rewritten.terminal == ProviderEvent.Completed && rewrittenViolations.isNotEmpty() && protocolFailures.isEmpty() && !newMaterial
+                if (targetedFormatting && repairs < maxRepairRounds) {
+                    noProgress++
+                    continue
+                }
+                repairSkippedReason = rejections.lastOrNull() ?: "REPAIR_REJECTED"
                 break
             }
         }
@@ -333,7 +338,7 @@ internal class CombinedDeliverySession(
         onCoverage(coverageResult, repairAccepted > 0)
         var finalReport = report(accepted, assessment, true)
         if (ceilingEnforced) finalReport = finalReport.copy(issues = (finalReport.issues + "WORD_CEILING_ENFORCED_AFTER_REPAIR").distinct())
-        AppLogRecorder.record("CombinedSynthesis", "SYNTHESIS_QUALITY · status=${finalReport.status} · delivered=${finalReport.deliveredScopeStatus} · verification=${finalReport.verificationStatus} · revision=${finalReport.revisionId} · wordCounter=${finalReport.wordCounterVersion} · words=${finalReport.wordCount} · repairs=$repairs · accepted=$repairAccepted · rejected=$repairRejected · semanticCoverageVerified=false · factualAccuracyVerified=false")
+        AppLogRecorder.record("CombinedSynthesis", "SYNTHESIS_QUALITY · status=${finalReport.status} · delivered=${finalReport.deliveredScopeStatus} · verification=${finalReport.verificationStatus} · revision=${finalReport.revisionId} · wordCounter=${finalReport.wordCounterVersion} · words=${finalReport.wordCount} · repairs=$repairs · accepted=$repairAccepted · rejected=$repairRejected · rejectionReasons=${rejections.joinToString(";")} · stoppingReason=$repairSkippedReason · semanticCoverageVerified=false · factualAccuracyVerified=false")
         validateAccess()
         if (!progressive && !publishedReplacement && accepted.text.isNotBlank()) emit(ProviderEvent.TextDelta(accepted.text))
         emit(ProviderEvent.CombinedQuality(finalReport))

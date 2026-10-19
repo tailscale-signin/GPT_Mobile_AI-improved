@@ -28,7 +28,7 @@ data class ResearchTopic(@PrimaryKey val topicId: String, val categoryId: String
 
 @Serializable
 @Entity(tableName = "research_archive", foreignKeys = [ForeignKey(entity = ResearchWork::class, parentColumns = ["workId"], childColumns = ["workId"], onDelete = ForeignKey.CASCADE), ForeignKey(entity = ResearchWorkVersion::class, parentColumns = ["versionId"], childColumns = ["latestVersionId"], onDelete = ForeignKey.RESTRICT), ForeignKey(entity = ResearchTopic::class, parentColumns = ["topicId"], childColumns = ["primaryTopicId"], onDelete = ForeignKey.RESTRICT)], indices = [Index(value = ["archiveSequence"], unique = true), Index("latestVersionId"), Index("primaryTopicId")])
-data class ArchiveMembership(@PrimaryKey val workId: String, val archiveSequence: Long, val firstArchivedAt: Long, val latestVersionId: String, val primaryTopicId: String)
+data class ArchiveMembership(@PrimaryKey val workId: String, val archiveSequence: Long, val firstArchivedAt: Long, val latestVersionId: String, val primaryTopicId: String, val protectionReason: String? = null, val acceptedReviewId: String? = null, val verifiedVersionId: String? = null, @androidx.room.ColumnInfo(defaultValue = "0") val holdUntil: Long = 0, @androidx.room.ColumnInfo(defaultValue = "0") val lifecycleGeneration: Long = 0)
 
 @Serializable
 @Entity(tableName = "research_work_topics", primaryKeys = ["workId", "topicId"], foreignKeys = [ForeignKey(entity = ResearchWork::class, parentColumns = ["workId"], childColumns = ["workId"], onDelete = ForeignKey.CASCADE), ForeignKey(entity = ResearchTopic::class, parentColumns = ["topicId"], childColumns = ["topicId"], onDelete = ForeignKey.CASCADE)], indices = [Index("topicId")])
@@ -77,3 +77,11 @@ data class ResearchSequence(@PrimaryKey val id: Int = 1, val next: Long = 1, val
 @Serializable
 @Entity(tableName = "research_imports")
 data class ResearchImportReceipt(@PrimaryKey val importId: String, val epoch: Long, val importedAt: Long)
+
+@Serializable
+@Entity(tableName = "research_save_receipts")
+data class ResearchSaveReceipt(@PrimaryKey val receiptId: String, val runId: String, val sourceId: String, val chatId: Int, val workId: String? = null, val versionId: String? = null, val disposition: String, val reason: String? = null, val updatedAt: Long)
+
+@Serializable
+@Entity(tableName = "research_report_sections")
+data class ResearchReportSection(@PrimaryKey val checkpointId: String, val chatId: Int, val owner: String, val packetDigest: String, val heading: String, val body: String, val updatedAt: Long)

@@ -5,7 +5,7 @@ Base: `9fbc60b16171fa7e7cbcae41854e8ba6f6b35d5d`
 
 Work in progress. This branch does not yet implement or qualify all six documents. Draft PR [#721](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/721) is open. No release bump or merge has occurred. `SOURCE_INDEX.json` retains the source documents and hashes; `CHECKLIST.md` is the source-linked review inventory. An unchecked item is not evidence that its existing code is absent, and code presence alone is not acceptance evidence.
 
-## Implemented changes awaiting final integrated validation
+## Implemented changes
 
 ### Research and Combined
 
@@ -62,14 +62,16 @@ Main already contains study review records, deterministic component scoring, rel
 ## Validation evidence
 
 - Android SDK 37, JDK 21 and Gradle 9.8.0 are available. Earlier claims that Android compilation was unavailable are superseded.
-- Android main Kotlin and Java compilation pass on follow-up `24e1ea3`. The subsequent build process was killed under concurrent workspace memory pressure (8 GiB cgroup limit); the full unit suite is being run separately against those compiled classes with a bounded heap. The branch is not yet fully qualified.
-- The first isolated Android run compiled main and test sources, then reported three focused failures: record-separator whitespace, unstable snapshot hashing and pending-work closure. Fixes and regression cases are now in the branch; the expanded Android rerun remains pending after the environment killed its build process. CI also identified transport fixtures using empty prompts and a local Marketplace expectation; those fixtures now express valid input and the intended local/remote distinction.
+- Android main Kotlin/Java and unit-test Kotlin compilation pass for the source tree at `3afde90c04eef5c540f751a7e06bcac051caf235`, using bounded separate compiler/test JVMs. Snapshot serializers remain public while their canonical JSON encoder is private.
+- Full Android unit execution covered 3,617 tests: 3,601 initially passed, with 16 failures caused by stale instrumented runtime outputs. The compiled and compile-jar classes contained the corrected public serializer companion, while the instrumented/runtime-jar classes retained the old private companion. After regenerating those outputs, all 69 tests in the six affected classes passed, including legacy snapshot recovery, selected-revision preservation and the queued-prompt synthesis barrier. The combined latest XML results contain 3,617 tests and zero failures/errors/skips. This evidence consists of the full run plus that focused rerun, not a second full-suite execution.
+- The first focused run exposed record-separator whitespace, timestamp-dependent snapshot hashing and required-work closure regressions; fixes and regression cases are in the branch. Empty-message transport fixtures and local Marketplace expectations were also corrected.
 - Actual isolated Combined core: 30 JUnit tests passed. Actual isolated Marketplace contracts/coordinator: 7 tests passed; additional cases are in the Android run.
 - Crawler: 39 Python tests pass with ResourceWarning promoted to an error, including actual loopback HTTP, cross-principal request-ID/cancellation isolation, persistence migration/backup, shared references, retention, quotas, parent grants, complete RPC limits, cooldowns and metered transport.
 - Repository Python suite: 140 tests pass on the current changes. Resource XML (29 files) and Android regex preflights (640 literal patterns) pass.
 - Kotlin formatting passes for all 150 changed Kotlin files. Exported Room schemas match the committed migration history.
-- Android lint, APK assembly, instrumentation, device visual QA and release acceptance are not yet complete.
-- `python scripts/check_unified_reliability_v2.py --require-done` remains failing with 48 tasks not DONE and non-PASS acceptance cases. The gate is unchanged.
+- At source commit `3afde90`, GitHub CodeQL, Kotlin formatting, both contract jobs, preflight and the configured unified-reliability CI job passed. Android unit/lint, APK assembly, emulator and R8/JNI jobs were still running when this evidence was recorded. Their completion is not claimed here. Device visual QA and release acceptance remain open.
+- The stricter local command `python scripts/check_unified_reliability_v2.py --require-done` still fails with 48 tasks not DONE and non-PASS acceptance cases. The configured CI check passing does not satisfy that release gate; the gate was not weakened.
+
 
 ## Remote delivery
 

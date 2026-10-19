@@ -14,6 +14,7 @@ Input: `app-diagnostics-8530666975550316155.jsonl`, exported from version 0.9.53
 | Combined structured delivery rejects provider formatting | Accept JSON/JSONL fences around strictly validated records, including fragmented fences and checkpoint restarts. Prose, invalid references, conflicting replays and sequence gaps remain invalid. |
 | Rendering stalls and methods over Android's compiler instruction threshold | Scan only new characters of a fragmented Combined record. Move AgentRunner result finalization and OpenAI-compatible Ollama collection into separate coroutine methods. Device frame-time improvement still requires on-device measurement. |
 | Nine tool slots, incomplete function arguments and output limits | Preserve pre-dispatch rejection and existing bounded recovery; never execute a partial or oversized batch. |
+| Raw tool-call markup rejected before execution | Allow one recovery with tools disabled when no answer was delivered. Never dispatch the rejected control payload or replay an action. |
 | MCP endpoints unreachable; provider connection abort and DNS failure | External connectivity remains a prerequisite. Retained work must remain available, but this branch cannot start a server on the user's network or restore the phone's DNS connection. |
 | Repeated identical marketplace search suppressed | Preserve the repeat limit; it prevents repeating identical work. Independent requests remain eligible within accepted budgets. |
 

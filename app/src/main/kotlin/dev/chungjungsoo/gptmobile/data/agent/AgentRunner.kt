@@ -507,6 +507,7 @@ class AgentRunner(
         listOf(
             "Tool arguments were not valid JSON",
             "incomplete function call",
+            "unparsed tool-call markup",
             "before completing the tool call",
             "connection abort",
             "connection reset",

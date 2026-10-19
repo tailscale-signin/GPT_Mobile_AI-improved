@@ -14,7 +14,8 @@ object CombinedPolicyResolver {
         acceptedAtMillis: Long = System.currentTimeMillis(),
         settingsRevision: Long = settings.revision,
         preferredOwnerUid: String? = null,
-        requestedTemperatures: Map<String, Float?> = emptyMap()
+        requestedTemperatures: Map<String, Float?> = emptyMap(),
+        acceptedResearch: CombinedResearchRequirement? = null
     ): CombinedRequestedPolicy {
         require(settings.isSupported) { "This conversation uses a newer Combined settings version." }
         val participants = participantUids.filter(String::isNotBlank).distinct()
@@ -27,7 +28,8 @@ object CombinedPolicyResolver {
             preferredOwnerUid = preferredOwnerUid?.takeIf { it in participants },
             userPrompt = userPrompt,
             acceptedAtMillis = acceptedAtMillis,
-            settingsRevision = settingsRevision
+            settingsRevision = settingsRevision,
+            acceptedResearch = acceptedResearch
         )
         return requested.copy(requestedPolicyDigest = combinedDigest(Json.encodeToString(requested)))
     }
@@ -117,7 +119,7 @@ object CombinedPolicyResolver {
             "contributor:$uid" in baseline && caps.none { it.profileUid == uid && it.name == "profileMaxToolCalls" && it.value == 0L }
         }
         val fundingOwner = fundingUid?.let { "contributor:$it" }
-        var mandatoryFunded = mandatoryCalls == 0L
+        var mandatoryFunded = mandatoryCalls == 0L && (toolsAllowed || mandatoryEvidence.isEmpty())
         if (fundingOwner != null && mandatoryCalls > 0) {
             // This is one turn-wide assignment, not N copies for N contributors. Reserve enough
             // bounded request replays even if a provider makes one acquisition per round.
@@ -134,6 +136,33 @@ object CombinedPolicyResolver {
                 mandatoryFunded = true
             }
         }
+        val researchStages = mutableListOf<CombinedWorkItem>()
+        val unfundedStages = linkedSetOf<String>()
+        requested.acceptedResearch?.let { research ->
+            requested.participantUids.filterNot { it in blocked }.forEach { uid ->
+                CombinedResearchStages.names.forEach { stage ->
+                    val units = when (stage) {
+                        "extract", "review" -> research.sourceGoal
+                        "find_gaps" -> maxOf(1L, (research.depth + 24L) / 25L)
+                        else -> 1L
+                    }
+                    val id = CombinedResearchStages.id(uid, stage)
+                    researchStages += CombinedWorkItem(id, CombinedRunRole.RESEARCH, units, reason = "ACCEPTED_RESEARCH_STAGE", assignedOwnerKey = id)
+                    val quota = CombinedResourceQuota(Math.addExact(input, 1024L), 2048).scale(units)
+                    val cost = prices[uid]?.cost(quota.inputTokens, quota.generatedTokens)
+                    if (admissible(quota) && (hardLimits.costMicros?.let { cost != null && cost <= it - usedCost } ?: true)) {
+                        baseline[id] = quota
+                        cost?.let {
+                            costReserves[id] = it
+                            usedCost = Math.addExact(usedCost, it)
+                        }
+                        used += quota
+                    } else {
+                        unfundedStages += id
+                    }
+                }
+            }
+        }
         val researchCalls = 0L // Explicit source work was funded once for its assigned contributor.
         val verification = CombinedResourceQuota(input, 1024, researchCalls)
         val verificationCost = eligiblePrices.maxOfOrNull { it.cost(verification.inputTokens, verification.generatedTokens) }
@@ -146,8 +175,8 @@ object CombinedPolicyResolver {
             .containsMatchIn(requested.userPrompt)
         val finite = workItems.ifEmpty {
             requested.participantUids.filterNot { it in blocked }.map { CombinedWorkItem("contributor:$it", CombinedRunRole.CONTRIBUTOR) } +
-                listOf(CombinedWorkItem("verification", CombinedRunRole.VERIFIER, maxOf(1, researchCalls))) +
-                listOf(CombinedWorkItem("finalization", CombinedRunRole.SYNTHESIS)) +
+                listOf(CombinedWorkItem("verification", CombinedRunRole.VERIFIER, maxOf(1, researchCalls), required = false, reason = "OPTIONAL_VERIFICATION_RESERVE")) +
+                listOf(CombinedWorkItem("finalization", CombinedRunRole.SYNTHESIS)) + researchStages +
                 derivedEvidence.map { item -> if (item.required) item.copy(assignedOwnerKey = fundingOwner) else item }
         }
         require(finite.map { it.id }.distinct().size == finite.size && finite.all { it.id.isNotBlank() && it.remainingUnits > 0 })
@@ -164,7 +193,7 @@ object CombinedPolicyResolver {
             ),
             workItems = finite,
             blockedParticipantUids = blocked,
-            unfundedRequiredWorkIds = if (mandatoryFunded) emptySet() else mandatoryEvidence.mapTo(linkedSetOf()) { it.id },
+            unfundedRequiredWorkIds = (if (mandatoryFunded) emptySet() else mandatoryEvidence.mapTo(linkedSetOf()) { it.id }) + unfundedStages,
             initialDraftOutputTokens = draftOutput,
             finalOutputTokens = finalTokens.coerceAtLeast(1).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
             toolsAllowed = toolsAllowed,

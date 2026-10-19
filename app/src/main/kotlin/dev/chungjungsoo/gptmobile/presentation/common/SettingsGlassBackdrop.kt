@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.presentation.common
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
@@ -69,8 +70,9 @@ internal fun SettingsGlassBackdropHost(settings: Boolean, content: @Composable (
             homeSnapshot = null
         }
     }
-    CompositionLocalProvider(LocalHomeGlassLayer provides layer) {
-        Box(Modifier.fillMaxSize()) {
+    val base = appBaseBackground()
+    CompositionLocalProvider(LocalHomeGlassLayer provides layer, LocalAppBaseBackground provides base) {
+        Box(Modifier.fillMaxSize().background(base)) {
             val snapshot = homeSnapshot
             if (settings && active && snapshot != null) {
                 Image(
@@ -88,9 +90,12 @@ internal fun SettingsGlassBackdropHost(settings: Boolean, content: @Composable (
                     AppGlassSurface(Modifier.fillMaxSize(), shape = androidx.compose.ui.graphics.RectangleShape) { }
                 }
             }
+            // Home capture records only its content, before this root background layer.
+            // Settings samples that undarkened capture, then applies this same gradient once.
+            AppBottomGradient()
             // Keep navigation at one composition call site when the backdrop changes.
             val scheme = MaterialTheme.colorScheme
-            MaterialTheme(colorScheme = if (settings) scheme.copy(background = Color.Transparent, surface = Color.Transparent) else scheme) {
+            MaterialTheme(colorScheme = scheme.copy(background = base.copy(alpha = 0f), surface = if (settings) Color.Transparent else scheme.surface)) {
                 content()
             }
         }

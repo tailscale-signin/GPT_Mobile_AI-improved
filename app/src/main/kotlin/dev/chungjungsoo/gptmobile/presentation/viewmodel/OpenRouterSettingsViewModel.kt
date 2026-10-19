@@ -42,7 +42,9 @@ class OpenRouterSettingsViewModel @Inject constructor(
     private val catalog: dev.chungjungsoo.gptmobile.data.repository.OpenRouterModelRepository,
     private val receipts: dev.chungjungsoo.gptmobile.data.openrouter.account.OpenRouterReceiptStore,
     savedStateHandle: SavedStateHandle,
-    private val queueCache: dev.chungjungsoo.gptmobile.data.database.dao.OpenRouterBatchCacheDao? = null
+    private val queueCache: dev.chungjungsoo.gptmobile.data.database.dao.OpenRouterBatchCacheDao? = null,
+    private val management: dev.chungjungsoo.gptmobile.data.openrouter.account.OpenRouterManagementAccessRepository? = null,
+    private val walletRefresh: dev.chungjungsoo.gptmobile.data.openrouter.account.OpenRouterWalletRefreshCoordinator? = null
 ) : ViewModel() {
     private val _state = MutableStateFlow(OpenRouterWorkspaceState())
     val state = _state.asStateFlow()
@@ -55,6 +57,7 @@ class OpenRouterSettingsViewModel @Inject constructor(
     private var catalogJob: Job? = null
     private var receiptJob: Job? = null
     private var accountReadJob: Job? = null
+    private var managementJob: Job? = null
     private var readSession = 0L
     private var nextRefreshAt = Long.MIN_VALUE
     private val json = Json { ignoreUnknownKeys = true }
@@ -103,6 +106,23 @@ class OpenRouterSettingsViewModel @Inject constructor(
         _state.value = OpenRouterWorkspaceState(connections = _state.value.connections, connection = selected, loading = true, endpointDraft = selected.apiUrl, nameDraft = selected.name)
         receiptJob?.cancel()
         receiptJob = viewModelScope.launch { receipts.observe(uid).collect { records -> if (_state.value.connection?.uid == uid) _state.update { it.copy(receipts = records) } } }
+        managementJob?.cancel()
+        managementJob = viewModelScope.launch {
+            management?.state?.collect { local ->
+                if (_state.value.connection?.uid == uid) {
+                    val binding = local.bindings[uid]
+                    val observation = local.observations[uid]?.takeIf { binding?.associated == true && it.bindingRevision == binding.revision }
+                    _state.update {
+                        it.copy(
+                            managementSaved = binding != null,
+                            managementAssociated = binding?.associated == true,
+                            savedWallet = observation?.snapshot,
+                            accountReadError = observation?.failure != null
+                        )
+                    }
+                }
+            }
+        }
         val ticket = attempt
         job = viewModelScope.launch {
             try {
@@ -426,36 +446,65 @@ class OpenRouterSettingsViewModel @Inject constructor(
             }
         }
     }
-    fun connectAccountReadAccess(credential: String) {
-        if (!_state.value.unlocked) return
-        clearAccountReadSession()
-        val session = readSession
-        val endpoint = _state.value.connection?.apiUrl ?: return
-        _state.update { it.copy(accountReadLoading = true) }
+    fun connectAccountReadAccess(credential: String) = saveManagementAccess(credential)
+
+    fun saveManagementAccess(replacement: String? = null) {
+        val uid = _state.value.connection?.uid ?: return
+        if (_state.value.accountReadLoading) return
+        val session = ++readSession
+        _state.update { it.copy(accountReadLoading = true, accountReadError = false) }
         accountReadJob = viewModelScope.launch {
             try {
-                val identity = account.key(endpoint, credential)
-                if (!identity.isManagement) throw OpenRouterAccountException(AccountFailure.ROLE)
-                val wallet = runCatching { account.objectResource(endpoint, credential, "credits")["data"] as? JsonObject }
-                    .getOrElse {
-                        if (it is CancellationException) throw it
-                        null
-                    }
-                if (session != readSession) return@launch
-                _state.update { it.copy(wallet = wallet, accountReadError = wallet == null) }
-                val activity = runCatching { account.objectResource(endpoint, credential, "activity")["data"] as? kotlinx.serialization.json.JsonArray }
-                    .getOrElse {
-                        if (it is CancellationException) throw it
-                        null
-                    }
-                if (session == readSession) _state.update { it.copy(accountActivity = activity, accountReadLoading = false, accountReadAt = System.currentTimeMillis(), accountReadError = wallet == null || activity == null) }
+                checkNotNull(management).save(uid, replacement)
+                if (session == readSession) _state.update { it.copy(accountReadLoading = false) }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
                 if (session == readSession) _state.update { it.copy(accountReadLoading = false, accountReadError = true) }
             }
         }
-        // No credential field is retained after this one-shot coroutine. Reopening/backgrounding clears all account-wide panels.
+    }
+
+    fun removeManagementAccess() {
+        val uid = _state.value.connection?.uid ?: return
+        clearAccountReadSession()
+        accountReadJob = viewModelScope.launch {
+            try {
+                management?.remove(uid)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                _state.update { it.copy(accountReadError = true) }
+            }
+        }
+    }
+
+    fun readSavedAccount() {
+        val uid = _state.value.connection?.uid ?: return
+        if (_state.value.accountReadLoading || !_state.value.managementAssociated) return
+        val session = ++readSession
+        _state.update { it.copy(accountReadLoading = true, accountReadError = false) }
+        accountReadJob = viewModelScope.launch {
+            try {
+                val snapshot = walletRefresh?.readExplicit(uid)
+                val activity = management?.readActivity(uid)
+                if (session == readSession) {
+                    _state.update {
+                        it.copy(
+                            savedWallet = snapshot ?: it.savedWallet,
+                            accountActivity = activity,
+                            accountReadAt = System.currentTimeMillis(),
+                            accountReadLoading = false,
+                            accountReadError = snapshot == null
+                        )
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                if (session == readSession) _state.update { it.copy(accountReadLoading = false, accountReadError = true) }
+            }
+        }
     }
     fun clearAccountReadSession() {
         readSession++
@@ -581,6 +630,9 @@ data class OpenRouterWorkspaceState(
     val providers: List<JsonObject> = emptyList(),
     val providersLoading: Boolean = false,
     val wallet: JsonObject? = null,
+    val savedWallet: dev.chungjungsoo.gptmobile.data.openrouter.account.SettingsHomeWalletSnapshot? = null,
+    val managementSaved: Boolean = false,
+    val managementAssociated: Boolean = false,
     val accountActivity: kotlinx.serialization.json.JsonArray? = null,
     val accountReadLoading: Boolean = false,
     val accountReadError: Boolean = false,

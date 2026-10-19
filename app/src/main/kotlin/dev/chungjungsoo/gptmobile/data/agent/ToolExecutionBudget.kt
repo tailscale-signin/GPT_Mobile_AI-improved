@@ -149,7 +149,7 @@ class ToolExecutionBudget(
                             ?: throw CombinedBudgetExceeded("Combined budget store is unavailable; no tool was dispatched.")
                         val budget = store.open(executionContext)
                         if (budget.snapshot().let { it.cancelled || it.closed }) throw CombinedBudgetExceeded("Combined turn is closed; no tool was dispatched.")
-                        assignedWorkId = budget.assignEvidenceWork(executionContext, arguments.toString(), CombinedToolWork.isInspection(tool.definition.name))
+                        assignedWorkId = budget.assignEvidenceWork(executionContext, arguments.toString(), CombinedToolWork.isInspection(tool.definition))
                         if (assignedWorkId == null && tool.coordinatesChildWork && AgentToolCapability.WEB_SEARCH !in tool.definition.capabilities && CombinedWorkInventory.urls(arguments.toString()).isEmpty()) {
                             assignedWorkId = budget.assignedContext(executionContext).workItemId
                         }
@@ -157,7 +157,7 @@ class ToolExecutionBudget(
                         sharedBudget = budget
                         if (!tool.coordinatesChildWork) {
                             val attemptId = "tool:${executionContext.role}:${executionContext.profileUid}:$statisticsRoot:$physicalIdentity"
-                            val effectFingerprint = if (CombinedToolWork.isInspection(tool.definition.name) || AgentToolCapability.WEB_SEARCH in tool.definition.capabilities) null else combinedDigest(statisticsIdentity.key + ":" + dev.chungjungsoo.gptmobile.data.permissions.ScopedToolGrant.canonicalHash(arguments))
+                            val effectFingerprint = if (CombinedToolWork.isInspection(tool.definition) || AgentToolCapability.WEB_SEARCH in tool.definition.capabilities) null else combinedDigest(statisticsIdentity.key + ":" + dev.chungjungsoo.gptmobile.data.permissions.ScopedToolGrant.canonicalHash(arguments))
                             when (val admission = budget.reserve(requireNotNull(physicalContext), attemptId, CombinedResourceQuota(toolOperations = workUnits), effectFingerprint = effectFingerprint)) {
                                 is CombinedBudgetAdmission.Denied -> return failure(admission.reason).copy(toolCallBudgetExhausted = true)
                                 is CombinedBudgetAdmission.Granted -> {
@@ -295,7 +295,7 @@ class ToolExecutionBudget(
                             var madeProgress = false
                             if (!raw.isError && item != null) {
                                 if (AgentToolCapability.WEB_SEARCH in tool.definition.capabilities) budget.recordDiscovery(item, raw.content.toString())
-                                if (CombinedToolWork.isInspection(tool.definition.name)) {
+                                if (CombinedToolWork.isInspection(tool.definition)) {
                                     // Citation links in a returned article were not themselves inspected.
                                     // An identifier-based paper read may supply its one canonical URL.
                                     val payload = (raw.content as? ToolResultContent.Json)?.value as? kotlinx.serialization.json.JsonObject

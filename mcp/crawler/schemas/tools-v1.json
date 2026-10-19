@@ -1,0 +1,322 @@
+{
+  "schemaVersion": 1,
+  "tools": [
+    {
+      "name": "fetch",
+      "description": "Crawler fetch. Schema v1. Acquisition is not scientific appraisal; retained evidence and actual work are reported separately.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "url": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192
+          },
+          "query": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          },
+          "refresh": {
+            "type": "boolean"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "quick",
+              "smart"
+            ],
+            "default": "smart"
+          },
+          "deadlineMs": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 86400000,
+            "default": 25000
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "text",
+              "markdown"
+            ],
+            "default": "text"
+          },
+          "outputTokens": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100000,
+            "default": 3000
+          },
+          "outputBytes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000000,
+            "default": 64000
+          }
+        },
+        "required": [
+          "url"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "idempotentHint": false
+      },
+      "_meta": {
+        "gptmobile/crawlerSchema": 1,
+        "gptmobile/operation": "fetch"
+      }
+    },
+    {
+      "name": "start",
+      "description": "Crawler start. Schema v1. Acquisition is not scientific appraisal; retained evidence and actual work are reported separately.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "sourceGoal": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000000,
+            "default": 20
+          },
+          "maxPages": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000000,
+            "default": 100
+          },
+          "maxDepth": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100,
+            "default": 3
+          },
+          "maxPhysicalRequests": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647,
+            "default": 1000
+          },
+          "maxDownloadedBytes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991,
+            "default": 262144000
+          },
+          "deadlineMs": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 86400000,
+            "default": 900000
+          },
+          "outputTokens": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100000,
+            "default": 3000
+          },
+          "outputBytes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000000,
+            "default": 64000
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "text",
+              "markdown"
+            ],
+            "default": "text"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "quick",
+              "smart",
+              "deep"
+            ],
+            "default": "smart"
+          },
+          "seeds": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 1000,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 8192
+            }
+          },
+          "resumeFromJobId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "scope": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "allowedHosts"
+            ],
+            "properties": {
+              "allowedHosts": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 1000,
+                "items": {
+                  "type": "string",
+                  "maxLength": 253
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "idempotencyKey"
+        ],
+        "oneOf": [
+          {
+            "required": [
+              "seeds"
+            ],
+            "not": {
+              "required": [
+                "resumeFromJobId"
+              ]
+            }
+          },
+          {
+            "required": [
+              "resumeFromJobId"
+            ],
+            "not": {
+              "required": [
+                "seeds"
+              ]
+            }
+          }
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "idempotentHint": true
+      },
+      "_meta": {
+        "gptmobile/crawlerSchema": 1,
+        "gptmobile/operation": "start"
+      }
+    },
+    {
+      "name": "status",
+      "description": "Crawler status. Schema v1. Acquisition is not scientific appraisal; retained evidence and actual work are reported separately.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "jobId"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "idempotentHint": true
+      },
+      "_meta": {
+        "gptmobile/crawlerSchema": 1,
+        "gptmobile/operation": "status"
+      }
+    },
+    {
+      "name": "results",
+      "description": "Crawler results. Schema v1. Acquisition is not scientific appraisal; retained evidence and actual work are reported separately.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "cursor": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "text",
+              "markdown"
+            ],
+            "default": "text"
+          },
+          "outputTokens": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100000,
+            "default": 3000
+          },
+          "outputBytes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000000,
+            "default": 64000
+          }
+        },
+        "required": [
+          "jobId"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "idempotentHint": true
+      },
+      "_meta": {
+        "gptmobile/crawlerSchema": 1,
+        "gptmobile/operation": "results"
+      }
+    },
+    {
+      "name": "cancel",
+      "description": "Crawler cancel. Schema v1. Acquisition is not scientific appraisal; retained evidence and actual work are reported separately.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "jobId"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "idempotentHint": true
+      },
+      "_meta": {
+        "gptmobile/crawlerSchema": 1,
+        "gptmobile/operation": "cancel"
+      }
+    }
+  ]
+}

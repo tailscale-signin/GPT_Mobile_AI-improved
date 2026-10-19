@@ -677,13 +677,28 @@ private fun OpenRouterAccountReadAccess(state: OpenRouterWorkspaceState, vm: Ope
     }
     SettingsPanel(stringResource(R.string.orw_separate_access)) {
         ExpandSection(stringResource(R.string.orw_read_access)) {
-            Text(stringResource(R.string.orw_management_warning))
-            Text(stringResource(R.string.orw_separate_scope))
+            Text("Save management access for this account. It is encrypted on this device and kept separate from your inference key. Saving validates access without reading the balance.")
+            Text(
+                if (state.managementSaved) {
+                    if (state.managementAssociated) "Management access saved" else "Access saved; confirm its association after changing your inference key or endpoint."
+                } else {
+                    "No saved management access"
+                }
+            )
             OutlinedTextField(credential, { credential = it }, Modifier.fillMaxWidth(), label = { Text(stringResource(R.string.orw_management_key)) }, visualTransformation = PasswordVisualTransformation(), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password))
             Button(onClick = {
                 vm.connectAccountReadAccess(credential)
                 credential = ""
-            }, enabled = credential.isNotBlank() && !state.accountReadLoading) { Text(stringResource(R.string.orw_connect_read)) }
+            }, enabled = credential.isNotBlank() && !state.accountReadLoading) { Text(if (state.managementSaved) "Replace access" else "Save access") }
+            if (state.managementSaved) {
+                if (!state.managementAssociated) TextButton(onClick = { vm.saveManagementAccess() }, enabled = !state.accountReadLoading) { Text("Validate account association") }
+                TextButton(onClick = vm::removeManagementAccess, enabled = !state.accountReadLoading) { Text("Remove saved access") }
+                Button(onClick = vm::readSavedAccount, enabled = state.managementAssociated && !state.accountReadLoading) { Text("Read account now") }
+            }
+            state.savedWallet?.let { wallet ->
+                ValueRow(stringResource(R.string.orw_wallet_remaining), if (state.hideAmounts) "••••" else usd(wallet.remainingUsd))
+                Text("Last successful balance · " + time(wallet.observedAt * 1000))
+            }
             if (state.accountReadLoading) LinearProgressIndicator(Modifier.fillMaxWidth())
             if (state.accountReadError) Text(stringResource(R.string.orw_read_restricted))
             state.wallet?.let { wallet ->

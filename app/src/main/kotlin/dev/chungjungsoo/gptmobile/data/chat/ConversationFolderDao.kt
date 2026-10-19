@@ -40,8 +40,8 @@ interface ConversationFolderDao {
     @Upsert
     suspend fun move(member: ConversationFolderMember)
 
-    @Query("UPDATE conversation_folders SET name = :name, color = :color WHERE id = :id")
-    suspend fun edit(id: String, name: String, color: Long)
+    @Query("UPDATE conversation_folders SET name = :name, color = :color, colorMode = :colorMode WHERE id = :id")
+    suspend fun edit(id: String, name: String, color: Long, colorMode: String)
 
     @Query("DELETE FROM conversation_folders WHERE id = :id")
     suspend fun delete(id: String)

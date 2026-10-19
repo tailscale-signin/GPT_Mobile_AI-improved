@@ -23,8 +23,17 @@ class ContextBuilder @Inject constructor() {
         for (index in userMessages.indices) {
             val userMessage = userMessages[index]
             val candidates = assistantMessages.getOrNull(index)
-            val assistantMessage = candidates?.canonicalCombinedAssistant()?.let(::sanitizeAssistantMessageForContext)
-                ?: candidates?.firstValidAssistantCandidate(platform.uid)
+            // A pending/current assistant is never provider prefill. Recovery carries its
+            // committed text through its explicit recovery contract instead.
+            val assistantMessage = if (index == lastUserIndex) {
+                null
+            } else {
+                if (candidates?.hasCombinedHistory() == true) {
+                    candidates.canonicalCombinedAssistant()?.let(::sanitizeAssistantMessageForContext)
+                } else {
+                    candidates?.firstValidAssistantCandidate(platform.uid)
+                }
+            }
 
             val turn = RawConversationTurn(
                 userMessage = userMessage,

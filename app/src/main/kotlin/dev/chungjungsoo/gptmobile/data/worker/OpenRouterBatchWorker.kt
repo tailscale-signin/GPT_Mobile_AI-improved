@@ -16,6 +16,7 @@ import dagger.assisted.AssistedInject
 import dev.chungjungsoo.gptmobile.data.database.dao.OpenRouterBatchCacheDao
 import dev.chungjungsoo.gptmobile.data.database.entity.OpenRouterBatchCacheEntity
 import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterBatchClient
+import dev.chungjungsoo.gptmobile.data.openrouter.account.recordOpenRouterReceipts
 import dev.chungjungsoo.gptmobile.data.repository.OpenRouterSettingsRepository
 import dev.chungjungsoo.gptmobile.domain.model.BatchRequest
 import java.util.concurrent.TimeUnit
@@ -27,7 +28,8 @@ class OpenRouterBatchWorker @AssistedInject constructor(
     @Assisted context: Context,
     @Assisted params: WorkerParameters,
     private val openRouterSettingsRepository: OpenRouterSettingsRepository,
-    private val openRouterBatchCacheDao: OpenRouterBatchCacheDao
+    private val openRouterBatchCacheDao: OpenRouterBatchCacheDao,
+    private val receiptStore: dev.chungjungsoo.gptmobile.data.openrouter.account.OpenRouterReceiptStore
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
@@ -71,13 +73,31 @@ class OpenRouterBatchWorker @AssistedInject constructor(
                 return@withContext Result.success(resultData(cached.responseContent, requestId, cacheKey))
             }
         }
+        val receiptContext = receiptStore.capture(
+            dev.chungjungsoo.gptmobile.data.openrouter.account.OpenRouterReceiptContext(
+                connectionUid,
+                revision,
+                settings.baseUrl,
+                "queue",
+                model,
+                "batch",
+                java.util.UUID.randomUUID().toString()
+            )
+        )
+
         val client = OpenRouterBatchClient(
             apiKey = apiKey,
             maxConcurrentRequests = settings.batchSize,
             timeoutMs = 30_000,
             baseUrl = settings.baseUrl,
             policy = policy,
-            noRemoteStorage = settings.noRemoteResponseStorage
+            noRemoteStorage = settings.noRemoteResponseStorage,
+            onRemoteResponse = { body ->
+                val chunk = runCatching {
+                    kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromString<dev.chungjungsoo.gptmobile.data.dto.openai.response.ChatCompletionChunk>(body)
+                }.getOrNull()
+                if (chunk != null) kotlinx.coroutines.flow.flowOf(chunk).recordOpenRouterReceipts(receiptContext, receiptStore, captureAtDispatch = false).collect { }
+            }
         )
 
         try {

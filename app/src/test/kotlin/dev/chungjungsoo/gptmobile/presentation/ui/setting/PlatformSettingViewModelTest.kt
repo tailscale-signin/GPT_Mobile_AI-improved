@@ -249,6 +249,8 @@ internal class FakeToolConnectionDao(
     val connections: MutableMap<String, ToolConnection> = mutableMapOf(),
     val bindings: MutableList<AgentToolBinding> = mutableListOf()
 ) : ToolConnectionDao {
+    override fun observeConnections(): kotlinx.coroutines.flow.Flow<List<ToolConnection>> = kotlinx.coroutines.flow.flow { emit(listConnections()) }
+
     override suspend fun listConnections(): List<ToolConnection> = connections.values.toList()
 
     override suspend fun getAllConnections(): List<ToolConnection> = listConnections()

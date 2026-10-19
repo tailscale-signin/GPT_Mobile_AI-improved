@@ -171,9 +171,11 @@ class SettingsHomeRenderTest {
                     providerConnections = emptyList(),
                     wallet = SettingsHomeWalletState(),
                     saveError = null,
+                    toolGroups = emptyList(),
+                    onSelectToolSubjects = { subjects -> config = config.copy(selectedToolSubjects = subjects) },
+                    onSelectProfiles = { uids -> config = config.copy(selectedProfileUids = uids) },
                     onSetItem = { id, enabled -> config = config.withItem(id, enabled) },
-                    onSelectWalletConnection = {}, onHideWalletAmounts = {}, onReadWallet = { _, _ -> },
-                    onClearWallet = {}, onOpenRouter = {}, onBack = { back++ }
+                    onSelectWalletConnection = {}, onHideWalletAmounts = {}, onOpenRouter = {}, onBack = { back++ }
                 )
             }
         }

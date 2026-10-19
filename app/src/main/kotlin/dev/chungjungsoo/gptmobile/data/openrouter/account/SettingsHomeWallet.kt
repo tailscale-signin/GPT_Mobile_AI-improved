@@ -2,7 +2,8 @@ package dev.chungjungsoo.gptmobile.data.openrouter.account
 
 import kotlinx.serialization.json.JsonObject
 
-/** Session-only display data, sourced exclusively from the authenticated account credits endpoint. */
+/** Display data sourced exclusively from the authenticated account credits endpoint. */
+@kotlinx.serialization.Serializable
 data class SettingsHomeWalletSnapshot(
     val connectionUid: String,
     val connectionName: String,
@@ -42,7 +43,9 @@ data class SettingsHomeWalletSnapshot(
 data class SettingsHomeWalletState(
     val snapshot: SettingsHomeWalletSnapshot? = null,
     val loading: Boolean = false,
-    val failure: AccountFailure? = null
+    val failure: AccountFailure? = null,
+    val accessSaved: Boolean = false,
+    val associationValid: Boolean = false
 )
 
 suspend fun OpenRouterAccountClient.readHomeWallet(

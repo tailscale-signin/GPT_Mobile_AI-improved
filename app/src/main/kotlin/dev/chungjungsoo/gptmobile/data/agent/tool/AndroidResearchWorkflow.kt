@@ -793,10 +793,7 @@ internal class AndroidResearchWorkflow(
         }
         readAcademicPages(callId)
         val readers = tools.filter {
-            it.realToolName == "read_url" &&
-                it.connectionUid == null ||
-                options.allowRemoteReaders &&
-                it.realToolName in setOf("read_url", "firecrawl_scrape", "tavily_extract", "web_fetch_exa", "free_search__fetch", "free_search__read_doc")
+            it.isResearchPageReader() && (it.connectionUid == null || options.allowRemoteReaders)
         }.sortedBy { it.connectionUid != null }
         if (readers.isEmpty()) return
         val questionTerms = researchTerms(state.task + " " + state.questions.joinToString(" "))

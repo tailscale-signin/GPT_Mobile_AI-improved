@@ -17,7 +17,7 @@ class ConversationFolderRepository @Inject constructor(private val database: Cha
     val members get() = dao.observeMembers()
     private fun name(value: String) = ConversationFolderStyle.name(Normalizer.normalize(value, Normalizer.Form.NFC).replace(Regex("\\s+"), " "))
 
-    suspend fun create(chatId: Int, name: String, color: Long): String = requireNotNull(createAndMove(setOf(chatId), name, color).destination)
+    suspend fun create(chatId: Int, name: String, color: Long? = null): String = requireNotNull(createAndMove(setOf(chatId), name, color).destination)
     suspend fun move(chatId: Int, folderId: String?) {
         moveMany(setOf(chatId), folderId)
     }
@@ -27,10 +27,10 @@ class ConversationFolderRepository @Inject constructor(private val database: Cha
         applyMove(ids, destination)
     }
 
-    suspend fun createAndMove(ids: Set<Int>, rawName: String, color: Long): FolderMoveReceipt = database.withTransaction {
+    suspend fun createAndMove(ids: Set<Int>, rawName: String, color: Long? = null): FolderMoveReceipt = database.withTransaction {
         val normalized = name(rawName)
         require(dao.folders().none { it.name.equals(normalized, true) }) { "A folder named $normalized already exists. Choose that destination." }
-        val created = ConversationFolder(UUID.randomUUID().toString(), normalized, ConversationFolderStyle.color(color), System.currentTimeMillis())
+        val created = ConversationFolder.new(UUID.randomUUID().toString(), normalized, System.currentTimeMillis(), color)
         dao.insertFolder(created)
         applyMove(ids, created.id).copy(created = created)
     }
@@ -71,6 +71,6 @@ class ConversationFolderRepository @Inject constructor(private val database: Cha
         changed
     }
 
-    suspend fun edit(id: String, name: String, color: Long) = dao.edit(id, name(name), ConversationFolderStyle.color(color))
+    suspend fun edit(id: String, name: String, color: Long? = null) = dao.edit(id, name(name), ConversationFolderStyle.color(color ?: ConversationFolderStyle.colors.first()), if (color == null) ConversationFolderStyle.THEME else ConversationFolderStyle.CUSTOM)
     suspend fun delete(id: String) = dao.delete(id)
 }

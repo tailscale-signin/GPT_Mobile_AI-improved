@@ -72,6 +72,8 @@ data class DatabaseBackupPayload(
     val chatPlatformModels: List<ChatPlatformModelV2> = emptyList(),
     val favoriteGroups: List<String> = emptyList(),
     val messageGroups: Map<Int, String> = emptyMap(),
+    val marketplaceSearches: List<dev.chungjungsoo.gptmobile.data.universalmarketplace.MarketplaceSavedSearch> = emptyList(),
+    val marketplaceBookmarks: List<dev.chungjungsoo.gptmobile.data.universalmarketplace.MarketplaceBookmark> = emptyList(),
     val conversationFolders: List<dev.chungjungsoo.gptmobile.data.chat.ConversationFolder> = emptyList(),
     val conversationFolderMembers: List<dev.chungjungsoo.gptmobile.data.chat.ConversationFolderMember> = emptyList(),
     val replyPublications: List<dev.chungjungsoo.gptmobile.data.chat.ReplyPublication> = emptyList()

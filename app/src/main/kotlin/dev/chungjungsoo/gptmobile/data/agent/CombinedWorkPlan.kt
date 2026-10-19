@@ -81,6 +81,20 @@ data class CombinedHardLimits(
 }
 
 @Serializable
+data class CombinedResearchRequirement(
+    val depth: Int,
+    val sourceGoal: Long,
+    val contentScope: String,
+    val gatewayConnectionUid: String? = null,
+    val allowNativeFallback: Boolean = false
+) {
+    init {
+        require(depth in 1..100 && sourceGoal > 0)
+        require(contentScope in setOf("WEB_AND_PAPERS", "PAPERS_ONLY", "WEB_ONLY"))
+    }
+}
+
+@Serializable
 data class CombinedRequestedPolicy(
     val version: Int = 1,
     val settings: ConversationCombinedSettings = ConversationCombinedSettings(),
@@ -91,7 +105,8 @@ data class CombinedRequestedPolicy(
     val userPrompt: String = "",
     val acceptedAtMillis: Long = 0,
     val settingsRevision: Long = 0,
-    val requestedPolicyDigest: String = ""
+    val requestedPolicyDigest: String = "",
+    val acceptedResearch: CombinedResearchRequirement? = null
 )
 
 /** Finite work sealed by the controller. Workers cannot add scope by calling a tool. */
@@ -145,6 +160,16 @@ data class CombinedWorkPlan(
     }
 }
 
+/** Stable stage assignments keep Research analysis away from verification and writer escrow. */
+object CombinedResearchStages {
+    val names = listOf("plan", "extract", "find_gaps", "review")
+    fun id(profileUid: String, stage: String): String = "research:$profileUid:$stage"
+    fun item(context: CombinedExecutionContext, profileUid: String, requestRole: String): CombinedWorkItem? {
+        val stage = requestRole.removePrefix("research-").takeIf { requestRole.startsWith("research-") && it in names } ?: return null
+        return context.plan?.workItems?.firstOrNull { it.id == id(profileUid, stage) }
+    }
+}
+
 /** Serializable routing context, never a tool grant. A role change keeps the same accepted turn. */
 @Serializable
 data class CombinedExecutionContext(
@@ -162,7 +187,8 @@ data class CombinedExecutionContext(
 
     val ownerKey: String get() = when (role) {
         CombinedRunRole.CONTRIBUTOR -> "contributor:${profileUid.orEmpty()}"
-        CombinedRunRole.RESEARCH, CombinedRunRole.VERIFIER -> "verification"
+        CombinedRunRole.RESEARCH -> plan?.workItems?.firstOrNull { it.id == workItemId }?.assignedOwnerKey ?: "research:${profileUid.orEmpty()}"
+        CombinedRunRole.VERIFIER -> "verification"
         else -> "finalization"
     }
 }

@@ -181,6 +181,8 @@ class CombinedTurnBudgetTest {
         budget.finishStage("finalization", "PARTIAL")
         assertFalse("finalization" in budget.snapshot().completedWork)
         assertTrue(budget.reserve(context, "optional-cannot-steal-final", CombinedResourceQuota(21, 0)) is CombinedBudgetAdmission.Denied)
+        budget.finishStage("contributor:a", "COMPLETED")
+        budget.completeWork("required-pages")
         budget.finishStage("finalization", "COMPLETED")
         assertEquals("COMPLETED", budget.snapshot().stageOutcomes["finalization"])
         budget.close()

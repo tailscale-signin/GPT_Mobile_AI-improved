@@ -37,7 +37,8 @@ class SettingRepositoryImpl @Inject constructor(
     private val platformV2Dao: PlatformV2Dao,
     private val providerConnectionDao: ProviderConnectionDao,
     private val chatPlatformModelV2Dao: ChatPlatformModelV2Dao,
-    private val secretVault: SecretVault
+    private val secretVault: SecretVault,
+    private val walletLocal: dev.chungjungsoo.gptmobile.data.openrouter.account.OpenRouterWalletLocalStore? = null
 ) : SettingRepository {
 
     private val jsonSerializer = Json {
@@ -46,6 +47,7 @@ class SettingRepositoryImpl @Inject constructor(
         encodeDefaults = true
     }
 
+    private val walletFeatureMutation = kotlinx.coroutines.sync.Mutex()
     private val connectionMutation = kotlinx.coroutines.sync.Mutex()
 
     // High-performance thread-safe in-memory cache for resolved PlatformV2 list
@@ -157,19 +159,30 @@ class SettingRepositoryImpl @Inject constructor(
 
     override suspend fun mutateThemes(transform: (ThemeSetting) -> ThemeSetting): ThemeSetting = settingDataSource.mutateThemes(transform)
 
-    override suspend fun mutateFeatureSettings(transform: (AppFeatureSettings) -> AppFeatureSettings): AppFeatureSettings {
+    override suspend fun mutateFeatureSettings(transform: (AppFeatureSettings) -> AppFeatureSettings): AppFeatureSettings = walletFeatureMutation.withLock {
         dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.advance()
         val profiles = fetchPlatformV2s()
-        return settingDataSource.mutateFeatureSettings { current ->
-            transform(current.copy(localAssistPolicy = current.localAssistPolicy.migrateProcessingPermissions(profiles)))
-        }.also { dev.chungjungsoo.gptmobile.data.network.NetworkClient.diagnosticsEnabled = it.diagnosticsCollection }
+        settingDataSource.mutateFeatureSettings { current ->
+            transform(
+                current.copy(
+                    localAssistPolicy = current.localAssistPolicy.migrateProcessingPermissions(profiles),
+                    settingsHome = current.settingsHome.migrate(profiles.filter { it.enabled }.map { it.uid })
+                )
+            )
+        }.also {
+            walletLocal?.setEnabled(dev.chungjungsoo.gptmobile.data.model.SettingsHomeConfiguration.WALLET in it.settingsHome.selectedItems)
+            dev.chungjungsoo.gptmobile.data.network.NetworkClient.diagnosticsEnabled = it.diagnosticsCollection
+        }
     }
 
     private suspend fun migrateAssistPermissions(settings: AppFeatureSettings): AppFeatureSettings {
-        if (settings.localAssistPolicy.permissionVersion >= 1) return settings
+        if (settings.localAssistPolicy.permissionVersion >= 1 && settings.settingsHome.schemaVersion >= 2) return settings
         val profiles = fetchPlatformV2s()
         return settingDataSource.mutateFeatureSettings { current ->
-            current.copy(localAssistPolicy = current.localAssistPolicy.migrateProcessingPermissions(profiles))
+            current.copy(
+                localAssistPolicy = current.localAssistPolicy.migrateProcessingPermissions(profiles),
+                settingsHome = current.settingsHome.migrate(profiles.filter { it.enabled }.map { it.uid })
+            )
         }
     }
 
@@ -193,9 +206,10 @@ class SettingRepositoryImpl @Inject constructor(
 
     override suspend fun getFeatureSettings(): AppFeatureSettings = migrateAssistPermissions(settingDataSource.getFeatureSettings()).also { dev.chungjungsoo.gptmobile.data.network.NetworkClient.diagnosticsEnabled = it.diagnosticsCollection }
 
-    override suspend fun updateFeatureSettings(settings: AppFeatureSettings) {
+    override suspend fun updateFeatureSettings(settings: AppFeatureSettings) = walletFeatureMutation.withLock {
         dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.advance()
         settingDataSource.updateFeatureSettings(settings)
+        walletLocal?.setEnabled(dev.chungjungsoo.gptmobile.data.model.SettingsHomeConfiguration.WALLET in settings.settingsHome.selectedItems)
         dev.chungjungsoo.gptmobile.data.network.NetworkClient.diagnosticsEnabled = settings.diagnosticsCollection
     }
 
@@ -421,12 +435,15 @@ class SettingRepositoryImpl @Inject constructor(
     private suspend fun updateConnection(connection: ProviderConnection, credential: String?): ProviderConnection {
         dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.advance()
         val existing = checkNotNull(providerConnectionDao.getConnection(connection.uid)) { "Connection unavailable" }
+        val changedAccount = connection.apiUrl != existing.apiUrl || credential != null
+        if (changedAccount) walletLocal?.invalidateConnection(connection.uid)
         val base = connection.copy(
             secretRef = connection.secretRef ?: existing.secretRef,
             updatedAt = System.currentTimeMillis() / 1000
         )
         val secured = secureProviderConnection(base, credential)
         providerConnectionDao.upsert(secured)
+        if (changedAccount) walletLocal?.invalidateConnection(connection.uid)
         invalidatePlatformCache()
         return secured
     }
@@ -434,6 +451,7 @@ class SettingRepositoryImpl @Inject constructor(
     override suspend fun deleteProviderConnection(connection: ProviderConnection): Boolean = connectionMutation.withLock {
         dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.advance()
         val persisted = providerConnectionDao.getConnection(connection.uid) ?: return@withLock true
+        walletLocal?.detach(connection.uid)?.let { secretVault.delete(it) }
         providerConnectionDao.deleteWithProfiles(persisted)
         try {
             persisted.secretRef?.let { secretVault.delete(it) }

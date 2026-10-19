@@ -72,7 +72,7 @@ internal fun hasGlassBackdrop(): Boolean = LocalGlassBackdrop.current != null &&
 
 @OptIn(dev.chrisbanes.haze.ExperimentalHazeApi::class)
 @Composable
-internal fun Modifier.glassBackdrop(shape: Shape, opacity: Float = GLASS_OPACITY, captureAsPopup: Boolean = false): Modifier {
+internal fun Modifier.glassBackdrop(shape: Shape, opacity: Float = GLASS_OPACITY, captureAsPopup: Boolean = false, blurRadius: androidx.compose.ui.unit.Dp = GLASS_BLUR_RADIUS): Modifier {
     val state = (if (captureAsPopup) LocalGlassBackdrop.current else LocalInlineGlassBackdrop.current ?: LocalGlassBackdrop.current) ?: return this
     // Allocate while visible, even with blur Off, so toggling does not reorder
     // already-open parent and child windows. A source excludes itself and newer windows.
@@ -87,7 +87,7 @@ internal fun Modifier.glassBackdrop(shape: Shape, opacity: Float = GLASS_OPACITY
         style = HazeStyle(
             backgroundColor = MaterialTheme.colorScheme.background,
             tints = listOf(HazeTint(tint)),
-            blurRadius = GLASS_BLUR_RADIUS,
+            blurRadius = blurRadius,
             noiseFactor = 0.035f,
             fallbackTint = HazeTint(tint)
         )

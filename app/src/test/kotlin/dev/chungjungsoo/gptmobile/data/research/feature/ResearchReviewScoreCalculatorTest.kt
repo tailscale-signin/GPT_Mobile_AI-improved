@@ -10,6 +10,19 @@ import org.junit.Test
 class ResearchReviewScoreCalculatorTest {
     private fun artifact() = StudyReviewArtifact("The trial found an uncertain effect.", "Small sample.", "primary", listOf("p"), ResearchReviewScoreCalculator.reliabilityDomains.mapIndexed { i, name -> ReviewDomain(name, if (i < 3) 3 else 2, "Reported methods", listOf("p")) }, ResearchReviewScoreCalculator.accuracyDomains.mapIndexed { i, name -> ReviewDomain(name, if (i == 0) 3 else 4, "Supported by the source", listOf("p")) })
 
+    @Test fun eachSupportedDesignHasFiveVersionedDomainSpecificRules() {
+        for (design in StudyDesign.entries) {
+            val rules = ResearchReviewRubric.signalingRules(design)
+            if (design in setOf(StudyDesign.UNKNOWN, StudyDesign.COMMENTARY, StudyDesign.PROTOCOL)) {
+                assertTrue(rules.isEmpty())
+            } else {
+                assertEquals(ResearchReviewScoreCalculator.reliabilityDomains.toSet(), rules.keys)
+                assertEquals(5, rules.values.toSet().size)
+            }
+        }
+        assertEquals(2, ResearchReviewRubric.VERSION)
+    }
+
     @Test fun lowerComponentDeterminesOverall() {
         val score = ResearchReviewScoreCalculator.calculate(artifact(), true, StudyDesign.RANDOMIZED_TRIAL, false)
         assertEquals(65, score.reliability)
@@ -47,7 +60,7 @@ class ResearchReviewScoreCalculatorTest {
 
     @Test fun sourceIdentifiersCannotHideIncorrectNumbersOrReversedComparators() {
         val quote = "The trial enrolled 100 patients and reported 5 versus 3 points."
-        val passage = EvidencePassage("p", "v", "Results", 0, quote.length, "hash", quote)
+        val passage = EvidencePassage("p", "v", "Results", 0, quote.length, dev.chungjungsoo.gptmobile.data.research.researchHash(quote), quote)
         val outcome = ResearchOutcome("outcome", "work", "v", "primary", quote, "Small sample.", "[\"p\"]", "GROUNDED", 1)
         val correct = artifact().copy(conclusion = "The trial enrolled 100 patients.")
         ResearchReviewScoreCalculator.validate(Json.encodeToString(correct), outcome, listOf(passage))

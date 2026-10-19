@@ -8,7 +8,6 @@ import dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.research.researchHash
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
@@ -20,36 +19,35 @@ class CombinedHistoryRegressionTest {
 
     @Test fun completedJokeDraftsDoNotBecomeASharedFinalWhenPrimaryFailed() {
         val messages = listOf(candidate("p", "", "CANDIDATE_FAILED"), candidate("h", "A complete original joke.", "CANDIDATE_COMPLETED"))
-        val history = messages.canonicalCombinedAssistant()!!
-        assertTrue(history.content.contains("merged final was unavailable"))
-        assertTrue(history.content.contains("1 individual draft(s)"))
-        assertFalse(history.content.contains("A complete original joke"))
+        assertTrue(messages.hasCombinedHistory())
+        assertNull(messages.canonicalCombinedAssistant())
     }
 
     @Test fun stoppedAndMergeUnavailableMarkersNeverFallBackToIndividualDrafts() {
         for (status in listOf("CANDIDATE_CANCELED", "CANDIDATE_INTERRUPTED", "MERGE_UNAVAILABLE", "CANDIDATE_COMPLETED")) {
-            val history = listOf(candidate("h", "An undelivered candidate", status)).canonicalCombinedAssistant()!!
-            assertTrue(history.content.contains("not a delivered Combined answer"))
-            assertFalse(history.content.contains("An undelivered candidate"))
+            val rows = listOf(candidate("h", "An undelivered candidate", status))
+            assertTrue(rows.hasCombinedHistory())
+            assertNull(rows.canonicalCombinedAssistant())
         }
     }
 
     @Test fun partialDeliveryTakesPrecedenceOverLegacyCompletedFlag() {
         val history = listOf(final("Unfinished answer", CombinedQualityReport(complete = true, deliveredScopeStatus = "PARTIAL"))).canonicalCombinedAssistant()!!
-        assertTrue(history.content.contains("unfinished work remains"))
+        assertEquals("Unfinished answer", history.content)
+        assertEquals("PARTIAL", history.timeline.single().combinedQuality?.deliveredScopeStatus)
     }
 
     @Test fun failedCorrectionCannotBeRecappedAsEstablishedAndAncestryIsStable() {
         val history = listOf(final("An earlier erroneous assertion", CombinedQualityReport(complete = true, deliveredScopeStatus = "PARTIAL", correctionRequired = true))).canonicalCombinedAssistant()!!
-        assertTrue(history.content.contains("requires correction"))
-        assertTrue(history.content.contains("Do not repeat affected assertions as established facts"))
-        assertTrue(history.content.contains("original-work"))
-        assertTrue(history.content.contains("not independent corroboration"))
+        assertEquals("An earlier erroneous assertion", history.content)
+        assertTrue(history.timeline.single().combinedQuality!!.correctionRequired)
+        assertEquals(setOf("original-work"), history.combinedSources.single().ancestryIds)
     }
 
     @Test fun deliveryWithLimitsDoesNotClaimFactualVerification() {
         val history = listOf(final("The evidence is unavailable.", CombinedQualityReport(complete = true, deliveredScopeStatus = "COMPLETED_WITH_LIMITS", verificationStatus = "EVIDENCE_UNAVAILABLE"))).canonicalCombinedAssistant()!!
-        assertTrue(history.content.contains("delivery is not factual certification"))
+        assertEquals("The evidence is unavailable.", history.content)
+        assertEquals("EVIDENCE_UNAVAILABLE", history.timeline.single().combinedQuality?.verificationStatus)
     }
 
     @Test fun selectedArchivedCombinedRevisionRetainsItsDeliveryIdentityAfterRegeneration() {
@@ -61,9 +59,9 @@ class CombinedHistoryRegressionTest {
     @Test fun archivedAnswerUsesItsOwnSourceAncestryRatherThanTheNewDrafts() {
         val previous = AssistantRevision("Prior merged final", createdAt = 1, runId = "combined-synthesis:old", timeline = listOf(AssistantTimelineItem(AssistantTimelineItemType.NOTICE, combinedQuality = CombinedQualityReport(answerDigest = researchHash("Prior merged final"), complete = true))), combinedSources = listOf(CombinedModelResponse("old", "Old", content = "Old source", ancestryIds = setOf("old-evidence"))))
         val current = final("Current merged final", CombinedQualityReport(complete = true)).copy(revisions = listOf(previous), activeRevisionIndex = 0)
-        val history = listOf(current).canonicalCombinedAssistant()!!.content
-        assertTrue(history.contains("old-evidence"))
-        assertFalse(history.contains("original-work"))
+        val history = listOf(current).canonicalCombinedAssistant()!!
+        assertEquals("Prior merged final", history.content)
+        assertEquals(setOf("old-evidence"), history.combinedSources.single().ancestryIds)
     }
 
     @Test fun staleEvidenceReportCannotBeCarriedIntoChangedText() {

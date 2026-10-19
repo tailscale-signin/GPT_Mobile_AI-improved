@@ -280,6 +280,15 @@
       "probe": "Passive connection metadata only; no arbitrary business operation probe",
       "configuration": "Shared ToolStatisticsPanel/ToolStatisticsLink in service, profile, connection and MCP selectors",
       "upstreamAttempts": "Observable MCP calls and correlated Ktor sends (including request retries/redirects); gateway-internal retries remain unavailable unless explicitly reported"
+    },
+    {
+      "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/UniversalMarketplaceTool.kt",
+      "canonicalOwner": "service:universal-marketplace; optional-universal-marketplace instance",
+      "capture": "ToolExecutionBudget after admission; ObservedTool records distinct child subjects under inherited collection policy and suppresses same-subject double wrapping",
+      "outcome": "Raw AgentToolResult before output bounding; uncertain dispatch remains UNKNOWN",
+      "probe": "Passive connection metadata only; no arbitrary business operation probe",
+      "configuration": "Shared ToolStatisticsPanel/ToolStatisticsLink in service, profile, connection and MCP selectors",
+      "upstreamAttempts": "None: native link preparation performs no network acquisition or model call."
     }
   ]
 }

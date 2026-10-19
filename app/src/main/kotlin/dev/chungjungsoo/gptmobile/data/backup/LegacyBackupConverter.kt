@@ -96,9 +96,12 @@ internal object LegacyBackupConverter {
                 require(payload.version in 1..2) { "This conversation backup requires a newer app." }
                 snapshot.withTransaction {
                     replaceConversations(payload.chatRooms, payload.messages, payload.chatPlatformModels)
+                    payload.marketplaceSearches.forEach { snapshot.marketplaceSavesDao().save(it) }
+                    payload.marketplaceBookmarks.forEach { snapshot.marketplaceSavesDao().save(it) }
                     payload.conversationFolders.forEach { snapshot.conversationFolderDao().restoreFolder(it) }
                     payload.conversationFolderMembers.forEach { snapshot.conversationFolderDao().move(it) }
                 }
+                if (payload.marketplaceSearches.isNotEmpty() || payload.marketplaceBookmarks.isNotEmpty()) sections += CompleteBackupSection.TOOLS
                 favorites(payload.favoriteGroups, payload.messageGroups)
             }
             3 -> {
@@ -108,11 +111,13 @@ internal object LegacyBackupConverter {
                     payload.platforms.forEach { platform(it) }
                     payload.toolConnections.forEach { snapshot.toolConnectionDao().upsertConnection(it) }
                     replaceConversations(payload.chatRooms, payload.messages, payload.models)
+                    payload.marketplaceSearches.forEach { snapshot.marketplaceSavesDao().save(it) }
+                    payload.marketplaceBookmarks.forEach { snapshot.marketplaceSavesDao().save(it) }
                     payload.conversationFolders.forEach { snapshot.conversationFolderDao().restoreFolder(it) }
                     payload.conversationFolderMembers.forEach { snapshot.conversationFolderDao().move(it) }
                 }
                 if (payload.platforms.isNotEmpty()) sections += CompleteBackupSection.PLATFORMS
-                if (payload.toolConnections.isNotEmpty()) sections += CompleteBackupSection.TOOLS
+                if (payload.toolConnections.isNotEmpty() || payload.marketplaceSearches.isNotEmpty() || payload.marketplaceBookmarks.isNotEmpty()) sections += CompleteBackupSection.TOOLS
                 favorites(payload.favoriteGroups, payload.messageGroups)
             }
             4 -> {

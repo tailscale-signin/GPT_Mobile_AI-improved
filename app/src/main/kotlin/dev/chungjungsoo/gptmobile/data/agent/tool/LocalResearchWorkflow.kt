@@ -489,16 +489,8 @@ private data class PageReadAttempt(
     val reader: ResolvedAgentTool?
 )
 
-internal fun ResolvedAgentTool.isResearchPageReader(): Boolean {
-    if (realToolName !in setOf("read_url", "firecrawl_scrape", "tavily_extract", "web_fetch_exa", "crawling_exa", "scrape_as_markdown")) return false
-    val schema = tool.definition.inputSchema
-    val properties = schema["properties"] as? JsonObject ?: return false
-    val key = listOf("url", "urls").firstOrNull { it in properties } ?: return false
-    return (schema["required"] as? JsonArray).orEmpty().all { field ->
-        val name = (field as? JsonPrimitive)?.content ?: return@all false
-        name == key || (properties[name] as? JsonObject)?.containsKey("default") == true
-    }
-}
+internal fun ResolvedAgentTool.isResearchPageReader(): Boolean =
+    dev.chungjungsoo.gptmobile.data.research.ReaderCapabilityRegistry.readsUrl(tool.definition, realToolName)
 
 private fun pageArguments(reader: ResolvedAgentTool, url: String): JsonObject = buildJsonObject {
     val properties = reader.tool.definition.inputSchema["properties"] as? JsonObject ?: JsonObject(emptyMap())

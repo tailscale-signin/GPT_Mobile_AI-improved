@@ -78,4 +78,59 @@ class DirectResearchModelFactoryTest {
         assertNull(worker.generate(ResearchModelStage.PLAN, "task", 128))
         assertFalse(invoked)
     }
+
+    @Test fun acceptedTemperatureAndModelOverlayDoesNotRevokeRegisteredAuthority() = runTest {
+        val registered = PlatformV2(uid = "primary", name = "Primary", model = "saved", temperature = 0.2f)
+        val requested = registered.copy(model = "accepted-override", temperature = 0.49f)
+        val features = AppFeatureSettings()
+        var live = registered
+        val dispatched = mutableListOf<PlatformV2>()
+        val worker = DirectResearchModelFactory.create(requested, listOf(registered), features, ModelDelegationSettings(), "overlay", { listOf(live) }, { features }, { true }, { _, _ -> false }, { target, _, _, _ ->
+            dispatched += target
+            ResearchModelReply("""{"questions":[],"queries":[]}""", "", "inv")
+        })
+        assertNotNull(worker.generate(ResearchModelStage.PLAN, "task", 128))
+        assertEquals(listOf(requested), dispatched)
+        live = registered.copy(enabled = false)
+        assertNull(worker.generate(ResearchModelStage.EXTRACT, "task", 128))
+        assertEquals(1, dispatched.size)
+    }
+
+    @Test fun displayOnlyChangeDoesNotRevokeAuthorityAndRejectionsStayTyped() = runTest {
+        val registered = PlatformV2(uid = "primary", name = "Primary", model = "model")
+        var live = registered.copy(name = "Renamed")
+        val features = AppFeatureSettings()
+        val worker = DirectResearchModelFactory.create(registered, listOf(registered), features, ModelDelegationSettings(), "typed", { listOf(live) }, { features }, { true }, { _, _ -> false }, { _, _, _, _ ->
+            ResearchModelReply("""{"questions":[],"queries":[]}""", "model")
+        })
+        assertNotNull(worker.generate(ResearchModelStage.PLAN, "task", 128))
+        live = live.copy(enabled = false)
+        assertNull(worker.generate(ResearchModelStage.PLAN, "task", 128))
+        assertEquals("PROFILE_DISABLED", worker.events.last().reason)
+        live = registered.copy(apiUrl = "https://new.example/v1")
+        assertNull(worker.generate(ResearchModelStage.PLAN, "task", 128))
+        assertEquals("DESTINATION_CHANGED", worker.events.last().reason)
+        live = registered
+        assertNotNull(worker.generate(ResearchModelStage.PLAN, "task", 128))
+        assertFalse(worker.events.any { it.reason == "MODEL_CIRCUIT_OPEN" })
+    }
+
+    @Test fun researchReviewerWorksWithDelegationAndLocalAssistOffAndRevocationStopsIt() = runTest {
+        val primary = PlatformV2(uid = "primary", name = "Primary", model = "first")
+        val reviewer = PlatformV2(uid = "reviewer", name = "Reviewer", model = "second")
+        val profiles = listOf(primary, reviewer)
+        val features = AppFeatureSettings(localAssist = false, researchFeature = dev.chungjungsoo.gptmobile.data.research.feature.ResearchFeatureSettings(reviewerProfileUid = reviewer.uid))
+        var live = features
+        val invoked = mutableListOf<String>()
+        val worker = DirectResearchModelFactory.create(primary, profiles, features, ModelDelegationSettings(enabled = false, reviewerEnabled = false), "review", { profiles }, { live }, { true }, { _, _ -> false }, { target, _, _, _ ->
+            invoked += target.uid
+            ResearchModelReply("""{"verdict":"Insufficient","relevance":"Relevant","questionId":"Q1"}""", target.model)
+        })
+        assertNotNull(worker.generate(ResearchModelStage.REVIEW, "evidence", 128, "author"))
+        assertEquals(listOf(reviewer.uid), invoked)
+        live = features.copy(researchFeature = features.researchFeature.copy(reviewerProfileUid = null))
+        worker.generate(ResearchModelStage.REVIEW, "evidence", 128, "author")
+        assertEquals(listOf(reviewer.uid, primary.uid), invoked)
+        assertTrue(worker.events.any { it.profileUid == reviewer.uid && it.reason == "PERMISSION_REVOKED" })
+    }
 }

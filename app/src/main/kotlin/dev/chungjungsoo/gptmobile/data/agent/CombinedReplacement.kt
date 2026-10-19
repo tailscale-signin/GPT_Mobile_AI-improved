@@ -45,7 +45,8 @@ data class CombinedRepairRequest(
     val evidence: CombinedEvidenceLedger,
     val missingClaims: List<String>,
     val revisionId: String,
-    val combined: CombinedExecutionContext? = null
+    val combined: CombinedExecutionContext? = null,
+    val targetRevisionId: String = ""
 )
 
 /** Unlike a continuation this contains the COMPLETE draft and gives it no immutable-prefix authority. */
@@ -57,11 +58,13 @@ fun buildCombinedReplacementPrompt(
     evidence: CombinedEvidenceLedger = CombinedEvidenceLedger(),
     missingClaims: List<String> = emptyList(),
     frozenEnvelope: String = "",
-    previousRevisionId: String = ""
+    previousRevisionId: String = "",
+    targetRevisionId: String = ""
 ): String = buildJsonObject {
     put("operation", "REPLACE_DRAFT")
     put("original_request", originalRequest)
     put("previous_revision_id", previousRevisionId)
+    put("target_revision_id", targetRevisionId)
     put("complete_candidate_draft", draft)
     put("answer_contract", Json.encodeToJsonElement(CombinedAnswerPolicy.serializer(), answerContract))
     put("failed_checks", JsonArray(failedChecks.distinct().map(::JsonPrimitive)))

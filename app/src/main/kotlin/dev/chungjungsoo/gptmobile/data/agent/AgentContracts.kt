@@ -66,7 +66,7 @@ data class AgentToolDefinition(
     val capabilities: Set<AgentToolCapability> = emptySet()
 )
 
-enum class AgentToolCapability { WEB_SEARCH }
+enum class AgentToolCapability { WEB_SEARCH, PAGE_READER }
 
 data class AgentToolResult(
     val callId: String,

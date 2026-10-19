@@ -22,6 +22,16 @@ class ResearchDeliveryTest {
     private val unread = ResearchSource("S2", "https://example.org/surgery", "Hydrogen inhalation surgery trial", "Failed", failureReason = "Retrieval failed")
     private fun packet() = ResearchDeliveryPacket.build(ResearchSnapshot("Hydrogen inhalation", sources = listOf(read, unread), claims = listOf(ResearchClaim("Synthetic scores", "S1", passage, "Supported", exactQuoteVerified = true)), complete = false), ResearchReportDetail.BRIEF)
 
+    @Test fun smallHandoffRetainsReadableEvidenceBeforeUnreadLeads() {
+        val readable = read.copy(passage = passage.repeat(30))
+        val leads = (2..18).map { unread.copy(id = "S$it", equivalenceGroup = "lead-$it") }
+        val packet = ResearchDeliveryPacket.build(ResearchSnapshot("Hydrogen inhalation", sources = listOf(readable) + leads), tokenBudget = 2048)
+        assertEquals(listOf("S1"), packet.studies.map { it.id })
+        assertTrue(packet.json().toString().toByteArray().size <= 2048 * 3)
+        assertTrue(packet.json().toString().contains("A synthetic randomized trial"))
+        assertEquals(readable.passage, packet.studies.single().passage)
+    }
+
     @Test fun acquisitionAndReviewStatesNeverCollapseIntoOneVerifiedCount() {
         val packet = packet()
         assertEquals(listOf("S1"), packet.studies.map { it.id })
@@ -172,7 +182,8 @@ class ResearchDeliveryTest {
         assertFalse(text.contains("999"))
         assertTrue(text.contains("20 participants"))
         assertTrue(text.contains("Partial coverage"))
-        assertEquals(1, events.count { it == ProviderEvent.Completed })
+        assertEquals(0, events.count { it == ProviderEvent.Completed })
+        assertTrue(events.filterIsInstance<ProviderEvent.Failed>().single().message.startsWith("RESEARCH_PARTIAL:"))
     }
 
     @Test fun completedResearchDisablesToolsDuringFirstFinalDraft() = runTest {
@@ -281,5 +292,19 @@ class ResearchDeliveryTest {
         val events = session.streamRound(emptyList(), emptyList()).toList()
         assertTrue(events.any { it is ProviderEvent.Failed })
         assertFalse(events.any { it is ProviderEvent.TextDelta || it is ProviderEvent.Completed })
+    }
+
+    @Test fun writerTransportFailurePreservesTheVisibleDraftBeforeReportingFailure() = runTest {
+        val interrupted = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                emit(ProviderEvent.TextDelta("The available trial enrolled 20 participants. [S1]"))
+                emit(ProviderEvent.Failed("NETWORK_TIMEOUT"))
+            }
+        }
+        val session = ResearchDeliverySession(interrupted, { packet() }) { _, _ -> interrupted }
+        val events = session.streamRound(emptyList(), emptyList()).toList()
+        assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().single().text.contains("20 participants"))
+        assertTrue(events.indexOfFirst { it is ProviderEvent.TextDelta } < events.indexOfFirst { it is ProviderEvent.Failed })
+        assertFalse(events.contains(ProviderEvent.Completed))
     }
 }

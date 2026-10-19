@@ -199,7 +199,7 @@ internal fun continuationSuffix(previous: String, next: String): String {
 }
 
 /** Convert cumulative provider snapshots into one additive usage event per request. */
-private fun Flow<ProviderEvent>.withSummedRequestUsage(): Flow<ProviderEvent> = flow {
+internal fun Flow<ProviderEvent>.withSummedRequestUsage(): Flow<ProviderEvent> = flow {
     var input: Int? = null
     var output: Int? = null
     var total: Int? = null

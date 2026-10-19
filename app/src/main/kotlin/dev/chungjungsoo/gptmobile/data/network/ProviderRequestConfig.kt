@@ -18,7 +18,8 @@ data class ProviderRequestConfig(
     val permissionRevision: String = "legacy-unverified",
     val requireKnownCapacity: Boolean = false,
     val reasoningMode: dev.chungjungsoo.gptmobile.data.context.ReasoningMode = dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO,
-    val allowReasoning: Boolean = true
+    val allowReasoning: Boolean = true,
+    val intentionalAssistantPrefill: Boolean = false
 ) {
     /**
      * Resolves an API endpoint path against the base apiUrl, normalizing any

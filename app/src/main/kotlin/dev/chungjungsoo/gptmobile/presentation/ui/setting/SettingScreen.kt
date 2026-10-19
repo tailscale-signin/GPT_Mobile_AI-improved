@@ -117,11 +117,19 @@ fun SettingScreen(
     }
     val activity by homeViewModel.activity.collectAsStateWithLifecycle()
     val toolConnections by homeViewModel.connections.collectAsStateWithLifecycle()
+    val homeToolGroups by homeViewModel.toolGroups.collectAsStateWithLifecycle()
     val wallet by homeViewModel.wallet.collectAsStateWithLifecycle()
     val homeSaveError by homeViewModel.saveError.collectAsStateWithLifecycle()
     val nowSeconds by homeViewModel.nowSeconds.collectAsStateWithLifecycle()
     val backupStatus by settingViewModel.backupStatus.collectAsStateWithLifecycle()
-    val homePoints = settingsHomePoints(featureSettings, platforms, providerConnections, activity, toolConnections, wallet, backupStatus, nowSeconds)
+    var selectedHomeCategory by remember { mutableStateOf<String?>(null) }
+    val homePoints = settingsHomePoints(featureSettings, platforms, providerConnections, activity, toolConnections, wallet, backupStatus, nowSeconds, homeToolGroups)
+    homePoints.firstOrNull { it.id == selectedHomeCategory }?.let { point ->
+        HomeSubjectsDialog(point, onDismiss = { selectedHomeCategory = null }, onConfigure = {
+            selectedHomeCategory = null
+            showHome = true
+        })
+    }
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner, homeViewModel) {
         homeViewModel.refreshLocalSummary()
@@ -130,12 +138,10 @@ fun SettingScreen(
                 homeViewModel.refreshLocalSummary()
                 settingViewModel.refreshBackupStatus()
             }
-            if (event == Lifecycle.Event.ON_STOP) homeViewModel.clearWalletSession()
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
-            homeViewModel.clearWalletSession()
         }
     }
     val searchEntries = SettingsSearchRegistry.entries.filter { (githubWorkspaceEnabled || it.destination != SettingsSearchDestination.WORKSPACE) && (it.key != "research" || featureSettings.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH)) } +
@@ -156,10 +162,11 @@ fun SettingScreen(
                 wallet = wallet,
                 saveError = homeSaveError,
                 onSetItem = homeViewModel::setItem,
+                onSelectProfiles = homeViewModel::selectProfiles,
+                toolGroups = homeToolGroups,
+                onSelectToolSubjects = homeViewModel::selectToolSubjects,
                 onSelectWalletConnection = homeViewModel::selectWalletConnection,
                 onHideWalletAmounts = homeViewModel::hideWalletAmounts,
-                onReadWallet = homeViewModel::readWallet,
-                onClearWallet = homeViewModel::clearWalletSession,
                 onOpenRouter = onNavigateToOpenRouterSettings,
                 onBack = { showHome = false }
             )
@@ -215,7 +222,7 @@ fun SettingScreen(
                             )
                         }
                     }
-                    item(key = "settings_home") { SettingsHomePanel(homePoints, onClick = { showHome = true }) }
+                    item(key = "settings_home") { SettingsHomePanel(homePoints, onClick = { showHome = true }, onCategoryClick = { selectedHomeCategory = it }) }
                     if (query.isBlank()) {
                         item {
                             SettingsCategory("AI", "Profiles and models") {

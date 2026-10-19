@@ -14,7 +14,7 @@ import org.junit.Test
 
 class PhysicalDispatchReceiptTest {
     private val config = ProviderRequestConfig("https://fixture.invalid/v1", null, providerType = "CUSTOM")
-    private val body = """{"model":"test","messages":[],"max_tokens":128}"""
+    private val body = """{"model":"test","messages":[{"role":"user","content":"Transport fixture request."}],"max_tokens":128}"""
 
     @Test fun revokedSourceCannotChargeAttemptOrPublishAnInclusionReceipt() = runBlocking {
         val recorder = RequestDispatchContext(emptySet())

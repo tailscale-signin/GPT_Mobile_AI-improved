@@ -63,7 +63,7 @@ internal fun ConversationFolderStrip(
     onBounds: (String, Rect) -> Unit
 ) {
     Row(
-        Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface).horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 10.dp),
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -74,11 +74,12 @@ internal fun ConversationFolderStrip(
             val emphasized = folder.id == selectedId || folder.id == hoveredId
             val scale by animateFloatAsState(if (folder.id == hoveredId) 1.08f else 1f, tween(180), label = "folderHover")
             Surface(
-                color = Color(folder.color).copy(alpha = if (emphasized) 1f else 0.82f),
-                contentColor = Color.White,
+                color = Color.Transparent,
+                contentColor = MaterialTheme.colorScheme.primary,
                 shape = RoundedCornerShape(14.dp),
-                border = if (emphasized) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
-                tonalElevation = if (emphasized) 4.dp else 0.dp,
+                border = BorderStroke(if (emphasized) 1.5.dp else 1.dp, if (folder.colorMode == ConversationFolderStyle.THEME) MaterialTheme.colorScheme.primary else Color(folder.color)),
+                tonalElevation = 0.dp,
+                shadowElevation = 0.dp,
                 modifier = Modifier.onGloballyPositioned { onBounds(folder.id, it.boundsInRoot()) }
                     .graphicsLayer {
                         scaleX = scale
@@ -87,8 +88,7 @@ internal fun ConversationFolderStrip(
                     .combinedClickable(onClick = { onSelect(if (selectedId == folder.id) null else folder.id) }, onLongClick = { onEdit(folder) })
             ) {
                 Row(Modifier.padding(horizontal = 12.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Rounded.Folder, null, Modifier.size(18.dp))
-                    Text(folder.name, style = MaterialTheme.typography.labelLarge)
+                    Text(folder.name, style = MaterialTheme.typography.labelLarge, fontWeight = if (emphasized) FontWeight.Bold else FontWeight.Normal)
                 }
             }
         }
@@ -135,11 +135,11 @@ internal fun ConversationOrganizationTargets(
 internal fun ConversationFolderEditor(
     folder: ConversationFolder?,
     onDismiss: () -> Unit,
-    onSave: (String, Long) -> Unit,
+    onSave: (String, Long?) -> Unit,
     onDelete: (() -> Unit)? = null
 ) {
     var name by remember(folder?.id) { mutableStateOf(folder?.name.orEmpty()) }
-    var color by remember(folder?.id) { mutableStateOf(folder?.color ?: ConversationFolderStyle.colors.first()) }
+    var color by remember(folder?.id) { mutableStateOf(folder?.takeIf { it.colorMode != ConversationFolderStyle.THEME }?.color) }
     AlertDialog(
         onDismissRequest = onDismiss,
         icon = { Icon(if (folder == null) Icons.Rounded.CreateNewFolder else Icons.Rounded.Folder, null) },
@@ -147,7 +147,8 @@ internal fun ConversationFolderEditor(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
                 OutlinedTextField(name, { name = it.take(40) }, label = { Text("Folder name") }, singleLine = true)
-                Text("Background colour", style = MaterialTheme.typography.labelLarge)
+                Text("Outline colour", style = MaterialTheme.typography.labelLarge)
+                TextButton(onClick = { color = null }) { Text(if (color == null) "Follow theme · selected" else "Follow theme") }
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     ConversationFolderStyle.colors.forEachIndexed { index, value ->
                         Box(

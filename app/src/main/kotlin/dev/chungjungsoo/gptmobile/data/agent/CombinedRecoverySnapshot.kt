@@ -20,7 +20,8 @@ internal object CombinedRecoverySnapshot {
         val raw = requireNotNull(run.synthesisSnapshot) { "This legacy answer has no frozen synthesis input." }
         require(researchHash(raw) == run.synthesisKey) { "The frozen synthesis input failed its integrity check." }
         val snapshot = json.decodeFromString<CombinedInputSnapshot>(raw)
-        require(snapshot.version in 1..5 && snapshot.userMessage.id == run.userMessageId && snapshot.userMessage.chatId == run.chatId) { "The saved synthesis input is incompatible." }
+        require(snapshot.version in 1..6 && snapshot.userMessage.id == run.userMessageId && snapshot.userMessage.chatId == run.chatId) { "The saved synthesis input is incompatible." }
+        if (snapshot.version >= 6) require(snapshot.snapshotId.isNotBlank() && snapshot.inputDigest == snapshot.contentDigest()) { "The sealed synthesis snapshot changed." }
         val modern = snapshot.version >= 5 && snapshot.combined != null
         val accepted = snapshot.combined?.requested
         if (modern) {
@@ -50,7 +51,7 @@ internal object CombinedRecoverySnapshot {
         }
         // Structured delivery is a complete new revision. Verify the archived prefix but do not
         // feed already-rendered prose back into the record protocol as a continuation prefix.
-        val prefix = if (snapshot.deliveryProtocol == "PASSAGES_V2") "" else committed
-        return snapshot.copy(version = maxOf(snapshot.version, 3), resumeFromRunId = run.runId, committedPrefix = prefix)
+        val prefix = if (snapshot.deliveryProtocol in setOf("PASSAGES_V2", "PASSAGES_V3")) "" else committed
+        return snapshot.copy(version = maxOf(snapshot.version, 3), resumeFromRunId = run.runId, committedPrefix = prefix, deliveryResumeFromRevisionId = if (snapshot.deliveryProtocol == "PASSAGES_V3") snapshot.liveRevisionId(run.runId) else null)
     }
 }

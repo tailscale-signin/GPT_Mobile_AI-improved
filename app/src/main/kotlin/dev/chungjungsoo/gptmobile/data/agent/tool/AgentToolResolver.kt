@@ -259,6 +259,27 @@ class AgentToolResolver @Inject constructor(
                 .resolved(null, "Amazon Research Free", "amazon_get_price_history").copy(shareableReadOnly = false)
         }
 
+        if (!disableLocal && nativeMarketplaceRegistry != null) {
+            val entry = requireNotNull(dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog.find("optional-universal-marketplace"))
+            val service = ToolServiceCatalog.forPackage(entry).id
+            val operation = ToolPluginId.nativeOperation(entry.id, "search")
+            val ids = listOf(entry.id, "${entry.id}:search", "universal_marketplace__search", "search")
+            val allowed: suspend () -> Boolean = {
+                val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
+                val live = settingRepository.getFeatureSettings()
+                current?.enabled == true &&
+                    !current.disableAllTools &&
+                    !current.disableLocalTools &&
+                    listOf(entry.id, service, operation).all { live.isToolPluginEnabledForProfile(profileUid, it) } &&
+                    chatToolConfig?.isToolEnabled(ids) != false &&
+                    nativeMarketplaceRegistry.load()[entry.id]?.enabled == true
+            }
+            if (allowed()) {
+                val tool = UniversalMarketplaceTool({ nativeMarketplaceRegistry.configuration(entry).installation.universalMarketplace }, allowed)
+                resolved += ResolvedAgentTool(tool, entry.id, entry.preset.name, "search", tool.definition.name, shareableReadOnly = false, canReuseResult = allowed)
+            }
+        }
+
         if (!disableRemote) {
             if (publicAirbnb != null && featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.AIRBNB)) {
                 resolved += nativeAirbnb(profileUid).resolved(null, "Airbnb", "airbnb")
@@ -282,7 +303,8 @@ class AgentToolResolver @Inject constructor(
                 }
                 nativeInstallations.filterValues { it.enabled }.forEach { (id, installation) ->
                     val entry = dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog.find(id) ?: return@forEach
-                    if (installation.ready(entry) &&
+                    if (entry.provider != "universal-marketplace" &&
+                        installation.ready(entry) &&
                         featureSettings.isToolPluginEnabledForProfile(profileUid, id) &&
                         featureSettings.isToolPluginEnabledForProfile(profileUid, ToolServiceCatalog.forPackage(entry).id)
                     ) {
@@ -663,6 +685,7 @@ class AgentToolResolver @Inject constructor(
             }
             .map { resolved ->
                 val connection = resolved.connectionUid ?: return@map resolved
+                if (connection == "optional-universal-marketplace") return@map resolved
                 val admittedBindings = bindings.filter { it.binding.connectionUid == connection }
                 val previousCheck = resolved.canReuseResult
                 resolved.copy(canReuseResult = {

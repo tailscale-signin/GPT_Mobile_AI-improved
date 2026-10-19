@@ -340,6 +340,8 @@ class AppBackupManager @Inject constructor(
                 exportedAt = System.currentTimeMillis(),
                 chatRooms = chatRooms,
                 replyPublications = database.replyPublicationDao().all(),
+                marketplaceSearches = database.marketplaceSavesDao().searches(),
+                marketplaceBookmarks = database.marketplaceSavesDao().bookmarks(),
                 conversationFolders = database.conversationFolderDao().folders(),
                 conversationFolderMembers = database.conversationFolderDao().members().filter { member -> chatRooms.any { it.id == member.chatId } },
                 messages = allMessages,
@@ -389,6 +391,10 @@ class AppBackupManager @Inject constructor(
                 }
 
                 database.openHelper.writableDatabase.execSQL("DELETE FROM conversation_folders")
+                database.marketplaceSavesDao().clearSearches()
+                database.marketplaceSavesDao().clearBookmarks()
+                payload.marketplaceSearches.forEach { database.marketplaceSavesDao().save(it) }
+                payload.marketplaceBookmarks.forEach { database.marketplaceSavesDao().save(it) }
                 payload.conversationFolders.forEach { database.conversationFolderDao().restoreFolder(it) }
                 payload.conversationFolderMembers.forEach { database.conversationFolderDao().move(it) }
 

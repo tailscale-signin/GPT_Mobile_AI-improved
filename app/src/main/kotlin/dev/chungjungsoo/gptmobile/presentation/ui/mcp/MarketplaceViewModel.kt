@@ -50,7 +50,8 @@ class MarketplaceViewModel @Inject constructor(
     private val toolTrust: dev.chungjungsoo.gptmobile.data.permissions.ToolTrustStore? = null,
     private val freeConsent: dev.chungjungsoo.gptmobile.data.permissions.FreeModelToolConsentStore? = null,
     private val settings: dev.chungjungsoo.gptmobile.data.repository.SettingRepository? = null,
-    private val agentToolResolver: dev.chungjungsoo.gptmobile.data.agent.tool.AgentToolResolver? = null
+    private val agentToolResolver: dev.chungjungsoo.gptmobile.data.agent.tool.AgentToolResolver? = null,
+    private val marketplaceSaves: dev.chungjungsoo.gptmobile.data.universalmarketplace.MarketplaceSavesRepository? = null
 ) : ViewModel() {
     private val _uninstallRequest = MutableStateFlow<GitHubMarketplacePackage?>(null)
     val uninstallRequest = _uninstallRequest.asStateFlow()
@@ -87,6 +88,8 @@ class MarketplaceViewModel @Inject constructor(
     fun download(entry: GitHubMarketplacePackage) = runOperation(entry, removing = false)
 
     fun remove(entry: GitHubMarketplacePackage) = runOperation(entry, removing = true)
+
+    fun removeWithSavedData(entry: GitHubMarketplacePackage) = runOperation(entry, removing = true, deleteSavedData = true)
 
     fun cancelDownload(id: String) {
         if (id in _uiState.value.downloadingIds) jobs[id]?.cancel()
@@ -217,7 +220,7 @@ class MarketplaceViewModel @Inject constructor(
         }
     }
 
-    private fun runOperation(entry: GitHubMarketplacePackage, removing: Boolean) {
+    private fun runOperation(entry: GitHubMarketplacePackage, removing: Boolean, deleteSavedData: Boolean = false) {
         if (jobs.containsKey(entry.id)) return
         val job = viewModelScope.launch(start = CoroutineStart.LAZY) {
             try {
@@ -226,6 +229,13 @@ class MarketplaceViewModel @Inject constructor(
                 if (removing) {
                     setOperation(entry.id, dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceOperationPhase.REMOVING)
                     val removedConnectionUids = dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.withLock {
+                        if (deleteSavedData && entry.provider == "universal-marketplace") {
+                            // Finish the atomic, explicitly requested data deletion before
+                            // recording a recoverable removal. A failed deletion leaves a
+                            // disabled installation available for a visible retry.
+                            registry.setEnabled(entry, false)
+                            checkNotNull(marketplaceSaves) { "Saved data cleanup is unavailable. Retry uninstall." }.clear()
+                        }
                         store.beginRemoval(entry)
                         if (NativeMarketplaceCatalog.supports(entry)) registry.uninstall(entry)
                         toolTrust?.revoke(entry.id)

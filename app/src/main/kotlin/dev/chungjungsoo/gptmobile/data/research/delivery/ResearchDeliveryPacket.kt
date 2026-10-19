@@ -25,7 +25,8 @@ data class ResearchDeliveryPacket(
     val unread: List<ResearchSource>,
     val omitted: Map<String, Int>,
     val studyFields: Map<String, JsonObject> = emptyMap(),
-    val compactMetadata: Boolean = false
+    val compactMetadata: Boolean = false,
+    val passageExcerpts: Map<String, String> = emptyMap()
 ) {
     internal val contract: ResearchReportContract get() = ResearchReportContract.forTask(snapshot.task)
     val sections: List<String> get() = contract.sections
@@ -81,7 +82,7 @@ data class ResearchDeliveryPacket(
                         put("claims", JsonArray(claims.filter { it.sourceId == source.id }.map { it.json() }))
                         put("validatedStudyFields", studyFields[source.id] ?: JsonObject(emptyMap()))
                         // Never split an extracted claim from its quote or its citation.
-                        put("unreviewedPassage", if (claims.none { it.sourceId == source.id }) source.passage.take(2400) else "")
+                        put("unreviewedPassage", if (claims.none { it.sourceId == source.id }) (passageExcerpts[source.id] ?: source.passage.take(2400)) else "")
                     }
                 }
             )
@@ -153,13 +154,29 @@ data class ResearchDeliveryPacket(
             val unread = (failedRecent + unreadCandidates).distinctBy { it.id }.take(if (detail == ResearchReportDetail.BRIEF) 4 else 8)
             val budget = tokenBudget.coerceIn(512, detail.packetTokens).toLong() * 3
             fun accounted(packet: ResearchDeliveryPacket) = packet.copy(omitted = mapOf("irrelevantOrRetracted" to (snapshot.sources.size - relevant.size), "readableWithoutTaskSupport" to (relevant.count { it.readable } - candidates.size), "readableByBudget" to (candidates.size - packet.studies.size), "claimsByBudget" to (valid.size - packet.claims.size), "unreadLeads" to (unreadCandidates.size - packet.unread.size)))
-            var packet = accounted(ResearchDeliveryPacket(snapshot, detail, emptyList(), emptyList(), emptyList(), emptyMap(), compactMetadata = budget < 6000))
+            var packet = accounted(ResearchDeliveryPacket(snapshot, detail, emptyList(), emptyList(), emptyList(), emptyMap(), compactMetadata = budget < 8192))
             // At least one useful readable source gets priority over a large list of discovery leads.
             for (source in candidates) {
                 if (packet.studies.size >= detail.studyLimit) break
-                val updated = accounted(packet.copy(studies = packet.studies + source, claims = packet.claims + valid.filter { it.sourceId == source.id }.take(6), studyFields = packet.studyFields + listOfNotNull(studyFields[source.id]?.let { source.id to it }).toMap()))
-                val reserve = if (unread.isEmpty()) 0 else minOf(3000, budget / 4)
-                if (updated.json().toString().toByteArray().size <= budget - reserve) packet = updated
+                // Evidence precedes unread leads. Fit exact prefixes while retaining the
+                // original source hash and version, rather than dropping every readable page.
+                for (excerptLimit in listOf(2400, 1200, 600, 300, 150)) {
+                    val excerpt = source.passage.take(excerptLimit).let {
+                        if (it.lastOrNull()?.isHighSurrogate() == true) it.dropLast(1) else it
+                    }
+                    val updated = accounted(
+                        packet.copy(
+                            studies = packet.studies + source,
+                            claims = packet.claims + valid.filter { it.sourceId == source.id && it.quote in excerpt }.take(6),
+                            studyFields = packet.studyFields + listOfNotNull(studyFields[source.id]?.let { source.id to it }).toMap(),
+                            passageExcerpts = packet.passageExcerpts + (source.id to excerpt)
+                        )
+                    )
+                    if (updated.json().toString().toByteArray().size <= budget) {
+                        packet = updated
+                        break
+                    }
+                }
             }
             for (source in unread) {
                 val updated = accounted(packet.copy(unread = packet.unread + source))

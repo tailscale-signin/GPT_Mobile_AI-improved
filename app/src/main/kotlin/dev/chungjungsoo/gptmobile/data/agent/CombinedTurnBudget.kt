@@ -154,6 +154,10 @@ class CombinedTurnBudget(
         if (context.role == CombinedRunRole.CONTRIBUTOR && context.ownerKey in state.stageOutcomes) {
             return@withLock CombinedBudgetAdmission.Denied("This contributor stage is terminal. A fresh accepted regeneration is required before calling it again.")
         }
+        if (context.role == CombinedRunRole.RESEARCH && context.workItemId?.startsWith("research:") == true) {
+            if (context.workItemId in state.plan.unfundedRequiredWorkIds) return@withLock CombinedBudgetAdmission.Denied("RESEARCH_STAGE_UNFUNDED: accepted hard limits cannot fund this stage.")
+            if (context.ownerKey in state.stageOutcomes) return@withLock CombinedBudgetAdmission.Denied("RESEARCH_STAGE_TERMINAL: this stage requires a newly accepted request.")
+        }
         if (resources.toolOperations > 0 && (!state.plan.toolsAllowed || context.role.finalization)) return@withLock CombinedBudgetAdmission.Denied("This Combined role is tool-free.")
         hardLimitReason(state, resources, upperCostMicros)?.let { return@withLock CombinedBudgetAdmission.Denied(it) }
 
@@ -349,12 +353,33 @@ class CombinedTurnBudget(
     }
 
     suspend fun cancel() = mutex.withLock {
-        if (!state.cancelled) commit(state.copy(cancelled = true, closed = true, terminalOutcome = "CANCELLED", terminalReason = "Cancellation is terminal; retry requires a newly accepted regeneration."))
+        if (!state.cancelled) commit(terminalSnapshot("CANCELLED", "Cancellation is terminal; retry requires a newly accepted regeneration.").copy(cancelled = true))
     }
 
     suspend fun close(outcome: String = "COMPLETED", reason: String? = null) = mutex.withLock {
         require(outcome in TERMINAL_OUTCOMES)
-        if (!state.closed) commit(state.copy(closed = true, terminalOutcome = outcome, terminalReason = reason?.take(500)))
+        if (!state.closed) commit(terminalSnapshot(outcome, reason))
+    }
+
+    private fun terminalSnapshot(outcome: String, reason: String?): CombinedBudgetSnapshot {
+        val remaining = state.pendingWork.values.filter { it.required }
+        val finalOutcome = if (outcome == "COMPLETED" && remaining.isNotEmpty()) "PARTIAL" else outcome
+        val unresolved = state.pendingWork.keys.associateWith { id ->
+            val status = when {
+                finalOutcome == "CANCELLED" -> "CANCELLED"
+                id in state.plan.unfundedRequiredWorkIds -> "BUDGET_BLOCKED"
+                else -> "PARTIAL"
+            }
+            "$status:" + if (state.pendingWork[id]?.required == false) "UNUSED_OPTIONAL_CAPACITY" else "ROOT_CLOSED_WITH_UNFINISHED_WORK"
+        }
+        return state.copy(
+            closed = true,
+            terminalOutcome = finalOutcome,
+            terminalReason = (reason ?: if (remaining.isNotEmpty()) "Required work remained unfinished when the root closed." else null)?.take(500),
+            pendingWork = emptyMap(),
+            completedWork = state.completedWork + state.pendingWork.keys,
+            stageOutcomes = state.stageOutcomes + unresolved
+        )
     }
 
     private suspend fun commit(next: CombinedBudgetSnapshot) {

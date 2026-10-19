@@ -19,6 +19,20 @@ class ResearchModelCoordinatorTest {
     private fun endpoint(id: String, key: String = id, available: suspend () -> Boolean = { true }, generate: suspend () -> String) =
         ResearchModelEndpoint(id, id, key, id == "local", available) { _, _, _ -> ResearchModelReply(generate(), key, "inv-$id") }
 
+    @Test fun stageCompletionRetainsFailuresBeyondTheBoundedEventHistory() = kotlinx.coroutines.test.runTest {
+        var ready = true
+        val endpoint = ResearchModelEndpoint("primary", "model", "identity", false, { ready }) { _, _, _ -> ResearchModelReply("""{"claims":[]}""", "identity") }
+        val coordinator = ResearchModelCoordinator(listOf(endpoint))
+        assertNotNull(coordinator.generate(ResearchModelStage.EXTRACT, "source", 128))
+        assertTrue(coordinator.completedStage("extract"))
+        ready = false
+        assertNull(coordinator.generate(ResearchModelStage.EXTRACT, "another source", 128))
+        ready = true
+        repeat(205) { coordinator.generate(ResearchModelStage.EXTRACT, "source", 128) }
+        assertFalse(coordinator.completedStage("extract"))
+        assertTrue(coordinator.events.size <= 200)
+    }
+
     @Test fun localFailureDoesNotCancelPrimaryOrDiscardSuccessfulOutput() = runTest {
         var fallback = 0
         val worker = ResearchModelCoordinator(

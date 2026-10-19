@@ -24,7 +24,7 @@ import org.junit.Test
 
 class OpenAIRecoveryTransportTest {
     private val config = ProviderRequestConfig("https://fixture.invalid/v1/", null)
-    private val request = ChatCompletionRequest(model = "fixture", messages = emptyList())
+    private val request = ChatCompletionRequest(model = "fixture", messages = listOf(dev.chungjungsoo.gptmobile.data.dto.openai.request.ChatMessage(role = dev.chungjungsoo.gptmobile.data.dto.openai.common.Role.USER, content = listOf(dev.chungjungsoo.gptmobile.data.dto.openai.common.TextContent("Transport fixture request.")))))
 
     @Test
     fun `transient DNS failure gets bounded retries before primary handoff fails`() = runTest {
@@ -90,7 +90,7 @@ class OpenAIRecoveryTransportTest {
                 }
             }
         ) { api ->
-            val events = api.streamResponses(ResponsesRequest(model = "fixture", input = emptyList(), temperature = .4f, maxOutputTokens = 128), 5, config).toList()
+            val events = api.streamResponses(ResponsesRequest(model = "fixture", input = listOf(dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputMessage("user", dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputContent.text("Transport fixture request."))), temperature = .4f, maxOutputTokens = 128), 5, config).toList()
             assertTrue(events.single() is ResponseCompletedEvent)
             assertEquals(2, bodies.size)
             val second = NetworkClient.openAIJson.parseToJsonElement(bodies.last()).jsonObject

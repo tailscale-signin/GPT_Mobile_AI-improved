@@ -24,7 +24,8 @@ internal data class SettingsHomePoint(
     val detail: String,
     val tone: SettingsHomeTone = SettingsHomeTone.UNKNOWN,
     val secondaryLabel: String? = null,
-    val secondaryTone: SettingsHomeTone = SettingsHomeTone.UNKNOWN
+    val secondaryTone: SettingsHomeTone = SettingsHomeTone.UNKNOWN,
+    val subjects: List<SettingsHomePoint> = emptyList()
 )
 
 internal fun settingsHomePoints(
@@ -35,9 +36,10 @@ internal fun settingsHomePoints(
     connections: List<ToolConnection>?,
     wallet: SettingsHomeWalletState,
     backup: BackupStatus,
-    nowSeconds: Long
+    nowSeconds: Long,
+    toolGroups: List<dev.chungjungsoo.gptmobile.data.home.HomeToolGroup> = emptyList()
 ): List<SettingsHomePoint> {
-    val configuration = features.settingsHome.normalized()
+    val configuration = features.settingsHome.migrate(profiles.filter { it.enabled }.map { it.uid })
     val selectedConnection = homeWalletConnection(configuration, providerConnections)
     return configuration.selectedItems.map { id ->
         when (id) {
@@ -49,7 +51,7 @@ internal fun settingsHomePoints(
                         id,
                         "OpenRouter Wallet",
                         if (configuration.hideWalletAmounts) "••••" else usd(snapshot.remainingUsd),
-                        "${if (snapshot.isFresh(nowSeconds)) "Updated" else "Stale"} ${settingsHomeAge(snapshot.observedAt, nowSeconds)} · ${snapshot.connectionName}",
+                        "${if (snapshot.isFresh(nowSeconds)) "Updated" else "Stale"} ${settingsHomeAge(snapshot.observedAt, nowSeconds)} · ${snapshot.connectionName}" + (wallet.failure?.let { " · " + walletFailureText(it) } ?: ""),
                         if (!snapshot.isFresh(nowSeconds)) {
                             SettingsHomeTone.STALE
                         } else if (snapshot.remainingUsd.toBigDecimal().signum() <= 0) {
@@ -59,42 +61,62 @@ internal fun settingsHomePoints(
                         }
                     )
                     wallet.failure != null -> SettingsHomePoint(id, "OpenRouter Wallet", "Balance unavailable", walletFailureText(wallet.failure), SettingsHomeTone.UNKNOWN)
-                    else -> SettingsHomePoint(id, "OpenRouter Wallet", "Connect to view", if (selectedConnection == null) "Select an OpenRouter connection in Home tab" else "Account balance requires separate management access")
+                    else -> SettingsHomePoint(
+                        id,
+                        "OpenRouter Wallet",
+                        if (wallet.associationValid) "Available after your next response" else "Manage OpenRouter",
+                        if (selectedConnection == null) {
+                            "Select an OpenRouter connection in Home tab"
+                        } else if (wallet.associationValid) {
+                            "Waiting for an eligible remote response"
+                        } else {
+                            "Save or reassociate management access in provider settings"
+                        }
+                    )
                 }
             }
-            SettingsHomeConfiguration.PROFILES -> SettingsHomePoint(id, "AI Profiles", "${profiles.count { it.enabled }} enabled · ${profiles.count { !it.enabled }} disabled", "Profile switches; add individual profiles for request status", if (profiles.any { it.enabled }) SettingsHomeTone.ACTIVE else SettingsHomeTone.UNKNOWN)
+            SettingsHomeConfiguration.PROFILES -> {
+                val subjects = configuration.selectedProfileUids.map { uid ->
+                    val profile = profiles.find { it.uid == uid }
+                    if (profile == null) {
+                        SettingsHomePoint(SettingsHomeConfiguration.profile(uid), "Unavailable profile", "Missing", "Remove this selection in Choose profiles")
+                    } else {
+                        val provider = providerConnections.find { it.uid == profile.providerConnectionUid }
+                        val last = activity.records.filter {
+                            it.profileUid == profile.uid &&
+                                it.model == profile.model &&
+                                it.provider == profile.compatibleType.name &&
+                                (provider == null || it.createdAt >= provider.updatedAt)
+                        }.maxByOrNull { it.completedAt ?: it.startedAt ?: it.createdAt }
+                        val status = settingsHomeProfileStatus(profile.enabled, profile.model.isNotBlank(), last, nowSeconds)
+                        SettingsHomePoint(SettingsHomeConfiguration.profile(uid), profile.name, status.label, status.detail, status.tone)
+                    }
+                }
+                SettingsHomePoint(id, "AI Profiles", "${subjects.size} selected", if (subjects.isEmpty()) "Choose profiles" else "Recorded status for selected profiles", subjects = subjects)
+            }
             SettingsHomeConfiguration.USAGE -> when {
                 !activity.loaded -> SettingsHomePoint(id, "Recent activity", "Loading…", "Reading local request records")
                 activity.unavailable -> SettingsHomePoint(id, "Recent activity", "Unavailable", "Local activity could not be read")
                 else -> SettingsHomePoint(id, "Recent activity", "${activity.records.size} recorded replies", "${activity.records.count { it.status == "COMPLETED" }} completed · ${activity.records.count { it.status in setOf("FAILED", "INTERRUPTED") }} failed/interrupted · latest 250")
             }
-            SettingsHomeConfiguration.TOOLS -> SettingsHomePoint(id, "Plugins & Tools", connections?.let { "${it.size} configured connections" } ?: "Connections unavailable", "Remote MCP ${if (features.remoteMcpConnections) "allowed" else "off"} · individual grants still apply")
+            SettingsHomeConfiguration.TOOLS -> {
+                val selected = configuration.selectedToolSubjects
+                val subjects = selected.filterNot { parent -> parent.toolName == null && selected.any { it.toolName != null && it.copy(toolName = null) == parent } }.map { subject ->
+                    val group = toolGroups.find { it.subject == subject.copy(toolName = null) }
+                    val status = dev.chungjungsoo.gptmobile.data.home.homeToolSubjectStatus(subject, group)
+                    SettingsHomePoint("${subject.kind}:${subject.ownerUid}:${subject.toolName.orEmpty()}", subject.toolName ?: group?.name ?: "Unavailable plugin", status.label, status.detail.ifBlank { group?.name.orEmpty() }, status.tone)
+                }
+                val tone = when {
+                    subjects.isEmpty() -> SettingsHomeTone.UNKNOWN
+                    subjects.any { it.tone == SettingsHomeTone.NEGATIVE } -> SettingsHomeTone.NEGATIVE
+                    subjects.all { it.tone == SettingsHomeTone.POSITIVE } -> SettingsHomeTone.POSITIVE
+                    else -> SettingsHomeTone.UNKNOWN
+                }
+                SettingsHomePoint(id, "Plugins & Tools", "${subjects.size} selected", if (subjects.isEmpty()) "Choose plugins and tools" else "Observed status; individual grants still apply", tone, subjects = subjects)
+            }
             SettingsHomeConfiguration.PRIVACY -> SettingsHomePoint(id, "Privacy choices", "Diagnostics ${if (features.diagnosticsCollection) "on" else "off"}", "Local Assist ${if (features.localAssist) "on" else "off"} · location tool ${if (features.deviceLocationTool) "allowed" else "off"}")
             SettingsHomeConfiguration.BACKUP -> SettingsHomePoint(id, "Backup & Restore", backup.lastBackupEpochMs?.let { settingsHomeAge(it / 1000, nowSeconds) } ?: "No recorded backup", "${backup.backupCount} backups recorded by this app")
-            else -> {
-                val profile = profiles.find { SettingsHomeConfiguration.profile(it.uid) == id }
-                if (profile == null) {
-                    SettingsHomePoint(id, "Unavailable item", "Profile or item missing", "Choose a replacement in Home tab")
-                } else {
-                    val provider = providerConnections.find { it.uid == profile.providerConnectionUid }
-                    val last = activity.records.filter {
-                        it.profileUid == profile.uid &&
-                            it.model == profile.model &&
-                            it.provider == profile.compatibleType.name &&
-                            (provider == null || it.createdAt >= provider.updatedAt)
-                    }.maxByOrNull { it.completedAt ?: it.startedAt ?: it.createdAt }
-                    val status = settingsHomeProfileStatus(true, profile.model.isNotBlank(), last, nowSeconds)
-                    SettingsHomePoint(
-                        id,
-                        profile.name,
-                        if (profile.enabled) "Enabled" else "Disabled",
-                        status.detail,
-                        if (profile.enabled) SettingsHomeTone.POSITIVE else SettingsHomeTone.NEGATIVE,
-                        status.label,
-                        status.tone
-                    )
-                }
-            }
+            else -> SettingsHomePoint(id, "Unavailable category", "Unavailable", "Choose Home categories")
         }
     }
 }

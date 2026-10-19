@@ -148,5 +148,5 @@ internal fun combinedCoverageRepairInstruction(missing: List<CombinedContentCove
 
 internal fun passageCombinedEnvelope(envelope: String): Boolean = runCatching {
     val value = kotlinx.serialization.json.Json.parseToJsonElement(envelope) as? kotlinx.serialization.json.JsonObject
-    (value?.get("delivery_protocol") as? kotlinx.serialization.json.JsonPrimitive)?.content == "PASSAGES_V2"
+    (value?.get("delivery_protocol") as? kotlinx.serialization.json.JsonPrimitive)?.content in setOf("PASSAGES_V2", "PASSAGES_V3")
 }.getOrDefault(false)

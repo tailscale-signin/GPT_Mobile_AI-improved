@@ -46,51 +46,60 @@ internal fun namespaceMcpToolName(alias: String, toolName: String): String {
     return safe.take(MAX_MODEL_TOOL_NAME_LENGTH - suffix.length - 2).trimEnd('_') + "__" + suffix
 }
 
-internal fun mcpToolDefinition(alias: String, tool: Tool): AgentToolDefinition = AgentToolDefinition(
-    name = namespaceMcpToolName(alias, tool.name),
-    description = tool.description.orEmpty().safeTake(MAX_TOOL_DESCRIPTION_CHARS),
-    inputSchema = buildJsonObject {
-        require(tool.name.isNotBlank() && tool.name.length <= MAX_REMOTE_TOOL_NAME_LENGTH && tool.name.none(Char::isISOControl)) {
-            "MCP tool name is invalid."
-        }
-        put("type", tool.inputSchema.type)
-        val originalProperties = tool.inputSchema.properties ?: JsonObject(emptyMap())
-        val properties = if (isFileReadingTool(tool.name)) {
-            buildJsonObject {
-                originalProperties.forEach { (key, value) -> put(key, value) }
-                if (!originalProperties.containsKey("start_line")) {
-                    put(
-                        "start_line",
-                        buildJsonObject {
-                            put("type", "integer")
-                            put("description", "Optional 1-indexed line number to start reading from (inclusive).")
-                        }
-                    )
-                }
-                if (!originalProperties.containsKey("end_line")) {
-                    put(
-                        "end_line",
-                        buildJsonObject {
-                            put("type", "integer")
-                            put("description", "Optional 1-indexed line number to stop reading at (inclusive).")
-                        }
-                    )
-                }
+internal fun mcpToolDefinition(alias: String, tool: Tool): AgentToolDefinition = reviewedMcpReader(
+    tool.name,
+    AgentToolDefinition(
+        name = namespaceMcpToolName(alias, tool.name),
+        description = tool.description.orEmpty().safeTake(MAX_TOOL_DESCRIPTION_CHARS),
+        inputSchema = buildJsonObject {
+            require(tool.name.isNotBlank() && tool.name.length <= MAX_REMOTE_TOOL_NAME_LENGTH && tool.name.none(Char::isISOControl)) {
+                "MCP tool name is invalid."
             }
-        } else {
-            originalProperties
+            put("type", tool.inputSchema.type)
+            val originalProperties = tool.inputSchema.properties ?: JsonObject(emptyMap())
+            val properties = if (isFileReadingTool(tool.name)) {
+                buildJsonObject {
+                    originalProperties.forEach { (key, value) -> put(key, value) }
+                    if (!originalProperties.containsKey("start_line")) {
+                        put(
+                            "start_line",
+                            buildJsonObject {
+                                put("type", "integer")
+                                put("description", "Optional 1-indexed line number to start reading from (inclusive).")
+                            }
+                        )
+                    }
+                    if (!originalProperties.containsKey("end_line")) {
+                        put(
+                            "end_line",
+                            buildJsonObject {
+                                put("type", "integer")
+                                put("description", "Optional 1-indexed line number to stop reading at (inclusive).")
+                            }
+                        )
+                    }
+                }
+            } else {
+                originalProperties
+            }
+            put("properties", properties)
+            if (!tool.inputSchema.required.isNullOrEmpty()) {
+                put("required", JsonArray(tool.inputSchema.required.orEmpty().map(::JsonPrimitive)))
+            }
+            if (!tool.inputSchema.defs.isNullOrEmpty()) put("\$defs", tool.inputSchema.defs ?: JsonObject(emptyMap()))
+        }.also { schema ->
+            require(schema.estimatedJsonUtf8Bytes(MAX_TOOL_SCHEMA_BYTES) != null) {
+                "MCP tool schema is too large."
+            }
         }
-        put("properties", properties)
-        if (!tool.inputSchema.required.isNullOrEmpty()) {
-            put("required", JsonArray(tool.inputSchema.required.orEmpty().map(::JsonPrimitive)))
-        }
-        if (!tool.inputSchema.defs.isNullOrEmpty()) put("\$defs", tool.inputSchema.defs ?: JsonObject(emptyMap()))
-    }.also { schema ->
-        require(schema.estimatedJsonUtf8Bytes(MAX_TOOL_SCHEMA_BYTES) != null) {
-            "MCP tool schema is too large."
-        }
-    }
+    )
 )
+private fun reviewedMcpReader(operation: String, definition: AgentToolDefinition): AgentToolDefinition =
+    if (dev.chungjungsoo.gptmobile.data.research.ReaderCapabilityRegistry.legacyUrlReader(operation, definition.inputSchema)) {
+        definition.copy(capabilities = definition.capabilities + dev.chungjungsoo.gptmobile.data.agent.AgentToolCapability.PAGE_READER)
+    } else {
+        definition
+    }
 
 internal fun sliceTextLines(
     text: String,

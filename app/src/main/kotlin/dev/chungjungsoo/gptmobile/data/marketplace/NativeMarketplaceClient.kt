@@ -33,6 +33,7 @@ class NativeMarketplaceFailure(message: String, val status: Int? = null, val ret
 /** Fixed provider origins and provider-specific authentication; never arbitrary model URLs. */
 object NativeMarketplaceRequests {
     fun build(entry: GitHubMarketplacePackage, operation: String, args: JsonObject, config: NativeProviderConfiguration): Request {
+        require(entry.provider != "universal-marketplace") { "Universal Marketplace uses its local coordinator, not an HTTP request." }
         NativeMarketplaceCatalog.validate(entry.provider, operation, args)
         val key = config.apiKey
         require(!NativeMarketplaceCatalog.requiresKey(entry) || NativeMarketplaceCatalog.validKey(key)) { "API key required." }

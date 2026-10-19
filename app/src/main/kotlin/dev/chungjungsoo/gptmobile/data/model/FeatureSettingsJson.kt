@@ -5,6 +5,8 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.intOrNull
 
 /** Patch only changed known fields; unrelated future fields survive every writer. */
 object FeatureSettingsJson {
@@ -25,9 +27,29 @@ object FeatureSettingsJson {
             )
         }
         (root["settingsHome"] as? JsonObject)?.let { home ->
-            val current = json.decodeFromJsonElement(SettingsHomeConfiguration.serializer(), home)
+            val safe = home.toMutableMap()
+            for (key in listOf("selectedItems", "selectedProfileUids")) {
+                if (key !in safe) continue
+                val entries = safe[key] as? JsonArray
+                if (entries == null) safe.remove(key) else safe[key] = JsonArray(entries.filter { it is JsonPrimitive && it.isString })
+            }
+            if ("selectedToolSubjects" in safe) {
+                val entries = safe["selectedToolSubjects"] as? JsonArray
+                if (entries == null) {
+                    safe.remove("selectedToolSubjects")
+                } else {
+                    safe["selectedToolSubjects"] = JsonArray(
+                        entries.filter {
+                            runCatching { json.decodeFromJsonElement(HomeToolSubject.serializer(), it) }.isSuccess
+                        }
+                    )
+                }
+            }
+            if ("schemaVersion" in safe && (safe["schemaVersion"] as? JsonPrimitive)?.intOrNull == null) safe.remove("schemaVersion")
+            val sanitized = JsonObject(safe)
+            val current = json.decodeFromJsonElement(SettingsHomeConfiguration.serializer(), sanitized)
             normalized["settingsHome"] = mergeElements(
-                home,
+                sanitized,
                 json.encodeToJsonElement(SettingsHomeConfiguration.serializer(), current),
                 json.encodeToJsonElement(SettingsHomeConfiguration.serializer(), current.normalized())
             )

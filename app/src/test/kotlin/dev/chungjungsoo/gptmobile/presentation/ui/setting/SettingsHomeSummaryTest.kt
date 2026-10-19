@@ -22,40 +22,35 @@ class SettingsHomeSummaryTest {
     private val record = SettingsHomeActivity("run", "profile", "OPENROUTER", "model", "COMPLETED", 1_000, null, 1_000, null, null, null)
     private val snapshot = SettingsHomeWalletSnapshot("connection", "Account", 10, "6.99999999", "10.00000001", "3.00000002", 1_000)
 
-    @Test fun selectedProfileHasKnownActivationIndependentOfUnknownRequestHealth() {
-        val enabled = points(SettingsHomeConfiguration.profile("profile")).single()
-        assertEquals("Enabled", enabled.value)
-        assertEquals(SettingsHomeTone.POSITIVE, enabled.tone)
-        assertEquals("Not checked", enabled.secondaryLabel)
-        assertEquals(SettingsHomeTone.UNKNOWN, enabled.secondaryTone)
-        val disabled = points(SettingsHomeConfiguration.profile("profile"), profiles = listOf(profile.copy(enabled = false))).single()
+    @Test fun selectedProfileUsesObservedStatusAndDoesNotTreatEnabledAsOnline() {
+        val enabled = points(SettingsHomeConfiguration.profile("profile")).single().subjects.single()
+        assertEquals("Not checked", enabled.value)
+        assertEquals(SettingsHomeTone.UNKNOWN, enabled.tone)
+        val disabled = points(SettingsHomeConfiguration.profile("profile"), profiles = listOf(profile.copy(enabled = false))).single().subjects.single()
         assertEquals("Disabled", disabled.value)
         assertEquals(SettingsHomeTone.NEGATIVE, disabled.tone)
-        assertEquals("Not checked", disabled.secondaryLabel)
     }
 
-    @Test fun staleAndFailedRequestsDoNotChangeTheEnabledSwitchIndicator() {
-        val stale = points(SettingsHomeConfiguration.profile("profile"), records = listOf(record), now = 1_601).single()
-        assertEquals("Enabled", stale.value)
-        assertEquals(SettingsHomeTone.POSITIVE, stale.tone)
-        assertEquals(SettingsHomeTone.STALE, stale.secondaryTone)
-        val failed = points(SettingsHomeConfiguration.profile("profile"), records = listOf(record.copy(status = "FAILED"))).single()
-        assertEquals("Enabled", failed.value)
-        assertEquals("Last request failed", failed.secondaryLabel)
-        assertEquals(SettingsHomeTone.NEGATIVE, failed.secondaryTone)
+    @Test fun staleAndFailedRequestsHaveDistinctStatesInsideOneCategory() {
+        val stale = points(SettingsHomeConfiguration.profile("profile"), records = listOf(record), now = 1_601).single().subjects.single()
+        assertEquals(SettingsHomeTone.STALE, stale.tone)
+        val failed = points(SettingsHomeConfiguration.profile("profile"), records = listOf(record.copy(status = "FAILED"))).single().subjects.single()
+        assertEquals("Last request failed", failed.value)
+        assertEquals(SettingsHomeTone.NEGATIVE, failed.tone)
     }
 
     @Test fun providerChangesDoNotReuseAnEarlierSuccessfulHealthResult() {
-        val changed = points(SettingsHomeConfiguration.profile("profile"), records = listOf(record), connections = listOf(connection.copy(updatedAt = 1_001))).single()
-        assertEquals("Not checked", changed.secondaryLabel)
-        val wrongModel = points(SettingsHomeConfiguration.profile("profile"), records = listOf(record.copy(model = "old"))).single()
-        assertEquals("Not checked", wrongModel.secondaryLabel)
-        val wrongProvider = points(SettingsHomeConfiguration.profile("profile"), records = listOf(record.copy(provider = "OPENAI"))).single()
-        assertEquals("Not checked", wrongProvider.secondaryLabel)
+        val changed = points(SettingsHomeConfiguration.profile("profile"), records = listOf(record), connections = listOf(connection.copy(updatedAt = 1_001))).single().subjects.single()
+        assertEquals("Not checked", changed.value)
+        val wrongModel = points(SettingsHomeConfiguration.profile("profile"), records = listOf(record.copy(model = "old"))).single().subjects.single()
+        assertEquals("Not checked", wrongModel.value)
+        val wrongProvider = points(SettingsHomeConfiguration.profile("profile"), records = listOf(record.copy(provider = "OPENAI"))).single().subjects.single()
+        assertEquals("Not checked", wrongProvider.value)
     }
 
     @Test fun walletDisplaysConnectLoadingUnavailableLiveHiddenAndStaleSeparately() {
-        assertEquals("Connect to view", points(SettingsHomeConfiguration.WALLET).single().value)
+        assertEquals("Manage OpenRouter", points(SettingsHomeConfiguration.WALLET).single().value)
+        assertEquals("Available after your next response", points(SettingsHomeConfiguration.WALLET, wallet = SettingsHomeWalletState(associationValid = true)).single().value)
         assertEquals(SettingsHomeTone.ACTIVE, points(SettingsHomeConfiguration.WALLET, wallet = SettingsHomeWalletState(loading = true)).single().tone)
         val unavailable = points(SettingsHomeConfiguration.WALLET, wallet = SettingsHomeWalletState(failure = AccountFailure.NETWORK)).single()
         assertEquals("Balance unavailable", unavailable.value)
@@ -73,11 +68,11 @@ class SettingsHomeSummaryTest {
         val configuration = SettingsHomeConfiguration(walletConnectionUid = "deleted")
         assertEquals(null, homeWalletConnection(configuration, listOf(connection)))
         val wrong = points(SettingsHomeConfiguration.WALLET, wallet = SettingsHomeWalletState(snapshot.copy(connectionUid = "other"))).single()
-        assertEquals("Connect to view", wrong.value)
+        assertEquals("Manage OpenRouter", wrong.value)
     }
 
     @Test fun missingItemAndUnavailableLocalDataRemainExplicit() {
-        assertEquals("Unavailable item", points("profile:deleted").single().title)
+        assertEquals("Unavailable profile", points("profile:deleted").single().subjects.single().title)
         val features = AppFeatureSettings(settingsHome = SettingsHomeConfiguration(listOf(SettingsHomeConfiguration.USAGE)))
         val result = settingsHomePoints(features, emptyList(), emptyList(), SettingsHomeActivityState(loaded = true, unavailable = true), null, SettingsHomeWalletState(), BackupStatus(), 1_000).single()
         assertEquals("Unavailable", result.value)

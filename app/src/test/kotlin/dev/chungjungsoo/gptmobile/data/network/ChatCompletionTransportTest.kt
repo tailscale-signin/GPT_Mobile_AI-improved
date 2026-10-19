@@ -70,7 +70,7 @@ class ChatCompletionTransportTest {
         assertEquals(42.5, chunk.timings!!.decodeTokensPerSecond!!, .01)
     }
 
-    private fun request(stream: Boolean = true) = ChatCompletionRequest(model = "llama", messages = emptyList(), stream = stream)
+    private fun request(stream: Boolean = true) = ChatCompletionRequest(model = "llama", messages = listOf(dev.chungjungsoo.gptmobile.data.dto.openai.request.ChatMessage(role = dev.chungjungsoo.gptmobile.data.dto.openai.common.Role.USER, content = listOf(dev.chungjungsoo.gptmobile.data.dto.openai.common.TextContent("Transport fixture request.")))), stream = stream)
 
     private fun withResponse(contentType: String, body: String, block: (OpenAIAPI, ProviderRequestConfig, () -> String?) -> Unit) {
         var accept: String? = null

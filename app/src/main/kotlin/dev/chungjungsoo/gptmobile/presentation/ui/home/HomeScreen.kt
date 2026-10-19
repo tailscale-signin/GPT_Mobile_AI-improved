@@ -113,6 +113,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.AbsoluteAlignment
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -234,7 +235,7 @@ fun HomeScreen(
     var movingChatIds by rememberSaveable { mutableStateOf<IntArray?>(null) }
     var folderQuery by rememberSaveable { mutableStateOf("") }
     var newFolderName by rememberSaveable { mutableStateOf("") }
-    var newFolderColor by rememberSaveable { mutableStateOf(dev.chungjungsoo.gptmobile.data.chat.ConversationFolderStyle.colors.first()) }
+    var newFolderColor by rememberSaveable { mutableStateOf<Long?>(null) }
     var choosingNewFolder by rememberSaveable { mutableStateOf(false) }
     val folderBusy by homeViewModel.folderBusy.collectAsStateWithLifecycle()
     val archived by homeViewModel.lastArchive.collectAsStateWithLifecycle()
@@ -576,6 +577,7 @@ fun HomeScreen(
                                             if (!chatListState.isSelectionMode) homeViewModel.enableSelectionMode()
                                             homeViewModel.selectChat(idx)
                                         },
+                                        animateStatus = homeFeatures.responseAnimation,
                                         rowActions = selectionActions
                                     )
                                 } else {
@@ -600,6 +602,7 @@ fun HomeScreen(
                                             }
                                             put("Delete") { chatPendingDelete = chatRoom }
                                         },
+                                        animateStatus = homeFeatures.responseAnimation,
                                         compact = homeFeatures.compactChatList,
                                         chatRoom = chatRoom,
                                         idx = idx,
@@ -756,6 +759,7 @@ fun HomeScreen(
                         TextButton(onClick = { choosingNewFolder = !choosingNewFolder }, enabled = !folderBusy) { Text("Create folder") }
                         if (choosingNewFolder) {
                             OutlinedTextField(newFolderName, { newFolderName = it }, label = { Text("Folder name") }, enabled = !folderBusy)
+                            TextButton(onClick = { newFolderColor = null }, enabled = !folderBusy) { Text(if (newFolderColor == null) "Follow theme · selected" else "Follow theme") }
                             FlowRow {
                                 dev.chungjungsoo.gptmobile.data.chat.ConversationFolderStyle.colors.forEachIndexed { index, color ->
                                     androidx.compose.material3.RadioButton(
@@ -772,6 +776,7 @@ fun HomeScreen(
                                     movingChatIds = null
                                     choosingNewFolder = false
                                     newFolderName = ""
+                                    newFolderColor = null
                                 }
                             }, enabled = !folderBusy && newFolderName.isNotBlank()) { Text("Create and move") }
                         }
@@ -1035,7 +1040,8 @@ fun FancySwipeChatCard(
     isArchived: Boolean = false,
     rowActions: Map<String, () -> Unit> = emptyMap(),
     compact: Boolean = false,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    animateStatus: Boolean = true
 ) {
     val progress = dismissState.progress
     val swipeDirection = dismissState.dismissDirection
@@ -1188,7 +1194,8 @@ fun FancySwipeChatCard(
                 revealingLabels = revealingLabels,
                 dragHandleModifier = dragHandleModifier,
                 rowActions = rowActions,
-                compact = compact
+                compact = compact,
+                animateStatus = animateStatus
             )
         }
     }
@@ -1210,10 +1217,20 @@ internal fun ChatListItem(
     revealingLabels: Boolean = false,
     dragHandleModifier: Modifier = Modifier,
     rowActions: Map<String, () -> Unit> = emptyMap(),
-    compact: Boolean = false
+    compact: Boolean = false,
+    animateStatus: Boolean = true
 ) {
     var menuOpen by rememberSaveable(chatRoom.id) { mutableStateOf(false) }
     val interaction = remember { MutableInteractionSource() }
+    val lifecycle by androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle.currentStateFlow.collectAsStateWithLifecycle()
+    val motionEnabled = animateStatus && android.animation.ValueAnimator.areAnimatorsEnabled() && lifecycle.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)
+    val titleAlpha = if (hasUnreadResponse && motionEnabled) {
+        val transition = rememberInfiniteTransition(label = "unreadTitle")
+        val alpha by transition.animateFloat(1f, 0.8f, infiniteRepeatable(tween(1600, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "unreadTitleAlpha")
+        alpha
+    } else {
+        1f
+    }
     ListItem(
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
         modifier = Modifier
@@ -1268,7 +1285,8 @@ internal fun ChatListItem(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     color = Color.Unspecified,
-                    fontWeight = if (hasUnreadResponse) FontWeight.Bold else FontWeight.Normal
+                    fontWeight = if (hasUnreadResponse) FontWeight.ExtraBold else FontWeight.Normal,
+                    modifier = Modifier.graphicsLayer { alpha = titleAlpha }
                 )
             }
         },
@@ -1279,9 +1297,27 @@ internal fun ChatListItem(
                     onCheckedChange = { onItemClick() }
                 )
             } else {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+                    if (isGenerating) {
+                        if (motionEnabled) {
+                            CircularProgressIndicator(Modifier.size(40.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary)
+                        } else {
+                            CircularProgressIndicator(progress = { 1f }, modifier = Modifier.size(40.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary)
+                        }
+                    }
                     ConversationModeSymbol(chatRoom, isServerChat, hasUnreadResponse)
-                    if (isGenerating) CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 1.5.dp, color = MaterialTheme.colorScheme.primary)
+                    if (hasUnreadResponse) {
+                        dev.chungjungsoo.gptmobile.presentation.common.AppGlassSurface(
+                            modifier = Modifier.align(AbsoluteAlignment.BottomRight).size(18.dp),
+                            shape = CircleShape,
+                            opacity = 0.80f,
+                            blurRadius = 12.dp
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(Icons.Rounded.ChatBubble, "Unread reply", Modifier.size(12.dp), tint = MaterialTheme.colorScheme.error)
+                            }
+                        }
+                    }
                 }
             }
         },

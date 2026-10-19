@@ -44,7 +44,8 @@ class OpenRouterBatchWorkerTest {
             context = context,
             params = workerParams,
             openRouterSettingsRepository = openRouterSettingsRepository,
-            openRouterBatchCacheDao = openRouterBatchCacheDao
+            openRouterBatchCacheDao = openRouterBatchCacheDao,
+            receiptStore = dev.chungjungsoo.gptmobile.data.openrouter.account.OpenRouterReceiptStore(dev.chungjungsoo.gptmobile.data.openrouter.InMemoryRouterPreferences())
         )
 
         val result = worker.doWork()
@@ -65,7 +66,8 @@ class OpenRouterBatchWorkerTest {
             context = context,
             params = workerParams,
             openRouterSettingsRepository = openRouterSettingsRepository,
-            openRouterBatchCacheDao = openRouterBatchCacheDao
+            openRouterBatchCacheDao = openRouterBatchCacheDao,
+            receiptStore = dev.chungjungsoo.gptmobile.data.openrouter.account.OpenRouterReceiptStore(dev.chungjungsoo.gptmobile.data.openrouter.InMemoryRouterPreferences())
         )
 
         val result = worker.doWork()

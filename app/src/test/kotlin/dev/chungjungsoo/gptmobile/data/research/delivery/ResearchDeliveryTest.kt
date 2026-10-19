@@ -325,4 +325,3 @@ class ResearchDeliveryTest {
         assertFalse(events.contains(ProviderEvent.Completed))
     }
 }
-

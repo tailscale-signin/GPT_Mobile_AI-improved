@@ -87,4 +87,3 @@ class ConfiguredDispatchAuthorityTest {
         assertFalse(charged)
     }
 }
-

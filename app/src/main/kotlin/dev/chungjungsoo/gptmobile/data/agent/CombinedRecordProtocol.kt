@@ -233,4 +233,3 @@ internal class CombinedRecordProtocol(
         }
     }
 }
-

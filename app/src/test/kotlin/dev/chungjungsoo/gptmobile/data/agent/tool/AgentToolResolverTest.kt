@@ -1206,4 +1206,3 @@ private class ResolverFakeToolConnectionDao : ToolConnectionDao {
         AgentToolBindingWithConnection(binding, binding.connectionUid?.let(connections::get))
     }
 }
-

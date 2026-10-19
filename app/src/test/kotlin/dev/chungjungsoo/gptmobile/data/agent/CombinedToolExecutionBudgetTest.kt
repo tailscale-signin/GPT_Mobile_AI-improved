@@ -148,4 +148,3 @@ class CombinedToolExecutionBudgetTest {
         fun wrapper() = ToolExecutionBudget(AgentRunLimits(maxToolCalls = 20, combined = context), combined = context, combinedBudgets = store)
     }
 }
-

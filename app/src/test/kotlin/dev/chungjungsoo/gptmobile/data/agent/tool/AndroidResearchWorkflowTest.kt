@@ -747,4 +747,3 @@ class AndroidResearchWorkflowTest {
         assertTrue(result.handoff.contains("unreviewed", ignoreCase = true) || result.handoff.contains("unverified", ignoreCase = true))
     }
 }
-

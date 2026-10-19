@@ -167,4 +167,3 @@ internal fun AgentProviderSession.withToolCatalog(catalog: ProgressiveToolCatalo
             exchanges
         )
 }
-

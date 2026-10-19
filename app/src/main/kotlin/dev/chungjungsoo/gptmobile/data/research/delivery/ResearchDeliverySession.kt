@@ -223,4 +223,3 @@ internal class ResearchDeliverySession(
         private const val MAX_REPORT_CHARACTERS = 100_000
     }
 }
-

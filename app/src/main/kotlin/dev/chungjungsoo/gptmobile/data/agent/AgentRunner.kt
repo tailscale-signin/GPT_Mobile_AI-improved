@@ -323,150 +323,166 @@ class AgentRunner(
                     errorCode = "NOT_DISPATCHED"
                 )
             }
-            val producedResults = executedResults + deferredResults
-            val resultByCallId = producedResults.associateBy { it.callId }
-            val allResults = calls.map { call ->
-                resultByCallId[call.callId] ?: AgentToolResult(
-                    callId = call.callId,
-                    content = ToolResultContent.Text("Tool result was unavailable; do not retry this call in the same response."),
-                    isError = true
-                )
-            }.toMutableList()
-            // Discovery that leaves the advertised set unchanged is not research progress.
-            // After two such rounds, preserve evidence and force a tool-free answer.
-            val noNewTools = calls.isNotEmpty() &&
-                calls.all { it.name == ProgressiveToolCatalog.NAME } &&
-                allResults.all { result ->
-                    result.isError || (((result.content as? ToolResultContent.Json)?.value as? kotlinx.serialization.json.JsonObject)?.get("catalog_unchanged")?.toString() == "true")
-                }
-            unproductiveDiscoveryRounds = if (noNewTools) unproductiveDiscoveryRounds + 1 else 0
-            val repeatedDiscoveryStalled = unproductiveDiscoveryRounds >= 2
-            val outputBudgetExhausted = allResults.any { it.outputBudgetExhausted }
-            val toolCallBudgetExhausted = allResults.any { it.toolCallBudgetExhausted }
-            val sharedCallBudgetResult = allResults
-                .filter { it.toolCallBudgetExhausted }
-                .maxByOrNull { it.toolCallBudgetUsed ?: -1 }
-            val sharedOutputBudgetResult = allResults
-                .filter { it.outputBudgetExhausted }
-                .maxByOrNull { it.toolResultBudgetUsedBytes ?: -1 }
-            val projectedExchanges = exchanges + AgentToolExchange(calls, allResults)
-            val projectedReplayTokens = ToolExchangeCompactor.estimateTokens(projectedExchanges)
-            replayTokens = ToolExchangeCompactor.estimateTokens(
-                ToolExchangeCompactor.compact(
-                    exchanges = projectedExchanges,
-                    maxReplayTokens = limits.maxReplayTokens,
-                    maxResultTokens = if (projectedReplayTokens <= limits.maxReplayTokens) limits.maxReplayTokens else limits.maxReplayResultTokens
-                )
-            ).toLong()
-            val contextNearLimit = limits.contextTokens != Int.MAX_VALUE &&
-                limits.initialContextTokens.toLong() + replayTokens + limits.finalResponseReserveTokens + 256 >= limits.contextTokens
-            val unavailableCallsOnly = executableCalls.isEmpty() && calls.isNotEmpty() && hostSuppressedIds.isEmpty()
-            val mustFinalize = unavailableCallsOnly ||
-                repeatedDiscoveryStalled ||
-                roundLimitReached ||
-                contextNearLimit ||
-                outputBudgetExhausted ||
-                toolCallBudgetExhausted ||
-                (executionToolCallLimit < Int.MAX_VALUE && toolCallCount >= executionToolCallLimit)
-            if (unavailableCallsOnly) {
-                exposedDefinitions = emptyList()
-                executableToolByName = emptyMap()
-                finalResponseRequested = true
-                emit(AgentRunEvent.Notice("Requested tools are unavailable for this response. Finishing with the findings already collected.", persistent = false))
-            } else if (repeatedDiscoveryStalled) {
-                exposedDefinitions = emptyList()
-                executableToolByName = emptyMap()
-                finalResponseRequested = true
-                emit(AgentRunEvent.Notice("No new tools became available after repeated discovery. Summarizing the evidence already collected.", persistent = false))
-            } else if (roundLimitReached) {
-                exposedDefinitions = emptyList()
-                executableToolByName = emptyMap()
-                finalResponseRequested = true
-                emit(AgentRunEvent.Notice(ROUND_LIMIT_FINAL_RESPONSE_NOTICE, persistent = false))
-            } else if (toolCallBudgetExhausted && outputBudgetExhausted) {
-                exposedDefinitions = emptyList()
-                executableToolByName = emptyMap()
-                finalResponseRequested = true
-                val callUsed = sharedCallBudgetResult?.toolCallBudgetUsed ?: toolCallCount
-                val callLimit = sharedCallBudgetResult?.toolCallBudgetLimit ?: executionToolCallLimit
-                val configured = sharedCallBudgetResult?.toolCallBudgetConfigured ?: limits.maxToolCalls
-                val reserve = sharedCallBudgetResult?.toolCallBudgetReserved ?: limits.finalResponseToolCallReserve.coerceAtLeast(0)
-                val usedBytes = sharedOutputBudgetResult?.toolResultBudgetUsedBytes ?: limits.maxToolOutputBytes
-                val limitBytes = sharedOutputBudgetResult?.toolResultBudgetLimitBytes ?: limits.maxToolOutputBytes
-                emit(
-                    AgentRunEvent.Notice(
-                        "Shared tool budgets reached: $callUsed/$callLimit executable calls used " +
-                            "($configured configured, $reserve reserved) and $usedBytes/$limitBytes result bytes used. " +
-                            "Finishing with completed results; successful delegated research remains usable.",
-                        persistent = true
-                    )
-                )
-            } else if (toolCallBudgetExhausted) {
-                exposedDefinitions = emptyList()
-                executableToolByName = emptyMap()
-                finalResponseRequested = true
-                val used = sharedCallBudgetResult?.toolCallBudgetUsed ?: toolCallCount
-                val limit = sharedCallBudgetResult?.toolCallBudgetLimit ?: executionToolCallLimit
-                val configured = sharedCallBudgetResult?.toolCallBudgetConfigured ?: limits.maxToolCalls
-                val reserve = sharedCallBudgetResult?.toolCallBudgetReserved ?: limits.finalResponseToolCallReserve.coerceAtLeast(0)
-                emit(
-                    AgentRunEvent.Notice(
-                        "Shared tool-call limit reached: $used/$limit executable calls used " +
-                            "($configured configured, $reserve reserved). Finishing with completed results. " +
-                            "Increase Maximum Tool Calls on the active AI profile if more research is required.",
-                        persistent = true
-                    )
-                )
-            } else if (outputBudgetExhausted) {
-                exposedDefinitions = emptyList()
-                executableToolByName = emptyMap()
-                finalResponseRequested = true
-                val usedBytes = sharedOutputBudgetResult?.toolResultBudgetUsedBytes ?: limits.maxToolOutputBytes
-                val limitBytes = sharedOutputBudgetResult?.toolResultBudgetLimitBytes ?: limits.maxToolOutputBytes
-                emit(
-                    AgentRunEvent.Notice(
-                        "Tool-result byte budget reached: $usedBytes/$limitBytes bytes used. " +
-                            "Finishing with completed results; successful delegated research remains usable.",
-                        persistent = true
-                    )
-                )
-            } else if (contextNearLimit) {
-                exposedDefinitions = emptyList()
-                executableToolByName = emptyMap()
-                finalResponseRequested = true
-                emit(AgentRunEvent.Notice("Context limit approaching. Finishing with the results already available.", persistent = false))
-            }
-            val remainingAllowance = ToolBudgetPolicy.remainingAllowance(executionToolCallLimit, toolCallCount)
-            val shouldInjectWrapUp = ToolBudgetPolicy.shouldInjectWrapUpPrompt(executionToolCallLimit, limits, toolCallCount)
-
-            if (mustFinalize && allResults.isNotEmpty()) {
-                allResults[allResults.lastIndex] = when {
-                    unavailableCallsOnly -> appendInstruction(allResults.last(), "These tools are disabled or unavailable. Use successful findings already collected to answer now. Do not request more tools in this response.")
-                    repeatedDiscoveryStalled -> appendInstruction(allResults.last(), "No more tools became available. Do not call discovery again; summarize completed findings and clearly identify any gaps.")
-                    roundLimitReached -> appendInstruction(allResults.last(), ROUND_LIMIT_FINAL_RESPONSE_INSTRUCTION)
-                    contextNearLimit -> appendInstruction(allResults.last(), "The context limit is approaching. Use the available findings to give a final response now and ask whether the user wants to continue. Do not call more tools.")
-                    outputBudgetExhausted && toolCallBudgetExhausted ->
-                        appendInstruction(allResults.last(), COMBINED_BUDGET_FINAL_RESPONSE_INSTRUCTION)
-                    outputBudgetExhausted -> appendInstruction(allResults.last(), OUTPUT_BUDGET_FINAL_RESPONSE_INSTRUCTION)
-                    else -> appendFinalResponseInstruction(allResults.last())
-                }
-            } else if (shouldInjectWrapUp && allResults.isNotEmpty()) {
-                val wrapUpPrompt = ToolBudgetPolicy.buildWrapUpPrompt(remainingAllowance, combined = limits.combined != null)
-                allResults[allResults.lastIndex] = appendInstruction(allResults.last(), wrapUpPrompt)
-            }
-
-            calls.zip(allResults).forEach { (call, result) ->
-                emit(AgentRunEvent.ToolFinished(call, result))
-            }
-            // Retain bounded observations on ingress, including trace/retained payloads.
-            val retained = ToolExchangeCompactor.compact(
-                exchanges + AgentToolExchange(calls, allResults.map { it.copy(traceContent = null, retainedContent = null) }),
-                limits.maxRetainedEvidenceTokens.coerceIn(1024, 32_000),
-                limits.maxReplayResultTokens.coerceIn(64, 2048)
+            val completedBatch = finishBatch(
+                calls, executedResults + deferredResults, exchanges, executableCalls.isEmpty(),
+                hostSuppressedIds.isEmpty(), roundLimitReached, toolCallCount, executionToolCallLimit,
+                unproductiveDiscoveryRounds, finalResponseRequested
             )
-            exchanges.clear()
-            exchanges.addAll(retained)
+            replayTokens = completedBatch.replayTokens
+            unproductiveDiscoveryRounds = completedBatch.discoveryRounds
+            finalResponseRequested = completedBatch.finalResponseRequested
+            if (finalResponseRequested) {
+                exposedDefinitions = emptyList()
+                executableToolByName = emptyMap()
+            }
         }
+    }
+
+    private data class BatchCompletion(val replayTokens: Long, val discoveryRounds: Int, val finalResponseRequested: Boolean)
+
+    /** Separate tool-result publication/finalization from the dispatch coroutine for ART compilation. */
+    private suspend fun kotlinx.coroutines.flow.FlowCollector<AgentRunEvent>.finishBatch(
+        calls: List<ProviderEvent.ToolCall>,
+        producedResults: List<AgentToolResult>,
+        exchanges: MutableList<AgentToolExchange>,
+        noExecutableCalls: Boolean,
+        noHostSuppression: Boolean,
+        roundLimitReached: Boolean,
+        toolCallCount: Int,
+        executionToolCallLimit: Int,
+        previousDiscoveryRounds: Int,
+        wasFinalResponseRequested: Boolean
+    ): BatchCompletion {
+        var finalResponseRequested = wasFinalResponseRequested
+        val resultByCallId = producedResults.associateBy { it.callId }
+        val allResults = calls.map { call ->
+            resultByCallId[call.callId] ?: AgentToolResult(
+                callId = call.callId,
+                content = ToolResultContent.Text("Tool result was unavailable; do not retry this call in the same response."),
+                isError = true
+            )
+        }.toMutableList()
+        // Discovery that leaves the advertised set unchanged is not research progress.
+        // After two such rounds, preserve evidence and force a tool-free answer.
+        val noNewTools = calls.isNotEmpty() &&
+            calls.all { it.name == ProgressiveToolCatalog.NAME } &&
+            allResults.all { result ->
+                result.isError || (((result.content as? ToolResultContent.Json)?.value as? kotlinx.serialization.json.JsonObject)?.get("catalog_unchanged")?.toString() == "true")
+            }
+        val unproductiveDiscoveryRounds = if (noNewTools) previousDiscoveryRounds + 1 else 0
+        val repeatedDiscoveryStalled = unproductiveDiscoveryRounds >= 2
+        val outputBudgetExhausted = allResults.any { it.outputBudgetExhausted }
+        val toolCallBudgetExhausted = allResults.any { it.toolCallBudgetExhausted }
+        val sharedCallBudgetResult = allResults
+            .filter { it.toolCallBudgetExhausted }
+            .maxByOrNull { it.toolCallBudgetUsed ?: -1 }
+        val sharedOutputBudgetResult = allResults
+            .filter { it.outputBudgetExhausted }
+            .maxByOrNull { it.toolResultBudgetUsedBytes ?: -1 }
+        val projectedExchanges = exchanges + AgentToolExchange(calls, allResults)
+        val projectedReplayTokens = ToolExchangeCompactor.estimateTokens(projectedExchanges)
+        val replayTokens = ToolExchangeCompactor.estimateTokens(
+            ToolExchangeCompactor.compact(
+                exchanges = projectedExchanges,
+                maxReplayTokens = limits.maxReplayTokens,
+                maxResultTokens = if (projectedReplayTokens <= limits.maxReplayTokens) limits.maxReplayTokens else limits.maxReplayResultTokens
+            )
+        ).toLong()
+        val contextNearLimit = limits.contextTokens != Int.MAX_VALUE &&
+            limits.initialContextTokens.toLong() + replayTokens + limits.finalResponseReserveTokens + 256 >= limits.contextTokens
+        val unavailableCallsOnly = noExecutableCalls && calls.isNotEmpty() && noHostSuppression
+        val mustFinalize = unavailableCallsOnly ||
+            repeatedDiscoveryStalled ||
+            roundLimitReached ||
+            contextNearLimit ||
+            outputBudgetExhausted ||
+            toolCallBudgetExhausted ||
+            (executionToolCallLimit < Int.MAX_VALUE && toolCallCount >= executionToolCallLimit)
+        if (unavailableCallsOnly) {
+            finalResponseRequested = true
+            emit(AgentRunEvent.Notice("Requested tools are unavailable for this response. Finishing with the findings already collected.", persistent = false))
+        } else if (repeatedDiscoveryStalled) {
+            finalResponseRequested = true
+            emit(AgentRunEvent.Notice("No new tools became available after repeated discovery. Summarizing the evidence already collected.", persistent = false))
+        } else if (roundLimitReached) {
+            finalResponseRequested = true
+            emit(AgentRunEvent.Notice(ROUND_LIMIT_FINAL_RESPONSE_NOTICE, persistent = false))
+        } else if (toolCallBudgetExhausted && outputBudgetExhausted) {
+            finalResponseRequested = true
+            val callUsed = sharedCallBudgetResult?.toolCallBudgetUsed ?: toolCallCount
+            val callLimit = sharedCallBudgetResult?.toolCallBudgetLimit ?: executionToolCallLimit
+            val configured = sharedCallBudgetResult?.toolCallBudgetConfigured ?: limits.maxToolCalls
+            val reserve = sharedCallBudgetResult?.toolCallBudgetReserved ?: limits.finalResponseToolCallReserve.coerceAtLeast(0)
+            val usedBytes = sharedOutputBudgetResult?.toolResultBudgetUsedBytes ?: limits.maxToolOutputBytes
+            val limitBytes = sharedOutputBudgetResult?.toolResultBudgetLimitBytes ?: limits.maxToolOutputBytes
+            emit(
+                AgentRunEvent.Notice(
+                    "Shared tool budgets reached: $callUsed/$callLimit executable calls used " +
+                        "($configured configured, $reserve reserved) and $usedBytes/$limitBytes result bytes used. " +
+                        "Finishing with completed results; successful delegated research remains usable.",
+                    persistent = true
+                )
+            )
+        } else if (toolCallBudgetExhausted) {
+            finalResponseRequested = true
+            val used = sharedCallBudgetResult?.toolCallBudgetUsed ?: toolCallCount
+            val limit = sharedCallBudgetResult?.toolCallBudgetLimit ?: executionToolCallLimit
+            val configured = sharedCallBudgetResult?.toolCallBudgetConfigured ?: limits.maxToolCalls
+            val reserve = sharedCallBudgetResult?.toolCallBudgetReserved ?: limits.finalResponseToolCallReserve.coerceAtLeast(0)
+            emit(
+                AgentRunEvent.Notice(
+                    "Shared tool-call limit reached: $used/$limit executable calls used " +
+                        "($configured configured, $reserve reserved). Finishing with completed results. " +
+                        "Increase Maximum Tool Calls on the active AI profile if more research is required.",
+                    persistent = true
+                )
+            )
+        } else if (outputBudgetExhausted) {
+            finalResponseRequested = true
+            val usedBytes = sharedOutputBudgetResult?.toolResultBudgetUsedBytes ?: limits.maxToolOutputBytes
+            val limitBytes = sharedOutputBudgetResult?.toolResultBudgetLimitBytes ?: limits.maxToolOutputBytes
+            emit(
+                AgentRunEvent.Notice(
+                    "Tool-result byte budget reached: $usedBytes/$limitBytes bytes used. " +
+                        "Finishing with completed results; successful delegated research remains usable.",
+                    persistent = true
+                )
+            )
+        } else if (contextNearLimit) {
+            finalResponseRequested = true
+            emit(AgentRunEvent.Notice("Context limit approaching. Finishing with the results already available.", persistent = false))
+        }
+        val remainingAllowance = ToolBudgetPolicy.remainingAllowance(executionToolCallLimit, toolCallCount)
+        val shouldInjectWrapUp = ToolBudgetPolicy.shouldInjectWrapUpPrompt(executionToolCallLimit, limits, toolCallCount)
+
+        if (mustFinalize && allResults.isNotEmpty()) {
+            allResults[allResults.lastIndex] = when {
+                unavailableCallsOnly -> appendInstruction(allResults.last(), "These tools are disabled or unavailable. Use successful findings already collected to answer now. Do not request more tools in this response.")
+                repeatedDiscoveryStalled -> appendInstruction(allResults.last(), "No more tools became available. Do not call discovery again; summarize completed findings and clearly identify any gaps.")
+                roundLimitReached -> appendInstruction(allResults.last(), ROUND_LIMIT_FINAL_RESPONSE_INSTRUCTION)
+                contextNearLimit -> appendInstruction(allResults.last(), "The context limit is approaching. Use the available findings to give a final response now and ask whether the user wants to continue. Do not call more tools.")
+                outputBudgetExhausted && toolCallBudgetExhausted ->
+                    appendInstruction(allResults.last(), COMBINED_BUDGET_FINAL_RESPONSE_INSTRUCTION)
+                outputBudgetExhausted -> appendInstruction(allResults.last(), OUTPUT_BUDGET_FINAL_RESPONSE_INSTRUCTION)
+                else -> appendFinalResponseInstruction(allResults.last())
+            }
+        } else if (shouldInjectWrapUp && allResults.isNotEmpty()) {
+            val wrapUpPrompt = ToolBudgetPolicy.buildWrapUpPrompt(remainingAllowance, combined = limits.combined != null)
+            allResults[allResults.lastIndex] = appendInstruction(allResults.last(), wrapUpPrompt)
+        }
+
+        calls.zip(allResults).forEach { (call, result) ->
+            emit(AgentRunEvent.ToolFinished(call, result))
+        }
+        // Retain bounded observations on ingress, including trace/retained payloads.
+        val retained = ToolExchangeCompactor.compact(
+            exchanges + AgentToolExchange(calls, allResults.map { it.copy(traceContent = null, retainedContent = null) }),
+            limits.maxRetainedEvidenceTokens.coerceIn(1024, 32_000),
+            limits.maxReplayResultTokens.coerceIn(64, 2048)
+        )
+        exchanges.clear()
+        exchanges.addAll(retained)
+        return BatchCompletion(replayTokens, unproductiveDiscoveryRounds, finalResponseRequested)
     }
 
     private data class RoundResult(

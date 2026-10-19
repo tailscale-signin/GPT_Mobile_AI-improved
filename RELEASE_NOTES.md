@@ -1,34 +1,29 @@
-# GPT Mobile AI 0.9.53.0
+# GPT Mobile AI 0.9.54.0
 
-## New chat experience
-- Replace the old New Chat entry with a full-screen, theme-aware flow for **Research**, **Single**, **Multi-chat** and **Combined**.
-- Let Research preconfigure Deep Research with explicit permission handling, research depth and one or more local/remote profiles.
-- Add profile search, favorites, source filters, labels, model/provider/score/price sorting and a pinned Combined synthesis lead.
-- Keep Multi-chat conversations genuinely independent, with per-profile lanes, navigation and coordinated archive/delete.
+## Research, tools and recovery
+- Preserve authorized saved-search evidence across display-only setting edits and pricing quote refreshes.
+- Coordinate delegated tool budgets without charging local schema discovery as an external evidence operation.
+- Resume unfinished Research acquisition without replaying completed queries; limit fallback to cases with no readable evidence.
+- Return a clear partial-evidence report when sources could not be read.
+- Recover once from rejected raw tool markup with a tool-free answer, without executing the rejected payload.
 
-## Combined answers and responsiveness
-- Improve claim coverage and recovery so distinct facts from contributors are preserved rather than simply selecting one answer.
-- Use high-contrast contributor text colors without normal-view model-name footers or an extra Combined sources bar; keep supplemental source-recovery details in Debug Mode only.
-- Reduce repeated Markdown, citation and attribution work during streaming; preserve final answer completion and optimize early connection preparation.
+## Combined delivery and responsiveness
+- Accept JSON and JSONL fences for structured Combined records while retaining strict record validation.
+- Scan streamed structured fragments incrementally to avoid repeated whole-buffer work.
+- Split oversized agent and provider coroutine methods to reduce Android runtime compilation pressure.
 
-## Models, local AI and diagnostics
-- Integrate the NVIDIA remote provider with credential-isolated model discovery, model-aware reasoning, streaming, supported input validation and opt-in connection testing.
-- Improve Local Assist recovery, readiness/error reporting, model admission and cancellation handling.
-- Repair diagnostic/runtime failure paths, including native prefill, GenieX routing and Combined response reliability.
+## Included changes
+- Includes all changes merged into main through diagnostic recovery PR #722 (source commit 6d7b46135670a9641dcfe221b2515e36418af11a).
+- External MCP server availability and DNS/connectivity remain deployment prerequisites.
 
 ## Release scope and remaining qualification
-- **Unified Reliability v2 is not complete.** Its tracked program remains at 0/48 tasks marked DONE, and 11/110 acceptance cases marked PASS (99 unrun) as of October 16, 2026.
-- v0.9.53.0 is an **interim application release**, not certification of the entire Unified Reliability v2 feature program; no pending device or provider tests have been represented as successful.
-- Release artifact publication remains conditional on actual Android unit tests, release lint/AAR compatibility, native JNI and 16 KB AAB validation, previous signing-certificate continuity, and matching package/version/source identity.
-
-## Release and Google Play
-- Application ID: `dev.melo.gptmobile.improved` (unchanged, for upgrade continuity).
-- Minimum SDK: 31. Target SDK: 37, meeting Google Play's October 2026 API-level requirement of 36 or higher.
-- Signed Android App Bundle (`app-release.aab`) for Play Console upload, alongside signed arm64-v8a, x86_64 and universal APKs for direct distribution.
-- Native Android host libraries are checked for 16 KB ELF LOAD alignment, and the release workflow verifies signing-certificate continuity, application ID, version and source commit. An AAB-native alignment and Google Play target-SDK check are included in the release gate.
-- Manual Google Play Console review is still required for app content, Data safety, Health Connect/health-data permissions and special-use foreground services. Automated build checks do not substitute for device qualification or Play approval.
+- **Unified Reliability v2 is not complete.** The recorded inventory remains at 0/48 tasks marked DONE and 11/110 acceptance cases marked PASS (99 unrun) as of October 19, 2026.
+- v0.9.54.0 is an **interim application release** requested by the owner, not certification of the entire Unified Reliability v2 program. Pending device and provider qualification has not been represented as successful.
+- Publication requires actual Android unit tests, debug/release lint, AAR compatibility, native JNI and 16 KB AAB checks, signing-certificate continuity, and matching package/version/source identity.
 
 ## Release identity
 - Package: `dev.melo.gptmobile.improved`
-- Version: `0.9.53.0`
-- Version code: `122` (increased from 121)
+- Version: `0.9.54.0`
+- Version code: `123` (increased from 122)
+- Signed arm64-v8a, x86_64 and universal APKs for direct installation; signed `app-release.aab` for Play Console upload.
+- Google Play publication and device qualification remain separate from this GitHub release.

@@ -46,11 +46,12 @@ jobs:
         run: |
           set -euo pipefail
           # Always verify every v2 task/case reference, receipt, and status.
-          # Its full-completion milestone is a separate qualification from a
-          # signed interim 0.9.53.0 release; do not mark unrun tests as passing.
+          # Its full-completion milestone is a separate qualification from
+          # signed interim 0.9.53.0 / 0.9.54.0 releases; do not mark unrun tests as passing.
+          # 0.9.54.0 is the owner-requested diagnostic-fix publication (2026-10-19).
           python3 scripts/check_unified_reliability_v2.py
           VERSION=$(python3 -c 'import re; print(re.search(r"versionName = \"([^\"]+)\"", open("app/build.gradle.kts").read()).group(1))')
-          if [[ "$VERSION" == "0.9.53.0" ]]; then
+          if [[ "$VERSION" == "0.9.53.0" || "$VERSION" == "0.9.54.0" ]]; then
             python3 - <<'PY'
           import json
           from pathlib import Path
@@ -63,7 +64,7 @@ jobs:
               notes = Path('RELEASE_NOTES.md').read_text()
               if 'Unified Reliability v2 is not complete' not in notes:
                   raise SystemExit('Interim release requires explicit v2 incompletion disclosure')
-              print(f'Interim 0.9.53.0: {incomplete}/48 tasks incomplete, {unpassed}/110 acceptance tests unpassed; no full-v2 claim.')
+              print(f'Interim application release: {incomplete}/48 tasks incomplete, {unpassed}/110 acceptance tests unpassed; no full-v2 claim.')
           else:
               print('Full v2 task/case inventory is complete.')
           PY

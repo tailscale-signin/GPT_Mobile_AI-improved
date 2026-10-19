@@ -103,13 +103,32 @@ class FreeAiTransportTest {
                 every { network.invoke() } returns client
                 val result = OpenAIAPIImpl(network).streamChatCompletion(request(), 10, ProviderRequestConfig(FreeAiProvider.KILO.apiUrl, null, freeProvider = FreeAiProvider.KILO)).toList()
                 if (lengthLimited) {
-                    assertTrue(result.last().choices!!.single().delta.content!!.contains("continue?"))
+                    assertEquals("length", result.last().choices!!.single().finishReason)
+                    assertTrue(result.last().applicationNotice!!.contains("continue?"))
+                    assertTrue(result.flatMap { it.choices.orEmpty() }.all { it.delta.content.isNullOrBlank() })
                 } else {
                     assertEquals("empty_response", result.single().error?.type)
                 }
             } finally {
                 client.close()
             }
+        }
+    }
+
+    @Test fun kiloReasoningPreferenceIsNotClearedByTransportPreparation() = runBlocking {
+        val engine = MockEngine { request ->
+            val body = NetworkClient.openAIJson.parseToJsonElement((request.body as HttpTextContent).text).jsonObject
+            assertEquals("false", body.getValue("reasoning").jsonObject.getValue("enabled").jsonPrimitive.content)
+            respond("data: {\"choices\":[{\"delta\":{\"content\":\"Answer\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n", headers = headersOf(HttpHeaders.ContentType, "text/event-stream"))
+        }
+        val client = HttpClient(engine) { install(HttpTimeout) }
+        try {
+            val network = mockk<NetworkClient>()
+            every { network.invoke() } returns client
+            val events = OpenAIAPIImpl(network).streamChatCompletion(request().copy(reasoning = dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterReasoning(enabled = false)), 10, ProviderRequestConfig(FreeAiProvider.KILO.apiUrl, null, freeProvider = FreeAiProvider.KILO)).toList()
+            assertEquals("Answer", events.single().choices!!.single().delta.content)
+        } finally {
+            client.close()
         }
     }
 

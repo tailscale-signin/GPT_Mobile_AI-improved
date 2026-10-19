@@ -42,7 +42,7 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
 class ArticleExaminationRecoveryTest {
-    @Test fun failedAppraiserResumesSavedSourceAndPreservesValidOutputAfterStreamFailure() = runBlocking {
+    @Test fun failedAppraiserResumesSavedEvidenceWithoutClaimingAnEmptyAssessmentComplete() = runBlocking {
         val app = ApplicationProvider.getApplicationContext<Context>()
         val directory = kotlin.io.path.createTempDirectory("article-recovery").toFile()
         val context = object : ContextWrapper(app) {
@@ -107,7 +107,9 @@ class ArticleExaminationRecoveryTest {
             val malformed = awaitStage(ExaminationStage.FAILED)
             assertEquals(malformed.terminalReason, listOf("physical-1", "physical-2"), Json.decodeFromString<ExaminationCheckpoint>(malformed.checkpointJson).invocationIds)
             resume(malformed)
-            val done = awaitStage(ExaminationStage.COMPLETE_PARTIAL)
+            val done = awaitStage(ExaminationStage.FAILED)
+            assertTrue(done.terminalReason.orEmpty().contains("EXTRACTION_EMPTY"))
+            assertEquals(null, database.research().membership(original.workId)?.protectionReason)
             val checkpoint = Json.decodeFromString<ExaminationCheckpoint>(done.checkpointJson)
             assertEquals(listOf("physical-1", "physical-2", "physical-3"), checkpoint.invocationIds)
             assertEquals(1, checkpoint.nextChunk)

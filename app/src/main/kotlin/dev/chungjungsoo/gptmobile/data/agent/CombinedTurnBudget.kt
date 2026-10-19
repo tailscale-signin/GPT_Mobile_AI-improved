@@ -116,7 +116,7 @@ class CombinedTurnBudget(
     suspend fun assignedContext(context: CombinedExecutionContext): CombinedExecutionContext = mutex.withLock {
         if (context.workItemId != null) return@withLock context
         val assigned = state.workAssignments[context.ownerKey]?.takeIf { it in state.pendingWork }
-            ?: state.pendingWork.values.firstOrNull { it.kind == CombinedWorkKind.EVIDENCE && it.required && it.assignedOwnerKey == context.ownerKey }?.id
+            ?: state.pendingWork.values.firstOrNull { it.kind == CombinedWorkKind.EVIDENCE && it.required && (it.assignedOwnerKey == context.ownerKey || context.requested.acceptedResearch != null && it.reason == "ACCEPTED_RESEARCH_REQUIREMENT") }?.id
         context.copy(workItemId = assigned)
     }
 
@@ -159,6 +159,7 @@ class CombinedTurnBudget(
             if (context.ownerKey in state.stageOutcomes) return@withLock CombinedBudgetAdmission.Denied("RESEARCH_STAGE_TERMINAL: this stage requires a newly accepted request.")
         }
         if (resources.toolOperations > 0 && (!state.plan.toolsAllowed || context.role.finalization)) return@withLock CombinedBudgetAdmission.Denied("This Combined role is tool-free.")
+        if (resources.toolOperations > 0 && context.requested.acceptedResearch != null && context.workItemId == null && context.role != CombinedRunRole.VERIFIER) return@withLock CombinedBudgetAdmission.Denied("REQUIRED_ACQUISITION_UNASSIGNED: Required Research requests must carry their funded work item; dispatched=false")
         hardLimitReason(state, resources, upperCostMicros)?.let { return@withLock CombinedBudgetAdmission.Denied(it) }
 
         var next = state
@@ -266,7 +267,7 @@ class CombinedTurnBudget(
     suspend fun assignEvidenceWork(context: CombinedExecutionContext, arguments: String, inspection: Boolean): String? = mutex.withLock {
         val explicit = context.workItemId?.let(state.pendingWork::get)
         if (explicit != null && explicit.kind == CombinedWorkKind.EVIDENCE) return@withLock explicit.id
-        val pending = state.pendingWork.values.filter { it.kind == CombinedWorkKind.EVIDENCE && (it.assignedOwnerKey == null || it.assignedOwnerKey == context.ownerKey) }
+        val pending = state.pendingWork.values.filter { it.kind == CombinedWorkKind.EVIDENCE && (it.assignedOwnerKey == null || it.assignedOwnerKey == context.ownerKey || context.requested.acceptedResearch != null && it.reason == "ACCEPTED_RESEARCH_REQUIREMENT") }
         if (pending.isEmpty()) return@withLock null
         val urls = CombinedWorkInventory.urls(arguments)
         val exact = pending.firstOrNull { item -> item.sourceUrls.any { it in urls } }
@@ -278,7 +279,8 @@ class CombinedTurnBudget(
             pending.map { it to CombinedWorkInventory.terms(it.description).intersect(queryTerms).size }
                 .filter { it.second > 0 }.maxByOrNull { it.second }?.first
         }
-        val assigned = exact ?: discovered ?: question ?: return@withLock null
+        val sharedResearch = pending.firstOrNull { it.required && it.reason == "ACCEPTED_RESEARCH_REQUIREMENT" && context.requested.acceptedResearch != null }
+        val assigned = exact ?: discovered ?: question ?: sharedResearch ?: return@withLock null
         if (state.workAssignments[context.ownerKey] != assigned.id) commit(state.copy(workAssignments = state.workAssignments + (context.ownerKey to assigned.id)))
         assigned.id
     }

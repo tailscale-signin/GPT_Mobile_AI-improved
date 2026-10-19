@@ -26,7 +26,8 @@ data class ResearchDeliveryPacket(
     val omitted: Map<String, Int>,
     val studyFields: Map<String, JsonObject> = emptyMap(),
     val compactMetadata: Boolean = false,
-    val passageExcerpts: Map<String, String> = emptyMap()
+    val passageExcerpts: Map<String, String> = emptyMap(),
+    val minimalMetadata: Boolean = false
 ) {
     internal val contract: ResearchReportContract get() = ResearchReportContract.forTask(snapshot.task)
     val sections: List<String> get() = contract.sections
@@ -58,29 +59,57 @@ data class ResearchDeliveryPacket(
                 }
             )
         )
-        put("questions", JsonArray(snapshot.questionPlan.take(if (compactMetadata) 0 else 6).map { it.copy(text = it.text.take(250), evidenceNeeded = it.evidenceNeeded.take(200)).json() }))
-        put("limitations", JsonArray(snapshot.notes.filterNot { it.startsWith("Policy:") }.take(if (compactMetadata) 0 else 6).map { JsonPrimitive(it.take(300)) }))
+        put(
+            "questions",
+            JsonArray(
+                snapshot.questionPlan.take(
+                    if (minimalMetadata) {
+                        1
+                    } else if (compactMetadata) {
+                        3
+                    } else {
+                        6
+                    }
+                ).map { it.copy(text = it.text.take(if (minimalMetadata) 80 else 250), evidenceNeeded = it.evidenceNeeded.take(if (minimalMetadata) 40 else 200)).json() }
+            )
+        )
+        put(
+            "limitations",
+            JsonArray(
+                snapshot.notes.filterNot { it.startsWith("Policy:") }.take(
+                    if (minimalMetadata) {
+                        1
+                    } else if (compactMetadata) {
+                        3
+                    } else {
+                        6
+                    }
+                ).map { JsonPrimitive(it.take(if (minimalMetadata) 120 else 300)) }
+            )
+        )
         put(
             "studies",
             JsonArray(
                 studies.map { source ->
                     buildJsonObject {
                         put("id", source.id)
-                        put("title", source.title)
+                        put("title", source.title.take(if (minimalMetadata) 120 else 1000))
                         put("url", source.url)
-                        put("doi", source.doi)
+                        if (!minimalMetadata || source.doi.isNotBlank()) put("doi", source.doi)
                         put("versionId", source.versionId)
                         put("coverage", source.retrievalQuality)
                         put("passageHash", researchHash(source.passage))
-                        put("locator", source.location)
-                        put("publishedAt", source.publishedAt)
-                        source.publicationYear?.let { put("publicationYear", it) }
-                        put("bibliography", bibliography(source))
-                        put("publicationType", source.publicationType)
-                        put("peerReview", source.reviewStatus)
-                        put("preprint", source.isPreprint?.toString() ?: "unknown")
+                        if (!minimalMetadata) {
+                            put("locator", source.location)
+                            put("publishedAt", source.publishedAt)
+                            source.publicationYear?.let { put("publicationYear", it) }
+                            put("bibliography", bibliography(source))
+                            put("publicationType", source.publicationType)
+                            put("peerReview", source.reviewStatus)
+                            put("preprint", source.isPreprint?.toString() ?: "unknown")
+                        }
                         put("claims", JsonArray(claims.filter { it.sourceId == source.id }.map { it.json() }))
-                        put("validatedStudyFields", studyFields[source.id] ?: JsonObject(emptyMap()))
+                        if (!minimalMetadata) put("validatedStudyFields", studyFields[source.id] ?: JsonObject(emptyMap()))
                         // Never split an extracted claim from its quote or its citation.
                         put("unreviewedPassage", if (claims.none { it.sourceId == source.id }) (passageExcerpts[source.id] ?: source.passage.take(2400)) else "")
                     }
@@ -102,7 +131,7 @@ data class ResearchDeliveryPacket(
             )
         )
         put("omitted", JsonObject(omitted.mapValues { JsonPrimitive(it.value) }))
-        put("retention", "Full evidence remains in the authorized research journal; metadata-only leads cannot support findings.")
+        put("retention", if (minimalMetadata) "Unread leads are not evidence; full captures remain in the authorized journal." else "Full evidence remains in the authorized research journal; metadata-only leads cannot support findings.")
     }
 
     fun instruction(): String = """
@@ -154,7 +183,7 @@ data class ResearchDeliveryPacket(
             val unread = (failedRecent + unreadCandidates).distinctBy { it.id }.take(if (detail == ResearchReportDetail.BRIEF) 4 else 8)
             val budget = tokenBudget.coerceIn(512, detail.packetTokens).toLong() * 3
             fun accounted(packet: ResearchDeliveryPacket) = packet.copy(omitted = mapOf("irrelevantOrRetracted" to (snapshot.sources.size - relevant.size), "readableWithoutTaskSupport" to (relevant.count { it.readable } - candidates.size), "readableByBudget" to (candidates.size - packet.studies.size), "claimsByBudget" to (valid.size - packet.claims.size), "unreadLeads" to (unreadCandidates.size - packet.unread.size)))
-            var packet = accounted(ResearchDeliveryPacket(snapshot, detail, emptyList(), emptyList(), emptyList(), emptyMap(), compactMetadata = budget < 8192))
+            var packet = accounted(ResearchDeliveryPacket(snapshot, detail, emptyList(), emptyList(), emptyList(), emptyMap(), compactMetadata = budget < 8192, minimalMetadata = budget < 4096))
             // At least one useful readable source gets priority over a large list of discovery leads.
             for (source in candidates) {
                 if (packet.studies.size >= detail.studyLimit) break
@@ -172,8 +201,12 @@ data class ResearchDeliveryPacket(
                             passageExcerpts = packet.passageExcerpts + (source.id to excerpt)
                         )
                     )
-                    if (updated.json().toString().toByteArray().size <= budget) {
-                        packet = updated
+                    // Preserve readable evidence even when a claim's duplicated text/quote
+                    // cannot fit. Its omission is counted; the retained passage is unreviewed.
+                    val alternatives = listOf(updated, accounted(updated.copy(claims = packet.claims)))
+                    val fitting = alternatives.firstOrNull { it.json().toString().toByteArray().size <= budget }
+                    if (fitting != null) {
+                        packet = fitting
                         break
                     }
                 }

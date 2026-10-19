@@ -50,15 +50,16 @@ class ResearchArchiveTest {
         assertEquals(ArticleCoverage.METADATA_ONLY, first.coverage)
     }
 
-    @Test fun clearEpochBlocksLateWorkAndPrivateSourcesNeverJoinGlobalArchive() = runBlocking {
+    @Test fun clearEpochBlocksLateWorkAndPrivateSourcesRemainScoped() = runBlocking {
         val first = capture(1)
         database.research().clearArchive(2000)
         capture(2, epoch = 0)
         assertEquals(0, database.research().count())
-        capture(3, epoch = 1, public = false, authority = "account-a")
-        assertEquals(0, database.research().count())
-        capture(4, epoch = 1)
+        val scoped = capture(3, epoch = 1, public = false, authority = "account-a")
         assertEquals(1, database.research().count())
+        assertFalse(scoped.publicSource)
+        capture(4, epoch = 1)
+        assertEquals(2, database.research().count())
         assertNotNull(database.research().version(first.versionId))
     }
 
@@ -72,5 +73,41 @@ class ResearchArchiveTest {
         assertFalse(ResearchArchiveIngestor.publicUrl("https://example.org/paper?token=private"))
         assertFalse(ResearchArchiveIngestor.publicUrl("http://127.0.0.1/paper"))
         assertFalse(ResearchArchiveIngestor.publicUrl("https://person:secret@example.org/paper"))
+    }
+
+    @Test fun protectedAndProcessingWorksAreAdditionalToUnexaminedCapacity() = runBlocking {
+        val dao = database.research()
+        val accepted = capture(1)
+        dao.membership(dao.membership(accepted.workId)!!.copy(protectionReason = "EVIDENCE_CHECKED"))
+        val processing = capture(2)
+        dao.membership(dao.membership(processing.workId)!!.copy(holdUntil = System.currentTimeMillis() + 60_000))
+        val oldest = capture(3)
+        val newest = capture(4)
+        dao.trimUnexamined(1, System.currentTimeMillis())
+        assertNotNull(dao.membership(accepted.workId))
+        assertNotNull(dao.membership(processing.workId))
+        assertNull(dao.membership(oldest.workId))
+        assertNotNull(dao.membership(newest.workId))
+        dao.trimUnexamined(0, System.currentTimeMillis())
+        assertEquals(2, dao.count())
+    }
+
+    @Test fun automaticRediscoveryCannotResurrectManualDeletion() = runBlocking {
+        val first = capture(1)
+        val dao = database.research()
+        dao.removeMembership(first.workId)
+        dao.tombstone(ResearchDeletionTombstone("archive:${first.workId}", 2000))
+        capture(1)
+        assertNull(dao.membership(first.workId))
+    }
+
+    @Test fun seedRepairsMinimalMigratedTaxonomyWithoutOverwritingManualNames() = runBlocking {
+        val dao = database.research()
+        dao.category(ResearchCategory("uncategorized", "My category"))
+        dao.topic(ResearchTopic(ResearchArchiveIngestor.DEFAULT_TOPIC, "uncategorized", "My topic"))
+        ResearchArchiveIngestor.seed(database)
+        assertTrue(dao.allCategories().any { it.categoryId == "health-life" })
+        assertEquals("My category", dao.allCategories().first { it.categoryId == "uncategorized" }.label)
+        assertEquals("My topic", dao.topic(ResearchArchiveIngestor.DEFAULT_TOPIC)!!.label)
     }
 }

@@ -5,6 +5,8 @@ import java.time.Instant
 /** Associates trace rows without dropping records or merging later crash occurrences. */
 internal class DiagnosticIncidentTracker {
     data class Association(val id: String, val first: Boolean)
+    private val causal = linkedSetOf<String>()
+    private val incident = Regex("(?:^| · )incidentId=([A-Za-z0-9-]+)")
     private var fatal: String? = null
     private var fatalAt: Instant? = null
     private var fatalTag: String? = null
@@ -32,6 +34,12 @@ internal class DiagnosticIncidentTracker {
         fatal = null
         fatalAt = null
         fatalTag = null
+        val cause = incident.find(message)?.groupValues?.get(1)?.takeUnless { it in setOf("none", "unknown") }
+        if (cause != null) {
+            val first = if (classification.actionable) causal.add(cause) else false
+            while (causal.size > 512) causal.remove(causal.first())
+            return Association(cause, first)
+        }
         return Association(eventId, true)
     }
 }

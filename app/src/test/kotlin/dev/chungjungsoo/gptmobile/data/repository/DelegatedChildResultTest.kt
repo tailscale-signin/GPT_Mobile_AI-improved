@@ -126,4 +126,9 @@ class DelegatedChildResultTest {
         assertEquals("{\"result\":\"useful\"}", usableDelegatedToolResult(json))
         assertNull(usableDelegatedToolResult(failed))
     }
+
+    @Test fun legacyLimitNoticeIsNeverUsableResearchOrContributorContent() {
+        val result = resolveDelegatedChildResult("\n\nThis model reached its response limit. Would you like me to continue?", emptyList(), false, null)
+        assertEquals(DelegatedChildStatus.COMPLETED_EMPTY, result.status)
+    }
 }

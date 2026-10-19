@@ -37,20 +37,28 @@ class CombinedSynthesisPlanner @Inject constructor(
         val responses = accepted.context.requested.participantUids.map { uid -> allResponses.singleOrNull { it.platformType == uid } ?: return null }
         if (responses.any { runs[it.currentRunId]?.status !in setOf("COMPLETED", "FAILED", "INTERRUPTED", "CANCELED") }) return null
         val profiles = settingRepository.fetchPlatformV2s()
-        val sources = combinedSynthesisInputs(responses, runs, profiles.associate { it.uid to it.name }, accepted.context.requested.requestedModels)
-        if (sources.isNullOrEmpty()) {
+        val sources = combinedSynthesisInputs(responses, runs, profiles.associate { it.uid to it.name }, accepted.context.requested.requestedModels).orEmpty()
+        val retainedPublicEvidence = if (sources.isEmpty() && accepted.context.requested.acceptedResearch != null) {
+            researchSessionStore.exportChat(chatId).any { session ->
+                session.turnId == "$chatId:$userId" && dev.chungjungsoo.gptmobile.data.research.researchHash(session.snapshot.task.trim()) == dev.chungjungsoo.gptmobile.data.research.researchHash(userMessage.content.trim()) && session.snapshot.sources.any { it.readable && it.publicCapture && it.retrievalReceipt.isNotBlank() }
+            }
+        } else {
+            false
+        }
+        if (sources.isEmpty() && !retainedPublicEvidence) {
             chatRepository.markCombinedMergeUnavailable(chatId, userId, rootBudgetId)
             return null
         }
         val combined = accepted.context.copy(chatId = userMessage.chatId)
         val pinnedPrimary = combined.requested.preferredOwnerUid
         val acceptedUids = combined.requested.participantUids
-        val candidates = CombinedOwnerResolver.eligibleOrder(
+        val writerOrder = CombinedOwnerResolver.eligibleOrder(
             sources,
             acceptedUids,
             pinnedPrimary,
             profiles.filter { it.enabled }.mapTo(hashSetOf()) { it.uid }
-        ).mapNotNull { uid ->
+        ).ifEmpty { if (retainedPublicEvidence) acceptedUids.sortedWith(compareBy<String> { it != pinnedPrimary }.thenBy { it }) else emptyList() }
+        val candidates = writerOrder.mapNotNull { uid ->
             profiles.firstOrNull { it.uid == uid && it.enabled }?.let { profile ->
                 val capturedModel = sources.firstOrNull { it.platformUid == uid }?.modelName?.takeIf(String::isNotBlank)
                 profile.copy(model = combined.requested.requestedModels[profile.uid] ?: profile.model).let {
@@ -94,7 +102,7 @@ class CombinedSynthesisPlanner @Inject constructor(
         val leadAuthority = turnSessions.lastOrNull { it.runId == leadMessage.currentRunId }?.authority
             ?: turnSessions.map { it.authority }.distinct().singleOrNull()
         val sharedEvidence = dev.chungjungsoo.gptmobile.data.research.ResearchCorpus.freezeAll(
-            turnSessions.filter { it.authority == leadAuthority }.map { it.snapshot }
+            dev.chungjungsoo.gptmobile.data.research.authorizedResearchTransfer(turnSessions, leadAuthority)
         )
         val turnRuns = runs.values.filter { it.chatId == userMessage.chatId && it.userMessageId == userMessage.id && !it.runId.startsWith(COMBINED_RUN_PREFIX) }
         val turnRunIds = turnRuns.mapTo(hashSetOf()) { it.runId }

@@ -41,13 +41,14 @@ fun ResearchArticleDialog(workId: String, versionId: String? = null, authority: 
     val profiles by viewModel.profiles.collectAsStateWithLifecycle()
     val features by viewModel.features.collectAsStateWithLifecycle()
     val jobs by viewModel.jobs.collectAsStateWithLifecycle()
+    val focusedJob by viewModel.focusedJob.collectAsStateWithLifecycle()
     var profileUid by rememberSaveable(workId) { mutableStateOf(initialProfileUid) }
     LaunchedEffect(features.researchFeature.crawlerProfileUid) {
         if (profileUid.isBlank()) profileUid = (features.conversationResearch[chatId] ?: currentTools().research)?.crawlerProfileUid ?: features.researchFeature.crawlerProfileUid.orEmpty()
     }
     var showingOriginal by rememberSaveable(workId, versionId) { mutableStateOf(false) }
     val displayedVersionId = if (showingOriginal) originalVersionId ?: versionId else versionId
-    val relevantJobs = jobs.filter { it.workId == workId && it.authority == authority && it.chatId == chatId }
+    val relevantJobs = (jobs + listOfNotNull(focusedJob)).distinctBy { it.jobId }.filter { it.workId == workId && it.authority == authority && it.chatId == chatId }
     LaunchedEffect(workId, displayedVersionId, authority, relevantJobs.map { it.updatedAt }) { viewModel.open(workId, displayedVersionId, authority) }
     FadingDialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Scaffold(Modifier.fillMaxSize().glassWindowBackdrop(), containerColor = dev.chungjungsoo.gptmobile.presentation.common.overlayWindowContainerColor(), topBar = { TopAppBar(title = { Text("Article evidence") }, navigationIcon = { TextButton(onClick = onClose) { Text("Back") } }) }) { padding ->

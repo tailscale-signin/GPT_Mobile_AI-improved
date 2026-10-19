@@ -3,6 +3,19 @@ package dev.chungjungsoo.gptmobile.data.agent.tool
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ToolOutcome
 
+internal enum class ResearchAccessDisposition { READABLE, CHALLENGE, AUTH_REQUIRED, PREVIEW, EMPTY }
+
+internal fun classifyResearchAccess(text: String): ResearchAccessDisposition {
+    val normalized = text.lowercase()
+    return when {
+        text.isBlank() -> ResearchAccessDisposition.EMPTY
+        looksLikeConsentOrScriptShell(text) -> ResearchAccessDisposition.CHALLENGE
+        text.length < 2000 && listOf("sign in to access", "log in to access", "authentication required", "please sign in to continue").any(normalized::contains) -> ResearchAccessDisposition.AUTH_REQUIRED
+        text.length < 12000 && listOf("preview of subscription content", "purchase this article", "access through your institution", "this is a preview", "abstract only").any(normalized::contains) -> ResearchAccessDisposition.PREVIEW
+        else -> ResearchAccessDisposition.READABLE
+    }
+}
+
 /** A target site's access denial must not disable the provider for other sites. */
 internal fun researchReaderOutcome(result: AgentToolResult?, text: String, minimumCharacters: Int = 1): ToolOutcome = when {
     result == null -> ToolOutcome.FAILED
@@ -12,7 +25,8 @@ internal fun researchReaderOutcome(result: AgentToolResult?, text: String, minim
     result.errorCode in setOf("INVALID_RESPONSE", "MALFORMED_RESPONSE", "PARSE_ERROR") -> ToolOutcome.INVALID_RESPONSE
     result.isError && Regex("HTTP 403|denied", RegexOption.IGNORE_CASE).containsMatchIn(result.content.researchText()) -> ToolOutcome.BLOCKED
     result.isError -> ToolOutcome.FAILED
-    looksLikeConsentOrScriptShell(text) -> ToolOutcome.BLOCKED
+    classifyResearchAccess(text) == ResearchAccessDisposition.AUTH_REQUIRED -> ToolOutcome.AUTH_FAILED
+    classifyResearchAccess(text) == ResearchAccessDisposition.CHALLENGE -> ToolOutcome.BLOCKED
     text.length < minimumCharacters -> ToolOutcome.EMPTY
     else -> ToolOutcome.SUCCESS
 }

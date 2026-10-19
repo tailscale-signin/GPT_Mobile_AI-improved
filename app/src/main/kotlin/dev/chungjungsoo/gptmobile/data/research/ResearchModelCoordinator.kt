@@ -74,6 +74,7 @@ internal class ResearchModelCoordinator(
     private data class CircuitKey(val profileUid: String, val modelKey: String, val stage: ResearchModelStage)
     private data class FailureState(val count: Int, val retryAt: Long, val probe: Boolean = false)
     private val failures = java.util.concurrent.ConcurrentHashMap<CircuitKey, FailureState>()
+    private val sharedFailures = java.util.concurrent.ConcurrentHashMap<String, FailureState>()
     private val history = mutableListOf<ResearchModelEvent>()
     private val successfulStages = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val incompleteStages = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
@@ -115,11 +116,13 @@ internal class ResearchModelCoordinator(
             if (!stillEnabled()) return null
             val event = ResearchModelEvent(UUID.randomUUID().toString(), stage.name, target.profileUid, target.model, target.local, "QUEUED", wallClock(), inputTokensEstimate = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(prompt))
             val circuit = CircuitKey(target.profileUid, target.modelKey, stage)
-            if (!enterCircuit(circuit)) {
+            val sharedKey = "${target.profileUid}:${target.modelKey}"
+            if (sharedFailures[sharedKey]?.let { it.count >= 2 && monotonicClock() < it.retryAt } == true || !enterCircuit(circuit)) {
                 record(event.copy(outcome = "SKIPPED", reason = "MODEL_CIRCUIT_OPEN"))
                 continue
             }
-            fun failed() {
+            fun failed(shared: Boolean = false) {
+                if (shared) sharedFailures.compute(sharedKey) { _, old -> FailureState(((old?.count ?: 0) + 1).coerceAtMost(2), monotonicClock() + 30_000L) }
                 failures.compute(circuit) { _, old -> FailureState(((old?.count ?: 0) + 1).coerceAtMost(2), monotonicClock() + 30_000L) }
             }
             val started = monotonicClock()
@@ -139,12 +142,32 @@ internal class ResearchModelCoordinator(
                     record(event.copy(outcome = "CANCELLED", durationMs = elapsed(started), reason = "PERMISSION_REVOKED"))
                     return null
                 }
-                if (reply == null || !valid(stage, parseDelegationObject(reply.text))) {
-                    failed()
-                    record(event.copy(outcome = if (reply == null) "TIMED_OUT" else "INVALID_RESPONSE", durationMs = elapsed(started), invocationId = reply?.invocationId, reason = if (reply == null) "MODEL_DEADLINE" else "SCHEMA_VALIDATION_FAILED"))
+                if (reply == null || reply.text.startsWith("[PARTIAL_DELEGATE_OUTPUT:") || !valid(stage, parseDelegationObject(reply.text))) {
+                    failed(shared = reply == null || reply.text.isBlank() || reply.text.startsWith("[PARTIAL_DELEGATE_OUTPUT:") || parseDelegationObject(reply.text) == null)
+                    record(
+                        event.copy(
+                            outcome = if (reply == null) "TIMED_OUT" else "INVALID_RESPONSE",
+                            durationMs = elapsed(started),
+                            invocationId = reply?.invocationId,
+                            reason = if (reply == null) {
+                                "MODEL_DEADLINE"
+                            } else if (reply.text.startsWith("[PARTIAL_DELEGATE_OUTPUT:")) {
+                                "OUTPUT_LIMIT_BEFORE_SCHEMA"
+                            } else if (reply.text.isBlank()) {
+                                "NO_VISIBLE_OUTPUT"
+                            } else if (parseDelegationObject(reply.text) == null) {
+                                "MALFORMED_JSON"
+                            } else {
+                                "SCHEMA_VALIDATION_FAILED"
+                            },
+                            failurePhase = "VALIDATION",
+                            failureCategory = "STRUCTURED_OUTPUT"
+                        )
+                    )
                     continue
                 }
                 failures.remove(circuit)
+                sharedFailures.remove(sharedKey)
                 val independent = stage == ResearchModelStage.REVIEW && extractedBy.isNotBlank() && target.modelKey.isNotBlank() && target.modelKey != extractedBy
                 record(event.copy(outcome = "SUCCESS", durationMs = elapsed(started), invocationId = reply.invocationId, outputTokensEstimate = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(reply.text), independent = independent))
                 return reply.copy(modelKey = target.modelKey, independent = independent)
@@ -154,7 +177,7 @@ internal class ResearchModelCoordinator(
             } catch (rejected: ResearchAdmissionRejected) {
                 record(event.copy(outcome = "SKIPPED", durationMs = elapsed(started), reason = rejected.admission.name, failurePhase = phase, failureCategory = "ADMISSION"))
             } catch (error: Exception) {
-                failed()
+                failed(shared = failureCategory(error) in setOf("TRANSPORT", "RATE_LIMITED", "PROVIDER_OVERLOADED", "RUNTIME_QUARANTINED") || error.message.orEmpty().contains("provider unavailable", true))
                 record(
                     event.copy(
                         outcome = "FAILED",

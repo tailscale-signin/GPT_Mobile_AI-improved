@@ -66,6 +66,8 @@ internal class CombinedRecordProtocol(
         require(fragments.all { it.sequence in 1..(records.size + 1) })
     }
 
+    val failureReason: String? get() = failure
+
     fun checkpoint(): CombinedRecordCheckpoint = binding.copy(records = records.toList(), pending = pending.toString(), recoveredFragments = fragments.toList(), failure = failure)
 
     fun accept(delta: String): List<CombinedCommittedRecord> {

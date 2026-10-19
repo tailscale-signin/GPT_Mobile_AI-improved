@@ -22,6 +22,8 @@ internal class CombinedRecordRecoverySession(
     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
         var continuations = 0
         var noProgress = 0
+        var pendingCharacters = 0
+        var savedAt = System.nanoTime()
         if (restored) {
             val checkpoint = protocol.checkpoint()
             checkpoint.records.forEach { emit(ProviderEvent.TextDelta(it.wire + "\n")) }
@@ -48,13 +50,19 @@ internal class CombinedRecordRecoverySession(
                 active.streamRound(emptyList(), emptyList()).withSummedRequestUsage().collect { event ->
                     when (event) {
                         is ProviderEvent.TextDelta -> {
-                            if (protocol.checkpoint().failure == null) {
+                            if (protocol.failureReason == null) {
                                 val records = protocol.accept(event.text)
                                 // The transaction includes raw fragments, sequence, text and attribution records.
                                 // A stale owner cannot publish after this save fails.
-                                save(protocol.checkpoint())
+                                pendingCharacters += event.text.length
+                                val elapsed = System.nanoTime() - savedAt
+                                if (records.isNotEmpty() || pendingCharacters >= 4096 || elapsed >= 250_000_000L || protocol.failureReason != null) {
+                                    save(protocol.checkpoint())
+                                    pendingCharacters = 0
+                                    savedAt = System.nanoTime()
+                                }
                                 records.forEach { emit(ProviderEvent.TextDelta(it.wire + "\n")) }
-                                protocol.checkpoint().failure?.let { throw CombinedRecordFailure(it) }
+                                protocol.failureReason?.let { throw CombinedRecordFailure(it) }
                             }
                         }
                         is ProviderEvent.ToolCall, is ProviderEvent.ToolResult -> throw CombinedRecordFailure("COMBINED_TOOL_REQUEST_REJECTED")

@@ -18,7 +18,7 @@ import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
 
-@Database(entities = [ResearchStudyReview::class, WorkStudyRelationship::class, ResearchOrganizationOverride::class, ResearchDiscovery::class, ResearchOutcome::class, ResearchRecallExclusion::class, ResearchHandoff::class, ResearchWork::class, ResearchAlias::class, ResearchWorkVersion::class, ResearchCategory::class, ResearchTopic::class, ArchiveMembership::class, WorkTopic::class, ResearchStudyFamily::class, EvidencePassage::class, StudyField::class, EvidenceAppraisal::class, MessageEvidenceBinding::class, ExaminationJob::class, BodyReference::class, ResearchDeletionTombstone::class, ResearchOutbox::class, ResearchSequence::class, ResearchImportReceipt::class, dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchAttempt::class, dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchStatisticsEpoch::class], version = 3, exportSchema = true)
+@Database(entities = [ResearchReportSection::class, ResearchSaveReceipt::class, ResearchStudyReview::class, WorkStudyRelationship::class, ResearchOrganizationOverride::class, ResearchDiscovery::class, ResearchOutcome::class, ResearchRecallExclusion::class, ResearchHandoff::class, ResearchWork::class, ResearchAlias::class, ResearchWorkVersion::class, ResearchCategory::class, ResearchTopic::class, ArchiveMembership::class, WorkTopic::class, ResearchStudyFamily::class, EvidencePassage::class, StudyField::class, EvidenceAppraisal::class, MessageEvidenceBinding::class, ExaminationJob::class, BodyReference::class, ResearchDeletionTombstone::class, ResearchOutbox::class, ResearchSequence::class, ResearchImportReceipt::class, dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchAttempt::class, dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchStatisticsEpoch::class], version = 4, exportSchema = true)
 abstract class ResearchDatabase : RoomDatabase() {
     abstract fun research(): ResearchDao
     abstract fun statistics(): dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchStatisticsDao
@@ -28,15 +28,43 @@ abstract class ResearchDatabase : RoomDatabase() {
 @InstallIn(SingletonComponent::class)
 object ResearchDatabaseModule {
     @Provides @Singleton
-    fun database(@ApplicationContext context: Context): ResearchDatabase = Room.databaseBuilder(context, ResearchDatabase::class.java, "research-feature.db").addMigrations(ResearchWorkspaceMigration, ResearchStudyCardsMigration).build().also {
+    fun database(@ApplicationContext context: Context): ResearchDatabase = Room.databaseBuilder(context, ResearchDatabase::class.java, "research-feature.db").addMigrations(ResearchWorkspaceMigration, ResearchStudyCardsMigration, ResearchRetentionMigration).build().also {
         dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchTelemetryStore.attach(java.io.File(context.filesDir, "research-telemetry"), it.statistics())
     }
 }
 
-data class ArchiveRow(val workId: String, val title: String, val canonicalUrl: String, val publicationYear: Int?, val peerReview: PublicationReview, val retracted: Boolean?, val latestVersionId: String, val archiveSequence: Long, val primaryTopicId: String, val coverage: ArticleCoverage, val retrievedAt: Long, val textBytes: Long, val reviewScore: Int? = null, val reviewStatus: String? = null)
+data class ArchiveRow(val workId: String, val title: String, val canonicalUrl: String, val publicationYear: Int?, val peerReview: PublicationReview, val retracted: Boolean?, val latestVersionId: String, val archiveSequence: Long, val primaryTopicId: String, val coverage: ArticleCoverage, val retrievedAt: Long, val textBytes: Long, val reviewScore: Int? = null, val reviewStatus: String? = null, val protectionReason: String? = null, val holdUntil: Long = 0)
 
 @Dao
 interface ResearchDao {
+    @Upsert suspend fun reportSection(value: ResearchReportSection)
+
+    @Query("SELECT * FROM research_report_sections WHERE chatId=:chatId AND owner=:owner AND packetDigest=:digest ORDER BY updatedAt")
+    suspend fun reportSections(chatId: Int, owner: String, digest: String): List<ResearchReportSection>
+
+    @Query("SELECT * FROM research_report_sections")
+    suspend fun allReportSections(): List<ResearchReportSection>
+
+    @Query("SELECT * FROM research_save_receipts")
+    suspend fun allSaveReceipts(): List<ResearchSaveReceipt>
+
+    @Query("DELETE FROM research_report_sections WHERE chatId=:chatId")
+    suspend fun deleteReportSections(chatId: Int)
+
+    @Upsert suspend fun saveReceipt(value: ResearchSaveReceipt)
+
+    @Query("SELECT * FROM research_save_receipts WHERE chatId=:chatId ORDER BY updatedAt DESC")
+    suspend fun saveReceipts(chatId: Int): List<ResearchSaveReceipt>
+
+    @Query("SELECT * FROM research_save_receipts WHERE chatId=:chatId ORDER BY updatedAt DESC")
+    fun observeSaveReceipts(chatId: Int): kotlinx.coroutines.flow.Flow<List<ResearchSaveReceipt>>
+
+    @Query("SELECT * FROM research_outbox WHERE id LIKE 'ingest:%' ORDER BY createdAt")
+    suspend fun pendingIngestions(): List<ResearchOutbox>
+
+    @Query("SELECT * FROM research_archive")
+    fun observeMemberships(): Flow<List<ArchiveMembership>>
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun studyReview(value: ResearchStudyReview): Long
 
@@ -51,7 +79,7 @@ interface ResearchDao {
     @Query("SELECT * FROM research_study_reviews WHERE versionId=:id ORDER BY createdAt DESC, reviewId DESC")
     suspend fun studyReviews(id: String): List<ResearchStudyReview>
 
-    @Query("SELECT r.* FROM research_study_reviews r WHERE r.reviewId=(SELECT reviewId FROM research_study_reviews WHERE workId=r.workId ORDER BY createdAt DESC, reviewId DESC LIMIT 1) ORDER BY createdAt DESC")
+    @Query("SELECT r.* FROM research_study_reviews r WHERE r.reviewId=COALESCE((SELECT acceptedReviewId FROM research_archive WHERE workId=r.workId),(SELECT reviewId FROM research_study_reviews WHERE workId=r.workId ORDER BY createdAt DESC, reviewId DESC LIMIT 1)) ORDER BY createdAt DESC")
     fun observeStudyReviews(): Flow<List<ResearchStudyReview>>
 
     @Query("SELECT * FROM research_works")
@@ -171,6 +199,9 @@ interface ResearchDao {
     @Query("SELECT * FROM research_sequence WHERE id = 1")
     suspend fun sequence(): ResearchSequence?
 
+    @Query("DELETE FROM research_tombstones WHERE `key` = :key")
+    suspend fun removeTombstone(key: String)
+
     @Query("SELECT epoch FROM research_tombstones WHERE `key` = :key")
     suspend fun deleted(key: String): Long?
 
@@ -189,14 +220,26 @@ interface ResearchDao {
     @Query("SELECT * FROM research_topics WHERE topicId = :id")
     suspend fun topic(id: String): ResearchTopic?
 
-    @Query("SELECT w.workId,w.title,w.canonicalUrl,w.publicationYear,w.peerReview,w.retracted,a.latestVersionId,a.archiveSequence,a.primaryTopicId,v.coverage,v.retrievedAt,v.textBytes,r.overallScore AS reviewScore,r.status AS reviewStatus FROM research_archive a JOIN research_works w ON w.workId=a.workId JOIN research_versions v ON v.versionId=a.latestVersionId LEFT JOIN research_study_reviews r ON r.reviewId=(SELECT reviewId FROM research_study_reviews WHERE versionId=v.versionId ORDER BY createdAt DESC,reviewId DESC LIMIT 1) WHERE (:topic='' OR a.primaryTopicId=:topic OR EXISTS(SELECT 1 FROM research_work_topics t WHERE t.workId=w.workId AND t.topicId=:topic)) AND (:query='' OR w.title LIKE '%' || :query || '%' ESCAPE '\\' OR w.workId IN (SELECT workId FROM research_aliases WHERE alias LIKE '%' || :query || '%' ESCAPE '\\')) AND (:reviewed=0 OR w.peerReview='CONFIRMED') AND (:assessed=0 OR r.reviewId IS NOT NULL) ORDER BY CASE WHEN :rank=1 AND COALESCE(w.retracted,0)=0 THEN r.overallScore ELSE NULL END DESC,a.archiveSequence DESC LIMIT :limit OFFSET :offset")
-    suspend fun page(query: String, topic: String, reviewed: Boolean, limit: Int = 40, offset: Int = 0, assessed: Boolean = false, rank: Boolean = false): List<ArchiveRow>
+    @Query("SELECT w.workId,w.title,w.canonicalUrl,w.publicationYear,w.peerReview,w.retracted,a.latestVersionId,a.archiveSequence,a.primaryTopicId,v.coverage,v.retrievedAt,v.textBytes,r.overallScore AS reviewScore,r.status AS reviewStatus,a.protectionReason,a.holdUntil FROM research_archive a JOIN research_works w ON w.workId=a.workId JOIN research_versions v ON v.versionId=a.latestVersionId LEFT JOIN research_study_reviews r ON r.reviewId=COALESCE(a.acceptedReviewId,(SELECT reviewId FROM research_study_reviews WHERE workId=w.workId ORDER BY createdAt DESC,reviewId DESC LIMIT 1)) WHERE (:topic='' OR a.primaryTopicId=:topic OR EXISTS(SELECT 1 FROM research_work_topics t WHERE t.workId=w.workId AND t.topicId=:topic)) AND (:query='' OR w.title LIKE '%' || :query || '%' ESCAPE '\\' OR w.workId IN (SELECT workId FROM research_aliases WHERE alias LIKE '%' || :query || '%' ESCAPE '\\')) AND (:reviewed=0 OR w.peerReview='CONFIRMED') AND (:assessed=0 OR r.reviewId IS NOT NULL) AND (:state='' OR (:state='UNEXAMINED' AND r.reviewId IS NULL AND a.holdUntil<=:now) OR (:state='PROCESSING' AND a.holdUntil>:now) OR (:state='EXAMINED' AND r.reviewId IS NOT NULL) OR (:state='EVIDENCE_CHECKED' AND a.protectionReason='EVIDENCE_CHECKED')) ORDER BY CASE WHEN :rank=1 AND COALESCE(w.retracted,0)=0 THEN r.overallScore ELSE NULL END DESC,a.archiveSequence DESC LIMIT :limit OFFSET :offset")
+    suspend fun page(query: String, topic: String, reviewed: Boolean, limit: Int = 40, offset: Int = 0, assessed: Boolean = false, rank: Boolean = false, state: String = "", now: Long = System.currentTimeMillis()): List<ArchiveRow>
 
-    @Query("SELECT w.workId,w.title,w.canonicalUrl,w.publicationYear,w.peerReview,w.retracted,a.latestVersionId,a.archiveSequence,a.primaryTopicId,v.coverage,v.retrievedAt,v.textBytes,r.overallScore AS reviewScore,r.status AS reviewStatus FROM research_archive a JOIN research_works w ON w.workId=a.workId JOIN research_versions v ON v.versionId=a.latestVersionId LEFT JOIN research_study_reviews r ON r.reviewId=(SELECT reviewId FROM research_study_reviews WHERE versionId=v.versionId ORDER BY createdAt DESC,reviewId DESC LIMIT 1) WHERE (:topic='' OR a.primaryTopicId=:topic OR EXISTS(SELECT 1 FROM research_work_topics t WHERE t.workId=w.workId AND t.topicId=:topic)) AND (:query='' OR w.title LIKE '%' || :query || '%' ESCAPE '\\' OR w.workId IN (SELECT workId FROM research_aliases WHERE alias LIKE '%' || :query || '%' ESCAPE '\\')) AND (:reviewed=0 OR w.peerReview='CONFIRMED') AND (:assessed=0 OR r.reviewId IS NOT NULL) ORDER BY CASE WHEN :rank=1 AND COALESCE(w.retracted,0)=0 THEN r.overallScore ELSE NULL END DESC,a.archiveSequence DESC LIMIT :limit OFFSET :offset")
-    fun observePage(query: String, topic: String, reviewed: Boolean, limit: Int = 40, offset: Int = 0, assessed: Boolean = false, rank: Boolean = false): Flow<List<ArchiveRow>>
+    @Query("SELECT w.workId,w.title,w.canonicalUrl,w.publicationYear,w.peerReview,w.retracted,a.latestVersionId,a.archiveSequence,a.primaryTopicId,v.coverage,v.retrievedAt,v.textBytes,r.overallScore AS reviewScore,r.status AS reviewStatus,a.protectionReason,a.holdUntil FROM research_archive a JOIN research_works w ON w.workId=a.workId JOIN research_versions v ON v.versionId=a.latestVersionId LEFT JOIN research_study_reviews r ON r.reviewId=COALESCE(a.acceptedReviewId,(SELECT reviewId FROM research_study_reviews WHERE workId=w.workId ORDER BY createdAt DESC,reviewId DESC LIMIT 1)) WHERE (:topic='' OR a.primaryTopicId=:topic OR EXISTS(SELECT 1 FROM research_work_topics t WHERE t.workId=w.workId AND t.topicId=:topic)) AND (:query='' OR w.title LIKE '%' || :query || '%' ESCAPE '\\' OR w.workId IN (SELECT workId FROM research_aliases WHERE alias LIKE '%' || :query || '%' ESCAPE '\\')) AND (:reviewed=0 OR w.peerReview='CONFIRMED') AND (:assessed=0 OR r.reviewId IS NOT NULL) AND (:state='' OR (:state='UNEXAMINED' AND r.reviewId IS NULL AND a.holdUntil<=:now) OR (:state='PROCESSING' AND a.holdUntil>:now) OR (:state='EXAMINED' AND r.reviewId IS NOT NULL) OR (:state='EVIDENCE_CHECKED' AND a.protectionReason='EVIDENCE_CHECKED')) ORDER BY CASE WHEN :rank=1 AND COALESCE(w.retracted,0)=0 THEN r.overallScore ELSE NULL END DESC,a.archiveSequence DESC LIMIT :limit OFFSET :offset")
+    fun observePage(query: String, topic: String, reviewed: Boolean, limit: Int = 40, offset: Int = 0, assessed: Boolean = false, rank: Boolean = false, state: String = "", now: Long = System.currentTimeMillis()): Flow<List<ArchiveRow>>
 
-    @Query("SELECT * FROM research_archive ORDER BY archiveSequence LIMIT MAX(0, (SELECT COUNT(*) FROM research_archive)-:keep)")
-    suspend fun oldestExcess(keep: Int): List<ArchiveMembership>
+    @Query("SELECT * FROM research_archive WHERE holdUntil>0 AND holdUntil<=:now")
+    suspend fun expiredHolds(now: Long): List<ArchiveMembership>
+
+    @Query("SELECT * FROM research_jobs WHERE workId=:workId")
+    suspend fun jobsForWork(workId: String): List<ExaminationJob>
+
+    @Query("SELECT * FROM research_archive WHERE protectionReason IS NULL AND holdUntil <= :now ORDER BY archiveSequence,workId LIMIT MAX(0, (SELECT COUNT(*) FROM research_archive WHERE protectionReason IS NULL AND holdUntil <= :now)-:keep)")
+    suspend fun oldestExcess(keep: Int, now: Long = System.currentTimeMillis()): List<ArchiveMembership>
+
+    @Query("UPDATE research_jobs SET stage='CANCELED',lease=lease+1,terminalReason='STUDY_MANUALLY_DELETED',updatedAt=:now WHERE workId=:id")
+    suspend fun chatlessFence(id: String, now: Long)
+
+    @Query("SELECT COUNT(*) FROM research_archive WHERE protectionReason IS NOT NULL")
+    fun observeProtectedCount(): Flow<Int>
 
     @Query("DELETE FROM research_archive WHERE workId=:id")
     suspend fun removeMembership(id: String)
@@ -246,6 +289,9 @@ interface ResearchDao {
     @Query("SELECT * FROM research_jobs WHERE jobId=:id")
     suspend fun job(id: String): ExaminationJob?
 
+    @Query("SELECT * FROM research_jobs WHERE jobId=:id")
+    fun observeJob(id: String): Flow<ExaminationJob?>
+
     @Query("SELECT * FROM research_jobs WHERE dedupKey=:key")
     suspend fun jobForKey(key: String): ExaminationJob?
 
@@ -260,6 +306,9 @@ interface ResearchDao {
 
     @Query("UPDATE research_jobs SET stage=:stage, checkpointJson=:checkpoint,terminalReason=:reason,updatedAt=:at WHERE jobId=:id AND lease=:lease AND stage NOT IN ('CANCELED','COMPLETE_FULL','COMPLETE_PARTIAL','ABSTRACT_ONLY')")
     suspend fun advanceJob(id: String, lease: Long, stage: ExaminationStage, checkpoint: String, reason: String?, at: Long): Int
+
+    @Query("SELECT * FROM research_outbox WHERE id LIKE 'auto-examine:%' AND id>:after ORDER BY id LIMIT 100")
+    suspend fun pendingExaminations(after: String = ""): List<ResearchOutbox>
 
     @Query("SELECT * FROM research_outbox ORDER BY createdAt LIMIT 100")
     suspend fun pendingOutbox(): List<ResearchOutbox>
@@ -319,28 +368,57 @@ interface ResearchDao {
     suspend fun allImportReceipts(): List<ResearchImportReceipt>
 
     /** Room serializes writers; FIFO sequence never changes on reuse or clear. */
-    @Transaction suspend fun archive(workId: String, versionId: String, topicId: String, now: Long, expectedEpoch: Long): Boolean {
+    @Transaction suspend fun archive(workId: String, versionId: String, topicId: String, now: Long, expectedEpoch: Long, unexaminedLimit: Int = 1000): Boolean {
         val seq = sequence() ?: ResearchSequence()
         if (seq.archiveEpoch != expectedEpoch || deleted("archive:$workId") != null) return false
         val version = requireNotNull(version(versionId))
-        require(version.workId == workId && version.publicSource)
+        require(version.workId == workId)
         requireNotNull(topic(topicId))
         val existing = membership(workId)
         val retainedVersion = existing?.let { version(it.latestVersionId) }
-        val selectedVersion = if (version.coverage == ArticleCoverage.METADATA_ONLY && retainedVersion?.coverage != ArticleCoverage.METADATA_ONLY && retainedVersion != null) retainedVersion.versionId else versionId
-        val next = existing?.copy(latestVersionId = selectedVersion, primaryTopicId = topicId) ?: ArchiveMembership(workId, seq.next, now, versionId, topicId)
+        val selectedVersion = if (retainedVersion != null && (existing.protectionReason != null || retentionCoverageRank(retainedVersion.coverage) > retentionCoverageRank(version.coverage))) retainedVersion.versionId else versionId
+        val next = existing?.copy(latestVersionId = selectedVersion, primaryTopicId = topicId) ?: ArchiveMembership(workId, seq.next, now, versionId, topicId, lifecycleGeneration = now)
         if (existing == null) sequence(seq.copy(next = Math.addExact(seq.next, 1)))
         membership(next)
         removeRoots("archive", workId)
         root(BodyReference("archive", workId, next.latestVersionId))
-        oldestExcess(1000).forEach {
-            removeMembership(it.workId)
-            removeRoots("archive", it.workId)
-            removeImportRootsForWork(it.workId)
+        trimUnexamined(unexaminedLimit, now)
+        outbox(ResearchOutbox("archive-gc", "reconcile", now))
+        // Protected and processing records are additional to the unexamined allowance.
+        return true
+    }
+
+    @Transaction suspend fun trimUnexamined(keep: Int, now: Long) {
+        require(keep >= 0)
+        expiredHolds(now).forEach { expired ->
+            jobsForWork(expired.workId).filter { it.stage in setOf(ExaminationStage.RESOLVING, ExaminationStage.READING, ExaminationStage.EXTRACTING, ExaminationStage.APPRAISING, ExaminationStage.REVIEWING, ExaminationStage.PAUSED) }.forEach { job ->
+                job(job.copy(stage = ExaminationStage.PAUSED, lease = job.lease + 1, terminalReason = "RECOVERY_HOLD_EXPIRED: Resume requires checkpoint and body revalidation"))
+                removeRoots("job", job.jobId)
+            }
+            membership(expired.copy(holdUntil = 0))
+        }
+        oldestExcess(keep, now).forEach { candidate ->
+            val live = membership(candidate.workId) ?: return@forEach
+            if (live.protectionReason == null && live.holdUntil <= now) {
+                removeMembership(live.workId)
+                removeRoots("archive", live.workId)
+                removeImportRootsForWork(live.workId)
+            }
+        }
+    }
+
+    @Transaction suspend fun clearUnexamined(now: Long) {
+        // Reconcile expired holds before selecting manual cleanup candidates.
+        trimUnexamined(Int.MAX_VALUE, now)
+        oldestExcess(0, now).forEach { membership ->
+            tombstone(ResearchDeletionTombstone("archive:${membership.workId}", now))
+            chatlessFence(membership.workId, now)
+            jobsForWork(membership.workId).forEach { removeRoots("job", it.jobId) }
+            removeMembership(membership.workId)
+            removeRoots("archive", membership.workId)
+            removeImportRootsForWork(membership.workId)
         }
         outbox(ResearchOutbox("archive-gc", "reconcile", now))
-        check(count() <= 1000)
-        return true
     }
 
     @Transaction suspend fun clearArchive(now: Long) {
@@ -348,7 +426,11 @@ interface ResearchDao {
         sequence(seq.copy(archiveEpoch = Math.addExact(seq.archiveEpoch, 1)))
         // Retain a clear epoch; neither a late job nor repeated history import can repopulate it.
         tombstone(ResearchDeletionTombstone("archive-clear", now))
-        oldestExcess(0).forEach {
+        allMemberships().forEach {
+            tombstone(ResearchDeletionTombstone("archive:${it.workId}", now))
+            chatlessFence(it.workId, now)
+            jobsForWork(it.workId).forEach { job -> removeRoots("job", job.jobId) }
+            removeRoots("assessment", it.workId)
             removeMembership(it.workId)
             removeRoots("archive", it.workId)
             removeImportRootsForWork(it.workId)

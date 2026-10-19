@@ -21,6 +21,8 @@ internal class CombinedRecordStore private constructor(
     private var generation: Long,
     private var renderedRecords: Int
 ) {
+    private val frozenJson = frozen.encode()
+
     suspend fun save(state: CombinedRecordCheckpoint) {
         require(state.snapshotDigest == frozen.inputDigest)
         val (answer, quality) = withContext(Dispatchers.Default) {
@@ -35,7 +37,7 @@ internal class CombinedRecordStore private constructor(
                 deliveredScopeStatus = "WRITING"
             )
         }
-        val row = CombinedDeliveryCheckpoint(runId, state.revisionId, fence, Math.addExact(generation, 1), state.snapshotDigest, frozen.encode(), Json.encodeToString(state), answer, Json.encodeToString(quality), System.currentTimeMillis())
+        val row = CombinedDeliveryCheckpoint(runId, state.revisionId, fence, Math.addExact(generation, 1), state.snapshotDigest, frozenJson, Json.encodeToString(state), answer, Json.encodeToString(quality), System.currentTimeMillis())
         check(dao.commitCombinedDeliveryCheckpoint(row, generation, synthesisKey)) { "COMBINED_RECORD_OWNER_CHANGED" }
         generation = row.generation
     }

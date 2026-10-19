@@ -31,6 +31,7 @@ data class ResearchSession(val runId: String, val chatId: Int, val snapshot: Res
 /** App-private bounded history, included in complete backups; temporary chats stay in RAM. */
 @Singleton
 class ResearchSessionStore @Inject constructor(@ApplicationContext context: Context, private val featureDatabase: dev.chungjungsoo.gptmobile.data.research.feature.ResearchDatabase? = null, private val featureSettings: dev.chungjungsoo.gptmobile.data.repository.SettingRepository? = null) {
+    private val appContext = context
     private val directory = File(context.filesDir, "research-history")
     private val lock = Mutex()
     private val readerHealth = ConcurrentHashMap<Pair<Int, String>, ResearchReaderHealth>()
@@ -142,7 +143,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
         stops += runId
         runTurns[runId]?.let { stoppedTurns += it }
     }
-    fun journal(runId: String, chatId: Int, persistent: Boolean, turnId: String = runId, authority: String = "legacy", shareEnabled: Boolean = true, ownerScope: String = runId, publicEvidence: Boolean = false): ResearchJournal = object : ResearchJournal {
+    fun journal(runId: String, chatId: Int, persistent: Boolean, turnId: String = runId, authority: String = "legacy", shareEnabled: Boolean = true, ownerScope: String = runId, publicEvidence: Boolean = false, acceptedTools: dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig? = null): ResearchJournal = object : ResearchJournal {
         private val createdAt = System.currentTimeMillis()
         private var archiveEpoch: Long? = null
         private val archivedRevisions = mutableMapOf<String, String>()
@@ -150,7 +151,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
         init {
             runTurns[runId] = chatId to turnId
         }
-        override fun scoped(authority: String, sharePublicEvidence: Boolean): ResearchJournal = journal(runId, chatId, persistent, turnId, if (shareEnabled && sharePublicEvidence) authority else "$authority:$ownerScope", shareEnabled, ownerScope, sharePublicEvidence)
+        override fun scoped(authority: String, sharePublicEvidence: Boolean): ResearchJournal = journal(runId, chatId, persistent, turnId, if (shareEnabled && sharePublicEvidence) authority else "$authority:$ownerScope", shareEnabled, ownerScope, sharePublicEvidence, acceptedTools)
         override suspend fun featurePolicy() = featureSettings?.getFeatureSettings()?.researchFeature ?: dev.chungjungsoo.gptmobile.data.research.feature.ResearchFeatureSettings()
         override suspend fun archiveLeads(task: String): List<ResearchSource> {
             val database = featureDatabase ?: return emptyList()
@@ -158,7 +159,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
             if (!persistent || !features.researchFeature.enabled || !features.researchFeature.archivePreflight || !features.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH) || stopRequested()) return emptyList()
             val dao = database.research()
             val words = task.lowercase().split(Regex("[^\\p{L}\\p{N}]+")).filter { it.length in 3..80 }.distinct().take(5)
-            return words.flatMap { dao.page(it, "", features.researchFeature.peerReviewedOnly, 12, 0) }.distinctBy { it.workId }.take(30).map { row ->
+            return words.flatMap { dao.page(it, "", features.researchFeature.peerReviewedOnly, 12, 0) }.distinctBy { it.workId }.filter { row -> dao.version(row.latestVersionId)?.let { it.publicSource || it.authority == authority } == true }.take(30).map { row ->
                 val aliases = dao.aliases(row.workId).map { it.alias.substringAfter('|') }
                 fun id(kind: String) = aliases.firstOrNull { it.startsWith("$kind:") }?.substringAfter(':').orEmpty()
                 ResearchSource(
@@ -174,6 +175,17 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
             val now = System.nanoTime() / 1_000_000
             val lease = workLeases.compute(workKey(key)) { _, old -> if (old == null || old.until <= now) Lease(runId, now + leaseMillis.coerceIn(1000, 300_000)) else old }
             return lease?.owner == runId
+        }
+        override fun claimPublicWork(key: String, leaseMillis: Long): Boolean {
+            if (!shareEnabled) return claimWork(key, leaseMillis)
+            if (stopRequested()) return false
+            val now = System.nanoTime() / 1_000_000
+            val lease = workLeases.compute("$chatId:$turnId:public:$key") { _, old -> if (old == null || old.until <= now) Lease(runId, now + leaseMillis.coerceIn(1000, 300_000)) else old }
+            return lease?.owner == runId
+        }
+        override fun releasePublicWork(key: String) {
+            if (!shareEnabled) return releaseWork(key)
+            workLeases.computeIfPresent("$chatId:$turnId:public:$key") { _, old -> old.takeUnless { it.owner == runId } }
         }
         override fun releaseWork(key: String) {
             workLeases.computeIfPresent(workKey(key)) { _, old -> old.takeUnless { it.owner == runId } }
@@ -296,11 +308,20 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                 } else {
                     emptyList()
                 }
-                (persisted + inMemory)
-                    .asSequence()
-                    .filter { it.chatId == chatId && it.turnId == turnId && it.authority == authority }
-                    .maxByOrNull { it.snapshot.updatedAt }
-                    ?.snapshot
+                val own = (persisted + inMemory).filter { it.chatId == chatId && it.turnId == turnId && it.authority == authority }.maxByOrNull { it.snapshot.updatedAt }?.snapshot
+                val siblings = if (shareEnabled) mutable.value.values.filter { it.chatId == chatId && it.turnId == turnId && it.authority != authority && normalizedTask(it.snapshot.task) == normalizedTask(task) } else emptyList()
+                val publicSources = siblings.flatMap { it.snapshot.sources }.filter { it.publicCapture && it.retrievalReceipt.isNotBlank() }
+                if (publicSources.isEmpty()) {
+                    own
+                } else {
+                    val base = own ?: ResearchSnapshot(task)
+                    val merged = (base.sources + publicSources).groupBy { it.equivalenceGroup.ifBlank { it.canonicalUrl } }.values.map { versions -> versions.maxWith(compareBy<ResearchSource> { it.readable }.thenBy { it.retrievedAt }) }
+                    val sharedClaims = siblings.flatMap { sibling ->
+                        val permittedIds = sibling.snapshot.sources.filter { it.publicCapture && it.retrievalReceipt.isNotBlank() }.mapTo(hashSetOf()) { it.id }
+                        sibling.snapshot.claims.filter { it.sourceId in permittedIds }
+                    }
+                    base.copy(sources = merged, claims = (base.claims + sharedClaims).filter { claim -> merged.any { it.id == claim.sourceId && claim.quote.isNotBlank() && claim.quote in it.passage } }.distinctBy { Triple(it.sourceId, it.text, it.quote) })
+                }
             }
         }
         override suspend fun <T> withTaskLock(task: String, block: suspend () -> T): T {
@@ -330,6 +351,89 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                 }
             }
         }
+        private suspend fun indexCommittedSources(snapshot: ResearchSnapshot) {
+            try {
+                featureDatabase?.let { database ->
+                    val settings = featureSettings?.getFeatureSettings()
+                    val dao = database.research()
+                    val epoch = archiveEpoch ?: (dao.sequence()?.archiveEpoch ?: 0L).also { archiveEpoch = it }
+                    val eligible = settings?.researchFeature?.enabled == true && settings.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH) && (dao.deleted("archive-clear") ?: 0) < createdAt
+                    snapshot.sources.forEach { source ->
+                        val receiptId = researchHash("$runId:${source.id}")
+                        val revision = researchHash(source.json().toString())
+                        if (archivedRevisions[source.id] != revision) {
+                            val outbox = dev.chungjungsoo.gptmobile.data.research.feature.ResearchOutbox(
+                                "ingest:$receiptId",
+                                buildJsonObject {
+                                    put("runId", runId)
+                                    put("chatId", chatId)
+                                    put("turnId", turnId)
+                                    put("authority", authority)
+                                    put("publicEvidence", publicEvidence)
+                                    put("epoch", epoch)
+                                    put("source", source.json())
+                                }.toString(),
+                                System.currentTimeMillis()
+                            )
+                            dao.outbox(outbox)
+                            dao.saveReceipt(dev.chungjungsoo.gptmobile.data.research.feature.ResearchSaveReceipt(receiptId, runId, source.id, chatId, disposition = "SAVE_PENDING", updatedAt = System.currentTimeMillis()))
+                            try {
+                                val body = if (source.bodyChunks.isEmpty()) {
+                                    source.passage
+                                } else {
+                                    source.bodyChunks.joinToString("") { name ->
+                                        require(name.matches(Regex("[a-f0-9]{64}\\.chunk")))
+                                        val text = File(directory, name).readText()
+                                        require(researchHash(text) + ".chunk" == name)
+                                        text
+                                    }
+                                }
+                                val captured = dev.chungjungsoo.gptmobile.data.research.feature.ResearchArchiveIngestor.capture(database, source, authority, publicEvidence || source.publicCapture && source.retrievalReceipt.isNotBlank(), chatId, turnId, eligible, epoch, researchHash(body), body.toByteArray().size.toLong(), automaticOrganization = settings?.researchFeature?.automaticOrganization == true, unexaminedLimit = settings?.researchFeature?.unexaminedStudyLimit ?: 1000)
+                                val saved = dao.membership(captured.workId) != null
+                                dao.saveReceipt(
+                                    dev.chungjungsoo.gptmobile.data.research.feature.ResearchSaveReceipt(
+                                        receiptId,
+                                        runId,
+                                        source.id,
+                                        chatId,
+                                        captured.workId,
+                                        captured.versionId,
+                                        if (saved) {
+                                            "ARCHIVED"
+                                        } else if (dao.deleted("archive:${captured.workId}") != null || (dao.sequence()?.archiveEpoch ?: 0L) != epoch) {
+                                            "SUPPRESSED_BY_EXPLICIT_DELETION"
+                                        } else {
+                                            "NOT_ELIGIBLE"
+                                        },
+                                        updatedAt = System.currentTimeMillis()
+                                    )
+                                )
+                                dao.acknowledge(outbox.id, outbox.createdAt)
+                                archivedRevisions[source.id] = revision
+                                if (eligible && acceptedTools != null && (source.paperId.isNotBlank() || source.doi.isNotBlank() || source.pmid.isNotBlank() || source.pmcid.isNotBlank())) {
+                                    val selection = settings?.conversationResearch?.get(chatId) ?: acceptedTools.research
+                                    val research = selection?.academicEligibleByUi == true
+                                    val request = dev.chungjungsoo.gptmobile.data.research.feature.ExaminationRequest(captured.workId, chatId = chatId, versionId = captured.versionId, authority = authority, origin = if (research) dev.chungjungsoo.gptmobile.data.research.feature.ExaminationOrigin.AUTHORIZED_RESEARCH else dev.chungjungsoo.gptmobile.data.research.feature.ExaminationOrigin.AUTOMATIC_CHAT, rootWorkId = turnId, parentRunId = runId)
+                                    val needed = snapshot.claims.any { it.sourceId == source.id } || Regex("(?i)sample|participant|randomi[sz]|causal|efficacy|confidence interval|trial|systematic review").containsMatchIn(source.title + " " + source.publicationType + " " + source.passage)
+                                    val scheduled = dev.chungjungsoo.gptmobile.data.research.work.ScheduledExamination(request, acceptedTools, needed)
+                                    dao.outbox(dev.chungjungsoo.gptmobile.data.research.feature.ResearchOutbox("auto-examine:$chatId:${captured.versionId}", Json.encodeToString(scheduled), System.currentTimeMillis()))
+                                }
+                            } catch (cancel: kotlinx.coroutines.CancellationException) {
+                                throw cancel
+                            } catch (error: Exception) {
+                                dao.saveReceipt(dev.chungjungsoo.gptmobile.data.research.feature.ResearchSaveReceipt(receiptId, runId, source.id, chatId, disposition = "SAVE_FAILED", reason = "ARCHIVE_WRITE_FAILED:${error.javaClass.simpleName}", updatedAt = System.currentTimeMillis()))
+                                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ResearchArchive", "SAVE_FAILED · receiptId=$receiptId · runId=$runId · sourceId=${source.id} · reason=ARCHIVE_WRITE_FAILED", "W")
+                            }
+                        }
+                    }
+                }
+            } catch (cancel: kotlinx.coroutines.CancellationException) {
+                throw cancel
+            } catch (_: Exception) {
+                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Research", "Archive index update failed; original run evidence remains retained", "W")
+            }
+        }
+
         override suspend fun save(snapshot: ResearchSnapshot) = withContext(Dispatchers.IO) {
             lock.withLock {
                 if (chatId in deletedChats || generation != currentGeneration(chatId, turnId, persistent)) return@withLock
@@ -397,7 +501,6 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                         atomic.failWrite(stream)
                         throw e
                     }
-                    mutable.update { (it + (runId to session)).entries.sortedByDescending { entry -> entry.value.snapshot.updatedAt }.take(24).associate { entry -> entry.toPair() } }
                     writeAtomic(
                         File(directory, researchHash("turn:$chatId:$turnId:$authority") + ".cursor"),
                         buildJsonObject {
@@ -405,35 +508,9 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                             put("runId", runId)
                         }.toString().toByteArray()
                     )
-                    try {
-                        featureDatabase?.let { database ->
-                            val settings = featureSettings?.getFeatureSettings()
-                            val dao = database.research()
-                            val epoch = archiveEpoch ?: (dao.sequence()?.archiveEpoch ?: 0L).also { archiveEpoch = it }
-                            val eligible = settings?.researchFeature?.archiveEnabled == true && settings.researchFeature.enabled && settings.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH) && (dao.deleted("archive-clear") ?: 0) < createdAt
-                            snapshot.sources.forEach { source ->
-                                val revision = researchHash(source.json().toString())
-                                if (archivedRevisions[source.id] != revision) {
-                                    val body = if (source.bodyChunks.isEmpty()) {
-                                        source.passage
-                                    } else {
-                                        source.bodyChunks.joinToString("") { name ->
-                                            require(name.matches(Regex("[a-f0-9]{64}\\.chunk")))
-                                            val text = File(directory, name).readText()
-                                            require(researchHash(text) + ".chunk" == name)
-                                            text
-                                        }
-                                    }
-                                    dev.chungjungsoo.gptmobile.data.research.feature.ResearchArchiveIngestor.capture(database, source, authority, publicEvidence, chatId, turnId, eligible, epoch, researchHash(body), body.toByteArray().size.toLong(), automaticOrganization = settings?.researchFeature?.automaticOrganization == true)
-                                    archivedRevisions[source.id] = revision
-                                }
-                            }
-                        }
-                    } catch (cancel: kotlinx.coroutines.CancellationException) {
-                        throw cancel
-                    } catch (_: Exception) {
-                        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Research", "Archive index update failed; original run evidence remains retained", "W")
-                    }
+                    indexCommittedSources(snapshot)
+                    mutable.update { (it + (runId to session)).entries.sortedByDescending { entry -> entry.value.snapshot.updatedAt }.take(24).associate { entry -> entry.toPair() } }
+                    if (acceptedTools != null) dev.chungjungsoo.gptmobile.data.research.work.ResearchExaminationWorker.enqueue(appContext)
                     // Retention is incremental; never rescan the corpus per network chunk.
                     val retained = completedFiles ?: directory.listFiles().orEmpty()
                         .filter { it.extension == "json" && read(it)?.snapshot?.complete == true }
@@ -570,6 +647,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                 val dao = database.research()
                 dao.tombstone(dev.chungjungsoo.gptmobile.data.research.feature.ResearchDeletionTombstone("chat:$chatId", System.currentTimeMillis()))
                 dao.deleteBindings(chatId)
+                dao.deleteReportSections(chatId)
                 dao.deleteChatRoots("$chatId:")
                 dao.chatJobs(chatId).forEach { job ->
                     dao.job(job.copy(stage = dev.chungjungsoo.gptmobile.data.research.feature.ExaminationStage.CANCELED, terminalReason = "Conversation deleted", lease = job.lease + 1))
@@ -610,9 +688,12 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
             }
             directory.listFiles().orEmpty().filter { it.extension == "index" && it.name !in retainedIndexes }.forEach { AtomicFile(it).delete() }
             val featureChunks = featureDatabase?.research()?.retainedBodies().orEmpty().flatMap { runCatching { Json.decodeFromString<List<String>>(it) }.getOrDefault(emptyList()) }.toSet()
+            val pendingChunks = featureDatabase?.research()?.pendingIngestions().orEmpty().flatMap { row ->
+                (Json.parseToJsonElement(row.operation).jsonObject["source"] as? JsonObject)?.strings("bodyChunks").orEmpty()
+            }.toSet()
             val retainedChunks = retained.flatMap { name ->
                 runCatching { Json.parseToJsonElement(File(directory, name).readText()).jsonObject.strings("bodyChunks") }.getOrDefault(emptyList())
-            }.toSet() + featureChunks
+            }.toSet() + featureChunks + pendingChunks
             directory.listFiles().orEmpty().filter { it.extension == "chunk" && it.name !in retainedChunks }.forEach { AtomicFile(it).delete() }
             mutable.update { sessions -> sessions.filterValues { it.chatId != chatId } }
         }
@@ -631,9 +712,110 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
         }
     }
 
+    suspend fun reportSections(chatId: Int, owner: String, digest: String): Map<String, String> =
+        featureDatabase?.research()?.reportSections(chatId, owner, digest).orEmpty().associate { it.heading to it.body }
+
+    suspend fun saveReportSection(chatId: Int, owner: String, digest: String, heading: String, body: String) {
+        require(body.length <= 100_000 && heading.length <= 200)
+        val database = featureDatabase ?: return
+        database.withTransaction {
+            val dao = database.research()
+            check(dao.deleted("chat:$chatId") == null) { "Report owner was deleted" }
+            dao.reportSection(dev.chungjungsoo.gptmobile.data.research.feature.ResearchReportSection(researchHash("$chatId:$owner:$digest:$heading"), chatId, owner, digest, heading, body, System.currentTimeMillis()))
+        }
+    }
+
+    suspend fun featureDiagnostics(chatId: Int): JsonObject = withContext(Dispatchers.IO) {
+        val database = featureDatabase ?: return@withContext buildJsonObject { put("available", false) }
+        val dao = database.research()
+        database.withTransaction {
+            val receipts = dao.saveReceipts(chatId)
+            val jobs = dao.chatJobs(chatId)
+            val workIds = (receipts.mapNotNull { it.workId } + jobs.map { it.workId }).toSet()
+            val memberships = dao.allMemberships().filter { it.workId in workIds }
+            buildJsonObject {
+                put("schemaVersion", 1)
+                put("databaseVersion", 4)
+                put("scope", "selected_chat")
+                put("chatId", chatId)
+                put("archivedStudies", memberships.size)
+                put("protectedStudies", memberships.count { it.protectionReason != null })
+                put("pendingSaves", receipts.count { it.disposition == "SAVE_PENDING" })
+                put("failedSaves", receipts.count { it.disposition == "SAVE_FAILED" })
+                put("saveReceipts", Json.encodeToJsonElement(kotlinx.serialization.builtins.ListSerializer(dev.chungjungsoo.gptmobile.data.research.feature.ResearchSaveReceipt.serializer()), receipts))
+                put(
+                    "jobs",
+                    JsonArray(
+                        jobs.map { job ->
+                            buildJsonObject {
+                                put("actionId", job.jobId)
+                                put("jobId", job.jobId)
+                                put("workId", job.workId)
+                                put("versionId", job.requestedVersionId)
+                                put("examiner", job.profileUid)
+                                put("stage", job.stage.name)
+                                put("lease", job.lease)
+                                put("reason", job.terminalReason)
+                                put("updatedAt", job.updatedAt)
+                            }
+                        }
+                    )
+                )
+                put(
+                    "archive",
+                    JsonArray(
+                        memberships.map { membership ->
+                            buildJsonObject {
+                                put("workId", membership.workId)
+                                put("protection", membership.protectionReason)
+                                put("acceptedReviewId", membership.acceptedReviewId)
+                                put("verifiedVersionId", membership.verifiedVersionId)
+                                put("holdUntil", membership.holdUntil)
+                            }
+                        }
+                    )
+                )
+                put("historyCoverage", "Persisted latest job state and save receipts; earlier log events may be incomplete")
+            }
+        }
+    }
+
+    suspend fun retryPendingDiscovery(): Boolean = withContext(Dispatchers.IO) {
+        val database = featureDatabase ?: return@withContext true
+        var complete = true
+        for (row in database.research().pendingIngestions()) {
+            try {
+                val payload = Json.parseToJsonElement(row.operation).jsonObject
+                val source = ResearchSnapshot.parse(ResearchSnapshot("retry").json().let { JsonObject(it + ("sources" to JsonArray(listOf(requireNotNull(payload["source"]))))) })?.sources?.singleOrNull() ?: error("Invalid discovery outbox record")
+                val dao = database.research()
+                val chatId = payload.number("chatId")
+                val receiptId = row.id.removePrefix("ingest:")
+                if (dao.deleted("chat:$chatId") != null) {
+                    dao.acknowledge(row.id, row.createdAt)
+                    continue
+                }
+                val body = if (source.bodyChunks.isEmpty()) source.passage else readFeatureBody(source.bodyChunks) ?: error("Missing retained source body")
+                val epoch = payload.text("epoch").toLongOrNull() ?: error("Missing archive generation")
+                val policy = featureSettings?.getFeatureSettings()?.researchFeature
+                val version = dev.chungjungsoo.gptmobile.data.research.feature.ResearchArchiveIngestor.capture(database, source, payload.text("authority"), payload.text("publicEvidence") == "true" || source.publicCapture && source.retrievalReceipt.isNotBlank(), chatId, payload.text("turnId"), true, epoch, researchHash(body), body.toByteArray().size.toLong(), unexaminedLimit = policy?.unexaminedStudyLimit ?: 1000)
+                dao.saveReceipt(dev.chungjungsoo.gptmobile.data.research.feature.ResearchSaveReceipt(receiptId, payload.text("runId"), source.id, chatId, version.workId, version.versionId, if (dao.membership(version.workId) != null) "ARCHIVED" else "SUPPRESSED_BY_EXPLICIT_DELETION", updatedAt = System.currentTimeMillis()))
+                dao.acknowledge(row.id, row.createdAt)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                complete = false
+            }
+        }
+        complete
+    }
+
     suspend fun reconcileFeatureBodies() = withContext(Dispatchers.IO) {
         lock.withLock {
             val retained = featureDatabase?.research()?.retainedBodies().orEmpty().flatMap { Json.decodeFromString<List<String>>(it) }.toMutableSet()
+            featureDatabase?.research()?.pendingIngestions().orEmpty().forEach { row ->
+                val payload = Json.parseToJsonElement(row.operation).jsonObject
+                retained += (payload["source"] as? JsonObject)?.strings("bodyChunks").orEmpty()
+            }
             directory.listFiles().orEmpty().filter { it.extension == "source" }.forEach { file ->
                 val source = Json.parseToJsonElement(AtomicFile(file).openRead().use { it.readBytes().decodeToString() }).jsonObject
                 retained += source.strings("bodyChunks")

@@ -42,6 +42,21 @@ class ResearchDeliveryTest {
     private val unread = ResearchSource("S2", "https://example.org/surgery", "Hydrogen inhalation surgery trial", "Failed", failureReason = "Retrieval failed")
     private fun packet() = ResearchDeliveryPacket.build(ResearchSnapshot("Hydrogen inhalation", sources = listOf(read, unread), claims = listOf(ResearchClaim("Synthetic scores", "S1", passage, "Supported", exactQuoteVerified = true)), complete = false), ResearchReportDetail.BRIEF)
 
+    @Test fun defaultContributorBudgetRetainsExactEvidenceAlongsideQuestionsAndLimitations() {
+        val snapshot = packet().snapshot.copy(
+            questionPlan = listOf(dev.chungjungsoo.gptmobile.data.research.ResearchQuestion("Q1", "What did the trial measure?", "Exact passage")),
+            notes = listOf("Partial coverage; independent review unavailable.", "Additional context".repeat(100))
+        )
+        val brief = ResearchDeliveryPacket.build(snapshot, ResearchReportDetail.BRIEF, tokenBudget = 512)
+        assertTrue(brief.studies.isNotEmpty())
+        val serialized = brief.json().toString()
+        assertTrue(serialized.contains("20 participants"))
+        assertTrue(serialized.contains(read.url))
+        assertTrue(serialized.contains("Q1"))
+        assertTrue(serialized.contains("Partial coverage"))
+        assertTrue(serialized.toByteArray().size <= 512 * 3)
+    }
+
     @Test fun smallHandoffRetainsReadableEvidenceBeforeUnreadLeads() {
         val readable = read.copy(passage = passage.repeat(30))
         val leads = (2..18).map { unread.copy(id = "S$it", equivalenceGroup = "lead-$it") }
@@ -227,7 +242,7 @@ class ResearchDeliveryTest {
     }
 
     @Test fun detailedReportRetriesInToolFreeChaptersBeforeEvidenceFallback() = runTest {
-        val detailed = packet().copy(detail = ResearchReportDetail.DETAILED)
+        val detailed = packet().copy(snapshot = packet().snapshot.copy(task = "Hydrogen inhalation clinical trials"), detail = ResearchReportDetail.DETAILED)
         var generated = 0
         val headerOne = """
             ## Executive findings
@@ -326,5 +341,19 @@ class ResearchDeliveryTest {
         assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().single().text.contains("20 participants"))
         assertTrue(events.indexOfFirst { it is ProviderEvent.TextDelta } < events.indexOfFirst { it is ProviderEvent.Failed })
         assertFalse(events.contains(ProviderEvent.Completed))
+    }
+
+    @Test fun emptyExplicitAcquisitionCannotBypassTheEvidenceGuard() = runTest {
+        val draft = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                emit(ProviderEvent.TextDelta("Unsupported complete report."))
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val session = ResearchDeliverySession(draft, { null }, expectResearch = true) { _, _ -> error("No repair without evidence") }
+        val events = session.streamRound(emptyList(), emptyList()).toList()
+        assertTrue(events.any { it is ProviderEvent.Failed && it.message.startsWith("RESEARCH_PARTIAL") })
+        assertFalse(events.any { it == ProviderEvent.Completed })
+        assertFalse(events.filterIsInstance<ProviderEvent.TextDelta>().any { "Unsupported" in it.text })
     }
 }

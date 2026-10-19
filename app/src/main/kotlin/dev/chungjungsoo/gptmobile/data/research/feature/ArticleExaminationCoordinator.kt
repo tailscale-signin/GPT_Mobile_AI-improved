@@ -45,6 +45,8 @@ import kotlinx.serialization.json.Json
 @Serializable
 data class ExaminationCheckpoint(
     val schemaVersion: Int = 1,
+    val admittedAt: Long = 0,
+    val acceptedTools: ChatMcpToolConfig? = null,
     val rootWorkId: String? = null,
     val parentRunId: String? = null,
     val archiveEpoch: Long = 0,
@@ -68,6 +70,7 @@ data class IndependentAppraisalReport(val appraisalId: String, val artifactHash:
 @Serializable
 data class SourceValidationReceipt(val schemaVersion: Int = 1, val versionId: String, val contentHash: String, val retrievedAt: Long, val status: String, val owner: String, val providerReceiptIds: List<String> = emptyList())
 
+@Serializable
 data class ExaminationRequest(val workId: String, val profileUid: String = "", val chatId: Int = 0, val versionId: String? = null, val authority: String = "public", val origin: ExaminationOrigin = ExaminationOrigin.AUTHORIZED_RESEARCH, val rootWorkId: String? = null, val parentRunId: String? = null, val reexamine: Boolean = false)
 
 internal fun examinationAdmission(features: AppFeatureSettings, profile: PlatformV2, request: ExaminationRequest, tools: ChatMcpToolConfig): String? {
@@ -85,6 +88,8 @@ internal fun examinationAdmission(features: AppFeatureSettings, profile: Platfor
         else -> null
     }
 }
+
+data class ExaminationAdmissionResult(val jobId: String? = null, val blocker: String? = null, val message: String? = null)
 
 /** Application-owned jobs; UI disposal never owns the model/read coroutine. */
 @Singleton
@@ -114,6 +119,21 @@ class ArticleExaminationCoordinator @Inject constructor(
 
     /** Only the app's user-action path calls this; model tool arguments never control origin. */
     suspend fun userExamine(request: ExaminationRequest, currentTools: () -> ChatMcpToolConfig = { ChatMcpToolConfig() }): String = submit(request.copy(origin = ExaminationOrigin.USER_EXAMINE, rootWorkId = null, parentRunId = null), currentTools)
+    suspend fun submitUserAction(request: ExaminationRequest, tools: () -> ChatMcpToolConfig): ExaminationAdmissionResult = try {
+        ExaminationAdmissionResult(jobId = userExamine(request, tools))
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (failure: Exception) {
+        val message = failure.message.orEmpty()
+        val blocker = when {
+            message.contains("Choose an enabled examination") -> "EXAMINER_NOT_CONFIGURED"
+            message.contains("consent") -> "PAPER_PERMISSION_REQUIRED"
+            message.contains("disabled") -> "PROFILE_DISABLED"
+            message.contains("REQUIRED_REVIEWER_UNAVAILABLE") -> "REQUIRED_REVIEWER_UNAVAILABLE"
+            else -> "EXAMINATION_ADMISSION_BLOCKED"
+        }
+        ExaminationAdmissionResult(blocker = blocker, message = message)
+    }
     suspend fun automaticExamine(request: ExaminationRequest, currentTools: () -> ChatMcpToolConfig): String {
         require(request.origin != ExaminationOrigin.USER_EXAMINE)
         return submit(request, currentTools)
@@ -127,10 +147,13 @@ class ArticleExaminationCoordinator @Inject constructor(
         }
         return lock.withLock {
             val features = settings.getFeatureSettings()
-            val profile = requireNotNull(settings.fetchPlatformV2s().firstOrNull { it.uid == request.profileUid.ifBlank { (features.conversationResearch[request.chatId] ?: currentTools().research)?.crawlerProfileUid ?: features.researchFeature.crawlerProfileUid.orEmpty() } }) { "Choose an enabled examination profile" }
+            val profile = requireNotNull(settings.fetchPlatformV2s().firstOrNull { it.uid == ResearchProfileResolver.examinerUid(features, request.chatId, currentTools(), request.profileUid) }) { "Choose an enabled examination profile" }
             examinationAdmission(features, profile, request, currentTools())?.let { error(it) }
             val reviewPolicy = dev.chungjungsoo.gptmobile.data.delegation.DelegationPolicyResolver.suppressForCombined(features.delegationFor(profile.uid).normalized(), acceptedCombined)
-            if (reviewPolicy.reviewerEnabled && reviewPolicy.reviewMode == dev.chungjungsoo.gptmobile.data.delegation.DelegationReviewMode.REQUIRED) {
+            if (features.researchFeature.reviewerProfileUid != null) {
+                check(ResearchProfileResolver.dedicatedReviewer(features, settings.fetchPlatformV2s(), profile) != null) { "REQUIRED_REVIEWER_UNAVAILABLE: Select an enabled independent Research reviewer" }
+            }
+            if (features.researchFeature.reviewerProfileUid == null && reviewPolicy.reviewerEnabled && reviewPolicy.reviewMode == dev.chungjungsoo.gptmobile.data.delegation.DelegationReviewMode.REQUIRED) {
                 check(resolveReviewer(reviewPolicy, settings.fetchPlatformV2s(), profile) != null) { "Required independent reviewer unavailable; examination paused before reading" }
             }
             requireNotNull(archive.dao.work(request.workId)) { "Article is no longer available" }
@@ -145,19 +168,25 @@ class ArticleExaminationCoordinator @Inject constructor(
             val baseKey = researchHash("${request.workId}|${source.versionId}|${request.authority}|${request.chatId}|${profile.uid}|$policy|${request.origin}$acceptedRoot")
             val running = archive.dao.allJobs().firstOrNull {
                 it.workId == request.workId &&
+                    it.chatId == request.chatId &&
+                    it.origin == request.origin &&
                     it.profileUid == profile.uid &&
                     it.authority == request.authority &&
                     it.policyHash == policy &&
                     it.requestedVersionId == source.versionId &&
                     runCatching { Json.decodeFromString<ExaminationCheckpoint>(it.checkpointJson).combined == acceptedCombined }.getOrDefault(false) &&
+                    it.stage !in setOf(ExaminationStage.CANCELED, ExaminationStage.PAUSED, ExaminationStage.FAILED) &&
                     active[it.jobId]?.isActive == true
             }
-            if (running != null) return@withLock running.jobId
-            val dedup = if (request.reexamine) researchHash("$baseKey|${UUID.randomUUID()}") else baseKey
+            if (running != null && !request.reexamine && archive.dao.deleted("archive:${request.workId}") == null) return@withLock running.jobId
+            val explicitReadd = request.origin == ExaminationOrigin.USER_EXAMINE && (archive.dao.deleted("archive:${request.workId}") != null || archive.dao.membership(request.workId) == null)
+            val dedup = if (request.reexamine || explicitReadd) researchHash("$baseKey|${UUID.randomUUID()}") else baseKey
             val old = archive.dao.jobForKey(dedup)
-            if (old != null && (active[old.jobId]?.isActive == true || old.stage in COMPLETE)) return@withLock old.jobId
+            if (old != null && (active[old.jobId]?.isActive == true || old.stage in COMPLETE && Json.decodeFromString<ExaminationCheckpoint>(old.checkpointJson).pendingReviews.isNotEmpty())) return@withLock old.jobId
             val checkpoint = old?.checkpointJson ?: Json.encodeToString(
                 ExaminationCheckpoint(
+                    admittedAt = System.currentTimeMillis(),
+                    acceptedTools = currentTools(),
                     rootWorkId = request.rootWorkId,
                     parentRunId = request.parentRunId,
                     archiveEpoch = archive.dao.sequence()?.archiveEpoch ?: 0,
@@ -168,6 +197,13 @@ class ArticleExaminationCoordinator @Inject constructor(
             val record = ExaminationJob(old?.jobId ?: UUID.randomUUID().toString(), dedup, request.workId, source.versionId, request.origin, request.chatId, profile.uid, request.authority, policy, ExaminationStage.RESOLVING, checkpoint, updatedAt = System.currentTimeMillis(), lease = (old?.lease ?: 0) + 1)
             archive.database.withTransaction {
                 check(archive.dao.deleted("chat:${request.chatId}") == null)
+                if (request.origin == ExaminationOrigin.USER_EXAMINE) archive.dao.removeTombstone("archive:${request.workId}")
+                check(archive.dao.deleted("archive:${request.workId}") == null) { "STUDY_MANUALLY_DELETED: Save again explicitly before examining" }
+                val epoch = archive.dao.sequence()?.archiveEpoch ?: 0L
+                archive.dao.archive(request.workId, source.versionId, archive.dao.membership(request.workId)?.primaryTopicId ?: ResearchArchiveIngestor.DEFAULT_TOPIC, System.currentTimeMillis(), epoch)
+                val held = requireNotNull(archive.dao.membership(request.workId))
+                archive.dao.membership(held.copy(holdUntil = System.currentTimeMillis() + 24 * 60 * 60_000L))
+                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ResearchExamine", "ENQUEUED · actionId=${record.jobId} · jobId=${record.jobId} · workId=${record.workId} · versionId=${source.versionId} · chatId=${record.chatId} · examiner=${profile.uid}")
                 archive.dao.job(record)
                 archive.dao.root(BodyReference("job", record.jobId, source.versionId))
             }
@@ -198,7 +234,7 @@ class ArticleExaminationCoordinator @Inject constructor(
     }
     suspend fun pause(id: String) {
         val old = archive.dao.job(id) ?: return
-        if (old.stage in COMPLETE) return
+        if (old.stage in COMPLETE && Json.decodeFromString<ExaminationCheckpoint>(old.checkpointJson).pendingReviews.isNotEmpty()) return
         archive.dao.job(old.copy(stage = ExaminationStage.PAUSED, lease = old.lease + 1, terminalReason = "Paused; completed evidence retained", updatedAt = System.currentTimeMillis()))
         active[id]?.cancel(CancellationException("Examination paused"))
     }
@@ -210,7 +246,7 @@ class ArticleExaminationCoordinator @Inject constructor(
         suspend fun allowed(): Boolean {
             if (turnBudget?.snapshot()?.let { it.cancelled || it.closed } == true) return false
             val live = archive.dao.job(record.jobId) ?: return false
-            if (live.lease != record.lease || live.stage in setOf(ExaminationStage.PAUSED, ExaminationStage.CANCELED) || archive.dao.deleted("chat:${request.chatId}") != null) return false
+            if (archive.dao.deleted("archive:${record.workId}") != null || live.lease != record.lease || live.stage in setOf(ExaminationStage.PAUSED, ExaminationStage.CANCELED) || archive.dao.deleted("chat:${request.chatId}") != null) return false
             val features = settings.getFeatureSettings()
             val profiles = settings.fetchPlatformV2s()
             val current = profiles.firstOrNull { it.uid == profile.uid }
@@ -220,6 +256,7 @@ class ArticleExaminationCoordinator @Inject constructor(
             return request.chatId == 0 || chats.chatRoomDao().getChatRoomsByIds(listOf(request.chatId)).singleOrNull()?.isTemporary == false
         }
         suspend fun stage(value: ExaminationStage, reason: String? = null) {
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ResearchExamine", "STAGE · jobId=${record.jobId} · workId=${record.workId} · chatId=${record.chatId} · stage=$value")
             check(archive.dao.advanceJob(record.jobId, record.lease, value, Json.encodeToString(checkpoint), reason, System.currentTimeMillis()) == 1) { "Examination ownership changed" }
         }
         try {
@@ -239,7 +276,7 @@ class ArticleExaminationCoordinator @Inject constructor(
                         check(allowed()) { "Examination permission changed" }
                         val features = settings.getFeatureSettings()
                         val reviewPolicy = dev.chungjungsoo.gptmobile.data.delegation.DelegationPolicyResolver.suppressForCombined(features.delegationFor(profile.uid).normalized(), combined)
-                        val reviewer = resolveReviewer(reviewPolicy, settings.fetchPlatformV2s(), profile)
+                        val reviewer = ResearchProfileResolver.dedicatedReviewer(features, settings.fetchPlatformV2s(), profile) ?: resolveReviewer(reviewPolicy, settings.fetchPlatformV2s(), profile)
                         val options = features.delegationFor(profile.uid).deepResearch
                         val selection = features.conversationResearch[request.chatId] ?: currentTools().research ?: MultiSearchResearchSelection()
                         var version = checkpoint.versionId?.let { archive.dao.version(it) }
@@ -262,7 +299,14 @@ class ArticleExaminationCoordinator @Inject constructor(
                                     } else {
                                         academic.getPaper(identifier, ::allowed, access, refresh = true) ?: error("Article metadata is unavailable")
                                     }
-                                    paper to academic.read(paper, ::allowed, access, persistent = false, maxTextCharacters = 240000, targetedCrawl = features.researchFeature.targetedCrawl)
+                                    val initial = academic.read(paper, ::allowed, access, persistent = false, maxTextCharacters = 240000, targetedCrawl = features.researchFeature.targetedCrawl)
+                                    val evidence = if (initial.retrievalStatus !in setOf("read", "partially_read", "abstract_only", "blocked", "permission_denied")) {
+                                        val readers = toolResolver.get().resolve(profile.uid, currentTools(), dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(chatId = request.chatId, content = paper.canonicalUrl, platformType = null))
+                                        ResearchReaderRouter.fallback(paper, initial, readers, sessions, researchDomains(options.includeDomains), researchDomains(options.excludeDomains), ::allowed)
+                                    } else {
+                                        initial
+                                    }
+                                    paper to evidence
                                 }
                             } else {
                                 val available = toolResolver.get().resolve(profile.uid, currentTools(), dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(chatId = request.chatId, content = "", platformType = null), examinationRunKey = checkpoint.rootWorkId ?: "examination:${record.jobId}")
@@ -294,12 +338,14 @@ class ArticleExaminationCoordinator @Inject constructor(
                             check(evidence.text.length <= 240000 && (evidence.text.isEmpty() || evidence.textHash == researchHash(evidence.text))) { "Article text is oversized or its integrity check failed" }
                             val body = evidence.text.takeIf { evidence.retrievalStatus in setOf("read", "partially_read") } ?: paper.abstract
                             check(body.isNotBlank()) { evidence.retrievalStatus }
+                            check(dev.chungjungsoo.gptmobile.data.agent.tool.classifyResearchAccess(body) !in setOf(dev.chungjungsoo.gptmobile.data.agent.tool.ResearchAccessDisposition.CHALLENGE, dev.chungjungsoo.gptmobile.data.agent.tool.ResearchAccessDisposition.AUTH_REQUIRED)) { "SOURCE_CHALLENGE: Source access requires recovery; no scientific result accepted" }
                             val readable = evidence.retrievalStatus in setOf("read", "partially_read")
+                            val preview = dev.chungjungsoo.gptmobile.data.agent.tool.classifyResearchAccess(body) == dev.chungjungsoo.gptmobile.data.agent.tool.ResearchAccessDisposition.PREVIEW
                             val source = ResearchSource(
                                 "article", paper.canonicalUrl, paper.title,
                                 status = if (!readable) {
                                     "Abstract"
-                                } else if (evidence.retrievalStatus == "read") {
+                                } else if (evidence.retrievalStatus == "read" && !preview) {
                                     "Read"
                                 } else {
                                     "Partially read"
@@ -307,13 +353,20 @@ class ArticleExaminationCoordinator @Inject constructor(
                                 retrievedAt = evidence.retrievedAt, passage = body, doi = paper.doi, pmid = paper.identifiers["pmid"].orEmpty(), pmcid = paper.identifiers["pmcid"].orEmpty(),
                                 paperId = paper.paperId, versionId = evidence.versionId, reviewStatus = paper.reviewStatus, publicationType = paper.publicationType,
                                 publicationYear = paper.year, isPreprint = paper.isPreprint, isRetracted = paper.isRetracted, accessUrl = evidence.sourceUrl,
-                                retrievalQuality = if (readable) "FULL_TEXT" else "ABSTRACT"
+                                retrievalQuality = if (!readable) {
+                                    "ABSTRACT"
+                                } else if (evidence.retrievalStatus == "partially_read" || preview) {
+                                    "PARTIAL_TEXT"
+                                } else {
+                                    "FULL_TEXT"
+                                }
                             )
                             check(allowed())
-                            version = archive.capture(source, body, request.authority, archive.dao.version(requireNotNull(record.requestedVersionId))?.publicSource == true, request.chatId, record.jobId, features.researchFeature.archiveEnabled, checkpoint.archiveEpoch, ownerKind = if (request.chatId > 0) "chat" else "job", ownerId = if (request.chatId > 0) "${request.chatId}:${record.jobId}" else record.jobId)
+                            version = archive.capture(source, body, request.authority, archive.dao.version(requireNotNull(record.requestedVersionId))?.publicSource == true, request.chatId, record.jobId, true, checkpoint.archiveEpoch, ownerKind = if (request.chatId > 0) "chat" else "job", ownerId = if (request.chatId > 0) "${request.chatId}:${record.jobId}" else record.jobId)
                             check(version!!.workId == record.workId) { "Resolved article identity changed" }
                             text = body
-                            checkpoint = checkpoint.copy(sourceValidation = SourceValidationReceipt(versionId = version!!.versionId, contentHash = researchHash(body), retrievedAt = evidence.retrievedAt, status = if (readable) "fresh_text_captured" else "metadata_checked_abstract_only", owner = if (selection.gatewayConnectionUid == null) "native" else "selected_gateway", providerReceiptIds = evidence.providerReceipts), versionId = version!!.versionId, nextChunk = 0, coverage = verifiedStructuredCoverage(evidence), limitations = if (readable) listOf("Figures and supplementary material have not been independently verified") else listOf("Abstract only; full methods and results unavailable"))
+                            val sameCapture = checkpoint.versionId == version!!.versionId
+                            checkpoint = checkpoint.copy(sourceValidation = SourceValidationReceipt(versionId = version!!.versionId, contentHash = researchHash(body), retrievedAt = evidence.retrievedAt, status = if (readable) "fresh_text_captured" else "metadata_checked_abstract_only", owner = if (selection.gatewayConnectionUid == null) "native" else "selected_gateway", providerReceiptIds = evidence.providerReceipts), versionId = version!!.versionId, nextChunk = if (sameCapture) checkpoint.nextChunk else 0, pendingAppraisalIds = if (sameCapture) checkpoint.pendingAppraisalIds else emptyList(), independentReports = if (sameCapture) checkpoint.independentReports else emptyList(), pendingReviews = if (sameCapture) checkpoint.pendingReviews else emptyList(), coverage = verifiedStructuredCoverage(evidence), limitations = if (readable) listOf("Figures and supplementary material have not been independently verified") else listOf("Abstract only; full methods and results unavailable"))
                             archive.dao.root(BodyReference("job", record.jobId, version!!.versionId))
                         }
                         val captured = requireNotNull(version)
@@ -486,18 +539,23 @@ Outcome: ${Json.encodeToString(outcome)}
                             val artifactJson = Json.encodeToString(artifact)
                             reviews += ResearchStudyReview(researchHash("${record.jobId}|${record.lease}|${outcome.outcomeKey}|$artifactJson"), work.workId, captured.versionId, record.jobId, record.lease, profile.uid, profile.model, record.policyHash, captured.contentHash, ResearchReviewScoreCalculator.summaryHash(artifact), artifactJson, scores.reliability, scores.accuracy, scores.overall, scores.status, System.currentTimeMillis(), coverageJson = Json.encodeToString(checkpoint.coverage), design = design, rubricVersion = ResearchReviewRubric.VERSION)
                         }
+                        if (features.researchFeature.reviewerProfileUid != null || reviewPolicy.reviewerEnabled && reviewPolicy.reviewMode == dev.chungjungsoo.gptmobile.data.delegation.DelegationReviewMode.REQUIRED) {
+                            check(checkpoint.independentReports.isNotEmpty() && checkpoint.independentReports.all { it.verdict == "passed" }) { "REVIEW_OUTPUT_INVALID: Required independent review did not accept the grounding; prior assessment remains selected" }
+                        }
+                        check(reviews.isNotEmpty()) { if (checkpoint.limitations.any { it.contains("review packet budget") }) "REVIEW_PACKET_TOO_LARGE: Evidence retained; choose a profile with a larger review capacity before retrying" else "EXTRACTION_EMPTY: No grounded assessment was produced; retained evidence is available for retry" }
                         checkpoint = checkpoint.copy(pendingReviews = reviews.toList())
                         stage(ExaminationStage.APPRAISING, "Assessment validated; saving revision")
                         check(allowed())
                         archive.database.withTransaction {
                             check(archive.dao.job(record.jobId)?.lease == record.lease)
                             // A late completion cannot become current after a later examination starts.
-                            val newer = archive.dao.allJobs().any { it.workId == record.workId && it.updatedAt > record.updatedAt && it.jobId != record.jobId && it.stage in COMPLETE }
+                            val newer = archive.dao.jobsForWork(record.workId).any { it.jobId != record.jobId && it.stage in COMPLETE && runCatching { Json.decodeFromString<ExaminationCheckpoint>(it.checkpointJson).admittedAt > checkpoint.admittedAt }.getOrDefault(false) }
                             check(!newer) { "A newer assessment is already selected" }
                             reviews.forEach { archive.dao.studyReview(it.copy(jobLease = record.lease)) }
                             val membership = archive.dao.membership(record.workId)
-                            if (features.researchFeature.archiveEnabled && membership != null && (archive.dao.sequence()?.archiveEpoch ?: 0L) == checkpoint.archiveEpoch) {
-                                archive.dao.membership(membership.copy(latestVersionId = captured.versionId))
+                            if (membership != null && archive.dao.deleted("archive:${record.workId}") == null && (archive.dao.sequence()?.archiveEpoch ?: 0L) == checkpoint.archiveEpoch) {
+                                archive.dao.membership(membership.copy(latestVersionId = captured.versionId, protectionReason = "EVIDENCE_CHECKED", acceptedReviewId = reviews.first().reviewId, verifiedVersionId = captured.versionId, holdUntil = 0))
+                                archive.dao.root(BodyReference("assessment", record.workId, captured.versionId))
                                 archive.dao.root(BodyReference("archive", record.workId, captured.versionId))
                             }
                             val terminal = if (captured.coverage == ArticleCoverage.ABSTRACT_ONLY) {
@@ -537,7 +595,11 @@ Outcome: ${Json.encodeToString(outcome)}
                 dev.chungjungsoo.gptmobile.data.delegation.CanonicalModelIdentity.independence(it, appraiser) == dev.chungjungsoo.gptmobile.data.delegation.ModelIndependence.DIFFERENT
         }
     }
-    private fun policyHash(features: AppFeatureSettings, profile: PlatformV2, tools: ChatMcpToolConfig) = researchHash("study-review-rubric:${ResearchReviewRubric.VERSION}|" + Json.encodeToString(features.researchFeature) + Json.encodeToString(features.delegationFor(profile.uid)) + Json.encodeToString(tools) + Json.encodeToString(profile))
+    private fun policyHash(features: AppFeatureSettings, profile: PlatformV2, tools: ChatMcpToolConfig): String {
+        val policy = features.researchFeature
+        // Display, organization and recall changes do not invalidate an admitted examination.
+        return researchHash("study-review-rubric:${ResearchReviewRubric.VERSION}|${policy.appraisalMode}|${policy.targetedCrawl}|${policy.reviewerProfileUid}|" + Json.encodeToString(features.delegationFor(profile.uid)) + Json.encodeToString(tools.copy(research = null)) + Json.encodeToString(profile.copy(token = null, secretRef = null)))
+    }
     companion object {
         private val COMPLETE = setOf(ExaminationStage.COMPLETE_FULL, ExaminationStage.COMPLETE_PARTIAL, ExaminationStage.ABSTRACT_ONLY)
     }

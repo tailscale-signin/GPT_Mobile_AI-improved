@@ -25,6 +25,7 @@ internal object CombinedContributionUsability {
         val terminalFailure = status in setOf(AgentRunStatus.FAILED, AgentRunStatus.CANCELED, AgentRunStatus.INTERRUPTED)
         if (terminalFailure && (!allowPartial || status == AgentRunStatus.CANCELED)) return CombinedContributionAssessment(false, 0, "terminal_provider_failure")
         if (content.isBlank()) return CombinedContributionAssessment(false, 0, "empty_contribution")
+        if (content == "This model reached its response limit. Would you like me to continue?") return CombinedContributionAssessment(false, 0, "application_notice_only")
         if (rawActionMarkup.any { it.containsMatchIn(content) }) {
             return CombinedContributionAssessment(false, 0, "unresolved_action_markup")
         }

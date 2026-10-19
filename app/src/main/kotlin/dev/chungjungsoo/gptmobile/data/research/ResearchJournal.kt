@@ -5,6 +5,8 @@ interface ResearchJournal {
     fun sourceId(identity: String, fallback: String): String = fallback
     fun claimWork(key: String, leaseMillis: Long): Boolean = true
     fun releaseWork(key: String) = Unit
+    fun claimPublicWork(key: String, leaseMillis: Long): Boolean = claimWork(key, leaseMillis)
+    fun releasePublicWork(key: String) = releaseWork(key)
     fun readerHealth(): dev.chungjungsoo.gptmobile.data.agent.ResearchReaderHealth? = null
     fun budget(totalLogicalCalls: Int, downloadLimitBytes: Int = 512 * 1024 * 1024): dev.chungjungsoo.gptmobile.data.agent.ResearchBudget? = null
     fun goalBudget(plan: dev.chungjungsoo.gptmobile.data.model.EffectiveResearchPlan): dev.chungjungsoo.gptmobile.data.agent.ResearchBudget =

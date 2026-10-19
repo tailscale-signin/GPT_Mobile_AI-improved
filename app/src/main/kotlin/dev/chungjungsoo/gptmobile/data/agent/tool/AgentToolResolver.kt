@@ -192,7 +192,7 @@ class AgentToolResolver @Inject constructor(
                     runHealthReader,
                     accessAllowed = {
                         val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
-                        current == platform &&
+                        current?.let { dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.profileRevision(it) } == dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.profileRevision(platform) &&
                             current?.enabled == true &&
                             !current.disableAllTools &&
                             !current.disableLocalTools &&
@@ -659,7 +659,7 @@ class AgentToolResolver @Inject constructor(
                             current?.enabled == true &&
                             !current.disableAllTools &&
                             !current.disableRemoteTools &&
-                            features == featureSettings &&
+                            dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.policyRevision(features, profileUid, null) == dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.policyRevision(featureSettings, profileUid, null) &&
                             features.isToolPluginEnabledForProfile(profileUid, ToolPluginId.WEB_SEARCH) &&
                             (
                                 resolved.connectionUid == null ||
@@ -690,7 +690,7 @@ class AgentToolResolver @Inject constructor(
                 val previousCheck = resolved.canReuseResult
                 resolved.copy(canReuseResult = {
                     val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
-                    current == platform &&
+                    current?.let { dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.profileRevision(it) } == dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.profileRevision(platform) &&
                         current?.enabled == true &&
                         admittedBindings.isNotEmpty() &&
                         toolConnectionRepository.listBindingsWithConnections(profileUid).filter { it.binding.connectionUid == connection } == admittedBindings &&
@@ -1307,3 +1307,4 @@ private class MissingCredentialTool(
         isError = true
     )
 }
+

@@ -13,6 +13,16 @@ import org.junit.Test
 
 class CombinedToolExecutionBudgetTest {
     @Test
+    fun localCatalogSelectionWorksWithoutExternalWorkAllowance() = runBlocking {
+        val fixture = fixture(0)
+        val catalog = ProgressiveToolCatalog(listOf(AgentToolDefinition("read_url", "Read a page", JsonObject(emptyMap()))), "research")
+        val result = fixture.wrapper().bind(catalog).execute("discover", kotlinx.serialization.json.buildJsonObject { put("query", JsonPrimitive("read_url")) })
+        assertFalse(result.isError)
+        assertFalse(result.dispatched)
+        assertTrue(fixture.store.open(fixture.context).snapshot().reservations.isEmpty())
+    }
+
+    @Test
     fun nativeAndRepositoryWrappersChargeOnePhysicalCallOnce() = runBlocking {
         val fixture = fixture(2)
         var executions = 0
@@ -138,3 +148,4 @@ class CombinedToolExecutionBudgetTest {
         fun wrapper() = ToolExecutionBudget(AgentRunLimits(maxToolCalls = 20, combined = context), combined = context, combinedBudgets = store)
     }
 }
+

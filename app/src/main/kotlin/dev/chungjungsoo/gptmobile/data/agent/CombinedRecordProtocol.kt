@@ -48,6 +48,10 @@ internal class CombinedRecordProtocol(
     private var failure: String? = null
     private var recordCharacters = 0L
     private var visibleCharacters = 0L
+    private var scanned = 0
+    private var scanDepth = 0
+    private var scanQuoted = false
+    private var scanEscaped = false
     private val binding = initial.copy(records = emptyList(), pending = "", recoveredFragments = emptyList(), failure = null)
 
     init {
@@ -76,9 +80,28 @@ internal class CombinedRecordProtocol(
                     break
                 }
                 if (first > 0) pending.delete(0, first)
+                // Providers sometimes wrap otherwise valid JSONL in a Markdown fence.
+                // Accept only the wrapper; record validation and commit authority stay strict.
+                if (pending[0] == '`') {
+                    val newline = pending.indexOf("\n")
+                    if (newline < 0) {
+                        if (records.lastOrNull()?.id == "END" && pending.toString().trim() == "```") {
+                            pending.setLength(0)
+                        }
+                        break
+                    }
+                    val fence = pending.substring(0, newline).trim()
+                    require(
+                        records.isEmpty() && fence in setOf("```", "```json", "```jsonl", "```ndjson") ||
+                            records.lastOrNull()?.id == "END" && fence == "```"
+                    ) { "INVALID_DELIVERY_RECORD" }
+                    pending.delete(0, newline + 1)
+                    continue
+                }
                 require(pending[0] == '{') { "INVALID_DELIVERY_RECORD" }
                 val end = objectEnd(0) ?: break
                 val raw = pending.substring(0, end)
+                resetScan()
                 val row = Json.parseToJsonElement(raw) as? JsonObject ?: error("INVALID_DELIVERY_RECORD")
                 val wire = canonical(row).toString()
                 fun text(key: String): String = (row[key] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: error("INVALID_DELIVERY_RECORD:$key")
@@ -144,6 +167,7 @@ internal class CombinedRecordProtocol(
         val partial = pending.toString()
         if (partial.isNotBlank()) fragments += CombinedUncommittedFragment(records.size + 1, partial)
         pending.setLength(0)
+        resetScan()
         return JsonObject(
             mapOf(
                 "protocol" to JsonPrimitive("PASSAGES_V3"),
@@ -156,29 +180,36 @@ internal class CombinedRecordProtocol(
     }
 
     private fun objectEnd(start: Int): Int? {
-        var depth = 0
-        var quoted = false
-        var escaped = false
-        for (index in start until pending.length) {
-            val char = pending[index]
-            if (quoted) {
+        // Scan only newly appended characters. Rescanning the growing fragment on
+        // every streamed token made long structured passages quadratic work.
+        if (scanned < start) scanned = start
+        while (scanned < pending.length) {
+            val char = pending[scanned++]
+            if (scanQuoted) {
                 when {
-                    escaped -> escaped = false
-                    char == '\\' -> escaped = true
-                    char == '"' -> quoted = false
+                    scanEscaped -> scanEscaped = false
+                    char == '\\' -> scanEscaped = true
+                    char == '"' -> scanQuoted = false
                 }
             } else {
                 when (char) {
-                    '"' -> quoted = true
-                    '{', '[' -> depth++
+                    '"' -> scanQuoted = true
+                    '{', '[' -> scanDepth++
                     '}', ']' -> {
-                        depth--
-                        if (depth == 0) return index + 1
+                        scanDepth--
+                        if (scanDepth == 0) return scanned
                     }
                 }
             }
         }
         return null
+    }
+
+    private fun resetScan() {
+        scanned = 0
+        scanDepth = 0
+        scanQuoted = false
+        scanEscaped = false
     }
 
     companion object {
@@ -202,3 +233,4 @@ internal class CombinedRecordProtocol(
         }
     }
 }
+

@@ -27,6 +27,24 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AndroidResearchWorkflowTest {
+    @Test fun resumedPlanWithoutACursorDispatchesAnUndispatchedFallbackQuery() = runBlocking {
+        val journal = Journal().apply {
+            snapshot = ResearchSnapshot("Research device request limits", questions = listOf("What are the request limits?"))
+        }
+        var searches = 0
+        val delegated = search()
+        val counted = delegated.copy(tool = object : AgentTool {
+            override val definition = delegated.tool.definition
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                searches++
+                return delegated.tool.execute(callId, arguments)
+            }
+        })
+        val result = AndroidResearchWorkflow(config(1), listOf(counted, reader()), ::model, journal).run("Research device request limits", "resume-planned")
+        assertTrue(searches > 0)
+        assertTrue(result.pagesRead > 0)
+    }
+
     @Test fun `memory pressure pauses before source admission without running fixture tools`() = runBlocking {
         val journal = Journal()
         var calls = 0
@@ -729,3 +747,4 @@ class AndroidResearchWorkflowTest {
         assertTrue(result.handoff.contains("unreviewed", ignoreCase = true) || result.handoff.contains("unverified", ignoreCase = true))
     }
 }
+

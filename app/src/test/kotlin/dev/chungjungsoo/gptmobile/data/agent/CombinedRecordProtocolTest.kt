@@ -13,6 +13,27 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CombinedRecordProtocolTest {
+    @Test fun fencedJsonRecordsSurviveEveryTransportBoundaryAndCheckpointRestore() {
+        val wire = "```jsonl\n" + passage(1, "Exact quoted text with { braces } and a backslash \\") + "\n" +
+            """{"type":"end","seq":2,"id":"END","lastSeq":1}""" + "\n```"
+        for (cut in 0..wire.length) {
+            val first = protocol()
+            first.accept(wire.take(cut))
+            val restored = protocol(first.checkpoint())
+            restored.accept(wire.drop(cut))
+            assertNull("boundary $cut", restored.checkpoint().failure)
+            assertTrue("boundary $cut", restored.checkpoint().ended)
+            assertTrue("boundary $cut", restored.checkpoint().pending.isBlank())
+        }
+    }
+
+    @Test fun proseOutsideRecordsIsStillRejected() {
+        val parser = protocol()
+        parser.accept("Here is the answer:\n" + passage(1, "Text"))
+        assertEquals("INVALID_DELIVERY_RECORD", parser.checkpoint().failure)
+        assertTrue(parser.checkpoint().records.isEmpty())
+    }
+
     private fun protocol(state: CombinedRecordCheckpoint = CombinedRecordCheckpoint(snapshotDigest = "snapshot", revisionId = "revision")) =
         CombinedRecordProtocol(state, setOf("C1.1", "C1.2"), setOf("C1"), setOf("E1"), 100_000)
 
@@ -118,3 +139,4 @@ class CombinedRecordProtocolTest {
         }
     }
 }
+

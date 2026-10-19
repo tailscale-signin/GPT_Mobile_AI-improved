@@ -65,7 +65,9 @@ internal object ConfiguredDispatchAuthority {
     internal fun policyRevision(features: AppFeatureSettings, uid: String, chatId: Int?): String = researchHash(
         buildJsonObject {
             put("budget", Json.encodeToJsonElement(features.tokenBudget))
-            put("spend", Json.encodeToJsonElement(features.spendBudget))
+            // Quote refresh timestamps and provenance are telemetry, not authority.
+            // Keep the actual rates and limits so a cost-changing edit still blocks dispatch.
+            put("spend", Json.encodeToJsonElement(features.spendBudget.copy(prices = features.spendBudget.prices.mapValues { (_, price) -> price.copy(checkedAt = 0, source = "") })))
             put("profile", Json.encodeToJsonElement(features.profileBehavior[uid]))
             put("plugins", Json.encodeToJsonElement(features.pluginExecution))
             put("tools", Json.encodeToJsonElement(features.toolPluginStates))
@@ -81,3 +83,4 @@ internal object ConfiguredDispatchAuthority {
         }.toString()
     )
 }
+

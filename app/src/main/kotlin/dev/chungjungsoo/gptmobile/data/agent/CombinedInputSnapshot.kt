@@ -49,7 +49,7 @@ data class CombinedInputSnapshot(
         return copy(inputDigest = contentDigest())
     }
 
-    private companion object {
-        val SNAPSHOT_JSON = kotlinx.serialization.json.Json { encodeDefaults = true }
+    companion object {
+        private val SNAPSHOT_JSON = kotlinx.serialization.json.Json { encodeDefaults = true }
     }
 }

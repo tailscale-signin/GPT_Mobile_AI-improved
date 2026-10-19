@@ -33,13 +33,15 @@ class AndroidResearchWorkflowTest {
         }
         var searches = 0
         val delegated = search()
-        val counted = delegated.copy(tool = object : AgentTool {
-            override val definition = delegated.tool.definition
-            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
-                searches++
-                return delegated.tool.execute(callId, arguments)
+        val counted = delegated.copy(
+            tool = object : AgentTool {
+                override val definition = delegated.tool.definition
+                override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                    searches++
+                    return delegated.tool.execute(callId, arguments)
+                }
             }
-        })
+        )
         val result = AndroidResearchWorkflow(config(1), listOf(counted, reader()), ::model, journal).run("Research device request limits", "resume-planned")
         assertTrue(searches > 0)
         assertTrue(result.pagesRead > 0)

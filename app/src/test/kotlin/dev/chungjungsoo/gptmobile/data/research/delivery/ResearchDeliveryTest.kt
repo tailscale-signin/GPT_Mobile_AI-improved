@@ -26,7 +26,10 @@ class ResearchDeliveryTest {
                 emit(ProviderEvent.Completed)
             }
         }
-        val session = ResearchDeliverySession(writer, { evidence }, true) { _, _ -> writerCalls++; writer }
+        val session = ResearchDeliverySession(writer, { evidence }, true) { _, _ ->
+            writerCalls++
+            writer
+        }
         val events = session.streamRound(emptyList(), emptyList()).toList()
         assertEquals(1, writerCalls)
         assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().any { it.text.contains("S2") })

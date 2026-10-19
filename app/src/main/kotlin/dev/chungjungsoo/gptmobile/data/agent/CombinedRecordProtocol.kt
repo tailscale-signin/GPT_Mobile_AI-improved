@@ -92,8 +92,10 @@ internal class CombinedRecordProtocol(
                     }
                     val fence = pending.substring(0, newline).trim()
                     require(
-                        records.isEmpty() && fence in setOf("```", "```json", "```jsonl", "```ndjson") ||
-                            records.lastOrNull()?.id == "END" && fence == "```"
+                        records.isEmpty() &&
+                            fence in setOf("```", "```json", "```jsonl", "```ndjson") ||
+                            records.lastOrNull()?.id == "END" &&
+                            fence == "```"
                     ) { "INVALID_DELIVERY_RECORD" }
                     pending.delete(0, newline + 1)
                     continue

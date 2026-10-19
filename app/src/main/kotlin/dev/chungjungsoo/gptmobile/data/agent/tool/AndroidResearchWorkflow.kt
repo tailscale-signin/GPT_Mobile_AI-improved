@@ -276,7 +276,11 @@ internal class AndroidResearchWorkflow(
                     nextQueries = state.frontierCursors.keys.toList().ifEmpty {
                         // An interrupted plan may have no dispatched query/cursor yet.
                         // Restart only undispatched deterministic queries, preserving completed work.
-                        ResearchPlanContract.fallback(task).queries.map { it.text }.filterNot { it in queries }
+                        if (queries.isEmpty() && collectionWorkCount() == 0) {
+                            ResearchPlanContract.fallback(task).queries.map { it.text }
+                        } else {
+                            emptyList()
+                        }
                     }
                     state = state.copy(notes = state.notes + "Resumed this turn’s shared research corpus and retained budget.")
                 }
@@ -318,7 +322,7 @@ internal class AndroidResearchWorkflow(
                     nextQueries = assessment?.strings("queries").orEmpty().take(2)
                     state = state.copy(notes = (state.notes + assessment?.strings("missing").orEmpty().map { "Unresolved: ${it.take(240)}" }).distinct().take(20))
                     if (nextQueries.isEmpty()) {
-                        if (assessment != null && coverage().complete) break
+                        if (assessment != null && (coverage().complete || read > 0)) break
                         nextQueries = listOf((task.take(400) + " " + listOf("overview", "research", "evidence", "analysis", "results", "limitations", "review")[round % 7] + " " + (round / 7 + 1)).take(500))
                     }
                     round = Math.incrementExact(round)

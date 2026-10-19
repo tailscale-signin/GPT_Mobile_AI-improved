@@ -43,8 +43,17 @@ internal object DirectResearchModelFactory {
         fun endpoint(target: PlatformV2): ResearchModelEndpoint {
             val local = target.compatibleType == ClientType.LITERT_LM
             val identity = CanonicalModelIdentity.resolve(target).canonical.orEmpty()
+            // Request temperature/model overlays are distinct from registered authority.
+            val registered = profiles.singleOrNull { it.uid == target.uid }
+            val destinationMatches = registered != null &&
+                registered.compatibleType == target.compatibleType &&
+                registered.apiUrl == target.apiUrl &&
+                registered.token == target.token &&
+                registered.secretRef == target.secretRef &&
+                registered.providerConnectionUid == target.providerConnectionUid
             suspend fun permitted(): Boolean = stillEnabled() &&
-                liveProfiles().any { it == target && it.enabled } &&
+                destinationMatches &&
+                liveProfiles().singleOrNull { it.uid == target.uid }?.let { it == registered && it.enabled } == true &&
                 (!local || liveFeatures().let { live -> live.assistEnabled() && policy.shareDerivedEvidence && live.effectiveAssistPolicy() == policy && policy.allowsProcessing(target) }) &&
                 (target.uid == primary.uid || local || liveFeatures().delegationFor(primary.uid).let { live -> live.reviewerEnabled && live.reviewerProfileUid == config.reviewerProfileUid && (target.isPrivateDestination() || live.remoteWorkersAllowed()) })
             return ResearchModelEndpoint(

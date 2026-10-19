@@ -21,7 +21,9 @@ data class ToolIdentity(val plugin: String, val instance: String, val capability
     companion object {
         fun of(name: String, connection: String? = null): ToolIdentity {
             val marketplace = dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog.packages.firstOrNull { name.startsWith(it.preset.alias + "__") }
-            val plugin = if (marketplace != null && connection == null) {
+            val plugin = if (name.startsWith("universal_marketplace__") || connection == "optional-universal-marketplace") {
+                "service:universal-marketplace"
+            } else if (marketplace != null && connection == null) {
                 dev.chungjungsoo.gptmobile.data.model.ToolServiceCatalog.forPackage(marketplace).id
             } else if (connection != null) {
                 ToolPluginId.connection(connection)

@@ -572,7 +572,10 @@ class ChatRepositoryImpl(
         val invocationContext = kotlinx.coroutines.currentCoroutineContext()
         val inheritedCombined = invocationContext[dev.chungjungsoo.gptmobile.data.agent.CombinedToolDispatchScope]?.context
             ?: invocationContext[dev.chungjungsoo.gptmobile.data.agent.CombinedRunScope]?.context
-        val combined = inheritedCombined?.forRole(dev.chungjungsoo.gptmobile.data.agent.CombinedRunRole.RESEARCH, platform.uid, inheritedCombined.workItemId)
+        val combined = inheritedCombined?.let { parent ->
+            val assigned = combinedBudgets.open(parent).assignedContext(parent)
+            assigned.forRole(dev.chungjungsoo.gptmobile.data.agent.CombinedRunRole.RESEARCH, platform.uid, assigned.workItemId)
+        }
         val researchOutputTokens = combined?.plan?.outputTokens(dev.chungjungsoo.gptmobile.data.agent.CombinedRunRole.RESEARCH)?.let { minOf(outputTokens, it) } ?: outputTokens
         val turns = listOf(ConversationTurn(MessageV2(content = prompt, platformType = null), null, true))
         val constraints = RequestConstraints(maxOutputTokens = researchOutputTokens, allowTools = false, allowReasoning = false, allowGatewayLocalTools = false, requestRole = role, freshResponse = true, combined = combined)
@@ -998,6 +1001,18 @@ class ChatRepositoryImpl(
             !chatToolConfig.allToolsDisabled &&
             chatToolConfig.allowAllByDefault &&
             chatToolConfig.disabledToolIds.isEmpty()
+        val currentCombinedScope = kotlinx.coroutines.currentCoroutineContext()
+        val parentCombined = currentCombinedScope[dev.chungjungsoo.gptmobile.data.agent.CombinedToolDispatchScope]?.context
+            ?: currentCombinedScope[dev.chungjungsoo.gptmobile.data.agent.CombinedRunScope]?.context
+            ?: chatToolConfig.combined
+        val childCombined = parentCombined?.let { parent ->
+            val assigned = combinedBudgets.open(parent).assignedContext(parent)
+            assigned.forRole(
+                if (requestRole.contains("verif")) dev.chungjungsoo.gptmobile.data.agent.CombinedRunRole.VERIFIER else dev.chungjungsoo.gptmobile.data.agent.CombinedRunRole.RESEARCH,
+                target.uid,
+                assigned.workItemId
+            )
+        }
         val constraints = RequestConstraints(
             maxOutputTokens = maxTokens,
             allowTools = childTools.isNotEmpty() || allowGatewayLocalTools,
@@ -1008,10 +1023,7 @@ class ChatRepositoryImpl(
             allowGatewayLocalTools = allowGatewayLocalTools,
             requestRole = requestRole,
             attemptId = attemptId,
-            combined = chatToolConfig.combined?.forRole(
-                if (requestRole.contains("verif")) dev.chungjungsoo.gptmobile.data.agent.CombinedRunRole.VERIFIER else dev.chungjungsoo.gptmobile.data.agent.CombinedRunRole.RESEARCH,
-                target.uid
-            )
+            combined = childCombined
         )
         val bounded = target.copy(
             batchMode = false,
@@ -1909,7 +1921,8 @@ class ChatRepositoryImpl(
                             platform.systemPrompt,
                             exposedTools.map { it.modelToolName },
                             compact = localResearch || limits.contextTokens < 4096,
-                            deferCapabilities = platform.compatibleType == ClientType.LITERT_LM
+                            deferCapabilities = platform.compatibleType == ClientType.LITERT_LM,
+                            researchReport = chatToolConfig?.research?.researchToggle == true
                         ) + (if (quickRepliesEnabled && !synthesisRun) dev.chungjungsoo.gptmobile.data.agent.CHAT_QUICK_REPLY_INSTRUCTION else "") + projectInstructions.takeIf { it.isNotBlank() }?.let { "\nProject instructions supplied by the user:\n$it" }.orEmpty() + recoveryInstruction + progressInstruction + delegationInstruction + synthesisInstruction + contributorInstruction +
                             if (reviewedPreparationUnavailable) "\nRequired delegate preparation or independent review could not finish. Do not do the task independently or present rejected delegate claims as verified facts. Explain the limitation and suggest retrying with a working delegate/reviewer or explicitly choosing primary-only recovery." else ""
                     }
@@ -3014,7 +3027,7 @@ class ChatRepositoryImpl(
                         deliveryPlatform,
                         if (textOnly) emptyList() else effectiveTools.map { it.tool },
                         deliveryConstraints,
-                        fallbackSystemPrompt = liveToolSystemPrompt(platform.systemPrompt, emptyList(), compact = true, deferCapabilities = true),
+                        fallbackSystemPrompt = liveToolSystemPrompt(platform.systemPrompt, emptyList(), compact = true, deferCapabilities = true, researchReport = chatToolConfig?.research?.researchToggle == true),
                         progressSettings = progressSettings
                     )
                 }

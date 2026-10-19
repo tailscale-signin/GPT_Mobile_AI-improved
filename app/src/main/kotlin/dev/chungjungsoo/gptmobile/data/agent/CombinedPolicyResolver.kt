@@ -14,7 +14,8 @@ object CombinedPolicyResolver {
         acceptedAtMillis: Long = System.currentTimeMillis(),
         settingsRevision: Long = settings.revision,
         preferredOwnerUid: String? = null,
-        requestedTemperatures: Map<String, Float?> = emptyMap()
+        requestedTemperatures: Map<String, Float?> = emptyMap(),
+        acceptedResearch: CombinedResearchRequirement? = null
     ): CombinedRequestedPolicy {
         require(settings.isSupported) { "This conversation uses a newer Combined settings version." }
         val participants = participantUids.filter(String::isNotBlank).distinct()
@@ -27,7 +28,8 @@ object CombinedPolicyResolver {
             preferredOwnerUid = preferredOwnerUid?.takeIf { it in participants },
             userPrompt = userPrompt,
             acceptedAtMillis = acceptedAtMillis,
-            settingsRevision = settingsRevision
+            settingsRevision = settingsRevision,
+            acceptedResearch = acceptedResearch
         )
         return requested.copy(requestedPolicyDigest = combinedDigest(Json.encodeToString(requested)))
     }
@@ -117,7 +119,7 @@ object CombinedPolicyResolver {
             "contributor:$uid" in baseline && caps.none { it.profileUid == uid && it.name == "profileMaxToolCalls" && it.value == 0L }
         }
         val fundingOwner = fundingUid?.let { "contributor:$it" }
-        var mandatoryFunded = mandatoryCalls == 0L
+        var mandatoryFunded = mandatoryCalls == 0L && (toolsAllowed || mandatoryEvidence.isEmpty())
         if (fundingOwner != null && mandatoryCalls > 0) {
             // This is one turn-wide assignment, not N copies for N contributors. Reserve enough
             // bounded request replays even if a provider makes one acquisition per round.

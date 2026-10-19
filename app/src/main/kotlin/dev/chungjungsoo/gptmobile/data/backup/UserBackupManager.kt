@@ -23,6 +23,8 @@ data class UserBackupData(
     val version: Int = BACKUP_VERSION,
     val exportedAt: Long = System.currentTimeMillis(),
     val chatRooms: List<ChatRoomV2> = emptyList(),
+    val marketplaceSearches: List<dev.chungjungsoo.gptmobile.data.universalmarketplace.MarketplaceSavedSearch> = emptyList(),
+    val marketplaceBookmarks: List<dev.chungjungsoo.gptmobile.data.universalmarketplace.MarketplaceBookmark> = emptyList(),
     val conversationFolders: List<dev.chungjungsoo.gptmobile.data.chat.ConversationFolder> = emptyList(),
     val conversationFolderMembers: List<dev.chungjungsoo.gptmobile.data.chat.ConversationFolderMember> = emptyList(),
     val messages: List<MessageV2> = emptyList(),
@@ -149,6 +151,8 @@ class UserBackupManager(
 
         return UserBackupData(
             chatRooms = chatRooms,
+            marketplaceSearches = if (options.includeTools) database.marketplaceSavesDao().searches() else emptyList(),
+            marketplaceBookmarks = if (options.includeTools) database.marketplaceSavesDao().bookmarks() else emptyList(),
             conversationFolders = if (options.includeChatHistory) database.conversationFolderDao().folders() else emptyList(),
             conversationFolderMembers = if (options.includeChatHistory) database.conversationFolderDao().members().filter { member -> chatRooms.any { it.id == member.chatId } } else emptyList(),
             messages = messages,
@@ -187,6 +191,8 @@ class UserBackupManager(
                 database.chatRoomDao().addChatRoom(room)
             }
 
+            data.marketplaceSearches.forEach { database.marketplaceSavesDao().save(it) }
+            data.marketplaceBookmarks.forEach { database.marketplaceSavesDao().save(it) }
             data.conversationFolders.forEach { database.conversationFolderDao().restoreFolder(it) }
             data.conversationFolderMembers.forEach { database.conversationFolderDao().move(it) }
 

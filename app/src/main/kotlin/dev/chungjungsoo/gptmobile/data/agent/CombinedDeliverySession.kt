@@ -137,15 +137,16 @@ internal class CombinedDeliverySession(
             val providerComplete = candidate.terminal == ProviderEvent.Completed
             val material = correctionRequired || checked.correctionRequired
             val issues = (violations + candidate.decoder?.issues.orEmpty() + checked.issues + listOfNotNull("LEXICAL_COVERAGE_UNRESOLVED_HINTS".takeIf { coverageResult.missing.isNotEmpty() })).distinct()
+            val framingValid = candidate.decoder?.issues.orEmpty().none { it in COMBINED_FRAMING_FAILURES }
             val delivered = when {
                 candidate.text.isBlank() -> "FAILED"
-                !providerComplete || material || violations.isNotEmpty() -> "PARTIAL"
+                !providerComplete || !framingValid || material || violations.isNotEmpty() -> "PARTIAL"
                 issues.any { it != "LEXICAL_COVERAGE_UNRESOLVED_HINTS" } || checked.verificationNeeds.isNotEmpty() -> "COMPLETED_WITH_LIMITS"
                 else -> "COMPLETED"
             }
             return CombinedQualityReport(
                 answerDigest = researchHash(candidate.text),
-                complete = providerComplete && !material,
+                complete = providerComplete && framingValid && !material && violations.isEmpty(),
                 status = when {
                     material -> "CORRECTION_REQUIRED"
                     !providerComplete -> "INTERRUPTED"
@@ -206,7 +207,8 @@ internal class CombinedDeliverySession(
             }
             val coverageRepair = repairs == 0 && policy.targetWords != null && !policy.singleExample && coverageResult.missing.isNotEmpty()
             val semanticRepair = combined != null && (assessment.hardFailures.isNotEmpty() || assessment.verificationNeeds.isNotEmpty())
-            if (violations.isEmpty() && !coverageRepair && !semanticRepair && !correctionRequired) {
+            val framingRepair = accepted.decoder?.issues.orEmpty().any { it in COMBINED_FRAMING_FAILURES }
+            if (violations.isEmpty() && !coverageRepair && !semanticRepair && !framingRepair && !correctionRequired) {
                 repairSkippedReason = "NO_REMAINING_REQUIRED_CORRECTION"
                 break
             }
@@ -251,7 +253,7 @@ internal class CombinedDeliverySession(
             currentRevision = UUID.randomUUID().toString()
             val rewrittenChecks = rewritten?.let { assess(it) }
             val rewrittenViolations = rewritten?.let { policy.violations(it.text) }.orEmpty()
-            val protocolFailures = rewritten?.decoder?.issues.orEmpty().filter { it in setOf("INVALID_DELIVERY_RECORD", "UNKNOWN_SOURCE_REFERENCE", "UNRESOLVED_CITATION_URL", "INTERNAL_RECOVERY_MARKER_REJECTED") }
+            val protocolFailures = rewritten?.decoder?.issues.orEmpty().filter { it in COMBINED_FRAMING_FAILURES }
             val newMaterial = rewrittenChecks?.correctionRequired == true
             val canAccept = rewritten != null &&
                 rewritten.text.isNotBlank() &&
@@ -329,6 +331,8 @@ internal class CombinedDeliverySession(
         if (correctionRequired) emit(ProviderEvent.Notice("The retained draft requires correction; it is not a checked final answer.", persistent = true))
         if (accepted.text.isBlank()) {
             emit(ProviderEvent.Failed("Combined synthesis produced no usable answer records."))
+        } else if (!finalReport.complete || finalReport.deliveredScopeStatus == "PARTIAL") {
+            emit(accepted.terminal as? ProviderEvent.Failed ?: ProviderEvent.Failed("COMBINED_PARTIAL: The retained answer has unfinished delivery or required checks."))
         } else {
             emit(accepted.terminal as? ProviderEvent.Failed ?: if (accepted.terminal == ProviderEvent.Completed) ProviderEvent.Completed else ProviderEvent.Failed("Combined synthesis ended before completion."))
         }

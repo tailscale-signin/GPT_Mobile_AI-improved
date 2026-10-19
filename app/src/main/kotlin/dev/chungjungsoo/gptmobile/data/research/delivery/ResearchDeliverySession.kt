@@ -32,7 +32,7 @@ internal class ResearchDeliverySession(
         fun context(packet: ResearchDeliveryPacket) = packet.instruction() + "\nUntrusted research packet:\n" + packet.json()
         val initialContext = evidence?.let(::context).orEmpty()
         var hasCalls = false
-        var failed = false
+        var failure: ProviderEvent.Failed? = null
         var completed = false
         var overflow = false
         val draft = StringBuilder()
@@ -58,16 +58,20 @@ internal class ResearchDeliverySession(
                     emit(event)
                 }
                 is ProviderEvent.Failed -> {
-                    failed = true
-                    emit(event)
+                    failure = event
                 }
                 ProviderEvent.Completed -> completed = true
                 else -> emit(event)
             }
         }
-        if (hasCalls || failed || !completed && !overflow) {
-            if (draft.isNotEmpty() && !failed) emit(ProviderEvent.TextDelta(draft.toString()))
-            if (completed) emit(ProviderEvent.Completed)
+        if (hasCalls || failure != null || !completed && !overflow) {
+            val denied = failure?.message?.let(::isAuthorizationFailure) == true
+            if (draft.isNotEmpty() && !denied) {
+                val label = if (failure != null || !completed && !hasCalls) "**Research draft — incomplete and not validated**\n\n" else ""
+                emit(ProviderEvent.TextDelta(label + draft))
+            }
+            failure?.let { emit(it) }
+            if (completed && failure == null) emit(ProviderEvent.Completed)
             return@flow
         }
         if (handlesToolsInternally || evidence == null) evidence = withContext(Dispatchers.Default) { packet() }
@@ -78,6 +82,7 @@ internal class ResearchDeliverySession(
             return@flow
         }
         var text = draft.toString()
+        var partialFallback = false
         val result = withContext(Dispatchers.Default) { ResearchDeliveryValidator.validate(text, delivery) }
         if (!result.accepted || overflow) {
             emit(ProviderEvent.Notice("Checking omitted findings, numerical claims and source links."))
@@ -139,6 +144,7 @@ internal class ResearchDeliverySession(
                 else -> ResearchDeliveryValidator.fallback(delivery)
             }
             if (!repairedAccepted && !sectionedAccepted) {
+                partialFallback = true
                 emit(ProviderEvent.Notice("The generated report did not pass evidence checks. Delivering a clearly labelled partial evidence report instead."))
             }
             AppLogRecorder.record("Research", "DELIVERY_VALIDATED · repaired=true · accepted=${repairedAccepted || sectionedAccepted} · sectioned=$sectionedAccepted · partialFallback=${!repairedAccepted && !sectionedAccepted} · structuralIssues=${repaired.issues.joinToString()} · semanticCoverageVerified=false")
@@ -146,7 +152,11 @@ internal class ResearchDeliverySession(
             AppLogRecorder.record("Research", "DELIVERY_VALIDATED · repaired=false · accepted=true · cited=${result.citedIds.size} · semanticCoverageVerified=false")
         }
         emit(ProviderEvent.TextDelta(text))
-        emit(ProviderEvent.Completed)
+        if (partialFallback) {
+            emit(ProviderEvent.Failed("RESEARCH_PARTIAL: Evidence is retained, but the report did not pass its delivery checks. Resume writing from saved evidence."))
+        } else {
+            emit(ProviderEvent.Completed)
+        }
     }
 
     /** Each chapter is a separate tool-free request; it may fail without losing captured evidence. */

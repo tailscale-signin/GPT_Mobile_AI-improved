@@ -26,7 +26,7 @@ class GitHubMarketplaceCatalogTest {
 
     @Test
     fun catalogHasUniqueOptInEntriesAndValidAliases() {
-        assertEquals(19, packages.size)
+        assertEquals(20, packages.size)
         assertEquals(packages.size, packages.map { it.id }.toSet().size)
         assertEquals(packages.size, packages.map { it.preset.alias }.toSet().size)
         packages.forEach {
@@ -38,7 +38,7 @@ class GitHubMarketplaceCatalogTest {
 
     @Test
     fun guidesCannotBecomeConnections() {
-        assertEquals(11, packages.count { it.runtime == MarketplaceRuntime.NATIVE })
+        assertEquals(12, packages.count { it.runtime == MarketplaceRuntime.NATIVE })
         assertEquals(2, packages.count { it.runtime == MarketplaceRuntime.HOSTED })
         assertEquals(6, packages.count { !it.canConnect })
         packages.filter { !it.canConnect }.forEach {

@@ -39,7 +39,7 @@ internal fun plainProfileName(raw: String, fallback: String = "AI profile"): Str
 
 internal fun profileSubtitleColor(accent: Color, background: Color): Color {
     fun contrast(color: Color): Float {
-        val a = color.copy(alpha = 0.60f).compositeOver(background).luminance()
+        val a = color.copy(alpha = 0.50f).compositeOver(background).luminance()
         val b = background.luminance()
         return (max(a, b) + 0.05f) / (min(a, b) + 0.05f)
     }
@@ -48,22 +48,22 @@ internal fun profileSubtitleColor(accent: Color, background: Color): Color {
         for (step in 0..20) {
             val t = step / 20f
             val candidate = Color(accent.red + (target.red - accent.red) * t, accent.green + (target.green - accent.green) * t, accent.blue + (target.blue - accent.blue) * t)
-            if (contrast(candidate) >= 4.5f) return candidate.copy(alpha = 0.60f)
+            if (contrast(candidate) >= 4.5f) return candidate.copy(alpha = 0.50f)
             if (contrast(candidate) > contrast(best)) best = candidate
         }
     }
-    return best.copy(alpha = 0.60f)
+    return best.copy(alpha = 0.50f)
 }
 
 @Composable
 internal fun ProfileNameText(names: String, compact: Boolean) {
     val plain = remember(names) { plainProfileName(names) }
-    Text(plain, color = profileSubtitleColor(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.background), fontSize = 13.sp, maxLines = if (compact) 1 else 2, overflow = TextOverflow.Ellipsis)
+    Text(plain, color = profileSubtitleColor(MaterialTheme.colorScheme.primary, dev.chungjungsoo.gptmobile.presentation.common.appBaseBackground()), fontSize = 13.sp, maxLines = if (compact) 1 else 2, overflow = TextOverflow.Ellipsis)
 }
 
 @Composable
 internal fun androidx.compose.ui.Modifier.homeRowFades(state: androidx.compose.foundation.lazy.LazyListState, enabled: Boolean): androidx.compose.ui.Modifier {
-    val background = MaterialTheme.colorScheme.background.copy(alpha = 1f)
+    val background = dev.chungjungsoo.gptmobile.presentation.common.appBaseBackground()
     return if (!enabled) {
         this
     } else {
@@ -71,15 +71,7 @@ internal fun androidx.compose.ui.Modifier.homeRowFades(state: androidx.compose.f
             androidx.compose.ui.Modifier.drawWithContent {
                 drawContent()
                 val top = 8.dp.toPx().coerceAtMost(size.height / 8)
-                val bottom = 120.dp.toPx().coerceAtMost(size.height * 0.25f)
                 if (state.canScrollBackward && top > 0) drawRect(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(background, background.copy(alpha = 0f)), 0f, top), size = androidx.compose.ui.geometry.Size(size.width, top))
-                if (state.canScrollForward && bottom > 0) {
-                    drawRect(
-                        androidx.compose.ui.graphics.Brush.verticalGradient(0f to background.copy(alpha = 0f), 0.25f to background.copy(alpha = 0.15625f), 0.5f to background.copy(alpha = 0.5f), 0.75f to background.copy(alpha = 0.84375f), 1f to background, startY = size.height - bottom, endY = size.height),
-                        topLeft = androidx.compose.ui.geometry.Offset(0f, size.height - bottom),
-                        size = androidx.compose.ui.geometry.Size(size.width, bottom)
-                    )
-                }
             }
         )
     }

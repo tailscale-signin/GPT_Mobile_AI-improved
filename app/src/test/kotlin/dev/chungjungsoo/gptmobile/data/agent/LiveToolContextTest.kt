@@ -9,6 +9,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LiveToolContextTest {
+    @Test fun researchCitationContractDoesNotCarryOrdinaryChatCitationBan() {
+        val research = liveToolSystemPrompt(null, listOf("web_search"), researchReport = true)
+        assertTrue(research.contains("Research delivery contract"))
+        assertFalse(research.contains("Do not add a Sources"))
+        assertTrue(liveToolSystemPrompt(null, emptyList()).contains("Do not add a Sources"))
+    }
+
     @Test
     fun localCapabilityDescriptionUsesOnlyTheFinalSelection() {
         val upstream = liveToolSystemPrompt("User profile instructions", listOf("web_search", BuiltInAgentTool.DEVICE_LOCATION), deferCapabilities = true)

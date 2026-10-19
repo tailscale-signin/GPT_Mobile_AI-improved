@@ -127,6 +127,20 @@ object GitHubMarketplaceCatalog {
     )
 
     val packages: List<GitHubMarketplacePackage> = listOf(
+        GitHubMarketplacePackage(
+            "universal-marketplace",
+            McpPreset(
+                id = "optional-universal-marketplace", name = "Universal Marketplace",
+                description = "Prepare Facebook, eBay, Craigslist and Kijiji searches. Native saved searches and bookmarks; no AI, API key or computer required.",
+                category = McpCategory.SEARCH, commandOrUrl = "builtin://marketplace/universal-marketplace",
+                alias = "universal_marketplace", iconName = "shopping", author = "GPT Mobile · Android adapter",
+                suggestedAuthType = "NONE", pricing = McpPricingType.FREE,
+                toolCapabilities = listOf("search: prepare external searches; no automatic listing retrieval"),
+                setupInstructions = "Enable the plugin, choose sources and location, then open Marketplace. Search actions are not retrieved listings. Automatic retrieval and alerts are unavailable."
+            ),
+            MarketplaceRuntime.NATIVE,
+            serviceNotice = "Free local search actions. No automatic collection, API credentials, AI calls or monitoring."
+        ),
         companion(
             "refuge",
             "REFUGE Restrooms",

@@ -81,6 +81,20 @@ data class CombinedHardLimits(
 }
 
 @Serializable
+data class CombinedResearchRequirement(
+    val depth: Int,
+    val sourceGoal: Long,
+    val contentScope: String,
+    val gatewayConnectionUid: String? = null,
+    val allowNativeFallback: Boolean = false
+) {
+    init {
+        require(depth in 1..100 && sourceGoal > 0)
+        require(contentScope in setOf("WEB_AND_PAPERS", "PAPERS_ONLY", "WEB_ONLY"))
+    }
+}
+
+@Serializable
 data class CombinedRequestedPolicy(
     val version: Int = 1,
     val settings: ConversationCombinedSettings = ConversationCombinedSettings(),
@@ -91,7 +105,8 @@ data class CombinedRequestedPolicy(
     val userPrompt: String = "",
     val acceptedAtMillis: Long = 0,
     val settingsRevision: Long = 0,
-    val requestedPolicyDigest: String = ""
+    val requestedPolicyDigest: String = "",
+    val acceptedResearch: CombinedResearchRequirement? = null
 )
 
 /** Finite work sealed by the controller. Workers cannot add scope by calling a tool. */
@@ -162,7 +177,8 @@ data class CombinedExecutionContext(
 
     val ownerKey: String get() = when (role) {
         CombinedRunRole.CONTRIBUTOR -> "contributor:${profileUid.orEmpty()}"
-        CombinedRunRole.RESEARCH, CombinedRunRole.VERIFIER -> "verification"
+        CombinedRunRole.RESEARCH -> plan?.workItems?.firstOrNull { it.id == workItemId }?.assignedOwnerKey ?: "research:${profileUid.orEmpty()}"
+        CombinedRunRole.VERIFIER -> "verification"
         else -> "finalization"
     }
 }

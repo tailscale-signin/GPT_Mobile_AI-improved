@@ -568,7 +568,19 @@ class ChatViewModel @Inject constructor(
             requestedModels = selected.associateWith { _chatPlatformModels.value[it] ?: profiles.getValue(it).model },
             userPrompt = text,
             preferredOwnerUid = room.combinedPrimaryUid,
-            requestedTemperatures = selected.associateWith { preferences.creativity ?: resolvePlatformModel(profiles.getValue(it)).temperature }
+            requestedTemperatures = selected.associateWith { preferences.creativity ?: resolvePlatformModel(profiles.getValue(it)).temperature },
+            acceptedResearch = (tools.research ?: featureSettings.value.conversationResearch[room.id])?.normalized()
+                ?.takeIf { it.researchToggle && it.depth > 0 }?.let { research ->
+                    dev.chungjungsoo.gptmobile.data.agent.CombinedResearchRequirement(
+                        depth = research.depth,
+                        sourceGoal = selected.maxOf { uid ->
+                            dev.chungjungsoo.gptmobile.data.model.effectiveResearchPlan(featureSettings.value, uid, research).sourceGoal.toLong()
+                        }.coerceAtLeast(1),
+                        contentScope = research.scope.name,
+                        gatewayConnectionUid = research.gatewayConnectionUid,
+                        allowNativeFallback = research.allowNativeFallback
+                    )
+                }
         )
         return tools.copy(
             combined = dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext(
@@ -2605,13 +2617,16 @@ class ChatViewModel @Inject constructor(
 
         val normalizedResearchTask = dev.chungjungsoo.gptmobile.data.research.researchHash(userMessage.content.trim())
         val researchTurnId = "${leadMessage.chatId}:${userMessage.id}"
-        val sharedEvidence = researchSessionStore?.exportChat(leadMessage.chatId)
-            ?.lastOrNull { session ->
-                session.turnId == researchTurnId &&
-                    dev.chungjungsoo.gptmobile.data.research.researchHash(session.snapshot.task.trim()) == normalizedResearchTask
-            }
-            ?.snapshot
-            ?.let(dev.chungjungsoo.gptmobile.data.research.ResearchCorpus::freeze)
+        val turnSessions = researchSessionStore?.exportChat(leadMessage.chatId).orEmpty().filter { session ->
+            session.turnId == researchTurnId &&
+                dev.chungjungsoo.gptmobile.data.research.researchHash(session.snapshot.task.trim()) == normalizedResearchTask
+        }
+        // Never widen a source partition just because a contributor finished later.
+        val leadAuthority = turnSessions.lastOrNull { it.runId == leadMessage.currentRunId }?.authority
+            ?: turnSessions.map { it.authority }.distinct().singleOrNull()
+        val sharedEvidence = dev.chungjungsoo.gptmobile.data.research.ResearchCorpus.freezeAll(
+            turnSessions.filter { it.authority == leadAuthority }.map { it.snapshot }
+        )
         val turnRuns = _agentRunsById.value.values.filter { it.chatId == userMessage.chatId && it.userMessageId == userMessage.id && !it.runId.startsWith(COMBINED_RUN_PREFIX) }
         val turnRunIds = turnRuns.mapTo(hashSetOf()) { it.runId }
         // Read the committed event rows rather than racing the UI's asynchronous tool-event snapshot.

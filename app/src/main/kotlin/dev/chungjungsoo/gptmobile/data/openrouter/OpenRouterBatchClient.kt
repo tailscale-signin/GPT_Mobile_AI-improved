@@ -22,7 +22,8 @@ class OpenRouterBatchClient(
     private val timeoutMs: Long = 30000,
     private val baseUrl: String = "https://openrouter.ai/api/v1",
     private val policy: OpenRouterProviderRouting = OpenRouterProviderRouting(),
-    private val noRemoteStorage: Boolean = false
+    private val noRemoteStorage: Boolean = false,
+    private val onRemoteResponse: suspend (String) -> Unit = {}
 ) {
 
     private val safeTimeoutMs = timeoutMs.coerceIn(1000, Int.MAX_VALUE.toLong())
@@ -235,7 +236,7 @@ class OpenRouterBatchClient(
 
     suspend fun processRequest(request: BatchRequest): String = withContext(Dispatchers.IO) { processSingleRequest(request) }
 
-    private fun processSingleRequest(request: BatchRequest): String {
+    private suspend fun processSingleRequest(request: BatchRequest): String {
         require(request.model.isNotBlank()) { "Choose an explicit model for queued work." }
         OpenRouterPolicy.validate(policy)
         val messages = listOf(
@@ -267,7 +268,9 @@ class OpenRouterBatchClient(
 
         return response.use {
             if (!it.isSuccessful) throw BatchHttpException(it.code)
-            it.body?.byteStream()?.use { input -> dev.chungjungsoo.gptmobile.data.network.BoundedResponseText.read(input, 8 * 1024 * 1024) }.orEmpty()
+            it.body?.byteStream()?.use { input -> dev.chungjungsoo.gptmobile.data.network.BoundedResponseText.read(input, 8 * 1024 * 1024) }.orEmpty().also { body ->
+                withContext(kotlinx.coroutines.NonCancellable) { runCatching { onRemoteResponse(body) } }
+            }
         }
     }
 }

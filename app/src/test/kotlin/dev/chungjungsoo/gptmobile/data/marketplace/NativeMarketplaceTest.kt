@@ -61,7 +61,7 @@ class NativeMarketplaceTest {
             assertTrue(entry.id, NativeMarketplaceCatalog.supports(entry))
             val definitions = NativeMarketplaceCatalog.definitions(entry)
             assertTrue(entry.id, definitions.isNotEmpty())
-            definitions.forEach { definition ->
+            definitions.forEach definitionLoop@{ definition ->
                 val operation = definition.name.substringAfterLast("__")
                 val fields = NativeMarketplaceCatalog.operations.getValue(entry.provider).getValue(operation)
                 val arguments = buildJsonObject {
@@ -78,12 +78,36 @@ class NativeMarketplaceTest {
                 }
                 NativeMarketplaceCatalog.validate(entry.provider, operation, arguments)
                 val config = NativeProviderConfiguration(NativePluginInstallation(endpoint = "https://managed.example/api", endpoints = mapOf("geocode" to "https://managed.example/geocode", "restrooms" to "https://managed.example/overpass")), "test-key")
+                if (entry.provider == "universal-marketplace") {
+                    assertEquals(dev.chungjungsoo.gptmobile.data.universalmarketplace.MarketplaceContract.inputSchema, definition.inputSchema)
+                    assertTrue(runCatching { NativeMarketplaceRequests.build(entry, operation, arguments, config) }.isFailure)
+                    return@definitionLoop
+                }
                 val request = NativeMarketplaceRequests.build(entry, operation, arguments, config)
                 assertEquals("https", request.url.scheme)
                 assertTrue(request.url.host.isNotBlank())
                 assertFalse(request.url.toString().contains("builtin://"))
             }
         }
+    }
+
+    @Test fun universalMarketplaceSettingsPersistWithoutKeysAndToolDispatchHonorsDisable() = runBlocking {
+        val entry = entry("universal-marketplace")
+        val registry = registry()
+        registry.install(entry)
+        registry.setEnabled(entry, true)
+        val config = dev.chungjungsoo.gptmobile.data.universalmarketplace.UniversalMarketplaceSettings(city = "Toronto", maxResults = 100)
+        registry.configureUniversal(config)
+        assertEquals(config, registry().configuration(entry).installation.universalMarketplace)
+        assertTrue(vault.records.isEmpty())
+        val tool = dev.chungjungsoo.gptmobile.data.agent.tool.UniversalMarketplaceTool(
+            { registry.configuration(entry).installation.universalMarketplace },
+            { registry.load()[entry.id]?.enabled == true }
+        )
+        assertFalse(tool.execute("a", buildJsonObject { put("query", "graphics card") }).isError)
+        assertEquals(0, registry.load().getValue(entry.id).usageCount)
+        registry.setEnabled(entry, false)
+        assertTrue(tool.execute("b", buildJsonObject { put("query", "graphics card") }).isError)
     }
 
     @Test fun googlePlacesNearbyAndDetailsUseCorrectHeadersCoordinatesAndSafeIds() = runBlocking {
@@ -435,7 +459,7 @@ class NativeMarketplaceTest {
         val entries = (GitHubMarketplaceCatalog.packages + GitHubMarketplaceCatalog.legacyPackages).filter { it.runtime == MarketplaceRuntime.NATIVE }
         assertEquals(NativeMarketplaceCatalog.operations.keys, entries.map { it.provider }.toSet())
         entries.forEach { entry ->
-            NativeMarketplaceCatalog.operations.getValue(entry.provider).forEach { (operation, fields) ->
+            NativeMarketplaceCatalog.operations.getValue(entry.provider).forEach operationLoop@{ (operation, fields) ->
                 val args = buildJsonObject {
                     fields.forEach { name ->
                         when {
@@ -449,6 +473,11 @@ class NativeMarketplaceTest {
                 }
                 val key = if (NativeMarketplaceCatalog.requiresKey(entry)) "test-key" else ""
                 val config = NativeProviderConfiguration(NativePluginInstallation(endpoint = "https://managed.example/search", endpoints = mapOf("geocode" to "https://managed.example/search", "restrooms" to "https://managed.example/interpreter")), key)
+                if (entry.provider == "universal-marketplace") {
+                    NativeMarketplaceCatalog.validate(entry.provider, operation, args)
+                    assertTrue(runCatching { NativeMarketplaceRequests.build(entry, operation, args, config) }.isFailure)
+                    return@operationLoop
+                }
                 val request = NativeMarketplaceRequests.build(entry, operation, args, config)
                 assertTrue(request.url.isHttps)
                 assertTrue(NativeMarketplaceCatalog.definitions(entry).any { it.name.endsWith("__$operation") })

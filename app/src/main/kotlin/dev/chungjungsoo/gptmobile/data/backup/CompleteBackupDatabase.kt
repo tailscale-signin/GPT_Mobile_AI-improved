@@ -193,6 +193,8 @@ internal object CompleteBackupDatabase {
                 add("provider_connections")
             }
             if (CompleteBackupSection.TOOLS in sections) {
+                add("marketplace_saved_searches")
+                add("marketplace_bookmarks")
                 add("tool_connections")
                 add("agent_tool_bindings")
             }

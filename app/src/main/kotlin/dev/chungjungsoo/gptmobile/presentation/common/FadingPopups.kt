@@ -82,12 +82,15 @@ fun FadingAlertDialog(
 fun FadingDialog(
     onDismissRequest: () -> Unit,
     properties: DialogProperties = DialogProperties(),
+    fullScreenScene: Boolean = false,
     content: @Composable () -> Unit
 ) {
     val (opacity, dismiss) = rememberFadeDismiss(onDismissRequest)
     ComposeDialog(onDismissRequest = dismiss, properties = properties) {
         androidx.compose.runtime.CompositionLocalProvider(LocalOverlayWindow provides true) {
-            Box(Modifier.graphicsLayer { alpha = opacity.value }) { content() }
+            Box(Modifier.graphicsLayer { alpha = opacity.value }) {
+                if (fullScreenScene) AppSceneBackground(content) else content()
+            }
         }
     }
 }

@@ -19,6 +19,9 @@ data class AgentToolBindingWithConnection(
 @Dao
 interface ToolConnectionDao {
     @Query("SELECT * FROM tool_connections ORDER BY name, alias, connection_uid")
+    fun observeConnections(): kotlinx.coroutines.flow.Flow<List<ToolConnection>>
+
+    @Query("SELECT * FROM tool_connections ORDER BY name, alias, connection_uid")
     suspend fun listConnections(): List<ToolConnection>
 
     @Query("SELECT * FROM tool_connections ORDER BY name, alias, connection_uid")

@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gptmobile-crawler"
+version = "0.1.0"
+description = "Optional local MCP source acquisition companion for GPT Mobile"
+requires-python = ">=3.11"
+dependencies = ["trafilatura==2.3.1"]
+
+[project.optional-dependencies]
+browser = ["crawl4ai==0.9.5"]
+alternate = ["scrapling==0.5"]
+documents = ["docling==2.129.0"]
+
+[project.scripts]
+gptmobile-crawler = "crawler_server.server:main"
+
+[tool.setuptools.packages.find]
+include = ["crawler_server*"]

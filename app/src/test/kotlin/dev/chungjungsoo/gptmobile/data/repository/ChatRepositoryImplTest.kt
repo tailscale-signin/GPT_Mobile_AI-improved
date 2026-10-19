@@ -1725,6 +1725,8 @@ private class SingleToolConnectionDao(
     private val connections = listOfNotNull(connection)
     private val bindings = listOfNotNull(binding)
 
+    override fun observeConnections(): kotlinx.coroutines.flow.Flow<List<ToolConnection>> = kotlinx.coroutines.flow.flow { emit(listConnections()) }
+
     override suspend fun listConnections(): List<ToolConnection> = connections
 
     override suspend fun getAllConnections(): List<ToolConnection> = connections

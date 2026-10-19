@@ -25,7 +25,7 @@ import org.robolectric.annotation.Config
 @Config(application = Application::class, sdk = [34])
 class RoadmapMigrationMatrixTest {
     @Test fun publishedAndIntermediateUpgradePathsPreserveConversationEvidence() = runBlocking {
-        for (version in listOf(10, 27, 28, 29, 30, 31, 32, 33, 35, 38, 39)) {
+        for (version in listOf(10, 27, 28, 29, 30, 31, 32, 33, 35, 38, 39, 40, 41)) {
             val context = RuntimeEnvironment.getApplication()
             val name = "roadmap-migration-$version-${UUID.randomUUID()}.db"
             val file = context.getDatabasePath(name).also { it.parentFile!!.mkdirs() }
@@ -64,6 +64,7 @@ class RoadmapMigrationMatrixTest {
                     old.execSQL("INSERT INTO tool_connections(connection_uid,name,alias,type,endpoint_url,auth_type,secret_ref,oauth_client_id,allow_cleartext,tool_policy,approved_read_tools,created_at,updated_at) VALUES('legacy-marketplace','Legacy server','legacy_server','MCP','https://example.org/mcp','NONE',NULL,NULL,0,'ASK_WRITES','',1,1)")
                 }
                 old.execSQL("UPDATE sqlite_sequence SET seq = 100 WHERE name = 'messages_v2'")
+                if (version == 41) old.execSQL("INSERT INTO conversation_folders(id,name,color,createdAt) VALUES('legacy-folder','Legacy',4284895396,1)")
                 old.version = version
             }
             val migrated = Room.databaseBuilder(context, ChatDatabaseV2::class.java, name).addMigrations(*ChatDatabaseV2Migrations.ALL_MIGRATIONS).build()
@@ -84,6 +85,12 @@ class RoadmapMigrationMatrixTest {
                         assertEquals(true, row.isNull(1))
                         assertEquals(true, row.isNull(2))
                     }
+                }
+                if (version == 41) {
+                    val folder = migrated.conversationFolderDao().folders().single()
+                    assertEquals("Legacy", folder.name)
+                    assertEquals(4284895396L, folder.color)
+                    assertEquals(dev.chungjungsoo.gptmobile.data.chat.ConversationFolderStyle.CUSTOM, folder.colorMode)
                 }
                 assertEquals("saved response", migrated.messageDao().loadMessages(1).last().content)
                 org.junit.Assert.assertTrue(migrated.agentPersistenceDao().insertMessage(dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(chatId = 1, content = "next", platformType = null)) > 100)

@@ -27,6 +27,7 @@ import kotlinx.serialization.json.Json
 @Serializable
 data class NativePluginInstallation(
     val enabled: Boolean = false,
+    val universalMarketplace: dev.chungjungsoo.gptmobile.data.universalmarketplace.UniversalMarketplaceSettings = dev.chungjungsoo.gptmobile.data.universalmarketplace.UniversalMarketplaceSettings(),
     val endpoint: String = "",
     val credentialRef: String? = null,
     val maxResults: Int = 10,
@@ -71,6 +72,12 @@ class NativeMarketplaceRegistry internal constructor(private val file: File, pri
     }
 
     suspend fun install(entry: GitHubMarketplacePackage) = change(entry) { it ?: NativePluginInstallation() }
+
+    suspend fun configureUniversal(settings: dev.chungjungsoo.gptmobile.data.universalmarketplace.UniversalMarketplaceSettings) {
+        val entry = requireNotNull(GitHubMarketplaceCatalog.find(dev.chungjungsoo.gptmobile.data.universalmarketplace.MarketplaceContract.INSTALLATION))
+        val normalized = settings.normalized()
+        change(entry) { requireNotNull(it) { "Install Marketplace first." }.copy(universalMarketplace = normalized) }
+    }
 
     suspend fun reload(): Map<String, NativePluginInstallation> = withContext(Dispatchers.IO) {
         mutex.withLock {

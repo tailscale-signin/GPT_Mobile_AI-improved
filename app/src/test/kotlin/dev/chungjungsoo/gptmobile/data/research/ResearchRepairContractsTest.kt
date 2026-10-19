@@ -8,6 +8,16 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ResearchRepairContractsTest {
+    @Test fun turnCorpusPreservesReadableEvidenceAndDistinctVersions() {
+        val readable = ResearchSource("S1", "https://example.org/paper", "Fixture", "Read", "A complete retained source passage.", versionId = "v1", retrievedAt = 1)
+        val failed = readable.copy(status = "Failed", passage = "", retrievedAt = 2, retrievalQuality = "EMPTY")
+        val revised = readable.copy(id = "S2", versionId = "v2", passage = "A revised retained source passage.", retrievedAt = 3)
+        val corpus = ResearchCorpus.freezeAll(listOf(ResearchSnapshot("Task", sources = listOf(readable), updatedAt = 1), ResearchSnapshot("Task", sources = listOf(failed, revised), updatedAt = 3)))!!
+        assertEquals(setOf("v1", "v2"), corpus.sources.map { it.versionId }.toSet())
+        assertTrue(corpus.sources.all { it.readable })
+        assertEquals(readable.passage, corpus.sources.single { it.versionId == "v1" }.passage)
+    }
+
     @Test fun legacyObjectQuestionsKeepEvidenceRequirements() {
         val plan = ResearchPlanContract.parse(Json.parseToJsonElement("""{"questions":[{"question":"Does the fixture improve accuracy?","evidence_needed":"Controlled accuracy measurements"}],"queries":["fixture accuracy"]}""").jsonObject)
         assertEquals("Controlled accuracy measurements", plan.questions.single().evidenceNeeded)

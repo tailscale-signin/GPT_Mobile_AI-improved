@@ -53,7 +53,8 @@ class CompleteBackupManager @Inject constructor(
     private val memoryStore: dev.chungjungsoo.gptmobile.data.memory.v2.MemoryRepository? = null,
     private val healthImportStore: dev.chungjungsoo.gptmobile.data.health.HealthConnectLocalImportStore =
         dev.chungjungsoo.gptmobile.data.health.HealthConnectLocalImportStore(context),
-    private val researchBackup: dev.chungjungsoo.gptmobile.data.research.feature.ResearchBackup? = null
+    private val researchBackup: dev.chungjungsoo.gptmobile.data.research.feature.ResearchBackup? = null,
+    private val walletLocal: dev.chungjungsoo.gptmobile.data.openrouter.account.OpenRouterWalletLocalStore? = null
 ) {
     private val mutex = Mutex()
     private val protectionMutex = Mutex()
@@ -624,6 +625,9 @@ class CompleteBackupManager @Inject constructor(
                     val protectedMemory = if (effective.includes(CompleteBackupSection.MEMORY)) memoryStore?.read() else null
                     val oldProtection = savedProtection()
                     val restoreTransactionId = UUID.randomUUID().toString()
+                    // Restored inference credentials cannot silently inherit a different account's
+                    // protected management association. Even a rolled-back restore requires revalidation.
+                    if (restoreSettings || effective.includes(CompleteBackupSection.PLATFORMS) || effective.includes(CompleteBackupSection.CREDENTIALS)) walletLocal?.invalidateAssociations()
                     val replacement = storage.replacement(staging, selectedPaths, restoreTransactionId)
 
                     restoreJournal.write(
@@ -967,6 +971,7 @@ class CompleteBackupManager @Inject constructor(
     }
 
     private fun secretBelongsTo(reference: String, selection: CompleteBackupSelection): Boolean = when {
+        reference.startsWith("openrouter-management-") -> false
         reference == dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceDraftStore.KEY || reference.startsWith("share-") || reference.startsWith(RestoreStoreJournal.PREFIX) -> false
         reference.startsWith("memory-portable-") -> selection.includes(CompleteBackupSection.MEMORY)
         reference.startsWith("workspace-memory-") -> selection.includes(CompleteBackupSection.MEMORY)

@@ -452,6 +452,8 @@ fun OpponentChatBubble(
                         )
                     }
 
+                    UniversalMarketplaceResults(sourceToolEvents)
+
                     AmazonProductResults(
                         toolEvents = sourceToolEvents,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),

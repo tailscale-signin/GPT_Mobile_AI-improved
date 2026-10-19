@@ -35,6 +35,7 @@ internal class ModelRequestPreparation(client: NetworkClient) {
 
     suspend fun prepare(payload: String, config: ProviderRequestConfig, model: String, outputTokens: Int?): String {
         kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]?.validate?.invoke()
+        dev.chungjungsoo.gptmobile.data.context.ProviderMessageValidator.validate(payload, config.intentionalAssistantPrefill)
         val discovered = if (config.providerType == "LLAMA") llama.discover(config, model) else null
         val catalog = OpenRouterCatalogLimits.forRequest(config.providerType.orEmpty(), config.apiUrl, model)
         val declared = config.contextCeiling?.takeIf { it > 0 && it < Int.MAX_VALUE }?.toLong()
@@ -67,6 +68,7 @@ internal class ModelRequestPreparation(client: NetworkClient) {
         // those exact bytes once more; lowering a positive integer cannot add bytes.
         val finalAllowance = dev.chungjungsoo.gptmobile.data.context.EffectiveOutputAllowance.resolve(allowance.tokens, snapshot.outputTokens, snapshot.contextTokens, RequestAdmission.estimate(finalPayload))
         if (finalAllowance.tokens != allowance.tokens) finalPayload = applyOutputAllowance(bounded, config.providerType, finalAllowance.tokens).toString()
+        dev.chungjungsoo.gptmobile.data.context.ProviderMessageValidator.validate(finalPayload, config.intentionalAssistantPrefill)
         val measured = RequestAdmission.estimate(finalPayload)
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
             "Admission",
@@ -78,7 +80,7 @@ internal class ModelRequestPreparation(client: NetworkClient) {
             "ToolCatalog",
             "WIRE_SCHEMA · role=${config.requestRole} · serializedTools=$toolCount · serializedBytes=${toolSchema.toByteArray(Charsets.UTF_8).size} · schemaTokens=${if (toolSchema.isEmpty()) 0 else RequestAdmission.estimate(toolSchema).promptTokens} · measurement=UTF8_ESTIMATE"
         )
-        val prepared = RequestAdmission.prepare(finalPayload, config.requestRole, snapshot, measured, finalAllowance.tokens, permissionRevision, requireKnownCapacity = config.requireKnownCapacity, reasoning = reasoning)
+        val prepared = RequestAdmission.prepare(finalPayload, config.requestRole, snapshot, measured, finalAllowance.tokens, permissionRevision, requireKnownCapacity = config.requireKnownCapacity, reasoning = reasoning, messageValidatorRevision = dev.chungjungsoo.gptmobile.data.context.ProviderMessageValidator.VERSION)
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
             "Admission",
             "FINAL_REQUEST · role=${config.requestRole} · prompt=${prepared.receipt.promptTokens} · output=${prepared.receipt.outputTokens ?: "unknown"} · safety=${prepared.receipt.safetyTokens} · context=${prepared.receipt.contextTokens ?: "unknown"} · measurement=${prepared.receipt.measurement} · capacity=${prepared.receipt.capacityProvenance} · checked=${prepared.receipt.capacityChecked} · reasoningRequested=${reasoning?.requested} · reasoningEffective=${reasoning?.effective} · reasoningControl=${reasoning?.transmittedControl} · reasoningObserved=unknown"

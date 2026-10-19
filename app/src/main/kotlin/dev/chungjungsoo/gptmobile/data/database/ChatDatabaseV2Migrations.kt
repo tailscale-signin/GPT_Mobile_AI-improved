@@ -448,6 +448,19 @@ object ChatDatabaseV2Migrations {
         }
     }
 
+    val MIGRATION_41_42 = object : Migration(41, 42) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE `conversation_folders` ADD COLUMN `colorMode` TEXT NOT NULL DEFAULT 'CUSTOM'")
+        }
+    }
+
+    val MIGRATION_42_43 = object : Migration(42, 43) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS `marketplace_saved_searches` (`id` TEXT NOT NULL, `title` TEXT NOT NULL, `requestJson` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`id`))")
+            db.execSQL("CREATE TABLE IF NOT EXISTS `marketplace_bookmarks` (`id` TEXT NOT NULL, `provider` TEXT NOT NULL, `url` TEXT NOT NULL, `note` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`id`))")
+        }
+    }
+
     val ALL_MIGRATIONS: Array<Migration> = arrayOf(
         MIGRATION_10_11,
         MIGRATION_11_12,
@@ -479,7 +492,9 @@ object ChatDatabaseV2Migrations {
         MIGRATION_37_38,
         MIGRATION_38_39,
         MIGRATION_39_40,
-        MIGRATION_40_41
+        MIGRATION_40_41,
+        MIGRATION_41_42,
+        MIGRATION_42_43
     )
     private fun columns(db: SupportSQLiteDatabase, table: String): Set<String> = db.query("PRAGMA table_info(`$table`)").use { cursor -> buildSet { while (cursor.moveToNext()) add(cursor.getString(1)) } }
     private fun addColumnIfMissing(db: SupportSQLiteDatabase, table: String, column: String, definition: String) {

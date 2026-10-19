@@ -609,6 +609,9 @@ interface AgentPersistenceDao {
         }.orEmpty()
         val nextFence = Math.addExact(current.ownershipFence, 1L)
         val previousRevision = current.snapshotLatestAssistantRevision(request.run.createdAt)
+        val selectedPrior = current.revisions.getOrNull(current.activeRevisionIndex)
+        val preserveVisibleRevision = request.resumeCombinedFrom != null && resumedPrefix.isEmpty() && (selectedPrior?.content ?: current.content).isNotBlank()
+        val retainedRevisionIndex = if (selectedPrior != null) current.activeRevisionIndex + if (previousRevision != null) 1 else 0 else 0
         val assistantMessage = request.assistantMessage.copy(
             content = resumedPrefix,
             thoughts = "",
@@ -632,7 +635,7 @@ interface AgentPersistenceDao {
             revisions = previousRevision
                 ?.let { listOf(it) + request.assistantMessage.revisions }
                 ?: request.assistantMessage.revisions,
-            activeRevisionIndex = ACTIVE_REVISION_LATEST,
+            activeRevisionIndex = if (preserveVisibleRevision) retainedRevisionIndex else ACTIVE_REVISION_LATEST,
             currentRunId = request.run.runId,
             ownershipFence = nextFence,
             createdAt = request.run.createdAt
@@ -706,9 +709,10 @@ interface AgentPersistenceDao {
         ) {
             return false
         }
-        preserveCombinedPrefix(assistantMessage)
-        updateMessage(assistantMessage)
-        publishReply(run, assistantMessage, status, completedAt)
+        val selected = dev.chungjungsoo.gptmobile.data.agent.preserveCombinedRetrySelection(current, assistantMessage, run, status)
+        preserveCombinedPrefix(selected)
+        updateMessage(selected)
+        publishReply(run, selected, status, completedAt)
         updateRunStatus(runId, status, run.startedAt, completedAt, terminalError)
         cancelActiveToolEvents(runId, completedAt)
         if (getChatRoom(run.chatId)?.isArchived == true) setArchivedWithCompression(run.chatId, true)
@@ -723,8 +727,9 @@ interface AgentPersistenceDao {
         if (run.status != "RUNNING" || run.assistantMessageId != message.id || run.chatId != message.chatId) return false
         val current = recoveryMessage(message.id) ?: return false
         if (current.currentRunId != runId || current.ownershipFence != run.ownershipFence || message.ownershipFence != run.ownershipFence) return false
-        preserveCombinedPrefix(message)
-        updateMessage(message)
+        val selected = dev.chungjungsoo.gptmobile.data.agent.preserveCombinedRetrySelection(current, message, run, null)
+        preserveCombinedPrefix(selected)
+        updateMessage(selected)
         return true
     }
 

@@ -32,6 +32,8 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 
 @Database(
     entities = [
+        dev.chungjungsoo.gptmobile.data.universalmarketplace.MarketplaceSavedSearch::class,
+        dev.chungjungsoo.gptmobile.data.universalmarketplace.MarketplaceBookmark::class,
         dev.chungjungsoo.gptmobile.data.amazon.AmazonObservationEntity::class,
         dev.chungjungsoo.gptmobile.data.amazon.AmazonWatchEntity::class,
         dev.chungjungsoo.gptmobile.data.amazon.AmazonCheckEventEntity::class,
@@ -70,7 +72,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
         dev.chungjungsoo.gptmobile.data.memory.MemoryGraphObservationRecord::class,
         dev.chungjungsoo.gptmobile.data.memory.MemoryGraphRelationRecord::class
     ],
-    version = 41,
+    version = 43,
     exportSchema = true
 )
 @TypeConverters(
@@ -81,6 +83,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
     CombinedModelResponseListConverter::class
 )
 abstract class ChatDatabaseV2 : RoomDatabase() {
+    abstract fun marketplaceSavesDao(): dev.chungjungsoo.gptmobile.data.universalmarketplace.MarketplaceSavesDao
     abstract fun replyPublicationDao(): dev.chungjungsoo.gptmobile.data.chat.ReplyPublicationDao
     abstract fun conversationFolderDao(): dev.chungjungsoo.gptmobile.data.chat.ConversationFolderDao
     abstract fun memoryV2Dao(): dev.chungjungsoo.gptmobile.data.memory.v2.MemoryDao

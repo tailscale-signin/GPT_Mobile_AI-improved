@@ -44,7 +44,7 @@ class OpenRouterAccountClient internal constructor(private val connectionFactory
                         429 -> AccountFailure.RATE_LIMITED
                         else -> AccountFailure.NETWORK
                     },
-                    connection.getHeaderField("Retry-After")?.toLongOrNull()?.coerceIn(0, 3600)
+                    retryAfterSeconds(connection.getHeaderField("Retry-After")) ?: if (status == 429) 60 else null
                 )
             }
             ensureActive()
@@ -60,3 +60,10 @@ class OpenRouterAccountClient internal constructor(private val connectionFactory
         (Json.parseToJsonElement(get(endpoint, credential, resource)) as? JsonObject)
             ?: throw OpenRouterAccountException(AccountFailure.MALFORMED)
 }
+
+internal fun retryAfterSeconds(value: String?, nowSeconds: Long = System.currentTimeMillis() / 1000): Long? =
+    value?.trim()?.let { header ->
+        header.toLongOrNull()?.takeIf { it >= 0 } ?: runCatching {
+            (java.time.ZonedDateTime.parse(header, java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME).toEpochSecond() - nowSeconds).coerceAtLeast(0)
+        }.getOrNull()
+    }

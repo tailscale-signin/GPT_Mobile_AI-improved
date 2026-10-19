@@ -13,6 +13,7 @@ import kotlinx.serialization.json.put
 /** Android adapters are compiled into the APK; verified downloads install their registration. */
 object NativeMarketplaceCatalog {
     val operations = linkedMapOf(
+        "universal-marketplace" to mapOf("search" to listOf("query")),
         "refuge" to mapOf("restrooms" to listOf("latitude", "longitude")),
         "toronto" to mapOf("datasets" to listOf("query"), "records" to listOf("resource_id")),
         "openstreetmap" to mapOf("geocode" to listOf("query"), "restrooms" to listOf("latitude", "longitude")),
@@ -52,22 +53,31 @@ object NativeMarketplaceCatalog {
             shared.none { host == it || host.endsWith(".$it") }
     }.getOrDefault(false)
 
-    fun definitions(entry: GitHubMarketplacePackage): List<AgentToolDefinition> = operations[entry.provider].orEmpty().map { (operation, fields) ->
-        AgentToolDefinition(
-            name = "${entry.preset.alias}__$operation",
-            description = "${entry.preset.name}: read ${operation.replace('_', ' ')}. " +
-                "One bounded provider request. Use supplied coordinates or location; do not guess the user's location. " +
-                "Missing accessibility, fee and opening information is unknown. ${entry.serviceNotice}",
-            inputSchema = buildJsonObject {
-                put("type", "object")
-                put("properties", JsonObject(fields.associateWith(::fieldSchema)))
-                put("required", JsonArray(fields.map(::JsonPrimitive)))
-                put("additionalProperties", false)
-            }
-        )
+    fun definitions(entry: GitHubMarketplacePackage): List<AgentToolDefinition> = if (entry.provider == "universal-marketplace") {
+        listOf(dev.chungjungsoo.gptmobile.data.agent.tool.UniversalMarketplaceTool.definition())
+    } else {
+        operations[entry.provider].orEmpty().map { (operation, fields) ->
+            AgentToolDefinition(
+                name = "${entry.preset.alias}__$operation",
+                description = "${entry.preset.name}: read ${operation.replace('_', ' ')}. " +
+                    "One bounded provider request. Use supplied coordinates or location; do not guess the user's location. " +
+                    "Missing accessibility, fee and opening information is unknown. ${entry.serviceNotice}",
+                inputSchema = buildJsonObject {
+                    put("type", "object")
+                    put("properties", JsonObject(fields.associateWith(::fieldSchema)))
+                    put("required", JsonArray(fields.map(::JsonPrimitive)))
+                    put("additionalProperties", false)
+                }
+            )
+        }
     }
 
     fun validate(provider: String, operation: String, arguments: JsonObject) {
+        if (provider == "universal-marketplace") {
+            require(operation == "search") { "Automatic listing details are not available." }
+            dev.chungjungsoo.gptmobile.data.universalmarketplace.MarketplaceContract.decode(arguments)
+            return
+        }
         val fields = operations[provider]?.get(operation) ?: error("Unknown marketplace tool.")
         require(arguments.keys == fields.toSet()) { "Supply exactly the fields in the tool schema." }
         fields.forEach { name ->

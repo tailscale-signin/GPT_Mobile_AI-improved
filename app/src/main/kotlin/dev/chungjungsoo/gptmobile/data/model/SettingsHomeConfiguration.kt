@@ -7,17 +7,39 @@ import kotlinx.serialization.Serializable
 data class SettingsHomeConfiguration(
     val selectedItems: List<String> = listOf(WALLET, PROFILES, USAGE),
     val walletConnectionUid: String? = null,
-    val hideWalletAmounts: Boolean = false
+    val hideWalletAmounts: Boolean = false,
+    val schemaVersion: Int = 1,
+    val selectedProfileUids: List<String> = emptyList(),
+    val selectedToolSubjects: List<HomeToolSubject> = emptyList()
 ) {
     fun normalized(): SettingsHomeConfiguration = copy(
-        selectedItems = selectedItems.map(String::trim).filter(String::isNotEmpty).distinct().take(MAX_ITEMS),
+        // Legacy entries must reach migrate() in full, including profiles beyond the old cap.
+        selectedItems = selectedItems.map(String::trim).filter(String::isNotEmpty).distinct().let {
+            if (schemaVersion < 2) it else it.filter(CATEGORIES::contains).take(MAX_ITEMS)
+        },
+        selectedProfileUids = selectedProfileUids.map(String::trim).filter(String::isNotEmpty).distinct(),
+        selectedToolSubjects = selectedToolSubjects.map { it.copy(ownerUid = it.ownerUid.trim(), toolName = it.toolName?.trim()?.takeIf(String::isNotEmpty)) }
+            .filter { it.ownerUid.isNotEmpty() }.distinct(),
         walletConnectionUid = walletConnectionUid?.trim()?.takeIf(String::isNotEmpty)
     )
+
+    /** Run inside the atomic feature-settings mutation with the saved profile inventory. */
+    fun migrate(enabledProfileUids: List<String>): SettingsHomeConfiguration {
+        val current = normalized()
+        if (current.schemaVersion >= 2) return current
+        val explicit = current.selectedItems.filter { it.startsWith(PROFILE_PREFIX) }.map { it.removePrefix(PROFILE_PREFIX) }
+        val seeded = if (PROFILES in current.selectedItems) enabledProfileUids else emptyList()
+        return current.copy(
+            schemaVersion = 2,
+            selectedItems = current.selectedItems.map { if (it.startsWith(PROFILE_PREFIX)) PROFILES else it },
+            selectedProfileUids = current.selectedProfileUids + explicit + seeded
+        ).normalized()
+    }
 
     fun withItem(id: String, selected: Boolean): SettingsHomeConfiguration {
         val current = normalized()
         val key = id.trim()
-        if (key.isEmpty()) return current
+        if (key !in CATEGORIES) return current
         return when {
             !selected -> current.copy(selectedItems = current.selectedItems - key)
             key in current.selectedItems || current.selectedItems.size >= MAX_ITEMS -> current
@@ -33,9 +55,18 @@ data class SettingsHomeConfiguration(
         const val TOOLS = "tools"
         const val PRIVACY = "privacy"
         const val BACKUP = "backup"
-        fun profile(uid: String): String = "profile:$uid"
+        private const val PROFILE_PREFIX = "profile:"
+        val CATEGORIES = setOf(WALLET, PROFILES, USAGE, TOOLS, PRIVACY, BACKUP)
+        fun profile(uid: String): String = "$PROFILE_PREFIX$uid"
     }
 }
+
+/** Display identity only; selecting a subject never grants permission to execute it. */
+@Serializable
+data class HomeToolSubject(val ownerUid: String, val toolName: String? = null, val kind: HomeToolSubjectKind = HomeToolSubjectKind.CONNECTION)
+
+@Serializable
+enum class HomeToolSubjectKind { CONNECTION, INTEGRATED_PLUGIN, NATIVE_PACKAGE }
 
 /** A narrow Room projection: Home never loads prompts, answers, credentials or synthesis snapshots. */
 data class SettingsHomeActivity(

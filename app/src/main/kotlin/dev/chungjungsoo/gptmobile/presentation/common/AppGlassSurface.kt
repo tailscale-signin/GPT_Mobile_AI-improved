@@ -44,10 +44,10 @@ fun appOverlayTokens(opacity: Float = GLASS_OPACITY): OverlayMaterialTokens = wi
 }
 
 @Composable
-fun AppGlassSurface(modifier: Modifier = Modifier, shape: Shape = MaterialTheme.shapes.extraLarge, content: @Composable () -> Unit) {
-    val tokens = appOverlayTokens()
+fun AppGlassSurface(modifier: Modifier = Modifier, shape: Shape = MaterialTheme.shapes.extraLarge, opacity: Float = GLASS_OPACITY, blurRadius: androidx.compose.ui.unit.Dp = GLASS_BLUR_RADIUS, content: @Composable () -> Unit) {
+    val tokens = appOverlayTokens(opacity)
     Surface(
-        modifier = modifier.glassBackdrop(shape, captureAsPopup = LocalOverlayWindow.current),
+        modifier = modifier.glassBackdrop(shape, captureAsPopup = LocalOverlayWindow.current, opacity = opacity, blurRadius = blurRadius),
         shape = shape,
         color = if (hasGlassBackdrop()) Color.Transparent else tokens.background,
         contentColor = tokens.foreground,

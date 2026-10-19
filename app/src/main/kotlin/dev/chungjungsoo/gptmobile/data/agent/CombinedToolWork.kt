@@ -22,7 +22,7 @@ object CombinedToolWork {
             .mapNotNull { (arguments[it] as? JsonArray)?.size?.toLong() }.maxOrNull()?.coerceAtLeast(1) ?: 1
     }
 
-    fun isInspection(name: String): Boolean = name in setOf("read_url", "deep_research_read_paper", "firecrawl_scrape", "tavily_extract", "web_fetch_exa")
+    fun isInspection(definition: AgentToolDefinition): Boolean = dev.chungjungsoo.gptmobile.data.research.ReaderCapabilityRegistry.inspectsEvidence(definition)
 }
 
 /** A second native/wrapper layer may validate again, but cannot charge the same physical tool twice. */

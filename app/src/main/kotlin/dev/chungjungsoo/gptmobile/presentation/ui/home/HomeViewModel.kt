@@ -109,12 +109,12 @@ class HomeViewModel @Inject constructor(
         publishFolderChats()
     }
 
-    fun createFolder(chatId: Int, name: String, color: Long) = folderAction {
+    fun createFolder(chatId: Int, name: String, color: Long?) = folderAction {
         foldersRepository.create(chatId, name, color)
     }
 
     fun moveToFolder(chatId: Int, folderId: String?) = folderAction { foldersRepository.move(chatId, folderId) }
-    fun editFolder(id: String, name: String, color: Long) = folderAction { foldersRepository.edit(id, name, color) }
+    fun editFolder(id: String, name: String, color: Long?) = folderAction { foldersRepository.edit(id, name, color) }
     fun deleteFolder(id: String) = folderAction {
         foldersRepository.delete(id)
         if (_selectedFolderId.value == id) selectFolder(null)
@@ -139,7 +139,7 @@ class HomeViewModel @Inject constructor(
     val folderBusy = MutableStateFlow(false)
     val lastFolderMove = MutableStateFlow<dev.chungjungsoo.gptmobile.data.chat.FolderMoveReceipt?>(null)
 
-    fun moveSelectedToFolder(ids: Set<Int>, destination: String?, newName: String? = null, color: Long = dev.chungjungsoo.gptmobile.data.chat.ConversationFolderStyle.colors.first(), committed: () -> Unit) {
+    fun moveSelectedToFolder(ids: Set<Int>, destination: String?, newName: String? = null, color: Long? = null, committed: () -> Unit) {
         if (!folderBusy.compareAndSet(false, true)) return
         viewModelScope.launch {
             try {
@@ -288,9 +288,11 @@ class HomeViewModel @Inject constructor(
             }
             .launchIn(viewModelScope)
 
-        agentRunCoordinator.activeRuns
-            .onEach { runs ->
-                val newActiveIds = runs.values.mapTo(mutableSetOf()) { it.chatId }
+        combine(agentRunCoordinator.activeRuns, featureSettings) { runs, features ->
+            val roots = features.multiChatWorkspaces.flatMap { (root, children) -> children.map { it to root } }.toMap()
+            runs.values.mapTo(mutableSetOf()) { roots[it.chatId] ?: it.chatId }
+        }
+            .onEach { newActiveIds ->
                 _activeChatIds.update { newActiveIds }
                 _chatListState.update { current ->
                     if (!current.isSelectionMode) {

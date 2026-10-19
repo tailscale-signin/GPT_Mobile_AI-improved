@@ -1129,6 +1129,8 @@ private class ResolverFakeToolConnectionDao : ToolConnectionDao {
         bindings[binding.bindingUid] = binding
     }
 
+    override fun observeConnections(): kotlinx.coroutines.flow.Flow<List<ToolConnection>> = kotlinx.coroutines.flow.flow { emit(listConnections()) }
+
     override suspend fun listConnections(): List<ToolConnection> = connections.values.sortedWith(
         compareBy<ToolConnection> { it.name }
             .thenBy { it.alias }

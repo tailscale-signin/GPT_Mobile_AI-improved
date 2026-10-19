@@ -13,6 +13,46 @@ import org.junit.Test
 
 class CombinedWorkInventoryTest {
     @Test
+    fun acceptedResearchToggleFundsTheSourceGoalWithoutRequiringANumberInThePrompt() = runBlocking {
+        val requested = CombinedPolicyResolver.accept(
+            ConversationCombinedSettings(effort = 50),
+            listOf("a", "b"),
+            mapOf("a" to "test", "b" to "test"),
+            "benefits of Nicotine",
+            acceptedAtMillis = 1,
+            acceptedResearch = CombinedResearchRequirement(20, 24, "WEB_ONLY")
+        )
+        val plan = CombinedPolicyResolver.resolve(requested)
+        val evidence = plan.workItems.single { it.kind == CombinedWorkKind.EVIDENCE }
+        assertTrue(evidence.required)
+        assertEquals(24L, evidence.remainingUnits)
+        assertEquals("ACCEPTED_RESEARCH_REQUIREMENT", evidence.reason)
+        assertEquals("contributor:a", evidence.assignedOwnerKey)
+        assertTrue(plan.unfundedRequiredWorkIds.isEmpty())
+        assertTrue(plan.baselineByOwner.getValue("contributor:a").toolOperations >= 48)
+        assertEquals(0L, plan.baselineByOwner.getValue("contributor:b").toolOperations)
+        val context = CombinedExecutionContext(requested, plan, "accepted-research", profileUid = "a")
+        val budget = CombinedTurnBudgetStore.inMemory().open(context)
+        val assigned = budget.assignedContext(context)
+        val child = assigned.forRole(CombinedRunRole.RESEARCH, "reviewer", assigned.workItemId)
+        assertEquals(evidence.id, child.workItemId)
+        assertEquals("contributor:a", child.ownerKey)
+        val admission = budget.reserve(child, "research-pass", CombinedResourceQuota(256, 512))
+        assertTrue(admission is CombinedBudgetAdmission.Granted)
+        assertEquals("contributor:a", (admission as CombinedBudgetAdmission.Granted).reservation.ownerKey)
+        assertFalse(budget.snapshot().reservations.values.any { it.ownerKey == "verification" })
+        val denied = CombinedPolicyResolver.resolve(requested, toolsAllowed = false)
+        assertEquals(setOf(evidence.id), denied.unfundedRequiredWorkIds)
+    }
+
+    @Test
+    fun unassignedResearchNeverImpersonatesTheVerifier() {
+        val context = context("Research battery recycling").forRole(CombinedRunRole.RESEARCH, "a")
+        assertEquals("research:a", context.ownerKey)
+        assertEquals("verification", context.forRole(CombinedRunRole.VERIFIER).ownerKey)
+    }
+
+    @Test
     fun explicitSourceRequestCanRenewPastThreeHundredWithoutCompletingContributorStage() = runBlocking {
         val context = context("Compare 500 independent sources on battery recycling.")
         val budget = CombinedTurnBudgetStore.inMemory().open(context)

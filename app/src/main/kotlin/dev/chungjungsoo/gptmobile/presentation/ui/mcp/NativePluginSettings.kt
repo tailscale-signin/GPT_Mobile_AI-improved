@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -43,6 +44,29 @@ fun NativePluginSettings(
     busy: Boolean = false,
     showEnableSwitch: Boolean = true
 ) {
+    if (entry.provider == "universal-marketplace") {
+        var open by remember { mutableStateOf(false) }
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (showEnableSwitch) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(if (installation.enabled) "Enabled" else "Disabled", Modifier.weight(1f))
+                    Switch(installation.enabled, { viewModel.setEnabled(entry, it) }, enabled = !busy)
+                }
+            }
+            Text("Native search actions for four sites. No listings are retrieved automatically; no key, model or computer is required.")
+            TextButton(onClick = { open = true }, enabled = !busy) { Text("Open Marketplace") }
+        }
+        if (open) {
+            dev.chungjungsoo.gptmobile.presentation.common.FadingDialog(
+                onDismissRequest = { open = false },
+                fullScreenScene = true,
+                properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+            ) {
+                dev.chungjungsoo.gptmobile.presentation.ui.universalmarketplace.UniversalMarketplaceScreen(onBack = { open = false })
+            }
+        }
+        return
+    }
     var endpoint by remember(entry.id, installation.endpoint) { mutableStateOf(installation.endpoint) }
     var disabledOperations by remember(entry.id, installation.disabledOperations) { mutableStateOf(installation.disabledOperations) }
     var osmEndpoints by remember(entry.id, installation.endpoints) { mutableStateOf(installation.endpoints) }
@@ -241,13 +265,24 @@ fun InstalledNativePluginsPanel(search: String = "", viewModel: MarketplaceViewM
 fun NativePluginUninstallDialog(viewModel: MarketplaceViewModel) {
     val uninstalling by viewModel.uninstallRequest.collectAsStateWithLifecycle()
     uninstalling?.let { entry ->
+        var keepSavedData by remember(entry.id) { mutableStateOf(true) }
         AlertDialog(
             onDismissRequest = { viewModel.requestUninstall(null) },
             title = { Text("Uninstall ${entry.preset.name}?") },
-            text = { Text("Disables the plugin and removes its installation, settings and saved credentials.") },
+            text = {
+                Column {
+                    Text("Disables the plugin and removes its installation, settings and saved credentials.")
+                    if (entry.provider == "universal-marketplace") {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(keepSavedData, { keepSavedData = it })
+                            Text("Keep my saved searches and bookmarks")
+                        }
+                    }
+                }
+            },
             confirmButton = {
                 TextButton(onClick = {
-                    viewModel.remove(entry)
+                    if (keepSavedData) viewModel.remove(entry) else viewModel.removeWithSavedData(entry)
                     viewModel.requestUninstall(null)
                 }) { Text("Uninstall", color = MaterialTheme.colorScheme.error) }
             },

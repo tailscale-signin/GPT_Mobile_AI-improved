@@ -37,6 +37,13 @@ data class ResearchCorpus(
     companion object {
         private const val MAX_EVENTS = 200
 
+        /** Callers supply sessions from one accepted turn and authority partition. */
+        fun freezeAll(snapshots: List<ResearchSnapshot>): ResearchCorpus? {
+            if (snapshots.isEmpty()) return null
+            val ordered = snapshots.sortedBy { it.updatedAt }
+            return freeze(mergeResearchSnapshots(ordered.dropLast(1), ordered.last()))
+        }
+
         fun freeze(snapshot: ResearchSnapshot): ResearchCorpus {
             val sources = snapshot.sources
             val validClaims = validatedResearchClaims(

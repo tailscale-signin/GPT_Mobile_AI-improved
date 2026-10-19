@@ -14,7 +14,9 @@ import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class OpenRouterReceiptsTest {
@@ -49,5 +51,26 @@ class OpenRouterReceiptsTest {
         val store = OpenRouterReceiptStore(InMemoryRouterPreferences())
         flowOf(ChatCompletionChunk(id = "gen-first", usage = ChatCompletionUsage(cost = JsonPrimitive(1))), ChatCompletionChunk(id = "gen-second", usage = ChatCompletionUsage(cost = JsonPrimitive(2)))).recordOpenRouterReceipts(context(), store).toList()
         assertEquals(2, store.observe("a").first().size)
+    }
+
+    @Test fun emptyErrorAndPredispatchFailureDoNotBecomeAccountingEventsButZeroUsageDoes() = runBlocking {
+        val store = OpenRouterReceiptStore(InMemoryRouterPreferences())
+        flowOf(ChatCompletionChunk(error = dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail("rejected")))
+            .recordOpenRouterReceipts(context(), store).toList()
+        assertFalse(store.observe("a").first().single().remoteEvidence)
+        flowOf(ChatCompletionChunk(usage = ChatCompletionUsage(cost = JsonPrimitive(0))))
+            .recordOpenRouterReceipts(context("b"), store).toList()
+        assertTrue(store.observe("b").first().single().remoteEvidence)
+    }
+
+    @Test fun identityEnrichmentKeepsOriginalLocalIdAndDoesNotDuplicateTheReceipt() = runBlocking {
+        val store = OpenRouterReceiptStore(InMemoryRouterPreferences())
+        val original = dev.chungjungsoo.gptmobile.data.openrouter.account.OpenRouterReceipt(context = context(), remoteEvidence = true)
+        store.record(original)
+        store.record(original.copy(generationId = "gen-later", costUsd = "0"))
+        val record = store.observe("a").first().single()
+        assertEquals(original.localId, record.localId)
+        assertEquals(original.identity, record.identity)
+        assertEquals("0", record.costUsd)
     }
 }

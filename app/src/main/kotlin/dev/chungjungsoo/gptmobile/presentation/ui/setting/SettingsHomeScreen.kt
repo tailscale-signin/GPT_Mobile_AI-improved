@@ -18,13 +18,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
@@ -39,7 +39,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -55,12 +54,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ProviderConnection
 import dev.chungjungsoo.gptmobile.data.model.ClientType
@@ -72,7 +66,7 @@ import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as Alert
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 
 @Composable
-internal fun SettingsHomePanel(points: List<SettingsHomePoint>, onClick: (() -> Unit)?, modifier: Modifier = Modifier) {
+internal fun SettingsHomePanel(points: List<SettingsHomePoint>, onClick: (() -> Unit)?, modifier: Modifier = Modifier, onCategoryClick: ((String) -> Unit)? = null) {
     Surface(
         modifier = modifier.fillMaxWidth().testTag("settings_home_bubble").then(if (onClick == null) Modifier else Modifier.clickable(role = Role.Button, onClickLabel = "Configure Home tab", onClick = onClick)),
         shape = RoundedCornerShape(26.dp),
@@ -98,7 +92,11 @@ internal fun SettingsHomePanel(points: List<SettingsHomePoint>, onClick: (() -> 
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         settingsHomeRows(points.size, columns).forEach { range ->
                             Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                                range.forEach { index -> HomePoint(points[index], Modifier.weight(1f)) }
+                                range.forEach { index ->
+                                    val point = points[index]
+                                    val action = onCategoryClick?.takeIf { point.id in setOf(SettingsHomeConfiguration.PROFILES, SettingsHomeConfiguration.TOOLS) }
+                                    HomePoint(point, Modifier.weight(1f).then(if (action == null) Modifier else Modifier.clickable(role = Role.Button, onClickLabel = "Show all ${point.title}") { action(point.id) }))
+                                }
                             }
                         }
                     }
@@ -106,6 +104,25 @@ internal fun SettingsHomePanel(points: List<SettingsHomePoint>, onClick: (() -> 
             }
         }
     }
+}
+
+@Composable
+internal fun HomeSubjectsDialog(point: SettingsHomePoint, onDismiss: () -> Unit, onConfigure: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(point.title) },
+        text = {
+            if (point.subjects.isEmpty()) {
+                Text(point.detail)
+            } else {
+                LazyColumn(Modifier.heightIn(max = 400.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    items(point.subjects, key = { it.id }) { HomePoint(it) }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onConfigure) { Text("Choose items") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } }
+    )
 }
 
 @Composable
@@ -121,6 +138,13 @@ private fun HomePoint(point: SettingsHomePoint, modifier: Modifier = Modifier) {
             Text(it, style = MaterialTheme.typography.labelMedium, color = homeStatusColor(point.secondaryTone))
         }
         Text(point.detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        point.subjects.take(3).forEach { subject ->
+            Row(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(7.dp).background(homeStatusColor(subject.tone), CircleShape))
+                Text("${subject.title}: ${subject.value}", style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        if (point.subjects.size > 3) Text("${point.subjects.size - 3} more", style = MaterialTheme.typography.labelMedium)
     }
 }
 
@@ -145,23 +169,24 @@ internal fun SettingsHomeScreen(
     onSetItem: (String, Boolean) -> Unit,
     onSelectWalletConnection: (String) -> Unit,
     onHideWalletAmounts: (Boolean) -> Unit,
-    onReadWallet: (ProviderConnection, String) -> Unit,
-    onClearWallet: () -> Unit,
     onOpenRouter: () -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onSelectProfiles: (List<String>) -> Unit,
+    toolGroups: List<dev.chungjungsoo.gptmobile.data.home.HomeToolGroup>,
+    onSelectToolSubjects: (List<dev.chungjungsoo.gptmobile.data.model.HomeToolSubject>) -> Unit
 ) {
-    val selected = configuration.normalized()
+    val selected = configuration.migrate(profiles.filter { it.enabled }.map { it.uid })
+    var showProfiles by remember { mutableStateOf(false) }
+    var showTools by remember { mutableStateOf(false) }
     val options = listOf(
         HomeOption(SettingsHomeConfiguration.WALLET, "OpenRouter Wallet", "Account balance from the authenticated credits API"),
-        HomeOption(SettingsHomeConfiguration.PROFILES, "AI Profile overview", "How many profiles are enabled or disabled"),
+        HomeOption(SettingsHomeConfiguration.PROFILES, "AI Profiles", "Selected profiles and their recorded status"),
         HomeOption(SettingsHomeConfiguration.USAGE, "Recent activity", "Completed and failed replies in the latest 250 records"),
         HomeOption(SettingsHomeConfiguration.TOOLS, "Plugins & Tools", "Configured connections and global remote tool setting"),
         HomeOption(SettingsHomeConfiguration.PRIVACY, "Privacy choices", "Diagnostics, Local Assist and location tool settings"),
         HomeOption(SettingsHomeConfiguration.BACKUP, "Backup status", "Most recent backup recorded by the app")
-    ) + profiles.map { HomeOption(SettingsHomeConfiguration.profile(it.uid), it.name, "Status for ${it.model.ifBlank { "this profile" }} · last recorded request") } +
-        selected.selectedItems.filter { id -> id !in setOf(SettingsHomeConfiguration.WALLET, SettingsHomeConfiguration.PROFILES, SettingsHomeConfiguration.USAGE, SettingsHomeConfiguration.TOOLS, SettingsHomeConfiguration.PRIVACY, SettingsHomeConfiguration.BACKUP) && profiles.none { SettingsHomeConfiguration.profile(it.uid) == id } }.map { HomeOption(it, "Unavailable item", "Remove this item to free a selection") }
+    )
     val connection = homeWalletConnection(selected, providerConnections)
-    var showWalletAccess by remember { mutableStateOf(false) }
     Scaffold(topBar = {
         TopAppBar(title = { Text("Home tab") }, navigationIcon = {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to Settings") }
@@ -171,19 +196,31 @@ internal fun SettingsHomeScreen(
             item { SettingsHomePanel(points, onClick = null) }
             item {
                 Text("Show in Settings", style = MaterialTheme.typography.titleMedium)
-                Text("${selected.selectedItems.size} of ${SettingsHomeConfiguration.MAX_ITEMS} selected. Changes save immediately. Turn one off to make room for another.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("home_selection_count"))
+                Text("${selected.selectedItems.size} of ${SettingsHomeConfiguration.MAX_ITEMS} categories selected. Changes save immediately. Turn one off to make room for another.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("home_selection_count"))
                 Text("A green Enabled or red Disabled indicator shows each selected profile’s switch. Its request result is separate, with unknown and stale states; no background test requests are sent.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 saveError?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("home_save_error")) }
             }
             items(options, key = { it.id }) { option ->
                 HomeOptionRow(option, option.id in selected.selectedItems, selected.selectedItems.size < SettingsHomeConfiguration.MAX_ITEMS || option.id in selected.selectedItems) { onSetItem(option.id, it) }
             }
+            if (SettingsHomeConfiguration.PROFILES in selected.selectedItems) {
+                item {
+                    TextButton(onClick = { showProfiles = true }) { Text("Choose profiles (${selected.selectedProfileUids.size})") }
+                    points.firstOrNull { it.id == SettingsHomeConfiguration.PROFILES }?.subjects?.forEach { HomePoint(it) }
+                }
+            }
+            if (SettingsHomeConfiguration.TOOLS in selected.selectedItems) {
+                item {
+                    TextButton(onClick = { showTools = true }) { Text("Choose plugins and tools (${selected.selectedToolSubjects.size})") }
+                    points.firstOrNull { it.id == SettingsHomeConfiguration.TOOLS }?.subjects?.forEach { HomePoint(it) }
+                }
+            }
             if (SettingsHomeConfiguration.WALLET in selected.selectedItems) {
                 item {
                     HorizontalDivider()
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(top = 16.dp)) {
                         Text("OpenRouter Wallet", style = MaterialTheme.typography.titleMedium)
-                        Text("Account-wide credits use separate management access. An ordinary key's spending limit is not your wallet balance. The key is used for one read and is never saved.", style = MaterialTheme.typography.bodyMedium)
+                        Text("The cached account balance uses management access saved in OpenRouter settings. Each eligible remote response can update it while Wallet is enabled.", style = MaterialTheme.typography.bodyMedium)
                         providerConnections.filter { it.compatibleType == ClientType.OPENROUTER }.forEach { candidate ->
                             Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(role = Role.RadioButton) { onSelectWalletConnection(candidate.uid) }, verticalAlignment = Alignment.CenterVertically) {
                                 RadioButton(candidate.uid == connection?.uid, onClick = { onSelectWalletConnection(candidate.uid) })
@@ -194,23 +231,73 @@ internal fun SettingsHomeScreen(
                         HomeOptionRow(HomeOption("hide_wallet_amounts", "Hide wallet amounts", "Keep the amount hidden in the Settings bubble"), selected.hideWalletAmounts, true, onHideWalletAmounts)
                         if (wallet.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
                         wallet.failure?.let { Text(walletFailureText(it), color = MaterialTheme.colorScheme.error) }
-                        Button(onClick = { showWalletAccess = true }, enabled = connection != null && !wallet.loading, modifier = Modifier.fillMaxWidth()) { Text(if (wallet.snapshot == null) "Connect wallet" else "Refresh wallet") }
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            TextButton(onClick = onOpenRouter) { Text("OpenRouter settings") }
-                            if (wallet.snapshot != null || wallet.loading) TextButton(onClick = onClearWallet) { Text("Clear session") }
-                        }
-                        Text("Amounts clear when Settings is left or the app goes into the background. A result older than ten minutes is marked stale.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        TextButton(onClick = onOpenRouter) { Text("Manage OpenRouter") }
+                        Text(if (wallet.associationValid) "The next OpenRouter response can update this balance. Opening Home does not make an account request." else "Save or reassociate management access in provider settings to receive wallet updates.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
         }
     }
-    if (showWalletAccess && connection != null) {
-        WalletAccessDialog(connection, onDismiss = { showWalletAccess = false }, onRead = { key ->
-            showWalletAccess = false
-            onReadWallet(connection, key)
-        })
+    if (showTools) {
+        HomeToolSelectionDialog(toolGroups, selected.selectedToolSubjects, onDismiss = { showTools = false }) {
+            onSelectToolSubjects(it)
+            showTools = false
+        }
     }
+    if (showProfiles) {
+        HomeProfileSelectionDialog(profiles, selected.selectedProfileUids, onDismiss = { showProfiles = false }) {
+            onSelectProfiles(it)
+            showProfiles = false
+        }
+    }
+}
+
+@Composable
+private fun HomeProfileSelectionDialog(
+    profiles: List<PlatformV2>,
+    selected: List<String>,
+    onDismiss: () -> Unit,
+    onApply: (List<String>) -> Unit
+) {
+    var draft by remember { mutableStateOf(selected.toSet()) }
+    var query by remember { mutableStateOf("") }
+    val known = profiles.associateBy { it.uid }
+    val choices = (profiles.map { it.uid } + selected).distinct().filter { uid ->
+        val profile = known[uid]
+        query.isBlank() || listOf(profile?.name.orEmpty(), profile?.model.orEmpty(), profile?.compatibleType?.name.orEmpty(), uid).any { it.contains(query, ignoreCase = true) }
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Choose profiles") },
+        text = {
+            Column {
+                OutlinedTextField(query, { query = it }, label = { Text("Search profiles") }, singleLine = true)
+                Row {
+                    TextButton(onClick = { draft = draft + profiles.map { it.uid } }) { Text("Select all") }
+                    TextButton(onClick = { draft = emptySet() }) { Text("Clear") }
+                }
+                LazyColumn(Modifier.heightIn(max = 360.dp)) {
+                    items(choices, key = { it }) { uid ->
+                        val profile = known[uid]
+                        Row(
+                            Modifier.fillMaxWidth().heightIn(min = 56.dp).toggleable(uid in draft, role = Role.Checkbox) {
+                                draft = if (it) draft + uid else draft - uid
+                            },
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(uid in draft, onCheckedChange = null)
+                            Column(Modifier.weight(1f)) {
+                                Text(profile?.name ?: "Unavailable profile")
+                                Text(profile?.let { "${it.model} · ${it.compatibleType}" } ?: uid, style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = { onApply(draft.toList()) }) { Text("Apply") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
 }
 
 private data class HomeOption(val id: String, val title: String, val detail: String)
@@ -228,49 +315,4 @@ private fun HomeOptionRow(option: HomeOption, selected: Boolean, enabled: Boolea
         }
         Switch(checked = selected, onCheckedChange = null, enabled = enabled)
     }
-}
-
-@Composable
-private fun WalletAccessDialog(connection: ProviderConnection, onDismiss: () -> Unit, onRead: (String) -> Unit) {
-    var credential by remember { mutableStateOf("") }
-    val owner = LocalLifecycleOwner.current
-    DisposableEffect(owner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_STOP) {
-                credential = ""
-                onDismiss()
-            }
-        }
-        owner.lifecycle.addObserver(observer)
-        onDispose {
-            owner.lifecycle.removeObserver(observer)
-            credential = ""
-        }
-    }
-    AlertDialog(
-        onDismissRequest = {
-            credential = ""
-            onDismiss()
-        },
-        title = { Text("Read OpenRouter Wallet") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Use a management key for ${connection.name}. This reads the account balance through OpenRouter's existing account API.")
-                OutlinedTextField(credential, { credential = it }, Modifier.fillMaxWidth().testTag("home_wallet_key"), label = { Text("Management key") }, visualTransformation = PasswordVisualTransformation(), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password))
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = {
-                val value = credential
-                credential = ""
-                onRead(value)
-            }, enabled = credential.isNotBlank()) { Text("Read balance") }
-        },
-        dismissButton = {
-            TextButton(onClick = {
-                credential = ""
-                onDismiss()
-            }) { Text("Cancel") }
-        }
-    )
 }

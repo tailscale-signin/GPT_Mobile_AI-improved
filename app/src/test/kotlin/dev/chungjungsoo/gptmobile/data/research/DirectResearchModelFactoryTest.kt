@@ -78,4 +78,21 @@ class DirectResearchModelFactoryTest {
         assertNull(worker.generate(ResearchModelStage.PLAN, "task", 128))
         assertFalse(invoked)
     }
+
+    @Test fun acceptedTemperatureAndModelOverlayDoesNotRevokeRegisteredAuthority() = runTest {
+        val registered = PlatformV2(uid = "primary", name = "Primary", model = "saved", temperature = 0.2f)
+        val requested = registered.copy(model = "accepted-override", temperature = 0.49f)
+        val features = AppFeatureSettings()
+        var live = registered
+        val dispatched = mutableListOf<PlatformV2>()
+        val worker = DirectResearchModelFactory.create(requested, listOf(registered), features, ModelDelegationSettings(), "overlay", { listOf(live) }, { features }, { true }, { _, _ -> false }, { target, _, _, _ ->
+            dispatched += target
+            ResearchModelReply("""{"questions":[],"queries":[]}""", "", "inv")
+        })
+        assertNotNull(worker.generate(ResearchModelStage.PLAN, "task", 128))
+        assertEquals(listOf(requested), dispatched)
+        live = registered.copy(enabled = false)
+        assertNull(worker.generate(ResearchModelStage.EXTRACT, "task", 128))
+        assertEquals(1, dispatched.size)
+    }
 }

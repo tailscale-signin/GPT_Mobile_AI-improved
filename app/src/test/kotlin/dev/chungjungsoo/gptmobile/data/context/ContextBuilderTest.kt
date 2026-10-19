@@ -10,6 +10,34 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ContextBuilderTest {
+    @Test fun currentAssistantNeverBecomesImplicitProviderPrefill() {
+        val platform = PlatformV2(uid = "primary", name = "Primary")
+        val user = MessageV2(id = 12, content = "Please explain", platformType = null)
+        val pending = MessageV2(content = "Internal pending status", platformType = platform.uid, linkedMessageId = user.id)
+        val turns = ContextBuilder().build(listOf(user), listOf(listOf(pending)), platform)
+        assertEquals(listOf(user), turns.map { it.userMessage })
+        assertNull(turns.single().assistantMessage)
+    }
+
+    @Test fun unavailableCombinedTurnRetainsTheUserWithoutInventingAnAssistant() {
+        val notice = "[Combined turn: the merged final was unavailable.]"
+        val users = listOf(MessageV2(id = 1, platformType = null, content = "Earlier request"), MessageV2(id = 2, platformType = null, content = "Explain this quoted text: $notice"))
+        val candidate = MessageV2(
+            platformType = "p",
+            content = "Undelivered draft",
+            timeline = listOf(
+                dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(
+                    dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE,
+                    combinedTurn = CombinedTurnHistory("root", "policy", listOf("p"), "MERGE_UNAVAILABLE")
+                )
+            )
+        )
+        val turns = ContextBuilder().build(users, listOf(listOf(candidate), emptyList()), PlatformV2(uid = "p", name = "P"))
+        assertEquals(users, turns.map { it.userMessage })
+        assertTrue(turns.all { it.assistantMessage == null })
+        assertTrue(turns.last().userMessage.content.contains(notice))
+    }
+
     @Test
     fun acceptedCombinedHistoryIsIndependentOfCurrentLeadAndRetainsPrivacy() {
         val text = "Use the helper-only recommendation."
@@ -32,7 +60,7 @@ class ContextBuilderTest {
         for (uid in listOf("helper", "new-lead", "old-lead")) {
             val selected = ContextBuilder().build(users, replies, PlatformV2(uid = uid, name = uid)).first().assistantMessage!!
             assertTrue(selected.content.startsWith(text))
-            assertTrue(selected.content.contains("not independent corroboration"))
+            assertEquals(text, selected.content)
             assertTrue(selected.combinedSources.single().localOnly)
         }
     }

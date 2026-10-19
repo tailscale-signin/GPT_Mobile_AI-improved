@@ -12,7 +12,7 @@ object CombinedWorkInventory {
     private val ignored = setOf("the", "and", "with", "for", "that", "this", "from", "what", "which", "when", "where", "how", "are", "can", "you", "please", "find", "search", "research", "sources", "source", "compare", "explain", "about", "provide", "give", "all", "into", "using", "include", "use", "more", "most", "than", "their", "then")
 
     fun derive(requested: CombinedRequestedPolicy, toolsAllowed: Boolean): List<CombinedWorkItem> {
-        if (!toolsAllowed) return emptyList()
+        if (!toolsAllowed && requested.acceptedResearch == null) return emptyList()
         val prompt = requested.userPrompt.trim()
         if (prompt.isEmpty()) return emptyList()
         val explicitUrls = urls(prompt)
@@ -21,7 +21,7 @@ object CombinedWorkInventory {
             .ifEmpty { listOf(prompt) }
         // A long request is grouped without dropping its remaining clauses or inventing new goals.
         val grouped = if (scopes.size > 32) scopes.chunked((scopes.size + 31) / 32).map { it.joinToString("\n") } else scopes
-        val explicitCount = sourceCount.findAll(prompt).maxOfOrNull { it.groupValues[1].toLong() }
+        val explicitCount = listOfNotNull(sourceCount.findAll(prompt).maxOfOrNull { it.groupValues[1].toLong() }, requested.acceptedResearch?.sourceGoal).maxOrNull()
         val defaultUnits = listOf(1L, 2L, 4L, 8L, 12L)[requested.settings.normalized().effort / 25]
         val perScope = explicitCount?.let { (it + grouped.size - 1) / grouped.size } ?: defaultUnits
         return grouped.mapIndexed { index, description ->
@@ -31,7 +31,11 @@ object CombinedWorkInventory {
                 role = CombinedRunRole.RESEARCH,
                 remainingUnits = maxOf(1, perScope, scopeUrls.size.toLong()),
                 required = explicitCount != null || scopeUrls.isNotEmpty(),
-                reason = if (explicitCount != null || scopeUrls.isNotEmpty()) "EXPLICIT_SOURCE_REQUIREMENT" else "BOUNDED_REQUEST_QUESTION",
+                reason = when {
+                    requested.acceptedResearch != null -> "ACCEPTED_RESEARCH_REQUIREMENT"
+                    explicitCount != null || scopeUrls.isNotEmpty() -> "EXPLICIT_SOURCE_REQUIREMENT"
+                    else -> "BOUNDED_REQUEST_QUESTION"
+                },
                 kind = CombinedWorkKind.EVIDENCE,
                 description = description,
                 sourceUrls = scopeUrls

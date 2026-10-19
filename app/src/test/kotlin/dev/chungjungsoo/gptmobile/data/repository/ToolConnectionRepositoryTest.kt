@@ -418,6 +418,8 @@ private class FakeToolConnectionDao(
     val bindings = mutableMapOf<String, AgentToolBinding>()
     var failUpserts = false
 
+    override fun observeConnections(): kotlinx.coroutines.flow.Flow<List<ToolConnection>> = kotlinx.coroutines.flow.flow { emit(listConnections()) }
+
     override suspend fun listConnections(): List<ToolConnection> = connections.values.sortedWith(
         compareBy<ToolConnection> { it.name }
             .thenBy { it.alias }

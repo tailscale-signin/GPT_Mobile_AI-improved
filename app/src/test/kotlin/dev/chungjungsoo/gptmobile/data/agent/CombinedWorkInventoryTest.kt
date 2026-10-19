@@ -117,6 +117,58 @@ class CombinedWorkInventoryTest {
         assertTrue(budget.reserve(context, "retry", CombinedResourceQuota(toolOperations = 1)) is CombinedBudgetAdmission.Denied)
     }
 
+    @Test
+    fun researchStagesHaveIndependentFundingAndTerminalWorkCannotDispatch() = runBlocking {
+        val requested = CombinedPolicyResolver.accept(
+            ConversationCombinedSettings(effort = 0),
+            listOf("a"),
+            mapOf("a" to "model"),
+            "Research batteries",
+            acceptedResearch = CombinedResearchRequirement(20, 24, "WEB_ONLY")
+        )
+        val plan = CombinedPolicyResolver.resolve(requested)
+        val context = CombinedExecutionContext(requested, plan, "stage-funding", profileUid = "a")
+        val budget = CombinedTurnBudgetStore.inMemory().open(context)
+        for (stage in CombinedResearchStages.names) {
+            val id = CombinedResearchStages.id("a", stage)
+            assertTrue(id in plan.baselineByOwner)
+            val child = context.forRole(CombinedRunRole.RESEARCH, "a", id)
+            assertEquals(id, child.ownerKey)
+            val receipt = budget.reserve(child, "attempt-$stage", CombinedResourceQuota(256, 128))
+            assertTrue(receipt is CombinedBudgetAdmission.Granted)
+            assertEquals(CombinedBudgetPool.BASELINE, (receipt as CombinedBudgetAdmission.Granted).reservation.pool)
+            budget.finishStage(id, "COMPLETED")
+            assertTrue(budget.reserve(child, "late-$stage", CombinedResourceQuota(256, 128)) is CombinedBudgetAdmission.Denied)
+        }
+        assertTrue("verification" in budget.snapshot().pendingWork)
+    }
+
+    @Test
+    fun closingRootResolvesEveryPendingItemAndRetainsUnknownUsage() = runBlocking {
+        val context = context("Find 2 sources on batteries")
+        val budget = CombinedTurnBudgetStore.inMemory().open(context)
+        budget.reserve(context, "uncertain", CombinedResourceQuota(256, 128))
+        budget.unknown("uncertain", "Connection lost after dispatch")
+        val pending = budget.snapshot().pendingWork.keys
+        budget.close("COMPLETED")
+        val snapshot = budget.snapshot()
+        assertEquals("PARTIAL", snapshot.terminalOutcome)
+        assertTrue(snapshot.pendingWork.isEmpty())
+        assertTrue(snapshot.stageOutcomes.keys.containsAll(pending))
+        assertTrue("uncertain" in snapshot.unknownAttemptIds)
+    }
+
+    @Test
+    fun unusedVerifierReserveDoesNotDowngradeDeliveredRequiredWork() = runBlocking {
+        val context = context("Write a short greeting")
+        val budget = CombinedTurnBudgetStore.inMemory().open(context)
+        for (item in requireNotNull(context.plan).workItems.filter { it.required }) budget.completeWork(item.id)
+        budget.close("COMPLETED")
+        assertEquals("COMPLETED", budget.snapshot().terminalOutcome)
+        assertTrue(budget.snapshot().pendingWork.isEmpty())
+        assertEquals("PARTIAL:UNUSED_OPTIONAL_CAPACITY", budget.snapshot().stageOutcomes["verification"])
+    }
+
     private fun context(prompt: String): CombinedExecutionContext {
         val requested = CombinedPolicyResolver.accept(ConversationCombinedSettings(effort = 100), listOf("a"), mapOf("a" to "test"), prompt, acceptedAtMillis = 1)
         return CombinedExecutionContext(requested, CombinedPolicyResolver.resolve(requested), java.util.UUID.randomUUID().toString(), profileUid = "a")

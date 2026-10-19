@@ -31,6 +31,22 @@ data class ResearchModelEvent(
     val exceptionType: String = ""
 )
 
+internal enum class ResearchAdmission {
+    ADMITTED,
+    MODEL_NOT_ADMITTED,
+    PROFILE_DISABLED,
+    PROFILE_REMOVED,
+    PROFILE_IDENTITY_AMBIGUOUS,
+    REGISTERED_PROFILE_CHANGED,
+    DESTINATION_CHANGED,
+    PERMISSION_REVOKED,
+    READINESS_TIMEOUT,
+    LOCAL_ALLOWANCE_EXHAUSTED,
+    MODEL_CAPABILITY_UNAVAILABLE
+}
+
+internal class ResearchAdmissionRejected(val admission: ResearchAdmission) : IllegalStateException(admission.name)
+
 internal data class ResearchModelReply(val text: String, val modelKey: String, val invocationId: String? = null, val independent: Boolean = false)
 
 /** Only pinned, consent-checked endpoints supplied by the parent are ever considered. */
@@ -41,6 +57,7 @@ internal data class ResearchModelEndpoint(
     val local: Boolean,
     val available: suspend () -> Boolean,
     val timeoutMillis: Long? = null,
+    val admission: (suspend () -> ResearchAdmission)? = null,
     val generate: suspend (ResearchModelStage, String, Int) -> ResearchModelReply
 )
 
@@ -58,9 +75,13 @@ internal class ResearchModelCoordinator(
     private data class FailureState(val count: Int, val retryAt: Long, val probe: Boolean = false)
     private val failures = java.util.concurrent.ConcurrentHashMap<CircuitKey, FailureState>()
     private val history = mutableListOf<ResearchModelEvent>()
+    private val successfulStages = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val incompleteStages = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    fun completedStage(stage: String): Boolean = stage.uppercase(java.util.Locale.ROOT).let { it in successfulStages && it !in incompleteStages }
     val events: List<ResearchModelEvent> get() = synchronized(history) { history.toList() }
 
     private suspend fun record(event: ResearchModelEvent) {
+        if (event.outcome == "SUCCESS") successfulStages.add(event.stage)
         synchronized(history) {
             history.removeAll { it.id == event.id }
             history += event
@@ -80,7 +101,14 @@ internal class ResearchModelCoordinator(
 
     val hasCandidates: Boolean get() = workers.isNotEmpty() || reviewer != null
 
-    suspend fun generate(stage: ResearchModelStage, prompt: String, cap: Int, extractedBy: String = ""): ResearchModelReply? {
+    suspend fun generate(stage: ResearchModelStage, prompt: String, cap: Int, extractedBy: String = ""): ResearchModelReply? = try {
+        attemptGenerate(stage, prompt, cap, extractedBy).also { if (it == null) incompleteStages.add(stage.name) }
+    } catch (failure: Throwable) {
+        incompleteStages.add(stage.name)
+        throw failure
+    }
+
+    private suspend fun attemptGenerate(stage: ResearchModelStage, prompt: String, cap: Int, extractedBy: String): ResearchModelReply? {
         if (!stillEnabled() || cap <= 0) return null
         val candidates = (if (stage == ResearchModelStage.REVIEW) listOfNotNull(reviewer) + workers else workers).distinctBy { it.profileUid }
         for (target in candidates) {
@@ -97,8 +125,11 @@ internal class ResearchModelCoordinator(
             val started = monotonicClock()
             var phase = "READINESS"
             try {
-                if (withTimeoutOrNull(minOf(5000L, deadlineMillis)) { target.available() } != true) {
-                    record(event.copy(outcome = "SKIPPED", reason = "MODEL_NOT_ADMITTED"))
+                val admission = withTimeoutOrNull(minOf(5000L, deadlineMillis)) {
+                    target.admission?.invoke() ?: if (target.available()) ResearchAdmission.ADMITTED else ResearchAdmission.MODEL_NOT_ADMITTED
+                } ?: ResearchAdmission.READINESS_TIMEOUT
+                if (admission != ResearchAdmission.ADMITTED) {
+                    record(event.copy(outcome = "SKIPPED", reason = admission.name, failurePhase = phase, failureCategory = "ADMISSION"))
                     continue
                 }
                 record(event.copy(outcome = "RUNNING"))
@@ -120,6 +151,8 @@ internal class ResearchModelCoordinator(
             } catch (cancelled: CancellationException) {
                 kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) { record(event.copy(outcome = "CANCELLED", durationMs = elapsed(started), reason = "PARENT_CANCELLED")) }
                 throw cancelled
+            } catch (rejected: ResearchAdmissionRejected) {
+                record(event.copy(outcome = "SKIPPED", durationMs = elapsed(started), reason = rejected.admission.name, failurePhase = phase, failureCategory = "ADMISSION"))
             } catch (error: Exception) {
                 failed()
                 record(

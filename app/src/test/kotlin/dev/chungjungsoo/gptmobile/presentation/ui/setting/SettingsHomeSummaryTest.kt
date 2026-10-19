@@ -49,7 +49,8 @@ class SettingsHomeSummaryTest {
     }
 
     @Test fun walletDisplaysConnectLoadingUnavailableLiveHiddenAndStaleSeparately() {
-        assertEquals("Connect to view", points(SettingsHomeConfiguration.WALLET).single().value)
+        assertEquals("Manage OpenRouter", points(SettingsHomeConfiguration.WALLET).single().value)
+        assertEquals("Available after your next response", points(SettingsHomeConfiguration.WALLET, wallet = SettingsHomeWalletState(associationValid = true)).single().value)
         assertEquals(SettingsHomeTone.ACTIVE, points(SettingsHomeConfiguration.WALLET, wallet = SettingsHomeWalletState(loading = true)).single().tone)
         val unavailable = points(SettingsHomeConfiguration.WALLET, wallet = SettingsHomeWalletState(failure = AccountFailure.NETWORK)).single()
         assertEquals("Balance unavailable", unavailable.value)
@@ -67,7 +68,7 @@ class SettingsHomeSummaryTest {
         val configuration = SettingsHomeConfiguration(walletConnectionUid = "deleted")
         assertEquals(null, homeWalletConnection(configuration, listOf(connection)))
         val wrong = points(SettingsHomeConfiguration.WALLET, wallet = SettingsHomeWalletState(snapshot.copy(connectionUid = "other"))).single()
-        assertEquals("Connect to view", wrong.value)
+        assertEquals("Manage OpenRouter", wrong.value)
     }
 
     @Test fun missingItemAndUnavailableLocalDataRemainExplicit() {

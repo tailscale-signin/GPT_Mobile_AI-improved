@@ -183,7 +183,12 @@ class AgentToolResolverTest {
         assertTrue(resolver.resolve("profile").any { it.realToolName == "current_date" })
         coEvery { registry.load() } returns records
         val local = PlatformV2(uid = "local", name = "Local", disableRemoteTools = true)
-        assertFalse(resolver(settings = ResolverFakeSettingRepository(listOf(local)), nativeRegistry = registry, nativeClient = client).resolve(local.uid).any { it.connectionUid in records.keys })
+        val localTools = resolver(settings = ResolverFakeSettingRepository(listOf(local)), nativeRegistry = registry, nativeClient = client).resolve(local.uid)
+        assertFalse(localTools.any { it.connectionUid in records.keys - "optional-universal-marketplace" })
+        // Link generation is a local operation; the remote switch must not disable it.
+        assertTrue(localTools.any { it.connectionUid == "optional-universal-marketplace" })
+        val noLocal = local.copy(disableLocalTools = true)
+        assertFalse(resolver(settings = ResolverFakeSettingRepository(listOf(noLocal)), nativeRegistry = registry, nativeClient = client).resolve(local.uid).any { it.connectionUid in records.keys })
     }
 
     @Test

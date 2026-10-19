@@ -160,6 +160,16 @@ data class CombinedWorkPlan(
     }
 }
 
+/** Stable stage assignments keep Research analysis away from verification and writer escrow. */
+object CombinedResearchStages {
+    val names = listOf("plan", "extract", "find_gaps", "review")
+    fun id(profileUid: String, stage: String): String = "research:$profileUid:$stage"
+    fun item(context: CombinedExecutionContext, profileUid: String, requestRole: String): CombinedWorkItem? {
+        val stage = requestRole.removePrefix("research-").takeIf { requestRole.startsWith("research-") && it in names } ?: return null
+        return context.plan?.workItems?.firstOrNull { it.id == id(profileUid, stage) }
+    }
+}
+
 /** Serializable routing context, never a tool grant. A role change keeps the same accepted turn. */
 @Serializable
 data class CombinedExecutionContext(

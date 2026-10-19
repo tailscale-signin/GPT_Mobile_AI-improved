@@ -30,5 +30,26 @@ data class CombinedInputSnapshot(
     val answerContract: CombinedAnswerPolicy? = null,
     val revisionId: String = "",
     val verificationReceipts: List<CombinedVerificationReceipt> = emptyList(),
-    val temperature: Float? = null
-)
+    val temperature: Float? = null,
+    val snapshotId: String = "",
+    val inputDigest: String = "",
+    val predecessorSnapshotId: String? = null,
+    val selectedHistoryRevisionIds: List<String> = emptyList(),
+    val deliveryResumeFromRevisionId: String? = null
+) {
+    fun contentDigest(): String = dev.chungjungsoo.gptmobile.data.research.researchHash(
+        SNAPSHOT_JSON.encodeToString(serializer(), copy(inputDigest = "", resumeFromRunId = null, committedPrefix = "", deliveryResumeFromRevisionId = null))
+    )
+
+    /** Always persist dynamic defaults such as message creation times. */
+    fun encode(): String = SNAPSHOT_JSON.encodeToString(serializer(), this)
+
+    fun seal(): CombinedInputSnapshot {
+        require(version >= 6 && snapshotId.isNotBlank() && inputDigest.isBlank())
+        return copy(inputDigest = contentDigest())
+    }
+
+    private companion object {
+        val SNAPSHOT_JSON = kotlinx.serialization.json.Json { encodeDefaults = true }
+    }
+}

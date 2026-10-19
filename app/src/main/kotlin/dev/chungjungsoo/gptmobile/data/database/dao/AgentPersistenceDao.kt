@@ -165,6 +165,35 @@ interface AgentPersistenceDao {
     )
     suspend fun cancelInterruptedToolEvents(completedAt: Long)
 
+    @Query("SELECT * FROM combined_delivery_checkpoints WHERE runId = :runId AND revisionId = :revisionId")
+    suspend fun combinedDeliveryCheckpoint(runId: String, revisionId: String): dev.chungjungsoo.gptmobile.data.database.entity.CombinedDeliveryCheckpoint?
+
+    @Upsert
+    suspend fun upsertCombinedDeliveryCheckpoint(row: dev.chungjungsoo.gptmobile.data.database.entity.CombinedDeliveryCheckpoint)
+
+    @Transaction
+    suspend fun commitCombinedDeliveryCheckpoint(row: dev.chungjungsoo.gptmobile.data.database.entity.CombinedDeliveryCheckpoint, expectedGeneration: Long, synthesisKey: String): Boolean {
+        val run = recoveryRun(row.runId) ?: return false
+        if (run.status != "RUNNING" || run.ownershipFence != row.fence || run.synthesisKey != synthesisKey) return false
+        val message = rawRecoveryMessage(run.assistantMessageId) ?: return false
+        if (message.currentRunId != row.runId || message.ownershipFence != row.fence) return false
+        val old = combinedDeliveryCheckpoint(row.runId, row.revisionId)
+        if ((old?.generation ?: 0L) != expectedGeneration || row.generation != Math.addExact(expectedGeneration, 1)) return false
+        val state = kotlinx.serialization.json.Json.decodeFromString<dev.chungjungsoo.gptmobile.data.agent.CombinedRecordCheckpoint>(row.stateJson)
+        require(state.revisionId == row.revisionId && state.snapshotDigest == row.snapshotDigest)
+        val sealed = kotlinx.serialization.json.Json.decodeFromString<dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot>(row.snapshotJson)
+        require(sealed.inputDigest == row.snapshotDigest && sealed.contentDigest() == row.snapshotDigest)
+        old?.let {
+            require(it.snapshotDigest == row.snapshotDigest && it.fence == row.fence)
+            val previous = kotlinx.serialization.json.Json.decodeFromString<dev.chungjungsoo.gptmobile.data.agent.CombinedRecordCheckpoint>(it.stateJson)
+            require(state.records.take(previous.records.size) == previous.records) { "A committed record cannot be rewritten" }
+        }
+        val quality = kotlinx.serialization.json.Json.decodeFromString<dev.chungjungsoo.gptmobile.data.agent.CombinedQualityReport>(row.attributionJson)
+        require(quality.answerDigest == dev.chungjungsoo.gptmobile.data.research.researchHash(row.renderedAnswer) && quality.passages.all { it.matches(row.renderedAnswer) })
+        upsertCombinedDeliveryCheckpoint(row)
+        return true
+    }
+
     @Query("SELECT * FROM answer_segments WHERE runId = :runId ORDER BY sequence")
     suspend fun answerSegments(runId: String): List<dev.chungjungsoo.gptmobile.data.database.entity.AnswerSegment>
 
@@ -601,9 +630,9 @@ interface AgentPersistenceDao {
             val snapshot = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromString<dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot>(requireNotNull(request.run.synthesisSnapshot))
             require(snapshot.resumeFromRunId == priorId && request.run.synthesisKey == dev.chungjungsoo.gptmobile.data.research.researchHash(requireNotNull(request.run.synthesisSnapshot)))
             val original = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromString<dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot>(requireNotNull(priorRun.synthesisSnapshot))
-            require(snapshot.copy(version = original.version, resumeFromRunId = original.resumeFromRunId, committedPrefix = original.committedPrefix) == original) { "Recovery cannot replace the frozen input." }
+            require(snapshot.copy(version = original.version, resumeFromRunId = original.resumeFromRunId, committedPrefix = original.committedPrefix, deliveryResumeFromRevisionId = original.deliveryResumeFromRevisionId) == original) { "Recovery cannot replace the frozen input." }
             val prefix = if (priorRun.status == "COMPLETED") "" else dev.chungjungsoo.gptmobile.data.agent.AnswerSegmentChain.text(answerSegments(priorId), priorId, priorRun.ownershipFence)
-            val resumed = if (snapshot.deliveryProtocol == "PASSAGES_V2") "" else prefix
+            val resumed = if (snapshot.deliveryProtocol in setOf("PASSAGES_V2", "PASSAGES_V3")) "" else prefix
             require(snapshot.committedPrefix == resumed && (priorRun.status == "COMPLETED" || current.content == prefix)) { "The committed Combined prefix changed." }
             resumed
         }.orEmpty()

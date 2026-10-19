@@ -74,7 +74,7 @@ class Extractor:
         if response.body.startswith(b"%PDF-"):
             method, engine, version = "pdf_text", "pdftotext", "system"
             text = self._process(response.body, "pdf", cancelled)
-            limitations = ["Layout, tables, figures and supplementary material have not been verified."]
+            limitations = ["PDF text is limited to the first 200 pages; total page count, layout, tables, figures and supplements have not been verified."]
         elif mime in ("text/html", "application/xhtml+xml") or response.body.lstrip().lower().startswith((b"<!doctype html", b"<html")):
             html = response.body.decode("utf-8", errors="replace")
             metadata.feed(html)
@@ -114,7 +114,8 @@ class Extractor:
                 "attemptIds": list(response.attempts), "method": method, "retrievalStatus": "partial" if response.truncated else "readable",
                 "coverage": {"fullText": None, "abstractOnly": None, "sections": [], "pages": [], "missingSections": [], "ocrUsed": False, "limitations": limitations},
                 "contentRef": f"crawler:revision:{revision}", "contentHash": content_hash, "title": " ".join(metadata.title).strip(),
-                "text": text, "storedCharacters": len(text), "artifactHash": digest(response.body), "artifactBytes": len(response.body)}, list(dict.fromkeys(links))
+                "text": text, "storedCharacters": len(text), "characterUnit": "UNICODE_CODE_POINT_V1",
+                "storedUtf16Length": len(text.encode("utf-16-le")) // 2, "storedUtf8Bytes": len(text.encode("utf-8")), "artifactHash": digest(response.body), "artifactBytes": len(response.body)}, list(dict.fromkeys(links))
 
     def _process(self, artifact, engine, cancelled):
         if engine == "pdf":
@@ -125,7 +126,7 @@ class Extractor:
             source, target = Path(directory) / "artifact", Path(directory) / "text"
             source.write_bytes(artifact)
             source.chmod(0o600)
-            command = ["pdftotext", "-enc", "UTF-8", str(source), str(target)] if engine == "pdf" else [sys.executable, "-m", "crawler_server.extraction", engine, str(source), str(target)]
+            command = [sys.executable, "-m", "crawler_server.extraction", engine, str(source), str(target)]
             # A dedicated process permits cancellation during CPU-bound extraction.
             process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             deadline = time.monotonic() + self.timeout
@@ -149,6 +150,11 @@ def _worker(engine, source, target):
         resource.setrlimit(resource.RLIMIT_AS, (1024**3, 1024**3))
         resource.setrlimit(resource.RLIMIT_CPU, (25, 25))
         resource.setrlimit(resource.RLIMIT_FSIZE, (8 * 1024 * 1024, 8 * 1024 * 1024))
+    if engine == "pdf":
+        reader = shutil.which("pdftotext")
+        if not reader:
+            raise ValueError("PDF text worker unavailable")
+        os.execv(reader, [reader, "-f", "1", "-l", "200", "-enc", "UTF-8", source, target])
     artifact = Path(source).read_bytes()
     if engine == "trafilatura":
         from trafilatura import extract

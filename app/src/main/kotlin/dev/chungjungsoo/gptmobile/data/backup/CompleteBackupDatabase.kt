@@ -203,6 +203,8 @@ internal object CompleteBackupDatabase {
             }
             if (CompleteBackupSection.AGENT_HISTORY in sections) {
                 add("agent_runs")
+                add("answer_segments")
+                add("combined_delivery_checkpoints")
                 add("tool_events")
                 add("tool_approvals")
                 add("model_invocations")

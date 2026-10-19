@@ -450,7 +450,7 @@ object ChatDatabaseV2Migrations {
 
     val MIGRATION_41_42 = object : Migration(41, 42) {
         override fun migrate(db: SupportSQLiteDatabase) {
-            db.execSQL("ALTER TABLE `conversation_folders` ADD COLUMN `colorMode` TEXT NOT NULL DEFAULT 'CUSTOM'")
+            addColumnIfMissing(db, "conversation_folders", "colorMode", "TEXT NOT NULL DEFAULT 'CUSTOM'")
         }
     }
 
@@ -458,6 +458,12 @@ object ChatDatabaseV2Migrations {
         override fun migrate(db: SupportSQLiteDatabase) {
             db.execSQL("CREATE TABLE IF NOT EXISTS `marketplace_saved_searches` (`id` TEXT NOT NULL, `title` TEXT NOT NULL, `requestJson` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`id`))")
             db.execSQL("CREATE TABLE IF NOT EXISTS `marketplace_bookmarks` (`id` TEXT NOT NULL, `provider` TEXT NOT NULL, `url` TEXT NOT NULL, `note` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`id`))")
+        }
+    }
+
+    val MIGRATION_43_44 = object : Migration(43, 44) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS `combined_delivery_checkpoints` (`runId` TEXT NOT NULL, `revisionId` TEXT NOT NULL, `fence` INTEGER NOT NULL, `generation` INTEGER NOT NULL, `snapshotDigest` TEXT NOT NULL, `snapshotJson` TEXT NOT NULL, `stateJson` TEXT NOT NULL, `renderedAnswer` TEXT NOT NULL, `attributionJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`runId`, `revisionId`), FOREIGN KEY(`runId`) REFERENCES `agent_runs`(`run_id`) ON UPDATE NO ACTION ON DELETE CASCADE)")
         }
     }
 
@@ -494,7 +500,8 @@ object ChatDatabaseV2Migrations {
         MIGRATION_39_40,
         MIGRATION_40_41,
         MIGRATION_41_42,
-        MIGRATION_42_43
+        MIGRATION_42_43,
+        MIGRATION_43_44
     )
     private fun columns(db: SupportSQLiteDatabase, table: String): Set<String> = db.query("PRAGMA table_info(`$table`)").use { cursor -> buildSet { while (cursor.moveToNext()) add(cursor.getString(1)) } }
     private fun addColumnIfMissing(db: SupportSQLiteDatabase, table: String, column: String, definition: String) {

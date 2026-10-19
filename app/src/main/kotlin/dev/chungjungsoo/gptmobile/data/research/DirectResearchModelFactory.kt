@@ -45,38 +45,57 @@ internal object DirectResearchModelFactory {
             val identity = CanonicalModelIdentity.resolve(target).canonical.orEmpty()
             // Request temperature/model overlays are distinct from registered authority.
             val registered = profiles.singleOrNull { it.uid == target.uid }
-            val destinationMatches = registered != null &&
-                registered.compatibleType == target.compatibleType &&
-                registered.apiUrl == target.apiUrl &&
-                registered.token == target.token &&
-                registered.secretRef == target.secretRef &&
-                registered.providerConnectionUid == target.providerConnectionUid
-            suspend fun permitted(): Boolean = stillEnabled() &&
-                destinationMatches &&
-                liveProfiles().singleOrNull { it.uid == target.uid }?.let { it == registered && it.enabled } == true &&
-                (!local || liveFeatures().let { live -> live.assistEnabled() && policy.shareDerivedEvidence && live.effectiveAssistPolicy() == policy && policy.allowsProcessing(target) }) &&
-                (target.uid == primary.uid || local || liveFeatures().delegationFor(primary.uid).let { live -> live.reviewerEnabled && live.reviewerProfileUid == config.reviewerProfileUid && (target.isPrivateDestination() || live.remoteWorkersAllowed()) })
+            fun sameDestination(other: PlatformV2): Boolean =
+                other.compatibleType == target.compatibleType &&
+                    other.apiUrl == target.apiUrl &&
+                    other.token == target.token &&
+                    other.secretRef == target.secretRef &&
+                    other.providerConnectionUid == target.providerConnectionUid
+            val revision = registered?.let(dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority::profileRevision)
+            suspend fun admission(): ResearchAdmission {
+                if (!stillEnabled()) return ResearchAdmission.PERMISSION_REVOKED
+                if (registered == null) return ResearchAdmission.PROFILE_REMOVED
+                if (!sameDestination(registered)) return ResearchAdmission.DESTINATION_CHANGED
+                val matches = liveProfiles().filter { it.uid == target.uid }
+                if (matches.size > 1) return ResearchAdmission.PROFILE_IDENTITY_AMBIGUOUS
+                val current = matches.singleOrNull() ?: return ResearchAdmission.PROFILE_REMOVED
+                if (!current.enabled) return ResearchAdmission.PROFILE_DISABLED
+                if (!sameDestination(current)) return ResearchAdmission.DESTINATION_CHANGED
+                if (dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.profileRevision(current) != revision) return ResearchAdmission.REGISTERED_PROFILE_CHANGED
+                val live = liveFeatures()
+                if (local && (!live.assistEnabled() || !policy.shareDerivedEvidence || live.effectiveAssistPolicy() != policy || !policy.allowsProcessing(target))) return ResearchAdmission.PERMISSION_REVOKED
+                val selectedResearchReviewer = features.researchFeature.reviewerProfileUid == target.uid && live.researchFeature.enabled && live.researchFeature.reviewerProfileUid == target.uid
+                if (target.uid != primary.uid && features.researchFeature.reviewerProfileUid == target.uid && !selectedResearchReviewer) return ResearchAdmission.PERMISSION_REVOKED
+                if (target.uid != primary.uid && !local && !selectedResearchReviewer && !live.delegationFor(primary.uid).let { it.reviewerEnabled && it.reviewerProfileUid == config.reviewerProfileUid && (target.isPrivateDestination() || it.remoteWorkersAllowed()) }) return ResearchAdmission.PERMISSION_REVOKED
+                if (local && !AssistTurnBudget.available(turnId, policy.maxAttempts)) return ResearchAdmission.LOCAL_ALLOWANCE_EXHAUSTED
+                return ResearchAdmission.ADMITTED
+            }
+            suspend fun requireAdmission() {
+                val result = admission()
+                if (result != ResearchAdmission.ADMITTED) throw ResearchAdmissionRejected(result)
+            }
             return ResearchModelEndpoint(
                 target.uid,
                 target.model,
                 identity,
                 local,
-                available = { permitted() && (!local || AssistTurnBudget.available(turnId, policy.maxAttempts)) },
+                available = { admission() == ResearchAdmission.ADMITTED },
+                admission = { admission() },
                 timeoutMillis = if (local) (policy.queueWaitSeconds + policy.loadTimeoutSeconds + policy.taskTimeoutSeconds) * 1000L else null,
                 generate = { stage, prompt, cap ->
                     suspend fun execute(): ResearchModelReply {
-                        check(permitted()) { "Research permission or destination changed" }
+                        requireAdmission()
                         return generate(target, stage, prompt, cap)
                     }
                     if (local) {
                         LocalAssistQueue.run(policy.queueWaitSeconds * 1000L) {
-                            check(permitted()) { "Research permission or destination changed" }
+                            requireAdmission()
                             check(prepareLocal(target, policy)) { AssistReadinessResolver.state.value.reason }
                             dev.chungjungsoo.gptmobile.data.assist.withAssistAttemptDeadline(
                                 generationMillis = policy.taskTimeoutSeconds * 1000L,
                                 preparationMillis = policy.loadTimeoutSeconds * 1000L,
                                 authorize = {
-                                    if (!permitted()) throw PhysicalAttemptRejected("PERMISSION_OR_RUNTIME_CHANGED")
+                                    requireAdmission()
                                     if (!AssistTurnBudget.reserve(turnId, policy.maxAttempts)) throw PhysicalAttemptRejected("PHYSICAL_ATTEMPT_ALLOWANCE")
                                 }
                             ) { execute() }
@@ -95,12 +114,19 @@ internal object DirectResearchModelFactory {
                 policy.allowsProcessing(it) &&
                 (policy.profileUid != null && policy.profileUid == it.uid)
         }
-        val reviewer = reservedReviewer(config, profiles, primary)?.takeIf {
-            config.reviewerEnabled &&
-                it.enabled &&
-                !it.excludesMemory() &&
-                (it.isPrivateDestination() || config.remoteWorkersAllowed()) &&
-                (it.compatibleType != ClientType.LITERT_LM || features.assistEnabled() && policy.allowsProcessing(it))
+        // Research has its own explicit reviewer selection, independent of Combined Delegation.
+        // A missing selected profile remains unavailable; never substitute another reviewer.
+        val selectedReviewer = features.researchFeature.reviewerProfileUid
+        val reviewer = if (selectedReviewer != null) {
+            profiles.singleOrNull { it.uid == selectedReviewer && it.enabled && (it.compatibleType != ClientType.LITERT_LM || features.assistEnabled() && policy.allowsProcessing(it)) }
+        } else {
+            reservedReviewer(config, profiles, primary)?.takeIf {
+                config.reviewerEnabled &&
+                    it.enabled &&
+                    !it.excludesMemory() &&
+                    (it.isPrivateDestination() || config.remoteWorkersAllowed()) &&
+                    (it.compatibleType != ClientType.LITERT_LM || features.assistEnabled() && policy.allowsProcessing(it))
+            }
         }
         return ResearchModelCoordinator(
             workers = listOfNotNull(helper?.let(::endpoint), primary.takeIf { it.compatibleType != ClientType.LITERT_LM }?.let(::endpoint)),

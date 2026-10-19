@@ -78,7 +78,8 @@ data class CombinedQualityReport(
 internal class CombinedPassageDecoder(
     private val sources: List<CombinedModelResponse>,
     private val evidence: CombinedEvidenceLedger,
-    private val maxCharacters: Int
+    private val maxCharacters: Int,
+    private val strictRecords: Boolean = false
 ) {
     private val pending = StringBuilder()
     private val output = StringBuilder()
@@ -262,6 +263,7 @@ internal class CombinedPassageDecoder(
         }
         fun text(key: String) = (row[key] as? JsonPrimitive)?.contentOrNull.orEmpty()
         fun strings(key: String) = (row[key] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.contentOrNull }.toSet()
+        if (strictRecords && text("type") == "end") return
         if (text("type") == "decision") {
             val id = text("claim")
             val disposition = text("disposition")
@@ -277,16 +279,16 @@ internal class CombinedPassageDecoder(
             issues += "INVALID_DELIVERY_RECORD"
             return
         }
-        val body = text("text").trim()
+        val body = if (strictRecords) text("text") else text("text").trim()
         if (body.contains(COMBINED_RECOVERY_MARKER)) {
             issues += "INTERNAL_RECOVERY_MARKER_REJECTED"
             return
         }
         val separator = if (output.isEmpty()) "" else "\n\n"
-        val requested = strings("profiles")
+        val requested = strings(if (strictRecords) "contributors" else "profiles")
         val profiles = requested.mapNotNull { id -> id.removePrefix("C").toIntOrNull()?.let { sources.getOrNull(it - 1)?.platformUid } }.toSet()
         if (profiles.size != requested.size) issues += "UNKNOWN_PROFILE_REFERENCE"
-        val cited = strings("sources")
+        val cited = strings(if (strictRecords) "evidence" else "sources")
         if (cited.any { it !in sourceIds }) issues += "UNKNOWN_SOURCE_REFERENCE"
         val validSources = cited.filter { it in sourceIds }.toSet()
         val claims = strings("claims")
@@ -309,11 +311,15 @@ internal class CombinedPassageDecoder(
         val normalizedBody = CombinedContentCoverage.normalized(body)
         val fingerprint = CombinedClaimMatcher.fingerprint(body)
         val candidates = fingerprint.terms.flatMapTo(linkedSetOf()) { seenByTerm[it].orEmpty() }
-        val duplicate = candidates.firstOrNull { index ->
-            val (normalized, existing) = seen[index]
-            normalized == normalizedBody ||
-                CombinedClaimMatcher.match(existing, fingerprint) >= CombinedClaimMatcher.Match.PARAPHRASE &&
-                CombinedClaimMatcher.match(fingerprint, existing) >= CombinedClaimMatcher.Match.PARAPHRASE
+        val duplicate = if (strictRecords) {
+            null
+        } else {
+            candidates.firstOrNull { index ->
+                val (normalized, existing) = seen[index]
+                normalized == normalizedBody ||
+                    CombinedClaimMatcher.match(existing, fingerprint) >= CombinedClaimMatcher.Match.PARAPHRASE &&
+                    CombinedClaimMatcher.match(fingerprint, existing) >= CombinedClaimMatcher.Match.PARAPHRASE
+            }
         }
         if (duplicate != null) {
             val previous = passages[duplicate]
@@ -340,7 +346,7 @@ internal class CombinedPassageDecoder(
             validSources,
             retainedClaims,
             assessment.result,
-            passageId = "P${passages.size + 1}",
+            passageId = if (strictRecords) text("id") else "P${passages.size + 1}",
             semanticLinkStatus = if (linkedClaims == retainedClaims && linkedClaims.isNotEmpty()) "CONSERVATIVE_LINK_CHECKED" else "UNVERIFIED"
         )
         if (citations.isNotBlank()) output.append("\n\n$citations")

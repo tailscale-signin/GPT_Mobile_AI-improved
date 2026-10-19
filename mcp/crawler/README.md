@@ -8,7 +8,13 @@ Use Python 3.11 or later in a dedicated environment. Install `.[browser,alternat
 
 Run `gptmobile-crawler --data-dir /private/crawler --grant-key-file /private/crawler-grant.key`. The grant file must contain at least 32 random bytes and have owner-only permissions. The trusted gateway supplies signed grant metadata; the model cannot supply grants in tool arguments. Do not place that key in model context, logs, or portable backups.
 
-The stdio facade discovers exactly `fetch`, `start`, `status`, `results`, and `cancel`. A gateway alias of `crawler` provides the corresponding `crawler_fetch` etc. names. `crawler://health` reports installed versions and extraction readiness separately. HTTP transport and companion installation metadata are still pending.
+The stdio facade discovers exactly `fetch`, `start`, `status`, `results`, and `cancel`. A gateway alias of `crawler` provides the corresponding `crawler_fetch` etc. names. `crawler://health` reports installed versions and extraction readiness separately. Authenticated stateless Streamable HTTP is available at `/mcp`; companion installation metadata and the Android/gateway grant bridge remain pending.
+
+## HTTP deployment
+
+Add `--http-host 127.0.0.1 --http-port 8120 --http-token-file /private/crawler-http.token` to the same command for a loopback listener behind a TLS reverse proxy. The token file must be owner-readable only and contain at least 32 non-whitespace ASCII characters. Keep the HTTP bearer token separate from the grant-signing key. For a LAN/Tailscale bind, supply `--tls-cert` and `--tls-key`; a non-loopback plaintext listener is rejected.
+
+Send authenticated JSON-RPC POST requests to `/mcp`. Initialization, discovery and health use the same facade as stdio. Tool calls still require signed `gptmobile/crawlerGrant` metadata from the trusted host; bearer authentication alone does not authorize source acquisition. Cancellation notifications carry that same metadata and are scoped to the principal, root and grant. No browser Origin is accepted unless explicitly configured with `--allowed-origin`. GET/SSE is unsupported and returns 405; notifications return 202. The service does not log request headers, credentials, source URLs or source text.
 
 ## Implemented boundaries
 
@@ -24,4 +30,4 @@ The stdio facade discovers exactly `fetch`, `start`, `status`, `results`, and `c
 
 ## Validation
 
-`python -m unittest discover -s tests -v` exercises the actual SQLite store, coordinator, facade, extraction boundary and metered fake transport. Browser rendering, OCR, authenticated HTTP, real gateway integration and device acceptance are not covered by those tests. Distribution still requires hash-locked dependencies, upstream notices, a qualified browser build and separately licensed model manifests.
+`python -m unittest discover -s tests -v` exercises the actual SQLite store, coordinator, facade, extraction boundary and metered fake transport. Tests include real loopback HTTP initialization, authentication, origin/protocol rejection, bounded requests, signed fetches and cross-principal cancellation. Browser rendering, OCR, real gateway integration and device acceptance remain unqualified. Distribution still requires hash-locked dependencies, upstream notices, a qualified browser build and separately licensed model manifests.

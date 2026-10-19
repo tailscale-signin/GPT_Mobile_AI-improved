@@ -64,6 +64,31 @@ class ServerCoordinatorTest(unittest.TestCase):
         self.assertEqual(1, evidence["accounting"]["physicalRequests"])
         self.assertTrue(evidence["accounting"]["final"])
 
+    def test_fresh_cache_keeps_original_revision_and_time_without_new_physical_work(self):
+        args = {"url": "https://example.org/cache", "outputTokens": 20_000, "outputBytes": 60_000}
+        first = self.server.call("fetch", args, self.meta, 1)["structuredContent"]["data"]
+        self.assertFalse(first["cache"]["hit"])
+        second = self.server.call("fetch", args, self.meta, 2)["structuredContent"]["data"]
+        self.assertTrue(second["cache"]["hit"])
+        self.assertEqual(0, second["evidence"]["accounting"]["physicalRequests"])
+        self.assertEqual(1, second["job"]["progress"]["inheritedDocuments"])
+        left, right = first["evidence"]["chunks"][0], second["evidence"]["chunks"][0]
+        self.assertEqual(left["document"]["documentRevision"], right["document"]["documentRevision"])
+        self.assertEqual(left["document"]["fetchedAt"], right["document"]["fetchedAt"])
+        refreshed = self.server.call("fetch", dict(args, refresh=True), self.meta, 3)["structuredContent"]["data"]
+        self.assertFalse(refreshed["cache"]["hit"])
+        self.assertEqual(1, refreshed["evidence"]["accounting"]["physicalRequests"])
+
+    def test_evidence_offsets_and_hashes_are_explicit_for_android_import(self):
+        from crawler_server.contracts import digest
+        response = self.server.call("fetch", {"url": "https://example.org/source", "outputTokens": 20_000, "outputBytes": 60_000}, self.meta, 1)
+        chunks = response["structuredContent"]["data"]["evidence"]["chunks"]
+        for chunk in chunks:
+            self.assertEqual("UNICODE_CODE_POINT_V1", chunk["offsetUnit"])
+            self.assertEqual(len(chunk["text"]), chunk["endOffset"] - chunk["startOffset"])
+            self.assertEqual(digest(chunk["text"]), chunk["textHash"])
+            self.assertEqual(len(chunk["text"].encode("utf-8")), chunk["utf8Bytes"])
+
     def test_missing_or_changed_metadata_is_rejected_before_network(self):
         for metadata in ({}, [], {"gptmobile/crawlerGrant": {"payload": {}, "signature": "bad"}}):
             result = self.server.call("fetch", {"url": "https://example.org/source"}, metadata, 1)

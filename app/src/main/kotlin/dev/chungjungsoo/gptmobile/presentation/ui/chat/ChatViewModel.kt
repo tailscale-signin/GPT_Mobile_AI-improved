@@ -1394,7 +1394,7 @@ class ChatViewModel @Inject constructor(
                     delegation = dev.chungjungsoo.gptmobile.data.model.ConversationDelegationSettings(enabled = false),
                     combined = snapshot.combined?.forRole(dev.chungjungsoo.gptmobile.data.agent.CombinedRunRole.SYNTHESIS, snapshot.profileUid)
                 )
-                val raw = kotlinx.serialization.json.Json.encodeToString(snapshot)
+                val raw = snapshot.encode()
                 val nextRunId = COMBINED_RUN_PREFIX + UUID.randomUUID().toString()
                 persistBeforeProvider(
                     persist = {
@@ -2483,6 +2483,7 @@ class ChatViewModel @Inject constructor(
             // and must never consume the one-shot synthesis reservation.
             if (userId <= 0 || userId in combinedSynthesisMessages) return@forEach
             val accepted = acceptedCombinedTurn(userId, runsById)
+            if (accepted != null) return@forEach
             val activeCombinedUids = accepted?.context?.requested?.participantUids?.toSet()
                 ?: _activePlatformUids.value.filterNot { it in _disabledPlatformUids.value }.toSet()
             val activeSlotIndexes = slotUids.mapIndexedNotNull { index, uid -> index.takeIf { uid in activeCombinedUids } }

@@ -28,6 +28,16 @@ class CombinedRecoverySnapshotTest {
     private val answer = MessageV2(id = 3, chatId = 1, content = "Preserved chapter 🙂", platformType = "primary", currentRunId = run.runId, ownershipFence = 4)
     private val segments = AnswerSegmentChain.append(emptyList(), run.runId, 4, answer.content)
 
+    @Test fun sealedSnapshotPersistsDynamicDefaultsAndRetainsItsDigestAcrossSerialization() {
+        val sealed = snapshot.copy(version = 6, snapshotId = "stable", revisionId = "revision", deliveryProtocol = "PASSAGES_V3").seal()
+        val encoded = sealed.encode()
+        org.junit.Assert.assertTrue(encoded.contains("\"createdAt\":" + source.createdAt))
+        val restored = Json.decodeFromString<CombinedInputSnapshot>(encoded)
+        assertEquals(sealed, restored)
+        assertEquals(sealed.inputDigest, restored.contentDigest())
+        assertEquals(encoded, restored.encode())
+    }
+
     @Test fun restartRestoresOriginalSourcesAndExactPrefixWithoutPromotingTheAnswerIntoEvidence() {
         val recovered = CombinedRecoverySnapshot.prepare(run, answer, "primary", platform, segments)
         assertEquals(snapshot.sources, recovered.sources)

@@ -444,6 +444,8 @@ private class FakeAgentRunDao : AgentRunDao {
 }
 
 private class FakeAgentPersistenceDao : AgentPersistenceDao {
+    override suspend fun combinedDeliveryCheckpoint(runId: String, revisionId: String): dev.chungjungsoo.gptmobile.data.database.entity.CombinedDeliveryCheckpoint? = unused()
+    override suspend fun upsertCombinedDeliveryCheckpoint(row: dev.chungjungsoo.gptmobile.data.database.entity.CombinedDeliveryCheckpoint) = unused<Unit>()
     override suspend fun deleteCombinedModels(chatId: Int, profileUids: List<String>) = unused<Unit>()
     override suspend fun archiveCombinedSegments(runId: String, archivedRunId: String) = unused<Unit>()
     override suspend fun advanceCombinedFence(runId: String, expectedFence: Long, nextFence: Long): Int = unused()

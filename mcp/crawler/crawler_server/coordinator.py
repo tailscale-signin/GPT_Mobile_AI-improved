@@ -6,7 +6,7 @@ import threading
 import uuid
 
 from .contracts import CrawlerError, request
-from .extraction import Extractor
+from .extraction import Extractor, PINS
 from .network import NetworkBoundary
 from .store import TERMINAL
 
@@ -45,6 +45,12 @@ class Coordinator:
                                     "sourceGoal": 1, "maxPages": 1, "maxDepth": 0, "mode": accepted["mode"],
                                     "deadlineMs": accepted["deadlineMs"], "outputTokens": accepted["outputTokens"],
                                     "outputBytes": accepted["outputBytes"], "format": accepted["format"]})
+        cached = None if accepted.get("refresh", False) else self.store.cached_fetch(
+            accepted["url"], accepted["mode"], grant, dict(PINS, utf8="1", pdftotext="system"))
+        if cached:
+            new_job.pop("seeds")
+            new_job.pop("scope")
+            new_job["resumeFromJobId"] = cached["jobId"]
         job = self.store.start(new_job, grant)
         cancelled = cancelled or threading.Event()
         on_job(job)
@@ -68,8 +74,9 @@ class Coordinator:
         if not status["resultsAvailable"]:
             raise CrawlerError(status["stopReason"] or "PARSE_FAILED", "No readable evidence was acquired. Inspect component readiness and the source access condition.", {"jobId": job})
         try:
-            return {"job": status, "evidence": self.store.results(job, grant, accepted["format"], accepted["outputTokens"], accepted["outputBytes"],
-                    measure=(lambda evidence: measure({"job": status, "evidence": evidence})) if measure else None)}
+            cache = {"hit": cached is not None, **(cached or {})}
+            return {"job": status, "cache": cache, "evidence": self.store.results(job, grant, accepted["format"], accepted["outputTokens"], accepted["outputBytes"],
+                    measure=(lambda evidence: measure({"job": status, "cache": cache, "evidence": evidence})) if measure else None)}
         except CrawlerError as failure:
             failure.details["jobId"] = job
             raise

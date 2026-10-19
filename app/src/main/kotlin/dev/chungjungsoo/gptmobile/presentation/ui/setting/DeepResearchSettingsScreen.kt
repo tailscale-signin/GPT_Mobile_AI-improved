@@ -244,6 +244,16 @@ internal fun ResearchFeatureScreen(onClose: () -> Unit, viewModel: DeepResearchS
                                             roleLabel = "Examination profile",
                                             automaticLabel = "Choose profile"
                                         )
+                                        Text("Research reviewer", style = MaterialTheme.typography.titleMedium)
+                                        DelegateModelDropdown(
+                                            selectedProfileUid = feature.reviewerProfileUid.orEmpty(),
+                                            profiles = crawlerProfiles.filter { it.enabled },
+                                            enabled = enabled,
+                                            onSelected = { viewModel.editFeature(feature.copy(reviewerProfileUid = it?.uid)) },
+                                            roleLabel = "Research reviewer",
+                                            automaticLabel = "Use existing review policy"
+                                        )
+                                        Text("The selected reviewer receives captured Research evidence. A different model is needed for independent review; this choice also applies in Combined mode.")
                                         AutoExamination.entries.forEach { value -> FilterChip(feature.autoExamination == value, { viewModel.editFeature(feature.copy(autoExamination = value)) }, enabled = enabled, label = { Text(if (value == AutoExamination.OFF) "Manual" else value.name.lowercase().replace('_', ' ')) }) }
                                         ResearchFeatureSwitch("Auto-examine in ordinary chat", feature.ordinaryChatAutoExamination, enabled) { viewModel.editFeature(feature.copy(ordinaryChatAutoExamination = it)) }
                                         ResearchFeatureSwitch("Allow background examination", feature.backgroundExamination, enabled) { viewModel.editFeature(feature.copy(backgroundExamination = it)) }

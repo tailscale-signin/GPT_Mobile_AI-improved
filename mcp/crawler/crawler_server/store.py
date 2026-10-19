@@ -205,6 +205,26 @@ class Store:
                 db.execute("INSERT INTO chunks (job_id,revision,chunk_id,start_offset,end_offset,text) SELECT ?,revision,chunk_id,start_offset,end_offset,text FROM chunks WHERE job_id=? ORDER BY sequence", (job_id, parent["id"]))
             return job_id
 
+    def cached_fetch(self, url, mode, grant, versions, max_age=300):
+        """Reuse one completed single-page acquisition only within its exact access/render scope."""
+        with self.lock:
+            rows = self.db.execute(
+                "SELECT j.id,j.grant_json,d.metadata FROM jobs j JOIN documents d ON d.job_id=j.id "
+                "WHERE j.principal=? AND j.scope=? AND j.deleted=0 AND j.state='completed' "
+                "AND json_extract(j.effective,'$.maxPages')=1 AND json_extract(j.effective,'$.maxDepth')=0 "
+                "AND json_extract(j.effective,'$.mode')=? AND json_extract(d.metadata,'$.requestedUrl')=? "
+                "AND NOT EXISTS (SELECT 1 FROM attempts a WHERE a.job_id=j.id AND a.state IN ('reserved','uncertain')) "
+                "ORDER BY j.created DESC LIMIT 32", (grant.principal, grant.scope, mode, url)).fetchall()
+            for row in rows:
+                metadata = json.loads(row["metadata"])
+                original = json.loads(row["grant_json"])
+                age = self.clock() - metadata.get("fetchedAt", 0)
+                if (0 <= age <= max_age and metadata.get("retrievalStatus") == "readable"
+                        and original.get("ephemeral", False) == grant.ephemeral
+                        and versions.get(metadata.get("engine")) == metadata.get("engineVersion")):
+                    return {"jobId": row["id"], "ageSeconds": age, "fetchedAt": metadata["fetchedAt"]}
+            return None
+
     def claim(self, job_id, grant, lease_seconds=30):
         with self.transaction() as db:
             job = self._job(db, job_id, grant)
@@ -384,6 +404,7 @@ class Store:
             sequence = after
             for index, row in enumerate(rows):
                 base["chunks"].append({"chunkId": row["chunk_id"], "startOffset": row["start_offset"], "endOffset": row["end_offset"],
+                                       "offsetUnit": "UNICODE_CODE_POINT_V1", "textHash": digest(row["text"]), "utf8Bytes": len(row["text"].encode("utf-8")),
                                        "text": row["text"], "document": json.loads(row["metadata"])})
                 if measure(envelope(row["sequence"], index < len(rows) - 1)) > bound:
                     base["chunks"].pop()

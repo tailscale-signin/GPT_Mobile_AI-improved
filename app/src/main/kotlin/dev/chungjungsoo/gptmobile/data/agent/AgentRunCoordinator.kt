@@ -98,7 +98,8 @@ class AgentRunCoordinator @Inject constructor(
     private val chatRepository: ChatRepository,
     private val gatewayAPI: GatewayAPI,
     private val settingRepository: SettingRepository,
-    private val completionStore: GenerationCompletionStore
+    private val completionStore: GenerationCompletionStore,
+    private val synthesisPlanner: CombinedSynthesisPlanner? = null
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val jobs = ConcurrentHashMap<String, Job>()
@@ -193,7 +194,8 @@ class AgentRunCoordinator @Inject constructor(
 
         if (backgroundGenerationEnabled) {
             try {
-                AgentRunForegroundService.start(context)
+                // Service start and stop decisions share the main thread to close the idle-stop race.
+                withContext(Dispatchers.Main.immediate) { AgentRunForegroundService.start(context) }
             } catch (error: RuntimeException) {
                 pending.forEach { (request, job) ->
                     jobs.remove(request.runId)
@@ -427,6 +429,7 @@ class AgentRunCoordinator @Inject constructor(
         var committedPrefix = request.assistantMessage.content.takeIf { request.runId.startsWith("combined-synthesis:") }.orEmpty()
         var lastCheckpointAt = 0L
         var firstAnswerCheckpoint = false
+        var committedForHandoff = false
         suspend fun traceReducedOutput(message: MessageV2) {
             dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.let { journal ->
                 withContext(Dispatchers.Default) { journal.traceOutput(request.runId, dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceBoundary.REDUCER, message.content, fence = message.ownershipFence) }
@@ -508,6 +511,7 @@ class AgentRunCoordinator @Inject constructor(
                 traceReducedOutput(terminalMessage)
                 chatRepository.commitAgentRun(terminalMessage, request.runId, terminal.status, completedAt, terminal.error)
             }
+            committedForHandoff = committed
             if (committed && terminal.status == AgentRunStatus.COMPLETED && terminalMessage.id > 0) {
                 completionStore.record(request.runId, request.chatId, terminalMessage.id, completedAt)
             }
@@ -536,11 +540,36 @@ class AgentRunCoordinator @Inject constructor(
                 runCatching {
                     val terminalMessage = terminalAgentMessage(assistantMessage, message, completedAt).withCombinedOutcome(AgentRunStatus.FAILED)
                     traceReducedOutput(terminalMessage)
-                    chatRepository.commitAgentRun(terminalMessage, request.runId, AgentRunStatus.FAILED, completedAt, message)
+                    committedForHandoff = chatRepository.commitAgentRun(terminalMessage, request.runId, AgentRunStatus.FAILED, completedAt, message)
                 }
             }
         } finally {
             withContext(NonCancellable) { checkpoints.cancelAndJoin() }
+        }
+        if (committedForHandoff && request.chatToolConfig?.combined?.role == CombinedRunRole.CONTRIBUTOR) {
+            val combined = requireNotNull(request.chatToolConfig.combined)
+            val userId = request.userMessages.lastOrNull()?.id ?: return@coroutineScope
+            try {
+                // Keep the final contributor registered and its foreground service alive through
+                // durable synthesis preparation. Publish the new writer before releasing this one.
+                withChatGate(request.chatId) {
+                    synthesisPlanner?.prepare(request.chatId, userId, combined.rootBudgetId)?.let { next ->
+                        withContext(NonCancellable) {
+                            if (chatRepository.isCombinedTurnCancelled(combined.rootBudgetId)) {
+                                chatRepository.finishActiveAgentRun(next.runId, AgentRunStatus.CANCELED, currentEpochSeconds(), null)
+                            } else {
+                                startUnlocked(listOf(next))
+                            }
+                        }
+                    }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                chatRepository.markCombinedMergeUnavailable(request.chatId, userId, combined.rootBudgetId)
+                _notices.tryEmit(AgentRunNotice(request.chatId, request.runId, "The Combined handoff could not finish. Saved contributions remain available for explicit retry.", true))
+                AppLogRecorder.record("Combined", "HANDOFF_FAILED · root=${combined.rootBudgetId} · reason=${failure.javaClass.simpleName}", "W")
+            }
         }
     }
 }

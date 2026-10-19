@@ -59,7 +59,7 @@ internal object ConfiguredDispatchAuthority {
         }
     }
 
-    private fun profileRevision(profile: PlatformV2): String = researchHash(Json.encodeToString(profile.copy(name = "", labels = "", isFavorite = false)))
+    internal fun profileRevision(profile: PlatformV2): String = researchHash(Json.encodeToString(profile.copy(name = "", labels = "", isFavorite = false)))
 
     /** Display toggles, colors and wait settings apply independently and never invalidate answer bytes. */
     internal fun policyRevision(features: AppFeatureSettings, uid: String, chatId: Int?): String = researchHash(

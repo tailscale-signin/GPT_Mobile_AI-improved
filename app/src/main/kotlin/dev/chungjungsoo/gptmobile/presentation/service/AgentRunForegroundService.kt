@@ -146,6 +146,7 @@ class AgentRunForegroundService : Service() {
             if (stopSelfResult(startId)) {
                 ServiceCompat.stopForeground(this@AgentRunForegroundService, ServiceCompat.STOP_FOREGROUND_REMOVE)
                 isForeground = false
+                promoted.set(false)
                 AppLogRecorder.record("AgentService", "STOPPED · startId=$startId · elapsedMs=${SystemClock.elapsedRealtime()}")
             }
         }
@@ -157,12 +158,14 @@ class AgentRunForegroundService : Service() {
         releaseWakeLock()
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         isForeground = false
+        promoted.set(false)
         stopSelf()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        promoted.set(false)
         activeRunsJob?.cancel()
         serviceScope.cancel()
         releaseWakeLock()
@@ -212,6 +215,7 @@ class AgentRunForegroundService : Service() {
                 if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0
             )
             isForeground = true
+            promoted.set(true)
             AppLogRecorder.record("AgentService", "FOREGROUND_ENTERED · elapsedMs=${SystemClock.elapsedRealtime()}")
         } else {
             val manager = getSystemService(NotificationManager::class.java)
@@ -397,6 +401,7 @@ class AgentRunForegroundService : Service() {
     }
 
     companion object {
+        private val promoted = java.util.concurrent.atomic.AtomicBoolean(false)
         private const val CHANNEL_ID = "agent_runs"
         private const val COMPLETION_CHANNEL_ID = "agent_completion"
         private const val NOTIFICATION_ID = 8001
@@ -406,7 +411,11 @@ class AgentRunForegroundService : Service() {
         private const val WAKELOCK_TIMEOUT_MS = 60 * 60 * 1000L // 1 hour max safeguard
         private const val NOTIFICATION_THROTTLE_MS = 500L // Throttle notification updates
 
+        @androidx.annotation.MainThread
         fun start(context: Context) {
+            // Active runs are published before this call. The existing observer updates the
+            // notification; a contributor-to-writer handoff must not request a background start.
+            if (promoted.get()) return
             AppLogRecorder.record("AgentService", "START_REQUESTED · elapsedMs=${SystemClock.elapsedRealtime()}")
             ContextCompat.startForegroundService(
                 context,

@@ -49,7 +49,7 @@ class LlamaReasoningAdmissionTest {
             val preparation = ModelRequestPreparation(wrapper)
             val config = ProviderRequestConfig("https://fixture.invalid/prefix/v1", "synthetic-secret", providerType = "LLAMA", reasoningMode = ReasoningMode.OFF)
             repeat(2) {
-                val wire = preparation.prepare("""{"model":"selected","messages":[],"max_tokens":256}""", config, "selected", null)
+                val wire = preparation.prepare("""{"model":"selected","messages":[{"role":"user","content":"Transport fixture request."}],"max_tokens":256}""", config, "selected", null)
                 val body = Json.parseToJsonElement(wire).jsonObject
                 assertEquals(mapOf("enable_thinking" to JsonPrimitive(false)), body.getValue("chat_template_kwargs").jsonObject)
                 assertFalse(body.containsKey("reasoning_effort"))

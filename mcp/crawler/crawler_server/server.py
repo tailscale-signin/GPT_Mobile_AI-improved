@@ -44,9 +44,20 @@ class Server:
         self.lock = threading.RLock()
         self.active, self.early_cancellations = {}, set()
 
-    def cancel_request(self, request_id):
-        key = canonical_json(request_id)
+    @staticmethod
+    def request_key(request_id, grant):
+        return (canonical_json(request_id), grant.scope, grant.grant_id, grant.root_run_id)
+
+    def cancel_request(self, request_id, grant=None):
+        raw = canonical_json(request_id)
         with self.lock:
+            if grant is None:
+                # Stdio has one trusted host; HTTP always supplies a signed grant.
+                matches = [key for key in self.active if key[0] == raw]
+                require(len(matches) <= 1, "Request ID is ambiguous; supply its grant.", "REQUEST_ID_CONFLICT")
+                key = matches[0] if matches else raw
+            else:
+                key = self.request_key(request_id, grant)
             active = self.active.get(key)
             if active is None:
                 if len(self.early_cancellations) < 128:
@@ -64,18 +75,20 @@ class Server:
                 "content": [{"type": "text", "text": canonical_json(envelope)}]}
 
     def call(self, operation, arguments, metadata, request_id):
-        key = canonical_json(request_id)
+        key = None
         registered = False
         try:
             require(type(metadata) is dict, "Tool metadata must be an object.")
             args = request(operation, arguments)
             grant = verify_grant(metadata.get("gptmobile/crawlerGrant"), self.grant_key)
+            key = self.request_key(request_id, grant)
             with self.lock:
                 require(key not in self.active, "Request ID already active.", "REQUEST_ID_CONFLICT")
                 cancelled = threading.Event()
-                if key in self.early_cancellations:
-                    self.early_cancellations.remove(key)
-                    cancelled.set()
+                for cancellation_key in (key[0], key):
+                    if cancellation_key in self.early_cancellations:
+                        self.early_cancellations.remove(cancellation_key)
+                        cancelled.set()
                 self.active[key] = {"cancelled": cancelled, "grant": grant}
                 registered = True
             require(not cancelled.is_set(), "Request cancelled before dispatch.", "CANCELLED")
@@ -139,6 +152,12 @@ def main():
     parser = argparse.ArgumentParser(description="GPT Mobile Crawler MCP stdio companion")
     parser.add_argument("--data-dir", type=Path, required=True)
     parser.add_argument("--grant-key-file", type=Path, required=True)
+    parser.add_argument("--http-host", help="Optional numeric bind address; remote listeners require TLS")
+    parser.add_argument("--http-port", type=int, default=8120)
+    parser.add_argument("--http-token-file", type=Path)
+    parser.add_argument("--tls-cert", type=Path)
+    parser.add_argument("--tls-key", type=Path)
+    parser.add_argument("--allowed-origin", action="append", default=[])
     args = parser.parse_args()
     args.data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     # A second owner must never run startup recovery against an active acquisition process.
@@ -156,6 +175,30 @@ def main():
     store.recover()
     coordinator = Coordinator(store)
     server = Server(coordinator, key)
+    if args.http_host:
+        from .http_transport import CrawlerHttpServer
+        import ssl
+        require(args.http_token_file is not None, "HTTP requires a separate bearer-token file.")
+        require(args.http_token_file.stat().st_mode & 0o077 == 0, "HTTP token file must be private to its owner.")
+        tls = None
+        if args.tls_cert or args.tls_key:
+            require(args.tls_cert is not None and args.tls_key is not None, "Supply both TLS certificate and key.")
+            require(args.tls_key.stat().st_mode & 0o077 == 0, "TLS key file must be private to its owner.")
+            tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            tls.minimum_version = ssl.TLSVersion.TLSv1_2
+            tls.load_cert_chain(args.tls_cert, args.tls_key)
+        http = None
+        try:
+            http = CrawlerHttpServer((args.http_host, args.http_port), server, args.http_token_file.read_text().strip(), tls, args.allowed_origin)
+            http.serve_forever()
+        finally:
+            # Cancel acquisition before joining HTTP handlers waiting on those jobs.
+            coordinator.close()
+            if http is not None:
+                http.server_close()
+            store.close()
+            os.close(owner)
+        return
     output_lock = threading.Lock()
     outstanding = threading.BoundedSemaphore(16)
 

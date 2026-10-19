@@ -57,13 +57,14 @@ internal object ResearchReviewScoreCalculator {
     val reliabilityDomains = listOf("design_comparison", "selection_confounding", "measurement_conduct", "analysis_missing_data", "reporting_consistency")
     val accuracyDomains = listOf("population_design", "exposure_comparison", "results_timepoint", "direction_uncertainty", "qualification")
     data class Scores(val reliability: Int?, val accuracy: Int?, val overall: Int?, val status: String)
-    fun calculate(artifact: StudyReviewArtifact, fullScope: Boolean, design: StudyDesign, retracted: Boolean): Scores {
+    fun calculate(artifact: StudyReviewArtifact, fullScope: Boolean, design: StudyDesign, retracted: Boolean, rubricVersion: Int = ResearchReviewRubric.VERSION): Scores {
+        require(rubricVersion in ResearchReviewRubric.supportedVersions)
         fun component(values: List<ReviewDomain>, expected: List<String>): Int? {
             if (values.map { it.domain }.toSet() != expected.toSet() || values.size != expected.size) return null
             if (values.any { it.grade == null || it.grade !in 0..4 || it.passageIds.isEmpty() || it.rationale.isBlank() }) return null
             return values.sumOf { requireNotNull(it.grade) } * 5
         }
-        val reliability = if (fullScope && design !in setOf(StudyDesign.UNKNOWN, StudyDesign.PROTOCOL, StudyDesign.COMMENTARY)) component(artifact.reliability, reliabilityDomains) else null
+        val reliability = if (fullScope && ResearchReviewRubric.supports(design)) component(artifact.reliability, reliabilityDomains) else null
         val accuracy = component(artifact.accuracy, accuracyDomains)
         val status = when {
             retracted || artifact.integrityConcern -> "Integrity concern"
@@ -74,11 +75,13 @@ internal object ResearchReviewScoreCalculator {
         }
         return Scores(reliability, accuracy, if (status == "Reviewed") minOf(requireNotNull(reliability), requireNotNull(accuracy)) else null, status)
     }
-    fun validate(reply: String, outcome: ResearchOutcome, passages: List<EvidencePassage>): StudyReviewArtifact {
+    fun validate(reply: String, outcome: ResearchOutcome, passages: List<EvidencePassage>, rubricVersion: Int = ResearchReviewRubric.VERSION): StudyReviewArtifact {
+        require(rubricVersion in ResearchReviewRubric.supportedVersions)
         require(reply.toByteArray().size <= 48000)
         val artifact = Json.decodeFromString<StudyReviewArtifact>(reply.trim())
         require(artifact.outcomeKey == outcome.outcomeKey && artifact.conclusion.length in 1..1200 && artifact.limitation.length in 1..1200)
         val byId = passages.filter { it.versionId == outcome.versionId }.associateBy { it.passageId }
+        if (rubricVersion >= 2) require(byId.values.all { it.start >= 0 && it.end - it.start == it.quote.length && researchHash(it.quote) == it.textHash }) { "Review evidence locator or content hash changed" }
         fun valid(ids: List<String>) = ids.isNotEmpty() && ids.distinct().size == ids.size && ids.all { it in byId }
         require(valid(artifact.passageIds))
         val quotes = artifact.passageIds.map { byId.getValue(it).quote }
@@ -88,6 +91,9 @@ internal object ResearchReviewScoreCalculator {
             require(it.grade == null || it.grade in 0..4)
             require(it.rationale.length in 1..1600 && (it.grade == null || valid(it.passageIds)))
             require(it.passageIds.all { id -> id in byId })
+            if (rubricVersion >= 2 && it.grade != null) {
+                require(dev.chungjungsoo.gptmobile.data.research.delivery.ResearchNumericalGrounding.issues(it.rationale, it.passageIds.map { id -> byId.getValue(id).quote }).isEmpty()) { "Domain judgment numbers or comparisons do not match its cited evidence" }
+            }
         }
         // Empty evidence and invented locators cannot produce a favorable score.
         require(artifact.reliability.map { it.domain }.distinct().size == artifact.reliability.size)

@@ -192,7 +192,7 @@ class AgentToolResolver @Inject constructor(
                     runHealthReader,
                     accessAllowed = {
                         val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
-                        current?.let { dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.profileRevision(it) } == dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.profileRevision(platform) &&
+                        current?.let { dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.profileRevision(it) } == platform?.let { dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.profileRevision(it) } &&
                             current?.enabled == true &&
                             !current.disableAllTools &&
                             !current.disableLocalTools &&
@@ -690,7 +690,7 @@ class AgentToolResolver @Inject constructor(
                 val previousCheck = resolved.canReuseResult
                 resolved.copy(canReuseResult = {
                     val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
-                    current?.let { dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.profileRevision(it) } == dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.profileRevision(platform) &&
+                    current?.let { dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.profileRevision(it) } == platform?.let { dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.profileRevision(it) } &&
                         current?.enabled == true &&
                         admittedBindings.isNotEmpty() &&
                         toolConnectionRepository.listBindingsWithConnections(profileUid).filter { it.binding.connectionUid == connection } == admittedBindings &&

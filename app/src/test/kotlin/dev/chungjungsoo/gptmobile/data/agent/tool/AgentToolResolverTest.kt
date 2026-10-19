@@ -48,6 +48,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentToolResolverTest {
+    @Test fun savedSearchAuthoritySurvivesDisplayEditsButRejectsPermissionRevocation() = runBlocking {
+        val profile = PlatformV2(uid = "profile", name = "Primary")
+        val settings = ResolverFakeSettingRepository(listOf(profile))
+        val dao = ResolverFakeToolConnectionDao()
+        dao.bind(connection("search", ToolConnectionType.EXA, secretRef = "secret"), binding("profile", "search", "web_search"))
+        val resolved = resolver(dao, ResolverFakeSecretVault(mapOf("secret" to "token".encodeToByteArray())), settings).resolve("profile")
+        val search = resolved.first { it.connectionUid == "search" }
+        assertTrue(requireNotNull(search.canReuseResult).invoke())
+        settings.features = settings.features.copy(debugShowRuntime = false, smoothStreaming = false)
+        assertTrue(requireNotNull(search.canReuseResult).invoke())
+        settings.features = settings.features.withToolPluginEnabled(ToolPluginId.WEB_SEARCH, false)
+        assertFalse(requireNotNull(search.canReuseResult).invoke())
+    }
+
     @Test fun healthToolsRequireIndependentOptInsStayPhoneOwnedAndHonorChatControls() = runBlocking {
         val profile = PlatformV2(uid = "health-profile", name = "Health", disableRemoteTools = true)
         val settings = ResolverFakeSettingRepository(listOf(profile))

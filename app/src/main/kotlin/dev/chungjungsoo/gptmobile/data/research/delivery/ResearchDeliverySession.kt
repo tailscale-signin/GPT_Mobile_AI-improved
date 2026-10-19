@@ -81,6 +81,13 @@ internal class ResearchDeliverySession(
             emit(ProviderEvent.Completed)
             return@flow
         }
+        if (!delivery.snapshot.complete && delivery.snapshot.sources.none { it.readable }) {
+            // Rewriting cannot turn unread leads into reviewed evidence. Preserve a
+            // useful partial result without spending multiple writer/repair requests.
+            emit(ProviderEvent.TextDelta(ResearchDeliveryValidator.fallback(delivery)))
+            emit(ProviderEvent.Failed("RESEARCH_PARTIAL: No readable sources were acquired. Saved discovery leads remain available; retry collection when sources and network access are available."))
+            return@flow
+        }
         var text = draft.toString()
         var partialFallback = false
         val result = withContext(Dispatchers.Default) { ResearchDeliveryValidator.validate(text, delivery) }

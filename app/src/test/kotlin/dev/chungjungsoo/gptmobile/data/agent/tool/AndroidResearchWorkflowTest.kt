@@ -27,6 +27,45 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AndroidResearchWorkflowTest {
+    @Test fun emptyGapAdviceWithNoReadableSourcesUsesABoundedFallbackQuery() = runBlocking {
+        var searches = 0
+        val delegate = search()
+        val counted = delegate.copy(
+            tool = object : AgentTool {
+                override val definition = delegate.tool.definition
+                override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                    searches++
+                    return if (searches == 1) AgentToolResult(callId, ToolResultContent.Json(JsonObject(emptyMap())), false) else delegate.tool.execute(callId, arguments)
+                }
+            }
+        )
+        val result = AndroidResearchWorkflow(config(1), listOf(counted, reader()), { prompt, tokens ->
+            if (prompt.startsWith("Compare")) """{"missing":[],"queries":[]}""" else model(prompt, tokens)
+        }).run("Research device request limits", "empty-gap")
+        assertEquals(2, searches)
+        assertTrue(result.pagesRead > 0)
+    }
+
+    @Test fun resumedPlanWithoutACursorDispatchesAnUndispatchedFallbackQuery() = runBlocking {
+        val journal = Journal().apply {
+            snapshot = ResearchSnapshot("Research device request limits", questions = listOf("What are the request limits?"))
+        }
+        var searches = 0
+        val delegated = search()
+        val counted = delegated.copy(
+            tool = object : AgentTool {
+                override val definition = delegated.tool.definition
+                override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                    searches++
+                    return delegated.tool.execute(callId, arguments)
+                }
+            }
+        )
+        val result = AndroidResearchWorkflow(config(1), listOf(counted, reader()), ::model, journal).run("Research device request limits", "resume-planned")
+        assertTrue(searches > 0)
+        assertTrue(result.pagesRead > 0)
+    }
+
     @Test fun `memory pressure pauses before source admission without running fixture tools`() = runBlocking {
         val journal = Journal()
         var calls = 0

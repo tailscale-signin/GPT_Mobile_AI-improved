@@ -17,6 +17,26 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ResearchDeliveryTest {
+    @Test fun unreadOnlyCorpusReturnsPartialWithoutRepeatedWriterRepairs() = runTest {
+        val evidence = ResearchDeliveryPacket.build(ResearchSnapshot("Hydrogen inhalation", sources = listOf(unread), complete = false), ResearchReportDetail.BRIEF)
+        var writerCalls = 0
+        val writer = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow<ProviderEvent> {
+                emit(ProviderEvent.TextDelta("No readable study was obtained."))
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val session = ResearchDeliverySession(writer, { evidence }, true) { _, _ ->
+            writerCalls++
+            writer
+        }
+        val events = session.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(1, writerCalls)
+        assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().any { it.text.contains("S2") })
+        assertTrue(events.filterIsInstance<ProviderEvent.Failed>().any { it.message.startsWith("RESEARCH_PARTIAL") })
+        assertFalse(events.any { it == ProviderEvent.Completed })
+    }
+
     private val passage = "A synthetic randomized trial enrolled 20 participants. Scores were 9 versus 14 points. Follow-up was short and safety remains uncertain."
     private val read = ResearchSource("S1", "https://example.org/study", "Hydrogen inhalation sleep trial", "Read", passage, versionId = "v1")
     private val unread = ResearchSource("S2", "https://example.org/surgery", "Hydrogen inhalation surgery trial", "Failed", failureReason = "Retrieval failed")

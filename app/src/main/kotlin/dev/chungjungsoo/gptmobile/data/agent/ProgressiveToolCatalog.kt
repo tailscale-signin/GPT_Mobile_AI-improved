@@ -9,6 +9,9 @@ import kotlinx.serialization.json.put
 
 /** Shrinks advertised schemas, never the authorized executable set. A new catalog is created per run. */
 class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: String, initialNames: Set<String>? = null, private val acquireCold: (suspend (String, List<String>) -> List<AgentToolDefinition>)? = null) : AgentTool {
+    // Local schema selection is not an external evidence operation. Cold acquisitions
+    // retain their own wrapped child admission rather than charging this facade too.
+    override val coordinatesChildWork = true
     private val advanced = Regex("(?iu)\\b(research|study|studies|papers|repository|github)\\b").containsMatchIn(task)
     private val toolAllowance = if (advanced) 16 else INITIAL_TOOLS
     private val schemaAllowance = if (advanced) 6000 else SCHEMA_TOKEN_ALLOWANCE

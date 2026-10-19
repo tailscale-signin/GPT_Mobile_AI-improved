@@ -13,6 +13,16 @@ import org.junit.Test
 
 class ConfiguredDispatchAuthorityTest {
     @Test
+    fun priceQuoteRefreshDoesNotRevokeAuthorityButChangedRatesDo() {
+        val price = dev.chungjungsoo.gptmobile.data.accounting.ModelPrice("model", 10, 20, "catalog", 1000)
+        val initial = AppFeatureSettings(spendBudget = dev.chungjungsoo.gptmobile.data.accounting.SpendBudgetSettings(perTurnMicros = 100, prices = mapOf("profile" to price)))
+        val refreshed = initial.copy(spendBudget = initial.spendBudget.copy(prices = mapOf("profile" to price.copy(checkedAt = 2000, source = "refreshed catalog"))))
+        assertTrue(ConfiguredDispatchAuthority.policyRevision(initial, "profile", null) == ConfiguredDispatchAuthority.policyRevision(refreshed, "profile", null))
+        val repriced = initial.copy(spendBudget = initial.spendBudget.copy(prices = mapOf("profile" to price.copy(outputMicrosPerMillion = 30))))
+        assertFalse(ConfiguredDispatchAuthority.policyRevision(initial, "profile", null) == ConfiguredDispatchAuthority.policyRevision(repriced, "profile", null))
+    }
+
+    @Test
     fun policyCaptureRetriesOnlyPreparationWhenRevisionSettles() = runTest {
         val settings = mockk<SettingRepository>()
         val profile = PlatformV2(uid = "ephemeral", name = "Benchmark")

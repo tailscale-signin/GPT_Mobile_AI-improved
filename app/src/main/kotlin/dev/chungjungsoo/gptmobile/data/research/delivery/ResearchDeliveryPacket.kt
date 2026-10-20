@@ -27,14 +27,21 @@ data class ResearchDeliveryPacket(
     val studyFields: Map<String, JsonObject> = emptyMap(),
     val compactMetadata: Boolean = false,
     val passageExcerpts: Map<String, String> = emptyMap(),
-    val minimalMetadata: Boolean = false
+    val minimalMetadata: Boolean = false,
+    val includeOmissionDetails: Boolean = false
 ) {
     internal val contract: ResearchReportContract get() = ResearchReportContract.forTask(snapshot.task)
     val sections: List<String> get() = contract.sections
     val searchDate: String get() = Instant.ofEpochMilli(snapshot.updatedAt).atZone(ZoneOffset.UTC).toLocalDate().toString()
     fun json(): JsonObject = buildJsonObject {
         put("schema", "research.delivery.v1")
-        put("task", snapshot.task.take(if (compactMetadata) 120 else 1000))
+        put("task", snapshot.task)
+        put("taskId", snapshot.taskId.ifBlank { researchHash(snapshot.task) })
+        if (snapshot.rootWorkId.isNotBlank()) {
+            put("rootWorkId", snapshot.rootWorkId)
+            put("chatId", snapshot.taskChatId)
+            put("originatingUserMessageId", snapshot.originatingUserMessageId)
+        }
         put("complete", snapshot.complete)
         put("phase", snapshot.phase.take(120))
         put("stopOrigin", snapshot.cancellationOrigin.take(120))
@@ -62,15 +69,7 @@ data class ResearchDeliveryPacket(
         put(
             "questions",
             JsonArray(
-                snapshot.questionPlan.take(
-                    if (minimalMetadata) {
-                        1
-                    } else if (compactMetadata) {
-                        3
-                    } else {
-                        6
-                    }
-                ).map { it.copy(text = it.text.take(if (minimalMetadata) 80 else 250), evidenceNeeded = it.evidenceNeeded.take(if (minimalMetadata) 40 else 200)).json() }
+                snapshot.questionPlan.map { it.json() }
             )
         )
         put(
@@ -131,6 +130,29 @@ data class ResearchDeliveryPacket(
             )
         )
         put("omitted", JsonObject(omitted.mapValues { JsonPrimitive(it.value) }))
+        put("questionCoverage", JsonObject(snapshot.questionPlan.associate { question -> question.id to JsonArray(claims.filter { it.questionId == question.id }.map { it.sourceId }.distinct().map(::JsonPrimitive)) }))
+        put("omissionDetailStatus", if (includeOmissionDetails) "COMPLETE" else "AUTHORIZED_JOURNAL_REQUIRED")
+        put(
+            "omittedRecords",
+            JsonArray(
+                (if (includeOmissionDetails) snapshot.claims.filter { it !in claims } else emptyList()).map { claim ->
+                    buildJsonObject {
+                        put("claimId", researchHash(claim.sourceId + claim.text + claim.quote))
+                        put("questionId", claim.questionId)
+                        put("sourceId", claim.sourceId)
+                        put(
+                            "reason",
+                            when {
+                                snapshot.sources.any { it.id == claim.sourceId && it.isRetracted == true } -> "RETRACTED"
+                                claim.relevance == "Irrelevant" -> "IRRELEVANT"
+                                snapshot.sources.none { it.id == claim.sourceId && it.readable && claim.quote.isNotBlank() && claim.quote in it.passage } -> "INVALID_SOURCE_OR_SPAN"
+                                else -> "BUDGET_DEFERRED"
+                            }
+                        )
+                    }
+                }
+            )
+        )
         put("retention", if (minimalMetadata) "Unread leads are not evidence; full captures remain in the authorized journal." else "Full evidence remains in the authorized research journal; metadata-only leads cannot support findings.")
     }
 
@@ -166,7 +188,7 @@ data class ResearchDeliveryPacket(
                 .sortedWith(compareByDescending<ResearchSource> { it.readable }.thenByDescending { it.retrievalQuality == "FULL_TEXT" }.thenByDescending { it.retrievedAt })
                 .distinctBy(::identity)
             val valid = snapshot.claims.filter { claim ->
-                relevant.any { it.id == claim.sourceId && it.readable && claim.quote.length >= 20 && claim.quote in it.passage } && claim.relevance != "Irrelevant"
+                relevant.any { it.id == claim.sourceId && it.readable && claim.quote.length >= 20 && claim.quote in it.passage } && claim.relevance != "Irrelevant" && (claim.reviewedSourceVersion.isBlank() || relevant.any { it.id == claim.sourceId && it.versionId.ifBlank { researchHash(it.passage) } == claim.reviewedSourceVersion })
             }
             fun publicationDate(source: ResearchSource) = source.publishedAt.ifBlank { (bibliography(source)["publicationDate"] as? JsonPrimitive)?.content.orEmpty() }.ifBlank { source.publicationYear?.toString().orEmpty() }
             val rank = compareByDescending<ResearchSource> { relevance(snapshot.task, it.title) }
@@ -177,7 +199,11 @@ data class ResearchDeliveryPacket(
             // Reserve representation for recent and mixed/negative findings, independent of positive claim volume.
             val recent = ranked.sortedByDescending(::publicationDate).take(2)
             val mixed = ranked.filter { source -> valid.any { it.sourceId == source.id && it.verdict == "Contradicted" } || Regex("(?i)no significant|not significant|adverse|no benefit|null result").containsMatchIn(source.passage) }.take(2)
-            val candidates = (ranked.take(3) + recent + mixed + ranked).distinctBy { it.id }
+            val questionEvidence = snapshot.questionPlan.flatMap { question ->
+                val matching = valid.filter { it.questionId == question.id }
+                listOfNotNull(matching.firstOrNull { it.verdict == "Contradicted" }, matching.firstOrNull()).mapNotNull { claim -> ranked.firstOrNull { it.id == claim.sourceId } }
+            }
+            val candidates = (questionEvidence + ranked.take(3) + recent + mixed + ranked).distinctBy { it.id }
             val unreadCandidates = relevant.filterNot { it.readable }.sortedWith(rank)
             val failedRecent = unreadCandidates.filter { it.status == "Failed" }.sortedByDescending(::publicationDate).take(3)
             val unread = (failedRecent + unreadCandidates).distinctBy { it.id }.take(if (detail == ResearchReportDetail.BRIEF) 4 else 8)
@@ -190,7 +216,9 @@ data class ResearchDeliveryPacket(
                 // Evidence precedes unread leads. Fit exact prefixes while retaining the
                 // original source hash and version, rather than dropping every readable page.
                 for (excerptLimit in listOf(2400, 1200, 600, 300, 150)) {
-                    val excerpt = source.passage.take(excerptLimit).let {
+                    val firstQuote = valid.firstOrNull { it.sourceId == source.id }?.quote
+                    val start = firstQuote?.let { source.passage.indexOf(it).coerceAtLeast(0) } ?: 0
+                    val excerpt = source.passage.substring(start).take(excerptLimit).let {
                         if (it.lastOrNull()?.isHighSurrogate() == true) it.dropLast(1) else it
                     }
                     val updated = accounted(
@@ -215,7 +243,8 @@ data class ResearchDeliveryPacket(
                 val updated = accounted(packet.copy(unread = packet.unread + source))
                 if (updated.json().toString().toByteArray().size <= budget) packet = updated
             }
-            return packet
+            val withDetails = packet.copy(includeOmissionDetails = true)
+            return if (withDetails.json().toString().toByteArray().size <= budget) withDetails else packet
         }
     }
 }

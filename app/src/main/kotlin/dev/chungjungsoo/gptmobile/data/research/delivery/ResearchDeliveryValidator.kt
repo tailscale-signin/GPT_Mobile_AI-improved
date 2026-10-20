@@ -4,7 +4,7 @@ import dev.chungjungsoo.gptmobile.data.model.ResearchReportDetail
 
 /** Deterministic delivery checks. This is not an entailment model or scientific truth score. */
 internal object ResearchDeliveryValidator {
-    data class Result(val issues: List<String>, val citedIds: Set<String>) {
+    data class Result(val issues: List<String>, val citedIds: Set<String>, val blocks: List<ResearchReportBlock> = emptyList()) {
         val accepted: Boolean get() = issues.isEmpty()
     }
     private val citations = Regex("\\[(S[0-9a-f]+)\\]")
@@ -12,9 +12,9 @@ internal object ResearchDeliveryValidator {
 
     fun validate(text: String, packet: ResearchDeliveryPacket): Result {
         val issues = mutableListOf<String>()
-        val allIds = citations.findAll(text).map { it.groupValues[1] }.toSet()
+        val allIds = ResearchReportReferences.cited(text, packet)
         val body = text.split(Regex("(?im)^#{1,6}\\s+references\\s*$"), limit = 2).first()
-        val ids = citations.findAll(body).map { it.groupValues[1] }.toSet()
+        val ids = ResearchReportReferences.cited(body, packet)
         val known = (packet.studies + packet.unread).associateBy { it.id }
         if (text.isBlank()) issues += "EMPTY_REPORT"
         if (allIds.any { it !in known }) issues += "UNKNOWN_CITATION"
@@ -27,7 +27,7 @@ internal object ResearchDeliveryValidator {
         packet.unread.take(if (packet.detail == ResearchReportDetail.BRIEF) 1 else 3).filter { it.id !in ids }.forEach { issues += "OMITTED_UNREAD_LEAD:${it.id}" }
         val paragraphs = body.split(Regex("\n\\s*\n"))
         for (paragraph in paragraphs) {
-            val cited = citations.findAll(paragraph).map { it.groupValues[1] }.toSet()
+            val cited = ResearchReportReferences.cited(paragraph, packet)
             if (paragraph.lines().all { it.isBlank() || it.trimStart().startsWith('#') }) continue
             val scientific = Regex("(?i)trial|participants|patients|randomi[sz]|significant|associated|improv|reduc|increase|efficacy|adverse|observed|researchers|study|studies").containsMatchIn(paragraph)
             if (scientific && cited.isEmpty() && !Regex("(?i)unknown|unavailable|could not|not established|no verified|not verified").containsMatchIn(paragraph)) issues += "UNSOURCED_SCIENTIFIC_PARAGRAPH"
@@ -43,10 +43,16 @@ internal object ResearchDeliveryValidator {
         }
         val urls = Regex("https?://[^\\s)<>]+").findAll(text).map { it.value.trimEnd('.', ',', ';') }.toSet()
         val allowedUrls = known.values.flatMap { listOf(it.url, it.canonicalUrl, it.doi.takeIf(String::isNotBlank)?.let { doi -> "https://doi.org/$doi" }.orEmpty()) }.toSet()
-        if (urls.any { it !in allowedUrls }) issues += "UNREGISTERED_REFERENCE_URL"
+        if (urls.any { ResearchReportReferences.canonical(it) !in allowedUrls.filter(String::isNotBlank).map(ResearchReportReferences::canonical) }) issues += "UNREGISTERED_REFERENCE_URL"
         ids.mapNotNull(known::get).filter { source -> source.url !in urls && source.canonicalUrl !in urls && (source.doi.isBlank() || "https://doi.org/${source.doi}" !in urls) }.forEach { issues += "DIRECT_REFERENCE_MISSING:${it.id}" }
 
-        return Result(issues.distinct(), ids)
+        val blocks = ResearchReportBlocks.parse(text, packet)
+        packet.snapshot.questionPlan.forEach { question ->
+            val supporting = packet.claims.filter { it.questionId == question.id }.map { it.sourceId }.toSet()
+            if (supporting.isNotEmpty() && supporting.none { it in ids }) issues += "QUESTION_EVIDENCE_NOT_CITED:${question.id}"
+        }
+        if (packet.claims.any { it.verdict == "Contradicted" } && !Regex("(?i)contradict|disagree|mixed|negative|uncertain|no (?:significant|benefit|effect)|not support").containsMatchIn(body)) issues += "COUNTEREVIDENCE_NOT_DISCLOSED"
+        return Result(issues.distinct(), ids, blocks)
     }
 
     /** A failed repair delivers captured evidence and honest gaps, never an unchecked scientific answer. */

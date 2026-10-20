@@ -51,6 +51,12 @@ class LocalWorkloadAdmission(private val clock: () -> Long = SystemClock::elapse
     }
 
     companion object {
+        fun memorySnapshot(context: Context): LocalSystemMemorySnapshot? {
+            val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager ?: return null
+            val memory = ActivityManager.MemoryInfo().also(manager::getMemoryInfo)
+            return LocalSystemMemorySnapshot(memory.availMem, memory.totalMem, memory.threshold, memory.lowMemory)
+        }
+
         fun availableMemory(context: Context): Long? {
             val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager ?: return null
             return ActivityManager.MemoryInfo().also(manager::getMemoryInfo).availMem

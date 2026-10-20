@@ -78,7 +78,7 @@ class ResearchEvidenceTest {
         assertEquals(0, restored.attempts)
     }
 
-    @Test fun versionOneSnapshotsMigrateToVersionThreeWithoutLosingReadableEvidence() {
+    @Test fun versionOneSnapshotsMigrateToVersionFiveWithoutLosingReadableEvidence() {
         val passage = "A stable passage retained from the old snapshot format."
         val legacy = buildJsonObject {
             put("version", 1)
@@ -106,10 +106,10 @@ class ResearchEvidenceTest {
         assertEquals("https://example.org/page", restored.sources.single().canonicalUrl)
         assertEquals(passage, restored.sources.single().passage)
         assertEquals(0, restored.targetSources)
-        assertEquals(4, restored.json()["version"]?.jsonPrimitive?.int)
+        assertEquals(5, restored.json()["version"]?.jsonPrimitive?.int)
     }
 
-    @Test fun versionTwoSnapshotsMigrateToVersionThreeWithoutLosingEvidence() {
+    @Test fun versionTwoSnapshotsMigrateToVersionFiveWithoutLosingEvidence() {
         val source = ResearchSource("S1", "https://example.org/page", "Version two page", "Read", "A readable passage from the version two snapshot.")
         val original = ResearchSnapshot("Version two task", sources = listOf(source), updatedAt = 1234)
         val legacy = buildJsonObject {
@@ -124,11 +124,11 @@ class ResearchEvidenceTest {
         assertEquals(original, restored)
         assertTrue(restored.sources.single().readable)
         assertEquals(0, restored.targetSources)
-        assertEquals(4, restored.json()["version"]?.jsonPrimitive?.int)
+        assertEquals(5, restored.json()["version"]?.jsonPrimitive?.int)
         assertEquals(restored, ResearchSnapshot.parse(restored.json()))
     }
 
-    @Test fun versionThreeSnapshotsPreserveMaximumResearchTarget() {
+    @Test fun versionFiveSnapshotsPreserveMaximumResearchTarget() {
         val source = ResearchSource("S1", "https://example.org/page", "Current page", "Read", "A readable passage from the current snapshot.")
         val original = ResearchSnapshot("Maximum research", sources = listOf(source), updatedAt = 1234, targetSources = 300)
 
@@ -136,7 +136,7 @@ class ResearchEvidenceTest {
 
         assertEquals(original, restored)
         assertEquals(300, restored.targetSources)
-        assertEquals(4, restored.json()["version"]?.jsonPrimitive?.int)
+        assertEquals(5, restored.json()["version"]?.jsonPrimitive?.int)
     }
 
     @Test fun stableSourceIdsAndFailureDetailsSurviveRoundTrip() {

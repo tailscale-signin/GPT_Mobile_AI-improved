@@ -78,6 +78,8 @@ target_include_directories(gguf_chat_template PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
 target_link_libraries(gguf_chat_template PUBLIC llama PRIVATE vendor::nlohmann)
 target_compile_options(gguf_chat_template PRIVATE -fvisibility=hidden)
 add_library(gptmobile_gguf SHARED gguf_jni.cpp)
+# Allocation observations use the staging API from this exact pinned revision.
+target_include_directories(gptmobile_gguf PRIVATE ${llama_SOURCE_DIR}/src)
 target_link_libraries(gptmobile_gguf PRIVATE gguf_chat_template)
 target_compile_definitions(gptmobile_gguf PRIVATE GGUF_BUILD_TYPE="${CMAKE_BUILD_TYPE}" GGUF_NATIVE_DEBUG=$<BOOL:${GGUF_NATIVE_DEBUG}>)
 target_compile_options(gptmobile_gguf PRIVATE -fvisibility=hidden)

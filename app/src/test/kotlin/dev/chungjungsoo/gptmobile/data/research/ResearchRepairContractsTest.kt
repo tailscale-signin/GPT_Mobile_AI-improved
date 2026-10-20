@@ -109,7 +109,6 @@ class ResearchRepairContractsTest {
             """{"questions":[{"text":"Valid","evidenceNeeded":false}],"queries":[]}""",
             """{"questions":["Valid"],"queries":[{"text":"query","questionIds":[12]}]}""",
             """{"questions":["Valid"],"queries":[{"text":"query","questionIds":[]}]}""",
-            """{"questions":["Valid"],"queries":[],"noResearchNeeded":true}""",
             """{"questions":[],"queries":[],"noResearchNeeded":"true"}"""
         )
         invalid.forEach { assertTrue(it, runCatching { ResearchPlanContract.parse(Json.parseToJsonElement(it).jsonObject) }.isFailure) }

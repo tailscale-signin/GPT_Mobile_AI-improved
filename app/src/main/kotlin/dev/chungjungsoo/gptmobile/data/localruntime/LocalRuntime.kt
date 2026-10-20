@@ -24,11 +24,12 @@ data class LocalEngineSpec(
     val expectedOutputTokens: Int = 128,
     val ggufBatchTokens: Int = 256,
     val ggufMicroBatchTokens: Int = 128,
-    val ggufPromptThreads: Int? = null
+    val ggufPromptThreads: Int? = null,
+    val admissionReserveBytes: Long = 768L * 1024 * 1024
 )
 
 /** Workload labels affect plan selection, but do not invalidate the native engine configuration. */
-internal fun LocalEngineSpec.engineConfiguration() = copy(samplerIdentity = "runtime_default", workload = "plain_text", expectedOutputTokens = 128)
+internal fun LocalEngineSpec.engineConfiguration() = copy(samplerIdentity = "runtime_default", workload = "plain_text", expectedOutputTokens = 128, admissionReserveBytes = 768L * 1024 * 1024)
 
 @kotlinx.serialization.Serializable
 data class LocalSamplerConfig(
@@ -149,7 +150,9 @@ data class GgufNativeProgress(
     val elapsedMs: Long = 0,
     val nativeCode: Int = 0,
     val observedAtMs: Long = 0,
-    val configuration: String? = null
+    val configuration: String? = null,
+    val loadFraction: Double? = null,
+    val allocationObservation: NativeAllocationObservation? = null
 )
 
 sealed interface LocalRuntimeEvent {
@@ -173,9 +176,12 @@ data class LocalRuntimeState(
     val decision: LocalPlanDecision? = null,
     val processIsolated: Boolean = false,
     val lifecycle: String = "IDLE",
+    val admissionReceipt: LocalAdmissionReceipt? = null,
     val engineHealth: String = "HEALTHY",
     val requestedMtp: Boolean? = null,
-    val effectiveMtp: Boolean? = null
+    val effectiveMtp: Boolean? = null,
+    val loadProgress: GgufNativeProgress? = null,
+    val allocationObservation: NativeAllocationObservation? = null
 )
 
 private val EMPTY_RUNTIME_STATE: StateFlow<LocalRuntimeState> = MutableStateFlow(LocalRuntimeState())
@@ -223,10 +229,17 @@ interface LocalRuntime {
 
     suspend fun inspectModel(modelPath: String): LocalModelCapabilities? = null
 
+    /** A planning hint; allocation still requires fresh admission under the engine lease. */
+    suspend fun contextForRequest(profileUid: String, modelPath: String, maximum: Int): Int = maximum
+
     /** Only an explicit user-requested isolated verification may clear an exact quarantine tuple. */
     suspend fun allowVerification(spec: LocalEngineSpec) {
         error("Controlled verification is unavailable in this runtime")
     }
+
+    val latestAllocationObservation: NativeAllocationObservation? get() = null
+
+    fun setLoadProgressObserver(observer: ((GgufNativeProgress) -> Unit)?) = Unit
 
     suspend fun loadEngine(spec: LocalEngineSpec)
     suspend fun createConversation(config: LocalConversationConfig)

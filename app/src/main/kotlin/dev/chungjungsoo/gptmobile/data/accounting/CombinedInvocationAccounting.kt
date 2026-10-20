@@ -88,7 +88,7 @@ internal class CombinedInvocationAccounting(
         val input = observation.observedInputTokens
         val output = observation.observedOutputTokens
         val measured = input != null && output != null && observation.inputTokenSource in MEASURED && observation.outputTokenSource in MEASURED
-        val separable = attempts.size == 1 && observation.status == "COMPLETED" && measured
+        val separable = attempts.size == 1 && measured
         for (attemptId in attempts) {
             val row = physical[attemptId] ?: continue
             val result = if (separable) {

@@ -56,7 +56,29 @@ data class MessageEvidenceBinding(val messageId: String, val responseRevision: S
 
 @Serializable
 @Entity(tableName = "research_jobs", foreignKeys = [ForeignKey(entity = ResearchWork::class, parentColumns = ["workId"], childColumns = ["workId"], onDelete = ForeignKey.RESTRICT)], indices = [Index(value = ["dedupKey"], unique = true), Index("workId"), Index("chatId")])
-data class ExaminationJob(@PrimaryKey val jobId: String, val dedupKey: String, val workId: String, val requestedVersionId: String?, val origin: ExaminationOrigin, val chatId: Int, val profileUid: String, val authority: String, val policyHash: String, val stage: ExaminationStage, val checkpointJson: String = "{}", val terminalReason: String? = null, val updatedAt: Long, val lease: Long = 0)
+data class ExaminationJob(
+    @PrimaryKey val jobId: String,
+    val dedupKey: String,
+    val workId: String,
+    val requestedVersionId: String?,
+    val origin: ExaminationOrigin,
+    val chatId: Int,
+    val profileUid: String,
+    val authority: String,
+    val policyHash: String,
+    val stage: ExaminationStage,
+    val checkpointJson: String = "{}",
+    val terminalReason: String? = null,
+    val updatedAt: Long,
+    val lease: Long = 0,
+    @androidx.room.ColumnInfo(defaultValue = "0") val queuedAt: Long = 0,
+    @androidx.room.ColumnInfo(defaultValue = "0") val startedAt: Long = 0,
+    @androidx.room.ColumnInfo(defaultValue = "0") val lastHeartbeatAt: Long = 0,
+    @androidx.room.ColumnInfo(defaultValue = "0") val stageStartedAt: Long = 0,
+    @androidx.room.ColumnInfo(defaultValue = "0") val deadlineAt: Long = 0,
+    val workerId: String? = null,
+    val cancellationOrigin: String? = null
+)
 
 @Serializable
 @Entity(tableName = "research_body_roots", primaryKeys = ["rootKind", "rootId", "versionId"], foreignKeys = [ForeignKey(entity = ResearchWorkVersion::class, parentColumns = ["versionId"], childColumns = ["versionId"], onDelete = ForeignKey.CASCADE)], indices = [Index("versionId")])

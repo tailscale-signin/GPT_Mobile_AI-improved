@@ -94,6 +94,25 @@ public final class GgufNativeSmoke {
                 check(result[1] > 0 && result[4] != 3, "Configured batch failed real inference");
             } finally { GgufNative.unload(configured); }
         }
+        long observedOperation = GgufNative.nextOperationId();
+        GgufNative.prepareOperation(0, observedOperation);
+        var loadStages = new java.util.ArrayList<String>();
+        var fractions = new java.util.ArrayList<Float>();
+        long observed = GgufNative.loadConfiguredProgress(args[0].getBytes(StandardCharsets.UTF_8), 513, 2, 0,
+            observedOperation, 2, 128, 64, (phase, fraction, elapsed) -> {
+                check(elapsed >= 0 && fraction >= 0 && fraction <= 1, "Invalid load progress");
+                loadStages.add(phase); fractions.add(fraction);
+            });
+        try {
+            long[] allocation = GgufNative.allocationObservation(observed);
+            check(allocation.length == 10, "Missing allocation components");
+            check(allocation[0] >= 513 && allocation[0] % 256 == 0, "Effective padded context missing");
+            check(allocation[1] == 128 && allocation[2] == 64, "Effective batches differ");
+            check(allocation[3] > 0 && allocation[4] > 0 && allocation[5] > 0 && allocation[9] > 0, "Unmeasured native buffers");
+            check(allocation[6] == 0 && allocation[7] == 0 && allocation[8] == 0, "CPU buffers reported as device allocations");
+            check(loadStages.contains("NATIVE_READY") && fractions.contains(1f), "Load progress never completed");
+            System.out.println("native allocation components: " + Arrays.toString(allocation));
+        } finally { GgufNative.unload(observed); }
         System.out.println("GGUF JNI smoke passed: repeated sessions, native counts, cancellation, context rejection, stale handles, reopening");
     }
 }

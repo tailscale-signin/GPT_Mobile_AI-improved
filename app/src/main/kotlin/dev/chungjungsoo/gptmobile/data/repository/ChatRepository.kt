@@ -33,6 +33,7 @@ interface ChatRepository {
         runs: List<dev.chungjungsoo.gptmobile.data.database.entity.AgentRunDraft>,
         accepted: dev.chungjungsoo.gptmobile.data.agent.CombinedAcceptedTurn
     ): PersistAgentTurnResult = error("Atomic Combined regeneration is unavailable")
+    suspend fun replaceResearchDraft(runId: String, expectedFence: Long, previousDigest: String, text: String): MessageV2? = null
     suspend fun replaceCombinedAnswer(
         runId: String,
         expectedFence: Long,

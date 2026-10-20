@@ -264,6 +264,9 @@ class InvocationLedger @Inject constructor(
                                 generatedBytes += size
                             }
                             is ProviderEvent.RequestConfigured -> {
+                                event.localAdmissionReceipt?.let { receipt ->
+                                    dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(parentRunId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.REQUEST_SERIALIZED, role = dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticRole.from(kind), invocationId = record.id, localAdmissionReceipt = receipt, contextTokens = receipt.contextTokens.toLong(), successful = receipt.accepted)
+                                }
                                 actualRuntime = event.actualRuntime ?: actualRuntime
                                 dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
                                     "Model",

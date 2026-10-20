@@ -18,7 +18,8 @@ internal class DiagnosticIncidentTracker {
         val (timestamp, level, tag, message) = match.destructured
         val at = runCatching { Instant.parse(timestamp) }.getOrNull()
         val classification = classifyDiagnostic(level, tag, message)
-        val begins = Regex("(?i)^(?:FATAL EXCEPTION|Fatal signal|type=)").containsMatchIn(message)
+        val content = message.replace(Regex("^(?:(?:eventId=[A-Za-z0-9-]+|monoNs=[0-9]+|bootMs=(?:[0-9]+|unknown)|processId=-?[0-9]+) · )+"), "")
+        val begins = Regex("(?i)^(?:FATAL EXCEPTION|Fatal signal|type=)").containsMatchIn(content)
         val withinTrace = fatal != null &&
             at != null &&
             fatalAt != null &&

@@ -15,10 +15,14 @@ data class ResearchCorpus(
     val phase: String = "Partial coverage",
     val cancellationOrigin: String = "",
     val notes: List<String> = emptyList(),
-    val questions: List<ResearchQuestion> = emptyList()
+    val questions: List<ResearchQuestion> = emptyList(),
+    val taskId: String = "",
+    val rootWorkId: String = "",
+    val originatingUserMessageId: Int = 0,
+    val taskChatId: Int = 0
 ) {
     fun json() = dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryPacket.build(
-        ResearchSnapshot(task = task, sources = sources, claims = claims, toolEvents = toolEvents, complete = complete, updatedAt = updatedAt, phase = phase, cancellationOrigin = cancellationOrigin, notes = notes, questionPlan = questions)
+        ResearchSnapshot(task = task, sources = sources, claims = claims, toolEvents = toolEvents, complete = complete, updatedAt = updatedAt, phase = phase, cancellationOrigin = cancellationOrigin, notes = notes, questionPlan = questions, taskId = taskId, rootWorkId = rootWorkId, originatingUserMessageId = originatingUserMessageId, taskChatId = taskChatId)
     ).json()
 
     /** Resolve only URLs explicitly present in a contribution; never guess from local S1 labels. */
@@ -40,6 +44,7 @@ data class ResearchCorpus(
         /** Callers supply sessions from one accepted turn and authority partition. */
         fun freezeAll(snapshots: List<ResearchSnapshot>): ResearchCorpus? {
             if (snapshots.isEmpty()) return null
+            require(snapshots.map { it.taskId }.filter(String::isNotBlank).distinct().size <= 1) { "RESEARCH_CORPUS_TASK_MISMATCH" }
             val ordered = snapshots.sortedBy { it.updatedAt }
             return freeze(mergeResearchSnapshots(ordered.dropLast(1), ordered.last()))
         }
@@ -60,7 +65,7 @@ data class ResearchCorpus(
                     ?.takeIf { it.verdict in setOf("Supported", "Contradicted", "Insufficient") }
                     ?: valid
             }
-            return ResearchCorpus(2, sources.toList(), validClaims.toList(), snapshot.toolEvents.takeLast(MAX_EVENTS).toList(), snapshot.task, snapshot.complete, snapshot.updatedAt, snapshot.phase, snapshot.cancellationOrigin, snapshot.notes.toList(), snapshot.questionPlan.toList())
+            return ResearchCorpus(2, sources.toList(), validClaims.toList(), snapshot.toolEvents.takeLast(MAX_EVENTS).toList(), snapshot.task, snapshot.complete, snapshot.updatedAt, snapshot.phase, snapshot.cancellationOrigin, snapshot.notes.toList(), snapshot.questionPlan.toList(), snapshot.taskId, snapshot.rootWorkId, snapshot.originatingUserMessageId, snapshot.taskChatId)
         }
     }
 }

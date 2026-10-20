@@ -26,7 +26,7 @@ class CombinedTurnBudgetStore private constructor(private val directory: File?) 
         installed = this
     }
 
-    private val shared = states.computeIfAbsent(directory?.canonicalPath ?: "memory:${UUID.randomUUID()}") { StoreState() }
+    private val shared = states.computeIfAbsent(directory?.absolutePath ?: "memory:${UUID.randomUUID()}") { StoreState() }
     private val mutex = shared.mutex
     private val budgets = shared.budgets
     private val json = Json {
@@ -48,7 +48,7 @@ class CombinedTurnBudgetStore private constructor(private val directory: File?) 
             return@withLock existing
         }
         val file = if (context.persistBudget) directory?.let { File(it, "${combinedDigest(context.rootBudgetId)}.json") } else null
-        val loaded = file?.takeIf(File::exists)?.let { read(it) }
+        val loaded = withContext(Dispatchers.IO) { file?.takeIf(File::exists)?.let { read(it) } }
         val snapshot = loaded ?: CombinedBudgetSnapshot(
             rootBudgetId = context.rootBudgetId,
             chatId = context.chatId,
@@ -67,7 +67,7 @@ class CombinedTurnBudgetStore private constructor(private val directory: File?) 
     }
 
     suspend fun snapshot(rootBudgetId: String): CombinedBudgetSnapshot? = mutex.withLock {
-        budgets[rootBudgetId]?.snapshot() ?: directory?.let { File(it, "${combinedDigest(rootBudgetId)}.json") }?.takeIf(File::exists)?.let { read(it) }
+        budgets[rootBudgetId]?.snapshot() ?: withContext(Dispatchers.IO) { directory?.let { File(it, "${combinedDigest(rootBudgetId)}.json") }?.takeIf(File::exists)?.let { read(it) } }
     }
 
     suspend fun cancel(rootBudgetId: String) {

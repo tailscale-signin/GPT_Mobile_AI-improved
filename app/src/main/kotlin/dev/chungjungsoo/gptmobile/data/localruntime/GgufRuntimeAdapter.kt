@@ -23,7 +23,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** Pinned CPU/Vulkan runtime, QAIRT-independent; the existing holder/process owns every lease. */
-internal class GgufRuntimeAdapter(context: Context) : LocalRuntime {
+internal class GgufRuntimeAdapter(private val context: Context) : LocalRuntime {
     private val journal = NativeExitEvidence.journal(context, File(context.noBackupFilesDir, "gguf-native"))
 
     @Volatile private var handle = 0L
@@ -37,9 +37,25 @@ internal class GgufRuntimeAdapter(context: Context) : LocalRuntime {
     private var tuple: String? = null
     private var modelFallbackKey: String? = null
     private var modelReceipt: String = ""
+    private var calibrationPlanKey: String? = null
     private var configuration: LocalConversationConfig? = null
     private val history = mutableListOf<Pair<String, String>>()
     private val gpuFallbackModelKeys = ConcurrentHashMap.newKeySet<String>()
+
+    @Volatile private var loadObserver: ((GgufNativeProgress) -> Unit)? = null
+
+    @Volatile private var allocation: NativeAllocationObservation? = null
+    override val latestAllocationObservation get() = allocation
+    override fun setLoadProgressObserver(observer: ((GgufNativeProgress) -> Unit)?) {
+        loadObserver = observer
+    }
+    private val descriptors = ConcurrentHashMap<String, Map<String, String>>()
+    private fun metadata(model: File, manifest: ModelArtifactManifest): Map<String, String> {
+        val digest = manifest.files.first { it.path == manifest.entryFile }.sha256
+        val key = "${model.absolutePath}|$digest|${model.length()}|${model.lastModified()}"
+        descriptors.keys.removeIf { it.startsWith(model.absolutePath + "|") && it != key }
+        return descriptors.computeIfAbsent(key) { dev.chungjungsoo.gptmobile.data.localmodel.GgufImportAdapter.inspect(model) }
+    }
     override fun loadedEngineSpec() = loaded
     override suspend fun isEngineLoaded(spec: LocalEngineSpec) = healthy && handle != 0L && loaded?.engineConfiguration() == spec.engineConfiguration()
     override fun hasOpenConversation() = configuration != null
@@ -50,7 +66,7 @@ internal class GgufRuntimeAdapter(context: Context) : LocalRuntime {
         manifest.validate(requireNotNull(file.parentFile))
         check(manifest.runtime == ArtifactRuntime.LLAMA_CPP) { "GenieX artifacts require the separate GenieX preview APK; this is the standard llama.cpp runtime." }
         val model = ModelArtifactManifest.safeFile(requireNotNull(file.parentFile), manifest.entryFile)
-        val metadata = dev.chungjungsoo.gptmobile.data.localmodel.GgufImportAdapter.inspect(model)
+        val metadata = metadata(model, manifest)
         val templateName = dev.chungjungsoo.gptmobile.data.localmodel.GgufChatTemplateIdentity.describe(metadata["tokenizer.chat_template"])
         check(metadata["tokenizer.chat_template"].isNullOrBlank().not()) { "GGUF chat template '$templateName' is missing; import a chat-tuned GGUF export." }
         check(metadata["general.architecture"] == manifest.architecture) { "GGUF metadata architecture does not match its manifest." }
@@ -63,7 +79,7 @@ internal class GgufRuntimeAdapter(context: Context) : LocalRuntime {
             // engine capability and may be used for any compatible tensor layers.
             if (RuntimeCapabilityRegistry.gguf(android.os.Build.SUPPORTED_ABIS?.toList().orEmpty()).backends.contains("gpu")) add("gpu")
         }
-        LocalModelCapabilities(minOf(manifest.contextTokens, 32768), true, backends, false, false, false, false)
+        LocalModelCapabilities(minOf(manifest.contextTokens, 32768), true, backends, false, false, false, false, kvBytesPerToken = uniformGgufKvBytesPerToken(metadata))
     }
 
     override suspend fun loadEngine(spec: LocalEngineSpec) = withContext(Dispatchers.IO) {
@@ -82,7 +98,7 @@ internal class GgufRuntimeAdapter(context: Context) : LocalRuntime {
         }
         if (isEngineLoaded(effectiveSpec)) return@withContext
         inspectModel(effectiveSpec.modelPath).validate(effectiveSpec)
-        val preflightMetadata = dev.chungjungsoo.gptmobile.data.localmodel.GgufImportAdapter.inspect(model)
+        val preflightMetadata = metadata(model, manifest)
         val templateName = dev.chungjungsoo.gptmobile.data.localmodel.GgufChatTemplateIdentity.describe(preflightMetadata["tokenizer.chat_template"])
         val template = preflightMetadata["tokenizer.chat_template"]
             ?: error("GGUF chat template '$templateName' is missing; no model memory was allocated.")
@@ -132,6 +148,7 @@ internal class GgufRuntimeAdapter(context: Context) : LocalRuntime {
                     return@withContext
                 } catch (cpuFailure: Throwable) {
                     withContext(NonCancellable) { unloadEngine() }
+                    cpuFailure.addSuppressed(failure)
                     throw cpuFailure
                 }
             }
@@ -142,7 +159,18 @@ internal class GgufRuntimeAdapter(context: Context) : LocalRuntime {
     }
 
     private fun loadNative(model: File, spec: LocalEngineSpec, accelerator: String, templateName: String): Long = try {
-        GgufNative.loadConfigured(
+        val manifest = ArtifactManifestStore.read(File(spec.modelPath))
+        val kvBytes = uniformGgufKvBytesPerToken(metadata(model, manifest)) ?: 256L * 1024
+        val digest = manifest.files.first { it.path == manifest.entryFile }.sha256
+        val planKey = LocalMemoryCalibrationStore.key(digest, spec.copy(accelerator = accelerator))
+        val calibrations = LocalMemoryCalibrationStore(File(context.noBackupFilesDir, "local-memory-calibration"))
+        val observed = calibrations.read(planKey)
+        val components = ggufMemoryComponents(model.length(), spec.maxTokens, kvBytes, spec.ggufBatchTokens, spec.ggufMicroBatchTokens, GgufCpuThreads.resolve(spec.ggufPromptThreads ?: spec.cpuThreads, Runtime.getRuntime().availableProcessors()), accelerator, observed)
+        val estimate = LocalMemoryEstimate(components.totalMemoryBytes(), spec.admissionReserveBytes, LocalWorkloadAdmission.availableMemory(context), spec.maxTokens, if (observed == null) "conservative_unmeasured" else "conservative_component_calibrated", components, spec.maxTokens, planKey, systemMemory = LocalWorkloadAdmission.memorySnapshot(context))
+        if (estimate.budget.hasShortfall) throw estimate.rejection("Fresh $accelerator admission failed after cleanup; no native allocation was dispatched.")
+        AppLogRecorder.record("LocalModel", "NATIVE_LOAD_STARTED · backend=$accelerator · context=${spec.maxTokens} · requiredBytes=${estimate.requiredBytes} · reserveBytes=${estimate.reserveBytes} · availableBytes=${estimate.availableBytes}")
+        val operation = activeOperation
+        GgufNative.loadConfiguredProgress(
             model.absolutePath.toByteArray(),
             spec.maxTokens,
             GgufCpuThreads.resolve(spec.cpuThreads, Runtime.getRuntime().availableProcessors()),
@@ -150,8 +178,16 @@ internal class GgufRuntimeAdapter(context: Context) : LocalRuntime {
             activeOperation,
             GgufCpuThreads.resolve(spec.ggufPromptThreads ?: spec.cpuThreads, Runtime.getRuntime().availableProcessors()),
             spec.ggufBatchTokens.takeIf { it in setOf(64, 128, 256) } ?: 256,
-            minOf(spec.ggufMicroBatchTokens.takeIf { it in setOf(64, 128, 256) } ?: 128, spec.ggufBatchTokens.takeIf { it in setOf(64, 128, 256) } ?: 256)
-        )
+            minOf(spec.ggufMicroBatchTokens.takeIf { it in setOf(64, 128, 256) } ?: 128, spec.ggufBatchTokens.takeIf { it in setOf(64, 128, 256) } ?: 256),
+            GgufNative.LoadProgress { stage, fraction, elapsed ->
+                if (operation == activeOperation) loadObserver?.invoke(GgufNativeProgress(operation, stage, elapsedMs = elapsed, observedAtMs = SystemClock.elapsedRealtime(), loadFraction = fraction.toDouble().takeIf { it in 0.0..1.0 }))
+            }
+        ).also { engine ->
+            handle = engine
+            calibrationPlanKey = planKey
+            val receipt = observeAllocation(engine, planKey)
+            loadObserver?.invoke(GgufNativeProgress(operation, "NATIVE_ALLOCATION_OBSERVED", observedAtMs = SystemClock.elapsedRealtime(), loadFraction = 1.0, allocationObservation = receipt))
+        }
     } catch (failure: Throwable) {
         val message = failure.message.orEmpty()
         if (message.contains("template", ignoreCase = true)) {
@@ -159,6 +195,16 @@ internal class GgufRuntimeAdapter(context: Context) : LocalRuntime {
             throw IllegalStateException("GGUF chat template '$templateName' could not be rendered with the model's tokenizer. No context was allocated. ${message.take(180)}", failure)
         }
         throw failure
+    }
+
+    private fun observeAllocation(engine: Long, planKey: String): NativeAllocationObservation {
+        val values = GgufNative.allocationObservation(engine)
+        require(values.size == 10) { "GGUF native allocation receipt is incomplete" }
+        val receipt = NativeAllocationObservation(contextTokens = values[0].toInt(), batchTokens = values[1].toInt(), microBatchTokens = values[2].toInt(), hostModelBytes = values[3], hostContextBytes = values[4], hostComputeBytes = values[5], deviceModelBytes = values[6], deviceContextBytes = values[7], deviceComputeBytes = values[8], modelTensorBytes = values[9], processPssBytes = android.os.Debug.getPss() * 1024L).validated()
+        allocation = receipt
+        runCatching { LocalMemoryCalibrationStore(File(context.noBackupFilesDir, "local-memory-calibration")).write(planKey, receipt) }.onFailure { AppLogRecorder.record("LocalModel", "GGUF_CALIBRATION_SAVE_FAILED · exception=${it.javaClass.simpleName}", "W") }
+        AppLogRecorder.record("LocalModel", "GGUF_NATIVE_ALLOCATION · plan=$planKey · observation=${kotlinx.serialization.json.Json.encodeToString(NativeAllocationObservation.serializer(), receipt)}")
+        return receipt
     }
 
     override suspend fun allowVerification(spec: LocalEngineSpec) {
@@ -260,7 +306,7 @@ internal class GgufRuntimeAdapter(context: Context) : LocalRuntime {
                             },
                             { stage, total, processed, sampled, elapsed, code -> observe(stage, total, processed, sampled, elapsed, code) },
                             activeOperation
-                        )
+                        ).also { calibrationPlanKey?.let { key -> observeAllocation(engineHandle, key) } }
                     }
                 }
             }
@@ -383,6 +429,8 @@ internal class GgufRuntimeAdapter(context: Context) : LocalRuntime {
         handle = 0
         healthy = false
         loaded = null
+        allocation = null
+        calibrationPlanKey = null
         tuple = null
         modelFallbackKey = null
         modelReceipt = ""

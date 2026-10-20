@@ -35,7 +35,13 @@ class ResearchPortableSnapshotTest {
             val archive = ResearchArchiveRepository(db, store)
             val source = ResearchSource("S1", "https://example.org/paper", "Synthetic trial", status = "Read", doi = "10.1234/trial", retrievedAt = 1000, passage = "Methods and results")
             val version = archive.capture(source, "Methods and results", "public", true, 7, "original", true, 0)
-            val selection = CompleteBackupSelection(setOf(CompleteBackupSection.RESEARCH_ARCHIVE))
+            chat.chatRoomDao().addChatRoom(dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2(id = 7, title = "Retained task"))
+            store.acceptTask(7, "7:10", 10, "Compare this trial", listOf("writer"), "writer", "settings", "grants", true)
+            val validation = ResearchSourceValidation("validation", version.versionId, version.contentHash, 2, "READABLE", "[]", version.coverage, "STUDY", 10)
+            db.research().sourceValidation(validation)
+            db.research().job(ExaminationJob("job", "dedup", version.workId, version.versionId, ExaminationOrigin.USER_EXAMINE, 7, "writer", "public", "policy", ExaminationStage.PAUSED, updatedAt = 10))
+            db.research().transition(ExaminationTransition(jobId = "job", lease = 0, stage = ExaminationStage.PAUSED, at = 10, workerId = "old-worker", reason = "USER_PAUSE", cancellationOrigin = "USER"))
+            val selection = CompleteBackupSelection(setOf(CompleteBackupSection.RESEARCH_ARCHIVE, CompleteBackupSection.CHAT_RESEARCH))
             assertTrue(selection.requiresEncryption)
             val backup = ResearchBackup(archive, store, chat)
             val work = File(root, "export").apply { mkdirs() }
@@ -49,9 +55,13 @@ class ResearchPortableSnapshotTest {
             }
             val snapshot = backup.validate(File(staging, "research-feature.json"), staging)
             assertEquals(version.contentHash, snapshot.versions.single().contentHash)
+            assertEquals("Compare this trial", snapshot.acceptedTasks.single().taskText)
+            assertEquals(listOf(validation), snapshot.sourceValidations)
+            assertEquals("USER_PAUSE", snapshot.jobTransitions.single().reason)
             backup.restore(snapshot, selection, researchHash("backup-one"), staging)
             backup.restore(snapshot, selection, researchHash("backup-one"), staging)
             assertEquals(1, db.research().count())
+            assertEquals(1, db.research().transitions("job").size)
             assertEquals(version, db.research().version(version.versionId))
             val chunk = files.keys.first { it.endsWith(".chunk") }
             File(staging, chunk).writeText("Corrupted evidence")

@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -159,26 +160,27 @@ fun ResearchCitationCards(message: MessageV2, displayedSegment: String, profileU
 private fun StudyCard(binding: MessageEvidenceBinding, work: dev.chungjungsoo.gptmobile.data.research.feature.ResearchWork?, review: dev.chungjungsoo.gptmobile.data.research.feature.ResearchStudyReview?, job: dev.chungjungsoo.gptmobile.data.research.feature.ExaminationJob?, compact: Boolean, saveStatus: String, onExamine: () -> Unit, onOpen: () -> Unit) {
     val snapshot = remember(binding.snapshotJson) { runCatching { Json.parseToJsonElement(binding.snapshotJson) as? JsonObject }.getOrNull() }
     val artifact = remember(review?.reviewId) { review?.let { runCatching { Json.decodeFromString<dev.chungjungsoo.gptmobile.data.research.feature.StudyReviewArtifact>(it.artifactJson) }.getOrNull() } }
-    var expanded by remember(binding.workId) { mutableStateOf(false) }
-    val uri = androidx.compose.ui.platform.LocalUriHandler.current
-    var openError by remember { mutableStateOf(false) }
     val retracted = work?.retracted == true
-    val active = job?.stage in setOf(dev.chungjungsoo.gptmobile.data.research.feature.ExaminationStage.RESOLVING, dev.chungjungsoo.gptmobile.data.research.feature.ExaminationStage.READING, dev.chungjungsoo.gptmobile.data.research.feature.ExaminationStage.EXTRACTING, dev.chungjungsoo.gptmobile.data.research.feature.ExaminationStage.APPRAISING, dev.chungjungsoo.gptmobile.data.research.feature.ExaminationStage.REVIEWING)
-    Card(Modifier.fillMaxWidth().padding(vertical = 4.dp), shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp), colors = androidx.compose.material3.CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.85f), contentColor = MaterialTheme.colorScheme.onSecondaryContainer)) {
-        Column(Modifier.padding(if (compact) 14.dp else 18.dp), verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp)) {
-            Text(work?.title ?: (snapshot?.get("title") as? JsonPrimitive)?.content.orEmpty(), style = MaterialTheme.typography.titleSmall)
-            Text(listOfNotNull(work?.publicationYear?.toString(), work?.publicationType?.replace('_', ' ')).joinToString(" · "), style = MaterialTheme.typography.labelMedium)
-            Text(artifact?.conclusion ?: "Conclusion not assessed", style = MaterialTheme.typography.bodyMedium)
-            artifact?.let {
-                Text("Outcome: ${it.outcomeKey}", style = MaterialTheme.typography.labelSmall)
-                Text(it.limitation, style = MaterialTheme.typography.bodySmall)
+    val active = job?.stage in setOf(dev.chungjungsoo.gptmobile.data.research.feature.ExaminationStage.QUEUED, dev.chungjungsoo.gptmobile.data.research.feature.ExaminationStage.RESOLVING, dev.chungjungsoo.gptmobile.data.research.feature.ExaminationStage.READING, dev.chungjungsoo.gptmobile.data.research.feature.ExaminationStage.EXTRACTING, dev.chungjungsoo.gptmobile.data.research.feature.ExaminationStage.APPRAISING, dev.chungjungsoo.gptmobile.data.research.feature.ExaminationStage.REVIEWING)
+    Card(onClick = onOpen, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp), colors = androidx.compose.material3.CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.85f), contentColor = MaterialTheme.colorScheme.onSecondaryContainer)) {
+        Column(Modifier.padding(if (compact) 14.dp else 18.dp), verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
+            androidx.compose.foundation.layout.Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Rounded.Description, contentDescription = null)
+                Text(work?.title ?: (snapshot?.get("title") as? JsonPrimitive)?.content.orEmpty(), style = MaterialTheme.typography.titleSmall, maxLines = 3, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
             }
-            Text(if (retracted) "Retraction reported · score suspended" else review?.overallScore?.let { "AI review score $it / 100" } ?: (review?.status ?: "Review pending"), style = MaterialTheme.typography.labelLarge, color = if (retracted) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSecondaryContainer)
+            Text(listOfNotNull(work?.publicationYear?.toString(), work?.publicationType?.takeUnless { it == "unknown" }?.replace('_', ' ')).joinToString(" · "), style = MaterialTheme.typography.labelMedium)
+            Text(artifact?.conclusion ?: "Not examined yet", style = MaterialTheme.typography.bodyMedium, maxLines = 3, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            val status = when {
+                retracted -> "Retraction reported · score suspended"
+                active -> "${job?.stage?.name?.lowercase()?.replace('_', ' ')}…"
+                job?.stage == dev.chungjungsoo.gptmobile.data.research.feature.ExaminationStage.FAILED -> "Examination needs attention"
+                job?.stage == dev.chungjungsoo.gptmobile.data.research.feature.ExaminationStage.PAUSED -> "Examination paused"
+                review?.overallScore != null -> "AI appraisal ${review.overallScore} / 100"
+                review != null -> "Limited evidence · unscored"
+                else -> "Unexamined"
+            }
+            Text(status, style = MaterialTheme.typography.labelLarge, color = if (retracted) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
             Text(saveStatus, style = MaterialTheme.typography.labelSmall)
-            Text("Citation coverage: " + (snapshot?.get("coverage") as? JsonPrimitive)?.content.orEmpty().lowercase().replace('_', ' '), style = MaterialTheme.typography.bodySmall)
-            if (review != null && review.versionId != binding.versionId) Text("Updated assessment · original cited version retained", style = MaterialTheme.typography.labelSmall)
-            if (active) Text("Review in progress · ${job?.stage?.name?.lowercase()?.replace('_', ' ')}", style = MaterialTheme.typography.labelMedium)
-            if (openError) Text("No browser is available to open this source.", color = MaterialTheme.colorScheme.error)
             androidx.compose.foundation.layout.Row {
                 TextButton(onClick = if (active || review != null) onOpen else onExamine, modifier = Modifier.heightIn(min = 48.dp)) {
                     Text(
@@ -191,13 +193,7 @@ private fun StudyCard(binding: MessageEvidenceBinding, work: dev.chungjungsoo.gp
                         }
                     )
                 }
-                TextButton(onClick = { expanded = !expanded }, modifier = Modifier.heightIn(min = 48.dp)) { Text(if (expanded) "Less" else "Details") }
-            }
-            if (expanded) {
-                Text("Reliability: ${if (retracted) "Suspended" else review?.reliabilityScore ?: "Pending"} · Summary accuracy: ${review?.accuracyScore ?: "Pending"}", style = MaterialTheme.typography.bodySmall)
-                Text("App rubric v${review?.rubricVersion ?: 1} · AI assessment, not a probability of scientific truth", style = MaterialTheme.typography.bodySmall)
-                review?.let { Text("Reviewed ${java.time.Instant.ofEpochMilli(it.createdAt)}", style = MaterialTheme.typography.bodySmall) }
-                TextButton(onClick = { runCatching { uri.openUri(work?.canonicalUrl ?: (snapshot?.get("canonicalUrl") as? JsonPrimitive)?.content.orEmpty()) }.onFailure { openError = true } }) { Text("Open paper") }
+                TextButton(onClick = onOpen, modifier = Modifier.heightIn(min = 48.dp)) { Text("Details") }
             }
         }
     }

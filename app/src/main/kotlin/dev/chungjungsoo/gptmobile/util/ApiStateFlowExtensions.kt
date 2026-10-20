@@ -84,6 +84,7 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
     onNotice: (String, Boolean) -> Unit = { _, _ -> },
     onPhaseChanged: ((LocalInferencePhase) -> Unit)? = null,
     onGatewayProgress: ((GatewayProgress) -> Unit)? = null,
+    onResearchReplacement: suspend (String, String) -> Boolean = { _, _ -> false },
     onCombinedReplacement: suspend (dev.chungjungsoo.gptmobile.data.agent.CombinedReplacementCandidate) -> Boolean = { false },
     nanoTimeProvider: () -> Long = System::nanoTime,
     publishIntervalMillis: Long = STANDARD_STREAM_PUBLISH_INTERVAL_MILLIS
@@ -97,6 +98,19 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
             pulse.error?.let { throw it }
             when (val chunk = pulse.state) {
                 null -> buffer.publishIfDue(onUpdate)
+                is ApiState.ResearchReplacement -> {
+                    var accepted = false
+                    try {
+                        buffer.flush(onUpdate)
+                        accepted = onResearchReplacement(chunk.previousDigest, chunk.text)
+                        if (accepted) {
+                            buffer.replaceResearch(chunk.text)
+                            buffer.publishNow(onUpdate)
+                        }
+                    } finally {
+                        chunk.acknowledgement.complete(accepted)
+                    }
+                }
                 is ApiState.CombinedReplacement -> {
                     var accepted = false
                     try {
@@ -380,6 +394,16 @@ private class StreamingMessageBuffer(
         val index = timeline.indexOfFirst { it.combinedQuality != null }
         val item = AssistantTimelineItem(AssistantTimelineItemType.NOTICE, combinedQuality = report)
         if (index < 0) timeline += item else timeline[index] = item
+        timelineVersion++
+    }
+
+    fun replaceResearch(text: String) {
+        flushTimelineText()
+        content.setLength(0)
+        pendingTimelineIndex = -1
+        pendingTimelineText.setLength(0)
+        timeline.removeAll { it.type == AssistantTimelineItemType.TEXT }
+        appendContent(text)
         timelineVersion++
     }
 

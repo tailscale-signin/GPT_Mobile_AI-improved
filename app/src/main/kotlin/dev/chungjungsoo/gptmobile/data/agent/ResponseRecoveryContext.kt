@@ -25,9 +25,14 @@ internal class ResponseRecoveryContext(
     private val destinationIdentity: String = "unknown",
     private val policyRevision: String = "unknown",
     private val lastAction: String = "CONTINUE_RUN",
-    private val authorization: suspend () -> Boolean = { true }
+    private val authorization: suspend () -> Boolean = { true },
+    private val accessDecision: suspend () -> RecoveryAccessDecision = { RecoveryAccessDecision(authorization()) }
 ) {
-    suspend fun isAuthorized(): Boolean = authorization()
+    private var latestDecision = RecoveryAccessDecision(true)
+    suspend fun isAuthorized(): Boolean {
+        latestDecision = accessDecision()
+        return latestDecision.allowed
+    }
 
     suspend fun researchSnapshotForDelivery(): dev.chungjungsoo.gptmobile.data.research.ResearchSnapshot? {
         if (!isAuthorized()) throw SavedEvidenceAccessDenied()
@@ -43,15 +48,27 @@ internal class ResponseRecoveryContext(
         runs.mapNotNull { run ->
             messages.firstOrNull { it.id == run.assistantMessageId }?.let { message ->
                 val draft = if (message.currentRunId == run.runId) message.content else message.revisions.firstOrNull { it.runId == run.runId }?.content.orEmpty()
-                stripAssistantErrorNote(draft).takeIf { it.isNotBlank() }?.let { "answer:${run.runId}:${dev.chungjungsoo.gptmobile.data.research.researchHash(it)}" }
+                eligibleRecoveryDraft(draft).takeIf { it.isNotBlank() }?.let { "answer:${run.runId}:${dev.chungjungsoo.gptmobile.data.research.researchHash(it)}" }
             }
         }
     private val savedMessages = messages
-    fun blocked(): RecoveryBlock = recoveryBlock(blockedRootWorkId, generationId, destinationIdentity, policyRevision, evidenceIds, savedMessages, lastAction)
+    fun blocked(): RecoveryBlock = recoveryBlock(blockedRootWorkId, generationId, destinationIdentity, policyRevision, latestDecision.affectedIds.ifEmpty { evidenceIds }, savedMessages, lastAction, latestDecision.reasonCode).let { block ->
+        val code = latestDecision.reasonCode
+        block.copy(
+            code = code,
+            message = when (code) {
+                "PROFILE_DISABLED" -> "Enable the selected writer to continue from saved evidence."
+                "DESTINATION_CHANGED" -> "The writer account or destination changed. Review the selected writer before reusing saved evidence."
+                "CONVERSATION_UNAVAILABLE" -> "This conversation is no longer available for recovery."
+                "PROFILE_NOT_IN_CONVERSATION" -> "Select an active writer in this conversation to continue."
+                else -> "A source used by this saved answer is no longer authorized. Review that source connection or start without its saved evidence."
+            }
+        )
+    }
 
     private val lastAnswer = runs.lastOrNull()?.let { run ->
         messages.firstOrNull { it.id == run.assistantMessageId }?.let { message ->
-            stripAssistantErrorNote(if (message.currentRunId == run.runId) message.content else message.revisions.firstOrNull { it.runId == run.runId }?.content.orEmpty())
+            eligibleRecoveryDraft(if (message.currentRunId == run.runId) message.content else message.revisions.firstOrNull { it.runId == run.runId }?.content.orEmpty())
         }
     }.orEmpty()
     private val manifestSummaries = research.map { "Research: ${it.phase}; complete=${it.complete}; sources=${it.sources.size}; readable=${it.sources.count { source -> source.readable }}; claims=${it.claims.size}; stop=${it.cancellationOrigin}" } +
@@ -85,7 +102,7 @@ internal class ResponseRecoveryContext(
             appendLine("Resource: recovery://${run.chatId}/${run.runId} · ${run.modelSnapshot} · ${run.status}")
             appendLine("Original request: ${messages.firstOrNull { it.id == run.userMessageId }?.content.orEmpty()}")
             appendLine("Incomplete response:")
-            appendLine(stripAssistantErrorNote(draft))
+            appendLine(eligibleRecoveryDraft(draft))
             if (thoughts.isNotBlank()) {
                 appendLine("Working notes (unverified, not a final answer):")
                 appendLine(thoughts)
@@ -256,4 +273,28 @@ internal const val RECOVERY_ACCESS_MESSAGE = "Saved evidence permission is missi
 internal fun sameRecoveryDestination(
     admitted: dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2,
     current: dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
-): Boolean = admitted == current.copy(name = admitted.name, labels = admitted.labels, isFavorite = admitted.isFavorite)
+): Boolean = admitted.uid == current.uid &&
+    admitted.compatibleType == current.compatibleType &&
+    admitted.apiUrl == current.apiUrl &&
+    admitted.token == current.token &&
+    admitted.secretRef == current.secretRef &&
+    admitted.providerConnectionUid == current.providerConnectionUid &&
+    admitted.model == current.model &&
+    admitted.disableAllTools == current.disableAllTools &&
+    admitted.disableRemoteTools == current.disableRemoteTools &&
+    admitted.disableLocalTools == current.disableLocalTools
+
+/** Known app notices are excluded; arbitrary prose containing the word error is preserved. */
+internal fun eligibleRecoveryDraft(value: String): String {
+    val draft = stripAssistantErrorNote(value).trim()
+    return if (draft.startsWith("Error:") ||
+        draft.startsWith("Error ·") ||
+        draft.startsWith("Saved evidence permission is missing.") ||
+        draft.startsWith("Saved evidence needs permission") ||
+        draft.startsWith("MEMORY_ADMISSION_REJECTED")
+    ) {
+        ""
+    } else {
+        draft
+    }
+}

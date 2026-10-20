@@ -272,7 +272,8 @@ fun ChatScreen(
     }
     val recoveryBlock = blockedResponse?.value?.let { message -> message.timeline.lastOrNull { it.recoveryBlock?.generationId == message.currentRunId }?.recoveryBlock }
     val recoveryKey = recoveryBlock?.let { "${it.generationId}:${it.fingerprint}" }
-    if (recoveryBlock != null && recoveryKey != dismissedRecovery && blockedResponse != null && loadingStates.none { it == ChatViewModel.LoadingState.Loading }) {
+    var showRecoveryDetails by rememberSaveable(recoveryKey) { mutableStateOf(false) }
+    if (showRecoveryDetails && recoveryBlock != null && recoveryKey != dismissedRecovery && blockedResponse != null && loadingStates.none { it == ChatViewModel.LoadingState.Loading }) {
         EvidenceRecoveryDialog(
             recoveryBlock,
             onDismiss = { dismissedRecovery = recoveryKey },
@@ -713,6 +714,20 @@ fun ChatScreen(
                         onContinueClick = { chatViewModel.sendContinueResponse() },
                         onActionClick = { prompt -> chatViewModel.sendPromptResponse(prompt) }
                     )
+                }
+                if (recoveryBlock != null && blockedResponse != null) {
+                    item(key = "research-recovery-access") {
+                        androidx.compose.material3.Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                            Column(Modifier.padding(16.dp)) {
+                                Text("Saved work retained", style = MaterialTheme.typography.titleSmall)
+                                Text(recoveryBlock.message, style = MaterialTheme.typography.bodySmall)
+                                TextButton(onClick = {
+                                    dismissedRecovery = null
+                                    showRecoveryDetails = true
+                                }) { Text("Review setup") }
+                            }
+                        }
+                    }
                 }
                 val chatResearch = researchSessions.values.filter { it.chatId == chatRoom.id && (it.runId in agentRunsById || it.runId in activeAgentRuns) }
                 if (chatResearch.isNotEmpty()) {

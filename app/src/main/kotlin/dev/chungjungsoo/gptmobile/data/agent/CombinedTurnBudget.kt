@@ -181,6 +181,17 @@ class CombinedTurnBudget(
             )
             next = next.copy(baselineAdjustments = next.baselineAdjustments + adjustment)
         }
+        val requiredItem = context.workItemId?.let { next.pendingWork[it] }
+        if (resources.toolOperations == 0L && requiredItem?.required == true && requiredItem.role == context.role) {
+            val remaining = allowance(next, primaryPool, owner).minusFloor(charged(next, primaryPool, if (primaryPool == CombinedBudgetPool.BASELINE) owner else null))
+            val difference = resources.minusFloor(remaining)
+            if (difference != CombinedResourceQuota()) {
+                hardLimitReason(next, protectedRemaining(next) + difference, upperCostMicros)?.let {
+                    return@withLock CombinedBudgetAdmission.Denied("REQUIRED_WORK_UNFUNDED: $it; dispatched=false")
+                }
+                next = next.copy(baselineAdjustments = next.baselineAdjustments + CombinedBudgetAdjustment(owner, "ACTUAL_COMPILED_REQUIRED_CONTEXT", difference))
+            }
+        }
         val primaryAvailable = allowance(next, primaryPool, owner).minusFloor(charged(next, primaryPool, if (primaryPool == CombinedBudgetPool.BASELINE) owner else null))
         var pool = if (resources.fits(primaryAvailable)) primaryPool else CombinedBudgetPool.OPTIONAL
         if (resources.toolOperations > 0 && resources.inputTokens == 0L && context.workItemId == null) pool = CombinedBudgetPool.OPTIONAL

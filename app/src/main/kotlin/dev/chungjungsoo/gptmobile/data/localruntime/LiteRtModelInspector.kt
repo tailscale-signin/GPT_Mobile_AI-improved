@@ -17,7 +17,8 @@ data class LocalModelCapabilities(
     val speculative: Boolean? = null,
     val soc: String? = null,
     val minRuntimeVersion: String? = null,
-    val visionBackends: Set<String> = emptySet()
+    val visionBackends: Set<String> = emptySet(),
+    val kvBytesPerToken: Long? = null
 ) {
     fun validate(spec: LocalEngineSpec) {
         try {

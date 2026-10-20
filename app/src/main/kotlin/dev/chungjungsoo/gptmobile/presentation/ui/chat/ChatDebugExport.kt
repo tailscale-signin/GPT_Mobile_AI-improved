@@ -109,7 +109,7 @@ internal fun buildChatDebugExport(
                 put("conversation", DebugExportSchema.CONVERSATION_VERSION)
                 put("combinedAnalysis", 1)
                 put("appLogSnapshot", 1)
-                put("runEvents", 5)
+                put("runEvents", dev.chungjungsoo.gptmobile.data.diagnostics.RUN_EVENT_SCHEMA)
                 put("legacyEvents", 4)
                 put("assist", 2)
             }
@@ -165,6 +165,9 @@ internal fun buildChatDebugExport(
                         put("level", entry.level)
                         put("tag", entry.tag)
                         put("eventId", entry.eventId)
+                        put("monotonicNanos", entry.monotonicNanos)
+                        entry.bootMillis?.let { put("bootMillis", it) }
+                        put("processId", entry.processId)
                         put("message", exportedBody(entry.message))
                     }
                 }

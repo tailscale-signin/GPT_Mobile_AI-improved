@@ -136,8 +136,8 @@ internal class DeepResearchTool(
                 val combinedAllowance = combinedContext?.let { context ->
                     requireNotNull(dev.chungjungsoo.gptmobile.data.agent.CombinedTurnBudgetStore.installedOrNull()).open(context).availableToolOperations(context)
                 }
-                val requestAllowance = minOf((minOf(counters?.limits?.maxRequests ?: 2400L, 2400L) - (counters?.physical ?: 0)).coerceAtLeast(0), combinedAllowance ?: Long.MAX_VALUE)
-                if (combinedContext != null && operation !in setOf("status", "verify_evidence")) check(requestAllowance > 0) { "Combined academic request allowance is exhausted; no gateway request was sent." }
+                val requestAllowance = minOf((minOf(counters?.limits?.maxRequests ?: 2400L, 2400L) - (counters?.physical ?: 0)).coerceAtLeast(0), combinedAllowance ?: Long.MAX_VALUE, budget.gatewayAvailable(operation), if (operation == "search_papers") providerCalls * 4L else 8L)
+                if (operation !in setOf("status", "verify_evidence")) check(requestAllowance > 0) { "Combined academic request allowance is exhausted; no gateway request was sent." }
                 val remoteLimits = buildJsonObject {
                     put("researchRequestAllowance", requestAllowance)
                     counters?.let { put("researchDownloadAllowance", (minOf(it.limits.maxDownloadedBytes ?: 536870912L, 536870912L) - it.downloaded).coerceAtLeast(0)) }
@@ -157,6 +157,12 @@ internal class DeepResearchTool(
                     )
                 )
                 val combinedAttempt = if (operation in setOf("status", "verify_evidence")) null else dev.chungjungsoo.gptmobile.data.agent.CombinedAcquisitionBoundary.reserve("academic-gateway:${java.util.UUID.randomUUID()}", requestAllowance)
+                val gatewayReservation = try {
+                    if (operation !in setOf("status", "verify_evidence") && budget.isGoalDriven) budget.reserveGateway(operation, requestAllowance) else null
+                } catch (failure: Throwable) {
+                    combinedAttempt?.finish(0, false)
+                    throw failure
+                }
                 var gatewayOperations: Long? = null
                 var gatewayDispatched = true
                 val result = try {
@@ -168,6 +174,7 @@ internal class DeepResearchTool(
                     }
                 } finally {
                     combinedAttempt?.finish(gatewayOperations, gatewayDispatched)
+                    gatewayReservation?.let { budget.settleGateway(it, if (!gatewayDispatched) 0 else gatewayOperations) }
                 }
                 if (combinedContext != null && operation !in setOf("status", "verify_evidence") && (gatewayOperations == null || gatewayOperations < 0)) {
                     return failure(callId, "accounting_unavailable", "Gateway physical-request accounting is unavailable; its upper reservation is retained and the outcome requires reconciliation.")
@@ -180,7 +187,8 @@ internal class DeepResearchTool(
                     if (receipt == null) return failure(callId, "accounting_unavailable", "Gateway accounting is unavailable; dispatch outcome must be reconciled before continuing.")
                     budget.recordRemote(
                         (receipt["physicalRequests"] as? JsonPrimitive)?.contentOrNull?.toLongOrNull() ?: error("Invalid gateway accounting"),
-                        (receipt["downloadedBytes"] as? JsonPrimitive)?.contentOrNull?.toLongOrNull() ?: error("Invalid gateway accounting")
+                        (receipt["downloadedBytes"] as? JsonPrimitive)?.contentOrNull?.toLongOrNull() ?: error("Invalid gateway accounting"),
+                        requestsAlreadyReserved = gatewayReservation != null
                     )
                 } else if (!budget.isGoalDriven) {
                     budget.chargeBytes(result.content.toString().toByteArray().size)
@@ -195,7 +203,7 @@ internal class DeepResearchTool(
             } else if (selection.gatewayConnectionUid != null && !selection.allowNativeFallback) {
                 return failure(callId, "gateway_unavailable", "Reconnect the selected academic gateway or explicitly allow native fallback.")
             }
-            val payload = withContext(AcademicRequestBudgetContext(budget, persistentEvidence, runKey)) { native(arguments) }
+            val payload = withContext(AcademicRequestBudgetContext(budget, persistentEvidence, runKey, operation)) { native(arguments) }
             check(permitted()) { "permission_denied" }
             // Native downloaded bytes are charged in the bounded response stream.
             return AgentToolResult(callId, ToolResultContent.Json(if (selection.gatewayConnectionUid != null) JsonObject(payload + mapOf("fallbackOwner" to JsonPrimitive("native"), "coveragePartial" to JsonPrimitive(true))) else payload), false)
@@ -285,7 +293,7 @@ internal class AcademicRunBudget(private val limit: Int = 30, private val maxRea
     private var calls = 0L
     private var bytes = 0L
     private var reads = 0L
-    suspend fun reserve(operation: String, cost: Int = 1) = mutex.withLock {
+    suspend fun reserve(operation: String, cost: Int = 1, lane: dev.chungjungsoo.gptmobile.data.agent.ResearchRunLedger.AcquisitionLane = dev.chungjungsoo.gptmobile.data.agent.ResearchRunLedger.AcquisitionLane.READ) = mutex.withLock {
         if (operation in setOf("status", "verify_evidence")) return@withLock
         check(cost in 0..64 && (goalDriven || calls + cost <= limit && bytes < maxBytes)) { "Academic budget exhausted; synthesize the retained evidence" }
         if (operation == "read_paper") {
@@ -293,7 +301,7 @@ internal class AcademicRunBudget(private val limit: Int = 30, private val maxRea
             reads++
         }
         if (operation != "status") {
-            if (cost > 0) check(shared?.tryChargeRequests(cost) != false) { "Shared research request budget exhausted" }
+            if (cost > 0) check(shared?.tryChargeRequests(cost, lane) != false) { "Shared research request budget exhausted" }
             calls += cost
         }
     }
@@ -304,16 +312,29 @@ internal class AcademicRunBudget(private val limit: Int = 30, private val maxRea
         check(goalDriven || bytes <= maxBytes) { "Academic output budget exhausted" }
     }
     fun sharedState() = shared?.ledger?.snapshot()
-    suspend fun recordRemote(requests: Long, downloaded: Long) = mutex.withLock {
+    suspend fun recordRemote(requests: Long, downloaded: Long, requestsAlreadyReserved: Boolean = false) = mutex.withLock {
         require(requests >= 0 && downloaded >= 0)
-        check(shared?.ledger?.charge(physical = requests, downloaded = downloaded) != false) { "User research limit reached" }
+        check(shared?.ledger?.charge(physical = if (requestsAlreadyReserved) 0 else requests, downloaded = downloaded) != false) { "User research limit reached" }
         calls = Math.addExact(calls, requests)
         bytes = Math.addExact(bytes, downloaded)
     }
+    private fun lane(operation: String) = when (operation) {
+        "search_papers" -> dev.chungjungsoo.gptmobile.data.agent.ResearchRunLedger.AcquisitionLane.SEARCH
+        "read_paper" -> dev.chungjungsoo.gptmobile.data.agent.ResearchRunLedger.AcquisitionLane.READ
+        else -> dev.chungjungsoo.gptmobile.data.agent.ResearchRunLedger.AcquisitionLane.METADATA
+    }
+    fun gatewayAvailable(operation: String): Long = shared?.ledger?.acquisitionAvailable(lane(operation)) ?: Long.MAX_VALUE
+    suspend fun reserveGateway(operation: String, upper: Long): String? = mutex.withLock {
+        val ledger = shared?.ledger ?: return@withLock null
+        val id = java.util.UUID.randomUUID().toString()
+        check(ledger.reserveAcquisition(id, lane(operation), upper)) { "Shared acquisition lane is reserved; gateway was not dispatched" }
+        id
+    }
+    suspend fun settleGateway(id: String, actual: Long?) = mutex.withLock { shared?.ledger?.settleAcquisition(id, actual) }
     val isGoalDriven get() = goalDriven
     fun remaining(): Int = (limit.toLong() - calls).coerceIn(0, Int.MAX_VALUE.toLong()).toInt()
 }
 
-internal class AcademicRequestBudgetContext(val budget: AcademicRunBudget, val persistent: Boolean = false, val runKey: String = "") : kotlin.coroutines.AbstractCoroutineContextElement(Key) {
+internal class AcademicRequestBudgetContext(val budget: AcademicRunBudget, val persistent: Boolean = false, val runKey: String = "", val operation: String = "get_paper") : kotlin.coroutines.AbstractCoroutineContextElement(Key) {
     companion object Key : kotlin.coroutines.CoroutineContext.Key<AcademicRequestBudgetContext>
 }

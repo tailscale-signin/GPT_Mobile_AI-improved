@@ -75,6 +75,7 @@ data class AppFeatureSettings(
     val localExecutionPolicy: dev.chungjungsoo.gptmobile.data.localruntime.LocalExecutionPolicy = dev.chungjungsoo.gptmobile.data.localruntime.LocalExecutionPolicy.PROFILE,
     val localExecutionPolicyVersion: Int = 1,
     val localMemoryReserveMb: Int = 768,
+    val localContextPreferences: Map<String, dev.chungjungsoo.gptmobile.data.localruntime.LocalContextPreference> = emptyMap(),
     /** Global service state. Amazon is opt-in; other built-in services preserve their defaults. */
     val pluginExecution: Map<String, PluginExecutionSettings> = emptyMap(),
     val toolPluginStates: Map<String, Boolean> = emptyMap(),

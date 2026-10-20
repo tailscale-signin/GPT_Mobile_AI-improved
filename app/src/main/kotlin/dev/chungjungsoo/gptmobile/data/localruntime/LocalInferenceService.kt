@@ -115,7 +115,12 @@ class LocalInferenceService : Service() {
                         // The operation lock keeps generations and inspection out of this boundary.
                         runtime.unloadEngine()
                         dev.chungjungsoo.gptmobile.data.localmodel.LinkedModelSources.closeLeases()
-                        runtime.loadEngine(spec)
+                        runtime.setLoadProgressObserver { progress -> reply.send("LOAD_PROGRESS", state = runtime.state.value.copy(processIsolated = true, lifecycle = "LOADING", loadProgress = progress, allocationObservation = progress.allocationObservation ?: runtime.state.value.allocationObservation), nativeProgress = progress) }
+                        try {
+                            runtime.loadEngine(spec)
+                        } finally {
+                            runtime.setLoadProgressObserver(null)
+                        }
                         reply.send("RESULT", state = runtime.state.value.copy(processIsolated = true, lifecycle = "READY"))
                     }
                     "OPEN" -> {
@@ -219,7 +224,7 @@ class LocalInferenceService : Service() {
                     is LocalNpuPackageException -> "NPU_PACKAGE"
                     else -> null
                 }
-                reply.send("ERROR", text = error.message ?: "Local worker failed", errorCode = errorCode, loadAttempts = (error as? LocalLoadFailure)?.attempts.orEmpty())
+                reply.send("ERROR", text = error.message ?: "Local worker failed", errorCode = errorCode, state = runtime.state.value.copy(processIsolated = true, lifecycle = "FAILED", admissionReceipt = (error as? LocalMemoryAdmissionException)?.receipt ?: runtime.state.value.admissionReceipt), loadAttempts = (error as? LocalLoadFailure)?.attempts.orEmpty())
             } finally {
                 if (generatingRequest == packet.requestId) generatingRequest = null
                 jobs.remove(packet.requestId)

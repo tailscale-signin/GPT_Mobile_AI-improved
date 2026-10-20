@@ -11,6 +11,8 @@ internal data class DiagnosticClassification(
 internal fun classifyDiagnostic(level: String?, tag: String?, message: String): DiagnosticClassification {
     val text = message.replace(Regex("^eventId=[a-zA-Z0-9-]+(?: · | )"), "").lowercase()
     return when {
+        text.startsWith("synthesis_quality") && "completed_with_issues" in text -> DiagnosticClassification("combined_contract", "warning", true, "retain_answer_and_review_quality")
+        "required_work_unfunded" in text || "optional combined work allowance" in text -> DiagnosticClassification("admission", "warning", true, "retain_pending_work")
         "outcome=invalid_response" in text || "status=invalid_response" in text || "schema_validation_failed" in text -> DiagnosticClassification("research_schema", "error", true, "repair_structured_output")
         ("delivery" in text && "accepted=false" in text) || "correction_required" in text -> DiagnosticClassification("delivery_contract", "warning", true, "retain_evidence_and_repair_report")
         tag == "MCP" && (text.startsWith("connect start") || text.startsWith("connected")) -> DiagnosticClassification("connectivity_progress", "info", false)

@@ -30,8 +30,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -61,7 +63,8 @@ data class ExaminationCheckpoint(
     val sourceValidation: SourceValidationReceipt? = null,
     val pendingReviews: List<ResearchStudyReview> = emptyList(),
     val profileSnapshotJson: String? = null,
-    val combined: dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext? = null
+    val combined: dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext? = null,
+    val waitingConfigurationRevision: String? = null
 )
 
 @Serializable
@@ -108,6 +111,23 @@ class ArticleExaminationCoordinator @Inject constructor(
     private val permits = kotlinx.coroutines.sync.Semaphore(2)
     private var recovered = false
     private val active = ConcurrentHashMap<String, Job>()
+    private data class WatchLease(val lease: Long, val deadlineNanos: Long)
+    private val watchLeases = ConcurrentHashMap<String, WatchLease>()
+    init {
+        scope.launch {
+            while (isActive) {
+                delay(5000)
+                val now = System.nanoTime()
+                watchLeases.entries.filter { now - it.value.deadlineNanos > 30_000_000_000L }.forEach { (id, watch) ->
+                    lock.withLock {
+                        val live = archive.dao.job(id)
+                        if (live?.lease == watch.lease && live.stage in ExaminationLifecycle.active && archive.dao.interruptJob(id, watch.lease, ExaminationStage.PAUSED, "Examination phase stalled; saved evidence retained. Resume to retry the unfinished stage.", "WATCHDOG_EXPIRED", System.currentTimeMillis()) == 1) active[id]?.cancel(ExaminationInterrupted("WATCHDOG_EXPIRED", "Phase lease expired"))
+                        watchLeases.remove(id, watch)
+                    }
+                }
+            }
+        }
+    }
     val jobs = archive.dao.jobs()
 
     suspend fun recover() = lock.withLock {
@@ -165,6 +185,13 @@ class ArticleExaminationCoordinator @Inject constructor(
             }
             val policy = policyHash(features, profile, currentTools())
             val acceptedRoot = acceptedCombined?.let { "|combined:${it.rootBudgetId}:${it.workItemId.orEmpty()}" }.orEmpty()
+            if (request.origin != ExaminationOrigin.USER_EXAMINE) {
+                val changed = archive.dao.jobsForWork(request.workId).any { prior ->
+                    val saved = runCatching { Json.decodeFromString<ExaminationCheckpoint>(prior.checkpointJson) }.getOrNull()
+                    prior.origin == request.origin && prior.chatId == request.chatId && prior.authority == request.authority && prior.requestedVersionId == source.versionId && saved?.rootWorkId == request.rootWorkId && saved?.combined == acceptedCombined && prior.policyHash != policy
+                }
+                check(!changed) { "Accepted examination policy changed; use explicit Examine / Resume to reauthorize the destination and readers" }
+            }
             val baseKey = researchHash("${request.workId}|${source.versionId}|${request.authority}|${request.chatId}|${profile.uid}|$policy|${request.origin}$acceptedRoot")
             val running = archive.dao.allJobs().firstOrNull {
                 it.workId == request.workId &&
@@ -194,7 +221,7 @@ class ArticleExaminationCoordinator @Inject constructor(
                     combined = acceptedCombined
                 )
             )
-            val record = ExaminationJob(old?.jobId ?: UUID.randomUUID().toString(), dedup, request.workId, source.versionId, request.origin, request.chatId, profile.uid, request.authority, policy, ExaminationStage.RESOLVING, checkpoint, updatedAt = System.currentTimeMillis(), lease = (old?.lease ?: 0) + 1)
+            val record = ExaminationJob(old?.jobId ?: UUID.randomUUID().toString(), dedup, request.workId, source.versionId, request.origin, request.chatId, profile.uid, request.authority, policy, ExaminationStage.QUEUED, checkpoint, updatedAt = System.currentTimeMillis(), lease = (old?.lease ?: 0) + 1, queuedAt = System.currentTimeMillis(), workerId = UUID.randomUUID().toString())
             archive.database.withTransaction {
                 check(archive.dao.deleted("chat:${request.chatId}") == null)
                 if (request.origin == ExaminationOrigin.USER_EXAMINE) archive.dao.removeTombstone("archive:${request.workId}")
@@ -203,40 +230,66 @@ class ArticleExaminationCoordinator @Inject constructor(
                 archive.dao.archive(request.workId, source.versionId, archive.dao.membership(request.workId)?.primaryTopicId ?: ResearchArchiveIngestor.DEFAULT_TOPIC, System.currentTimeMillis(), epoch)
                 val held = requireNotNull(archive.dao.membership(request.workId))
                 archive.dao.membership(held.copy(holdUntil = System.currentTimeMillis() + 24 * 60 * 60_000L))
-                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ResearchExamine", "ENQUEUED · actionId=${record.jobId} · jobId=${record.jobId} · workId=${record.workId} · versionId=${source.versionId} · chatId=${record.chatId} · examiner=${profile.uid}")
                 archive.dao.job(record)
+                archive.dao.transition(ExaminationTransition(0, record.jobId, record.lease, ExaminationStage.QUEUED, record.queuedAt, record.workerId, null, null))
                 archive.dao.root(BodyReference("job", record.jobId, source.versionId))
             }
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ResearchExamine", "ENQUEUED · actionId=${record.jobId} · jobId=${record.jobId} · workId=${record.workId} · versionId=${source.versionId} · chatId=${record.chatId} · examiner=${profile.uid}")
             val savedCombined = Json.decodeFromString<ExaminationCheckpoint>(checkpoint).combined
             check(savedCombined == acceptedCombined) { "An examination cannot move to another accepted Combined turn." }
             val task = scope.launch(context = savedCombined?.forRole(dev.chungjungsoo.gptmobile.data.agent.CombinedRunRole.RESEARCH, profile.uid, savedCombined.workItemId)?.let { dev.chungjungsoo.gptmobile.data.agent.CombinedRunScope(it) } ?: kotlin.coroutines.EmptyCoroutineContext, start = CoroutineStart.LAZY) {
-                permits.acquire()
+                var acquired = false
                 try {
+                    withTimeout(ExaminationLifecycle.phaseMillis(ExaminationStage.QUEUED)) { permits.acquire() }
+                    acquired = true
                     execute(record, request, profile, currentTools)
+                } catch (cancelled: CancellationException) {
+                    withContext(NonCancellable) {
+                        if (!acquired) archive.dao.advanceJob(record.jobId, record.lease, ExaminationStage.PAUSED, checkpoint, "QUEUE_INTERRUPTED: execution never started; saved progress retained", System.currentTimeMillis(), if (cancelled is TimeoutCancellationException) "QUEUE_DEADLINE" else "PARENT_CANCELLED")
+                    }
+                    throw cancelled
                 } finally {
-                    permits.release()
+                    if (acquired) permits.release()
                 }
             }
+            watchLeases[record.jobId] = WatchLease(record.lease, System.nanoTime() + ExaminationLifecycle.phaseMillis(ExaminationStage.QUEUED) * 1_000_000)
             active[record.jobId] = task
-            task.invokeOnCompletion { active.remove(record.jobId, task) }
+            task.invokeOnCompletion { cause ->
+                active.remove(record.jobId, task)
+                watchLeases.computeIfPresent(record.jobId) { _, watch -> watch.takeUnless { it.lease == record.lease } }
+                if (cause is CancellationException) {
+                    scope.launch {
+                        val live = archive.dao.job(record.jobId)
+                        if (live?.lease == record.lease && live.stage == ExaminationStage.QUEUED) archive.dao.advanceJob(record.jobId, record.lease, ExaminationStage.PAUSED, live.checkpointJson, "QUEUE_INTERRUPTED: execution never started", System.currentTimeMillis())
+                    }
+                }
+            }
             savedCombined?.let { requireNotNull(combinedBudgets ?: dev.chungjungsoo.gptmobile.data.agent.CombinedTurnBudgetStore.installedOrNull()) { "Combined accounting is unavailable" }.open(it).registerChild(task) }
             task.start()
             record.jobId
         }
     }
+    suspend fun awaitExecution(id: String): ExaminationStage? {
+        val lease = archive.dao.job(id)?.lease ?: return null
+        return archive.dao.observeJob(id).first { it == null || it.lease != lease || it.stage !in ExaminationLifecycle.active }?.stage
+    }
     suspend fun cancel(id: String) {
-        val old = archive.dao.job(id) ?: return
-        archive.database.withTransaction {
-            archive.dao.job(old.copy(stage = ExaminationStage.CANCELED, lease = old.lease + 1, terminalReason = "Stopped by user", updatedAt = System.currentTimeMillis()))
-            archive.dao.removeRoots("job", id)
+        lock.withLock {
+            val old = archive.dao.job(id) ?: return@withLock
+            val changed = archive.database.withTransaction {
+                val changed = archive.dao.interruptJob(id, old.lease, ExaminationStage.CANCELED, "Stopped by user", "USER_STOP", System.currentTimeMillis())
+                if (changed == 1) archive.dao.removeRoots("job", id)
+                changed
+            }
+            if (changed == 1) active[id]?.cancel(CancellationException("User stopped examination"))
         }
-        active[id]?.cancel(CancellationException("User stopped examination"))
     }
     suspend fun pause(id: String) {
-        val old = archive.dao.job(id) ?: return
-        if (old.stage in COMPLETE && Json.decodeFromString<ExaminationCheckpoint>(old.checkpointJson).pendingReviews.isNotEmpty()) return
-        archive.dao.job(old.copy(stage = ExaminationStage.PAUSED, lease = old.lease + 1, terminalReason = "Paused; completed evidence retained", updatedAt = System.currentTimeMillis()))
-        active[id]?.cancel(CancellationException("Examination paused"))
+        lock.withLock {
+            val old = archive.dao.job(id) ?: return@withLock
+            val changed = archive.dao.interruptJob(id, old.lease, ExaminationStage.PAUSED, "Paused; completed evidence retained", "USER_PAUSE", System.currentTimeMillis())
+            if (changed == 1) active[id]?.cancel(CancellationException("Examination paused"))
+        }
     }
     private suspend fun execute(record: ExaminationJob, request: ExaminationRequest, profile: PlatformV2, currentTools: () -> ChatMcpToolConfig) {
         var checkpoint = runCatching { Json.decodeFromString<ExaminationCheckpoint>(record.checkpointJson) }.getOrDefault(ExaminationCheckpoint())
@@ -250,38 +303,56 @@ class ArticleExaminationCoordinator @Inject constructor(
             val features = settings.getFeatureSettings()
             val profiles = settings.fetchPlatformV2s()
             val current = profiles.firstOrNull { it.uid == profile.uid }
-            if (activeReviewer?.let { reviewer -> profiles.firstOrNull { it.uid == reviewer.uid } != reviewer } == true) return false
-            if (current != profile || examinationAdmission(features, profile, request, currentTools()) != null || policyHash(features, profile, currentTools()) != record.policyHash) return false
+            if (activeReviewer?.let { reviewer -> profiles.firstOrNull { it.uid == reviewer.uid }?.let { !dev.chungjungsoo.gptmobile.data.agent.sameRecoveryDestination(reviewer, it) } != false } == true) return false
+            if (current == null || !dev.chungjungsoo.gptmobile.data.agent.sameRecoveryDestination(profile, current) || examinationAdmission(features, profile, request, currentTools()) != null || policyHash(features, profile, currentTools()) != record.policyHash) return false
             if (!features.researchFeature.backgroundExamination && !withContext(Dispatchers.Main) { ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) }) return false
             return request.chatId == 0 || chats.chatRoomDao().getChatRoomsByIds(listOf(request.chatId)).singleOrNull()?.isTemporary == false
         }
+        val phaseClock = java.util.concurrent.atomic.AtomicReference(System.nanoTime() to ExaminationLifecycle.phaseMillis(ExaminationStage.RESOLVING))
         suspend fun stage(value: ExaminationStage, reason: String? = null) {
-            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ResearchExamine", "STAGE · jobId=${record.jobId} · workId=${record.workId} · chatId=${record.chatId} · stage=$value")
             check(archive.dao.advanceJob(record.jobId, record.lease, value, Json.encodeToString(checkpoint), reason, System.currentTimeMillis()) == 1) { "Examination ownership changed" }
+            phaseClock.set(System.nanoTime() to ExaminationLifecycle.phaseMillis(value))
+            if (value in ExaminationLifecycle.active) watchLeases[record.jobId] = WatchLease(record.lease, System.nanoTime() + ExaminationLifecycle.phaseMillis(value) * 1_000_000) else watchLeases.remove(record.jobId)
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ResearchExamine", "STAGE_COMMITTED · jobId=${record.jobId} · workId=${record.workId} · chatId=${record.chatId} · lease=${record.lease} · stage=$value")
         }
         try {
-            withTimeout(15 * 60_000L) {
+            withTimeout(ExaminationLifecycle.ATTEMPT_MS) {
                 coroutineScope {
                     val owner = coroutineContext[Job]!!
                     val monitor = launch {
+                        var heartbeatNanos = System.nanoTime()
                         while (isActive) {
                             delay(750)
+                            val nowNanos = System.nanoTime()
+                            val (phaseStartedNanos, phaseLimitMillis) = phaseClock.get()
+                            if (phaseLimitMillis > 0 && (nowNanos - phaseStartedNanos) / 1_000_000 >= phaseLimitMillis) {
+                                owner.cancel(ExaminationInterrupted("PHASE_DEADLINE", "Examination phase deadline reached; saved progress retained"))
+                                break
+                            }
+                            if ((nowNanos - heartbeatNanos) / 1_000_000 >= ExaminationLifecycle.HEARTBEAT_MS) {
+                                if (archive.dao.heartbeat(record.jobId, record.lease, requireNotNull(record.workerId), System.currentTimeMillis()) != 1) {
+                                    owner.cancel(ExaminationInterrupted("OWNERSHIP_CHANGED", "Examination ownership changed"))
+                                    break
+                                }
+                                heartbeatNanos = nowNanos
+                            }
                             if (!allowed()) {
-                                owner.cancel(CancellationException("Permission, foreground state or profile changed"))
+                                owner.cancel(ExaminationInterrupted("POLICY_CHANGED", "Permission, foreground state, budget or profile changed"))
                                 break
                             }
                         }
                     }
                     try {
+                        stage(ExaminationStage.RESOLVING)
                         check(allowed()) { "Examination permission changed" }
                         val features = settings.getFeatureSettings()
                         val reviewPolicy = dev.chungjungsoo.gptmobile.data.delegation.DelegationPolicyResolver.suppressForCombined(features.delegationFor(profile.uid).normalized(), combined)
                         val reviewer = ResearchProfileResolver.dedicatedReviewer(features, settings.fetchPlatformV2s(), profile) ?: resolveReviewer(reviewPolicy, settings.fetchPlatformV2s(), profile)
                         val options = features.delegationFor(profile.uid).deepResearch
                         val selection = features.conversationResearch[request.chatId] ?: currentTools().research ?: MultiSearchResearchSelection()
-                        var version = checkpoint.versionId?.let { archive.dao.version(it) }
+                        var version = (checkpoint.versionId ?: record.requestedVersionId)?.let { archive.dao.version(it) }
                         var text = version?.let { archive.text(it, request.authority) }
-                        if (version == null || text == null) {
+                        if (version == null || text.isNullOrBlank() || version.coverage in setOf(ArticleCoverage.METADATA_ONLY, ArticleCoverage.UNAVAILABLE)) {
                             stage(ExaminationStage.READING)
                             val aliases = archive.dao.aliases(record.workId).map { it.alias.substringAfter('|') }
                             val identifier = aliases.firstOrNull { it.startsWith("doi:") || it.startsWith("pmid:") || it.startsWith("pmcid:") || it.startsWith("arxiv:") }
@@ -299,7 +370,16 @@ class ArticleExaminationCoordinator @Inject constructor(
                                     } else {
                                         academic.getPaper(identifier, ::allowed, access, refresh = true) ?: error("Article metadata is unavailable")
                                     }
-                                    val initial = academic.read(paper, ::allowed, access, persistent = false, maxTextCharacters = 240000, targetedCrawl = features.researchFeature.targetedCrawl)
+                                    val initial = try {
+                                        kotlinx.coroutines.withTimeoutOrNull(60_000L) {
+                                            academic.read(paper, ::allowed, access, persistent = false, maxTextCharacters = 240000, targetedCrawl = features.researchFeature.targetedCrawl)
+                                        } ?: dev.chungjungsoo.gptmobile.data.research.academic.AcademicEvidence(paper.paperId, researchHash(""), paper.canonicalUrl, System.currentTimeMillis(), researchHash(""), "", "timeout")
+                                    } catch (cancelled: CancellationException) {
+                                        throw cancelled
+                                    } catch (failure: java.io.IOException) {
+                                        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ResearchExamine", "READER_FAILED · jobId=${record.jobId} · exception=${failure.javaClass.simpleName} · fallback=authorized_reader", "W")
+                                        dev.chungjungsoo.gptmobile.data.research.academic.AcademicEvidence(paper.paperId, researchHash(""), paper.canonicalUrl, System.currentTimeMillis(), researchHash(""), "", "transport_failed")
+                                    }
                                     val evidence = if (initial.retrievalStatus !in setOf("read", "partially_read", "abstract_only", "blocked", "permission_denied")) {
                                         val readers = toolResolver.get().resolve(profile.uid, currentTools(), dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(chatId = request.chatId, content = paper.canonicalUrl, platformType = null))
                                         ResearchReaderRouter.fallback(paper, initial, readers, sessions, researchDomains(options.includeDomains), researchDomains(options.excludeDomains), ::allowed)
@@ -372,7 +452,11 @@ class ArticleExaminationCoordinator @Inject constructor(
                         val captured = requireNotNull(version)
                         val sourceText = requireNotNull(text)
                         val chunks = examinationChunks(sourceText)
-                        checkpoint = checkpoint.copy(chunkCount = chunks.size)
+                        checkpoint = checkpoint.copy(
+                            versionId = captured.versionId,
+                            chunkCount = chunks.size,
+                            sourceValidation = checkpoint.sourceValidation ?: SourceValidationReceipt(versionId = captured.versionId, contentHash = captured.contentHash, retrievedAt = captured.retrievedAt, status = "authorized_saved_body_reused", owner = "archive")
+                        )
                         suspend fun reviewPending() {
                             for (id in checkpoint.pendingAppraisalIds.toList()) {
                                 val appraisal = archive.dao.appraisals(captured.versionId).firstOrNull { it.appraisalId == id } ?: error("Saved appraisal is missing")
@@ -582,10 +666,33 @@ Outcome: ${Json.encodeToString(outcome)}
                 }
             }
         } catch (cancel: CancellationException) {
-            withContext(NonCancellable) { archive.dao.advanceJob(record.jobId, record.lease, ExaminationStage.PAUSED, Json.encodeToString(checkpoint), "Interrupted, paused or permission changed; completed evidence retained", System.currentTimeMillis()) }
+            withContext(NonCancellable) {
+                if (archive.dao.advanceJob(
+                        record.jobId,
+                        record.lease,
+                        ExaminationStage.PAUSED,
+                        Json.encodeToString(checkpoint),
+                        when (cancel) {
+                            is ExaminationInterrupted -> cancel.message ?: "Interrupted; completed evidence retained"
+                            is TimeoutCancellationException -> "Examination attempt deadline reached; completed evidence retained"
+                            else -> "Interrupted; completed evidence retained"
+                        },
+                        System.currentTimeMillis(),
+                        when (cancel) {
+                            is ExaminationInterrupted -> cancel.origin
+                            is TimeoutCancellationException -> "ATTEMPT_DEADLINE"
+                            else -> "PARENT_CANCELLED"
+                        }
+                    ) == 1
+                ) {
+                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ResearchExamine", "STAGE_COMMITTED · jobId=${record.jobId} · lease=${record.lease} · stage=PAUSED")
+                }
+            }
             throw cancel
         } catch (error: Exception) {
-            archive.dao.advanceJob(record.jobId, record.lease, ExaminationStage.FAILED, Json.encodeToString(checkpoint), dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.redact(error.message.orEmpty()).take(400), System.currentTimeMillis())
+            if (archive.dao.advanceJob(record.jobId, record.lease, ExaminationStage.FAILED, Json.encodeToString(checkpoint), dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.redact(error.message.orEmpty()).take(400), System.currentTimeMillis()) == 1) {
+                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ResearchExamine", "STAGE_COMMITTED · jobId=${record.jobId} · lease=${record.lease} · stage=FAILED · exception=${error.javaClass.simpleName}", "W")
+            }
         }
     }
     private fun resolveReviewer(policy: dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings, profiles: List<PlatformV2>, appraiser: PlatformV2): PlatformV2? {
@@ -598,7 +705,7 @@ Outcome: ${Json.encodeToString(outcome)}
     private fun policyHash(features: AppFeatureSettings, profile: PlatformV2, tools: ChatMcpToolConfig): String {
         val policy = features.researchFeature
         // Display, organization and recall changes do not invalidate an admitted examination.
-        return researchHash("study-review-rubric:${ResearchReviewRubric.VERSION}|${policy.appraisalMode}|${policy.targetedCrawl}|${policy.reviewerProfileUid}|" + Json.encodeToString(features.delegationFor(profile.uid)) + Json.encodeToString(tools.copy(research = null)) + Json.encodeToString(profile.copy(token = null, secretRef = null)))
+        return researchHash("destination:${researchHash("${profile.token}:${profile.secretRef}:${profile.providerConnectionUid}")}|study-review-rubric:${ResearchReviewRubric.VERSION}|${policy.appraisalMode}|${policy.targetedCrawl}|${policy.reviewerProfileUid}|" + Json.encodeToString(features.delegationFor(profile.uid)) + Json.encodeToString(tools.copy(research = null, combined = null)) + Json.encodeToString(profile.copy(token = null, secretRef = null, name = "", labels = "", isFavorite = false)))
     }
     companion object {
         private val COMPLETE = setOf(ExaminationStage.COMPLETE_FULL, ExaminationStage.COMPLETE_PARTIAL, ExaminationStage.ABSTRACT_ONLY)
@@ -682,3 +789,5 @@ internal fun namespaceScientificPassages(value: ValidatedScientificAppraisal, re
         judgments = value.judgments.map { judgment -> judgment.copy(passageIds = judgment.passageIds.map { ids.getValue(it) }) }
     )
 }
+
+internal class ExaminationInterrupted(val origin: String, message: String) : CancellationException(message)

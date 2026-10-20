@@ -1,5 +1,7 @@
 #include <jni.h>
 #include "llama.h"
+#include "llama-ext.h"
+#include "ggml-backend.h"
 #include "gguf_chat_template.h"
 #include <atomic>
 #include <chrono>
@@ -68,23 +70,73 @@ extern "C" JNIEXPORT void JNICALL Java_dev_melo_gguf_GgufNative_validateChatTemp
     } catch (const std::exception & e) { fail(env, e.what()); }
 }
 
-extern "C" JNIEXPORT jlong JNICALL Java_dev_melo_gguf_GgufNative_loadConfigured(JNIEnv * env, jclass, jbyteArray path, jint contextTokens, jint threads, jint gpuLayers, jlong operationId, jint promptThreads, jint batchTokens, jint microBatchTokens) {
+namespace {
+struct LoadProgressObserver {
+    JavaVM * vm = nullptr;
+    JNIEnv * owner = nullptr;
+    jobject callback = nullptr;
+    jmethodID method = nullptr;
+    std::mutex mutex;
+    int lastPercent = -1;
+    jlong operation = 0;
+    std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+    LoadProgressObserver(JNIEnv * env, jobject progress, jlong operationId) : owner(env), operation(operationId) {
+        if (!progress) return;
+        env->GetJavaVM(&vm);
+        callback = env->NewGlobalRef(progress);
+        jclass type = env->GetObjectClass(progress);
+        method = env->GetMethodID(type, "onProgress", "(Ljava/lang/String;FJ)V");
+        env->DeleteLocalRef(type);
+        if (!callback || !method) { if (callback) env->DeleteGlobalRef(callback); callback = nullptr; throw std::runtime_error("GGUF load progress callback unavailable"); }
+    }
+    ~LoadProgressObserver() { if (callback) owner->DeleteGlobalRef(callback); }
+    bool emit(const char * phase, float fraction) {
+        if (loadOperation != operation) return false;
+        if (!callback) return !cancelLoad.load();
+        std::lock_guard<std::mutex> lock(mutex);
+        int percent = fraction >= 0 ? static_cast<int>(fraction * 100) : -1;
+        if (fraction >= 0 && percent == lastPercent) return !cancelLoad.load();
+        lastPercent = percent;
+        JNIEnv * env = nullptr;
+        bool attached = vm->GetEnv(reinterpret_cast<void **>(&env), JNI_VERSION_1_6) != JNI_OK;
+#if defined(__ANDROID__)
+        if (attached && vm->AttachCurrentThread(&env, nullptr) != JNI_OK) return false;
+#else
+        if (attached && vm->AttachCurrentThread(reinterpret_cast<void **>(&env), nullptr) != JNI_OK) return false;
+#endif
+        jstring name = env->NewStringUTF(phase);
+        const jlong ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
+        if (name) env->CallVoidMethod(callback, method, name, fraction, ms);
+        if (name) env->DeleteLocalRef(name);
+        bool failed = env->ExceptionCheck();
+        if (failed) env->ExceptionClear();
+        if (attached) vm->DetachCurrentThread();
+        return !failed && !cancelLoad.load();
+    }
+};
+}
+
+extern "C" JNIEXPORT jlong JNICALL Java_dev_melo_gguf_GgufNative_loadConfiguredProgress(JNIEnv * env, jclass, jbyteArray path, jint contextTokens, jint threads, jint gpuLayers, jlong operationId, jint promptThreads, jint batchTokens, jint microBatchTokens, jobject progress) {
     try {
         if (contextTokens < 128 || contextTokens > 32768 || threads < 1 || threads > 64 || gpuLayers < 0 || gpuLayers > 999) throw std::runtime_error("Unsupported GGUF context, thread, or GPU layer limit");
         if (promptThreads < 1 || promptThreads > 64 || (batchTokens != 64 && batchTokens != 128 && batchTokens != 256) || (microBatchTokens != 64 && microBatchTokens != 128 && microBatchTokens != 256) || microBatchTokens > batchTokens) throw std::runtime_error("Invalid GGUF prompt thread or batch configuration");
         std::call_once(initialized, [] { llama_backend_init(); });
         if (gpuLayers > 0 && !llama_supports_gpu_offload()) throw std::runtime_error("GGUF Vulkan GPU offload is unavailable on this device or build; select CPU");
         if (loadOperation != operationId || cancelLoad) throw std::runtime_error("GGUF load canceled before entry");
+        LoadProgressObserver observer(env, progress, operationId);
+        observer.emit("LOADING_WEIGHTS", 0);
         auto engine = std::make_shared<Engine>();
         auto mp = llama_model_default_params();
         ggml_backend_dev_t cpuOnly[] = {nullptr};
         mp.devices = gpuLayers > 0 ? nullptr : cpuOnly;
         mp.n_gpu_layers = gpuLayers;
-        mp.progress_callback = [](float, void *) { return !cancelLoad.load(); };
+        mp.progress_callback = [](float fraction, void * data) { return static_cast<LoadProgressObserver *>(data)->emit("LOADING_WEIGHTS", fraction); };
+        mp.progress_callback_user_data = &observer;
         const auto filename = bytes(env, path);
         if (filename.find('\0') != std::string::npos) throw std::runtime_error("Invalid model path");
         engine->model = llama_model_load_from_file(filename.c_str(), mp);
         if (!engine->model) throw std::runtime_error("GGUF load failed: unsupported artifact, canceled load, or insufficient resources");
+        observer.emit("PREPARING_TEMPLATE", -1);
         const char * tmpl = llama_model_chat_template(engine->model, nullptr);
         if (!tmpl || !*tmpl) throw std::runtime_error("GGUF has no embedded chat template; import a chat-tuned GGUF export");
         const auto vocab = llama_model_get_vocab(engine->model);
@@ -116,13 +168,36 @@ extern "C" JNIEXPORT jlong JNICALL Java_dev_melo_gguf_GgufNative_loadConfigured(
         cp.no_perf = false;
         cp.abort_callback = aborted;
         cp.abort_callback_data = engine.get();
+        observer.emit("ALLOCATING_CONTEXT", -1);
         engine->context = llama_init_from_model(engine->model, cp);
-        if (!engine->context || cancelLoad) throw std::runtime_error("GGUF context allocation failed or was canceled");
+        if (!engine->context || cancelLoad || loadOperation != operationId) throw std::runtime_error("GGUF context allocation failed or was canceled");
         const jlong handle = nextId.fetch_add(1);
         std::lock_guard<std::mutex> lock(registryMutex);
         engines.emplace(handle, engine);
+        observer.emit("NATIVE_READY", 1);
         return handle;
     } catch (const std::exception & e) { fail(env, e.what()); return 0; }
+}
+
+extern "C" JNIEXPORT jlong JNICALL Java_dev_melo_gguf_GgufNative_loadConfigured(JNIEnv * env, jclass type, jbyteArray path, jint contextTokens, jint threads, jint gpuLayers, jlong operationId, jint promptThreads, jint batchTokens, jint microBatchTokens) {
+    return Java_dev_melo_gguf_GgufNative_loadConfiguredProgress(env, type, path, contextTokens, threads, gpuLayers, operationId, promptThreads, batchTokens, microBatchTokens, nullptr);
+}
+
+extern "C" JNIEXPORT jlongArray JNICALL Java_dev_melo_gguf_GgufNative_allocationObservation(JNIEnv * env, jclass, jlong handle) {
+    try {
+        auto engine = get(handle);
+        std::lock_guard<std::mutex> lock(engine->generation);
+        jlong values[10] = { static_cast<jlong>(llama_n_ctx(engine->context)), static_cast<jlong>(llama_n_batch(engine->context)), static_cast<jlong>(llama_n_ubatch(engine->context)), 0, 0, 0, 0, 0, 0, static_cast<jlong>(llama_model_size(engine->model)) };
+        for (const auto & entry : llama_get_memory_breakdown(engine->context)) {
+            const int offset = ggml_backend_buft_is_host(entry.first) ? 3 : 6;
+            values[offset] += entry.second.model;
+            values[offset + 1] += entry.second.context;
+            values[offset + 2] += entry.second.compute;
+        }
+        jlongArray result = env->NewLongArray(10);
+        if (result) env->SetLongArrayRegion(result, 0, 10, values);
+        return result;
+    } catch (const std::exception & e) { fail(env, e.what()); return nullptr; }
 }
 
 extern "C" JNIEXPORT jlongArray JNICALL Java_dev_melo_gguf_GgufNative_generatePrepared(JNIEnv * env, jclass, jlong handle, jobjectArray roles, jobjectArray contents, jint outputLimit, jint topK, jfloat topP, jfloat temperature, jobject callback, jobject progress, jlong operationId) {

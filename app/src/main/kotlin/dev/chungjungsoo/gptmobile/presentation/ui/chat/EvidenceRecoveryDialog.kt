@@ -18,17 +18,17 @@ internal fun EvidenceRecoveryDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Saved evidence needs permission") },
+        title = { Text("Resume saved work") },
         text = {
             Column {
-                Text("Review the source and destination permissions, then retry. Completed actions remain saved.")
+                Text(block.message)
                 Text("Retry without saved evidence opens a fresh conversation using only your original question. Attachments and previous responses are omitted. Current profile permissions still apply.")
                 if ("REVIEW_ACCESS" in block.allowedActions) TextButton(onClick = onReviewAccess) { Text("Review grants") }
                 if ("START_WITHOUT_SAVED_EVIDENCE" in block.allowedActions) TextButton(onClick = onWithoutEvidence) { Text("Retry without saved evidence") }
             }
         },
         confirmButton = {
-            if ("RETRY_AFTER_AUTHORIZED_REVISION" in block.allowedActions) TextButton(onClick = onRetry) { Text("Retry after granting access") }
+            if ("RETRY_AFTER_AUTHORIZED_REVISION" in block.allowedActions) TextButton(onClick = onRetry) { Text("Recheck and continue") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )

@@ -14,6 +14,7 @@ import kotlinx.serialization.json.Json
 
 @Singleton
 class ResearchArchiveRepository @Inject constructor(val database: ResearchDatabase, private val bodies: ResearchSessionStore, private val chats: dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2? = null) {
+    private val repairStarted = java.util.concurrent.atomic.AtomicBoolean(false)
     private val migrationStarted = java.util.concurrent.atomic.AtomicBoolean(false)
     private val migrationScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
     val dao = database.research()
@@ -31,8 +32,23 @@ class ResearchArchiveRepository @Inject constructor(val database: ResearchDataba
                 }
             }
         }
+        if (repairStarted.compareAndSet(false, true)) {
+            migrationScope.launch {
+                try {
+                    while (repairBatch()) kotlinx.coroutines.yield()
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Research", "Historical source repair paused; cursor and protected studies retained", "W")
+                } finally {
+                    repairStarted.set(false)
+                }
+            }
+        }
         reconcileOutbox()
     }
+    suspend fun repairBatch(): Boolean = ResearchSourceRepair(database, bodies).batch()
+
     suspend fun reconcileOutbox() {
         val rows = dao.pendingOutbox().filter { it.operation == "reconcile" }
         if (rows.isEmpty()) return
@@ -63,10 +79,10 @@ class ResearchArchiveRepository @Inject constructor(val database: ResearchDataba
     }
     suspend fun text(version: ResearchWorkVersion, authority: String): String? {
         require(version.publicSource || version.authority == authority) { "Evidence authority changed" }
-        if (version.coverage == ArticleCoverage.UNAVAILABLE) return null
         val refs = runCatching { Json.decodeFromString<List<String>>(version.bodyChunksJson) }.getOrNull() ?: return null
         val text = bodies.readFeatureBody(refs) ?: return null
-        return text.takeIf { researchHash(it) == version.contentHash }
+        if (researchHash(text) != version.contentHash) return null
+        return text.takeIf { ResearchSourceRepair(database, bodies).classify(version, it).usable }
     }
     suspend fun capture(source: ResearchSource, text: String, authority: String, publicSource: Boolean, chatId: Int, rootId: String, archive: Boolean, epoch: Long, ownerKind: String = "chat", ownerId: String = "$chatId:$rootId"): ResearchWorkVersion =
         bodies.publishFeatureBody(text) { chunks ->
@@ -206,6 +222,9 @@ internal object ResearchArchiveIngestor {
             val captured = ResearchWorkVersion(
                 versionId, workId, contentHash, sourceVersion = source.versionId, sourceUrl = source.accessUrl.ifBlank { source.canonicalUrl }, retrievedAt = source.retrievedAt, validatedAt = source.retrievedAt.takeIf { it > 0 },
                 coverage = when {
+                    !dev.chungjungsoo.gptmobile.data.research.SourceContentValidator.validate(source.passage).usable && source.passage.isNotBlank() -> ArticleCoverage.UNAVAILABLE
+                    source.retrievalQuality == "METADATA" || source.status == "Metadata only" -> ArticleCoverage.METADATA_ONLY
+                    source.host.equals("pubmed.ncbi.nlm.nih.gov", true) -> ArticleCoverage.ABSTRACT_ONLY
                     source.bodyChunks.isNotEmpty() && source.status == "Partially read" -> ArticleCoverage.PARTIAL_TEXT
                     source.bodyChunks.isNotEmpty() && source.readable -> ArticleCoverage.FULL_TEXT_CAPTURED
                     source.retrievalQuality == "ABSTRACT" || source.status == "Abstract" -> ArticleCoverage.ABSTRACT_ONLY

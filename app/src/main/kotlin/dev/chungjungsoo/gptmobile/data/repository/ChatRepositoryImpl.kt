@@ -115,6 +115,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onCompletion
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -350,6 +351,7 @@ class ChatRepositoryImpl(
         runs: List<dev.chungjungsoo.gptmobile.data.database.entity.AgentRunDraft>,
         accepted: dev.chungjungsoo.gptmobile.data.agent.CombinedAcceptedTurn
     ): PersistAgentTurnResult = agentPersistenceDao.regenerateCombinedTurn(userMessage, expectedOwner, runs, accepted)
+    override suspend fun replaceResearchDraft(runId: String, expectedFence: Long, previousDigest: String, text: String): MessageV2? = agentPersistenceDao.replaceResearchDraft(runId, expectedFence, previousDigest, text)
     override suspend fun replaceCombinedAnswer(
         runId: String,
         expectedFence: Long,
@@ -1475,73 +1477,8 @@ class ChatRepositoryImpl(
                 }
                 val exclusions = workspace?.exclusions(effectiveUserMessages.lastOrNull()?.chatId ?: 0) ?: dev.chungjungsoo.gptmobile.data.workspace.ContextExclusions()
                 var recoveryDenied: dev.chungjungsoo.gptmobile.data.agent.RecoveryBlock? = null
-                suspend fun prepareRecoveryContext(allowedTools: List<ResolvedAgentTool>, policy: dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings, sharingEnabled: Boolean) = if (runId.startsWith("combined-synthesis:")) {
-                    null
-                } else {
-                    effectiveUserMessages.lastOrNull()?.takeIf { it.chatId > 0 }?.let { latest ->
-                        val userIds = (if (taskRecovery != null) savedUserTurns.dropWhile { it.id != taskRecovery.sourceMessageId } else effectiveUserMessages.takeLast(1))
-                            .map { it.id }.distinct().filter { it > 0 }
-                        val completedRecoveryRuns = if (taskRecovery != null) agentPersistenceDao.getCompletedRuns(latest.chatId).filter { it.userMessageId in userIds } else emptyList()
-                        val candidateRuns = (agentPersistenceDao.getIncompleteRuns(latest.chatId, userIds) + completedRecoveryRuns)
-                            .filter { it.runId != runId }.distinctBy { it.runId }.sortedBy { it.createdAt }
-                        val allowed = allowedTools.map { it.realToolName to it.connectionUid }.toSet()
-                        val savedEvents = if (candidateRuns.isEmpty()) emptyList() else agentPersistenceDao.getToolEvents(candidateRuns.map { it.runId })
-                        val deniedRuns = savedEvents.filter { event ->
-                            (event.toolName to event.connectionUidSnapshot) !in allowed &&
-                                event.toolName != "read_recovery_context" ||
-                                dev.chungjungsoo.gptmobile.data.health.HealthConnectTools.isHealthTool(event.toolName)
-                        }.map { it.runId }.toSet()
-                        // A response may contain copied tool data. Withhold the whole response if
-                        // any contributing connection is no longer authorized, including health.
-                        val runs = candidateRuns.filter { it.runId !in deniedRuns }
-                        val events = savedEvents.filter { it.runId !in deniedRuns && (it.toolName to it.connectionUidSnapshot) in allowed }
-                        researchSessions?.loadChat(latest.chatId)
-                        val authorityTools = dev.chungjungsoo.gptmobile.data.agent.tool.aggregateWebSearch(allowedTools, true, true).filterNot { it.realToolName in setOf("delegate_to_model", "read_recovery_context") }
-                        val authority = dev.chungjungsoo.gptmobile.data.research.researchHash(policy.deepResearch.collectionPolicyKey() + authorityTools.map { it.selectionId() }.sorted().joinToString())
-                        val scope = if (sharingEnabled && authorityTools.all { it.connectionUid == null }) authority else "$authority:${platform.uid}"
-                        val root = dev.chungjungsoo.gptmobile.data.agent.rootWorkId(savedUserTurns, runId)
-                        val retainedResearch = researchSessions?.sessions?.value?.values.orEmpty().filter {
-                            it.chatId == latest.chatId && it.turnId == root && it.authority == scope && it.runId !in deniedRuns
-                        }.map { it.snapshot }
-                        if (runs.isEmpty() && retainedResearch.isEmpty()) {
-                            null
-                        } else {
-                            val recoveryProfile = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == platform.uid }
-                            val recoveryRoom = agentPersistenceDao.getChatRoom(latest.chatId)
-                            val recoveryContext = dev.chungjungsoo.gptmobile.data.agent.ResponseRecoveryContext(
-                                runs,
-                                agentPersistenceDao.getMessages(latest.chatId),
-                                events,
-                                retainedResearch,
-                                rootWorkId = root.takeIf { taskRecovery != null },
-                                blockedRootWorkId = root,
-                                generationId = runId,
-                                destinationIdentity = dev.chungjungsoo.gptmobile.data.agent.recoveryDestinationIdentity(platform),
-                                policyRevision = dispatchAuthority.revision,
-                                lastAction = taskRecovery?.action?.name ?: "CONTINUE_RUN",
-                                authorization = {
-                                    val currentProfile = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == platform.uid }
-                                    val currentRoom = agentPersistenceDao.getChatRoom(latest.chatId)
-                                    recoveryProfile != null &&
-                                        currentProfile != null &&
-                                        dev.chungjungsoo.gptmobile.data.agent.sameRecoveryDestination(recoveryProfile, currentProfile) &&
-                                        currentProfile.enabled &&
-                                        recoveryRoom != null &&
-                                        currentRoom != null &&
-                                        currentRoom.isTemporary == recoveryRoom.isTemporary &&
-                                        platform.uid in currentRoom.activePlatform &&
-                                        allowedTools.all { it.canReuseResult?.invoke() != false }
-                                }
-                            )
-                            if (recoveryContext.isAuthorized()) {
-                                recoveryContext
-                            } else {
-                                recoveryDenied = recoveryContext.blocked()
-                                null
-                            }
-                        }
-                    }
-                }
+                suspend fun prepareRecoveryContext(allowedTools: List<ResolvedAgentTool>, policy: dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings, sharingEnabled: Boolean) =
+                    dev.chungjungsoo.gptmobile.data.agent.ResearchRecoveryLoader(agentPersistenceDao, settingRepository, researchSessions).load(platform, runId, effectiveUserMessages, savedUserTurns, taskRecovery, allowedTools, policy, sharingEnabled, dispatchAuthority.revision) { recoveryDenied = it }
                 val resumeWriterOnly = taskRecovery?.action == dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.RETRY_FAILED_STAGE && writerFailures.blocked(platform) != null
                 if (resumeWriterOnly) writerFailures.recheck(platform)
                 writerFailures.blocked(platform)?.let { failure ->
@@ -1619,6 +1556,13 @@ class ChatRepositoryImpl(
                 admittedReadOnlyPlan = admittedPolicy.enabled && admittedPolicy.taskPlan.steps.isNotEmpty()
                 val researchChatId = effectiveUserMessages.lastOrNull()?.chatId ?: -1
                 val researchPersistent = researchChatId > 0 && factVault?.scopeForChat(researchChatId)?.isTemporary == false
+                val acceptedTaskText = taskRecovery?.originalRequest ?: savedUserTurns.lastOrNull()?.content.orEmpty()
+                if (acceptedTaskText.isNotBlank()) {
+                    val settingsRevision = dev.chungjungsoo.gptmobile.data.research.researchHash(kotlinx.serialization.json.Json.encodeToString(admittedFeatures) + kotlinx.serialization.json.Json.encodeToString(chatToolConfig ?: ChatMcpToolConfig()))
+                    val authorityRevision = dev.chungjungsoo.gptmobile.data.research.researchHash(admittedProfiles.joinToString { "${it.uid}:${it.compatibleType}:${it.apiUrl}:${it.model}:${it.token}:${it.secretRef}:${it.disableAllTools}:${it.disableRemoteTools}" })
+                    researchSessions?.acceptTask(researchChatId, turnKey, taskRecovery?.sourceMessageId ?: savedUserTurns.lastOrNull()?.id ?: 0, acceptedTaskText, chatToolConfig?.combined?.requested?.participantUids ?: admittedProfiles.filter { it.enabled }.map { it.uid }.ifEmpty { listOf(platform.uid) }, chatToolConfig?.combined?.requested?.preferredOwnerUid, settingsRevision, authorityRevision, researchPersistent)
+                    if (taskRecovery != null) researchSessions?.recordResume(turnKey, resumeDescriptor?.generationId ?: effectiveUserMessages.lastOrNull()?.id.toString(), taskRecovery.action.name, platform.uid, settingsRevision, researchPersistent)
+                }
                 if (taskRecovery != null) researchSessions?.resumeGeneration(researchChatId, turnKey, resumeDescriptor?.generationId ?: effectiveUserMessages.lastOrNull()?.id.toString(), researchPersistent)
                 delegationActivity?.start(runId, researchChatId, dev.chungjungsoo.gptmobile.data.workspace.WorkspaceRepository.digest(kotlinx.serialization.json.Json.encodeToString(admittedPolicy)), platform.uid, researchPersistent)
                 val localDelegation = LocalDelegationCoordinator(
@@ -1760,7 +1704,7 @@ class ChatRepositoryImpl(
                 if (recoveryDenied != null) {
                     AppLogRecorder.record("Recovery", "BLOCKED_PERMISSION · run=$runId · phase=preparation · explicit=${taskRecovery != null}", "W")
                     if (taskRecovery != null) {
-                        emit(ApiState.Error(dev.chungjungsoo.gptmobile.data.agent.RECOVERY_ACCESS_MESSAGE, recoveryBlock = recoveryDenied))
+                        emit(ApiState.Error(recoveryDenied!!.message, recoveryBlock = recoveryDenied))
                         return
                     }
                     // Fresh chat input is independent of the denied saved work. Do not
@@ -2019,7 +1963,8 @@ class ChatRepositoryImpl(
                         emit(ApiState.Notice("Research could not start: $researchBlocked. Open this conversation's Research permissions to resolve it.", persistent = true))
                         AppLogRecorder.record("Research", "ACQUISITION_SKIPPED · reason=$researchBlocked · executionAttempted=false", "W")
                     }
-                    val explicitResearch = !resumeWriterOnly &&
+                    val explicitResearch = !dev.chungjungsoo.gptmobile.data.research.isResearchConversationOnly(researchTask) &&
+                        !resumeWriterOnly &&
                         taskRecovery?.primaryOnly != true &&
                         explicitResearchSelection?.let { selection ->
                             selection.researchToggle &&
@@ -2205,7 +2150,7 @@ class ChatRepositoryImpl(
                                 val availableEvidenceTokens = limits.contextTokens.toLong() - dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.breakdown(preparedTurns, requestPlatform.systemPrompt.orEmpty(), contextPlan.tools).total - (contextPlan.outputTokens ?: 2048) - maxOf(256, limits.contextTokens / 32)
                                 val packetSelection = dev.chungjungsoo.gptmobile.data.research.ResearchAssistanceHandoff.select(research.assistPackets, availableEvidenceTokens)
                                 val includedPackets = packetSelection.included
-                                AppLogRecorder.record("Research", "HANDOFF_SELECTION · included=${includedPackets.size} · deferred=${packetSelection.deferred.size} · deferredSources=${packetSelection.deferred.mapNotNull { it["sourceId"] }.distinct().joinToString()}")
+                                AppLogRecorder.record("Research", "ASSIST_HANDOFF_SELECTION · included=${includedPackets.size} · deferred=${packetSelection.deferred.size} · deferredSources=${packetSelection.deferred.mapNotNull { it["sourceId"] }.distinct().joinToString()}")
                                 includedPackets.forEach { packet ->
                                     appendPreparedEvidence(packet.toString())
                                     preparedAssistEvidence += packet
@@ -2790,6 +2735,10 @@ class ChatRepositoryImpl(
             .filter { it.shareableReadOnly && (it.isWebSearchEngine() || dev.chungjungsoo.gptmobile.data.agent.AgentToolCapability.PAGE_READER in it.tool.definition.capabilities || it.realToolName in setOf("deep_research_read_paper", "research_read_evidence", "read_recovery_context")) && (plan.searchAllowed || !it.isWebSearchEngine()) }
         val calls = minOf(dev.chungjungsoo.gptmobile.data.agent.CombinedPolicyResolver.toolCallLimit(execution, profile.maxToolCalls, tools.maxToolCalls), (request.needs.size * 2).coerceIn(2, 8))
         if (allowed.isEmpty() || calls <= 0) return null
+        if (allowed.none { dev.chungjungsoo.gptmobile.data.research.ReaderCapabilityRegistry.readsUrl(it.tool.definition, it.realToolName) || it.realToolName in setOf("deep_research_read_paper", "research_read_evidence", "read_recovery_context") }) {
+            AppLogRecorder.record("Combined", "VERIFICATION_BLOCKED · workId=$workId · reason=READER_NOT_CONFIGURED · dispatched=false", "W")
+            return null
+        }
         val prompt = kotlinx.serialization.json.Json.encodeToString(request)
         val budget = combinedBudgets.open(execution)
         val reason = if (request.needs.any { it.claimId == "current-article" }) "EXPLICIT_SOURCE_REQUIREMENT" else "MATERIAL_CONTRADICTION"
@@ -3096,13 +3045,13 @@ class ChatRepositoryImpl(
                 packet = {
                     val current = researchSessions?.sessions?.value?.get(runId)?.takeIf { it.chatId == latestUser?.chatId }
                     val snapshot = current?.snapshot ?: recoveredResearch()
-                    (snapshot ?: if (chatToolConfig?.research?.researchToggle == true) dev.chungjungsoo.gptmobile.data.research.ResearchSnapshot(latestUser?.content.orEmpty(), phase = "No acquisition evidence retained") else null)?.let {
+                    (snapshot?.takeUnless { it.phase == "Not needed" } ?: if (chatToolConfig?.research?.researchToggle == true && !dev.chungjungsoo.gptmobile.data.research.isResearchConversationOnly(latestUser?.content.orEmpty())) dev.chungjungsoo.gptmobile.data.research.ResearchSnapshot(latestUser?.content.orEmpty(), phase = "No acquisition evidence retained") else null)?.let {
                         val detail = if (chatToolConfig?.combined?.role == dev.chungjungsoo.gptmobile.data.agent.CombinedRunRole.CONTRIBUTOR) dev.chungjungsoo.gptmobile.data.model.ResearchReportDetail.BRIEF else delegationSettings.deepResearch.reportDetail
                         val available = dev.chungjungsoo.gptmobile.data.context.ReplayAllowance.tokens(limits.contextTokens, contextPlan.promptTokens, resolvedOutputCap ?: 4096, 4000)
                         dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryPacket.build(it, detail, minOf(detail.packetTokens, available.coerceAtLeast(512)), if (current != null) researchSessions?.deliveryStudyFields(runId).orEmpty() else emptyMap())
                     }
                 },
-                expectResearch = chatToolConfig?.research?.researchToggle == true,
+                expectResearch = chatToolConfig?.research?.researchToggle == true && !dev.chungjungsoo.gptmobile.data.research.isResearchConversationOnly(latestUser?.content.orEmpty()),
                 loadSections = { digest ->
                     dispatchAuthority.validate()
                     researchSessions?.reportSections(latestUser?.chatId ?: 0, "$turnKey:${platform.uid}:$kind", digest).orEmpty()
@@ -3110,6 +3059,12 @@ class ChatRepositoryImpl(
                 saveSection = { digest, heading, body ->
                     dispatchAuthority.validate()
                     researchSessions?.saveReportSection(latestUser?.chatId ?: 0, "$turnKey:${platform.uid}:$kind", digest, heading, body)
+                },
+                replaceDraft = { digest, text ->
+                    dispatchAuthority.validate()
+                    val handoff = ApiState.ResearchReplacement(digest, text)
+                    send(handoff)
+                    handoff.acknowledgement.await()
                 },
                 create = ::deliveryRaw
             )
@@ -3352,8 +3307,15 @@ class ChatRepositoryImpl(
                 }
                 return object : AgentProviderSession by repaired {
                     override fun streamRound(tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition>, exchanges: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange>): Flow<ProviderEvent> =
-                        repaired.streamRound(tools, exchanges).onCompletion { cause ->
-                            if (cause == null && repairContext != null) combinedBudgets.open(repairContext).completeWork(workId)
+                        repaired.streamRound(tools, exchanges).let { stream ->
+                            var completed = false
+                            var failed = false
+                            stream.onEach { event ->
+                                if (event is ProviderEvent.Failed) failed = true
+                                if (event == ProviderEvent.Completed) completed = true
+                            }.onCompletion { cause ->
+                                if (cause == null && completed && !failed && repairContext != null) combinedBudgets.open(repairContext).completeWork(workId)
+                            }
                         }
                 }
             }

@@ -189,6 +189,19 @@ class CombinedTurnBudgetTest {
         assertEquals("COMPLETED", budget.snapshot().terminalOutcome)
     }
 
+    @Test fun laterRequiredRepairUsesCompiledSafetyAllowanceWithoutOptionalFunding() = runBlocking {
+        val context = context(final = CombinedResourceQuota(10, 10))
+        val budget = CombinedTurnBudgetStore.inMemory().open(context)
+        val final = context.forRole(CombinedRunRole.SYNTHESIS)
+        assertTrue(budget.reserve(final, "first", CombinedResourceQuota(10, 10)) is CombinedBudgetAdmission.Granted)
+        val id = "required-repair"
+        budget.authorizeRequiredWork(CombinedWorkItem(id, CombinedRunRole.REPAIR), CombinedResourceQuota(1000, 100), "REQUIRED_COVERAGE_GAP")
+        val repair = context.forRole(CombinedRunRole.REPAIR, "a", id)
+        val result = budget.reserve(repair, "actual-compiled", CombinedResourceQuota(1250, 100))
+        assertTrue(result is CombinedBudgetAdmission.Granted)
+        assertEquals(CombinedBudgetPool.FINALIZATION, (result as CombinedBudgetAdmission.Granted).reservation.pool)
+    }
+
     private fun context(
         hard: CombinedHardLimits = CombinedHardLimits(),
         optionalTools: Long = 100,

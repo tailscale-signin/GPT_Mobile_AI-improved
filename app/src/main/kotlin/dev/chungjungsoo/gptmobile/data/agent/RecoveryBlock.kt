@@ -27,13 +27,13 @@ data class RecoveryBlock(
 
 internal fun recoveryDestinationIdentity(profile: PlatformV2): String = researchHash(Json.encodeToString(profile.copy(name = "", labels = "", isFavorite = false)))
 
-internal fun recoveryBlock(root: String, generation: String, destination: String, policy: String, evidence: List<String>, messages: List<MessageV2>, action: String): RecoveryBlock {
+internal fun recoveryBlock(root: String, generation: String, destination: String, policy: String, evidence: List<String>, messages: List<MessageV2>, action: String, code: String = "SOURCE_PERMISSION_REVOKED"): RecoveryBlock {
     val ids = evidence.distinct().sorted()
     val revision = researchHash(ids.joinToString("\n"))
-    val fingerprint = researchHash("SOURCE_PERMISSION_REVOKED|saved_evidence_dispatch|$root|$destination|$policy|$revision")
+    val fingerprint = researchHash("$code|saved_evidence_dispatch|$root|$destination|$policy|$revision")
     val previous = messages.flatMap { message -> message.timeline + message.revisions.flatMap { it.timeline } }.mapNotNull { it.recoveryBlock }.filter { it.fingerprint == fingerprint }
     previous.firstOrNull { it.generationId == generation }?.let { return it }
-    return RecoveryBlock(rootWorkId = root, generationId = generation, destinationIdentity = destination, policyRevision = policy, evidenceRevision = revision, affectedEvidenceIds = ids, fingerprint = fingerprint, attemptCount = (previous.maxOfOrNull { it.attemptCount } ?: 0).coerceAtMost(Int.MAX_VALUE - 1) + 1, lastAction = action)
+    return RecoveryBlock(code = code, rootWorkId = root, generationId = generation, destinationIdentity = destination, policyRevision = policy, evidenceRevision = revision, affectedEvidenceIds = ids, fingerprint = fingerprint, attemptCount = (previous.maxOfOrNull { it.attemptCount } ?: 0).coerceAtMost(Int.MAX_VALUE - 1) + 1, lastAction = action)
 }
 
 /** Expected physical-boundary denial; adapters terminate the round without invoking native/provider work. */

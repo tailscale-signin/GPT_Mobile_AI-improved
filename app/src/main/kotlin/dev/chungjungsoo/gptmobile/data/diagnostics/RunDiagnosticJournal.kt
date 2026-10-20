@@ -73,12 +73,15 @@ data class RunDiagnosticEvent(
     val outputBoundary: OutputTraceBoundary? = null,
     val outputRepresentation: OutputTextRepresentation? = null,
     val outputFingerprint: OutputFingerprint? = null,
-    val outputPartId: String? = null
+    val outputPartId: String? = null,
+    val localAdmissionReceipt: dev.chungjungsoo.gptmobile.data.localruntime.LocalAdmissionReceipt? = null
 )
+
+const val RUN_EVENT_SCHEMA = 6
 
 @Serializable
 data class RunJournalSnapshot(
-    val eventSchema: Int = 6,
+    val eventSchema: Int = RUN_EVENT_SCHEMA,
     val captureLevel: String = "metadata",
     val events: List<RunDiagnosticEvent>,
     val highWatermarks: Map<String, Long>,
@@ -216,7 +219,8 @@ internal class RunDiagnosticJournal(
         outputBoundary: OutputTraceBoundary? = null,
         outputRepresentation: OutputTextRepresentation? = null,
         outputFingerprint: OutputFingerprint? = null,
-        outputPartId: String? = null
+        outputPartId: String? = null,
+        localAdmissionReceipt: dev.chungjungsoo.gptmobile.data.localruntime.LocalAdmissionReceipt? = null
     ) {
         if (!enabled || privateSession) return
         // Identifiers are internally generated IDs. Reject accidental content at the boundary.
@@ -246,7 +250,7 @@ internal class RunDiagnosticJournal(
             }
             val sequence = prior + 1L
             sequences[runId] = sequence
-            val event = RunDiagnosticEvent(eventId = UUID.randomUUID().toString(), processSession = sessionId, runId = runId, streamId = "$sessionId:$runId", sequence = sequence, capturedAtMillis = now(), monotonicNanos = System.nanoTime(), kind = kind, role = role, invocationId = invocationId, physicalAttempt = physicalAttempt, fence = fence, inputTokens = inputTokens, outputTokens = outputTokens, safetyTokens = safetyTokens, contextTokens = contextTokens, visibleBytes = visibleBytes, reasoningBytes = reasoningBytes, elapsedMillis = elapsedMillis, successful = successful, measured = measured, phase = phase, cacheHits = cacheHits, cacheMisses = cacheMisses, staleCacheReads = staleCacheReads, physicalAttemptId = physicalAttemptId, progressStage = progressStage, progressDeadline = progressDeadline, outputBoundary = outputBoundary, outputRepresentation = outputRepresentation, outputFingerprint = outputFingerprint, outputPartId = outputPartId)
+            val event = RunDiagnosticEvent(eventId = UUID.randomUUID().toString(), processSession = sessionId, runId = runId, streamId = "$sessionId:$runId", sequence = sequence, capturedAtMillis = now(), monotonicNanos = System.nanoTime(), kind = kind, role = role, invocationId = invocationId, physicalAttempt = physicalAttempt, fence = fence, inputTokens = inputTokens, outputTokens = outputTokens, safetyTokens = safetyTokens, contextTokens = contextTokens, visibleBytes = visibleBytes, reasoningBytes = reasoningBytes, elapsedMillis = elapsedMillis, successful = successful, measured = measured, phase = phase, cacheHits = cacheHits, cacheMisses = cacheMisses, staleCacheReads = staleCacheReads, physicalAttemptId = physicalAttemptId, progressStage = progressStage, progressDeadline = progressDeadline, outputBoundary = outputBoundary, outputRepresentation = outputRepresentation, outputFingerprint = outputFingerprint, outputPartId = outputPartId, localAdmissionReceipt = localAdmissionReceipt)
             val critical = kind in criticalKinds
             if (!critical && pending.size >= 480) {
                 dropped.incrementAndGet()

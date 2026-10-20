@@ -473,6 +473,17 @@ class AgentRunCoordinator @Inject constructor(
                 onNotice = { notice, persistent ->
                     _notices.tryEmit(AgentRunNotice(request.chatId, request.runId, notice, persistent))
                 },
+                onResearchReplacement = { digest, text ->
+                    checkpoints.offer(assistantMessage)
+                    checkpoints.drain()
+                    val replaced = withContext(NonCancellable) { chatRepository.replaceResearchDraft(request.runId, assistantMessage.ownershipFence, digest, text) }
+                    checkpoints = newCheckpoints()
+                    if (replaced != null) {
+                        assistantMessage = replaced
+                        _streamMessages.update { it + (replaced.id to replaced) }
+                    }
+                    replaced != null
+                },
                 onCombinedReplacement = { candidate ->
                     checkpoints.offer(assistantMessage)
                     checkpoints.drain()

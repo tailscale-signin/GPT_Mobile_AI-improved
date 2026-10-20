@@ -54,6 +54,19 @@ class LocalRuntimeRouter(
         }
     }
 
+    override fun setLoadProgressObserver(observer: ((GgufNativeProgress) -> Unit)?) {
+        artifactRuntime?.setLoadProgressObserver(
+            if (observer == null) {
+                null
+            } else {
+                { progress ->
+                    _state.value = state.value.copy(lifecycle = "LOADING", loadProgress = progress, allocationObservation = progress.allocationObservation ?: state.value.allocationObservation)
+                    observer(progress)
+                }
+            }
+        )
+    }
+
     override suspend fun loadEngine(requested: LocalEngineSpec) {
         if (isEngineLoaded(requested)) return
         val tuning = featureSettings().localEngineTuning()
@@ -179,7 +192,7 @@ class LocalRuntimeRouter(
         delegatedSpec = delegated
         preferenceAtLoad = preference
         tuningAtLoad = LocalEngineTuning(delegated.cpuThreads, delegated.cacheEnabled, delegated.speculativeDecoding, delegated.nativeMetricsEnabled)
-        _state.value = LocalRuntimeState(backend, runtime.loadedEngineSpec() ?: delegated, fallbackReason, preference)
+        _state.value = LocalRuntimeState(backend, runtime.loadedEngineSpec() ?: delegated, fallbackReason, preference, allocationObservation = runtime.latestAllocationObservation, loadProgress = state.value.loadProgress)
     }
 
     override suspend fun isEngineLoaded(spec: LocalEngineSpec): Boolean {

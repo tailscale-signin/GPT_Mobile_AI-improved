@@ -15,7 +15,7 @@ import kotlinx.serialization.json.Json
 
 @Serializable
 data class ResearchPortableSnapshot(
-    val schemaVersion: Int = 4,
+    val schemaVersion: Int = 5,
     val exportedAt: Long,
     val works: List<ResearchWork>,
     val aliases: List<ResearchAlias>,
@@ -41,7 +41,11 @@ data class ResearchPortableSnapshot(
     val studyReviews: List<ResearchStudyReview> = emptyList(),
     val workStudies: List<WorkStudyRelationship> = emptyList(),
     val reportSections: List<ResearchReportSection> = emptyList(),
-    val saveReceipts: List<ResearchSaveReceipt> = emptyList()
+    val saveReceipts: List<ResearchSaveReceipt> = emptyList(),
+    val acceptedTasks: List<dev.chungjungsoo.gptmobile.data.research.AcceptedResearchTask> = emptyList(),
+    val sourceValidations: List<ResearchSourceValidation> = emptyList(),
+    val identityResolutions: List<ResearchIdentityResolution> = emptyList(),
+    val jobTransitions: List<ExaminationTransition> = emptyList()
 )
 
 /** Portable metadata, not a live WAL copy. The enclosing backup requires encryption. */
@@ -82,7 +86,11 @@ class ResearchBackup @Inject constructor(private val archive: ResearchArchiveRep
                 studyReviews = if (includeAppraisal) dao.allStudyReviews().filter { it.versionId in ids } else emptyList(),
                 workStudies = dao.allWorkStudies().filter { it.workId in workIds },
                 reportSections = if (includeChat) dao.allReportSections().filter { section -> chats.chatRoomDao().getChatRoomsByIds(listOf(section.chatId)).singleOrNull()?.isTemporary == false } else emptyList(),
-                saveReceipts = dao.allSaveReceipts().filter { it.workId in workIds }
+                saveReceipts = dao.allSaveReceipts().filter { it.workId in workIds },
+                sourceValidations = dao.allSourceValidations().filter { it.versionId in ids },
+                identityResolutions = dao.allIdentityResolutions().filter { it.workId in workIds && it.relatedWorkId in workIds },
+                jobTransitions = jobs.flatMap { dao.transitions(it.jobId) },
+                acceptedTasks = if (includeChat) bodies.exportAcceptedTasks((chats.chatRoomDao().getChatRooms() + chats.chatRoomDao().getArchivedChatRooms()).filterNot { it.isTemporary }.map { it.id }.toSet()) else emptyList()
             )
         }
         val refs = rows.versions.flatMap { Json.decodeFromString<List<String>>(it.bodyChunksJson) }.toSet()
@@ -94,11 +102,15 @@ class ResearchBackup @Inject constructor(private val archive: ResearchArchiveRep
     fun validate(file: File, staging: File): ResearchPortableSnapshot {
         require(file.length() in 1..64L * 1024 * 1024)
         val value = Json.decodeFromString<ResearchPortableSnapshot>(file.readText())
-        require(value.schemaVersion in 1..4 && value.exportedAt > 0 && value.works.size <= 50000 && value.versions.size <= 100000 && value.memberships.size <= 50000)
+        require(value.schemaVersion in 1..5 && value.exportedAt > 0 && value.works.size <= 50000 && value.versions.size <= 100000 && value.memberships.size <= 50000)
         require(value.works.map { it.workId }.distinct().size == value.works.size && value.versions.map { it.versionId }.distinct().size == value.versions.size)
         require(value.aliases.map { it.alias }.distinct().size == value.aliases.size)
+        require(value.acceptedTasks.size <= 50000 && value.acceptedTasks.all { it.chatId > 0 && it.taskId == researchHash("task:${it.rootWorkId}") && it.taskText.isNotBlank() && it.participantUids.isNotEmpty() })
         val works = value.works.map { it.workId }.toSet()
         val versions = value.versions.associateBy { it.versionId }
+        require(value.sourceValidations.all { it.versionId in versions && it.bodyHash == versions[it.versionId]?.contentHash && it.validatorRevision > 0 })
+        require(value.identityResolutions.all { it.workId in works && it.relatedWorkId in works })
+        require(value.jobTransitions.all { event -> value.jobs.any { it.jobId == event.jobId } })
         require(value.aliases.all { it.workId in works } && value.roots.all { it.versionId in versions && it.rootKind in setOf("archive", "job", "chat", "citation", "import", "assessment") })
         value.versions.forEach { version ->
             require(version.workId in works && version.versionId == researchHash("${version.workId}|${version.contentHash}|${version.parserVersion}|${version.sourceVersion}"))
@@ -156,7 +168,7 @@ class ResearchBackup @Inject constructor(private val archive: ResearchArchiveRep
         archive.database.withTransaction {
             val dao = archive.dao
             if (dao.allImportReceipts().any { it.importId == snapshotId }) return@withTransaction
-            check(dao.allJobs().none { it.stage in setOf(ExaminationStage.RESOLVING, ExaminationStage.READING, ExaminationStage.EXTRACTING, ExaminationStage.APPRAISING, ExaminationStage.REVIEWING) }) { "Pause article examinations before restoring research" }
+            check(dao.allJobs().none { it.stage in setOf(ExaminationStage.QUEUED, ExaminationStage.RESOLVING, ExaminationStage.READING, ExaminationStage.EXTRACTING, ExaminationStage.APPRAISING, ExaminationStage.REVIEWING) }) { "Pause article examinations before restoring research" }
             value.tombstones.forEach { old ->
                 val readded = old.key.takeIf { it.startsWith("archive:") && it != "archive-clear" }?.removePrefix("archive:")?.let { dao.membership(it) }
                 if (readded != null && readded.lifecycleGeneration > old.epoch) return@forEach
@@ -200,7 +212,7 @@ class ResearchBackup @Inject constructor(private val archive: ResearchArchiveRep
                 value.studyReviews.forEach { dao.studyReview(it.copy(overallScore = null, status = "Restored review · re-examine")) }
                 value.outcomes.forEach { dao.outcome(it.copy(state = if (it.state in setOf("WITHDRAWN", "SUPERSEDED")) it.state else "NEEDS_REVIEW")) }
                 value.jobs.filter { dao.deleted("chat:${it.chatId}") == null && dao.deleted("archive:${it.workId}") == null }.forEach { old ->
-                    if (dao.jobForKey(old.dedupKey) == null) dao.job(old.copy(stage = ExaminationStage.PAUSED, terminalReason = "Restored; reauthorize before resuming", lease = old.lease + 1))
+                    if (dao.jobForKey(old.dedupKey) == null) dao.job(old.copy(stage = ExaminationStage.PAUSED, terminalReason = "Restored; reauthorize before resuming", lease = old.lease + 1, workerId = null, lastHeartbeatAt = 0, deadlineAt = 0, cancellationOrigin = "RESTORE"))
                 }
             }
             if (selection.includes(CompleteBackupSection.CHAT_RESEARCH)) value.bindings.filter { dao.deleted("chat:${it.chatId}") == null && chats.messageDao().rawMessage(it.messageId.toIntOrNull() ?: -1)?.chatId == it.chatId }.forEach { dao.binding(it) }
@@ -235,9 +247,16 @@ class ResearchBackup @Inject constructor(private val archive: ResearchArchiveRep
             value.saveReceipts.forEach { receipt -> if (dao.deleted("chat:${receipt.chatId}") == null) dao.saveReceipt(receipt) }
             if (selection.includes(CompleteBackupSection.CHAT_RESEARCH)) value.reportSections.filter { section -> dao.deleted("chat:${section.chatId}") == null && chats.chatRoomDao().getChatRoomsByIds(listOf(section.chatId)).singleOrNull()?.isTemporary == false }.forEach { dao.reportSection(it) }
             value.receipts.forEach { dao.importReceipt(it) }
+            value.sourceValidations.forEach { dao.sourceValidation(it) }
+            value.identityResolutions.forEach { dao.identityResolution(it) }
+            value.jobTransitions.sortedBy { it.sequence }.forEach { event ->
+                if (dao.job(event.jobId) != null && dao.transitions(event.jobId).none { it.lease == event.lease && it.stage == event.stage && it.at == event.at && it.reason == event.reason }) dao.transition(event.copy(sequence = 0))
+            }
             dao.importReceipt(ResearchImportReceipt(snapshotId, seq.archiveEpoch, System.currentTimeMillis()))
+            dao.repairCursor(ResearchRepairCursor("source-classifier", "", dev.chungjungsoo.gptmobile.data.research.SourceContentValidator.VERSION, System.currentTimeMillis()))
             dao.outbox(ResearchOutbox("archive-gc", "reconcile", System.currentTimeMillis()))
         }
+        if (selection.includes(CompleteBackupSection.CHAT_RESEARCH)) bodies.restoreAcceptedTasks(value.acceptedTasks.filter { chats.chatRoomDao().getChatRoomsByIds(listOf(it.chatId)).singleOrNull()?.isTemporary == false })
     }
     fun exportStatistics(file: File): File {
         file.bufferedWriter().use { archive.database.statistics().writeSnapshot(it) }

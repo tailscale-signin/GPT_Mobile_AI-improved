@@ -21,10 +21,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
-data class AppLogEntry(val time: Long, val level: String, val tag: String, val message: String, val eventId: String = java.util.UUID.randomUUID().toString()) {
+data class AppLogEntry(val time: Long, val level: String, val tag: String, val message: String, val eventId: String = java.util.UUID.randomUUID().toString(), val monotonicNanos: Long = System.nanoTime(), val bootMillis: Long? = runCatching { android.os.SystemClock.elapsedRealtime() }.getOrNull(), val processId: Int = runCatching { Process.myPid() }.getOrDefault(-1)) {
     fun line(): String {
         val lines = message.lines()
-        return "${Instant.ofEpochMilli(time)} $level/$tag: eventId=$eventId · ${lines.first()}" +
+        return "${Instant.ofEpochMilli(time)} $level/$tag: eventId=$eventId · monoNs=$monotonicNanos · bootMs=${bootMillis ?: "unknown"} · processId=$processId · ${lines.first()}" +
             lines.drop(1).mapIndexed { index, line -> "\nparentEventId=$eventId · sequence=${index + 1} · $line" }.joinToString("")
     }
 }
@@ -239,10 +239,10 @@ object AppLogRecorder {
                     output.appendLine(if (structured) structuredDiagnosticLine(line, "android_exit_history") else line)
                 }
                 val seen = mutableSetOf<String>()
+                val incidents = DiagnosticIncidentTracker()
+                var parent: String? = null
+                var sequence = 0
                 snapshot.forEach { (source, bytes) ->
-                    val incidents = DiagnosticIncidentTracker()
-                    var parent: String? = null
-                    var sequence = 0
                     bytes.inputStream().bufferedReader().useLines { lines ->
                         lines.forEachIndexed { index, line ->
                             val root = Regex("^\\S+ [VDIWEF]/[^:]+: ").containsMatchIn(line)
@@ -251,7 +251,8 @@ object AppLogRecorder {
                                 parent = explicit ?: "$source:$index"
                                 sequence = 0
                             } else {
-                                sequence++
+                                Regex("(?:^| · )parentEventId=([a-zA-Z0-9-]+)").find(line)?.groupValues?.get(1)?.let { parent = it }
+                                sequence = Regex("(?:^| · )sequence=([0-9]+)").find(line)?.groupValues?.get(1)?.toIntOrNull() ?: (sequence + 1)
                             }
                             val identity = if (root) parent!! else "${parent ?: source}:$sequence"
                             val incident = incidents.accept(line, identity, parent.takeUnless { root })

@@ -144,7 +144,7 @@ internal class CombinedRecordProtocol(
                     "decision" -> {
                         require(id != "END" && row.keys.all { it in setOf("type", "seq", "id", "claim", "disposition", "reason", "final_quote") }) { "INVALID_DECISION_RECORD" }
                         require(text("claim") in claims && text("disposition") in DISPOSITIONS && text("reason").isNotBlank()) { "INVALID_CLAIM_DECISION" }
-                        row["final_quote"]?.let { text("final_quote") }
+                        row["final_quote"]?.takeUnless { it == kotlinx.serialization.json.JsonNull }?.let { text("final_quote") }
                     }
                     "end" -> require(id == "END" && row.keys == setOf("type", "seq", "id", "lastSeq") && number("lastSeq") == sequence - 1) { "INVALID_END_RECORD" }
                     else -> error("INVALID_DELIVERY_RECORD")

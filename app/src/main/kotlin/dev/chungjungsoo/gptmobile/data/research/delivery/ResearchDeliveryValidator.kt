@@ -30,9 +30,9 @@ internal object ResearchDeliveryValidator {
         for ((index, rawParagraph) in paragraphs.withIndex()) {
             // A Markdown heading need not have a blank line before the following prose.
             // Its title is navigation, never a scientific claim or a supporting citation.
-            val paragraph = rawParagraph.lines().filterNot { it.trimStart().startsWith('#') }.joinToString("\n")
+            val paragraph = rawParagraph.lines().filterNot { Regex("^ {0,3}#{1,6}(?:\\s|$)").containsMatchIn(it) }.joinToString("\n")
             val cited = ResearchReportReferences.cited(paragraph, packet)
-            if (paragraph.lines().all { it.isBlank() || it.trimStart().startsWith('#') }) continue
+            if (paragraph.isBlank()) continue
             val scientific = Regex("(?i)trial|participants|patients|randomi[sz]|significant|associated|improv|reduc|increase|efficacy|adverse|observed|researchers|study|studies").containsMatchIn(paragraph)
             if (scientific && cited.isEmpty() && !Regex("(?i)unknown|unavailable|could not|not established|no verified|not verified").containsMatchIn(paragraph)) {
                 issues += "UNSOURCED_SCIENTIFIC_PARAGRAPH"

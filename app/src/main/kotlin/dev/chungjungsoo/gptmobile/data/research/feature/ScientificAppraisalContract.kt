@@ -79,9 +79,10 @@ internal object ScientificAppraisalContract {
             "$count\\s+$subjects\\s+(?:(?:was|were)\\s+)?(?:included\\s+in\\s+the\\s+)?$label\\b"
         ).any { Regex("(?i)\\b$it").containsMatchIn(quote) }
     }
-    private fun sourceSpelling(value: String?, passages: List<EvidencePassage>): String? {
+    private fun sourceSpelling(value: String?, passages: List<EvidencePassage>, ignoreCase: Boolean = true): String? {
         if (value.isNullOrBlank()) return value
-        val literal = Regex(value.trim().split(Regex("\\s+")).joinToString("\\s+") { Regex.escape(it) }, RegexOption.IGNORE_CASE)
+        if (passages.any { value in it.quote }) return value
+        val literal = Regex(value.trim().split(Regex("\\s+")).joinToString("\\s+") { Regex.escape(it) }, if (ignoreCase) setOf(RegexOption.IGNORE_CASE) else emptySet())
         return passages.firstNotNullOfOrNull { literal.find(it.quote)?.value } ?: value
     }
     fun validate(reply: String, version: ResearchWorkVersion, source: String, retainFieldGaps: Boolean = false): ValidatedScientificAppraisal {
@@ -123,7 +124,8 @@ internal object ScientificAppraisalContract {
             val cited = resolve(requireNotNull(strings(row, "passageIds")))
             // Resolve case/whitespace-only differences to actual source bytes, never a paraphrase.
             val fieldValue = if (retainFieldGaps) sourceSpelling(proposedValue, cited) else proposedValue
-            val unit = if (retainFieldGaps) sourceSpelling(proposedUnit, cited) else proposedUnit
+            // Unit capitalization is meaningful (for example, mM and mm).
+            val unit = if (retainFieldGaps) sourceSpelling(proposedUnit, cited, ignoreCase = false) else proposedUnit
             // Keep strict schema and quote checks. A bad optional field must not discard
             // all the exact passages and other grounded fields in an inspected batch.
             val groundingIssue = if (missing == Missingness.PRESENT) {

@@ -121,6 +121,13 @@ class ResearchDeliveryTest {
         assertTrue(ResearchDeliveryValidator.validate("999 patients improved. [S1]", packet()).issues.contains("NUMERICAL_CLAIM_NOT_IN_CITED_PASSAGE"))
     }
 
+    @Test fun hashPrefixedClaimsAreNotMistakenForMarkdownHeadings() {
+        for (prefix in listOf("#1", "#######")) {
+            val result = ResearchDeliveryValidator.validate("$prefix Patients improved after surgery.", packet())
+            assertTrue(result.issues.contains("UNSOURCED_SCIENTIFIC_PARAGRAPH"))
+        }
+    }
+
     @Test fun publisherAlternativesStayOnTheSameHost() {
         assertEquals("https://www.nature.com/articles/example", dev.chungjungsoo.gptmobile.data.research.academic.academicHtmlAlternative("https://www.nature.com/articles/example_reference.pdf"))
         assertEquals("https://www.mdpi.com/1/2/3", dev.chungjungsoo.gptmobile.data.research.academic.academicHtmlAlternative("https://www.mdpi.com/1/2/3/pdf"))

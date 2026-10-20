@@ -97,6 +97,20 @@ class ScientificAppraisalContractTest {
         assertTrue(retained.passages.isNotEmpty())
     }
 
+    @Test fun formattingRecoveryPreservesExactValuesAndCaseSensitiveUnits() {
+        val text = "Pain improved; pain persisted in some patients. Concentration was 10 mM."
+        val exactVersion = version.copy(contentHash = researchHash(text))
+        val exact = appraisal("pain", text).replace("analyzed_n", "outcome")
+        assertEquals("pain", ScientificAppraisalContract.validate(exact, exactVersion, text, retainFieldGaps = true).fields.single().value)
+        val root = Json.parseToJsonElement(appraisal("10", text).replace("analyzed_n", "effect")) as JsonObject
+        val field = (root["fields"] as JsonArray).single() as JsonObject
+        fun withUnit(unit: String) = JsonObject(root + ("fields" to JsonArray(listOf(JsonObject(field + ("unit" to JsonPrimitive(unit))))))).toString()
+        val mismatched = ScientificAppraisalContract.validate(withUnit("mm"), exactVersion, text, retainFieldGaps = true).fields.single()
+        assertEquals(Missingness.UNAVAILABLE, mismatched.missingness)
+        assertEquals(null, mismatched.unit)
+        assertEquals("mM", ScientificAppraisalContract.validate(withUnit("mM"), exactVersion, text, retainFieldGaps = true).fields.single().unit)
+    }
+
     @Test fun readableTextDoesNotImplyFullArticleExamination() {
         assertFalse(ArticleSectionCoverage(inspected = setOf("methods", "results", "limitations")).complete)
         assertFalse(ArticleSectionCoverage(inspected = setOf("methods"), figuresAvailable = true, supplementsAvailable = true).complete)

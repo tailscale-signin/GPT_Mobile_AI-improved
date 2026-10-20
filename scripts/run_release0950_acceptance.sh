@@ -130,7 +130,7 @@ for test in ('combinedTabStagesBothAxesAndRemovesDelegationCard', 'cancelKeepsCo
     check_instrumentation(folder / 'combined-settings-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.chat.CombinedSettingsInstrumentedTest', test)
 for test in ('oneToFiveItemsAtCompactWidth', 'oneToFiveItemsAtWideWidth', 'oneToFiveItemsAtLargeFontAndRtl', 'homeScreenNamesItsDestinationEnforcesFiveAndAllowsZero'):
     check_instrumentation(folder / 'settings-home-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.setting.SettingsHomeInstrumentedTest', test)
-check_instrumentation(folder / 'navigation-motion-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.navigation.NavigationMotionInstrumentedTest', 'backUsesDirectionalMotionAndCompletesOnThePreviousScreen')
+check_instrumentation(folder / 'navigation-motion-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.navigation.NavigationMotionInstrumentedTest', 'backUsesFadeWithoutScalingAndCompletesOnThePreviousScreen')
 for test in ('shortHoldDoesNotOpenMenuAndOneSecondHoldPreservesAction', 'movingToScrollCancelsTheHold'):
     check_instrumentation(folder / 'bubble-actions-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.chat.BubbleActionMenuInstrumentedTest', test)
 for name in ('picker-light-200-percent.png', 'picker-dark-rtl-200-percent.png', 'glass-off.png', 'glass-40dp.png', 'glass-stacked.png', 'chat-glass-controls.png'):

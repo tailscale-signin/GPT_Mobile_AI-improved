@@ -31,6 +31,7 @@ import androidx.test.filters.SdkSuppress
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.chungjungsoo.gptmobile.presentation.common.GlassBackdropBox
 import dev.chungjungsoo.gptmobile.presentation.common.GlassBackdropHost
+import dev.chungjungsoo.gptmobile.presentation.common.LocalGlassBackdropActive
 import dev.chungjungsoo.gptmobile.presentation.common.LocalOverlayBlur
 import dev.chungjungsoo.gptmobile.presentation.common.LocalOverlayMaterial
 import dev.chungjungsoo.gptmobile.presentation.common.glassBackdropSource
@@ -45,7 +46,7 @@ import org.junit.Test
 class ConversationGlassInstrumentedTest {
     @get:Rule val compose = createComposeRule()
     private var dark by mutableStateOf(false)
-    private var blur by mutableStateOf(true)
+    private var backdropEnabled by mutableStateOf(true)
     private var edgeFades by mutableStateOf(true)
     private var pattern by mutableStateOf(Pattern.RED)
     private var contentVisible by mutableStateOf(true)
@@ -96,16 +97,16 @@ class ConversationGlassInstrumentedTest {
     @Test fun conversationGlassFiltersDetailInBothControls() {
         edgeFades = false
         pattern = Pattern.STRIPES
-        blur = false
+        backdropEnabled = false
         showConversation()
         for (darkTheme in listOf(false, true)) {
             compose.runOnIdle {
                 dark = darkTheme
-                blur = false
+                backdropEnabled = false
             }
             val sharp = samples()
             saveScreenshot("conversation-glass-sharp-${if (darkTheme) "dark" else "light"}.png")
-            compose.runOnIdle { blur = true }
+            compose.runOnIdle { backdropEnabled = true }
             val filtered = samples()
             saveScreenshot("conversation-glass-blur-${if (darkTheme) "dark" else "light"}.png")
             for (tag in sharp.keys) {
@@ -121,7 +122,9 @@ class ConversationGlassInstrumentedTest {
     private fun showConversation() {
         compose.setContent {
             MaterialTheme(colorScheme = if (dark) darkColorScheme() else lightColorScheme()) {
-                CompositionLocalProvider(LocalOverlayMaterial provides "glass", LocalOverlayBlur provides if (blur) "auto" else "off") {
+                // Chat controls must blur even when menu blur is disabled. The sharp
+                // reference below disables only the consumers' backdrop availability.
+                CompositionLocalProvider(LocalOverlayMaterial provides "glass", LocalOverlayBlur provides "off") {
                     GlassBackdropHost {
                         // An unrelated outgoing destination must not contaminate this chat.
                         Canvas(Modifier.fillMaxSize().glassBackdropSource()) { drawRect(Color.Green) }
@@ -148,14 +151,20 @@ class ConversationGlassInstrumentedTest {
                                     }
                                 }
                             }
-                            Box(Modifier.align(Alignment.BottomCenter).padding(bottom = composerHeight + dockInset + 12.dp)) {
-                                ScrollToBottomButton { }
+                            // Keep the source Canvas active in both captures. Switching a
+                            // menu preference cannot disable these forced-glass controls;
+                            // an unavailable consumer backdrop gives an equally tinted,
+                            // genuinely sharp reference without changing production code.
+                            CompositionLocalProvider(LocalGlassBackdropActive provides backdropEnabled) {
+                                Box(Modifier.align(Alignment.BottomCenter).padding(bottom = composerHeight + dockInset + 12.dp)) {
+                                    ScrollToBottomButton { }
+                                }
+                                ChatInputBox(
+                                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = dockInset).onSizeChanged { composerHeight = with(density) { it.height.toDp() } },
+                                    // Leave a blank central patch to measure material, not glyphs.
+                                    inputState = rememberTextFieldState(" ")
+                                )
                             }
-                            ChatInputBox(
-                                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = dockInset).onSizeChanged { composerHeight = with(density) { it.height.toDp() } },
-                                // Leave a blank central patch to measure material, not glyphs.
-                                inputState = rememberTextFieldState(" ")
-                            )
                         }
                     }
                 }

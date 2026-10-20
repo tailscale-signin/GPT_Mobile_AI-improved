@@ -27,10 +27,15 @@ class LocalOutputAllocationTest {
         assertEquals(ReplayAllowance.tokens(32768, 5000, 4096, 4000), ReplayAllowance.tokens(Int.MAX_VALUE, 5000, 4096, 4000))
     }
 
-    @Test fun toolStreamStopsAtTheNinthCallIdentity() {
+    @Test fun toolStreamAcceptsThirtyTwoCallIdentitiesAndRejectsTheThirtyThird() {
         val guard = dev.chungjungsoo.gptmobile.data.agent.ToolStreamGuard()
-        repeat(8) { guard.slot("call$it") }
-        assertThrows(dev.chungjungsoo.gptmobile.data.agent.ToolBatchOversizeException::class.java) { guard.slot("call8") }
+        repeat(32) { guard.slot("call$it") }
+        // Repeated fragments for an admitted call must not consume another slot.
+        guard.slot("call0")
+        val failure = assertThrows(dev.chungjungsoo.gptmobile.data.agent.ToolBatchOversizeException::class.java) { guard.slot("call32") }
+        assertEquals("STREAM_TOOL_SLOTS", failure.threshold)
+        assertEquals(33, failure.observedValue)
+        assertEquals(32, failure.allowedValue)
     }
 
     @Test fun continuationManifestIsBoundedAndKeepsLastCommittedTextAndReader() {

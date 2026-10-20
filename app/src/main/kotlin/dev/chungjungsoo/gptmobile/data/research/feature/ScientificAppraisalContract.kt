@@ -79,8 +79,15 @@ internal object ScientificAppraisalContract {
             "$count\\s+$subjects\\s+(?:(?:was|were)\\s+)?(?:included\\s+in\\s+the\\s+)?$label\\b"
         ).any { Regex("(?i)\\b$it").containsMatchIn(quote) }
     }
-    fun validate(reply: String, version: ResearchWorkVersion, source: String): ValidatedScientificAppraisal {
-        require(reply.toByteArray().size <= 96 * 1024 && researchHash(source) == version.contentHash)
+    private fun sourceSpelling(value: String?, passages: List<EvidencePassage>, ignoreCase: Boolean = true): String? {
+        if (value.isNullOrBlank()) return value
+        if (passages.any { value in it.quote }) return value
+        val literal = Regex(value.trim().split(Regex("\\s+")).joinToString("\\s+") { Regex.escape(it) }, if (ignoreCase) setOf(RegexOption.IGNORE_CASE) else emptySet())
+        return passages.firstNotNullOfOrNull { literal.find(it.quote)?.value } ?: value
+    }
+    fun validate(reply: String, version: ResearchWorkVersion, source: String, retainFieldGaps: Boolean = false): ValidatedScientificAppraisal {
+        val fieldGaps = mutableListOf<String>()
+        require(reply.toByteArray().size <= 96 * 1024 && researchHash(source) == version.contentHash) { "Appraisal source hash changed or output exceeds 96 KiB" }
         val root = Json.parseToJsonElement(reply) as? JsonObject ?: error("Appraisal requires an object")
         require(root.keys.all { it in setOf("schemaVersion", "design", "passages", "fields", "judgments", "limitations") })
         require((root["schemaVersion"] as? JsonPrimitive)?.intOrNull == 1)
@@ -94,7 +101,7 @@ internal object ScientificAppraisalContract {
             val quote = requireNotNull(string(row, "quote"))
             val locator = requireNotNull(string(row, "locator"))
             val start = (row["start"] as? JsonPrimitive)?.intOrNull ?: error("Exact quotation offset required")
-            require(id.matches(Regex("P[0-9]{1,3}")) && quote.length in 1..2000 && locator.length in 1..240 && start >= 0 && start <= source.length - quote.length && source.substring(start, start + quote.length) == quote)
+            require(id.matches(Regex("P[0-9]{1,3}")) && quote.length in 1..2000 && locator.length in 1..240 && start >= 0 && start <= source.length - quote.length && source.substring(start, start + quote.length) == quote) { "Passage $id must have a valid ID, locator and exact source quotation at its UTF-16 offset" }
             EvidencePassage("${version.versionId}:$id", version.versionId, locator, start, start + quote.length, researchHash(quote), quote)
         }
         require(passages.map { it.passageId }.distinct().size == passages.size)
@@ -112,24 +119,47 @@ internal object ScientificAppraisalContract {
             require(name in fieldNames)
             val outcome = string(row, "outcomeKey")?.takeIf { it.length in 1..120 } ?: "overall"
             val missing = Missingness.valueOf(requireNotNull(string(row, "missingness")))
-            val fieldValue = string(row, "value")?.takeIf { it.length <= 2000 }
-            val unit = string(row, "unit")?.takeIf { it.length <= 80 }
+            val proposedValue = string(row, "value")?.takeIf { it.length <= 2000 }
+            val proposedUnit = string(row, "unit")?.takeIf { it.length <= 80 }
             val cited = resolve(requireNotNull(strings(row, "passageIds")))
-            if (missing == Missingness.PRESENT) {
-                require(!fieldValue.isNullOrBlank() && cited.isNotEmpty())
-                // Numeric and lexical values must occur verbatim. Interpretation belongs in judgments.
-                require(cited.any { fieldValue in it.quote }) { "Study value is not extractive" }
-                if (unit != null) require(cited.any { unit in it.quote }) { "Unit not found in source" }
-                if (name in setOf("randomized_n", "analyzed_n", "arm_n")) {
-                    require(fieldValue.replace(",", "").toLongOrNull()?.let { it > 0 } == true)
-                    require(cited.any { reportsSampleCount(it.quote, name, fieldValue) }) { "Sample count is not directly linked to its reported methodological label" }
+            // Resolve case/whitespace-only differences to actual source bytes, never a paraphrase.
+            val fieldValue = if (retainFieldGaps) sourceSpelling(proposedValue, cited) else proposedValue
+            // Unit capitalization is meaningful (for example, mM and mm).
+            val unit = if (retainFieldGaps) sourceSpelling(proposedUnit, cited, ignoreCase = false) else proposedUnit
+            // Keep strict schema and quote checks. A bad optional field must not discard
+            // all the exact passages and other grounded fields in an inspected batch.
+            val groundingIssue = if (missing == Missingness.PRESENT) {
+                when {
+                    fieldValue.isNullOrBlank() || cited.isEmpty() -> "Present field needs a value and source passages"
+                    cited.none { fieldValue in it.quote } -> "Study value is not extractive"
+                    unit != null && cited.none { unit in it.quote } -> "Unit not found in source"
+                    name in setOf("randomized_n", "analyzed_n", "arm_n") &&
+                        (fieldValue.replace(",", "").toLongOrNull()?.let { it > 0 } != true || cited.none { reportsSampleCount(it.quote, name, fieldValue) }) -> "Sample count is not directly linked to its reported methodological label"
+                    else -> null
                 }
+            } else if (fieldValue != null || unit != null) {
+                "Missing data cannot carry an invented value"
             } else {
-                require(fieldValue == null && unit == null) { "Missing data cannot carry an invented value" }
+                null
             }
-            StudyField(researchHash("${version.versionId}|$outcome|$name"), version.versionId, outcome, name, fieldValue, unit, missing, Json.encodeToString(cited.map { it.passageId }), "validated_model_extraction")
+            if (groundingIssue != null) {
+                require(retainFieldGaps) { "$name ($outcome): $groundingIssue" }
+                fieldGaps += "$name ($outcome) unavailable: $groundingIssue; model value discarded"
+            }
+            StudyField(
+                researchHash("${version.versionId}|$outcome|$name"), version.versionId, outcome, name,
+                fieldValue.takeIf { groundingIssue == null }, unit.takeIf { groundingIssue == null },
+                if (groundingIssue == null) missing else Missingness.UNAVAILABLE,
+                Json.encodeToString(cited.map { it.passageId }),
+                if (groundingIssue == null) "validated_model_extraction" else "unverified_model_value_discarded"
+            )
         }
-        require(fields.map { it.fieldId }.distinct().size == fields.size)
+        require(retainFieldGaps || fields.map { it.fieldId }.distinct().size == fields.size) { "Duplicate study field and outcome keys" }
+        val retainedFields = if (retainFieldGaps) {
+            fields.groupBy { it.fieldId }.values.map { duplicates -> duplicates.reduce { previous, next -> mergeScientificField(previous, next) } }
+        } else {
+            fields
+        }
         val rawJudgments = root["judgments"] as? JsonArray ?: error("Judgments missing")
         require(rawJudgments.size <= domains.size)
         val judgments = rawJudgments.map { value ->
@@ -148,7 +178,7 @@ internal object ScientificAppraisalContract {
         val completeJudgments = domains.map { domain -> judgments.firstOrNull { it.domain == domain } ?: AppraisalJudgment(domain, ScientificConcern.UNKNOWN, "Not assessed from available source passages", emptyList(), "Coverage incomplete") }
         val limitations = requireNotNull(strings(root, "limitations"))
         require(limitations.size <= 12 && limitations.all { it.length in 1..1000 })
-        return ValidatedScientificAppraisal(passages, fields, completeJudgments, design, limitations)
+        return ValidatedScientificAppraisal(passages, retainedFields, completeJudgments, design, limitations + fieldGaps)
     }
     fun unknown(versionId: String, reason: String): EvidenceAppraisal = EvidenceAppraisal(researchHash("$versionId|unassessed"), versionId, "overall", 1, "deterministic-baseline-v1", StudyDesign.UNKNOWN, "UNASSESSED", Json.encodeToString(domains.map { AppraisalJudgment(it, ScientificConcern.UNKNOWN, reason.take(1000), emptyList(), "Source coverage insufficient for assessment") }), createdAt = System.currentTimeMillis())
 }

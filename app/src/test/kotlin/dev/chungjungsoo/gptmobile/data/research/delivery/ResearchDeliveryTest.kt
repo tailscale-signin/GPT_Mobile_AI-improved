@@ -109,8 +109,23 @@ class ResearchDeliveryTest {
         assertTrue(ResearchDeliveryPacket.relevance("hydrogen inhalation", "Smoke inhalation trial") == 0)
     }
 
+    @Test fun headingWithoutBlankLineDoesNotContaminateTheFollowingParagraph() {
+        val result = ResearchDeliveryValidator.validate("## Leading studies\nIndependent review is not completed.\n\n## Findings\nPatients improved after surgery.", packet())
+        assertTrue(result.issues.contains("UNSOURCED_SCIENTIFIC_PARAGRAPH"))
+        assertEquals(1, result.repairHints.size)
+        assertTrue(result.repairHints.single().contains("Patients improved"))
+        assertFalse(result.repairHints.single().contains("Leading studies"))
+    }
+
     @Test fun shortNumericalClaimCannotBypassValidation() {
         assertTrue(ResearchDeliveryValidator.validate("999 patients improved. [S1]", packet()).issues.contains("NUMERICAL_CLAIM_NOT_IN_CITED_PASSAGE"))
+    }
+
+    @Test fun hashPrefixedClaimsAreNotMistakenForMarkdownHeadings() {
+        for (prefix in listOf("#1", "#######")) {
+            val result = ResearchDeliveryValidator.validate("$prefix Patients improved after surgery.", packet())
+            assertTrue(result.issues.contains("UNSOURCED_SCIENTIFIC_PARAGRAPH"))
+        }
     }
 
     @Test fun publisherAlternativesStayOnTheSameHost() {

@@ -77,7 +77,7 @@ internal object ConfiguredDispatchAuthority {
             put("assistPolicy", Json.encodeToJsonElement(features.localAssistPolicy))
             put("delegation", Json.encodeToJsonElement(features.delegation))
             put("conversationDelegation", Json.encodeToJsonElement(chatId?.let { features.conversationDelegation[it] }))
-            put("conversationResearch", Json.encodeToJsonElement(chatId?.let { features.conversationResearch[it] }))
+            put("conversationResearch", Json.encodeToJsonElement(chatId?.let { features.conversationResearch[it]?.copy(crawlerProfileUid = null) }))
             put("reasoning", Json.encodeToJsonElement(chatId?.let { features.conversationReasoning[it] }))
             put("llamaReasoning", Json.encodeToJsonElement(features.llamaReasoningModes[uid]))
         }.toString()

@@ -15,10 +15,10 @@ import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -69,14 +69,14 @@ internal fun ResearchProgressCard(sessions: List<ResearchSession>, activeRunIds:
                     Text("Evidence", modifier = Modifier.padding(start = 6.dp))
                 }
                 if (active) {
-                    TextButton(onClick = { activeSessions.forEach { stop(it.runId) } }) {
+                    OutlinedButton(onClick = { activeSessions.forEach { stop(it.runId) } }) {
                         androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Rounded.Stop, contentDescription = null)
                         Text("Summarize", modifier = Modifier.padding(start = 6.dp))
                     }
                 }
                 if (!active && writerFailure != null && onRecovery != null) {
-                    TextButton(onClick = { onRecovery("Retry failed stage") }) { Text("Resume writing") }
-                    TextButton(onClick = { onRecovery("Proceed primary-only") }) { Text("Use primary") }
+                    OutlinedButton(onClick = { onRecovery("Retry failed stage") }) { Text("Resume writing") }
+                    OutlinedButton(onClick = { onRecovery("Proceed primary-only") }) { Text("Use primary") }
                 }
             }
         }
@@ -128,7 +128,7 @@ internal fun ResearchProgressCard(sessions: List<ResearchSession>, activeRunIds:
                                     Text("Exact quote: ${claim.exactQuoteVerified} · ${if (claim.independentReview) "Distinct model passage review" else "Self-review or unverified independence"}", style = MaterialTheme.typography.labelSmall)
                                 }
                                 if (source.passage.isNotBlank()) Text(source.passage.take(1800), style = MaterialTheme.typography.bodySmall)
-                                TextButton(onClick = { runCatching { if (java.net.URI(source.url).scheme?.lowercase() in setOf("http", "https")) uri.openUri(source.url) } }) { Text("Open source") }
+                                OutlinedButton(onClick = { runCatching { if (java.net.URI(source.url).scheme?.lowercase() in setOf("http", "https")) uri.openUri(source.url) } }) { Text("Open source") }
                             }
                         }
                     }

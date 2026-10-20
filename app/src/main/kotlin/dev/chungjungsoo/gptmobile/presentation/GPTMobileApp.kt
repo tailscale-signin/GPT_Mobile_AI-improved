@@ -148,7 +148,7 @@ class GPTMobileApp :
             }
             applicationScope.launch {
                 kotlinx.coroutines.flow.combine(startup.settingRepository().observeFeatureSettings(), startup.settingRepository().observePlatformV2s()) { settings, profiles ->
-                    listOf(settings.researchFeature.copy(articleCards = true, compactCards = true, showWarnings = true, showMethodMetrics = true, automaticOrganization = true, archivePreflight = true, researchMemory = false, shareResearchRecall = false), settings.conversationResearch, settings.delegation, settings.profileBehavior, settings.toolPluginStates, settings.pluginExecution, profiles.map { listOf(it.uid, it.enabled, it.disableAllTools, it.disableRemoteTools, it.model, it.apiUrl) })
+                    dev.chungjungsoo.gptmobile.data.research.work.examinationConfigurationRevision(settings, profiles)
                 }.distinctUntilChanged().collect {
                     dev.chungjungsoo.gptmobile.data.research.work.ResearchExaminationWorker.enqueue(this@GPTMobileApp, reconsider = true)
                 }

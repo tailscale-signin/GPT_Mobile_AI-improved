@@ -2,13 +2,14 @@ package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -28,6 +29,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 internal fun ResearchEngineHealthPanel(disabledEngineIds: Set<String> = emptySet(), onEngineEnabled: ((String, Boolean) -> Unit)? = null) {
     val context = LocalContext.current
@@ -44,7 +46,7 @@ internal fun ResearchEngineHealthPanel(disabledEngineIds: Set<String> = emptySet
     val store = initialized?.getOrNull()
     if (store == null) {
         Text(if (initialized == null) "Loading engine history…" else "Engine history is unavailable. Research settings remain editable.")
-        if (initialized?.isFailure == true) TextButton(onClick = { initializationRetry++ }) { Text("Retry") }
+        if (initialized?.isFailure == true) OutlinedButton(onClick = { initializationRetry++ }) { Text("Retry") }
         return
     }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
@@ -63,7 +65,7 @@ internal fun ResearchEngineHealthPanel(disabledEngineIds: Set<String> = emptySet
             }
         }
     }
-    TextButton(onClick = { export.launch("research-engine-events.json") }) { Text("Export native engine events") }
+    OutlinedButton(onClick = { export.launch("research-engine-events.json") }) { Text("Export native engine events") }
     exportStatus?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
     var since by remember { mutableStateOf(0L) }
     var rollups by remember { mutableStateOf(emptyMap<String, dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchEngineRollup>()) }
@@ -95,13 +97,13 @@ internal fun ResearchEngineHealthPanel(disabledEngineIds: Set<String> = emptySet
     if (loading) Text("Loading engine history…")
     if (error) {
         Text("Engine history is unavailable. Research settings remain editable.")
-        TextButton(onClick = { retry++ }) { Text("Retry") }
+        OutlinedButton(onClick = { retry++ }) { Text("Retry") }
     }
-    Row {
-        TextButton(onClick = { since = 0 }) { Text("Retained history") }
-        TextButton(onClick = { since = System.currentTimeMillis() - 86_400_000 }) { Text("24 hours") }
-        TextButton(onClick = { since = System.currentTimeMillis() - 7 * 86_400_000L }) { Text("7 days") }
-        TextButton(onClick = { since = System.currentTimeMillis() - 30 * 86_400_000L }) { Text("30 days") }
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedButton(onClick = { since = 0 }) { Text("Retained history") }
+        OutlinedButton(onClick = { since = System.currentTimeMillis() - 86_400_000 }) { Text("24 hours") }
+        OutlinedButton(onClick = { since = System.currentTimeMillis() - 7 * 86_400_000L }) { Text("7 days") }
+        OutlinedButton(onClick = { since = System.currentTimeMillis() - 30 * 86_400_000L }) { Text("30 days") }
     }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         ResearchEngineRegistry.entries.filter { it.ready }.forEach { engine ->
@@ -126,12 +128,12 @@ internal fun ResearchEngineHealthPanel(disabledEngineIds: Set<String> = emptySet
                 Text("Useful rate: ${"%.1f".format(health.successPercent)}% · definition v2 · completed useful + empty + failed", style = MaterialTheme.typography.bodySmall)
             }
             latencies[engine.id]?.let { (p50, p95) -> Text("Successful live latency · p50 ${p50?.let { "$it ms" } ?: "Unknown"} · p95 ${p95?.let { "$it ms" } ?: "Unknown"}", style = MaterialTheme.typography.bodySmall) }
-            TextButton(onClick = { selectedEngine = engine.id }) { Text("Recent operation receipts") }
+            OutlinedButton(onClick = { selectedEngine = engine.id }) { Text("Recent operation receipts") }
             Text(engine.limitation, style = MaterialTheme.typography.bodySmall)
         }
         Text("Counts are retained observations, not scientific accuracy. HTTP completion, useful parsed results and article appraisal are separate. Historical events pruned before durable receipts were introduced cannot be reconstructed.", style = MaterialTheme.typography.bodySmall)
-        TextButton(onClick = { confirmClear = true }) { Text("Clear research statistics") }
-        TextButton(onClick = { pending = !pending }) { Text(if (pending) "Hide unimplemented integrations" else "Unavailable integrations (not queued)") }
+        OutlinedButton(onClick = { confirmClear = true }) { Text("Clear research statistics") }
+        OutlinedButton(onClick = { pending = !pending }) { Text(if (pending) "Hide unimplemented integrations" else "Unavailable integrations (not queued)") }
         if (pending) {
             ResearchEngineRegistry.entries.filterNot { it.ready }.forEach { engine ->
                 Text("${engine.name} · ${if (engine.id == "google_scholar") "Browser-assisted" else "Adapter not ready"}", style = MaterialTheme.typography.labelLarge)
@@ -141,7 +143,7 @@ internal fun ResearchEngineHealthPanel(disabledEngineIds: Set<String> = emptySet
     }
     if (confirmClear) {
         androidx.compose.material3.AlertDialog(onDismissRequest = { confirmClear = false }, title = { Text("Clear research statistics?") }, text = { Text("Starts a new measurement epoch. Article evidence is retained; older restored receipts will not reappear in totals.") }, confirmButton = {
-            TextButton(onClick = {
+            OutlinedButton(onClick = {
                 confirmClear = false
                 scope.launch {
                     try {
@@ -152,7 +154,7 @@ internal fun ResearchEngineHealthPanel(disabledEngineIds: Set<String> = emptySet
                     }
                 }
             }) { Text("Clear statistics") }
-        }, dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Cancel") } })
+        }, dismissButton = { OutlinedButton(onClick = { confirmClear = false }) { Text("Cancel") } })
     }
     selectedEngine?.let { engine ->
         androidx.compose.material3.AlertDialog(onDismissRequest = { selectedEngine = null }, title = { Text("$engine · Recent receipts") }, text = {
@@ -162,7 +164,7 @@ internal fun ResearchEngineHealthPanel(disabledEngineIds: Set<String> = emptySet
                     Text("${attempt.operation} · ${attempt.outcome} · ${attempt.durationMs} ms · ${attempt.owner}/${attempt.transportId}${if (attempt.cacheHit) " · cached" else ""}", Modifier.padding(vertical = 6.dp), style = MaterialTheme.typography.bodySmall)
                 }
             }
-        }, confirmButton = { TextButton(onClick = { selectedEngine = null }) { Text("Close") } })
+        }, confirmButton = { OutlinedButton(onClick = { selectedEngine = null }) { Text("Close") } })
     }
 }
 

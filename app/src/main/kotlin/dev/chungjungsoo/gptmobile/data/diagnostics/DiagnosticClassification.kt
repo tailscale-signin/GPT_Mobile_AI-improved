@@ -27,6 +27,12 @@ internal fun classifyDiagnostic(level: String?, tag: String?, message: String): 
         text.startsWith("native_operation_interrupted") -> DiagnosticClassification("native_exit_evidence", if ("exit=low_memory" in text) "warning" else "error", true)
         text.startsWith("android_memory_trim") || text.startsWith("android_low_memory") -> DiagnosticClassification("memory_pressure", if (level == "E") "error" else "warning", true)
         text.startsWith("catalog_canceled") -> DiagnosticClassification("cancellation", "info", false)
+        tag == "Android" &&
+            level == "W" &&
+            "jobinfo" in text &&
+            "requested important-while-foreground flag" in text &&
+            "is ignored and takes no effect" in text ->
+            DiagnosticClassification("platform_job_hint", "info", false)
         "asus_leak_detect_proj" in text -> DiagnosticClassification("platform", "warning", false)
         "inactive inputconnection" in text -> DiagnosticClassification("input_lifecycle", "warning", true)
         "getenv: not attached" in text -> DiagnosticClassification("native_thread_attachment", "info", false)

@@ -23,6 +23,17 @@ class ConfiguredDispatchAuthorityTest {
     }
 
     @Test
+    fun crawlerSelectionDoesNotRevokeWriterButResearchScopeAndDepthStillDo() {
+        val selection = dev.chungjungsoo.gptmobile.data.model.MultiSearchResearchSelection(researchToggle = true, depth = 50, crawlerProfileUid = "old")
+        val initial = AppFeatureSettings(conversationResearch = mapOf(4 to selection))
+        val changedCrawler = initial.copy(conversationResearch = mapOf(4 to selection.copy(crawlerProfileUid = "new")))
+        assertTrue(ConfiguredDispatchAuthority.policyRevision(initial, "writer", 4) == ConfiguredDispatchAuthority.policyRevision(changedCrawler, "writer", 4))
+        for (changed in listOf(selection.copy(depth = 0), selection.copy(scope = dev.chungjungsoo.gptmobile.data.model.ResearchContentScope.WEB_ONLY), selection.copy(researchToggle = false))) {
+            assertFalse(ConfiguredDispatchAuthority.policyRevision(initial, "writer", 4) == ConfiguredDispatchAuthority.policyRevision(initial.copy(conversationResearch = mapOf(4 to changed)), "writer", 4))
+        }
+    }
+
+    @Test
     fun policyCaptureRetriesOnlyPreparationWhenRevisionSettles() = runTest {
         val settings = mockk<SettingRepository>()
         val profile = PlatformV2(uid = "ephemeral", name = "Benchmark")

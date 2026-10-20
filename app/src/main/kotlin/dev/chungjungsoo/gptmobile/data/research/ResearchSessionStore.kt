@@ -368,7 +368,8 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                 }
             }
         }
-        private suspend fun indexCommittedSources(snapshot: ResearchSnapshot) {
+        private suspend fun indexCommittedSources(snapshot: ResearchSnapshot): Boolean {
+            var examinationScheduled = false
             try {
                 featureDatabase?.let { database ->
                     val settings = featureSettings?.getFeatureSettings()
@@ -377,7 +378,8 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                     val eligible = settings?.researchFeature?.enabled == true && settings.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH) && (dao.deleted("archive-clear") ?: 0) < createdAt
                     snapshot.sources.forEach { source ->
                         val receiptId = researchHash("$runId:${source.id}")
-                        val revision = researchHash(source.json().toString())
+                        val needed = snapshot.claims.any { it.sourceId == source.id } || Regex("(?i)sample|participant|randomi[sz]|causal|efficacy|confidence interval|trial|systematic review").containsMatchIn(source.title + " " + source.publicationType + " " + source.passage)
+                        val revision = researchHash(source.json().toString() + "|needed=$needed")
                         if (archivedRevisions[source.id] != revision) {
                             val outbox = dev.chungjungsoo.gptmobile.data.research.feature.ResearchOutbox(
                                 "ingest:$receiptId",
@@ -426,15 +428,28 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                                     )
                                 )
                                 dao.acknowledge(outbox.id, outbox.createdAt)
-                                archivedRevisions[source.id] = revision
                                 if (eligible && acceptedTools != null && (source.paperId.isNotBlank() || source.doi.isNotBlank() || source.pmid.isNotBlank() || source.pmcid.isNotBlank())) {
                                     val selection = settings?.conversationResearch?.get(chatId) ?: acceptedTools.research
                                     val research = selection?.academicEligibleByUi == true
                                     val request = dev.chungjungsoo.gptmobile.data.research.feature.ExaminationRequest(captured.workId, chatId = chatId, versionId = captured.versionId, authority = authority, origin = if (research) dev.chungjungsoo.gptmobile.data.research.feature.ExaminationOrigin.AUTHORIZED_RESEARCH else dev.chungjungsoo.gptmobile.data.research.feature.ExaminationOrigin.AUTOMATIC_CHAT, rootWorkId = turnId, parentRunId = runId)
-                                    val needed = snapshot.claims.any { it.sourceId == source.id } || Regex("(?i)sample|participant|randomi[sz]|causal|efficacy|confidence interval|trial|systematic review").containsMatchIn(source.title + " " + source.publicationType + " " + source.passage)
                                     val scheduled = dev.chungjungsoo.gptmobile.data.research.work.ScheduledExamination(request, acceptedTools, needed)
-                                    dao.outbox(dev.chungjungsoo.gptmobile.data.research.feature.ResearchOutbox("auto-examine:$chatId:${captured.versionId}", Json.encodeToString(scheduled), System.currentTimeMillis()))
+                                    database.withTransaction {
+                                        val examinationId = "auto-examine:$chatId:${captured.versionId}"
+                                        val existing = dao.outboxById(examinationId)
+                                        if (existing == null) {
+                                            dao.outbox(dev.chungjungsoo.gptmobile.data.research.feature.ResearchOutbox(examinationId, Json.encodeToString(scheduled), System.currentTimeMillis()))
+                                            examinationScheduled = true
+                                        } else if (needed) {
+                                            // Progress saves must preserve blocked/paused state and its accepted owner.
+                                            val previous = Json.decodeFromString<dev.chungjungsoo.gptmobile.data.research.work.ScheduledExamination>(existing.operation)
+                                            if (!previous.needed) {
+                                                dao.outbox(existing.copy(operation = Json.encodeToString(previous.copy(needed = true))))
+                                                examinationScheduled = true
+                                            }
+                                        }
+                                    }
                                 }
+                                archivedRevisions[source.id] = revision
                             } catch (cancel: kotlinx.coroutines.CancellationException) {
                                 throw cancel
                             } catch (error: Exception) {
@@ -449,6 +464,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
             } catch (_: Exception) {
                 dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Research", "Archive index update failed; original run evidence remains retained", "W")
             }
+            return examinationScheduled
         }
 
         override suspend fun bindTask(snapshot: ResearchSnapshot): ResearchSnapshot = withContext(Dispatchers.IO) {
@@ -460,6 +476,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
         override suspend fun save(snapshot: ResearchSnapshot) = withContext(Dispatchers.IO) {
             lock.withLock {
                 if (chatId in deletedChats || generation != currentGeneration(chatId, turnId, persistent)) return@withLock
+                val previousSourceCount = mutable.value[runId]?.snapshot?.sources?.size ?: 0
                 val priorPlan = mutable.value[runId]?.takeIf { it.authority == authority }?.snapshot?.delegationPlan ?: if (persistent) read(file(runId))?.takeIf { it.authority == authority }?.snapshot?.delegationPlan else null
                 val inherited = mutable.value.values.filter { it.chatId == chatId && it.turnId == turnId && it.authority == authority }.map { it.snapshot }
                 val merged = mergeResearchSnapshots(inherited, if (snapshot.delegationPlan == null) snapshot.copy(delegationPlan = priorPlan) else snapshot)
@@ -536,9 +553,9 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                             put("runId", runId)
                         }.toString().toByteArray()
                     )
-                    indexCommittedSources(snapshot)
+                    val examinationScheduled = indexCommittedSources(snapshot)
                     mutable.update { (it + (runId to session)).entries.sortedByDescending { entry -> entry.value.snapshot.updatedAt }.take(24).associate { entry -> entry.toPair() } }
-                    if (acceptedTools != null) dev.chungjungsoo.gptmobile.data.research.work.ResearchExaminationWorker.enqueue(appContext)
+                    if (acceptedTools != null && (examinationScheduled || snapshot.complete || snapshot.sources.size != previousSourceCount)) dev.chungjungsoo.gptmobile.data.research.work.ResearchExaminationWorker.enqueue(appContext)
                     // Retention is incremental; never rescan the corpus per network chunk.
                     val retained = completedFiles ?: directory.listFiles().orEmpty()
                         .filter { it.extension == "json" && read(it)?.snapshot?.complete == true }

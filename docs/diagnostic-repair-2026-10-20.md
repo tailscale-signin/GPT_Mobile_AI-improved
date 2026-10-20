@@ -1,6 +1,7 @@
 # October 20 diagnostic repair
 
-Branch: `fix/diagnostic-research-actions-2026-10-20`  
+Branch: `fix/diagnostic-research-actions-2026-10-20`
+
 Base: `159730e40ce196111a3a6b3647ad9b23e3373904` (0.9.55.0, build 124)
 
 ## Evidence and scope

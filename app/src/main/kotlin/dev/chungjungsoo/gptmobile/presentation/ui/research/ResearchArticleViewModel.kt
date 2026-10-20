@@ -42,21 +42,26 @@ class ResearchArticleViewModel @Inject constructor(private val archive: Research
         if (id == null) flowOf<dev.chungjungsoo.gptmobile.data.research.feature.ExaminationJob?>(null) else archive.dao.observeJob(id)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
     private var loader: Job? = null
+    private var openedWorkId: String? = null
+    private val admitting = MutableStateFlow(false)
+    val admissionInProgress = admitting.asStateFlow()
     init {
         viewModelScope.launch { coordinator.recover() }
     }
     fun open(workId: String, versionId: String?, authority: String) {
         loader?.cancel()
-        val acceptedJobId = mutable.value.acceptedJobId
-        val admissionError = mutable.value.error
-        mutable.value = ArticleDetailState(loading = true, acceptedJobId = acceptedJobId)
+        val sameWork = openedWorkId == workId
+        openedWorkId = workId
+        val acceptedJobId = mutable.value.acceptedJobId.takeIf { sameWork }
+        val admissionError = mutable.value.error.takeIf { sameWork }
+        mutable.value = if (sameWork) mutable.value.copy(loading = true) else ArticleDetailState(loading = true, acceptedJobId = acceptedJobId, error = admissionError)
         loader = viewModelScope.launch {
             try {
                 val work = requireNotNull(archive.dao.work(workId)) { "Saved article is unavailable" }
                 val version = requireNotNull(versionId?.let { archive.dao.version(it) } ?: archive.dao.latestVersion(workId)) { "Saved version is missing" }
                 require(version.workId == workId && (version.publicSource || version.authority == authority)) { "Article access is no longer authorized" }
                 val available = archive.text(version, authority) != null
-                mutable.value = ArticleDetailState(work, archive.dao.version(version.versionId), archive.dao.fields(version.versionId), archive.dao.passages(version.versionId), archive.dao.appraisals(version.versionId), available, validations = archive.dao.sourceValidations(version.versionId), relationships = archive.dao.identityResolutions(workId), reviews = archive.dao.studyReviews(version.versionId), acceptedJobId = mutable.value.acceptedJobId, error = admissionError)
+                mutable.value = ArticleDetailState(work, archive.dao.version(version.versionId), archive.dao.fields(version.versionId), archive.dao.passages(version.versionId), archive.dao.appraisals(version.versionId), available, validations = archive.dao.sourceValidations(version.versionId), relationships = archive.dao.identityResolutions(workId), reviews = archive.dao.studyReviews(version.versionId), acceptedJobId = mutable.value.acceptedJobId, error = mutable.value.error)
             } catch (cancel: CancellationException) {
                 throw cancel
             } catch (error: Exception) {
@@ -71,9 +76,20 @@ class ResearchArticleViewModel @Inject constructor(private val archive: Research
             current.copy(conversationResearch = current.conversationResearch + (chatId to selection.copy(crawlerProfileUid = profileUid)))
         }
     }
-    fun examine(request: ExaminationRequest, tools: () -> ChatMcpToolConfig) = action {
-        val admission = coordinator.submitUserAction(request, tools)
-        mutable.update { it.copy(acceptedJobId = admission.jobId, error = admission.message?.let { message -> "${admission.blocker}: $message" }) }
+    fun examine(request: ExaminationRequest, tools: () -> ChatMcpToolConfig) {
+        if (!admitting.compareAndSet(false, true)) return
+        viewModelScope.launch {
+            try {
+                val admission = coordinator.submitUserAction(request, tools)
+                mutable.update { it.copy(acceptedJobId = admission.jobId, error = admission.message?.let { message -> "${admission.blocker}: $message" }) }
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (error: Exception) {
+                mutable.update { it.copy(error = error.message ?: "Examination could not start") }
+            } finally {
+                admitting.value = false
+            }
+        }
     }
     fun pause(id: String) = action { coordinator.pause(id) }
     fun cancel(id: String) = action { coordinator.cancel(id) }

@@ -48,7 +48,7 @@ class ResearchExaminationWorker @AssistedInject constructor(
             return if (pending) Result.retry() else Result.success()
         }
         if (!features.researchFeature.backgroundExamination && !withContext(Dispatchers.Main) { ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) }) return Result.retry()
-        val configurationRevision = dev.chungjungsoo.gptmobile.data.research.researchHash(Json.encodeToString(settings.getFeatureSettings()) + Json.encodeToString(settings.fetchPlatformV2s()))
+        val configurationRevision = examinationConfigurationRevision(features, settings.fetchPlatformV2s())
         // Only process-loss recovery is automatic; user Pause/Stop always requires user action.
         archive.dao.allJobs().filter { it.origin != dev.chungjungsoo.gptmobile.data.research.feature.ExaminationOrigin.USER_EXAMINE && it.stage == dev.chungjungsoo.gptmobile.data.research.feature.ExaminationStage.PAUSED && (it.terminalReason == "Process interrupted; explicit resume required" || it.cancellationOrigin == "WAITING_FOR_CONFIGURATION") }.forEach { job ->
             val checkpoint = runCatching { Json.decodeFromString<dev.chungjungsoo.gptmobile.data.research.feature.ExaminationCheckpoint>(job.checkpointJson) }.getOrNull()
@@ -88,7 +88,7 @@ class ResearchExaminationWorker @AssistedInject constructor(
             for (row in batch) {
                 try {
                     val scheduled = Json.decodeFromString<ScheduledExamination>(row.operation)
-                    if (scheduled.waitingReason == "USER_PAUSED" || scheduled.waitingReason != null && scheduled.waitingRevision == configurationRevision) continue
+                    if (scheduled.waitingReason in setOf("USER_PAUSED", "OUTPUT_INVALID") || scheduled.waitingReason != null && scheduled.waitingRevision == configurationRevision) continue
                     val policy = settings.getFeatureSettings().researchFeature
                     if (!policy.enabled || policy.autoExamination == AutoExamination.OFF || policy.autoExamination == AutoExamination.WHEN_NEEDED && !scheduled.needed) continue
                     if (archive.dao.deleted("archive:${scheduled.request.workId}") != null || archive.dao.deleted("chat:${scheduled.request.chatId}") != null) {
@@ -103,6 +103,8 @@ class ResearchExaminationWorker @AssistedInject constructor(
                         archive.dao.acknowledge(row.id, row.createdAt)
                     } else if (stage == dev.chungjungsoo.gptmobile.data.research.feature.ExaminationStage.PAUSED && archive.dao.job(id)?.terminalReason?.startsWith("Paused;") == true) {
                         archive.dao.outbox(row.copy(operation = Json.encodeToString(scheduled.copy(waitingReason = "USER_PAUSED", waitingRevision = null))))
+                    } else if (stage == dev.chungjungsoo.gptmobile.data.research.feature.ExaminationStage.FAILED && archive.dao.job(id)?.terminalReason?.contains("EXAMINATION_OUTPUT_INVALID") == true) {
+                        archive.dao.outbox(row.copy(operation = Json.encodeToString(scheduled.copy(waitingReason = "OUTPUT_INVALID", waitingRevision = null))))
                     } else {
                         pending = true
                     }
@@ -125,7 +127,7 @@ class ResearchExaminationWorker @AssistedInject constructor(
         return if (pending) Result.retry() else Result.success()
     }
 
-    private fun configurationBlocked(failure: Exception): Boolean = failure.message.orEmpty().let { it.contains("Choose an enabled examination") || it.contains("consent") || it.contains("disabled") || it.contains("reviewer unavailable", true) || it.contains("REQUIRED_REVIEWER_UNAVAILABLE") || it.contains("policy changed", true) }
+    private fun configurationBlocked(failure: Exception): Boolean = failure.message.orEmpty().let { it.contains("Choose an enabled examination") || it.contains("consent") || it.contains("disabled") || it.contains("reviewer unavailable", true) || it.contains("REQUIRED_REVIEWER_UNAVAILABLE") || it.contains("policy changed", true) || it.contains("does not permit article retrieval") || it.contains("Article tools are excluded") || it.contains("Web-only scope") || it.contains("Increase Research Depth") || it.contains("Research is off") }
 
     companion object {
         fun enqueue(context: Context, reconsider: Boolean = false) {

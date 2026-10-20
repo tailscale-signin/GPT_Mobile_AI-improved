@@ -200,6 +200,9 @@ interface ResearchDao {
 
     @Upsert suspend fun outbox(value: ResearchOutbox)
 
+    @Query("SELECT * FROM research_outbox WHERE id = :id")
+    suspend fun outboxById(id: String): ResearchOutbox?
+
     @Upsert suspend fun sequence(value: ResearchSequence)
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)

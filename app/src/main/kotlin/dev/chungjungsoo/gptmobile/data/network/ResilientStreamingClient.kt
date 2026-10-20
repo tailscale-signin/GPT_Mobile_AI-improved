@@ -51,7 +51,14 @@ object ResilientStreamingClient {
                 val rateLimited = http?.response?.status?.value == 429 || e.message.orEmpty().contains("429") || e.message.orEmpty().contains("rate limit", true)
                 val typed = generateSequence(e) { it.cause?.takeUnless { cause -> cause === it } }.take(8).filterIsInstance<ProviderHttpFailure>().firstOrNull()
                 val retryAfter = typed?.retryAfterMs ?: http?.response?.headers?.get("Retry-After")?.let { ProviderRetryPolicy.retryAfterMillis(it, System.currentTimeMillis()) }
-                val sleepDuration = if (rateLimited) maxOf(retryAfter ?: 0, 5_000L * currentAttempt, (currentDelay + jitter).coerceAtLeast(0)) else maxOf(retryAfter ?: 0L, min(config.maxDelayMs, (currentDelay + jitter).coerceAtLeast(100L)))
+                val networkRecovery = causesNeedNetworkRecovery(e)
+                val sleepDuration = if (networkRecovery) {
+                    maxOf(1500L * currentAttempt, min(config.maxDelayMs, (currentDelay + jitter).coerceAtLeast(100L)))
+                } else if (rateLimited) {
+                    maxOf(retryAfter ?: 0, 5_000L * currentAttempt, (currentDelay + jitter).coerceAtLeast(0))
+                } else {
+                    maxOf(retryAfter ?: 0L, min(config.maxDelayMs, (currentDelay + jitter).coerceAtLeast(100L)))
+                }
 
                 onRetry?.invoke(currentAttempt, sleepDuration, e)
                 kotlinx.coroutines.currentCoroutineContext()[ProviderWaitContext]?.notifyRemaining?.invoke(sleepDuration)
@@ -65,6 +72,10 @@ object ResilientStreamingClient {
     /**
      * Determine if an exception represents a transient network or server fault suitable for automatic retry.
      */
+    internal fun causesNeedNetworkRecovery(throwable: Throwable): Boolean = generateSequence(throwable) { it.cause?.takeUnless { cause -> cause === it } }.take(8).any {
+        it is java.net.UnknownHostException || it is java.nio.channels.UnresolvedAddressException || it.message.orEmpty().contains("network is unreachable", true)
+    }
+
     fun isRetryable(throwable: Throwable): Boolean {
         val causes = generateSequence(throwable) { it.cause?.takeUnless { cause -> cause === it } }.take(8).toList()
         if (causes.any { it is CancellationException || it is javax.net.ssl.SSLHandshakeException || it is javax.net.ssl.SSLPeerUnverifiedException || it is java.security.cert.CertificateException }) return false

@@ -4,7 +4,7 @@ import dev.chungjungsoo.gptmobile.data.model.ResearchReportDetail
 
 /** Deterministic delivery checks. This is not an entailment model or scientific truth score. */
 internal object ResearchDeliveryValidator {
-    data class Result(val issues: List<String>, val citedIds: Set<String>, val blocks: List<ResearchReportBlock> = emptyList()) {
+    data class Result(val issues: List<String>, val citedIds: Set<String>, val blocks: List<ResearchReportBlock> = emptyList(), val repairHints: List<String> = emptyList()) {
         val accepted: Boolean get() = issues.isEmpty()
     }
     private val citations = Regex("\\[(S[0-9a-f]+)\\]")
@@ -12,6 +12,7 @@ internal object ResearchDeliveryValidator {
 
     fun validate(text: String, packet: ResearchDeliveryPacket): Result {
         val issues = mutableListOf<String>()
+        val repairHints = mutableListOf<String>()
         val allIds = ResearchReportReferences.cited(text, packet)
         val body = text.split(Regex("(?im)^#{1,6}\\s+references\\s*$"), limit = 2).first()
         val ids = ResearchReportReferences.cited(body, packet)
@@ -26,11 +27,17 @@ internal object ResearchDeliveryValidator {
         packet.studies.take(3).filter { it.id !in ids }.forEach { issues += "OMITTED_LEADING_STUDY:${it.id}" }
         packet.unread.take(if (packet.detail == ResearchReportDetail.BRIEF) 1 else 3).filter { it.id !in ids }.forEach { issues += "OMITTED_UNREAD_LEAD:${it.id}" }
         val paragraphs = body.split(Regex("\n\\s*\n"))
-        for (paragraph in paragraphs) {
+        for ((index, rawParagraph) in paragraphs.withIndex()) {
+            // A Markdown heading need not have a blank line before the following prose.
+            // Its title is navigation, never a scientific claim or a supporting citation.
+            val paragraph = rawParagraph.lines().filterNot { it.trimStart().startsWith('#') }.joinToString("\n")
             val cited = ResearchReportReferences.cited(paragraph, packet)
             if (paragraph.lines().all { it.isBlank() || it.trimStart().startsWith('#') }) continue
             val scientific = Regex("(?i)trial|participants|patients|randomi[sz]|significant|associated|improv|reduc|increase|efficacy|adverse|observed|researchers|study|studies").containsMatchIn(paragraph)
-            if (scientific && cited.isEmpty() && !Regex("(?i)unknown|unavailable|could not|not established|no verified|not verified").containsMatchIn(paragraph)) issues += "UNSOURCED_SCIENTIFIC_PARAGRAPH"
+            if (scientific && cited.isEmpty() && !Regex("(?i)unknown|unavailable|could not|not established|no verified|not verified").containsMatchIn(paragraph)) {
+                issues += "UNSOURCED_SCIENTIFIC_PARAGRAPH"
+                repairHints += "Paragraph ${index + 1} needs supporting source IDs from the packet, or removal of unsupported findings: ${paragraph.take(500)}"
+            }
             val readable = cited.mapNotNull { id -> packet.studies.firstOrNull { it.id == id } }
             if (cited.any { id -> packet.unread.any { it.id == id } } && !Regex("(?i)unread|not read|metadata.only|retrieval failed").containsMatchIn(paragraph)) issues += "METADATA_PRESENTED_AS_READ"
             if (readable.isNotEmpty()) {
@@ -52,7 +59,7 @@ internal object ResearchDeliveryValidator {
             if (supporting.isNotEmpty() && supporting.none { it in ids }) issues += "QUESTION_EVIDENCE_NOT_CITED:${question.id}"
         }
         if (packet.claims.any { it.verdict == "Contradicted" } && !Regex("(?i)contradict|disagree|mixed|negative|uncertain|no (?:significant|benefit|effect)|not support").containsMatchIn(body)) issues += "COUNTEREVIDENCE_NOT_DISCLOSED"
-        return Result(issues.distinct(), ids, blocks)
+        return Result(issues.distinct(), ids, blocks, repairHints.take(12))
     }
 
     /** A failed repair delivers captured evidence and honest gaps, never an unchecked scientific answer. */

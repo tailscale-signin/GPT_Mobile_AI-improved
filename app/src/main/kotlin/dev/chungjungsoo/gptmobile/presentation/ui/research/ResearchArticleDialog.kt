@@ -1,16 +1,17 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.research
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -31,7 +32,7 @@ import dev.chungjungsoo.gptmobile.presentation.common.FadingDialog
 import dev.chungjungsoo.gptmobile.presentation.common.glassWindowBackdrop
 import kotlinx.serialization.json.Json
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun ResearchArticleDialog(workId: String, versionId: String? = null, authority: String = "public", chatId: Int = 0, initialProfileUid: String = "", currentTools: () -> ChatMcpToolConfig = { ChatMcpToolConfig() }, onClose: () -> Unit, viewModel: ResearchArticleViewModel = hiltViewModel(), originalVersionId: String? = null) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -42,6 +43,7 @@ fun ResearchArticleDialog(workId: String, versionId: String? = null, authority: 
     val features by viewModel.features.collectAsStateWithLifecycle()
     val jobs by viewModel.jobs.collectAsStateWithLifecycle()
     val focusedJob by viewModel.focusedJob.collectAsStateWithLifecycle()
+    val admitting by viewModel.admissionInProgress.collectAsStateWithLifecycle()
     var profileUid by rememberSaveable(workId) { mutableStateOf(initialProfileUid) }
     val configuredCrawlerUid = dev.chungjungsoo.gptmobile.data.research.feature.ResearchProfileResolver.examinerUid(features, chatId, currentTools())
     LaunchedEffect(configuredCrawlerUid) {
@@ -50,9 +52,16 @@ fun ResearchArticleDialog(workId: String, versionId: String? = null, authority: 
     var showingOriginal by rememberSaveable(workId, versionId) { mutableStateOf(false) }
     val displayedVersionId = if (showingOriginal) originalVersionId ?: versionId else versionId
     val relevantJobs = (jobs + listOfNotNull(focusedJob)).distinctBy { it.jobId }.filter { it.workId == workId && it.authority == authority && it.chatId == chatId }
+    val examinationActive = relevantJobs.any { it.stage in dev.chungjungsoo.gptmobile.data.research.feature.ExaminationLifecycle.active }
+    val selectedProfile = profiles.firstOrNull { it.uid == profileUid && it.enabled }
+    val examinationBlocker = if (selectedProfile == null) {
+        "Choose an enabled crawler profile below to examine this article."
+    } else {
+        dev.chungjungsoo.gptmobile.data.research.feature.examinationAdmission(features, selectedProfile, ExaminationRequest(workId, profileUid, chatId, origin = dev.chungjungsoo.gptmobile.data.research.feature.ExaminationOrigin.USER_EXAMINE), currentTools())
+    }
     LaunchedEffect(workId, displayedVersionId, authority, relevantJobs.map { it.updatedAt }) { viewModel.open(workId, displayedVersionId, authority) }
     FadingDialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Scaffold(Modifier.fillMaxSize().glassWindowBackdrop(), containerColor = dev.chungjungsoo.gptmobile.presentation.common.overlayWindowContainerColor(), topBar = { TopAppBar(title = { Text("Article evidence") }, navigationIcon = { TextButton(onClick = onClose) { Text("Back") } }) }) { padding ->
+        Scaffold(Modifier.fillMaxSize().glassWindowBackdrop(), containerColor = dev.chungjungsoo.gptmobile.presentation.common.overlayWindowContainerColor(), topBar = { TopAppBar(title = { Text("Article evidence") }, navigationIcon = { OutlinedButton(onClick = onClose) { Text("Back") } }) }) { padding ->
             LazyColumn(Modifier.padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (state.loading) item { Text("Loading saved article…") }
                 state.error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
@@ -61,11 +70,11 @@ fun ResearchArticleDialog(workId: String, versionId: String? = null, authority: 
                     item {
                         Text(work.title, style = MaterialTheme.typography.titleLarge)
                         Text(work.canonicalUrl, style = MaterialTheme.typography.bodySmall)
-                        TextButton(onClick = {
+                        OutlinedButton(onClick = {
                             runCatching { uriHandler.openUri(work.canonicalUrl) }.onFailure { actionError = "No browser is available to open this source." }
                         }) { Text("Open source") }
                         state.version?.takeIf { it.publicSource }?.let { version ->
-                            TextButton(onClick = {
+                            OutlinedButton(onClick = {
                                 val share = android.content.Intent(context, dev.chungjungsoo.gptmobile.presentation.ui.main.ShareIncomingActivity::class.java).apply {
                                     action = android.content.Intent.ACTION_SEND
                                     type = "text/plain"
@@ -82,7 +91,7 @@ fun ResearchArticleDialog(workId: String, versionId: String? = null, authority: 
                 }
                 state.version?.let { version ->
                     item {
-                        if (originalVersionId != null && originalVersionId != versionId) TextButton(onClick = { showingOriginal = !showingOriginal }) { Text(if (showingOriginal) "View updated assessment" else "View original cited version") }
+                        if (originalVersionId != null && originalVersionId != versionId) OutlinedButton(onClick = { showingOriginal = !showingOriginal }) { Text(if (showingOriginal) "View updated assessment" else "View original cited version") }
                         Text("Coverage: ${version.coverage.name.lowercase().replace('_', ' ')}")
                         Text("Captured ${java.time.Instant.ofEpochMilli(version.retrievedAt)} · ${version.textBytes} UTF-8 bytes", style = MaterialTheme.typography.bodySmall)
                         Text("Version ${version.versionId.take(16)} · ${if (state.bodyAvailable) "Body integrity verified" else "Body unavailable or incomplete; historical metadata retained"}")
@@ -93,9 +102,20 @@ fun ResearchArticleDialog(workId: String, versionId: String? = null, authority: 
                     }
                     item {
                         dev.chungjungsoo.gptmobile.presentation.ui.setting.DelegateModelDropdown(profiles = profiles.filter { it.enabled }, selectedProfileUid = profileUid, enabled = true, onSelected = { profileUid = it?.uid.orEmpty() }, automaticLabel = "Choose profile", roleLabel = "Crawler AI profile")
-                        if (chatId > 0) TextButton(onClick = { viewModel.saveCrawlerForChat(chatId, profileUid, currentTools()) }, enabled = profileUid.isNotBlank()) { Text("Use this crawler for this chat") }
-                        TextButton(onClick = { viewModel.examine(ExaminationRequest(workId, profileUid, chatId, version.versionId, authority), currentTools) }, enabled = profileUid.isNotBlank() && features.researchFeature.enabled && features.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH)) { Text("Examine / Resume") }
-                        TextButton(onClick = { viewModel.examine(ExaminationRequest(workId, profileUid, chatId, version.versionId, authority, reexamine = true), currentTools) }, enabled = profileUid.isNotBlank() && relevantJobs.any { it.stage in setOf(ExaminationStage.COMPLETE_FULL, ExaminationStage.COMPLETE_PARTIAL, ExaminationStage.ABSTRACT_ONLY) }) { Text("Re-examine as a new revision") }
+                        examinationBlocker?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error) }
+                        if (chatId > 0) OutlinedButton(onClick = { viewModel.saveCrawlerForChat(chatId, profileUid, currentTools()) }, enabled = profileUid.isNotBlank()) { Text("Use this crawler for this chat") }
+                        androidx.compose.material3.Button(onClick = { viewModel.examine(ExaminationRequest(workId, profileUid, chatId, version.versionId, authority), currentTools) }, modifier = Modifier.fillMaxWidth(), enabled = examinationBlocker == null && !examinationActive && !admitting) {
+                            Text(
+                                if (admitting) {
+                                    "Starting examination…"
+                                } else if (examinationActive) {
+                                    "Examination in progress"
+                                } else {
+                                    "Examine / Resume"
+                                }
+                            )
+                        }
+                        OutlinedButton(onClick = { viewModel.examine(ExaminationRequest(workId, profileUid, chatId, version.versionId, authority, reexamine = true), currentTools) }, enabled = examinationBlocker == null && !examinationActive && !admitting && relevantJobs.any { it.stage in setOf(ExaminationStage.COMPLETE_FULL, ExaminationStage.COMPLETE_PARTIAL, ExaminationStage.ABSTRACT_ONLY) }) { Text("Re-examine as a new revision") }
                         Text("Uses the selected model and permitted article reader. Provider usage may be billable. Research Depth remains unchanged; all paper and profile permissions still apply.", style = MaterialTheme.typography.bodySmall)
                     }
                 }
@@ -126,9 +146,9 @@ fun ResearchArticleDialog(workId: String, versionId: String? = null, authority: 
                         }
                         if (features.researchFeature.showWarnings) checkpoint?.limitations.orEmpty().forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
                         if (job.stage in setOf(ExaminationStage.QUEUED, ExaminationStage.RESOLVING, ExaminationStage.READING, ExaminationStage.EXTRACTING, ExaminationStage.APPRAISING, ExaminationStage.REVIEWING)) {
-                            Row {
-                                TextButton(onClick = { viewModel.pause(job.jobId) }) { Text("Pause") }
-                                TextButton(onClick = { viewModel.cancel(job.jobId) }) { Text("Stop examination") }
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedButton(onClick = { viewModel.pause(job.jobId) }) { Text("Pause") }
+                                OutlinedButton(onClick = { viewModel.cancel(job.jobId) }) { Text("Stop examination") }
                             }
                         }
                     }

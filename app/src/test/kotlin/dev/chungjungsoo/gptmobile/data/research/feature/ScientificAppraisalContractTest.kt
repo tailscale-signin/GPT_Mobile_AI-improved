@@ -4,6 +4,7 @@ import dev.chungjungsoo.gptmobile.data.research.researchHash
 import dev.chungjungsoo.gptmobile.data.research.researchTextChunks
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -56,6 +57,44 @@ class ScientificAppraisalContractTest {
         assertTrue(runCatching { ScientificAppraisalContract.validate(appraisal("12"), version, source) }.isFailure)
         assertTrue(runCatching { ScientificAppraisalContract.validate(appraisal(quote = source.replace("10", "99")), version, source) }.isFailure)
         assertTrue(runCatching { ScientificAppraisalContract.validate(appraisal(), version.copy(contentHash = "changed"), source) }.isFailure)
+    }
+
+    @Test fun fieldGapsPreserveExactPassagesWithoutPromotingUnsupportedValues() {
+        val retained = ScientificAppraisalContract.validate(appraisal("12"), version, source, retainFieldGaps = true)
+        assertEquals(source, retained.passages.single().quote)
+        val field = retained.fields.single()
+        assertEquals(Missingness.UNAVAILABLE, field.missingness)
+        assertEquals(null, field.value)
+        assertEquals(null, field.unit)
+        assertTrue(retained.limitations.any { it.contains("analyzed_n") && it.contains("discarded") })
+        assertTrue(retained.judgments.all { it.concern == ScientificConcern.UNKNOWN })
+        assertTrue(runCatching { ScientificAppraisalContract.validate(appraisal(quote = source.replace("10", "99")), version, source, retainFieldGaps = true) }.isFailure)
+        assertTrue(runCatching { ScientificAppraisalContract.validate(appraisal(), version.copy(contentHash = "changed"), source, retainFieldGaps = true) }.isFailure)
+        assertEquals("10", ScientificAppraisalContract.validate(appraisal(), version, source, retainFieldGaps = true).fields.single().value)
+    }
+
+    @Test fun formattingRecoveryStoresSourceSpellingAndStillRejectsParaphrases() {
+        val text = "The analyzed sample included 10 participants. The outcome was Pain  relief."
+        val exactVersion = version.copy(contentHash = researchHash(text))
+        val formatted = appraisal("pain relief", text).replace("analyzed_n", "outcome")
+        val recovered = ScientificAppraisalContract.validate(formatted, exactVersion, text, retainFieldGaps = true)
+        assertEquals("Pain  relief", recovered.fields.single().value)
+        assertEquals(Missingness.PRESENT, recovered.fields.single().missingness)
+        val paraphrase = appraisal("Less pain", text).replace("analyzed_n", "outcome")
+        assertEquals(Missingness.UNAVAILABLE, ScientificAppraisalContract.validate(paraphrase, exactVersion, text, retainFieldGaps = true).fields.single().missingness)
+    }
+
+    @Test fun repeatedFieldsAreMergedWithoutOverwritingConflictingSourceValues() {
+        val text = "Pain scores were 10 in one group and 12 in another."
+        val exactVersion = version.copy(contentHash = researchHash(text))
+        val first = Json.parseToJsonElement(appraisal("10", text).replace("analyzed_n", "effect")) as JsonObject
+        val second = Json.parseToJsonElement(appraisal("12", text).replace("analyzed_n", "effect")) as JsonObject
+        val duplicate = JsonObject(first + ("fields" to JsonArray((first["fields"] as JsonArray) + (second["fields"] as JsonArray)))).toString()
+        assertTrue(runCatching { ScientificAppraisalContract.validate(duplicate, exactVersion, text) }.isFailure)
+        val retained = ScientificAppraisalContract.validate(duplicate, exactVersion, text, retainFieldGaps = true)
+        assertEquals(Missingness.CONFLICTING, retained.fields.single().missingness)
+        assertEquals(null, retained.fields.single().value)
+        assertTrue(retained.passages.isNotEmpty())
     }
 
     @Test fun readableTextDoesNotImplyFullArticleExamination() {

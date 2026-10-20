@@ -8,6 +8,12 @@ if(NOT GGUF_NATIVE_DEBUG)
     # Set variant flags before dependencies: includes ggml-cpu and quantization kernels.
     set(CMAKE_C_FLAGS_DEBUG "-O2 -g" CACHE STRING "Optimized diagnostic inference" FORCE)
     set(CMAKE_CXX_FLAGS_DEBUG "-O2 -g" CACHE STRING "Optimized diagnostic inference" FORCE)
+    # The Android toolchain shadows these cache entries with normal variables.
+    # Update both, then inherit a target option into every llama/ggml subdirectory;
+    # an optimized cache value alone does not optimize the shipped instructions.
+    set(CMAKE_C_FLAGS_DEBUG "-O2 -g")
+    set(CMAKE_CXX_FLAGS_DEBUG "-O2 -g")
+    add_compile_options($<$<CONFIG:Debug>:-O2>)
 endif()
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(GGML_NATIVE OFF CACHE BOOL "" FORCE)

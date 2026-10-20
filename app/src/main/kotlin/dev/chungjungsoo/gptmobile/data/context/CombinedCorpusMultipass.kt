@@ -26,6 +26,8 @@ data class CombinedCorpusInspectionPass(
     val estimatedPromptTokens: Int
 )
 
+data class CombinedInspectionSummary(val sourceIds: List<String>, val report: String)
+
 data class CombinedCorpusMultipassPlan(
     val originalRequest: String,
     val frozenTurns: List<ConversationTurn>,
@@ -46,7 +48,13 @@ data class CombinedCorpusMultipassPlan(
 
     /** Final writing may only use accepted reports from every source pass. */
     fun finalTurns(reports: List<String>): List<ConversationTurn> {
-        require(reports.size == passes.size && reports.all { it.isNotBlank() }) {
+        require(reports.size == passes.size) { "COMBINED_MULTIPASS_INCOMPLETE: Not every frozen source span was inspected." }
+        return finalTurnsFromRecords(passes.mapIndexed { index, pass -> CombinedInspectionSummary(listOf(pass.source.sourceId), reports[index]) })
+    }
+
+    /** Consolidation may group records, but cannot drop, duplicate or invent a frozen span. */
+    fun finalTurnsFromRecords(records: List<CombinedInspectionSummary>): List<ConversationTurn> {
+        require(records.all { it.report.isNotBlank() } && records.flatMap { it.sourceIds } == passes.map { it.source.sourceId }) {
             "COMBINED_MULTIPASS_INCOMPLETE: Not every frozen source span was inspected."
         }
         val current = frozenTurns.lastOrNull { it.isCurrentTurn }
@@ -56,9 +64,9 @@ data class CombinedCorpusMultipassPlan(
             appendLine(originalRequest)
             appendLine()
             appendLine("Same-primary inspection records for every frozen source span:")
-            passes.forEachIndexed { index, pass ->
-                appendLine("Source ${pass.source.sourceId}; inspection ${index + 1}/${passes.size}")
-                appendLine(reports[index])
+            records.forEachIndexed { index, record ->
+                appendLine("Sources ${record.sourceIds.joinToString(",")}; record ${index + 1}/${records.size}")
+                appendLine(record.report)
                 appendLine()
             }
             val outer = runCatching { Json.parseToJsonElement(current.userMessage.content) as? JsonObject }.getOrNull()
@@ -69,8 +77,9 @@ data class CombinedCorpusMultipassPlan(
                 appendLine("Return a complete replacement from the original request. Do not append a correction, preserve an incorrect prefix, or continue the old draft. Recompute every final span and source link against this replacement.")
                 appendLine(JsonObject(outer.filterKeys { it in setOf("operation", "original_request", "previous_revision_id", "answer_contract", "failed_checks", "unresolved_candidate_hints", "instruction") }).toString())
             }
-            if ((envelope?.get("delivery_protocol") as? JsonPrimitive)?.content == "PASSAGES_V2") {
-                val contract = envelope.filterKeys { it in setOf("delivery_protocol", "instruction_priority", "answer_policy", "authoritative_turn_context", "merge_selection_policy", "requested_policy_digest", "effective_plan_digest", "request_to_claims", "input_representation") }.toMutableMap()
+            val protocol = (envelope?.get("delivery_protocol") as? JsonPrimitive)?.content
+            if (protocol in setOf("PASSAGES_V2", "PASSAGES_V3") && envelope != null) {
+                val contract = envelope.filterKeys { it in setOf("delivery_protocol", "target_revision_id", "instruction_priority", "answer_policy", "authoritative_turn_context", "merge_selection_policy", "requested_policy_digest", "effective_plan_digest", "request_to_claims", "input_representation") }.toMutableMap()
                 if (replacement) outer?.get("answer_contract")?.let { contract["answer_policy"] = it }
                 contract["contributions"] = JsonArray(
                     (envelope["contributions"] as? JsonArray).orEmpty().mapNotNull { row ->
@@ -94,7 +103,7 @@ data class CombinedCorpusMultipassPlan(
                 appendLine("Frozen delivery contract and canonical citation registry; passages were inspected above:")
                 appendLine(JsonObject(contract).toString())
                 appendLine("Follow the frozen merge_selection_policy within the answer_policy; no style or effort anchor changes permissions, truthfulness, user limits or claim qualifications.")
-                appendLine("Use PASSAGES_V2 paragraph and decision records. Preserve the inspected C and claim IDs, all contributing profiles and evidence IDs; never invent or renumber source IDs.")
+                appendLine("Use $protocol paragraph and decision records. Preserve the inspected C and claim IDs, all contributing profiles and evidence IDs; never invent or renumber source IDs.")
             }
             appendLine("Produce one complete final answer from the original request.")
             if (comprehensive) {

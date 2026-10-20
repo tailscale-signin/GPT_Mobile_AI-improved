@@ -2852,8 +2852,8 @@ class ChatRepositoryImpl(
             system = system,
             limits = limits,
             open = { turns, kind, outputTokens ->
-                val execution = if (kind == "synthesis_after_full_corpus" && combined != null && budget != null) {
-                    val finalId = "corpus-final:$runId:${dev.chungjungsoo.gptmobile.data.research.researchHash(turns.toString())}"
+                val execution = if (kind in setOf("synthesis_after_full_corpus", "combined_corpus_consolidation") && combined != null && budget != null) {
+                    val finalId = "corpus-$kind:$runId:${dev.chungjungsoo.gptmobile.data.research.researchHash(turns.toString())}"
                     val context = combined.forRole(combined.role, platform.uid, finalId)
                     val current = budget.snapshot()
                     if (finalId !in current.pendingWork && finalId !in current.completedWork) {
@@ -2861,7 +2861,7 @@ class ChatRepositoryImpl(
                             dev.chungjungsoo.gptmobile.data.agent.CombinedWorkItem(finalId, combined.role, reason = "REQUIRED_COVERAGE_GAP"),
                             dev.chungjungsoo.gptmobile.data.agent.CombinedResourceQuota(
                                 dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.breakdown(turns, system, emptyList()).total.toLong(),
-                                listOfNotNull(limits.outputTokens.takeIf { it > 0 }, combined.plan?.outputTokens(combined.role)).minOrNull()?.toLong() ?: 2500L
+                                listOfNotNull(outputTokens?.takeIf { it > 0 }, limits.outputTokens.takeIf { it > 0 }, combined.plan?.outputTokens(combined.role)).minOrNull()?.toLong() ?: 2500L
                             ),
                             "REQUIRED_COVERAGE_GAP",
                             ownerKey = context.ownerKey

@@ -137,4 +137,16 @@ class CombinedCorpusMultipassTest {
         assertTrue(final.single().userMessage.content.contains("Same-primary inspection records"))
         assertTrue(final.single().isCurrentTurn)
     }
+
+    @Test fun v3ProtocolAndRevisionSurviveFullCorpusInspection() {
+        val input = """{"original_request":"Explain","delivery_protocol":"PASSAGES_V3","target_revision_id":"revision-123","contributions":[{"id":"C1","profile_uid":"a","response":"A claim"}]}"""
+        val plan = CombinedCorpusMultipass.plan(listOf(turn(input, true)), "", TokenBudgetSettings(contextTokens = 4096, outputTokens = 256))
+        val prompt = plan.finalTurns(plan.passes.map { "C1: A claim" }).single().userMessage.content
+        assertTrue(prompt.contains("PASSAGES_V3"))
+        assertTrue(prompt.contains("revision-123"))
+        assertFalse(prompt.contains("Use PASSAGES_V2"))
+        assertThrows(IllegalArgumentException::class.java) {
+            plan.finalTurnsFromRecords(listOf(CombinedInspectionSummary(listOf("invented-span"), "claim")))
+        }
+    }
 }

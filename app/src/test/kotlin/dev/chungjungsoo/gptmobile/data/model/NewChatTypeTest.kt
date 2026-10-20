@@ -37,4 +37,12 @@ class NewChatTypeTest {
         assertTrue(NewChatType.COMBINED.isCountValid(2))
         assertEquals(ConversationMode.COMBINED, NewChatType.COMBINED.executionMode(2))
     }
+
+    @org.junit.Test fun researchModeRequiresItsPluginAndAppearsAfterBuiltInModes() {
+        val disabled = AppFeatureSettings()
+        org.junit.Assert.assertFalse(availableNewChatTypes(disabled).contains(NewChatType.RESEARCH))
+        val enabled = disabled.withToolPluginEnabled(ToolPluginId.DEEP_RESEARCH, true)
+        org.junit.Assert.assertEquals(NewChatType.RESEARCH, availableNewChatTypes(enabled).last())
+        org.junit.Assert.assertEquals(3, availableNewChatTypes(disabled).size)
+    }
 }

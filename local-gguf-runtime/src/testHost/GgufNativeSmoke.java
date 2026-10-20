@@ -56,6 +56,21 @@ public final class GgufNativeSmoke {
             GgufNative.cancelOperation(engine, cancelledBeforeEntry);
             long[] notEntered = GgufNative.generatePrepared(engine, new String[]{"user"}, new byte[][]{"Hello".getBytes(StandardCharsets.UTF_8)}, 16, 1, 1f, 0f, bytes -> { throw new AssertionError("Canceled operation emitted text"); }, null, cancelledBeforeEntry);
             check(notEntered[4] == 2 && notEntered[0] == 0, "Cancellation before entry was cleared");
+            long adaptiveOperation = GgufNative.nextOperationId();
+            GgufNative.prepareOperation(engine, adaptiveOperation);
+            var processedBatches = new java.util.ArrayList<Long>();
+            long[] adaptive = GgufNative.generatePrepared(engine, new String[]{"user"},
+                new byte[][]{"A completely different prompt to invalidate prefix reuse. Tell a story about the ocean and a boat.".getBytes(StandardCharsets.UTF_8)},
+                16, 1, 1f, 0f, bytes -> true,
+                (phase,total,processed,sampled,elapsed,code) -> {
+                    if (phase.equals("PREFILL_BATCH_END") && code == 0) processedBatches.add(processed);
+                }, adaptiveOperation);
+            check(adaptive[1] > 0 && processedBatches.size() > 1, "Adaptive prefill did not complete multiple batches");
+            check(processedBatches.get(0) - adaptive[5] == 1, "Cold CPU prefill must start with one token");
+            for (int i = 1; i < processedBatches.size(); i++) {
+                long delta = processedBatches.get(i) - processedBatches.get(i - 1);
+                check(delta > 0 && delta <= 32, "CPU prefill batch exceeded its observable progress bound");
+            }
             long duringPrefill = GgufNative.nextOperationId();
             GgufNative.prepareOperation(engine, duringPrefill);
             var stages = new java.util.ArrayList<String>();

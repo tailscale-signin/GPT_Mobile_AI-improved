@@ -56,7 +56,7 @@ class ArticleExaminationRecoveryTest {
             val sessions = ResearchSessionStore(context, database)
             val archive = ResearchArchiveRepository(database, sessions)
             val profile = PlatformV2(uid = "fixture", name = "Synthetic appraiser", model = "scripted")
-            val features = AppFeatureSettings(delegation = ModelDelegationSettings(reviewMode = dev.chungjungsoo.gptmobile.data.delegation.DelegationReviewMode.OFF, deepResearch = DeepResearchSettings(academicSources = true)), researchFeature = ResearchFeatureSettings(backgroundExamination = true))
+            val features = AppFeatureSettings(delegation = ModelDelegationSettings(reviewMode = dev.chungjungsoo.gptmobile.data.delegation.DelegationReviewMode.OFF, deepResearch = DeepResearchSettings(academicSources = true)), researchFeature = ResearchFeatureSettings(backgroundExamination = true, reviewerProfileUid = "removed-reviewer"))
                 .withToolPluginEnabled(ToolPluginId.DEEP_RESEARCH, true).withProfileToolPluginEnabled(profile.uid, ToolPluginId.DEEP_RESEARCH, true)
             val settings = mockk<SettingRepository>()
             coEvery { settings.getFeatureSettings() } returns features

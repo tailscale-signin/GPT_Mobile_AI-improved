@@ -164,10 +164,8 @@ import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as Alert
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDialog as Dialog
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as DropdownMenu
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
-import dev.chungjungsoo.gptmobile.presentation.common.glassBackdrop
 import dev.chungjungsoo.gptmobile.presentation.common.glassBackdropSource
 import dev.chungjungsoo.gptmobile.presentation.common.glassWindowBackdrop
-import dev.chungjungsoo.gptmobile.presentation.common.hasGlassBackdrop
 import dev.chungjungsoo.gptmobile.presentation.ui.archive.ArchivedConversationsBar
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatMarkdown
 import dev.chungjungsoo.gptmobile.util.getPlatformName
@@ -187,7 +185,7 @@ fun HomeScreen(
     homeViewModel: HomeViewModel = hiltViewModel(),
     settingOnClick: () -> Unit = {},
     onExistingChatClick: (chatRoom: ChatRoomV2, targetMessageId: Int?) -> Unit = { _, _ -> },
-    navigateToNewChat: () -> Unit = {},
+    navigateToNewChat: (androidx.compose.ui.geometry.Offset) -> Unit = {},
     navigateToWorkspace: (Int) -> Unit = {}
 ) {
     val listState = rememberLazyListState()
@@ -882,7 +880,7 @@ fun HomeScreen(
                 onDismissRequest = { homeViewModel.closeSelectModelDialog() },
                 onConfirmation = { platforms, conversationMode ->
                     homeViewModel.rememberChatSelection(platforms, conversationMode)
-                    navigateToNewChat()
+                    navigateToNewChat(androidx.compose.ui.geometry.Offset.Unspecified)
                     homeViewModel.closeSelectModelDialog()
                 },
                 onPlatformSelect = { homeViewModel.togglePlatformSelection(it) },
@@ -1781,12 +1779,13 @@ fun LazyListState.isScrollingUp(): Boolean {
 }
 
 @Composable
-fun NewChatButton(onClick: () -> Unit) {
+fun NewChatButton(onClick: (androidx.compose.ui.geometry.Offset) -> Unit) {
+    var origin by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Unspecified) }
     LargeFloatingActionButton(
-        onClick = onClick,
-        modifier = Modifier.size(72.dp).glassBackdrop(CircleShape).testTag("home_new_chat_icon"),
+        onClick = { onClick(origin) },
+        modifier = Modifier.size(72.dp).onGloballyPositioned { origin = it.localToRoot(androidx.compose.ui.geometry.Offset(it.size.width / 2f, it.size.height / 2f)) }.testTag("home_new_chat_icon"),
         shape = CircleShape,
-        containerColor = if (hasGlassBackdrop()) Color.Transparent else MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = dev.chungjungsoo.gptmobile.presentation.common.GLASS_OPACITY),
+        containerColor = MaterialTheme.colorScheme.primaryContainer,
         contentColor = MaterialTheme.colorScheme.onSurface
     ) {
         Icon(

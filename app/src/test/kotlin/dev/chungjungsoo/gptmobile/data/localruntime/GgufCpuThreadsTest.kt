@@ -6,8 +6,8 @@ import org.junit.Test
 class GgufCpuThreadsTest {
     @Test
     fun autoUsesAvailableProcessorsUpToSafeDefaultLimit() {
-        assertEquals(6, GgufCpuThreads.resolve(0, 6))
-        assertEquals(8, GgufCpuThreads.resolve(0, 12))
+        assertEquals(4, GgufCpuThreads.resolve(0, 6))
+        assertEquals(4, GgufCpuThreads.resolve(0, 12))
     }
 
     @Test

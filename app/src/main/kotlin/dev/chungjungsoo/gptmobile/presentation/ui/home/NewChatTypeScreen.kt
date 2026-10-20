@@ -40,70 +40,78 @@ import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun NewChatTypeScreen(
+    features: dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings = dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings(),
+    revealOrigin: androidx.compose.ui.geometry.Offset = androidx.compose.ui.geometry.Offset.Unspecified,
     onBack: () -> Unit,
     onChoose: (NewChatType) -> Unit
 ) {
-    Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
-        topBar = {
-            CenterAlignedTopAppBar(
-                title = { Text("New Chat", style = MaterialTheme.typography.titleLarge) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back")
-                    }
-                },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = MaterialTheme.colorScheme.background)
-            )
-        }
-    ) { insets ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(insets).testTag("new_chat_type_screen"),
-            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            item {
-                Column(Modifier.fillMaxWidth().padding(bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("STEP 1 OF 2", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                    Text("What would you like to do?", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold)
-                    Text("Choose how your AI models will work together.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-            items(NewChatType.entries, key = { it.name }) { option ->
-                val icon: ImageVector = when (option) {
-                    NewChatType.RESEARCH -> Icons.Rounded.Science
-                    NewChatType.SINGLE -> Icons.AutoMirrored.Rounded.Chat
-                    NewChatType.MULTI_CHAT -> Icons.Rounded.ViewColumn
-                    NewChatType.COMBINED -> Icons.Rounded.Hub
-                }
-                Surface(
-                    modifier = Modifier.fillMaxWidth().clickable { onChoose(option) }.testTag("new_chat_type_" + option.name),
-                    shape = RoundedCornerShape(24.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerLow,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                    tonalElevation = 1.dp
-                ) {
-                    Row(
-                        Modifier.padding(20.dp),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Surface(
-                            color = MaterialTheme.colorScheme.primaryContainer,
-                            shape = RoundedCornerShape(18.dp)
-                        ) {
-                            Icon(
-                                imageVector = icon,
-                                contentDescription = null,
-                                modifier = Modifier.padding(14.dp).size(28.dp),
-                                tint = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
+    NewChatRevealPanel(revealOrigin) {
+        Scaffold(
+            containerColor = androidx.compose.ui.graphics.Color.Transparent,
+            topBar = {
+                CenterAlignedTopAppBar(
+                    title = { Text("New Chat", style = MaterialTheme.typography.titleLarge) },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back")
                         }
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text(option.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                            Text(option.explanation, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            if (option == NewChatType.RESEARCH) {
-                                Text("Deep Research on by default · Combined with 2+ profiles", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                    },
+                    colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = androidx.compose.ui.graphics.Color.Transparent, titleContentColor = MaterialTheme.colorScheme.primary, navigationIconContentColor = MaterialTheme.colorScheme.primary)
+                )
+            }
+        ) { insets ->
+            LazyColumn(
+                modifier = Modifier.fillMaxSize().padding(insets).testTag("new_chat_type_screen"),
+                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                item {
+                    Column(Modifier.fillMaxWidth().padding(bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("STEP 1 OF 2", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                        Text("What would you like to do?", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold)
+                        Text("Choose how your AI models will work together.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f))
+                    }
+                }
+                val options = dev.chungjungsoo.gptmobile.data.model.availableNewChatTypes(features)
+                items(options, key = { it.name }) { option ->
+                    if (option == options.firstOrNull { it.requiredPluginId != null }) {
+                        Text("Plugins", Modifier.padding(top = 20.dp, bottom = 12.dp), style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                    }
+                    val icon: ImageVector = when (option) {
+                        NewChatType.RESEARCH -> Icons.Rounded.Science
+                        NewChatType.SINGLE -> Icons.AutoMirrored.Rounded.Chat
+                        NewChatType.MULTI_CHAT -> Icons.Rounded.ViewColumn
+                        NewChatType.COMBINED -> Icons.Rounded.Hub
+                    }
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().clickable { onChoose(option) }.testTag("new_chat_type_" + option.name),
+                        shape = RoundedCornerShape(24.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
+                        tonalElevation = 1.dp
+                    ) {
+                        Row(
+                            Modifier.padding(20.dp),
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Surface(
+                                color = MaterialTheme.colorScheme.primaryContainer,
+                                shape = RoundedCornerShape(18.dp)
+                            ) {
+                                Icon(
+                                    imageVector = icon,
+                                    contentDescription = null,
+                                    modifier = Modifier.padding(14.dp).size(28.dp),
+                                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            }
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(option.title, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                Text(option.explanation, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f))
+                                if (option == NewChatType.RESEARCH) {
+                                    Text("Deep Research on by default · Combined with 2+ profiles", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                }
                             }
                         }
                     }

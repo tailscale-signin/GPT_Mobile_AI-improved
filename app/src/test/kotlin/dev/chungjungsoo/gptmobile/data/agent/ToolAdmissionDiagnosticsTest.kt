@@ -9,7 +9,7 @@ import org.junit.Test
 
 class ToolAdmissionDiagnosticsTest {
     @Test fun completeCallCountAndArgumentLimitHaveDifferentReceipts() {
-        val count = ToolRoundAdmission()
+        val count = ToolRoundAdmission(maxCalls = 8)
         repeat(8) { assertTrue(count.admit(ProviderEvent.ToolCall("id-$it", "lookup", buildJsonObject {}))) }
         assertFalse(count.admit(ProviderEvent.ToolCall("ninth", "lookup", buildJsonObject {})))
         assertEquals("COMPLETE_CALL_COUNT", count.rejection!!.threshold)
@@ -27,10 +27,20 @@ class ToolAdmissionDiagnosticsTest {
             guard.slot("one")
             guard.append("x")
         }
-        repeat(7) { guard.slot("other-$it") }
-        val failure = runCatching { guard.slot("ninth") }.exceptionOrNull() as ToolBatchOversizeException
+        repeat(31) { guard.slot("other-$it") }
+        val failure = runCatching { guard.slot("thirty-third") }.exceptionOrNull() as ToolBatchOversizeException
         assertEquals("STREAM_TOOL_SLOTS", failure.threshold)
-        assertEquals(9, failure.observedValue)
+        assertEquals(33, failure.observedValue)
         assertEquals(null, failure.completeCallIds)
+    }
+
+    @Test fun normalNineCallBatchFitsTransportAndExecutionAdmission() {
+        val parser = ToolStreamGuard()
+        val admission = ToolRoundAdmission()
+        repeat(9) {
+            parser.slot("call-$it")
+            assertTrue(admission.admit(ProviderEvent.ToolCall("call-$it", "lookup", buildJsonObject {})))
+        }
+        assertEquals(9, admission.admitted)
     }
 }

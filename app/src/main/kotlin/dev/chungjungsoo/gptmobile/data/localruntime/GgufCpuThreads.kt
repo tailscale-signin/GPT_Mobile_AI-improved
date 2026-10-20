@@ -6,5 +6,5 @@ internal object GgufCpuThreads {
         requested
             ?.takeIf { it > 0 }
             ?.coerceIn(1, 64)
-            ?: availableProcessors.coerceIn(1, 8)
+            ?: availableProcessors.coerceIn(1, 4)
 }

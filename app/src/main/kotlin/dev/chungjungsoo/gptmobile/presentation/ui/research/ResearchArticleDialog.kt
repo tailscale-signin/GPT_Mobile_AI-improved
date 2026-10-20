@@ -86,6 +86,9 @@ fun ResearchArticleDialog(workId: String, versionId: String? = null, authority: 
                         Text("Captured ${java.time.Instant.ofEpochMilli(version.retrievedAt)} · ${version.textBytes} UTF-8 bytes", style = MaterialTheme.typography.bodySmall)
                         Text("Version ${version.versionId.take(16)} · ${if (state.bodyAvailable) "Body integrity verified" else "Body unavailable or incomplete; historical metadata retained"}")
                         Text("Source capture, AI appraisal, publication review and independent review are separate.")
+                        state.validations.firstOrNull()?.let { validation -> Text("Capture validation: ${validation.kind.lowercase().replace('_', ' ')} · ${validation.workKind.lowercase().replace('_', ' ')}", style = MaterialTheme.typography.bodySmall) }
+                        if (state.relationships.any { it.disposition == "PROVEN_PUBLIC_IDENTITY_LINKED" }) Text("Related public captures share a verified identifier; their versions and assessment histories remain available.", style = MaterialTheme.typography.bodySmall)
+                        if (state.relationships.any { it.disposition == "AUTHORITY_ISOLATED_NO_MERGE" }) Text("Other records share an identifier but use separate permissions. Their evidence remains isolated.", style = MaterialTheme.typography.bodySmall)
                     }
                     item {
                         dev.chungjungsoo.gptmobile.presentation.ui.setting.DelegateModelDropdown(profiles = profiles.filter { it.enabled }, selectedProfileUid = profileUid, enabled = true, onSelected = { profileUid = it?.uid.orEmpty() }, automaticLabel = "Choose profile", roleLabel = "Crawler AI profile")
@@ -121,7 +124,7 @@ fun ResearchArticleDialog(workId: String, versionId: String? = null, authority: 
                             report.reasons.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
                         }
                         if (features.researchFeature.showWarnings) checkpoint?.limitations.orEmpty().forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
-                        if (job.stage in setOf(ExaminationStage.RESOLVING, ExaminationStage.READING, ExaminationStage.EXTRACTING, ExaminationStage.APPRAISING, ExaminationStage.REVIEWING)) {
+                        if (job.stage in setOf(ExaminationStage.QUEUED, ExaminationStage.RESOLVING, ExaminationStage.READING, ExaminationStage.EXTRACTING, ExaminationStage.APPRAISING, ExaminationStage.REVIEWING)) {
                             Row {
                                 TextButton(onClick = { viewModel.pause(job.jobId) }) { Text("Pause") }
                                 TextButton(onClick = { viewModel.cancel(job.jobId) }) { Text("Stop examination") }

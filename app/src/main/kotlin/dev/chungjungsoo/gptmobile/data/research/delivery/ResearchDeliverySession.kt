@@ -22,12 +22,22 @@ internal class ResearchDeliverySession(
     private val expectResearch: Boolean = false,
     private val loadSections: suspend (String) -> Map<String, String> = { emptyMap() },
     private val saveSection: suspend (String, String, String) -> Unit = { _, _, _ -> },
+    private val replaceDraft: suspend (String, String) -> Boolean = { _, _ -> false },
     private val create: suspend (String, Boolean) -> AgentProviderSession
 ) : AgentProviderSession {
+    private var publishedDraft = ""
     override val handlesToolsInternally = base.handlesToolsInternally
     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
+        suspend fun publish(text: String) {
+            if (publishedDraft.isEmpty()) {
+                emit(ProviderEvent.TextDelta(text))
+            } else if (publishedDraft != text) {
+                check(replaceDraft(dev.chungjungsoo.gptmobile.data.research.researchHash(publishedDraft), text)) { "RESEARCH_REVISION_OWNER_CHANGED: retained draft was preserved" }
+            }
+            publishedDraft = text
+        }
         var evidence = withContext(Dispatchers.Default) { packet() }
-        if (evidence == null && !expectResearch) {
+        if (evidence?.snapshot?.phase == "Not needed" || evidence == null && !expectResearch) {
             emitAll(base.streamRound(tools, exchanges))
             return@flow
         }
@@ -41,7 +51,7 @@ internal class ResearchDeliverySession(
         emit(ProviderEvent.Notice("Preparing the research report and checking its citations."))
         // A complete corpus must not reopen external acquisition. The explicitly
         // authorized saved-evidence reader remains available for paging retained work.
-        val writeOnly = evidence?.snapshot?.complete == true
+        val writeOnly = evidence?.snapshot?.let { it.complete || it.cancellationOrigin == "USER_STOP_RESEARCH_AND_SUMMARIZE" } == true
         val draftTools = if (writeOnly) tools.filter { it.name == "read_recovery_context" } else tools
         val draftSession = if (initialContext.isEmpty()) base else create(initialContext, writeOnly && draftTools.isEmpty())
         draftSession.streamRound(draftTools, if (writeOnly) emptyList() else exchanges).transformWhile { event ->
@@ -68,9 +78,9 @@ internal class ResearchDeliverySession(
         }
         if (hasCalls || failure != null || !completed && !overflow) {
             val denied = failure?.message?.let(::isAuthorizationFailure) == true
-            if (draft.isNotEmpty() && !denied) {
-                val label = if (failure != null || !completed && !hasCalls) "**Research draft — incomplete and not validated**\n\n" else ""
-                emit(ProviderEvent.TextDelta(label + draft))
+            if (draft.isNotEmpty() && !denied && !hasCalls) {
+                emit(ProviderEvent.Notice("Research draft is incomplete and has not passed delivery checks.", persistent = true))
+                publish(draft.toString())
             }
             failure?.let { emit(it) }
             if (completed && failure == null) emit(ProviderEvent.Completed)
@@ -83,18 +93,18 @@ internal class ResearchDeliverySession(
             return@flow
         }
         if (delivery == null) {
-            emit(ProviderEvent.TextDelta(draft.toString()))
+            publish(draft.toString())
             emit(ProviderEvent.Completed)
             return@flow
         }
         if (!delivery.snapshot.complete && delivery.snapshot.sources.none { it.readable }) {
             // Rewriting cannot turn unread leads into reviewed evidence. Preserve a
             // useful partial result without spending multiple writer/repair requests.
-            emit(ProviderEvent.TextDelta(ResearchDeliveryValidator.fallback(delivery)))
+            publish(ResearchDeliveryValidator.fallback(delivery))
             emit(ProviderEvent.Failed("RESEARCH_PARTIAL: No readable sources were acquired. Saved discovery leads remain available; retry collection when sources and network access are available."))
             return@flow
         }
-        var text = draft.toString()
+        var text = ResearchReportReferences.render(draft.toString(), delivery)
         var partialFallback = false
         val result = withContext(Dispatchers.Default) { ResearchDeliveryValidator.validate(text, delivery) }
         if (!result.accepted || overflow) {
@@ -140,7 +150,8 @@ internal class ResearchDeliverySession(
                 emit(denial)
                 return@flow
             }
-            val repaired = withContext(Dispatchers.Default) { ResearchDeliveryValidator.validate(repair.toString(), delivery) }
+            val repairText = ResearchReportReferences.render(repair.toString(), delivery)
+            val repaired = withContext(Dispatchers.Default) { ResearchDeliveryValidator.validate(repairText, delivery) }
             val repairedAccepted = !repairFailed && repairCompleted && repaired.accepted
             // Long reports often overflow a provider's per-answer cap. Two isolated
             // text-only sections preserve evidence without redoing the acquisition.
@@ -152,7 +163,7 @@ internal class ResearchDeliverySession(
             }
             val sectionedAccepted = sectioned != null
             text = when {
-                repairedAccepted -> repair.toString()
+                repairedAccepted -> repairText
                 sectioned != null -> sectioned
                 else -> ResearchDeliveryValidator.fallback(delivery)
             }
@@ -164,7 +175,7 @@ internal class ResearchDeliverySession(
         } else {
             AppLogRecorder.record("Research", "DELIVERY_VALIDATED · repaired=false · accepted=true · cited=${result.citedIds.size} · semanticCoverageVerified=false")
         }
-        emit(ProviderEvent.TextDelta(text))
+        publish(text)
         if (partialFallback) {
             emit(ProviderEvent.Failed("RESEARCH_PARTIAL: Evidence is retained, but the report did not pass its delivery checks. Resume writing from saved evidence."))
         } else {

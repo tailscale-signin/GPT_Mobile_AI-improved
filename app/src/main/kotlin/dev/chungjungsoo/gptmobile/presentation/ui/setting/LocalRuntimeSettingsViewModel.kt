@@ -100,7 +100,13 @@ class LocalRuntimeSettingsViewModel @Inject constructor(
         }
     }
     fun pinProfile(profile: PlatformV2) = perform { repository.updatePlatformV2(profile.copy(isFavorite = !profile.isFavorite)) }
-    fun duplicateProfile(profile: PlatformV2) = perform { repository.addPlatformV2(profile.copy(id = 0, uid = java.util.UUID.randomUUID().toString(), name = "${profile.name} (copy)", isFavorite = false)) }
+    fun duplicateProfile(profile: PlatformV2) = perform {
+        val uid = java.util.UUID.randomUUID().toString()
+        repository.addPlatformV2(profile.copy(id = 0, uid = uid, name = "${profile.name} (copy)", isFavorite = false))
+        repository.mutateFeatureSettings { current ->
+            current.localContextPreferences[profile.uid]?.let { preference -> current.copy(localContextPreferences = current.localContextPreferences + (uid to preference)) } ?: current
+        }
+    }
     suspend fun deleteModelSafely(id: String) {
         dev.chungjungsoo.gptmobile.data.localmodel.LocalModelDownloadPaths.requireValidPathSegments(id)
         val roots = listOfNotNull(context.filesDir, context.getExternalFilesDir(null)).map { java.io.File(it, "models/$id") }
@@ -180,7 +186,8 @@ class LocalRuntimeSettingsViewModel @Inject constructor(
             val probe = dev.chungjungsoo.gptmobile.data.localruntime.LocalEngineSpec(selected.path, LocalAccelerators.normalize(profile.accelerator), 2048, tuningLocked = true)
             allowVerification(probe)
             val metadata = inspectModel(selected.path)
-            val spec = probe.copy(maxTokens = metadata?.takeIf { !it.dynamicContext }?.contextTokens ?: minOf(metadata?.contextTokens ?: 2048, 4096))
+            val maximum = minOf(metadata?.contextTokens ?: 2048, dev.chungjungsoo.gptmobile.data.localruntime.resolvedEngineMaxTokens(Int.MAX_VALUE, profile.accelerator.orEmpty(), null, "", deviceRamGb = runtime.deviceRamGb))
+            val spec = probe.copy(maxTokens = metadata?.takeIf { !it.dynamicContext }?.contextTokens ?: contextForRequest(uid, selected.path, maximum))
             metadata?.validate(spec)
             allowVerification(spec)
             loadEngine(spec)

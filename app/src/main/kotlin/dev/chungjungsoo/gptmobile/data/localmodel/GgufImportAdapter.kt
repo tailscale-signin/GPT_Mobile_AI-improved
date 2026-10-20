@@ -53,7 +53,7 @@ internal object GgufImportAdapter {
             repeat(count.toInt()) {
                 val key = text()
                 val result = value(u32())
-                if (result != null && (key in setOf("general.architecture", "general.name", "general.file_type", "tokenizer.chat_template", "split.count") || key.endsWith(".context_length"))) put(key, result)
+                if (result != null && (key in setOf("general.architecture", "general.name", "general.file_type", "tokenizer.chat_template", "split.count") || key.endsWith(".context_length") || listOf(".block_count", ".attention.head_count", ".attention.head_count_kv", ".embedding_length", ".attention.key_length", ".attention.value_length").any(key::endsWith))) put(key, result)
             }
         }
     }

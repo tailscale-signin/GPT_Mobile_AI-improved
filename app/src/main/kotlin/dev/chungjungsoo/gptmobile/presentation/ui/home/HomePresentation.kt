@@ -39,7 +39,7 @@ internal fun plainProfileName(raw: String, fallback: String = "AI profile"): Str
 
 internal fun profileSubtitleColor(accent: Color, background: Color): Color {
     fun contrast(color: Color): Float {
-        val a = color.copy(alpha = 0.50f).compositeOver(background).luminance()
+        val a = color.copy(alpha = 0.25f).compositeOver(background).luminance()
         val b = background.luminance()
         return (max(a, b) + 0.05f) / (min(a, b) + 0.05f)
     }
@@ -48,11 +48,11 @@ internal fun profileSubtitleColor(accent: Color, background: Color): Color {
         for (step in 0..20) {
             val t = step / 20f
             val candidate = Color(accent.red + (target.red - accent.red) * t, accent.green + (target.green - accent.green) * t, accent.blue + (target.blue - accent.blue) * t)
-            if (contrast(candidate) >= 4.5f) return candidate.copy(alpha = 0.50f)
+            if (contrast(candidate) >= 4.5f) return candidate.copy(alpha = 0.25f)
             if (contrast(candidate) > contrast(best)) best = candidate
         }
     }
-    return best.copy(alpha = 0.50f)
+    return best.copy(alpha = 0.25f)
 }
 
 @Composable

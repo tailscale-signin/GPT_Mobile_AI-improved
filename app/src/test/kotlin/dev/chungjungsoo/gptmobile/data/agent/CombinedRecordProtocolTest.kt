@@ -104,6 +104,16 @@ class CombinedRecordProtocolTest {
         }
     }
 
+    @Test fun optionalNullQuoteIsAcceptedButNonStringQuoteIsRejected() {
+        val parser = protocol()
+        parser.accept("""{"type":"decision","seq":1,"id":"D1","claim":"C1.2","disposition":"OMITTED_SCOPE","reason":"Outside scope","final_quote":null}""")
+        assertEquals(1, parser.checkpoint().lastSequence)
+        val invalid = protocol()
+        invalid.accept("""{"type":"decision","seq":1,"id":"D1","claim":"C1.2","disposition":"OMITTED_SCOPE","reason":"Outside scope","final_quote":{}}""")
+        assertEquals(0, invalid.checkpoint().lastSequence)
+        assertTrue(invalid.failureReason != null)
+    }
+
     @Test fun decisionsAndEndShareTheSameContiguousSequenceAsPassages() {
         val parser = protocol()
         parser.accept(passage(1, "A paragraph."))

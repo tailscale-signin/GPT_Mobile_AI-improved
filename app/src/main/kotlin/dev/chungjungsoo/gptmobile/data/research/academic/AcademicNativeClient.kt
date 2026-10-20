@@ -499,15 +499,24 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
             currentCoroutineContext().ensureActive()
             val uri = URI(target)
             require(uri.scheme == "https" && uri.host != null && (sourceDocument || uri.host in HOSTS) && uri.userInfo == null && uri.port in setOf(-1, 443) && (!sourceDocument || researchDomainAllowed(target, included, excluded))) { "Academic host is not permitted" }
+            AcademicServiceLimiter.shared.await(uri.host, allowed)
             val boundBudget = currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.tool.AcademicRequestBudgetContext]?.budget
-            boundBudget?.reserve("http_request")
+            val operation = currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.tool.AcademicRequestBudgetContext]?.operation
+            val lane = when {
+                operation == "search_papers" -> dev.chungjungsoo.gptmobile.data.agent.ResearchRunLedger.AcquisitionLane.SEARCH
+                sourceDocument || uri.path.endsWith("fullTextXML") || operation == "read_paper" -> dev.chungjungsoo.gptmobile.data.agent.ResearchRunLedger.AcquisitionLane.READ
+                else -> dev.chungjungsoo.gptmobile.data.agent.ResearchRunLedger.AcquisitionLane.METADATA
+            }
             var redirect: String? = null
             val started = System.nanoTime()
             val eventId = UUID.randomUUID().toString()
             var responseCode: Int? = null
             var successful = false
             val combinedAttempt = dev.chungjungsoo.gptmobile.data.agent.CombinedAcquisitionBoundary.reserve("academic-http:$eventId", 1, freePublicEndpoint = true)
+            var networkStarted = false
             val result = try {
+                boundBudget?.reserve("http_request", lane = lane)
+                networkStarted = true
                 http.prepareGet(target) {
                     header("User-Agent", "GPTMobileAcademic/1 (keyless public research)")
                     timeout { requestTimeoutMillis = if (sourceDocument || uri.path.endsWith("fullTextXML")) 30_000 else 20_000 }
@@ -555,7 +564,16 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
                     }
                 }
             } finally {
-                combinedAttempt?.finish(if (responseCode != null) 1 else null)
+                combinedAttempt?.finish(
+                    if (!networkStarted) {
+                        0
+                    } else if (responseCode != null) {
+                        1
+                    } else {
+                        null
+                    },
+                    networkStarted
+                )
                 telemetry.record(
                     dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchAttempt(
                         eventId = eventId,

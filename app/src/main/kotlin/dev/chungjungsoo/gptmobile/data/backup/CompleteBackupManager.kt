@@ -286,7 +286,7 @@ class CompleteBackupManager @Inject constructor(
             }
             if (selected.includes(CompleteBackupSection.CONVERSATIONS)) {
                 File(context.filesDir, "research-history").listFiles().orEmpty()
-                    .filter { it.isFile && it.name.matches(Regex("[a-f0-9]{64}\\.(json|source|budget|ledger|index|chunk|cursor|claim|fence)")) && it.length() <= 512 * 1024 }
+                    .filter { it.isFile && it.name.matches(Regex("[a-f0-9]{64}\\.(json|source|budget|ledger|index|chunk|cursor|claim|fence|task|resume|checkpoint)")) && it.length() <= 512 * 1024 }
                     .forEach { sources["internal/research-history/${it.name}"] = it }
             }
             if (selected.sections.any { it in dev.chungjungsoo.gptmobile.data.research.feature.ResearchBackup.SECTIONS }) {

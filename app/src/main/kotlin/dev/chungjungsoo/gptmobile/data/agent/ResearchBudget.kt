@@ -84,9 +84,9 @@ class ResearchBudget(
 
     /** Native HTTP attempts debit this counter rather than another logical phase slot. */
     @Synchronized
-    fun tryChargeRequests(cost: Int): Boolean {
+    fun tryChargeRequests(cost: Int, lane: ResearchRunLedger.AcquisitionLane = ResearchRunLedger.AcquisitionLane.READ): Boolean {
         require(cost > 0)
-        ledger?.let { return it.charge(physical = cost.toLong()) }
+        ledger?.let { return it.chargeAcquisition(lane, cost.toLong()) }
         if (physicalRequests.toLong() + cost > total || downloadedBytes >= downloadLimitBytes) return false
         val previousAccountingVersion = accountingVersion
         accountingVersion = 2

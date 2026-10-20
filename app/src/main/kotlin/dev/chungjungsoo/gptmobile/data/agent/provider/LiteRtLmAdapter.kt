@@ -229,7 +229,13 @@ class LiteRtLmAdapter(
                     send(ProviderEvent.Failed("Local Assist requires an admitted warm model"))
                     return@channelFlow
                 }
-                val effectiveContextTokens = if (assistWarmSpec != null) minOf(resolvedMaxTokens, assistWarmSpec.maxTokens) else resolvedMaxTokens
+                val effectiveContextTokens = try {
+                    if (assistWarmSpec != null) minOf(resolvedMaxTokens, assistWarmSpec.maxTokens) else localRuntime.contextForRequest(platform.uid, modelPath, resolvedMaxTokens)
+                } catch (blocked: dev.chungjungsoo.gptmobile.data.localruntime.LocalMemoryAdmissionException) {
+                    send(ProviderEvent.RequestConfigured(configuredProfileOutputTokens = platform.maxTokens, configuredProfileType = platform.compatibleType.name, localAdmissionReceipt = blocked.receipt))
+                    send(ProviderEvent.Failed(blocked.message.orEmpty()))
+                    return@channelFlow
+                }
                 val requestedOutputLimit = constraints.outputLimit(platform.maxTokens)
                 var outputLimit = requestedOutputLimit ?: minOf(512, maxOf(1, effectiveContextTokens / 4))
                 if (requestedOutputLimit != outputLimit) {
@@ -448,7 +454,7 @@ class LiteRtLmAdapter(
                                 val selectedRuntime = selectedManifest?.runtime?.name ?: if (modelPath.endsWith("manifest.json")) "MANIFEST_RUNTIME_UNREADABLE" else "LITERT_MODEL"
                                 dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
                                     "LocalModel",
-                                    "LOCAL_RUNTIME_ROUTE_SELECTED · profileType=${platform.compatibleType.name} · modelId=$resolvedModelId · artifactRuntime=$selectedRuntime · backendRoute=$selectedRuntime · requestedAccelerator=${platform.accelerator} · engineLoadStarted=${!isEngineLoaded(requestSpec)}"
+                                    "LOCAL_RUNTIME_ROUTE_SELECTED · profileType=${platform.compatibleType.name} · modelId=$resolvedModelId · artifactRuntime=$selectedRuntime · backendRoute=$selectedRuntime · requestedAccelerator=${platform.accelerator} · loadPipelineStarted=${!isEngineLoaded(requestSpec)}"
                                 )
                                 val loadedSpec = if (constraints.requestRole == "assist") {
                                     val warm = checkNotNull(assistWarmSpec)
@@ -471,6 +477,7 @@ class LiteRtLmAdapter(
                                 send(
                                     ProviderEvent.RequestConfigured(
                                         configuredProfileOutputTokens = platform.maxTokens,
+                                        localAdmissionReceipt = activeRuntime.admissionReceipt,
                                         requestedOutputTokens = requestedOutputLimit,
                                         effectiveOutputTokens = outputLimit,
                                         configuredProfileType = platform.compatibleType.name,
@@ -875,8 +882,10 @@ class LiteRtLmAdapter(
                 } catch (error: CancellationException) {
                     throw error
                 } catch (error: LocalEngineLoadException) {
+                    localRuntime.state.value.admissionReceipt?.let { receipt -> send(ProviderEvent.RequestConfigured(configuredProfileType = platform.compatibleType.name, localAdmissionReceipt = receipt)) }
                     send(ProviderEvent.Failed(error.message ?: engineLoadFailedError))
                 } catch (error: Exception) {
+                    localRuntime.state.value.admissionReceipt?.let { receipt -> send(ProviderEvent.RequestConfigured(configuredProfileType = platform.compatibleType.name, localAdmissionReceipt = receipt)) }
                     val message = error.message ?: "Local inference failed"
                     send(ProviderEvent.Failed(if (isLocalTemplateMismatch(message)) LOCAL_TEMPLATE_ERROR else message))
                 }

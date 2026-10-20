@@ -41,6 +41,8 @@ class LocalEngineHolder(
 
     override suspend fun inspectModel(modelPath: String): LocalModelCapabilities? = withGenerationLock { delegate.inspectModel(modelPath) }
 
+    override suspend fun contextForRequest(profileUid: String, modelPath: String, maximum: Int): Int = withGenerationLock { delegate.contextForRequest(profileUid, modelPath, maximum) }
+
     override val deviceRamGb: Long
         get() = delegate.deviceRamGb
 

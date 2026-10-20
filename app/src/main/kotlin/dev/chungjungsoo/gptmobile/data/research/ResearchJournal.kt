@@ -16,6 +16,7 @@ interface ResearchJournal {
     suspend fun featurePolicy(): dev.chungjungsoo.gptmobile.data.research.feature.ResearchFeatureSettings = dev.chungjungsoo.gptmobile.data.research.feature.ResearchFeatureSettings()
     suspend fun archiveLeads(task: String): List<ResearchSource> = emptyList()
     suspend fun retainBody(text: String): List<String> = emptyList()
+    suspend fun bindTask(snapshot: ResearchSnapshot): ResearchSnapshot = snapshot
     suspend fun save(snapshot: ResearchSnapshot)
     fun cancellationOrigin(): String = "UNKNOWN"
     fun stopRequested(): Boolean

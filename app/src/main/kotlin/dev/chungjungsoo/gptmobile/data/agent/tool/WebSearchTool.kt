@@ -127,7 +127,7 @@ class WebSearchTool(
     }
 
     private suspend fun chargeResearchRequest() {
-        check(kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.ResearchAcquisitionContext]?.budget?.tryChargeRequests(1) != false) { "User research request limit reached" }
+        check(kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.ResearchAcquisitionContext]?.budget?.tryChargeRequests(1, dev.chungjungsoo.gptmobile.data.agent.ResearchRunLedger.AcquisitionLane.SEARCH) != false) { "User research request limit reached" }
     }
 
     private suspend fun researchBody(text: String): String {

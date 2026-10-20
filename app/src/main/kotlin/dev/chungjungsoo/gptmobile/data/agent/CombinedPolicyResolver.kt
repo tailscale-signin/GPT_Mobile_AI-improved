@@ -60,9 +60,12 @@ object CombinedPolicyResolver {
         val defaultFinal = listOf(700, 1400, 2500, 5000, 12_000)[stop]
         val explicitWords = Regex("(?i)\\b(?:exactly\\s+|about\\s+|approximately\\s+)?(\\d{1,7})[ -]+words?\\b")
             .find(requested.userPrompt)?.groupValues?.get(1)?.toLongOrNull()
+        val visibleGuide = explicitWords?.let { (it * 2L + 128).coerceAtMost(Int.MAX_VALUE.toLong()) } ?: defaultFinal.toLong()
+        // PASSAGES_V3 includes decision and framing records in the provider output cap.
+        // This capacity never changes the visible word contract or an explicit caller cap.
+        val recordAllowance = requested.participantUids.size * 512L + (requested.acceptedResearch?.sourceGoal ?: 0L) * 128L
         val requestedFinal = requiredOutputTokens?.coerceAtLeast(1)
-            ?: explicitWords?.let { (it * 2L + 128).coerceAtMost(Int.MAX_VALUE.toLong()).toInt() }
-            ?: defaultFinal
+            ?: Math.addExact(visibleGuide, recordAllowance).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
         val input = estimatedInputTokens.toLong().coerceAtLeast(256)
         val availableOutput = hardLimits.generatedTokens ?: Long.MAX_VALUE
         val finalTokens = minOf(requestedFinal.toLong(), availableOutput).coerceAtLeast(0)
@@ -113,7 +116,8 @@ object CombinedPolicyResolver {
             val direct = minOf(item.remainingUnits, item.sourceUrls.size.toLong())
             direct + (item.remainingUnits - direct) * 2
         }
-        val mandatoryCalls = if (toolsAllowed) maxOf(requiredToolOperations, explicitAcquisitions) else 0
+        val discoveryCalls = requested.acceptedResearch?.let { minOf(it.sourceGoal, 3L) * maxOf(1, requested.participantUids.size) } ?: 0L
+        val mandatoryCalls = if (toolsAllowed) maxOf(requiredToolOperations, Math.addExact(explicitAcquisitions, discoveryCalls)) else 0
         val fundingOrder = listOfNotNull(requested.preferredOwnerUid) + requested.participantUids
         val fundingUid = fundingOrder.distinct().firstOrNull { uid ->
             "contributor:$uid" in baseline && caps.none { it.profileUid == uid && it.name == "profileMaxToolCalls" && it.value == 0L }

@@ -69,17 +69,32 @@ internal class ResearchModelCoordinator(
     private val deadlineMillis: Long = ResearchTimeouts.MODEL_MS,
     private val onEvent: suspend (ResearchModelEvent) -> Unit = {},
     private val wallClock: () -> Long = System::currentTimeMillis,
-    private val monotonicClock: () -> Long = { System.nanoTime() / 1_000_000 }
+    private val monotonicClock: () -> Long = { System.nanoTime() / 1_000_000 },
+    healthScope: String? = null
 ) {
     private data class CircuitKey(val profileUid: String, val modelKey: String, val stage: ResearchModelStage)
     private data class FailureState(val count: Int, val retryAt: Long, val probe: Boolean = false)
-    private val failures = java.util.concurrent.ConcurrentHashMap<CircuitKey, FailureState>()
-    private val sharedFailures = java.util.concurrent.ConcurrentHashMap<String, FailureState>()
+    private val health = healthScope?.let { scope ->
+        synchronized(turnHealth) {
+            val now = System.currentTimeMillis()
+            turnHealth.entries.removeAll { now - it.value.first > 24 * 60 * 60_000L }
+            if (turnHealth.size >= 512 && scope !in turnHealth) turnHealth.remove(turnHealth.minBy { it.value.first }.key)
+            turnHealth.getOrPut(scope) { now to (java.util.concurrent.ConcurrentHashMap<CircuitKey, FailureState>() to java.util.concurrent.ConcurrentHashMap<String, FailureState>()) }.second
+        }
+    }
+    private val failures = health?.first ?: java.util.concurrent.ConcurrentHashMap<CircuitKey, FailureState>()
+    private val sharedFailures = health?.second ?: java.util.concurrent.ConcurrentHashMap<String, FailureState>()
     private val history = mutableListOf<ResearchModelEvent>()
     private val successfulStages = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val incompleteStages = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     fun completedStage(stage: String): Boolean = stage.uppercase(java.util.Locale.ROOT).let { it in successfulStages && it !in incompleteStages }
     val events: List<ResearchModelEvent> get() = synchronized(history) { history.toList() }
+
+    suspend fun rejectGrounding(invocationId: String?) {
+        val previous = events.lastOrNull { it.invocationId == invocationId && it.stage == ResearchModelStage.EXTRACT.name } ?: return
+        incompleteStages.add(previous.stage)
+        record(previous.copy(outcome = "VALIDATION_FAILED", reason = "NO_GROUNDED_CLAIMS", failurePhase = "GROUNDING", failureCategory = "EVIDENCE_VALIDATION"))
+    }
 
     private suspend fun record(event: ResearchModelEvent) {
         if (event.outcome == "SUCCESS") successfulStages.add(event.stage)
@@ -201,6 +216,8 @@ internal class ResearchModelCoordinator(
     private fun elapsed(started: Long): Long = (monotonicClock() - started).coerceAtLeast(0)
 
     companion object {
+        private val turnHealth = linkedMapOf<String, Pair<Long, Pair<java.util.concurrent.ConcurrentHashMap<CircuitKey, FailureState>, java.util.concurrent.ConcurrentHashMap<String, FailureState>>>>()
+
         /** Stable categories retain the cause without persisting source text or provider credentials. */
         internal fun failureCategory(error: Exception): String {
             val messages = generateSequence<Throwable>(error) { it.cause?.takeUnless { cause -> cause === it } }.take(8).joinToString(" ") { it.message.orEmpty() }
@@ -219,8 +236,13 @@ internal class ResearchModelCoordinator(
             when (stage) {
                 ResearchModelStage.PLAN -> value["questions"] is JsonArray && value["queries"] is JsonArray
                 ResearchModelStage.FIND_GAPS -> value["missing"] is JsonArray && value["queries"] is JsonArray
-                ResearchModelStage.EXTRACT -> value["claims"] is JsonArray
-                ResearchModelStage.REVIEW -> value.text("verdict") in setOf("Supported", "Contradicted", "Insufficient") && value.text("relevance") in setOf("Relevant", "Background", "Irrelevant") && value.text("questionId").isNotBlank()
+                ResearchModelStage.EXTRACT -> (value["claims"] as? JsonArray)?.let { rows ->
+                    rows.isEmpty() ||
+                        rows.any { row ->
+                            (row as? JsonObject)?.let { claim -> claim.text("text").isNotBlank() && claim.text("quote").length >= 20 } == true
+                        }
+                } == true
+                ResearchModelStage.REVIEW -> value.rows("reviews").any { it.text("claimId").isNotBlank() && it.text("verdict") in setOf("Supported", "Contradicted", "Insufficient") && it.text("relevance") in setOf("Relevant", "Background", "Irrelevant") && it.text("questionId").isNotBlank() } || value.text("verdict") in setOf("Supported", "Contradicted", "Insufficient") && value.text("relevance") in setOf("Relevant", "Background", "Irrelevant") && value.text("questionId").isNotBlank()
             }
     }
 }

@@ -29,10 +29,18 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
 class ResearchWorkspaceTest {
-    @Test fun migrationPreservesVersionOneRowsAndRoomValidatesTheNewSchema() {
+    @Test fun migrationPreservesVersionOneRowsAndRoomValidatesTheNewSchema() = verifyMigration(1)
+
+    @Test fun migrationPreservesReleasedVersionThreeRows() = verifyMigration(3)
+
+    @Test fun migrationPreservesDraftVersionFourRows() = verifyMigration(4)
+
+    @Test fun migrationPreservesVersionFiveRows() = verifyMigration(5)
+
+    private fun verifyMigration(version: Int) {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val name = "workspace-migration-${System.nanoTime()}.db"
-        val schemaPath = "schemas/dev.chungjungsoo.gptmobile.data.research.feature.ResearchDatabase/1.json"
+        val schemaPath = "schemas/dev.chungjungsoo.gptmobile.data.research.feature.ResearchDatabase/$version.json"
         val schema = Json.parseToJsonElement(listOf(File(schemaPath), File("app/$schemaPath")).first { it.isFile }.readText()).jsonObject.getValue("database").jsonObject
         context.openOrCreateDatabase(name, Context.MODE_PRIVATE, null).use { old ->
             schema.getValue("entities").jsonArray.forEach { element ->
@@ -43,13 +51,22 @@ class ResearchWorkspaceTest {
             }
             schema.getValue("setupQueries").jsonArray.forEach { old.execSQL(it.jsonPrimitive.content) }
             old.execSQL("INSERT INTO research_tombstones (`key`,epoch) VALUES ('archive:removed',42)")
-            old.version = 1
+            old.execSQL("INSERT INTO research_works(workId,title,canonicalUrl,publicationType,peerReview) VALUES ('legacy','Retained trial','https://example.org/trial','journal-article','UNKNOWN')")
+            old.execSQL("INSERT INTO research_jobs(jobId,dedupKey,workId,origin,chatId,profileUid,authority,policyHash,stage,checkpointJson,updatedAt,lease) VALUES ('legacy-job','key','legacy','USER_EXAMINE',0,'profile','public','policy','READING','checkpoint-with-retained-progress',50,6)")
+            old.version = version
         }
-        val db = Room.databaseBuilder(context, ResearchDatabase::class.java, name).addMigrations(ResearchWorkspaceMigration, ResearchStudyCardsMigration, ResearchRetentionMigration).allowMainThreadQueries().build()
+        val db = Room.databaseBuilder(context, ResearchDatabase::class.java, name).addMigrations(ResearchWorkspaceMigration, ResearchStudyCardsMigration, ResearchRetentionMigration, ResearchExaminationLifecycleMigration, ResearchRepairMigration).allowMainThreadQueries().build()
         try {
-            assertEquals(4, db.openHelper.writableDatabase.version)
+            assertEquals(6, db.openHelper.writableDatabase.version)
             runBlocking {
                 assertEquals(42L, db.research().deleted("archive:removed"))
+                val retained = requireNotNull(db.research().job("legacy-job"))
+                assertEquals("checkpoint-with-retained-progress", retained.checkpointJson)
+                assertEquals(0L, retained.lastHeartbeatAt)
+                assertEquals(null, retained.workerId)
+                db.research().recoverJobs()
+                assertEquals(7L, db.research().job("legacy-job")?.lease)
+                assertEquals("PROCESS_RECOVERY", db.research().job("legacy-job")?.cancellationOrigin)
                 db.research().handoff(ResearchHandoff("handoff", "trial", "AWAITING_IMPORT", 1))
                 assertEquals("trial", db.research().handoff("handoff")?.query)
             }
@@ -132,6 +149,26 @@ class ResearchWorkspaceTest {
             chats.close()
             root.deleteRecursively()
         }
+    }
+
+    @Test fun reclassificationInvalidatesLegacyScoresWithoutRemovingProtection() = withArchive { archive ->
+        val text = "Just a moment... Checking your browser before accessing the site. Enable JavaScript and cookies to continue."
+        val version = archive.capture(ResearchSource("S1", "https://example.org/legacy", "Legacy capture", "Read", text, publicationType = "journal-article"), text, "public", true, 7, "legacy", true, 0)
+        val dao = archive.dao
+        dao.version(version.copy(coverage = ArticleCoverage.FULL_ARTICLE_EXAMINED))
+        val membership = requireNotNull(dao.membership(version.workId))
+        dao.membership(membership.copy(protectionReason = "ACCEPTED_REVIEW", verifiedVersionId = version.versionId))
+        dao.studyReview(ResearchStudyReview("old-review", version.workId, version.versionId, "job", 1, "profile", "model", "config", version.contentHash, "summary", "{}", 90, 90, 90, "Reviewed", 1))
+        val repair = ResearchSourceRepair(archive.database, ResearchSessionStore(ApplicationProvider.getApplicationContext(), archive.database))
+        repair.classify(requireNotNull(dao.version(version.versionId)), text)
+        assertEquals(ArticleCoverage.UNAVAILABLE, dao.version(version.versionId)?.coverage)
+        assertEquals("ACCEPTED_REVIEW", dao.membership(version.workId)?.protectionReason)
+        assertEquals(null, dao.studyReviews(version.versionId).single().overallScore)
+        assertEquals("SOURCE_REVALIDATION_REQUIRED", dao.studyReviews(version.versionId).single().status)
+        assertEquals(1, dao.sourceValidations(version.versionId).size)
+        assertEquals("ARTICLE", dao.sourceValidations(version.versionId).single().workKind)
+        repair.classify(version.copy(coverage = ArticleCoverage.FULL_ARTICLE_EXAMINED), text)
+        assertEquals(1, dao.sourceValidations(version.versionId).size)
     }
 
     private fun withArchive(block: suspend kotlinx.coroutines.CoroutineScope.(ResearchArchiveRepository) -> Unit) = runBlocking {

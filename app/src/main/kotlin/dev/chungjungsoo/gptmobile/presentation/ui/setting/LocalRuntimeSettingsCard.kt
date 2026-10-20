@@ -104,6 +104,16 @@ internal fun LocalRuntimeSettingsCard(viewModel: LocalRuntimeSettingsViewModel, 
             if (section == "diagnostics") {
                 Text(if (active.processIsolated) "Inference process: separate" else "Inference process: in-app fallback", style = MaterialTheme.typography.bodySmall)
                 Text("State: ${active.lifecycle.lowercase()} · MTP requested: ${active.requestedMtp ?: "model default"} · MTP active: ${active.effectiveMtp ?: "not reported"}", style = MaterialTheme.typography.bodySmall)
+                active.loadProgress?.let { progress ->
+                    val label = when (progress.stage) {
+                        "LOADING_WEIGHTS" -> "Loading weights"
+                        "ALLOCATING_CONTEXT" -> "Allocating context"
+                        "PREPARING_TEMPLATE" -> "Preparing prompt template"
+                        else -> "Native model initialization"
+                    }
+                    Text(label + (progress.loadFraction?.let { " · ${(it * 100).toInt()}%" } ?: ""), style = MaterialTheme.typography.bodySmall)
+                }
+                active.allocationObservation?.let { allocation -> Text("Observed native context: ${allocation.contextTokens} tokens · batch ${allocation.batchTokens}/${allocation.microBatchTokens}", style = MaterialTheme.typography.bodySmall) }
                 active.decision?.let {
                     Text("${if (it.profilePreserved) "Profile preserved" else "Qualified alternative selected"} · evidence ${it.qualification.name.lowercase()} · language backend ${it.actualLanguageBackend ?: "unknown"}", style = MaterialTheme.typography.bodySmall)
                     Text("${it.reason} · request ${it.requestCompleted?.let { completed -> if (completed) "completed" else "interrupted" } ?: "not yet completed"}", style = MaterialTheme.typography.bodySmall)

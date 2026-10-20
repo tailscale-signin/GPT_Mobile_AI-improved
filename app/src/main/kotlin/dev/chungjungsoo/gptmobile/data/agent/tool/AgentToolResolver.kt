@@ -192,7 +192,9 @@ class AgentToolResolver @Inject constructor(
                     runHealthReader,
                     accessAllowed = {
                         val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
-                        current?.let { dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.profileRevision(it) } == platform?.let { dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.profileRevision(it) } &&
+                        current != null &&
+                            platform != null &&
+                            dev.chungjungsoo.gptmobile.data.agent.sameRecoveryDestination(platform, current) &&
                             current?.enabled == true &&
                             !current.disableAllTools &&
                             !current.disableLocalTools &&
@@ -486,8 +488,10 @@ class AgentToolResolver @Inject constructor(
                     val access: suspend () -> Boolean = {
                         val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
                         val features = settingRepository.getFeatureSettings()
-                        current == platform &&
-                            current?.enabled == true &&
+                        current != null &&
+                            platform != null &&
+                            dev.chungjungsoo.gptmobile.data.agent.sameRecoveryDestination(platform, current) &&
+                            current.enabled &&
                             !current.disableAllTools &&
                             !current.disableLocalTools &&
                             features.researchFeature.enabled &&
@@ -655,17 +659,18 @@ class AgentToolResolver @Inject constructor(
                     return@map resolved.copy(canReuseResult = {
                         val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
                         val features = settingRepository.getFeatureSettings()
-                        current == platform &&
-                            current?.enabled == true &&
+                        current != null &&
+                            platform != null &&
+                            dev.chungjungsoo.gptmobile.data.agent.sameRecoveryDestination(platform, current) &&
+                            current.enabled &&
                             !current.disableAllTools &&
                             !current.disableRemoteTools &&
-                            dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.policyRevision(features, profileUid, null) == dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.policyRevision(featureSettings, profileUid, null) &&
                             features.isToolPluginEnabledForProfile(profileUid, ToolPluginId.WEB_SEARCH) &&
                             (
                                 resolved.connectionUid == null ||
                                     (
                                         snapshot.isNotEmpty() &&
-                                            toolConnectionRepository.listBindingsWithConnections(profileUid).filter { it.binding.connectionUid == resolved.connectionUid && it.binding.toolName == resolved.realToolName } == snapshot &&
+                                            recoveryBindingGrants(toolConnectionRepository.listBindingsWithConnections(profileUid).filter { it.binding.connectionUid == resolved.connectionUid && it.binding.toolName == resolved.realToolName }) == recoveryBindingGrants(snapshot) &&
                                             snapshot.all { it.connection?.type != ToolConnectionType.MCP || resolved.realToolName in it.connection?.approvedReadTools.orEmpty().lines().map(String::trim) }
                                         )
                                 )
@@ -686,14 +691,17 @@ class AgentToolResolver @Inject constructor(
             .map { resolved ->
                 val connection = resolved.connectionUid ?: return@map resolved
                 if (connection == "optional-universal-marketplace") return@map resolved
-                val admittedBindings = bindings.filter { it.binding.connectionUid == connection }
+                val admittedBindings = bindings.filter { it.binding.connectionUid == connection }.let { rows -> rows.filter { it.binding.toolName in setOf(resolved.realToolName, "*") }.ifEmpty { rows } }
+                val admittedNames = admittedBindings.map { it.binding.toolName }.toSet()
                 val previousCheck = resolved.canReuseResult
                 resolved.copy(canReuseResult = {
                     val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
-                    current?.let { dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.profileRevision(it) } == platform?.let { dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.profileRevision(it) } &&
+                    current != null &&
+                        platform != null &&
+                        dev.chungjungsoo.gptmobile.data.agent.sameRecoveryDestination(platform, current) &&
                         current?.enabled == true &&
                         admittedBindings.isNotEmpty() &&
-                        toolConnectionRepository.listBindingsWithConnections(profileUid).filter { it.binding.connectionUid == connection } == admittedBindings &&
+                        recoveryBindingGrants(toolConnectionRepository.listBindingsWithConnections(profileUid).filter { it.binding.connectionUid == connection && it.binding.toolName in admittedNames }) == recoveryBindingGrants(admittedBindings) &&
                         settingRepository.getFeatureSettings().isToolPluginEnabledForProfile(profileUid, ToolPluginId.connection(connection)) &&
                         previousCheck?.invoke() != false
                 })

@@ -8,9 +8,29 @@ internal data class LocalMemoryEstimate(
     val reserveBytes: Long,
     val availableBytes: Long?,
     val contextTokens: Int,
-    val method: String = "conservative_unmeasured"
+    val method: String = "conservative_unmeasured",
+    val components: Map<String, Long> = emptyMap(),
+    val requestedContextTokens: Int = contextTokens,
+    val planIdentity: String? = null,
+    val systemMemory: LocalSystemMemorySnapshot? = null
 ) {
     val budget: LocalMemoryBudget get() = LocalMemoryBudget(requiredBytes, reserveBytes, availableBytes)
+
+    fun receipt(stage: String, accepted: Boolean, existingEngineResident: Boolean = false) = LocalAdmissionReceipt(
+        stage = stage,
+        accepted = accepted,
+        requiredBytes = requiredBytes,
+        reserveBytes = reserveBytes,
+        availableBytes = availableBytes,
+        shortfallBytes = budget.shortfallBytes,
+        contextTokens = contextTokens,
+        method = method,
+        existingEngineResident = existingEngineResident,
+        components = components,
+        requestedContextTokens = requestedContextTokens,
+        planIdentity = planIdentity,
+        systemMemory = systemMemory
+    )
 
     fun rejection(detail: String, stage: String = "load", nativeLoadAttempted: Boolean = false): LocalMemoryAdmissionException {
         val configuredReserveMb = reserveBytes / MIB
@@ -21,7 +41,7 @@ internal data class LocalMemoryEstimate(
                 "'Use recommended 768 MB' and retry. This changes the reserve, not the model's context."
         } else {
             "Free device memory, release idle models, or choose a smaller compatible export. " +
-                "Fixed-context exports cannot be resized without a compatible export."
+                "Use Auto context for a resizable GGUF model. Fixed-context exports require a compatible smaller export."
         }
         val verification = if (nativeLoadAttempted) {
             "The engine was already loaded, but this request was blocked before generation."
@@ -33,12 +53,13 @@ internal data class LocalMemoryEstimate(
                 "availableBytes=${availableBytes ?: "unknown"} · totalBudgetBytes=${budget.totalBytes} · " +
                 "shortfallBytes=${budget.shortfallBytes ?: "unknown"} · recommendedReserveFits=$recommendedFits · " +
                 "contextTokens=$contextTokens · estimate=$method · nativeLoadAttempted=$nativeLoadAttempted. " +
-                "$detail $recovery $verification"
+                "$detail $recovery $verification",
+            receipt(stage, accepted = false, existingEngineResident = nativeLoadAttempted)
         )
     }
 }
 
-internal class LocalMemoryAdmissionException(message: String) : IllegalStateException(message)
+internal class LocalMemoryAdmissionException(message: String, val receipt: LocalAdmissionReceipt? = null) : IllegalStateException(message)
 
 /** Isolated-process transports may wrap the original preflight exception. */
 internal fun Throwable.isLocalMemoryAdmissionFailure(): Boolean =

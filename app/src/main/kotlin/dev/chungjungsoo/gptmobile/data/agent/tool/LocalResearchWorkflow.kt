@@ -466,7 +466,7 @@ internal class LocalResearchWorkflow(
 
 internal fun looksLikeConsentOrScriptShell(text: String): Boolean {
     val normalized = text.lowercase()
-    val challengeSignals = listOf("verify you are human", "checking your browser", "complete the captcha", "enable javascript and cookies to continue", "performing security verification", "checking your browser before accessing", "please enable cookies", "please turn javascript on", "your browser does not support cookies", "enable cookies to continue", "browser will redirect to your requested content", "checking your browser before continuing", "please wait while we check your browser")
+    val challengeSignals = listOf("verify you are human", "checking your browser", "complete the captcha", "enable javascript and cookies to continue", "performing security verification", "checking your browser before accessing", "please enable cookies", "cookies must be enabled", "cookies are disabled", "enable cookies in your browser", "please turn javascript on", "your browser does not support cookies", "enable cookies to continue", "browser will redirect to your requested content", "checking your browser before continuing", "please wait while we check your browser")
     if (normalized.length < 6000 && challengeSignals.any { it in normalized }) return true
     val signals = listOf(
         "onetrust",

@@ -350,6 +350,11 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
                     remote?.let { RuntimeWireTransport.send(context, it, packet.copy(operation = "ACK", text = ""), incoming) }
                 }
             }
+            "LOAD_PROGRESS" -> {
+                val progress = packet.nativeProgress
+                mutableState.value = state.value.copy(lifecycle = "LOADING", loadProgress = progress, allocationObservation = progress?.allocationObservation ?: state.value.allocationObservation)
+                AppLogRecorder.record("LocalModel", "GGUF_LOAD_PROGRESS · request=${packet.requestId} · stage=${progress?.stage} · fraction=${progress?.loadFraction} · elapsedMs=${progress?.elapsedMs} · observation=${progress?.allocationObservation}")
+            }
             "PHASE" -> {
                 mutableState.value = state.value.copy(lifecycle = if (packet.text == "PREFILL") "PREFILLING" else "DECODING")
                 packet.nativeProgress?.let { progress ->
@@ -367,7 +372,15 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
                     request.events?.offer(LocalRuntimeEvent.Error(packet.text, packet.errorCode?.let(::LocalToolLimitException)))
                     sessionId = ""
                 }
-                mutableState.value = state.value.copy(lifecycle = if (packet.operation == "ERROR") "FAILED" else "READY")
+                mutableState.value = when {
+                    packet.operation == "ERROR" -> state.value.copy(lifecycle = "FAILED")
+                    packet.operation == "CANCELLED" -> if (packet.state?.engineSpec != null && packet.state.engineHealth == "HEALTHY") packet.state.copy(lifecycle = "READY", processIsolated = true) else state.value.copy(lifecycle = "RECOVERING", engineSpec = null)
+                    request.packet.operation == "UNLOAD" -> LocalRuntimeState(processIsolated = true)
+                    packet.state != null -> packet.state.copy(processIsolated = true)
+                    request.packet.operation == "INSPECT" || request.packet.operation == "PING" || request.packet.operation == "VERIFY_RESET" -> state.value
+                    packet.operation == "DONE" && state.value.engineSpec != null -> state.value.copy(lifecycle = "READY")
+                    else -> state.value
+                }
                 request.finished.complete(packet)
             }
         }

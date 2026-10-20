@@ -109,7 +109,7 @@ import dev.chungjungsoo.gptmobile.util.formatPlatformTimeout
 import dev.chungjungsoo.gptmobile.util.pinnedExitUntilCollapsedScrollBehavior
 import dev.chungjungsoo.gptmobile.util.requiresLocalNetworkAccess
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun PlatformSettingScreen(
     modifier: Modifier = Modifier,
@@ -460,8 +460,22 @@ fun PlatformSettingScreen(
                                     )
                                 }
                             )
+                            if (platformData.compatibleType == ClientType.LITERT_LM) {
+                                val contextPreference = features.localContextPreferences[platformData.uid]
+                                Text("Context", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(horizontal = 16.dp))
+                                androidx.compose.foundation.layout.FlowRow(modifier = Modifier.padding(horizontal = 16.dp)) {
+                                    listOf<Int?>(null, 1024, 2048, 4096, 8192).forEach { tokens ->
+                                        androidx.compose.material3.FilterChip(
+                                            selected = if (tokens == null) contextPreference?.policy != "MANUAL" else contextPreference?.policy == "MANUAL" && contextPreference.tokens == tokens,
+                                            onClick = { settingViewModel.updateLocalContext(tokens) },
+                                            label = { Text(tokens?.toString() ?: "Auto") }
+                                        )
+                                    }
+                                }
+                                Text("Auto selects context for available memory. Required instructions and tools must still fit. Fixed-context exports retain their compiled size.", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 16.dp))
+                            }
                             val maxTokensDescription = platformData.maxTokens?.toString()
-                                ?: stringResource(R.string.output_tokens_unlimited)
+                                ?: if (platformData.compatibleType == ClientType.LITERT_LM) "Automatic" else stringResource(R.string.output_tokens_unlimited)
                             SettingItem(
                                 modifier = Modifier.heightIn(min = 64.dp),
                                 title = stringResource(R.string.max_tokens),
@@ -1071,7 +1085,7 @@ private fun LegacyMcpToolsDialog(
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun PlatformTopAppBar(
     title: String,

@@ -37,6 +37,7 @@ internal object DebugExportBundle {
             put("responseMapping", root["responseMapping"] ?: JsonArray(emptyList()))
             put("profileDependencies", root["profileDependencies"] ?: JsonArray(emptyList()))
             put("semanticCoverageVerified", false)
+            put("clockReconciliation", dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticClockReconciliation.summarize(root["appLogSnapshot"] as? JsonArray ?: JsonArray(emptyList())))
         }
         val parts = linkedMapOf(
             "conversation.json" to redactedConversation,
@@ -48,7 +49,7 @@ internal object DebugExportBundle {
         val manifest = buildJsonObject {
             put("schema", DebugExportSchema.BUNDLE)
             put("conversationSchema", root.getValue("schema"))
-            put("eventSchema", 5)
+            put("eventSchema", dev.chungjungsoo.gptmobile.data.diagnostics.RUN_EVENT_SCHEMA)
             put(
                 "capture",
                 root["capture"] ?: buildJsonObject {

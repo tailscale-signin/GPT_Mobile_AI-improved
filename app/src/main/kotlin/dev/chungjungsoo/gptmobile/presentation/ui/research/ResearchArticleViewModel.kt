@@ -27,7 +27,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-data class ArticleDetailState(val work: ResearchWork? = null, val version: ResearchWorkVersion? = null, val fields: List<StudyField> = emptyList(), val passages: List<EvidencePassage> = emptyList(), val appraisals: List<EvidenceAppraisal> = emptyList(), val bodyAvailable: Boolean = false, val loading: Boolean = false, val acceptedJobId: String? = null, val error: String? = null, val reviews: List<dev.chungjungsoo.gptmobile.data.research.feature.ResearchStudyReview> = emptyList())
+data class ArticleDetailState(val work: ResearchWork? = null, val version: ResearchWorkVersion? = null, val fields: List<StudyField> = emptyList(), val passages: List<EvidencePassage> = emptyList(), val appraisals: List<EvidenceAppraisal> = emptyList(), val bodyAvailable: Boolean = false, val loading: Boolean = false, val acceptedJobId: String? = null, val error: String? = null, val reviews: List<dev.chungjungsoo.gptmobile.data.research.feature.ResearchStudyReview> = emptyList(), val validations: List<dev.chungjungsoo.gptmobile.data.research.feature.ResearchSourceValidation> = emptyList(), val relationships: List<dev.chungjungsoo.gptmobile.data.research.feature.ResearchIdentityResolution> = emptyList())
 
 @HiltViewModel
 class ResearchArticleViewModel @Inject constructor(private val archive: ResearchArchiveRepository, private val coordinator: ArticleExaminationCoordinator, private val settings: SettingRepository) : ViewModel() {
@@ -55,7 +55,8 @@ class ResearchArticleViewModel @Inject constructor(private val archive: Research
                 val work = requireNotNull(archive.dao.work(workId)) { "Saved article is unavailable" }
                 val version = requireNotNull(versionId?.let { archive.dao.version(it) } ?: archive.dao.latestVersion(workId)) { "Saved version is missing" }
                 require(version.workId == workId && (version.publicSource || version.authority == authority)) { "Article access is no longer authorized" }
-                mutable.value = ArticleDetailState(work, version, archive.dao.fields(version.versionId), archive.dao.passages(version.versionId), archive.dao.appraisals(version.versionId), archive.text(version, authority) != null, reviews = archive.dao.studyReviews(version.versionId), acceptedJobId = mutable.value.acceptedJobId, error = admissionError)
+                val available = archive.text(version, authority) != null
+                mutable.value = ArticleDetailState(work, archive.dao.version(version.versionId), archive.dao.fields(version.versionId), archive.dao.passages(version.versionId), archive.dao.appraisals(version.versionId), available, validations = archive.dao.sourceValidations(version.versionId), relationships = archive.dao.identityResolutions(workId), reviews = archive.dao.studyReviews(version.versionId), acceptedJobId = mutable.value.acceptedJobId, error = admissionError)
             } catch (cancel: CancellationException) {
                 throw cancel
             } catch (error: Exception) {

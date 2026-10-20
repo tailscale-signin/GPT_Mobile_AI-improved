@@ -6,8 +6,12 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -24,7 +28,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.research.ResearchSession
-import dev.chungjungsoo.gptmobile.data.research.currentReviewRecord
 import dev.chungjungsoo.gptmobile.data.research.readableWorkCount
 import dev.chungjungsoo.gptmobile.presentation.common.FadingModalBottomSheet as ModalBottomSheet
 
@@ -37,41 +40,44 @@ internal fun ResearchProgressCard(sessions: List<ResearchSession>, activeRunIds:
     val latest = (activeSessions.ifEmpty { sessions }).maxByOrNull { it.snapshot.updatedAt } ?: return
     val snapshot = latest.snapshot
     val active = latest.runId in activeRunIds && !snapshot.complete
-    Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(if (active) "Research · ${snapshot.phase}" else "Research evidence", style = MaterialTheme.typography.titleSmall)
-            Text("${snapshot.searches} searches · ${snapshot.engineResponses} engine reports · ${snapshot.engineFailures} unavailable", style = MaterialTheme.typography.bodySmall)
-            Text("${snapshot.sources.readableWorkCount()} / ${snapshot.targetSources} readable sources · ${snapshot.sources.count { it.status == "Blocked" }} blocked · ${snapshot.claims.count { it.verdict == "Supported" }} supported claims", style = MaterialTheme.typography.bodySmall)
-            val accepted = snapshot.sources.readableWorkCount()
-            Text(
-                "${snapshot.sources.count { it.readable && it.status == "Read" }} complete · ${snapshot.sources.count { it.readable && it.status != "Read" }} partial · ${if (accepted == 0) {
-                    "No readable sources"
-                } else if (accepted < snapshot.targetSources) {
-                    "Partial coverage"
-                } else {
-                    "Target reached"
-                }}",
-                style = MaterialTheme.typography.bodySmall
-            )
-            val coverage = dev.chungjungsoo.gptmobile.data.research.assessResearchCoverage(snapshot.questionPlan, snapshot.claims, snapshot.sources)
-            Text("Question coverage: ${coverage.coveredQuestionIds.size}/${snapshot.questionPlan.size} · ${if (coverage.complete) "Covered by relevant passages" else "Incomplete or unverified"}", style = MaterialTheme.typography.bodySmall)
-            Text("${snapshot.modelEvents.count { it.local && it.outcome == "SUCCESS" }} local research stages · ${snapshot.claims.count { it.independentReview }} independently passage-reviewed claims", style = MaterialTheme.typography.bodySmall)
-            Text("Planning: ${snapshot.planningStatus} · final response delivery is tracked separately", style = MaterialTheme.typography.bodySmall)
-            Text(if (snapshot.claims.any { it.verdict == "Supported" }) "Some claims reviewed; see evidence for individual verdicts" else "Unreviewed evidence", style = MaterialTheme.typography.bodySmall)
-            remember(snapshot) { snapshot.currentReviewRecord() }?.let { Text("Independent review: " + it.status.lowercase().replace('_', ' '), style = MaterialTheme.typography.bodySmall) }
-            val papers = snapshot.sources.filter { it.paperId.isNotBlank() }
-            if (papers.isNotEmpty()) Text("${papers.size} academic works · ${papers.flatMap { it.engines }.distinct().size} underlying sources · ${papers.count { it.readable }} passages read", style = MaterialTheme.typography.bodySmall)
-            if (!active && writerFailure != null) {
-                Text("Evidence saved; final writer unavailable", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.error)
-                Text(writerFailure.take(400), style = MaterialTheme.typography.bodySmall)
-            }
-            androidx.compose.foundation.layout.FlowRow {
-                TextButton(onClick = { expanded = true }) { Text("View saved evidence") }
-                if (!active && writerFailure != null && onRecovery != null) {
-                    TextButton(onClick = { onRecovery("Retry failed stage") }) { Text(if (writerFailure.contains("403")) "Recheck writer and retry" else "Retry unfinished stage") }
-                    TextButton(onClick = { onRecovery("Proceed primary-only") }) { Text("Primary-only recovery") }
+    val readable = snapshot.sources.readableWorkCount()
+    val saved = snapshot.sources.distinctBy { it.equivalenceGroup.ifBlank { it.id } }.size
+    val progress = (readable.toFloat() / snapshot.targetSources.coerceAtLeast(1)).coerceIn(0f, 1f)
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
+        colors = androidx.compose.material3.CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.8f))
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            androidx.compose.foundation.layout.Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Rounded.Search, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Column(Modifier.weight(1f)) {
+                    Text(if (active) "Research · ${snapshot.phase}" else "Research evidence", style = MaterialTheme.typography.titleMedium)
+                    Text("$readable of ${snapshot.targetSources} readable · $saved discovered", style = MaterialTheme.typography.bodySmall)
                 }
-                if (active) TextButton(onClick = { activeSessions.forEach { stop(it.runId) } }) { Text("Stop and summarize") }
+                if (active) androidx.compose.material3.CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+            }
+            androidx.compose.material3.LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
+            val independent = snapshot.claims.count { it.independentReview && it.exactQuoteVerified }
+            Text(if (independent > 0) "$independent claims independently passage-reviewed" else "Independent review not completed", style = MaterialTheme.typography.labelMedium)
+            if (!active && writerFailure != null) {
+                Text("Evidence retained · writing needs attention", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.error)
+            }
+            androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                androidx.compose.material3.FilledTonalButton(onClick = { expanded = true }) {
+                    androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Rounded.Description, contentDescription = null)
+                    Text("Evidence", modifier = Modifier.padding(start = 6.dp))
+                }
+                if (active) {
+                    TextButton(onClick = { activeSessions.forEach { stop(it.runId) } }) {
+                        androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Rounded.Stop, contentDescription = null)
+                        Text("Summarize", modifier = Modifier.padding(start = 6.dp))
+                    }
+                }
+                if (!active && writerFailure != null && onRecovery != null) {
+                    TextButton(onClick = { onRecovery("Retry failed stage") }) { Text("Resume writing") }
+                    TextButton(onClick = { onRecovery("Proceed primary-only") }) { Text("Use primary") }
+                }
             }
         }
     }

@@ -33,6 +33,7 @@ data class ResearchSession(val runId: String, val chatId: Int, val snapshot: Res
 class ResearchSessionStore @Inject constructor(@ApplicationContext context: Context, private val featureDatabase: dev.chungjungsoo.gptmobile.data.research.feature.ResearchDatabase? = null, private val featureSettings: dev.chungjungsoo.gptmobile.data.repository.SettingRepository? = null) {
     private val appContext = context
     private val directory = File(context.filesDir, "research-history")
+    private val taskStore = ResearchTaskStore(directory)
     private val lock = Mutex()
     private val readerHealth = ConcurrentHashMap<Pair<Int, String>, ResearchReaderHealth>()
     private val turnBudgets = linkedMapOf<Pair<Int, String>, Pair<Long, ResearchBudget>>()
@@ -136,6 +137,21 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
             }
         }
         result
+    }
+
+    suspend fun acceptTask(chatId: Int, rootWorkId: String, sourceMessageId: Int, task: String, participants: List<String>, primary: String?, settingsRevision: String, authorityRevision: String, persistent: Boolean): AcceptedResearchTask = withContext(Dispatchers.IO) {
+        check(chatId !in deletedChats) { "Conversation was deleted" }
+        taskStore.accept(AcceptedResearchTask(taskId = researchHash("task:$rootWorkId"), rootWorkId = rootWorkId, chatId = chatId, originatingUserMessageId = sourceMessageId, taskText = task, intent = if (isResearchConversationOnly(task)) "NOT_NEEDED" else "REQUIRED", participantUids = participants.distinct(), primaryUid = primary, settingsRevision = settingsRevision, sourceAuthorityRevision = authorityRevision, acceptedAt = System.currentTimeMillis()), persistent)
+    }
+    suspend fun exportAcceptedTasks(chatIds: Set<Int>): List<AcceptedResearchTask> = withContext(Dispatchers.IO) { taskStore.exportTasks(chatIds) }
+    suspend fun restoreAcceptedTasks(tasks: List<AcceptedResearchTask>) = withContext(Dispatchers.IO) {
+        tasks.filter { it.chatId !in deletedChats }.forEach { task -> taskStore.accept(task, true) }
+    }
+    suspend fun recordResume(rootWorkId: String, actionId: String, stage: String, destination: String, policyRevision: String, persistent: Boolean) = withContext(Dispatchers.IO) {
+        val task = taskStore.accepted(rootWorkId, persistent) ?: return@withContext
+        val latest = mutable.value.values.filter { it.turnId == rootWorkId }.maxByOrNull { it.snapshot.updatedAt }
+        val revision = latest?.snapshot?.let { researchHash(it.json().toString()) }.orEmpty()
+        taskStore.resume(ResearchResumeRequest(actionId, task.taskId, rootWorkId, latest?.runId.orEmpty(), stage, destination, revision, policyRevision, System.currentTimeMillis()), persistent)
     }
 
     fun stop(runId: String) {
@@ -276,6 +292,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                 check(envelope.number("chatId") == chatId)
                 ledger.restore(Json.decodeFromJsonElement(dev.chungjungsoo.gptmobile.data.agent.ResearchRunLedger.State.serializer(), requireNotNull(envelope["state"])))
             }
+            ledger.configureAcquisition(plan.sourceGoal)
             ResearchBudget(1, ledger = ledger).also { turnBudgets[key] = System.currentTimeMillis() to it }
         }
         override fun cancellationOrigin(): String = if (chatId in deletedChats) {
@@ -315,7 +332,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                     own
                 } else {
                     val base = own ?: ResearchSnapshot(task)
-                    val merged = (base.sources + publicSources).groupBy { it.equivalenceGroup.ifBlank { it.canonicalUrl } }.values.map { versions -> versions.maxWith(compareBy<ResearchSource> { it.readable }.thenBy { it.retrievedAt }) }
+                    val merged = (base.sources + publicSources).groupBy { it.equivalenceGroup.ifBlank { it.canonicalUrl } }.values.map { versions -> versions.maxWith(compareBy<ResearchSource> { it.readable }.thenBy { it.retrievalQuality == "FULL_TEXT" }.thenBy { it.bodyChunks.size }.thenBy { it.passage.length }.thenBy { it.retrievedAt }) }
                     val sharedClaims = siblings.flatMap { sibling ->
                         val permittedIds = sibling.snapshot.sources.filter { it.publicCapture && it.retrievalReceipt.isNotBlank() }.mapTo(hashSetOf()) { it.id }
                         sibling.snapshot.claims.filter { it.sourceId in permittedIds }
@@ -434,12 +451,23 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
             }
         }
 
+        override suspend fun bindTask(snapshot: ResearchSnapshot): ResearchSnapshot = withContext(Dispatchers.IO) {
+            val accepted = taskStore.accepted(turnId, persistent) ?: return@withContext snapshot
+            require(snapshot.taskId.isBlank() || snapshot.taskId == accepted.taskId) { "RESEARCH_CHECKPOINT_TASK_MISMATCH" }
+            snapshot.copy(task = accepted.taskText, taskId = accepted.taskId, rootWorkId = accepted.rootWorkId, originatingUserMessageId = accepted.originatingUserMessageId, taskChatId = accepted.chatId)
+        }
+
         override suspend fun save(snapshot: ResearchSnapshot) = withContext(Dispatchers.IO) {
             lock.withLock {
                 if (chatId in deletedChats || generation != currentGeneration(chatId, turnId, persistent)) return@withLock
                 val priorPlan = mutable.value[runId]?.takeIf { it.authority == authority }?.snapshot?.delegationPlan ?: if (persistent) read(file(runId))?.takeIf { it.authority == authority }?.snapshot?.delegationPlan else null
                 val inherited = mutable.value.values.filter { it.chatId == chatId && it.turnId == turnId && it.authority == authority }.map { it.snapshot }
-                val snapshot = mergeResearchSnapshots(inherited, if (snapshot.delegationPlan == null) snapshot.copy(delegationPlan = priorPlan) else snapshot)
+                val merged = mergeResearchSnapshots(inherited, if (snapshot.delegationPlan == null) snapshot.copy(delegationPlan = priorPlan) else snapshot)
+                val accepted = taskStore.accepted(turnId, persistent)
+                val snapshot = bindTask(merged)
+                accepted?.let { accepted ->
+                    taskStore.checkpoint(accepted, runId, authority, generation, snapshot, persistent)
+                }
                 val session = ResearchSession(runId, chatId, snapshot, turnId, authority)
                 if (!persistent) {
                     mutable.update { (it + (runId to session)).entries.sortedByDescending { entry -> entry.value.snapshot.updatedAt }.take(24).associate { entry -> entry.toPair() } }
@@ -656,6 +684,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
             }
         }
         deletedChats += chatId
+        taskStore.clearChat(chatId)
         temporaryBodies.keys.removeAll { it.startsWith("$chatId:") }
         readerHealth.keys.removeAll { it.first == chatId }
         workLeases.keys.removeAll { it.startsWith("$chatId:") }
@@ -734,8 +763,12 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
             val workIds = (receipts.mapNotNull { it.workId } + jobs.map { it.workId }).toSet()
             val memberships = dao.allMemberships().filter { it.workId in workIds }
             buildJsonObject {
-                put("schemaVersion", 1)
-                put("databaseVersion", 4)
+                put("schemaVersion", 2)
+                put("acceptedTasks", Json.encodeToJsonElement(kotlinx.serialization.builtins.ListSerializer(AcceptedResearchTask.serializer()), taskStore.exportTasks(setOf(chatId))))
+                put("sourceValidations", Json.encodeToJsonElement(kotlinx.serialization.builtins.ListSerializer(dev.chungjungsoo.gptmobile.data.research.feature.ResearchSourceValidation.serializer()), dao.allSourceValidations().filter { row -> dao.version(row.versionId)?.workId in workIds }))
+                put("identityResolutions", Json.encodeToJsonElement(kotlinx.serialization.builtins.ListSerializer(dev.chungjungsoo.gptmobile.data.research.feature.ResearchIdentityResolution.serializer()), dao.allIdentityResolutions().filter { it.workId in workIds && it.relatedWorkId in workIds }))
+                put("jobTransitions", Json.encodeToJsonElement(kotlinx.serialization.builtins.ListSerializer(dev.chungjungsoo.gptmobile.data.research.feature.ExaminationTransition.serializer()), jobs.flatMap { dao.transitions(it.jobId) }))
+                put("databaseVersion", database.openHelper.readableDatabase.version)
                 put("scope", "selected_chat")
                 put("chatId", chatId)
                 put("archivedStudies", memberships.size)
@@ -757,6 +790,10 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                                 put("lease", job.lease)
                                 put("reason", job.terminalReason)
                                 put("updatedAt", job.updatedAt)
+                                put("lastHeartbeatAt", job.lastHeartbeatAt)
+                                put("deadlineAt", job.deadlineAt)
+                                put("workerId", job.workerId)
+                                put("cancellationOrigin", job.cancellationOrigin)
                             }
                         }
                     )
@@ -775,7 +812,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                         }
                     )
                 )
-                put("historyCoverage", "Persisted latest job state and save receipts; earlier log events may be incomplete")
+                put("historyCoverage", "Persisted task, job transition, source validation and save receipt records; legacy log events may be incomplete")
             }
         }
     }

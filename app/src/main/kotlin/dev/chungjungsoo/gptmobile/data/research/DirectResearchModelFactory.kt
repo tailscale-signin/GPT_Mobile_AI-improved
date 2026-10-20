@@ -129,6 +129,7 @@ internal object DirectResearchModelFactory {
             }
         }
         return ResearchModelCoordinator(
+            healthScope = turnId,
             workers = listOfNotNull(helper?.let(::endpoint), primary.takeIf { it.compatibleType != ClientType.LITERT_LM }?.let(::endpoint)),
             reviewer = reviewer?.let(::endpoint),
             stillEnabled = stillEnabled,

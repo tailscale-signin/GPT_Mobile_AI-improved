@@ -17,6 +17,11 @@ data class ResearchQuestion(val id: String, val text: String, val evidenceNeeded
 
 data class ResearchQuery(val id: String, val text: String, val questionIds: List<String>)
 data class ResearchPlanContract(val questions: List<ResearchQuestion>, val queries: List<ResearchQuery>, val noResearchNeeded: Boolean = false, val fallback: Boolean = false) {
+    fun validateTask(task: String) {
+        val policyPhrases = listOf("source goal", "coverage policy", "retry failed stage", "proceed primary-only")
+        require(questions.none { question -> policyPhrases.any { phrase -> question.text.contains(phrase, true) && !task.contains(phrase, true) } }) { "Planner researched an operational instruction instead of the accepted task" }
+    }
+
     companion object {
         /** Explicit adapters for old strings, observed question objects, and versioned rows. */
         fun parse(value: JsonObject, requiresEvidence: Boolean = false): ResearchPlanContract {
@@ -44,18 +49,22 @@ data class ResearchPlanContract(val questions: List<ResearchQuestion>, val queri
             val decision = value["noResearchNeeded"]
             require(decision == null || decision is JsonPrimitive && !decision.isString && decision.booleanOrNull != null) { "Invalid no-research decision" }
             val unnecessary = (decision as? JsonPrimitive)?.booleanOrNull == true
-            require(!unnecessary || questions.isEmpty() && queries.isEmpty()) { "No-research decision conflicts with planned work" }
+            if (unnecessary && !requiresEvidence) return ResearchPlanContract(emptyList(), emptyList(), noResearchNeeded = true)
             require(!unnecessary || !requiresEvidence) { "Required evidence cannot be waived by the planner" }
             require(questions.isNotEmpty() || unnecessary && queries.isEmpty()) { "Empty plan is not an explicit no-research decision" }
             require(queries.map { it.id }.distinct().size == queries.size)
             return ResearchPlanContract(questions, queries, unnecessary)
         }
 
-        fun fallback(task: String) = ResearchPlanContract(
-            listOf(ResearchQuestion("Q1", task.take(350).ifBlank { "Resolve the original task" }, "Relevant evidence with explicit source and limitations")),
-            listOf(ResearchQuery("QRY1", task.take(500).ifBlank { "original task evidence" }, listOf("Q1"))),
-            fallback = true
-        )
+        fun fallback(task: String): ResearchPlanContract {
+            require(task.isNotBlank()) { "A research task is required" }
+            if (isResearchConversationOnly(task)) return ResearchPlanContract(emptyList(), emptyList(), noResearchNeeded = true)
+            return ResearchPlanContract(
+                listOf(ResearchQuestion("Q1", task.take(350).ifBlank { "Resolve the original task" }, "Relevant evidence with explicit source and limitations")),
+                listOf(ResearchQuery("QRY1", task.take(500).ifBlank { "original task evidence" }, listOf("Q1"))),
+                fallback = true
+            )
+        }
     }
 }
 

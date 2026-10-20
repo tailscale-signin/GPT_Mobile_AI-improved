@@ -532,6 +532,13 @@ class PlatformSettingViewModel @Inject constructor(
         closeTopKDialog()
     }
 
+    fun updateLocalContext(tokens: Int?) {
+        val value = dev.chungjungsoo.gptmobile.data.localruntime.LocalContextPreference(if (tokens == null) "AUTO" else "MANUAL", tokens).validated()
+        viewModelScope.launch {
+            settingRepository.mutateFeatureSettings { current -> current.copy(localContextPreferences = current.localContextPreferences + (platformUid to value)) }
+        }
+    }
+
     fun updateMaxTokens(maxTokens: Int?) {
         val platform = platformState.value ?: return
         if (maxTokens != null && maxTokens < MIN_MAX_TOKENS) return

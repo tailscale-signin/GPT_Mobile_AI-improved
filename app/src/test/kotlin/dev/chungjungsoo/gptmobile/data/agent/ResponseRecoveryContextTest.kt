@@ -39,6 +39,9 @@ class ResponseRecoveryContextTest {
         assertFalse(sameRecoveryDestination(profile, profile.copy(apiUrl = "https://other.example")))
         assertFalse(sameRecoveryDestination(profile, profile.copy(token = "b")))
         assertFalse(sameRecoveryDestination(profile, profile.copy(model = "other")))
+        assertTrue(sameRecoveryDestination(profile, profile.copy(temperature = 0.2f, maxTokens = 8000, reasoning = true)))
+        assertEquals("", eligibleRecoveryDraft("Error: Saved evidence needs permission"))
+        assertEquals("An error in the paper was corrected.", eligibleRecoveryDraft("An error in the paper was corrected."))
     }
 
     @Test fun researchDeliveryUsesOnlyAuthorizedRetainedSnapshots() = runTest {

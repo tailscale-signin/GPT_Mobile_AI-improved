@@ -209,6 +209,25 @@ interface AgentPersistenceDao {
     @Query("UPDATE agent_runs SET ownership_fence = :nextFence WHERE run_id = :runId AND ownership_fence = :expectedFence AND status = 'RUNNING'")
     suspend fun advanceCombinedFence(runId: String, expectedFence: Long, nextFence: Long): Int
 
+    /** A Research fallback replaces one exact draft under the live run's ownership fence. */
+    @Transaction
+    suspend fun replaceResearchDraft(runId: String, expectedFence: Long, previousDigest: String, text: String): MessageV2? {
+        val run = recoveryRun(runId) ?: return null
+        if (run.status != "RUNNING" || run.ownershipFence != expectedFence || runId.startsWith("combined-synthesis:")) return null
+        val current = rawRecoveryMessage(run.assistantMessageId) ?: return null
+        if (current.currentRunId != runId || current.ownershipFence != expectedFence || dev.chungjungsoo.gptmobile.data.research.researchHash(current.content) != previousDigest) return null
+        require(text.isNotBlank())
+        val nextFence = Math.addExact(expectedFence, 1L)
+        check(advanceCombinedFence(runId, expectedFence, nextFence) == 1)
+        val now = System.currentTimeMillis() / 1000
+        val previous = current.snapshotLatestAssistantRevision(now)
+        val timeline = current.timeline.filterNot { it.type == dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.TEXT } +
+            dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.TEXT, content = text)
+        val replacement = current.copy(content = text, timeline = timeline, ownershipFence = nextFence, revisions = listOfNotNull(previous) + current.revisions, activeRevisionIndex = ACTIVE_REVISION_LATEST)
+        updateMessage(replacement)
+        return replacement
+    }
+
     /** Archive old bytes and citations, advance ownership, and replace the live revision together. */
     @Transaction
     suspend fun replaceCombinedAnswer(

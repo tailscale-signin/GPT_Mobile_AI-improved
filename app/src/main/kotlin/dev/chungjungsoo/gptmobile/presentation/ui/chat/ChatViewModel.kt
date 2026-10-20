@@ -553,11 +553,20 @@ class ChatViewModel @Inject constructor(
     }
 
     private fun captureCombinedTools(text: String): ChatMcpToolConfig {
-        val tools = _chatToolConfig.value
+        val tools = _chatToolConfig.value.let { current ->
+            if (dev.chungjungsoo.gptmobile.data.research.isResearchConversationOnly(text)) current.copy(research = current.research?.copy(researchToggle = false)) else current
+        }
         val room = _chatRoom.value
         if (room.conversationMode != ConversationMode.COMBINED) return tools.copy(combined = null)
-        val selected = _activePlatformUids.value.filterNot { it in _disabledPlatformUids.value }
-            .ifEmpty { _activePlatformUids.value }
+        val recovery = dev.chungjungsoo.gptmobile.data.agent.resolveTaskRecovery(_groupedMessages.value.userMessages + MessageV2(chatId = room.id, content = text, platformType = null))
+        val available = _activePlatformUids.value.filterNot { it in _disabledPlatformUids.value }
+        val selected = if (recovery?.primaryOnly == true) {
+            val primary = room.combinedPrimaryUid ?: room.activePlatform.firstOrNull()
+            require(primary != null && primary in available) { "The designated primary is unavailable. Enable it or select an approved primary before continuing." }
+            listOf(primary)
+        } else {
+            available.ifEmpty { _activePlatformUids.value }
+        }
         val profiles = _platformsInApp.value.filter { it.enabled }.associateBy { it.uid }
         require(selected.isNotEmpty() && selected.all { it in profiles }) { "Select an available profile before sending." }
         val preferences = featureSettings.value.conversationCombined[room.id]
@@ -566,11 +575,11 @@ class ChatViewModel @Inject constructor(
             settings = preferences,
             participantUids = selected,
             requestedModels = selected.associateWith { _chatPlatformModels.value[it] ?: profiles.getValue(it).model },
-            userPrompt = text,
+            userPrompt = recovery?.originalRequest ?: text,
             preferredOwnerUid = room.combinedPrimaryUid,
             requestedTemperatures = selected.associateWith { preferences.creativity ?: resolvePlatformModel(profiles.getValue(it)).temperature },
             acceptedResearch = (tools.research ?: featureSettings.value.conversationResearch[room.id])?.normalized()
-                ?.takeIf { it.researchToggle && it.depth > 0 }?.let { research ->
+                ?.takeIf { it.researchToggle && it.depth > 0 && !dev.chungjungsoo.gptmobile.data.research.isResearchConversationOnly(recovery?.originalRequest ?: text) }?.let { research ->
                     dev.chungjungsoo.gptmobile.data.agent.CombinedResearchRequirement(
                         depth = research.depth,
                         sourceGoal = selected.maxOf { uid ->
@@ -1925,6 +1934,18 @@ class ChatViewModel @Inject constructor(
                         }
                         val contextMessages = withContext(messageGroupingDispatcher) {
                             groupPersistedMessages(chatRepository.observeMessageWindow(persisted.chatRoom.id, visibleHistoryTurns.value).first(), enabledPlatformsInChat, persisted.chatRoom.id)
+                        }
+                        val recoveryTask = dev.chungjungsoo.gptmobile.data.agent.resolveTaskRecovery(contextMessages.userMessages)
+                        val originalMessageId = recoveryTask?.sourceMessageId ?: persisted.userMessage.id
+                        val taskText = recoveryTask?.originalRequest ?: persisted.userMessage.content
+                        if (taskText.isNotBlank()) {
+                            researchSessionStore?.acceptTask(
+                                persisted.chatRoom.id, "${persisted.chatRoom.id}:$originalMessageId", originalMessageId, taskText,
+                                platforms.map { it.value.uid }, dispatchTools.combined?.requested?.preferredOwnerUid,
+                                dev.chungjungsoo.gptmobile.data.research.researchHash(kotlinx.serialization.json.Json.encodeToString(featureSettings.value) + kotlinx.serialization.json.Json.encodeToString(dispatchTools)),
+                                dev.chungjungsoo.gptmobile.data.research.researchHash(platforms.joinToString { kotlinx.serialization.json.Json.encodeToString(it.value) }),
+                                !persisted.chatRoom.isTemporary
+                            )
                         }
                         agentRunCoordinator.start(
                             platforms.mapIndexed { runIndex, (_, platform) ->

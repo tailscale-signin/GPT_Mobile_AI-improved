@@ -13,6 +13,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -30,7 +31,22 @@ import kotlinx.coroutines.withContext
 @Composable
 internal fun ResearchEngineHealthPanel(disabledEngineIds: Set<String> = emptySet(), onEngineEnabled: ((String, Boolean) -> Unit)? = null) {
     val context = LocalContext.current
-    val store = remember(context) { ResearchTelemetryStore(File(context.filesDir, "research-telemetry")) }
+    var initializationRetry by remember(context) { mutableStateOf(0) }
+    val initialized by produceState<Result<ResearchTelemetryStore>?>(null, context, initializationRetry) {
+        value = try {
+            Result.success(withContext(Dispatchers.IO) { ResearchTelemetryStore(File(context.filesDir, "research-telemetry")) })
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            Result.failure(failure)
+        }
+    }
+    val store = initialized?.getOrNull()
+    if (store == null) {
+        Text(if (initialized == null) "Loading engine history…" else "Engine history is unavailable. Research settings remain editable.")
+        if (initialized?.isFailure == true) TextButton(onClick = { initializationRetry++ }) { Text("Retry") }
+        return
+    }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     var exportStatus by remember { mutableStateOf<String?>(null) }
     val export = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/json")) { uri ->

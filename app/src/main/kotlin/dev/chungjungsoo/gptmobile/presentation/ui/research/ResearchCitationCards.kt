@@ -150,7 +150,7 @@ fun ResearchCitationCards(message: MessageV2, displayedSegment: String, profileU
         }
     }
     selected?.let { binding ->
-        val crawler = (features.conversationResearch[message.chatId] ?: currentTools().research)?.crawlerProfileUid ?: features.researchFeature.crawlerProfileUid.orEmpty()
+        val crawler = dev.chungjungsoo.gptmobile.data.research.feature.ResearchProfileResolver.examinerUid(features, message.chatId, currentTools())
         val liveVersion = selectedReview(binding)?.versionId ?: binding.versionId
         ResearchArticleDialog(binding.workId, liveVersion, binding.authority, message.chatId, crawler, currentTools, { selected = null }, originalVersionId = binding.versionId)
     }

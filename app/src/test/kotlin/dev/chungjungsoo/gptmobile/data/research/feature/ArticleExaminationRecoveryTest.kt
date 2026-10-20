@@ -74,7 +74,7 @@ class ArticleExaminationRecoveryTest {
                 attempts++
                 arg<(String) -> Unit>(6).invoke("physical-$attempts")
                 if (attempts == 1) error("Synthetic session construction failure")
-                val reply = if (attempts == 2) "{" else """{"schemaVersion":1,"design":"RANDOMIZED_TRIAL","passages":[{"id":"P1","quote":"Methods: randomized 100 participants.","locator":"Methods","start":0}],"fields":[],"judgments":[],"limitations":["Uncertain effect"]}"""
+                val reply = if (attempts in 2..3) "{" else """{"schemaVersion":1,"design":"RANDOMIZED_TRIAL","passages":[{"id":"P1","quote":"Methods: randomized 100 participants.","locator":"Methods","start":0}],"fields":[],"judgments":[],"limitations":["Uncertain effect"]}"""
                 object : AgentProviderSession {
                     override val handlesToolsInternally = false
                     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(ProviderEvent.TextDelta(reply), ProviderEvent.Failed("Synthetic stream reset"))
@@ -105,13 +105,13 @@ class ArticleExaminationRecoveryTest {
             }
             resume(failed)
             val malformed = awaitStage(ExaminationStage.FAILED)
-            assertEquals(malformed.terminalReason, listOf("physical-1", "physical-2"), Json.decodeFromString<ExaminationCheckpoint>(malformed.checkpointJson).invocationIds)
+            assertEquals(malformed.terminalReason, listOf("physical-1", "physical-2", "physical-3"), Json.decodeFromString<ExaminationCheckpoint>(malformed.checkpointJson).invocationIds)
             resume(malformed)
             val done = awaitStage(ExaminationStage.FAILED)
             assertTrue(done.terminalReason.orEmpty().contains("EXTRACTION_EMPTY"))
             assertEquals(null, database.research().membership(original.workId)?.protectionReason)
             val checkpoint = Json.decodeFromString<ExaminationCheckpoint>(done.checkpointJson)
-            assertEquals(listOf("physical-1", "physical-2", "physical-3"), checkpoint.invocationIds)
+            assertEquals(listOf("physical-1", "physical-2", "physical-3", "physical-4"), checkpoint.invocationIds)
             assertEquals(1, checkpoint.nextChunk)
             assertTrue(checkpoint.pendingAppraisalIds.isEmpty())
             assertEquals(body, archive.text(requireNotNull(database.research().version(requireNotNull(checkpoint.versionId))), "public"))
@@ -119,6 +119,71 @@ class ArticleExaminationRecoveryTest {
         } finally {
             jobId?.let { coordinator?.cancel(it) }
             delay(50)
+            database.close()
+            chats.close()
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test fun switchedDiscoveryProviderRepairsAppraisalAndCommitsGroundedReview() = runBlocking {
+        val app = ApplicationProvider.getApplicationContext<Context>()
+        val directory = kotlin.io.path.createTempDirectory("article-provider-switch").toFile()
+        val context = object : ContextWrapper(app) {
+            override fun getFilesDir() = directory
+        }
+        val database = Room.inMemoryDatabaseBuilder(app, ResearchDatabase::class.java).allowMainThreadQueries().build()
+        val chats = Room.inMemoryDatabaseBuilder(app, ChatDatabaseV2::class.java).allowMainThreadQueries().build()
+        try {
+            val sessions = ResearchSessionStore(context, database)
+            val archive = ResearchArchiveRepository(database, sessions)
+            val profile = PlatformV2(uid = "fixture", name = "Synthetic appraiser", model = "scripted")
+            val features = AppFeatureSettings(delegation = ModelDelegationSettings(reviewMode = dev.chungjungsoo.gptmobile.data.delegation.DelegationReviewMode.OFF, deepResearch = DeepResearchSettings(academicSources = true)), researchFeature = ResearchFeatureSettings(crawlerProfileUid = profile.uid, backgroundExamination = true))
+                .withToolPluginEnabled(ToolPluginId.DEEP_RESEARCH, true).withProfileToolPluginEnabled(profile.uid, ToolPluginId.DEEP_RESEARCH, true)
+            val settings = mockk<SettingRepository>()
+            coEvery { settings.getFeatureSettings() } returns features
+            coEvery { settings.fetchPlatformV2s() } returns listOf(profile)
+            val source = ResearchSource("S1", "https://example.org/trial", "Synthetic trial", doi = "10.1234/trial", status = "Metadata only", retrievalQuality = "METADATA", retrievedAt = 1000)
+            val original = archive.capture(source, "Metadata record", "public", true, -1, "original", true, 0, ownerKind = "import", ownerId = "fixture-import")
+            val body = "Outcome: recovery. No difference."
+            val academic = mockk<AcademicNativeClient>()
+            coEvery { academic.getPaper(any(), any(), any(), any()) } throws IllegalArgumentException("Academic provider disabled")
+            coEvery { academic.read(any(), any(), any(), any(), any(), any()) } returns AcademicEvidence("url:fixture", "revision-one", source.canonicalUrl, 2000, researchHash(body), body, "read")
+            val models = mockk<ChatRepository>()
+            var attempts = 0
+            coEvery { models.openResearchSession(any(), any(), any(), any(), any(), any(), any()) } answers {
+                attempts++
+                arg<(String) -> Unit>(6).invoke("physical-$attempts")
+                val prompt = arg<String>(1)
+                val reply = if (attempts == 1) {
+                    "{"
+                } else if (arg<String>(3) == "research-appraisal") {
+                    assertTrue(prompt.contains("previous artifact failed validation"))
+                    """{"schemaVersion":1,"design":"OBSERVATIONAL","passages":[{"id":"P1","quote":"$body","locator":"Results","start":900}],"fields":[{"name":"outcome","outcomeKey":"recovery","value":"recovery","unit":null,"missingness":"PRESENT","passageIds":["P1"]},{"name":"effect","outcomeKey":"recovery","value":"No difference.","unit":null,"missingness":"PRESENT","passageIds":["P1"]}],"judgments":[],"limitations":["Methods unavailable"]}"""
+                } else {
+                    val packet = Json.parseToJsonElement(prompt.substringAfter("<evidence>").substringBefore("</evidence>")) as kotlinx.serialization.json.JsonArray
+                    val id = ((packet.first() as kotlinx.serialization.json.JsonObject)["passageId"] as kotlinx.serialization.json.JsonPrimitive).content
+                    """{"conclusion":"No difference.","limitation":"Methods unavailable.","outcomeKey":"recovery","passageIds":["$id"],"reliability":[],"accuracy":[]}"""
+                }
+                object : AgentProviderSession {
+                    override val handlesToolsInternally = false
+                    override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(ProviderEvent.TextDelta("```json\n$reply\n```"), ProviderEvent.Completed)
+                }
+            }
+            val coordinator = ArticleExaminationCoordinator(archive, settings, chats, academic, models, Provider { error("No gateway authorized") }, sessions)
+            val tools = dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig(research = dev.chungjungsoo.gptmobile.data.model.MultiSearchResearchSelection(enabledProviders = setOf("openalex"), crawlerProfileUid = ""))
+            val id = coordinator.userExamine(ExaminationRequest(original.workId, versionId = original.versionId)) { tools }
+            assertEquals(ExaminationStage.COMPLETE_PARTIAL, withTimeout(20000) { coordinator.awaitExecution(id) })
+            val job = requireNotNull(database.research().job(id))
+            val saved = Json.decodeFromString<ExaminationCheckpoint>(job.checkpointJson)
+            assertEquals(3, attempts)
+            assertEquals(listOf("physical-1", "physical-2", "physical-3"), saved.invocationIds)
+            assertEquals("EVIDENCE_CHECKED", database.research().membership(original.workId)?.protectionReason)
+            val review = database.research().studyReviews(requireNotNull(saved.versionId)).single()
+            assertEquals("Limited review", review.status)
+            assertEquals(null, review.overallScore)
+            assertEquals(body, archive.text(requireNotNull(database.research().version(saved.versionId)), "public"))
+            coVerify(exactly = 1) { academic.read(any(), any(), any(), any(), any(), any()) }
+        } finally {
             database.close()
             chats.close()
             directory.deleteRecursively()

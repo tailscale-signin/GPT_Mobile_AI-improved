@@ -43,8 +43,9 @@ fun ResearchArticleDialog(workId: String, versionId: String? = null, authority: 
     val jobs by viewModel.jobs.collectAsStateWithLifecycle()
     val focusedJob by viewModel.focusedJob.collectAsStateWithLifecycle()
     var profileUid by rememberSaveable(workId) { mutableStateOf(initialProfileUid) }
-    LaunchedEffect(features.researchFeature.crawlerProfileUid) {
-        if (profileUid.isBlank()) profileUid = (features.conversationResearch[chatId] ?: currentTools().research)?.crawlerProfileUid ?: features.researchFeature.crawlerProfileUid.orEmpty()
+    val configuredCrawlerUid = dev.chungjungsoo.gptmobile.data.research.feature.ResearchProfileResolver.examinerUid(features, chatId, currentTools())
+    LaunchedEffect(configuredCrawlerUid) {
+        if (profileUid.isBlank()) profileUid = configuredCrawlerUid
     }
     var showingOriginal by rememberSaveable(workId, versionId) { mutableStateOf(false) }
     val displayedVersionId = if (showingOriginal) originalVersionId ?: versionId else versionId

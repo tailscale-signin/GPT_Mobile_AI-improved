@@ -6,7 +6,11 @@ import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 
 internal object ResearchProfileResolver {
     fun examinerUid(features: AppFeatureSettings, chatId: Int, tools: ChatMcpToolConfig, override: String = ""): String =
-        override.ifBlank { (features.conversationResearch[chatId] ?: tools.research)?.crawlerProfileUid ?: features.researchFeature.crawlerProfileUid.orEmpty() }
+        override.ifBlank {
+            features.conversationResearch[chatId]?.crawlerProfileUid.orEmpty().ifBlank {
+                tools.research?.crawlerProfileUid.orEmpty().ifBlank { features.researchFeature.crawlerProfileUid.orEmpty() }
+            }
+        }
 
     fun dedicatedReviewer(features: AppFeatureSettings, profiles: List<PlatformV2>, appraiser: PlatformV2): PlatformV2? {
         val selected = features.researchFeature.reviewerProfileUid ?: return null

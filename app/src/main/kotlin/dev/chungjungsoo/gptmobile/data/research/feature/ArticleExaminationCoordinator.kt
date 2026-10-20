@@ -171,11 +171,12 @@ class ArticleExaminationCoordinator @Inject constructor(
             val profile = requireNotNull(settings.fetchPlatformV2s().firstOrNull { it.enabled && it.uid == ResearchProfileResolver.examinerUid(features, request.chatId, currentTools(), request.profileUid) }) { "Choose an enabled examination profile" }
             examinationAdmission(features, profile, request, currentTools())?.let { error(it) }
             val reviewPolicy = dev.chungjungsoo.gptmobile.data.delegation.DelegationPolicyResolver.suppressForCombined(features.delegationFor(profile.uid).normalized(), acceptedCombined)
-            if (features.researchFeature.reviewerProfileUid != null) {
-                check(ResearchProfileResolver.dedicatedReviewer(features, settings.fetchPlatformV2s(), profile) != null) { "REQUIRED_REVIEWER_UNAVAILABLE: Select an enabled independent Research reviewer" }
-            }
-            if (features.researchFeature.reviewerProfileUid == null && reviewPolicy.reviewerEnabled && reviewPolicy.reviewMode == dev.chungjungsoo.gptmobile.data.delegation.DelegationReviewMode.REQUIRED) {
-                check(resolveReviewer(reviewPolicy, settings.fetchPlatformV2s(), profile) != null) { "Required independent reviewer unavailable; examination paused before reading" }
+            val reviewer = ResearchProfileResolver.dedicatedReviewer(features, settings.fetchPlatformV2s(), profile)
+                ?: resolveReviewer(reviewPolicy, settings.fetchPlatformV2s(), profile)
+            if (reviewPolicy.reviewerEnabled && reviewPolicy.reviewMode == dev.chungjungsoo.gptmobile.data.delegation.DelegationReviewMode.REQUIRED) {
+                check(reviewer != null) { "REQUIRED_REVIEWER_UNAVAILABLE: Select an enabled independent Research reviewer" }
+            } else if (features.researchFeature.reviewerProfileUid != null && reviewer == null) {
+                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ResearchExamine", "OPTIONAL_REVIEWER_UNAVAILABLE · workId=${request.workId} · assessment=proceed_without_independent_certification", "W")
             }
             requireNotNull(archive.dao.work(request.workId)) { "Article is no longer available" }
             val source = request.versionId?.let { archive.dao.version(it) } ?: archive.dao.latestVersion(request.workId)
@@ -518,7 +519,7 @@ class ArticleExaminationCoordinator @Inject constructor(
                             for (id in checkpoint.pendingAppraisalIds.toList()) {
                                 val appraisal = archive.dao.appraisals(captured.versionId).firstOrNull { it.appraisalId == id } ?: error("Saved appraisal is missing")
                                 if (reviewer == null) {
-                                    val status = if (reviewPolicy.reviewerEnabled) "unavailable" else "not_requested"
+                                    val status = if (reviewPolicy.reviewerEnabled || features.researchFeature.reviewerProfileUid != null) "unavailable" else "not_requested"
                                     archive.dao.appraisal(appraisal.copy(independentReview = status))
                                     checkpoint = checkpoint.copy(pendingAppraisalIds = checkpoint.pendingAppraisalIds - id)
                                     continue
@@ -631,7 +632,7 @@ Outcome: ${Json.encodeToString(outcome)}
                             checkpoint = checkpoint.copy(pendingReviews = reviews.toList())
                             stage(ExaminationStage.APPRAISING, "Outcome review validated; progress saved")
                         }
-                        if (features.researchFeature.reviewerProfileUid != null || reviewPolicy.reviewerEnabled && reviewPolicy.reviewMode == dev.chungjungsoo.gptmobile.data.delegation.DelegationReviewMode.REQUIRED) {
+                        if (reviewPolicy.reviewerEnabled && reviewPolicy.reviewMode == dev.chungjungsoo.gptmobile.data.delegation.DelegationReviewMode.REQUIRED) {
                             check(checkpoint.independentReports.isNotEmpty() && checkpoint.independentReports.all { it.verdict == "passed" }) { "REVIEW_OUTPUT_INVALID: Required independent review did not accept the grounding; prior assessment remains selected" }
                         }
                         check(reviews.isNotEmpty()) { if (checkpoint.limitations.any { it.contains("review packet budget") }) "REVIEW_PACKET_TOO_LARGE: Evidence retained; choose a profile with a larger review capacity before retrying" else "EXTRACTION_EMPTY: No grounded assessment was produced; retained evidence is available for retry" }

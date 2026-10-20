@@ -39,7 +39,7 @@ internal val GLASS_BLUR_RADIUS = 40.dp
 @Composable
 fun GlassBackdropHost(content: @Composable () -> Unit) {
     val lifecycle by LocalLifecycleOwner.current.lifecycle.currentStateFlow.collectAsState()
-    val active = lifecycle.isAtLeast(Lifecycle.State.STARTED) && LocalOverlayMaterial.current == "glass" && LocalOverlayBlur.current == "auto"
+    val active = lifecycle.isAtLeast(Lifecycle.State.STARTED)
     val state = rememberHazeState()
     val popupSequence = remember(state) { java.util.concurrent.atomic.AtomicInteger() }
     CompositionLocalProvider(LocalGlassBackdrop provides state, LocalGlassBackdropActive provides active, LocalGlassPopupSequence provides popupSequence) {
@@ -65,20 +65,19 @@ fun Modifier.glassBackdropSource(): Modifier {
 }
 
 @Composable
-internal fun hasGlassBackdrop(): Boolean = LocalGlassBackdrop.current != null &&
+internal fun hasGlassBackdrop(force: Boolean = false): Boolean = LocalGlassBackdrop.current != null &&
     LocalGlassBackdropActive.current &&
-    LocalOverlayMaterial.current == "glass" &&
-    LocalOverlayBlur.current == "auto"
+    (force || LocalOverlayMaterial.current == "glass" && LocalOverlayBlur.current == "auto")
 
 @OptIn(dev.chrisbanes.haze.ExperimentalHazeApi::class)
 @Composable
-internal fun Modifier.glassBackdrop(shape: Shape, opacity: Float = GLASS_OPACITY, captureAsPopup: Boolean = false, blurRadius: androidx.compose.ui.unit.Dp = GLASS_BLUR_RADIUS): Modifier {
+internal fun Modifier.glassBackdrop(shape: Shape, opacity: Float = GLASS_OPACITY, captureAsPopup: Boolean = false, blurRadius: androidx.compose.ui.unit.Dp = GLASS_BLUR_RADIUS, force: Boolean = false): Modifier {
     val state = (if (captureAsPopup) LocalGlassBackdrop.current else LocalInlineGlassBackdrop.current ?: LocalGlassBackdrop.current) ?: return this
     // Allocate while visible, even with blur Off, so toggling does not reorder
     // already-open parent and child windows. A source excludes itself and newer windows.
     val sequence = LocalGlassPopupSequence.current
     val popupZ = if (captureAsPopup) remember(state) { (sequence?.incrementAndGet() ?: 1).toFloat() } else 0f
-    if (!hasGlassBackdrop()) return this
+    if (!hasGlassBackdrop(force)) return this
     val tokens = appOverlayTokens(opacity)
     val tint = tokens.background.copy(alpha = opacity.coerceIn(0f, 1f))
     val source = if (captureAsPopup) hazeSource(state, zIndex = popupZ) else this
@@ -99,7 +98,7 @@ internal fun Modifier.glassBackdrop(shape: Shape, opacity: Float = GLASS_OPACITY
 fun GlassMaterialPreview() {
     val state = rememberHazeState()
     val lifecycle by LocalLifecycleOwner.current.lifecycle.currentStateFlow.collectAsState()
-    val active = lifecycle.isAtLeast(Lifecycle.State.STARTED) && LocalOverlayMaterial.current == "glass" && LocalOverlayBlur.current == "auto"
+    val active = lifecycle.isAtLeast(Lifecycle.State.STARTED)
     val colors = listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.tertiary, MaterialTheme.colorScheme.secondary)
     CompositionLocalProvider(LocalGlassBackdrop provides state, LocalGlassBackdropActive provides active) {
         Box(Modifier.fillMaxWidth().height(112.dp)) {

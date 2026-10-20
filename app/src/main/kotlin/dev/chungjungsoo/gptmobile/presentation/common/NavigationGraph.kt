@@ -1,13 +1,8 @@
 package dev.chungjungsoo.gptmobile.presentation.common
 
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -72,10 +67,6 @@ import dev.chungjungsoo.gptmobile.presentation.ui.setup.SetupViewModelV2
 import dev.chungjungsoo.gptmobile.presentation.ui.startscreen.StartScreen
 import dev.chungjungsoo.gptmobile.presentation.viewmodel.OpenRouterSettingsViewModel
 
-private const val PAGE_ENTER_DURATION_MS = 280
-private const val PAGE_EXIT_DURATION_MS = 240
-private const val PAGE_FADE_DURATION_MS = 180
-
 @Composable
 fun SetupNavGraph(
     navController: NavHostController,
@@ -108,51 +99,24 @@ private fun AppNavHost(
     toolConnectionsViewModel: ToolConnectionsViewModel,
     onLaunchOAuth: (String) -> Unit
 ) {
+    var newChatOrigin by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Unspecified) }
     NavHost(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background),
         navController = navController,
         startDestination = Route.CHAT_LIST,
-        enterTransition = {
-            slideInHorizontally(
-                animationSpec = tween(
-                    durationMillis = PAGE_ENTER_DURATION_MS,
-                    easing = FastOutSlowInEasing
-                ),
-                initialOffsetX = { width -> width / 9 }
-            ) +
-                fadeIn(animationSpec = tween(durationMillis = PAGE_FADE_DURATION_MS)) +
-                scaleIn(
-                    initialScale = 0.992f,
-                    animationSpec = tween(
-                        durationMillis = PAGE_ENTER_DURATION_MS,
-                        easing = FastOutSlowInEasing
-                    )
-                )
-        },
+        enterTransition = { forwardSlideFadeEnter() },
         exitTransition = {
-            slideOutHorizontally(
-                animationSpec = tween(
-                    durationMillis = PAGE_EXIT_DURATION_MS,
-                    easing = FastOutSlowInEasing
-                ),
-                targetOffsetX = { width -> -width / 28 }
-            ) +
-                fadeOut(animationSpec = tween(durationMillis = PAGE_FADE_DURATION_MS)) +
-                scaleOut(
-                    targetScale = 0.996f,
-                    animationSpec = tween(
-                        durationMillis = PAGE_EXIT_DURATION_MS,
-                        easing = FastOutSlowInEasing
-                    )
-                )
+            if (targetState.destination.route == Route.NEW_CHAT_TYPE) fadeOut(tween(1000), targetAlpha = 1f) else forwardSlideFadeExit()
         },
         popEnterTransition = { backSlideFadeEnter() },
-        popExitTransition = { backSlideFadeExit() }
+        popExitTransition = { backSlideFadeExit() },
+        predictivePopEnterTransition = { _ -> backSlideFadeEnter() },
+        predictivePopExitTransition = { _ -> backSlideFadeExit() }
     ) {
-        homeScreenNavigation(navController)
-        newChatNavigation(navController)
+        homeScreenNavigation(navController) { newChatOrigin = it }
+        newChatNavigation(navController) { newChatOrigin }
         migrationScreenNavigation(navController)
         startScreenNavigation(navController)
         setupNavigation(navController)
@@ -276,7 +240,7 @@ fun NavGraphBuilder.setupNavigation(
     }
 }
 
-fun NavGraphBuilder.homeScreenNavigation(navController: NavHostController) {
+fun NavGraphBuilder.homeScreenNavigation(navController: NavHostController, onNewChatOrigin: (androidx.compose.ui.geometry.Offset) -> Unit = {}) {
     composable(Route.CHAT_LIST) {
         HomeScreen(
             modifier = Modifier.captureHomeGlassBackdrop(),
@@ -288,22 +252,32 @@ fun NavGraphBuilder.homeScreenNavigation(navController: NavHostController) {
                         "&mode=${chatRoom.conversationMode}$targetSuffix"
                 )
             },
-            navigateToNewChat = { navController.navigate(Route.NEW_CHAT_FLOW) },
+            navigateToNewChat = { origin ->
+                onNewChatOrigin(origin)
+                navController.navigate(Route.NEW_CHAT_FLOW)
+            },
             navigateToWorkspace = { id -> navController.navigate("multi_chat_workspace/$id") }
         )
     }
 }
 
-fun NavGraphBuilder.newChatNavigation(navController: NavHostController) {
+fun NavGraphBuilder.newChatNavigation(navController: NavHostController, revealOrigin: () -> androidx.compose.ui.geometry.Offset = { androidx.compose.ui.geometry.Offset.Unspecified }) {
     navigation(startDestination = Route.NEW_CHAT_TYPE, route = Route.NEW_CHAT_FLOW) {
-        composable(Route.NEW_CHAT_TYPE) { entry ->
+        composable(
+            Route.NEW_CHAT_TYPE,
+            enterTransition = { fadeIn(tween(1000), initialAlpha = 1f) },
+            popEnterTransition = { backSlideFadeEnter() },
+            popExitTransition = { backSlideFadeExit() }
+        ) { entry ->
             val parentEntry = remember(entry) { navController.getBackStackEntry(Route.NEW_CHAT_FLOW) }
             val model: NewChatViewModel = hiltViewModel(parentEntry)
+            val features by model.features.collectAsStateWithLifecycle()
             NewChatTypeScreen(
+                features = features,
+                revealOrigin = revealOrigin(),
                 onBack = { navController.navigateUp() },
                 onChoose = { selected ->
-                    model.chooseType(selected)
-                    navController.navigate(Route.NEW_CHAT_PROFILES)
+                    if (model.chooseType(selected)) navController.navigate(Route.NEW_CHAT_PROFILES)
                 }
             )
         }

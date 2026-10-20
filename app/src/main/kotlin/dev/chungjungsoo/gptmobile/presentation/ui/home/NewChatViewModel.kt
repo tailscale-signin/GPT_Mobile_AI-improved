@@ -46,7 +46,11 @@ class NewChatViewModel @Inject constructor(
     val type: NewChatType?
         get() = NewChatType.entries.firstOrNull { it.name == typeName.value }
 
-    fun chooseType(choice: NewChatType) {
+    fun chooseType(choice: NewChatType): Boolean {
+        if (choice.requiredPluginId?.let { !features.value.isToolPluginEnabled(it) } == true) {
+            _error.value = "Enable this mode's plugin before creating a chat."
+            return false
+        }
         savedStateHandle["new_chat_type"] = choice.name
         val enabled = profiles.value.filter { it.enabled }.map { it.uid }.toSet()
         val kept = selectedUids.value.filter { it in enabled }.let {
@@ -55,6 +59,7 @@ class NewChatViewModel @Inject constructor(
         savedStateHandle["new_chat_uids"] = kept
         if (primaryUid.value !in kept) savedStateHandle["new_chat_primary"] = kept.firstOrNull().orEmpty()
         clearError()
+        return true
     }
 
     fun toggleProfile(uid: String) {

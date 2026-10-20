@@ -23,7 +23,6 @@ class BackFade internal constructor(private val scope: CoroutineScope) {
     private val frame = Animatable(Offset(0f, 1f), Offset.VectorConverter)
     private var running by mutableStateOf(false)
     val modifier: Modifier get() = Modifier.graphicsLayer {
-        translationX = size.width * frame.value.x
         alpha = frame.value.y.coerceIn(0f, 1f)
     }
 
@@ -32,9 +31,9 @@ class BackFade internal constructor(private val scope: CoroutineScope) {
         running = true
         scope.launch {
             try {
-                frame.animateTo(Offset(0.16f, 0f), tween(140, easing = FastOutSlowInEasing))
+                frame.animateTo(Offset(0f, 0f), tween(140, easing = FastOutSlowInEasing))
                 action()
-                frame.snapTo(Offset(-0.06f, 0f))
+                frame.snapTo(Offset(0f, 0f))
                 frame.animateTo(Offset(0f, 1f), tween(160, easing = FastOutSlowInEasing))
             } finally {
                 withContext(NonCancellable) { frame.snapTo(Offset(0f, 1f)) }

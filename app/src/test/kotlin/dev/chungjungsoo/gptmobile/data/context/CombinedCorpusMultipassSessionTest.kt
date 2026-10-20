@@ -169,4 +169,45 @@ class CombinedCorpusMultipassSessionTest {
         }
         assertFalse(loaded)
     }
+
+    @Test fun oversizedInspectionReportsAreConsolidatedBeforeFinalPrimaryAssembly() = runTest {
+        val plan = CombinedCorpusMultipass.plan(frozen, "", settings)
+        val kinds = mutableListOf<String>()
+        val saved = mutableListOf<String>()
+        val session = CombinedCorpusMultipassSession(
+            plan,
+            "",
+            settings,
+            open = { _, kind, _ ->
+                kinds += kind
+                object : AgentProviderSession {
+                    override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> =
+                        flowOf(
+                            ProviderEvent.TextDelta(
+                                if (kind == "combined_corpus_inspection") {
+                                    "Evidence qualifier C1 https://example.org. ".repeat(140)
+                                } else if (kind == "combined_corpus_consolidation") {
+                                    "C1: qualified evidence https://example.org"
+                                } else {
+                                    "FINAL"
+                                }
+                            ),
+                            ProviderEvent.Completed
+                        )
+                }
+            },
+            onFinalContext = { turns ->
+                assertTrue(ContextBudgetService.planFullInput(turns, "", settings).promptTokens < settings.contextTokens)
+                plan.passes.forEach { assertTrue(turns.single().userMessage.content.contains(it.source.sourceId)) }
+            },
+            saveInspection = { _, report -> saved += report }
+        )
+        val events = session.streamRound(emptyList(), emptyList()).toList()
+        assertTrue(kinds.contains("combined_corpus_consolidation"))
+        assertEquals("synthesis_after_full_corpus", kinds.last())
+        assertEquals(plan.passes.size, saved.size)
+        assertTrue(saved.all { it.length > 1000 })
+        assertEquals("FINAL", events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
+        assertTrue(events.last() is ProviderEvent.Completed)
+    }
 }

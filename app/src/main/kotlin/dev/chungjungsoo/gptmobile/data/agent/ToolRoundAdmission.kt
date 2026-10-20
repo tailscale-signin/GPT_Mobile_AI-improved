@@ -7,7 +7,7 @@ import kotlinx.serialization.json.JsonPrimitive
 
 /** Admission happens before UI events, argument serialization, or execution. Never unlimited. */
 internal class ToolRoundAdmission(
-    maxCalls: Int = 8,
+    maxCalls: Int = 32,
     private val maxArgumentBytes: Int = 16 * 1024,
     private val maxSameTool: Int = 16
 ) {
@@ -89,7 +89,7 @@ internal class ToolStreamGuard {
     private var bytes = 0
     fun slot(key: String) {
         if (key.length > 256) throw ToolBatchOversizeException("SLOT_ID_CHARACTERS", key.length, 256)
-        if (key !in slots && slots.size >= 8) throw ToolBatchOversizeException("STREAM_TOOL_SLOTS", slots.size + 1, 8)
+        if (key !in slots && slots.size >= 32) throw ToolBatchOversizeException("STREAM_TOOL_SLOTS", slots.size + 1, 32)
         slots += key
     }
     fun identifier(value: String?) {

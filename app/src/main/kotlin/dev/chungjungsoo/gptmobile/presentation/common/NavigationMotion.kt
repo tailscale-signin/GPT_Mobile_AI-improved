@@ -11,10 +11,10 @@ import androidx.compose.animation.slideOutHorizontally
 
 /** Shared by navigation pops and the Settings Home tab. NavHost also seeks these on predictive back. */
 internal fun backSlideFadeEnter(): EnterTransition =
-    slideInHorizontally(tween(280, easing = FastOutSlowInEasing)) { -it / 10 } + fadeIn(tween(220))
+    fadeIn(tween(280, easing = FastOutSlowInEasing))
 
 internal fun backSlideFadeExit(): ExitTransition =
-    slideOutHorizontally(tween(280, easing = FastOutSlowInEasing)) { it / 3 } + fadeOut(tween(220))
+    fadeOut(tween(280, easing = FastOutSlowInEasing))
 
 internal fun forwardSlideFadeEnter(): EnterTransition =
     slideInHorizontally(tween(280, easing = FastOutSlowInEasing)) { it / 6 } + fadeIn(tween(220))

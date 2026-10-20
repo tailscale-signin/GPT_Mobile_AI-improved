@@ -1787,9 +1787,9 @@ fun ChatInputBox(
             .padding(horizontal = 16.dp, vertical = 8.dp)
     ) {
         Surface(
-            modifier = Modifier.fillMaxWidth().glassBackdrop(inputShape, opacity = CHAT_INPUT_OPACITY).testTag("chat_input_glass"),
+            modifier = Modifier.fillMaxWidth().glassBackdrop(inputShape, opacity = CHAT_INPUT_OPACITY, force = true).testTag("chat_input_glass"),
             shape = inputShape,
-            color = if (hasGlassBackdrop()) Color.Transparent else inputTokens.background,
+            color = if (hasGlassBackdrop(force = true)) Color.Transparent else inputTokens.background,
             contentColor = inputTokens.foreground,
             tonalElevation = 0.dp,
             border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)),
@@ -2111,9 +2111,9 @@ fun ScrollToBottomButton(isGenerating: Boolean = false, onClick: () -> Unit) {
     // Generation remains distinguishable through the themed outline.
     Box(Modifier.size(48.dp).testTag("chat_jump_to_bottom").clickable(onClick = onClick), contentAlignment = Alignment.Center) {
         Surface(
-            modifier = Modifier.size(26.dp).glassBackdrop(shape, opacity = CHAT_LATEST_OPACITY).testTag("chat_latest_glass"),
+            modifier = Modifier.size(26.dp).glassBackdrop(shape, opacity = CHAT_LATEST_OPACITY, force = true).testTag("chat_latest_glass"),
             shape = shape,
-            color = if (hasGlassBackdrop()) Color.Transparent else tokens.background,
+            color = if (hasGlassBackdrop(force = true)) Color.Transparent else tokens.background,
             contentColor = tokens.foreground,
             border = androidx.compose.foundation.BorderStroke(
                 if (isGenerating) 2.dp else 1.dp,

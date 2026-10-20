@@ -9,14 +9,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.compositeOver
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.util.Locale
-import kotlin.math.max
-import kotlin.math.min
 
 internal fun plainProfileName(raw: String, fallback: String = "AI profile"): String {
     val iterator = BreakIterator.getCharacterInstance(Locale.ROOT)
@@ -38,21 +34,8 @@ internal fun plainProfileName(raw: String, fallback: String = "AI profile"): Str
 }
 
 internal fun profileSubtitleColor(accent: Color, background: Color): Color {
-    fun contrast(color: Color): Float {
-        val a = color.copy(alpha = 0.25f).compositeOver(background).luminance()
-        val b = background.luminance()
-        return (max(a, b) + 0.05f) / (min(a, b) + 0.05f)
-    }
-    var best = accent
-    for (target in listOf(Color.Black, Color.White)) {
-        for (step in 0..20) {
-            val t = step / 20f
-            val candidate = Color(accent.red + (target.red - accent.red) * t, accent.green + (target.green - accent.green) * t, accent.blue + (target.blue - accent.blue) * t)
-            if (contrast(candidate) >= 4.5f) return candidate.copy(alpha = 0.25f)
-            if (contrast(candidate) > contrast(best)) best = candidate
-        }
-    }
-    return best.copy(alpha = 0.25f)
+    // Relative opacity reduction: 25% more transparent than the previous 25% opacity.
+    return accent.copy(alpha = 0.25f * 0.75f)
 }
 
 @Composable

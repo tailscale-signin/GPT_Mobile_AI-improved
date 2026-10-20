@@ -37,7 +37,7 @@ data class AgentRunLimits(
     /** Maximum budget retained from any one consumed tool result on later rounds. */
     val maxReplayResultTokens: Int = 512,
     val maxObservedToolCalls: Int = 256,
-    val maxToolCallsPerRound: Int = 8,
+    val maxToolCallsPerRound: Int = 32,
     val maxRetainedEvidenceTokens: Int = 16_000,
     val allowToolStormFinalization: Boolean = true,
     val maxGeneratedCharacters: Int = 0,

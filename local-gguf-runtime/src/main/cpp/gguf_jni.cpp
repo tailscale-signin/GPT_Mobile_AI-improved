@@ -3,6 +3,7 @@
 #include "llama-ext.h"
 #include "ggml-backend.h"
 #include "gguf_chat_template.h"
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -18,6 +19,7 @@ struct Engine {
     llama_model * model = nullptr;
     llama_context * context = nullptr;
     int batchTokens = 256;
+    bool cpuOnly = true;
     std::unique_ptr<GgufChatTemplate> chatTemplate;
     std::atomic<bool> stop{false};
     std::atomic<jlong> operation{0};
@@ -53,7 +55,7 @@ bool aborted(void * data) { return static_cast<Engine *>(data)->stop.load(); }
 }
 
 extern "C" JNIEXPORT jstring JNICALL Java_dev_melo_gguf_GgufNative_buildInfo(JNIEnv * env, jclass) {
-    const std::string info = std::string("compiler=") + __VERSION__ + ";variant=" + GGUF_BUILD_TYPE + ";unoptimizedStepping=" + std::to_string(GGUF_NATIVE_DEBUG) + ";nativeProgress=1;operationControl=1";
+    const std::string info = std::string("compiler=") + __VERSION__ + ";variant=" + GGUF_BUILD_TYPE + ";unoptimizedStepping=" + std::to_string(GGUF_NATIVE_DEBUG) + ";nativeProgress=1;operationControl=1;cpuPrefill=adaptive-v1";
     return env->NewStringUTF(info.c_str());
 }
 
@@ -161,6 +163,7 @@ extern "C" JNIEXPORT jlong JNICALL Java_dev_melo_gguf_GgufNative_loadConfiguredP
         cp.n_batch = batchTokens;
         cp.n_ubatch = microBatchTokens;
         engine->batchTokens = batchTokens;
+        engine->cpuOnly = gpuLayers == 0;
         cp.n_threads = threads;
         cp.n_threads_batch = promptThreads;
         cp.offload_kqv = gpuLayers > 0;
@@ -286,14 +289,24 @@ extern "C" JNIEXPORT jlongArray JNICALL Java_dev_melo_gguf_GgufNative_generatePr
         jlong input = reused, output = 0, stop = 1;
         const auto start = Clock::now();
         report("PREFILL_BEGIN", tokenCount, input, output);
-        for (int offset = static_cast<int>(reused); offset < tokenCount && !engine->stop; offset += engine->batchTokens) {
-            const int n = std::min(engine->batchTokens, tokenCount - offset);
+        int adaptiveBatch = engine->cpuOnly ? 1 : engine->batchTokens;
+        for (int offset = static_cast<int>(reused); offset < tokenCount && !engine->stop;) {
+            const int n = std::min(adaptiveBatch, tokenCount - offset);
             auto batch = llama_batch_get_one(tokens.data() + offset, n);
             report("PREFILL_BATCH_BEGIN", tokenCount, input, output);
+            const auto batchStart = Clock::now();
             const int result = llama_decode(engine->context, batch);
             report("PREFILL_BATCH_END", tokenCount, result == 0 ? input + n : input, output, result);
             if (result != 0) { stop = engine->stop ? 2 : 3; break; }
             input += n;
+            offset += n;
+            // Keep useful progress observable between native calls. A slow first
+            // graph must never hide hundreds of tokens behind a single watchdog gap.
+            if (engine->cpuOnly) {
+                const long batchMs = elapsed(batchStart);
+                if (batchMs < 1500) adaptiveBatch = std::min({adaptiveBatch * 2, engine->batchTokens, 32});
+                else if (batchMs > 5000) adaptiveBatch = std::max(1, adaptiveBatch / 2);
+            }
         }
         const jlong prefillMs = elapsed(start);
         const auto decodeStart = Clock::now();

@@ -1,29 +1,33 @@
-# GPT Mobile AI 0.9.54.0
+# GPT Mobile AI 0.9.55.0
 
-## Research, tools and recovery
-- Preserve authorized saved-search evidence across display-only setting edits and pricing quote refreshes.
-- Coordinate delegated tool budgets without charging local schema discovery as an external evidence operation.
-- Resume unfinished Research acquisition without replaying completed queries; limit fallback to cases with no readable evidence.
-- Return a clear partial-evidence report when sources could not be read.
-- Recover once from rejected raw tool markup with a tool-free answer, without executing the rejected payload.
+## GGUF inference
+- Apply CPU optimization to the actual Android Debug native compiler commands, including ARM64 verification.
+- Start CPU prefill with a small adaptive batch so progress is visible sooner; use four automatic CPU threads.
+- Match GenieX preview native packaging to the app's ARM64-only policy and generate the runtime inventory from the packaged ABIs.
+- Give GenieX unit testing, APK assembly and release shrinking separate bounded validation stages.
 
-## Combined delivery and responsiveness
-- Accept JSON and JSONL fences for structured Combined records while retaining strict record validation.
-- Scan streamed structured fragments incrementally to avoid repeated whole-buffer work.
-- Split oversized agent and provider coroutine methods to reduce Android runtime compilation pressure.
+## Research and Combined mode
+- Allow Research Examine to continue when an optional reviewer is unavailable; explicitly required review remains enforced.
+- Preserve source revision identity through Combined multipass assembly and consolidate oversized inspection reports with the pinned primary model.
+- Retain original checkpoints and verify complete source-span membership before final assembly.
+- Align tool admission and execution limits at 32 calls.
 
-## Included changes
-- Includes all changes merged into main through diagnostic recovery PR #722 (source commit 6d7b46135670a9641dcfe221b2515e36418af11a).
-- External MCP server availability and DNS/connectivity remain deployment prerequisites.
+## Interface
+- Fade back navigation, including predictive back, without scaling pages.
+- Use a flat themed New Chat button and reveal the full-screen glass panel from its origin over one second.
+- Use theme-colored AI profile subtitles with 25% lower opacity.
+- Blur the chat composer and down-arrow backgrounds.
+- Group plugin chat modes under Plugins; show Research Chat when its plugin is enabled.
 
-## Release scope and remaining qualification
-- **Unified Reliability v2 is not complete.** The recorded inventory remains at 0/48 tasks marked DONE and 11/110 acceptance cases marked PASS (99 unrun) as of October 19, 2026.
-- v0.9.54.0 is an **interim application release** requested by the owner, not certification of the entire Unified Reliability v2 program. Pending device and provider qualification has not been represented as successful.
-- Publication requires actual Android unit tests, debug/release lint, AAR compatibility, native JNI and 16 KB AAB checks, signing-certificate continuity, and matching package/version/source identity.
+## Validation and release scope
+- PR #726 passed Android emulator acceptance, unit tests and lint, GGUF CPU native smoke, minified native memory smoke, GenieX preview validation, UI review APK generation, diagnostic audit and CodeQL.
+- The exact physical phone/model combination still requires device retesting. Provider availability, source access restrictions and unreachable LAN services remain external dependencies.
+- **Unified Reliability v2 is not complete.** The recorded inventory remains at 0/48 tasks marked DONE and 11/110 acceptance cases marked PASS (99 unrun); no full-v2 qualification is claimed.
+- This is an owner-requested interim application release. Publication retains Android unit tests, debug/release lint, AAR compatibility, native JNI and 16 KB AAB checks, signing-certificate continuity, and package/version/source identity verification.
 
 ## Release identity
 - Package: `dev.melo.gptmobile.improved`
-- Version: `0.9.54.0`
-- Version code: `123` (increased from 122)
+- Version: `0.9.55.0`
+- Version code: `124` (increased from 123)
 - Signed arm64-v8a, x86_64 and universal APKs for direct installation; signed `app-release.aab` for Play Console upload.
-- Google Play publication and device qualification remain separate from this GitHub release.
+- Google Play publication and physical-device qualification remain separate from this GitHub release.

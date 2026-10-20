@@ -47,11 +47,11 @@ jobs:
           set -euo pipefail
           # Always verify every v2 task/case reference, receipt, and status.
           # Its full-completion milestone is a separate qualification from
-          # signed interim 0.9.53.0 / 0.9.54.0 releases; do not mark unrun tests as passing.
-          # 0.9.54.0 is the owner-requested diagnostic-fix publication (2026-10-19).
+          # signed interim 0.9.53.0 / 0.9.54.0 / 0.9.55.0 releases; do not mark unrun tests as passing.
+          # 0.9.55.0 is the owner-requested GGUF/Research/UI repair publication (2026-10-20).
           python3 scripts/check_unified_reliability_v2.py
           VERSION=$(python3 -c 'import re; print(re.search(r"versionName = \"([^\"]+)\"", open("app/build.gradle.kts").read()).group(1))')
-          if [[ "$VERSION" == "0.9.53.0" || "$VERSION" == "0.9.54.0" ]]; then
+          if [[ "$VERSION" == "0.9.53.0" || "$VERSION" == "0.9.54.0" || "$VERSION" == "0.9.55.0" ]]; then
             python3 - <<'PY'
           import json
           from pathlib import Path

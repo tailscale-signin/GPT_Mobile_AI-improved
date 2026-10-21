@@ -86,7 +86,7 @@ Research shows readable sources, claims checked against current passages, indepe
 
 Diagnostic parsing separates metadata from event text, keeps `processId` numeric, normalizes the full prefix and identifies heap exhaustion. Frame records include screen, active operation and Java heap context; normal jank samples are not all promoted to incidents. Invocation usage distinguishes interim/final measurements, estimates, lower bounds and reservations. Only a physical attempt proven unsent can be refunded after DNS failure. Missing usage components remain unknown.
 
-The primary request coroutine is split into typed, non-inline admission, context, acquisition, dispatch and streaming stages. The APK check reads actual DEX instructions and requires the guarded methods to stay below Android's 16,383-code-unit compiler limit, including generated nested methods. PR validation also runs the explicit 256 MiB heap fixtures and the native prefill-governor regression; UI render images are retained with the test results.
+The primary request coroutine is split into typed, non-inline admission, context, acquisition, dispatch and streaming stages. The APK check reads actual DEX instructions and requires the guarded methods to stay below the configured 16,383-code-unit ART guard threshold, including generated nested methods. PR validation also runs the explicit 256 MiB heap fixtures and the native prefill-governor regression; UI render images are retained with the test results.
 
 ## Continuation review: publication, recovery and repository races
 
@@ -98,34 +98,57 @@ The resumed implementation keeps the unpublished checkpoint fixes and adds regre
 - PR file/check continuations are independent and preserve each other’s UI position. File reads and continuations reject changed PR head/base revisions. Repository metadata updates preserve a newer selection and concurrent evidence handles. Exact patches reject overlapping ambiguous anchors, and a stage cannot publish against a revision changed while its source files were loading.
 - Suppressing repeated arguments for a source read no longer forces an immediate tool-free answer while other authorized reads remain available. One suppression-only round allows another source to be chosen; a second consecutive round finalizes from retained results. Executable work resets that counter. The per-argument limit and overall run limits still apply.
 - Streaming export preserves numeric and boolean journal metadata. Its small nested-value writer permits scalar JSON values while the input reader and bundle verification retain their strict checks. Combined lifecycle fixtures now assert the intended provider failure and retained contribution text, so a mock-memory setup failure cannot satisfy a recovery scenario accidentally.
+- The constrained-heap gate sets report paths after AGP has configured the unit-test tasks. XML, HTML and binary results are isolated from the normal suite instead of being redirected by AGP's later defaults.
 
 ## Validation of this source
 
-The central validation run is in progress. This section is updated with fresh results before the review PR is finalized; no previous checkout's pass count is reused.
+Application validation was rerun on October 21, 2026 against implementation commit `85f8bedf81911cc5dde44a2400fc5a89d9ddbfa1`. The subsequent validation commit changes test-report configuration and documentation only. No previous checkout's pass count is reused. The packaged `BuildConfig.APP_COMMIT` field independently identifies that implementation commit in all three APKs.
 
-| Gate | Current result |
+| Gate | Result |
 | --- | --- |
+| Android JVM suite | 3,899 tests discovered: 3,897 passed, zero failures/errors, two opt-in heap cases skipped in the normal suite |
+| 256 MiB session/export stress fixtures | Six tests passed with zero failures/errors/skips; separate XML, HTML and binary outputs verified, with all 1,299 existing normal-suite report files unchanged |
+| Android lint | Passed with zero errors, 2,923 warnings and 24 notes |
+| Android instrumentation sources | `compileDebugAndroidTestKotlin` passed; device tests were not executed |
+| Debug APK assembly | ARM64, x86_64 and universal APKs built successfully |
+| Packaged runtime and telemetry checks | All three APKs passed runtime inventory/hash, JNI/dependency, memory-model, ELF alignment and forbidden telemetry-marker checks |
+| Packaged DEX dispatch-size guard | All three APKs passed; 634 methods checked per APK, maximum 16,156 code units against the exclusive 16,383 limit |
+| Robolectric Compose renders using native graphics, including narrow/large text | Four tests passed; three production-surface renders visually inspected |
+| Native ARM64 and x86_64 CPU/Vulkan libraries | Both freshly compiled and packaged; current JNI exports, source dependencies and at least 16 KiB ELF LOAD alignment verified |
+| Changed Kotlin formatting | All 223 changed `.kt`/`.kts` files passed ktlint 1.3.1; whitespace check passed |
 | Active gateway Python and browser suites | 190 Python and 7 browser tests passed |
-| Native CPU prefill governor host regression | Passed |
-| Android compilation and unit suite | In progress |
-| 256 MiB session/export stress fixtures | Pending Android compilation |
-| Compose native renders, including narrow/large text | Pending Android compilation |
-| Native ARM64 and x86_64 CPU/Vulkan libraries | Both compiled successfully; final APK packaging pending |
-| Android lint and packaged-runtime validation | Pending Android compilation |
+| Native CPU prefill governor host regression | One production-header regression passed |
 | Repository validation scripts | 147 tests passed |
+| Regex, Room and tool-statistics checks | Passed: 713 literal regex patterns checked, 43 dynamic patterns skipped; exported Room schemas checked; all 33 tool-statistics producers explicitly covered |
+
+The constrained cases include more than 40 MiB of retained evidence across 90 sessions and 900 sources, and a separate export exceeding 40 MiB across 2,000 messages. Both large cases assert a JVM maximum heap of at most 256 MiB. Full-suite totals come from the completed normal-run console log; the constrained results are a separate invocation and are not additive. The initial heap run exposed AGP overriding the requested report paths. After that configuration was corrected, the focused rerun passed all six cases and preserved all 1,299 existing normal-suite report files byte for byte.
+
+Lint's remaining findings are predominantly missing translations (2,025) and unused resources (442). Review of findings on changed production files found no new runtime or security blocker. This is not a warning-free lint result.
+
+The largest guarded method is `delegateToProfile` at 16,156 DEX code units, 227 below the failing threshold. The actual `invokeSuspend$executePreparedRequest` implementation is 6,288 code units. The passing guard must remain in place because the largest method has limited headroom; it does not establish physical-device compilation or execution timing.
+
+Reports are retained under `app/build/test-results/testDebugUnitTest`, `app/build/test-results/heapRecovery`, `app/build/reports/lint-results-debug.html` and `app/build/reports/reliability-ui`. The inspected renders are `research-recovery-dark.png`, `workspace-light.png` and `workspace-dark-large.png`. APKs are under `app/build/outputs/apk/debug`.
+
+| APK | SHA-256 |
+| --- | --- |
+| `app-arm64-v8a-debug.apk` | `de80781cd3e66091f1d2ac11e0233a79673114114327bd8e1878c470168e86f4` |
+| `app-x86_64-debug.apk` | `bd7b9f62330d87b420ede0694954e78a2acea6cab3e73f76b58a359bce5d4385` |
+| `app-universal-debug.apk` | `6fcae547d25ceaa097b953bdd302639a37131105037dfad4c4a9604f76c26c32` |
 
 The new behavioral fixtures exercise reader/router integration; 125 PR files and 45 checks; warm immutable content; late CI failures; exact patch restart; concurrent discovery deadlines; mutable read freshness; read timeout recovery; structured partial responses; current-version claim grounding; accepted task and publication fences; actual ledger/budget admission; export integrity and redaction; and native progress forwarding.
 
 Useful commands (JDK 21 and the repository's Android SDK/NDK requirements apply):
 
 ```bash
-./gradlew -Pksp.incremental=false :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
+./gradlew -Pksp.incremental=false :app:testDebugUnitTest :app:lintDebug :app:compileDebugAndroidTestKotlin :app:assembleDebug
 ./gradlew -Pksp.incremental=false -I scripts/heap-stress.init.gradle :app:testDebugUnitTest --tests '*ResearchSessionStoreHeapTest' --tests '*StreamingDebugBundleTest'
 python gateway/check_gateway.py
 python -m unittest discover -s scripts/tests
 python scripts/test_gguf_prefill_governor.py
 python scripts/check_tool_statistics_coverage.py
-python scripts/check_research_dispatch_size.py app/build/outputs/apk/debug/app-debug.apk
+python scripts/check_local_runtime_apk.py app/build/outputs/apk/debug/*.apk
+python scripts/check_no_telemetry.py app/build/outputs/apk/debug/*.apk
+python scripts/check_research_dispatch_size.py app/build/outputs/apk/debug/app-universal-debug.apk
 ```
 
 Physical-device throughput, Android background/process-death timing, live provider reconnect behavior and authenticated remote mutations require their actual device/service environment. Automated fixtures and native builds are evidence for the paths they execute, not measurements of those external systems. No production release or merge is part of this repair branch.

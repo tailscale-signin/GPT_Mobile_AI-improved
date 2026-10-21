@@ -5,9 +5,17 @@ allprojects {
         maxParallelForks = 1
         forkEvery = 1
         systemProperty 'gptmobile.heapStress', 'true'
-        // Keep the full-suite reports and these explicitly constrained results separate.
-        reports.junitXml.outputLocation.set(project.layout.buildDirectory.dir('test-results/heapRecovery'))
-        reports.html.outputLocation.set(project.layout.buildDirectory.dir('reports/tests/heapRecovery'))
-        binaryResultsDirectory.set(project.layout.buildDirectory.dir('test-results/heapRecovery/binary'))
+    }
+}
+
+// AGP assigns report defaults while realizing AndroidUnitTest tasks.
+// Realize them after project evaluation before setting the gate's output paths.
+gradle.projectsEvaluated {
+    gradle.rootProject.allprojects { gateProject ->
+        gateProject.tasks.withType(Test).each { gateTest ->
+            gateTest.reports.junitXml.outputLocation.set(gateProject.layout.buildDirectory.dir('test-results/heapRecovery'))
+            gateTest.reports.html.outputLocation.set(gateProject.layout.buildDirectory.dir('reports/tests/heapRecovery'))
+            gateTest.binaryResultsDirectory.set(gateProject.layout.buildDirectory.dir('test-results/heapRecovery/binary'))
+        }
     }
 }

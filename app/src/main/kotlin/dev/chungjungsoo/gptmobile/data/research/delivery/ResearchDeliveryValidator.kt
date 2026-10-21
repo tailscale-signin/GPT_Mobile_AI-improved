@@ -9,13 +9,31 @@ internal object ResearchDeliveryValidator {
     }
     private val citations = Regex("\\[(S[0-9a-f]+)\\]")
     private val numbers = Regex("(?<![\\p{L}\\p{N}])[-+]?\\d+(?:[.,]\\d+)*(?:%)?")
+    private val heading = Regex("^ {0,3}#{1,6}\\s+")
+    private val scientificLanguage = Regex("(?i)trial|participants|patients|randomi[sz]|significant|associated|improv|reduc|increase|efficacy|adverse|observed|researchers|study|studies")
+    private val headingFinding = Regex("(?i)enrolled|significant|associated|improved|improves|reduced|reduces|increased|increases|observed|reported|effective|caused|cured")
 
     fun validate(text: String, packet: ResearchDeliveryPacket): Result {
         val issues = mutableListOf<String>()
         val repairHints = mutableListOf<String>()
         val allIds = ResearchReportReferences.cited(text, packet)
-        val body = text.split(Regex("(?im)^#{1,6}\\s+references\\s*$"), limit = 2).first()
-        val ids = ResearchReportReferences.cited(body, packet)
+        val body = ResearchReportReferences.body(text, packet)
+        val navigation = (packet.sections + listOf("References", "Findings", "Summary", "Limitations", "Methods", "Results", "Introduction", "Background", "Conclusion", "Source links")).map { it.lowercase(java.util.Locale.ROOT) }.toSet()
+        val paragraphs = body.split(Regex("\n\\s*\n")).flatMap { rawParagraph ->
+            val lines = rawParagraph.lines()
+            val prose = lines.filterNot(heading::containsMatchIn).joinToString("\n")
+            val findings = lines.filter(heading::containsMatchIn).map { it.replaceFirst(heading, "") }.filter { title ->
+                val label = title.replace(citations, "").replace(Regex("^\\d+(?:\\.\\d+)*[.)]?\\s+"), "").trim().lowercase(java.util.Locale.ROOT)
+                label !in navigation &&
+                    (
+                        headingFinding.containsMatchIn(title) ||
+                            numbers.containsMatchIn(title) &&
+                            (scientificLanguage.containsMatchIn(title) || ResearchReportReferences.cited(title, packet).isNotEmpty())
+                        )
+            }
+            listOf(prose) + findings
+        }.filter(String::isNotBlank)
+        val ids = paragraphs.flatMapTo(linkedSetOf()) { ResearchReportReferences.cited(it, packet) }
         val known = (packet.studies + packet.unread).associateBy { it.id }
         if (text.isBlank()) issues += "EMPTY_REPORT"
         if (allIds.any { it !in known }) issues += "UNKNOWN_CITATION"
@@ -26,14 +44,11 @@ internal object ResearchDeliveryValidator {
         }
         packet.studies.take(3).filter { it.id !in ids }.forEach { issues += "OMITTED_LEADING_STUDY:${it.id}" }
         packet.unread.take(if (packet.detail == ResearchReportDetail.BRIEF) 1 else 3).filter { it.id !in ids }.forEach { issues += "OMITTED_UNREAD_LEAD:${it.id}" }
-        val paragraphs = body.split(Regex("\n\\s*\n"))
-        for ((index, rawParagraph) in paragraphs.withIndex()) {
-            // A Markdown heading need not have a blank line before the following prose.
-            // Its title is navigation, never a scientific claim or a supporting citation.
-            val paragraph = rawParagraph.lines().filterNot { Regex("^ {0,3}#{1,6}(?:\\s|$)").containsMatchIn(it) }.joinToString("\n")
+        for ((index, paragraph) in paragraphs.withIndex()) {
+            // Factual headings are checked independently; their citations cannot support following prose.
             val cited = ResearchReportReferences.cited(paragraph, packet)
             if (paragraph.isBlank()) continue
-            val scientific = Regex("(?i)trial|participants|patients|randomi[sz]|significant|associated|improv|reduc|increase|efficacy|adverse|observed|researchers|study|studies").containsMatchIn(paragraph)
+            val scientific = scientificLanguage.containsMatchIn(paragraph)
             if (scientific && cited.isEmpty() && !Regex("(?i)unknown|unavailable|could not|not established|no verified|not verified").containsMatchIn(paragraph)) {
                 issues += "UNSOURCED_SCIENTIFIC_PARAGRAPH"
                 repairHints += "Paragraph ${index + 1} needs supporting source IDs from the packet, or removal of unsupported findings: ${paragraph.take(500)}"

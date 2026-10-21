@@ -21,6 +21,7 @@ DISPATCH_STAGES = (
     'buildPrimarySystemPrompt', 'effectivePrimaryDelegationSettings',
     'acceptPrimaryResearchTask', 'prepareCombinedDeliveryWork',
     'streamPrimaryAnswer', 'openPrimarySession',
+    'prepareDelegatedEvidence', 'acquirePrimaryResearch', 'delegateToProfile',
 )
 
 
@@ -29,9 +30,7 @@ def is_dispatch_method(descriptor, name):
         return False
     # Kotlin local suspend functions are static methods on their enclosing lambda;
     # their small continuation classes are not the actual dispatch implementation.
-    return any(stage in name for stage in DISPATCH_STAGES) or (
-        name == 'invokeSuspend' and any(stage in descriptor for stage in DISPATCH_STAGES)
-    )
+    return any(stage in name or stage in descriptor for stage in DISPATCH_STAGES)
 
 
 def uleb(data, offset):

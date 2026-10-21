@@ -1823,21 +1823,13 @@ class ChatRepositoryImpl(
                         suspend fun prepareDelegatedEvidence() {
                             if (!localResearch && explicitResearch && latestUser?.content?.isNotBlank() == true) {
                                 emit(ApiState.Notice("Deep Research is discovering and reading sources. Model assistance is optional; evidence will remain unreviewed without a reviewer.", persistent = false))
-                                val directConfig = delegationConfig.copy(researchEnabled = true, automaticResearch = true)
-                                suspend fun researchAllowed(): Boolean {
-                                    val live = settingRepository.getFeatureSettings()
-                                    return live.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH) &&
-                                        live.isToolPluginSelected(platform.uid, dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH) &&
-                                        live.delegationFor(platform.uid).deepResearch.enabled &&
-                                        (live.conversationResearch[researchChatId] ?: explicitResearchSelection)?.let { it.researchToggle && it.depth > 0 } != false
-                                }
-                                val researchJournal = admittedResearchJournal
-                                val modelWorker = dev.chungjungsoo.gptmobile.data.research.DirectResearchModelFactory.create(
-                                    platform, admittedProfiles, runFeatures, directConfig, turnKey,
-                                    liveProfiles = { settingRepository.fetchPlatformV2s() },
-                                    liveFeatures = { settingRepository.getFeatureSettings() },
-                                    stillEnabled = { researchAllowed() },
-                                    prepareLocal = { target, policy -> runtimeEligibleForAssist(target, policy) },
+                                val acquisition = acquirePrimaryResearch(
+                                    preparationInput,
+                                    admission,
+                                    delegationConfig,
+                                    explicitResearchSelection,
+                                    delegatedTools,
+                                    researchTask,
                                     generate = { target, stage, prompt, cap ->
                                         var invocationId: String? = null
                                         suspend fun generateStage(): String = generateDelegate(target, prompt, cap, inputCap = delegationInputBudget(target, cap), progress = { it.invocationId?.let { id -> invocationId = id } }, allowTools = false, requestRole = if (target.compatibleType == ClientType.LITERT_LM) "assist" else "research-${stage.name.lowercase(java.util.Locale.ROOT)}")
@@ -1850,36 +1842,10 @@ class ChatRepositoryImpl(
                                         }
                                         dev.chungjungsoo.gptmobile.data.research.ResearchModelReply(text, dev.chungjungsoo.gptmobile.data.delegation.CanonicalModelIdentity.resolve(target).canonical.orEmpty(), invocationId)
                                     },
-                                    onAssistStatus = {
-                                        dev.chungjungsoo.gptmobile.data.assist.AssistTelemetry.record(runId, it)
-                                        emit(ApiState.AssistStatus(it))
-                                    },
-                                    retainPartial = { stage, profileUid, text -> researchJournal?.retainPartial(stage, profileUid, text) }
+                                    emit = ::emit
                                 )
-                                val research = dev.chungjungsoo.gptmobile.data.agent.tool.AndroidResearchWorkflow(
-                                    directConfig,
-                                    delegatedTools,
-                                    generate = { _, _ -> null }, // The typed stage coordinator owns every model invocation.
-                                    modelCoordinator = modelWorker,
-                                    journal = researchJournal,
-                                    stillEnabled = {
-                                        val current = settingRepository.getFeatureSettings()
-                                        current.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH) &&
-                                            current.isToolPluginSelected(platform.uid, dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH) &&
-                                            current.delegationFor(platform.uid).deepResearch.enabled &&
-                                            (current.conversationResearch[researchChatId] ?: explicitResearchSelection)?.let { it.researchToggle && it.depth > 0 } != false
-                                    }
-                                ).run(researchTask, "$runId:research-acquisition")
-                                chatToolConfig?.combined?.let { combined ->
-                                    val budget = combinedBudgets.open(combined)
-                                    for (stage in dev.chungjungsoo.gptmobile.data.agent.CombinedResearchStages.names) {
-                                        val id = dev.chungjungsoo.gptmobile.data.agent.CombinedResearchStages.id(platform.uid, stage)
-                                        if (combined.plan?.workItems?.any { it.id == id } != true) continue
-                                        val events = modelWorker.events.filter { it.stage.equals(stage, ignoreCase = true) }
-                                        val successful = modelWorker.completedStage(stage)
-                                        budget.finishStage(id, if (successful) "COMPLETED" else "PARTIAL", if (successful) null else events.lastOrNull()?.reason ?: "STAGE_NOT_RUN")
-                                    }
-                                }
+                                val directConfig = acquisition.config
+                                val research = acquisition.result
                                 preparedEvidenceComplete = research.outcome == dev.chungjungsoo.gptmobile.data.agent.tool.LocalResearchOutcome.SUCCESS
                                 preparedEvidenceReviewed = research.reviewedClaims > 0 && research.unreviewedClaims == 0 && research.independentReviewClaims == research.reviewedClaims
                                 if (research.handoff.isNotBlank()) appendPreparedEvidence(research.handoff)
@@ -2273,6 +2239,79 @@ class ChatRepositoryImpl(
         )
         AppLogRecorder.record("Readiness", "PREPARATION_PLAN · run=$runId · kind=${preparationPlan.kind} · optionalBudgetMs=${preparationPlan.optionalBudgetMillis}")
         return preparationPlan
+    }
+
+    private data class PrimaryResearchAcquisition(
+        val config: dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings,
+        val result: dev.chungjungsoo.gptmobile.data.agent.tool.LocalResearchResult
+    )
+
+    /** Keep acquisition's coroutine state separate from evidence publication and local cancellation. */
+    private suspend fun acquirePrimaryResearch(
+        input: PrimaryPreparationInput,
+        admission: PrimaryRunAdmission,
+        delegationConfig: dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings,
+        explicitResearchSelection: dev.chungjungsoo.gptmobile.data.model.MultiSearchResearchSelection?,
+        delegatedTools: List<ResolvedAgentTool>,
+        researchTask: String,
+        generate: suspend (PlatformV2, dev.chungjungsoo.gptmobile.data.research.ResearchModelStage, String, Int) -> dev.chungjungsoo.gptmobile.data.research.ResearchModelReply,
+        emit: suspend (ApiState) -> Unit
+    ): PrimaryResearchAcquisition {
+        val platform = input.platform
+        val runId = input.runId
+        val chatToolConfig = input.chatToolConfig
+        val runFeatures = admission.runFeatures
+        val admittedProfiles = admission.admittedProfiles
+        val turnKey = admission.turnKey
+        val researchChatId = admission.researchChatId
+        val admittedResearchJournal = admission.admittedResearchJournal
+        val directConfig = delegationConfig.copy(researchEnabled = true, automaticResearch = true)
+        suspend fun researchAllowed(): Boolean {
+            val live = settingRepository.getFeatureSettings()
+            return live.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH) &&
+                live.isToolPluginSelected(platform.uid, dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH) &&
+                live.delegationFor(platform.uid).deepResearch.enabled &&
+                (live.conversationResearch[researchChatId] ?: explicitResearchSelection)?.let { it.researchToggle && it.depth > 0 } != false
+        }
+        val researchJournal = admittedResearchJournal
+        val modelWorker = dev.chungjungsoo.gptmobile.data.research.DirectResearchModelFactory.create(
+            platform, admittedProfiles, runFeatures, directConfig, turnKey,
+            liveProfiles = { settingRepository.fetchPlatformV2s() },
+            liveFeatures = { settingRepository.getFeatureSettings() },
+            stillEnabled = { researchAllowed() },
+            prepareLocal = { target, policy -> runtimeEligibleForAssist(target, policy) },
+            generate = generate,
+            onAssistStatus = {
+                dev.chungjungsoo.gptmobile.data.assist.AssistTelemetry.record(runId, it)
+                emit(ApiState.AssistStatus(it))
+            },
+            retainPartial = { stage, profileUid, text -> researchJournal?.retainPartial(stage, profileUid, text) }
+        )
+        val research = dev.chungjungsoo.gptmobile.data.agent.tool.AndroidResearchWorkflow(
+            directConfig,
+            delegatedTools,
+            generate = { _, _ -> null }, // The typed stage coordinator owns every model invocation.
+            modelCoordinator = modelWorker,
+            journal = researchJournal,
+            stillEnabled = {
+                val current = settingRepository.getFeatureSettings()
+                current.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH) &&
+                    current.isToolPluginSelected(platform.uid, dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH) &&
+                    current.delegationFor(platform.uid).deepResearch.enabled &&
+                    (current.conversationResearch[researchChatId] ?: explicitResearchSelection)?.let { it.researchToggle && it.depth > 0 } != false
+            }
+        ).run(researchTask, "$runId:research-acquisition")
+        chatToolConfig?.combined?.let { combined ->
+            val budget = combinedBudgets.open(combined)
+            for (stage in dev.chungjungsoo.gptmobile.data.agent.CombinedResearchStages.names) {
+                val id = dev.chungjungsoo.gptmobile.data.agent.CombinedResearchStages.id(platform.uid, stage)
+                if (combined.plan?.workItems?.any { it.id == id } != true) continue
+                val events = modelWorker.events.filter { it.stage.equals(stage, ignoreCase = true) }
+                val successful = modelWorker.completedStage(stage)
+                budget.finishStage(id, if (successful) "COMPLETED" else "PARTIAL", if (successful) null else events.lastOrNull()?.reason ?: "STAGE_NOT_RUN")
+            }
+        }
+        return PrimaryResearchAcquisition(directConfig, research)
     }
 
     private data class PrimaryDispatchMemory(

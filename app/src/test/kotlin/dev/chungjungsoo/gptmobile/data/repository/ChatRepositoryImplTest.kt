@@ -315,15 +315,16 @@ class ChatRepositoryImplTest {
 
     @Test
     fun queuedResearchFollowUpIsCheckedAsPartOfTheWholeReportAndReceipt() = runBlocking {
-        for (unsupported in listOf(false, true)) {
+        for ((unsupported, referencesHeading) in listOf(false to false, true to false, true to true)) {
             val platform = customPlatform().copy(disableAllTools = true, disableLocalTools = true)
-            val runId = "research-queued-$unsupported"
+            val runId = "research-queued-$unsupported-$referencesHeading"
             val original = MessageV2(id = 12, chatId = 1, platformType = null, content = "Summarize the retained synthetic panel study.")
             val passage = "A synthetic panel study measured bending response under laboratory conditions. Long-term durability remains uncertain."
             val source = dev.chungjungsoo.gptmobile.data.research.ResearchSource("S1", "https://example.org/panel-study", "Synthetic panel study", "Read", passage)
             val snapshot = dev.chungjungsoo.gptmobile.data.research.ResearchSnapshot(original.content, sources = listOf(source), complete = false)
             val packet = dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryPacket.build(snapshot, dev.chungjungsoo.gptmobile.data.model.ResearchReportDetail.BRIEF)
-            val initial = "Partial coverage. Independent review is not available.\n\n$passage [S1] ${source.url}"
+            val initial = "Partial coverage. Independent review is not available.\n\n$passage [S1]" +
+                if (referencesHeading) "\n\n## References\n\n[S1] ${source.url}" else " ${source.url}"
             val appendix = if (unsupported) "Researchers observed improved recovery in 999 patients. [S1]" else "No verified long-term durability outcome is available. [S1]"
             assertTrue(dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryValidator.validate(initial, packet).accepted)
             assertEquals(!unsupported, dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryValidator.validate("$initial\n\n$appendix", packet).accepted)

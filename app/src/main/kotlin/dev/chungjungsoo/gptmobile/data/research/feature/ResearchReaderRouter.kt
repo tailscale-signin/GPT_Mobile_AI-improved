@@ -27,7 +27,9 @@ internal object ResearchReaderRouter {
         fun keepFailure(failed: AcademicEvidence) {
             retained = if (retained.text.isNotBlank() && SourceContentValidator.validate(retained.text, abstractOnly = retained.retrievalStatus == "abstract_only").usable) {
                 retained.copy(failureCode = failed.failureCode, failureReason = failed.failureReason, retryAtMs = failed.retryAtMs, redirectChain = failed.redirectChain)
-            } else failed
+            } else {
+                failed
+            }
         }
         val avoided = initial.redirectChain.toSet() + if (initial.retrievalStatus in setOf("blocked", "authentication_required", "redirect_failed")) setOf(initial.sourceUrl) else emptySet()
         val candidates = listOfNotNull(paper.openAccessUrl, paper.canonicalUrl).filter { it.isNotBlank() }.distinct().filterNot { it in avoided }

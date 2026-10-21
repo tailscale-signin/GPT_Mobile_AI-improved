@@ -17,9 +17,13 @@ internal class ResearchSourceRepair(private val database: ResearchDatabase, priv
         val pubmed = runCatching { java.net.URI(version.sourceUrl).host?.lowercase() == "pubmed.ncbi.nlm.nih.gov" }.getOrDefault(false)
         val proof = dao.sourceValidations(version.versionId).firstOrNull { receipt ->
             val evidence = runCatching { Json.decodeFromString<List<String>>(receipt.reasonsJson) }.getOrDefault(emptyList())
-            receipt.bodyHash == version.contentHash && receipt.validatorRevision >= 3 && receipt.kind == "STRUCTURED_ARTICLE" &&
-                "COMPLETE_STRUCTURED_BODY" in evidence && "NOT_TRUNCATED" in evidence &&
-                evidence.any { "method" in it.lowercase() || "experimental" in it.lowercase() } && evidence.any { "result" in it.lowercase() }
+            receipt.bodyHash == version.contentHash &&
+                receipt.validatorRevision >= 3 &&
+                receipt.kind == "STRUCTURED_ARTICLE" &&
+                "COMPLETE_STRUCTURED_BODY" in evidence &&
+                "NOT_TRUNCATED" in evidence &&
+                evidence.any { "method" in it.lowercase() || "experimental" in it.lowercase() } &&
+                evidence.any { "result" in it.lowercase() }
         }
         val reasons = proof?.let { runCatching { Json.decodeFromString<List<String>>(it.reasonsJson) }.getOrDefault(emptyList()) }.orEmpty()
         val result = SourceContentValidator.validate(text, completeArticle = proof != null, structuredBody = proof != null, sectionNames = reasons.toSet(), truncated = if (proof != null) false else null, metadataOnly = version.coverage == ArticleCoverage.METADATA_ONLY, abstractOnly = version.coverage == ArticleCoverage.ABSTRACT_ONLY || pubmed, url = version.sourceUrl)

@@ -3,8 +3,14 @@ package dev.chungjungsoo.gptmobile.presentation.ui.chat
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantRevision
+import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
+import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
 import dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse
+import dev.chungjungsoo.gptmobile.data.database.entity.ContributionDisposition
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
+import dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryReceipt
+import dev.chungjungsoo.gptmobile.data.research.delivery.ResearchReportValidity
+import dev.chungjungsoo.gptmobile.data.research.researchHash
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -55,4 +61,44 @@ class CombinedSynthesisInputsTest {
         assertFalse(CombinedContributionQuality.assess(AgentRunStatus.FAILED, "A partial sentence from a failed request").admitted)
         assertTrue(CombinedContributionQuality.assess(AgentRunStatus.COMPLETED, "A concise but usable answer.").admitted)
     }
+
+    @Test fun acceptedResearchReceiptRequiresExactLatestContributorBytes() {
+        val report = "The captured study supports this limited finding."
+        val receipt = receipt(report)
+        val accepted = message("lead", report).copy(timeline = listOf(receipt))
+        assertEquals(ContributionDisposition.ACCEPTED_REPORT, requireNotNull(inputs(listOf(accepted))).single().disposition)
+        val appended = accepted.copy(content = "$report\nA later unchecked claim was appended.")
+        assertEquals(ContributionDisposition.USABLE_PARTIAL, requireNotNull(inputs(listOf(appended))).single().disposition)
+        assertFalse(receipt.researchDeliveryReceipt!!.matchesRevision("$report "))
+        assertNull(requireNotNull(receipt.researchDeliveryReceipt).displayValidityFor(null))
+    }
+
+    @Test fun staleKnownResearchReceiptDoesNotInheritCompletedStatusOrEarlierAcceptance() {
+        val report = "The captured study supports this limited finding."
+        val latest = message("lead", "$report\nChanged interpretation.").copy(
+            timeline = listOf(receipt(report, ResearchReportValidity.EVIDENCE_ONLY)),
+            revisions = listOf(AssistantRevision(report, createdAt = 1, runId = "earlier", timeline = listOf(receipt(report)))),
+            activeRevisionIndex = 0
+        )
+        assertEquals(ContributionDisposition.USABLE_PARTIAL, requireNotNull(inputs(listOf(latest))).single().disposition)
+    }
+
+    @Test fun preservedContributorUsesItsOwnReceiptAndRawRevisionInsteadOfTheEditorReceipt() {
+        val report = "The contributor found a limited supported result."
+        val source = CombinedModelResponse("lead", "Lead", content = report, attemptId = "lead", rawContentDigest = researchHash(report), disposition = ContributionDisposition.ACCEPTED_REPORT)
+        val editor = message("lead", "The editor report needs correction.").copy(
+            currentRunId = "combined-synthesis:1",
+            combinedSources = listOf(source),
+            timeline = listOf(receipt("The editor report needs correction.", ResearchReportValidity.REJECTED)),
+            revisions = listOf(AssistantRevision(report, createdAt = 1, runId = "lead", timeline = listOf(receipt(report))))
+        )
+        assertEquals(ContributionDisposition.ACCEPTED_REPORT, combinedContributionDisposition(editor, source, AgentRunStatus.COMPLETED))
+        val staleOriginal = editor.copy(revisions = listOf(editor.revisions.single().copy(content = "$report\nUnchecked addition.")))
+        assertEquals(ContributionDisposition.USABLE_PARTIAL, combinedContributionDisposition(staleOriginal, source, AgentRunStatus.COMPLETED))
+    }
+
+    private fun receipt(text: String, validity: ResearchReportValidity = ResearchReportValidity.ACCEPTED) = AssistantTimelineItem(
+        AssistantTimelineItemType.NOTICE,
+        researchDeliveryReceipt = ResearchDeliveryReceipt(validity, true, "packet", researchHash(text))
+    )
 }

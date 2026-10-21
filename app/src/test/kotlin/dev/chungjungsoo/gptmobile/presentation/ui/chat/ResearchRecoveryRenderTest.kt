@@ -33,6 +33,7 @@ import dev.chungjungsoo.gptmobile.data.research.ResearchSource
 import dev.chungjungsoo.gptmobile.data.research.capturedResearchVersion
 import dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryReceipt
 import dev.chungjungsoo.gptmobile.data.research.delivery.ResearchReportValidity
+import dev.chungjungsoo.gptmobile.data.research.researchHash
 import dev.chungjungsoo.gptmobile.presentation.theme.GPTMobileTheme
 import java.io.File
 import org.junit.Assert.assertEquals
@@ -62,7 +63,8 @@ class ResearchRecoveryRenderTest {
         var writing by mutableStateOf(false)
         val recovery = mutableListOf<String>()
         var canceled = 0
-        val receipt = ResearchDeliveryReceipt(ResearchReportValidity.EVIDENCE_ONLY, true, "packet", "revision", retryEligible = true)
+        val report = "The captured evidence is retained for another writing attempt."
+        val receipt = ResearchDeliveryReceipt(ResearchReportValidity.EVIDENCE_ONLY, true, "packet", researchHash(report), retryEligible = true)
         val native = ActiveAgentRun(
             "local-run",
             7,
@@ -82,7 +84,8 @@ class ResearchRecoveryRenderTest {
                                 writerFailure = if (writing) null else "Report needs correction",
                                 onRecovery = { recovery += it },
                                 deliveryReceipt = receipt,
-                                cancelWriting = { canceled++ }
+                                cancelWriting = { canceled++ },
+                                deliveryRevisionText = report
                             )
                             CompactAgentActivityBar(native, Modifier.padding(horizontal = 16.dp))
                         }
@@ -90,7 +93,8 @@ class ResearchRecoveryRenderTest {
                 }
             }
         }
-        compose.onNodeWithText("1 claims checked against passages", useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithText("1 readable source", useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithText("1 claim checked against passages", useUnmergedTree = true).assertIsDisplayed()
         compose.onNodeWithText("0 independently reviewed", useUnmergedTree = true).assertIsDisplayed()
         compose.onNodeWithText("Evidence only · report not accepted", useUnmergedTree = true).assertIsDisplayed()
         compose.onNodeWithText("Retry writing").performClick()
@@ -109,5 +113,27 @@ class ResearchRecoveryRenderTest {
         compose.onNodeWithText("Continue research").assertDoesNotExist()
         compose.onNodeWithText("Cancel writing").performClick()
         compose.runOnIdle { assertEquals(1, canceled) }
+    }
+
+    @Test fun acceptanceIsOnlyShownForTheExactDisplayedReportRevision() {
+        val report = "The captured study supports this limited finding."
+        var displayed by mutableStateOf(report)
+        val receipt = ResearchDeliveryReceipt(ResearchReportValidity.ACCEPTED, true, "packet", researchHash(report))
+        val session = ResearchSession("research-run", 7, ResearchSnapshot("Review the captured trial", phase = "Complete", complete = true))
+        compose.setContent {
+            GPTMobileTheme(themeMode = ThemeMode.LIGHT) {
+                Surface {
+                    ResearchProgressCard(listOf(session), emptySet(), {}, deliveryReceipt = receipt, deliveryRevisionText = displayed)
+                }
+            }
+        }
+        compose.onNodeWithText("Research report ready").assertIsDisplayed()
+        compose.onNodeWithText("Report accepted").assertIsDisplayed()
+        compose.runOnIdle { displayed = "$report\nAn unchecked addition." }
+        compose.onNodeWithText("Current report not checked").assertIsDisplayed()
+        compose.onNodeWithText("Research report ready").assertDoesNotExist()
+        compose.onNodeWithText("Report accepted").assertDoesNotExist()
+        compose.runOnIdle { displayed = report }
+        compose.onNodeWithText("Report accepted").assertIsDisplayed()
     }
 }

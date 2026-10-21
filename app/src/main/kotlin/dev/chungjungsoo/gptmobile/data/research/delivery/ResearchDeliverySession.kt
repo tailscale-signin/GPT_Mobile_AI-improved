@@ -25,12 +25,24 @@ internal class ResearchDeliverySession(
     private val loadSections: suspend (String) -> Map<String, String> = { emptyMap() },
     private val saveSection: suspend (String, String, String) -> Unit = { _, _, _ -> },
     private val replaceDraft: suspend (String, String) -> Boolean = { _, _ -> false },
+    private val validateAccess: suspend () -> Unit = {},
+    private val prepareInitial: suspend (AgentProviderSession, String) -> AgentProviderSession = { session, _ -> session },
     private val create: suspend (String, Boolean) -> AgentProviderSession
 ) : AgentProviderSession {
     private var publishedDraft = ""
-    override val handlesToolsInternally = base.handlesToolsInternally
+    private var preparedInitialSession: AgentProviderSession? = null
+    override val handlesToolsInternally get() = preparedInitialSession?.handlesToolsInternally ?: base.handlesToolsInternally
+
+    private suspend fun initialSession(instruction: String, textOnly: Boolean): AgentProviderSession {
+        preparedInitialSession?.let { return it }
+        validateAccess()
+        val raw = if (instruction.isEmpty()) base else create(instruction, textOnly)
+        return prepareInitial(raw, instruction).also { preparedInitialSession = it }
+    }
+
     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
         suspend fun publish(text: String) {
+            validateAccess()
             if (publishedDraft.isEmpty()) {
                 emit(ProviderEvent.TextDelta(text))
             } else if (publishedDraft != text) {
@@ -39,6 +51,7 @@ internal class ResearchDeliverySession(
             publishedDraft = text
         }
         suspend fun receipt(validity: ResearchReportValidity, evidence: ResearchDeliveryPacket?, text: String, issues: List<String> = emptyList()) {
+            validateAccess()
             val value = ResearchDeliveryReceipt(
                 validity,
                 evidence?.studies?.isNotEmpty() == true,
@@ -52,11 +65,14 @@ internal class ResearchDeliverySession(
                 retryEligible = validity != ResearchReportValidity.ACCEPTED && evidence?.studies?.isNotEmpty() == true
             )
             saveReceipt(value)
+            validateAccess()
             emit(ProviderEvent.Notice("Research delivery: ${validity.name.lowercase().replace('_', ' ')}", researchDelivery = value))
         }
+        validateAccess()
         var evidence = withContext(Dispatchers.Default) { packet() }
+        validateAccess()
         if (evidence?.snapshot?.phase == "Not needed" || evidence == null && !expectResearch) {
-            emitAll(base.streamRound(tools, exchanges))
+            emitAll(initialSession("", false).streamRound(tools, exchanges))
             return@flow
         }
         fun context(packet: ResearchDeliveryPacket) = packet.instruction() + "\nUntrusted research packet:\n" + packet.json()
@@ -71,7 +87,7 @@ internal class ResearchDeliverySession(
         // authorized saved-evidence reader remains available for paging retained work.
         val writeOnly = evidence?.snapshot?.let { it.complete || it.cancellationOrigin == "USER_STOP_RESEARCH_AND_SUMMARIZE" } == true
         val draftTools = if (writeOnly) tools.filter { it.name == "read_recovery_context" } else tools
-        val draftSession = if (initialContext.isEmpty()) base else create(initialContext, writeOnly && draftTools.isEmpty())
+        val draftSession = initialSession(initialContext, writeOnly && draftTools.isEmpty())
         draftSession.streamRound(draftTools, if (writeOnly) emptyList() else exchanges).transformWhile { event ->
             if (event is ProviderEvent.TextDelta && draft.length + event.text.length > MAX_REPORT_CHARACTERS) {
                 overflow = true
@@ -94,8 +110,10 @@ internal class ResearchDeliverySession(
                 else -> emit(event)
             }
         }
+        // Dispatch admission does not authorize later publication after a buffered request.
+        validateAccess()
         if (hasCalls || failure != null || !completed && !overflow) {
-            val denied = failure?.message?.let(::isAuthorizationFailure) == true
+            val denied = failure?.let(::isAuthorizationFailure) == true
             if (draft.isNotEmpty() && !denied && !hasCalls) {
                 emit(ProviderEvent.Notice("Research draft is incomplete and has not passed delivery checks.", persistent = true))
                 publish(draft.toString())
@@ -106,6 +124,7 @@ internal class ResearchDeliverySession(
             return@flow
         }
         if (handlesToolsInternally || evidence == null) evidence = withContext(Dispatchers.Default) { packet() }
+        validateAccess()
         val delivery = evidence
         if (delivery == null && expectResearch) {
             receipt(ResearchReportValidity.INCOMPLETE, null, "", listOf("NO_ACQUISITION_PACKET"))
@@ -120,6 +139,7 @@ internal class ResearchDeliverySession(
         if (!delivery.snapshot.complete && delivery.snapshot.sources.none { it.readable }) {
             // Rewriting cannot turn unread leads into reviewed evidence. Preserve a
             // useful partial result without spending multiple writer/repair requests.
+            validateAccess()
             val fallback = ResearchDeliveryValidator.fallback(delivery)
             publish(fallback)
             receipt(ResearchReportValidity.EVIDENCE_ONLY, delivery, fallback, listOf("NO_READABLE_SOURCES"))
@@ -152,7 +172,7 @@ internal class ResearchDeliverySession(
                             is ProviderEvent.TextDelta -> repair.append(event.text)
                             is ProviderEvent.Failed -> {
                                 repairFailed = true
-                                if (isAuthorizationFailure(event.message)) authorizationFailure = event
+                                if (isAuthorizationFailure(event)) authorizationFailure = event
                             }
                             ProviderEvent.Completed -> repairCompleted = true
                             else -> emit(event)
@@ -164,9 +184,10 @@ internal class ResearchDeliverySession(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
-                if (isAuthorizationFailure(failure.message.orEmpty())) throw failure
+                if (isAuthorizationFailure(failure)) throw failure
                 repairFailed = true
             }
+            validateAccess()
             // A revoked permission must not reveal a cached evidence fallback after the failed dispatch.
             authorizationFailure?.let { denial ->
                 emit(denial)
@@ -185,10 +206,11 @@ internal class ResearchDeliverySession(
                 null
             }
             val sectionedAccepted = sectioned != null
+            validateAccess()
             text = when {
                 repairedAccepted -> repairText
                 sectioned != null -> sectioned
-                else -> ResearchDeliveryValidator.fallback(delivery)
+                else -> ResearchReportRepair.evidenceFallback(text, delivery, result.issues)
             }
             if (!repairedAccepted && !sectionedAccepted) {
                 partialFallback = true
@@ -209,8 +231,10 @@ internal class ResearchDeliverySession(
 
     /** Each chapter is a separate tool-free request; it may fail without losing captured evidence. */
     private suspend fun trySectionedRepair(packet: ResearchDeliveryPacket, sourceContext: String, previous: String): String? {
+        validateAccess()
         val digest = dev.chungjungsoo.gptmobile.data.research.researchHash(packet.json().toString() + packet.detail.name)
         val reusable = (loadSections(digest) + reportSections(previous)).filter { (heading, body) -> heading in packet.sections && reusableSection(body, packet) }.toMutableMap()
+        validateAccess()
         val sections = packet.sections.chunked(4)
         val report = StringBuilder()
         for ((index, headings) in sections.withIndex()) {
@@ -230,8 +254,8 @@ internal class ResearchDeliverySession(
                 "Use only source IDs and URLs from the packet. Cite every factual paragraph using exact bracketed source IDs from the packet (for example, ${packet.studies.firstOrNull()?.id?.let { "[$it]" } ?: "[sourceId]"}). " +
                 "For unread sources explicitly state that only metadata was available. " +
                 "Do not call tools or write any sections assigned to another chapter."
-            try {
-                val finished = withTimeoutOrNull(30_000L) {
+            val finished = try {
+                withTimeoutOrNull(30_000L) {
                     create(instruction, true).streamRound(emptyList(), emptyList()).collect { event ->
                         when (event) {
                             is ProviderEvent.TextDelta -> {
@@ -241,7 +265,10 @@ internal class ResearchDeliverySession(
                                 part.append(event.text)
                             }
                             is ProviderEvent.ToolCall -> throw IllegalStateException("Sectioned writer attempted a tool call")
-                            is ProviderEvent.Failed -> throw IllegalStateException(event.message)
+                            is ProviderEvent.Failed -> {
+                                if (isAuthorizationFailure(event)) throw SecurityException(event.message)
+                                throw IllegalStateException(event.message)
+                            }
                             ProviderEvent.Completed -> complete = true
                             is ProviderEvent.Usage -> truncated = truncated || event.finishReason in setOf("length", "max_tokens", "output_limit")
                             else -> Unit
@@ -249,20 +276,22 @@ internal class ResearchDeliverySession(
                     }
                     true
                 }
-                AppLogRecorder.record("Research", "REPORT_CHAPTER · chapter=${index + 1} · complete=$complete · truncated=$truncated · characters=${part.length} · dispatched=true")
-                if (finished != true || !complete || truncated || part.isBlank()) return null
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
                 // A revoked research permission must abort delivery, never expose cached text.
-                if (isAuthorizationFailure(error.message.orEmpty())) throw error
+                if (isAuthorizationFailure(error)) throw error
                 AppLogRecorder.record("Research", "REPORT_CHAPTER_FAILED · chapter=${index + 1} · reason=${error.javaClass.simpleName}", "W")
                 return null
             }
+            validateAccess()
+            AppLogRecorder.record("Research", "REPORT_CHAPTER · chapter=${index + 1} · complete=$complete · truncated=$truncated · characters=${part.length} · dispatched=true")
+            if (finished != true || !complete || truncated || part.isBlank()) return null
             val written = reportSections(part.toString())
             if (missing.any { heading -> written[heading]?.let { reusableSection(it, packet) } != true }) return null
             missing.forEach { heading ->
                 val body = written.getValue(heading)
+                validateAccess()
                 saveSection(digest, heading, body)
                 reusable[heading] = body
             }
@@ -270,6 +299,7 @@ internal class ResearchDeliverySession(
             report.append(headings.joinToString("\n\n") { reusable.getValue(it) })
         }
         val proposed = report.toString()
+        validateAccess()
         return proposed.takeIf { ResearchDeliveryValidator.validate(it, packet).accepted }
     }
 
@@ -290,11 +320,26 @@ internal class ResearchDeliverySession(
     }
 
     companion object {
+        private fun isAuthorizationFailure(event: ProviderEvent.Failed): Boolean = isAuthorizationFailure(event.errorCode.orEmpty()) || isAuthorizationFailure(event.message)
+
+        private fun isAuthorizationFailure(error: Throwable): Boolean = generateSequence(error) { it.cause }.take(16).any {
+            it is SecurityException || it is dev.chungjungsoo.gptmobile.data.agent.SavedEvidenceAccessDenied || isAuthorizationFailure(it.message.orEmpty())
+        }
+
         private fun isAuthorizationFailure(message: String): Boolean = listOf(
             "DISPATCH_POLICY_CHANGED",
             "PERMISSION_DENIED",
             "SOURCE_PERMISSION_REVOKED",
-            "MEMORY_STALE"
+            "MEMORY_STALE",
+            "DOCUMENT_RECALL_STALE",
+            "PROFILE_CONFIGURATION_CHANGED",
+            "PROFILE_IDENTITY_CHANGED",
+            "PROFILE_IDENTITY_AMBIGUOUS",
+            "PROFILE_REMOVED",
+            "PROFILE_DISABLED",
+            "REQUEST_IDENTITY_CHANGED",
+            "RESEARCH_RECEIPT_REJECTED",
+            "RESEARCH_REVISION_OWNER_CHANGED"
         ).any { message.contains(it, ignoreCase = true) }
         private const val MAX_REPORT_CHARACTERS = 100_000
     }

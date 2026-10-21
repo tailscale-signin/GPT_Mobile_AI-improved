@@ -206,7 +206,10 @@ class ArticleExaminationCoordinator @Inject constructor(
             }
             if (request.origin != ExaminationOrigin.USER_EXAMINE) {
                 archive.dao.jobsForWork(request.workId).firstOrNull { prior ->
-                    prior.chatId == request.chatId && prior.origin == request.origin && prior.authority == request.authority && prior.cancellationOrigin in setOf("USER_STOP", "USER_PAUSE") &&
+                    prior.chatId == request.chatId &&
+                        prior.origin == request.origin &&
+                        prior.authority == request.authority &&
+                        prior.cancellationOrigin in setOf("USER_STOP", "USER_PAUSE") &&
                         runCatching { Json.decodeFromString<ExaminationCheckpoint>(prior.checkpointJson).rootWorkId == request.rootWorkId }.getOrDefault(false)
                 }?.let { return@withLock it.jobId }
             }
@@ -382,7 +385,11 @@ class ArticleExaminationCoordinator @Inject constructor(
                         val root = checkpoint.rootWorkId ?: "examination:${record.jobId}"
                         val retained = try {
                             sessions.journal("examination:${record.jobId}", request.chatId, true, root, authority = request.authority, shareEnabled = false, acceptedTools = checkpoint.acceptedTools).retainPartial(kind, actor.uid, output.toString())
-                        } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { null }
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            null
+                        }
                         checkpoint = checkpoint.copy(unfinishedModelCheckpoint = retained)
                     }
                     throw dev.chungjungsoo.gptmobile.data.agent.tool.DelegateGenerationException(

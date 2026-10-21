@@ -3,8 +3,11 @@ package dev.chungjungsoo.gptmobile.presentation.ui.chat
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
 import dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse
+import dev.chungjungsoo.gptmobile.data.database.entity.ContributionDisposition
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.containsLocalOnlyMemory
+import dev.chungjungsoo.gptmobile.data.research.delivery.ResearchReportValidity
+import dev.chungjungsoo.gptmobile.data.research.researchHash
 import dev.chungjungsoo.gptmobile.util.isAssistantErrorMessage
 
 /** Build from the latest candidate, never a historical revision selected for inspection. */
@@ -39,13 +42,6 @@ internal fun combinedSynthesisInputs(
         }
         val assessment = CombinedContributionUsability.assess(status, content, allowPartial = true)
         if (!assessment.admitted) return@mapNotNull null
-        val receipt = message.timeline.lastOrNull { it.researchDeliveryReceipt != null }?.researchDeliveryReceipt
-        val disposition = when (receipt?.reportValidity) {
-            dev.chungjungsoo.gptmobile.data.research.delivery.ResearchReportValidity.ACCEPTED -> dev.chungjungsoo.gptmobile.data.database.entity.ContributionDisposition.ACCEPTED_REPORT
-            dev.chungjungsoo.gptmobile.data.research.delivery.ResearchReportValidity.EVIDENCE_ONLY -> dev.chungjungsoo.gptmobile.data.database.entity.ContributionDisposition.EVIDENCE_ONLY
-            dev.chungjungsoo.gptmobile.data.research.delivery.ResearchReportValidity.INCOMPLETE, dev.chungjungsoo.gptmobile.data.research.delivery.ResearchReportValidity.REJECTED -> dev.chungjungsoo.gptmobile.data.database.entity.ContributionDisposition.USABLE_PARTIAL
-            null -> null
-        }
         CombinedModelResponse(
             platformUid = uid,
             platformName = names[uid] ?: original?.platformName ?: "AI",
@@ -62,8 +58,7 @@ internal fun combinedSynthesisInputs(
             sourceDigest = dev.chungjungsoo.gptmobile.data.research.researchHash(content),
             ancestryIds = original?.ancestryIds.orEmpty(),
             rawContentDigest = original?.rawContentDigest?.takeIf(String::isNotBlank) ?: dev.chungjungsoo.gptmobile.data.research.researchHash(originalContent),
-            disposition = disposition ?: original?.disposition?.takeUnless { it == dev.chungjungsoo.gptmobile.data.database.entity.ContributionDisposition.LEGACY_UNKNOWN }
-                ?: if (status == AgentRunStatus.COMPLETED) dev.chungjungsoo.gptmobile.data.database.entity.ContributionDisposition.ACCEPTED_REPORT else dev.chungjungsoo.gptmobile.data.database.entity.ContributionDisposition.USABLE_PARTIAL
+            disposition = combinedContributionDisposition(message, original, status)
         )
     }
     if (sources.isEmpty()) return null
@@ -71,4 +66,31 @@ internal fun combinedSynthesisInputs(
     // Late helper updates require explicit user recovery; never silently replace the final answer.
     if (synthesis != null) return null
     return sources
+}
+
+/** An editor's receipt cannot validate its preserved contributor, or a later appended answer. */
+internal fun combinedContributionDisposition(message: MessageV2, original: CombinedModelResponse?, status: String): ContributionDisposition {
+    val preserved = original?.attemptId?.let { attempt -> message.revisions.firstOrNull { it.runId == attempt } }
+    val preservedContributor = original != null && message.currentRunId != original.attemptId
+    val timeline = if (preservedContributor) preserved?.timeline.orEmpty() else message.timeline
+    val rawText = if (preservedContributor) preserved?.content ?: original!!.content else message.content
+    val receipt = timeline.lastOrNull { it.researchDeliveryReceipt != null }?.researchDeliveryReceipt
+    if (receipt != null) {
+        val originalDigest = original?.rawContentDigest?.takeIf(String::isNotBlank)
+        if (!receipt.matchesRevision(rawText) || originalDigest != null && originalDigest != researchHash(rawText)) {
+            return ContributionDisposition.USABLE_PARTIAL
+        }
+        return when (receipt.reportValidity) {
+            ResearchReportValidity.ACCEPTED -> ContributionDisposition.ACCEPTED_REPORT
+            ResearchReportValidity.EVIDENCE_ONLY -> ContributionDisposition.EVIDENCE_ONLY
+            ResearchReportValidity.INCOMPLETE, ResearchReportValidity.REJECTED -> ContributionDisposition.USABLE_PARTIAL
+        }
+    }
+    original?.disposition?.takeUnless { it == ContributionDisposition.LEGACY_UNKNOWN }?.let { return it }
+    // A known research answer without its own matching receipt is still useful evidence,
+    // but a successful transport does not supply the missing report validation.
+    if (message.timeline.any { it.researchDeliveryReceipt != null } || preserved?.timeline?.any { it.researchDeliveryReceipt != null } == true) {
+        return ContributionDisposition.USABLE_PARTIAL
+    }
+    return if (status == AgentRunStatus.COMPLETED) ContributionDisposition.ACCEPTED_REPORT else ContributionDisposition.USABLE_PARTIAL
 }

@@ -27,10 +27,12 @@ fun enrichResearchSourceMetadata(source: ResearchSource, captured: String, citat
         publicationType = type,
         studyDesigns = source.studyDesigns + designs,
         equivalenceGroup = SourceIdentity.create(source.url, source.title, source.passage, doi, pmid, pmcid, source.publicationYear).equivalenceKey,
-        metadataProvenance = (source.metadataProvenance + "authorized_capture:${researchHash(captured)}" +
-            listOfNotNull(
-                citationMetadata.takeIf { it.isNotEmpty() }?.let { "authorized_citation_metadata:${researchHash(source.url + source.versionId + researchHash(captured) + it.toSortedMap())}" },
-                "identifier_conflict:doi".takeIf { source.doi.isNotBlank() && capturedDoi.isNotBlank() && SourceIdentity.normalizeDoi(source.doi) != capturedDoi }
-            )).distinct()
+        metadataProvenance = (
+            source.metadataProvenance + "authorized_capture:${researchHash(captured)}" +
+                listOfNotNull(
+                    citationMetadata.takeIf { it.isNotEmpty() }?.let { "authorized_citation_metadata:${researchHash(source.url + source.versionId + researchHash(captured) + it.toSortedMap())}" },
+                    "identifier_conflict:doi".takeIf { source.doi.isNotBlank() && capturedDoi.isNotBlank() && SourceIdentity.normalizeDoi(source.doi) != capturedDoi }
+                )
+            ).distinct()
     )
 }

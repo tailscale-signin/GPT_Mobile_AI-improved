@@ -13,9 +13,14 @@ import zipfile
 
 ART_CODE_UNIT_LIMIT = 65535 // 4
 DISPATCH_STAGES = (
-    'executePreparedRequest', 'preparePrimaryTools', 'recallPrimaryTurnMemory',
+    'executePreparedRequest', 'dispatchWithPreparedContext',
+    'preparePrimaryAdmission', 'preparePrimaryToolContext',
+    'preparePrimaryRecall', 'preparePrimaryTools', 'recallPrimaryTurnMemory',
+    'preparePrimaryDispatch', 'preparePrimaryDispatchMemory',
+    'preparePrimaryDispatchBudgets', 'planPreparedRunContext',
     'buildPrimarySystemPrompt', 'effectivePrimaryDelegationSettings',
     'acceptPrimaryResearchTask', 'prepareCombinedDeliveryWork',
+    'streamPrimaryAnswer', 'openPrimarySession',
 )
 
 

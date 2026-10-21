@@ -535,11 +535,12 @@ private data class BoundedBody(
 
 /** Head metadata belongs to this permitted response, never a separately fetched provider. */
 private fun capturedCitationMetadata(html: String): Map<String, String> {
-    val boundedHead = html.take(64 * 1024).substringBefore(Regex("(?i)</head\\s*>").find(html.take(64 * 1024))?.value ?: "\u0000")
-    val head = org.jsoup.Jsoup.parse(boundedHead).head()
+    val prefix = truncateUtf8(html, 64 * 1024)
+    val end = Regex("(?i)</head\\s*>").find(prefix)?.range?.first ?: prefix.length
+    val head = org.jsoup.Jsoup.parse(prefix.take(end)).head()
     val allowed = setOf("citation_doi", "citation_pmid", "citation_pmcid", "citation_article_type")
     return head.select("meta[name][content]").asSequence().take(128)
-        .map { it.attr("name").lowercase(Locale.ROOT) to it.attr("content").trim().take(512) }
+        .map { it.attr("name").lowercase(Locale.ROOT) to truncateUtf8(it.attr("content").trim(), 512) }
         .filter { it.first in allowed && it.second.isNotBlank() }.groupBy({ it.first }, { it.second })
         .mapNotNull { (key, values) -> values.distinct().singleOrNull()?.let { key to it } }.toMap()
 }

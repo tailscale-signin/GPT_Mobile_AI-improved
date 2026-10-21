@@ -5,5 +5,9 @@ allprojects {
         maxParallelForks = 1
         forkEvery = 1
         systemProperty 'gptmobile.heapStress', 'true'
+        // Keep the full-suite reports and these explicitly constrained results separate.
+        reports.junitXml.outputLocation.set(project.layout.buildDirectory.dir('test-results/heapRecovery'))
+        reports.html.outputLocation.set(project.layout.buildDirectory.dir('reports/tests/heapRecovery'))
+        binaryResultsDirectory.set(project.layout.buildDirectory.dir('test-results/heapRecovery/binary'))
     }
 }

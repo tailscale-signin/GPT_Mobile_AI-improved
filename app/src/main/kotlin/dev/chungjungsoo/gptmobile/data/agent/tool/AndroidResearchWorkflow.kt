@@ -180,8 +180,10 @@ internal class AndroidResearchWorkflow(
         val safe = publicResearchUrl(url)?.takeIf { it.length <= 2048 && researchDomainAllowed(it, included, excluded) } ?: return null
         val identity = SourceIdentity.create(safe, title, doi = doi, pmid = pmid, pmcid = pmcid, publicationYear = publicationYear)
         val key = identity.equivalenceKey.ifBlank { canonicalSearchUrl(safe) }
-        sources[key]?.let { existing ->
-            sources[key] = existing.copy(engines = (existing.engines + engines).distinct().take(20))
+        val retainedKey = sources.entries.firstOrNull { it.key == key || it.value.equivalenceGroup == key }?.key
+        retainedKey?.let { existingKey ->
+            val existing = sources.getValue(existingKey)
+            sources[existingKey] = existing.copy(engines = (existing.engines + engines).distinct().take(20))
             return existing.id
         }
 
@@ -806,7 +808,7 @@ internal class AndroidResearchWorkflow(
                 access == ResearchAccessDisposition.PREVIEW || passage != text || (payload as? JsonObject)?.get("truncated") == JsonPrimitive(true) -> "Partially read"
                 else -> "Read"
             }
-            val key = source.equivalenceGroup.ifBlank { canonicalSearchUrl(source.url) }
+            val key = sources.entries.firstOrNull { it.value.id == source.id && it.value.versionId == source.versionId }?.key ?: source.equivalenceGroup.ifBlank { canonicalSearchUrl(source.url) }
             sources[key] = dev.chungjungsoo.gptmobile.data.research.enrichResearchSourceMetadata(
                 source.copy(
                     status = status,

@@ -40,7 +40,8 @@ internal fun ResearchProgressCard(
     writerFailure: String? = null,
     onRecovery: ((String) -> Unit)? = null,
     deliveryReceipt: dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryReceipt? = null,
-    cancelWriting: (() -> Unit)? = null
+    cancelWriting: (() -> Unit)? = null,
+    deliveryRevisionText: String? = null
 ) {
     var expanded by remember { mutableStateOf(false) }
     var filter by remember { mutableStateOf("") }
@@ -50,6 +51,7 @@ internal fun ResearchProgressCard(
     val collecting = activeSessions.any { session -> session.snapshot.phase.lowercase().let { phase -> !phase.contains("report") && !phase.contains("writing") && !phase.contains("summary") && !phase.contains("handoff") && phase !in setOf("complete", "completed", "ready") } }
     val writing = activeRunIds.isNotEmpty() && !collecting
     val active = collecting || writing
+    val displayedValidity = deliveryReceipt?.displayValidityFor(deliveryRevisionText)
     val readable = snapshot.sources.readableWorkCount()
     val saved = snapshot.sources.distinctBy { it.equivalenceGroup.ifBlank { it.id } }.size
     val progress = (readable.toFloat() / snapshot.targetSources.coerceAtLeast(1)).coerceIn(0f, 1f)
@@ -66,7 +68,7 @@ internal fun ResearchProgressCard(
                         when {
                             collecting -> "Research · ${snapshot.phase}"
                             writing -> "Writing from saved evidence"
-                            deliveryReceipt?.accepted == true -> "Research report ready"
+                            displayedValidity == dev.chungjungsoo.gptmobile.data.research.delivery.ResearchReportValidity.ACCEPTED -> "Research report ready"
                             else -> "Research evidence retained"
                         },
                         style = MaterialTheme.typography.titleMedium
@@ -94,16 +96,20 @@ internal fun ResearchProgressCard(
                     claim.reviewedSourceVersion == dev.chungjungsoo.gptmobile.data.research.capturedResearchVersion(source)
             }
             androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("$saved sources collected", style = MaterialTheme.typography.labelMedium)
-                Text("$checked claims checked against passages", style = MaterialTheme.typography.labelMedium)
+                Text("$readable readable ${if (readable == 1) "source" else "sources"}", style = MaterialTheme.typography.labelMedium)
+                Text("$checked ${if (checked == 1) "claim" else "claims"} checked against passages", style = MaterialTheme.typography.labelMedium)
                 Text("$independent independently reviewed", style = MaterialTheme.typography.labelMedium)
                 Text(
-                    when (deliveryReceipt?.reportValidity) {
+                    when (displayedValidity) {
                         dev.chungjungsoo.gptmobile.data.research.delivery.ResearchReportValidity.ACCEPTED -> "Report accepted"
                         dev.chungjungsoo.gptmobile.data.research.delivery.ResearchReportValidity.EVIDENCE_ONLY -> "Evidence only · report not accepted"
                         dev.chungjungsoo.gptmobile.data.research.delivery.ResearchReportValidity.REJECTED -> "Report needs correction"
                         dev.chungjungsoo.gptmobile.data.research.delivery.ResearchReportValidity.INCOMPLETE -> "Report incomplete"
-                        null -> if (writing) "Report writing" else "Report not yet accepted"
+                        null -> when {
+                            writing -> "Report writing"
+                            deliveryReceipt != null -> "Current report not checked"
+                            else -> "Report not yet accepted"
+                        }
                     },
                     style = MaterialTheme.typography.labelMedium
                 )

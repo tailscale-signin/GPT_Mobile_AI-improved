@@ -751,7 +751,8 @@ fun ChatScreen(
                             writerFailure = researchTurnRuns.filter { it.status == "FAILED" }.maxByOrNull { it.createdAt }?.terminalError,
                             onRecovery = { action -> chatViewModel.recoverResearch(shownUserId, action) },
                             deliveryReceipt = receiptOwner?.effectiveTimeline()?.lastOrNull { it.researchDeliveryReceipt != null }?.researchDeliveryReceipt,
-                            cancelWriting = { chatViewModel.cancelResearchWriting(shownUserId) }
+                            cancelWriting = { chatViewModel.cancelResearchWriting(shownUserId) },
+                            deliveryRevisionText = receiptOwner?.effectiveContent()
                         )
                     }
                 }

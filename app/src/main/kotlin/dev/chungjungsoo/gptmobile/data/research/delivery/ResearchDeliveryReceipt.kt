@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.research.delivery
 
+import dev.chungjungsoo.gptmobile.data.research.researchHash
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -22,4 +23,10 @@ data class ResearchDeliveryReceipt(
 ) {
     val accepted: Boolean get() = reportValidity == ResearchReportValidity.ACCEPTED
     val partial: Boolean get() = reportValidity == ResearchReportValidity.EVIDENCE_ONLY || reportValidity == ResearchReportValidity.INCOMPLETE
+
+    /** A receipt validates exact published bytes, including whitespace and appended text. */
+    fun matchesRevision(text: String): Boolean = revisionId.isNotBlank() && revisionId == researchHash(text)
+
+    /** Unknown text must never inherit an earlier revision's acceptance. */
+    fun displayValidityFor(text: String?): ResearchReportValidity? = reportValidity.takeIf { text != null && matchesRevision(text) }
 }

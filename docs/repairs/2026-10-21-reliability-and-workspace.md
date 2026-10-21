@@ -12,6 +12,8 @@ The implementation was reconstructed after an earlier temporary checkout was los
 
 Publisher access failures, redirect exhaustion, offline transport, rate limits, memory admission and exhausted work admission are separate recoverable conditions. An unavailable source does not become a negative scientific assessment. The coordinator retains its checkpoint; an unfunded fallback does not immediately repeat the same impossible acquisition. Examiner configuration is explicit, and pending work is reconsidered using the relevant conversation/profile configuration revision.
 
+The reader carries bounded head-only DOI, PMID, PMCID and publication-type metadata separately from visible text. Metadata enrichment follows the same body, access and final-domain admission checks. A conflicting DOI is reported without replacing the existing capture's identity, version or authority.
+
 ### Structured stages and report delivery
 
 Transport completion, retained partial output, schema acceptance and stage acceptance are separate outcomes. A provider disconnect cannot turn an incomplete structured response into a completed extraction. Up to 128 KiB of partial output can be saved privately through the captured journal generation; the result reports a retained checkpoint only after that write succeeds. Transport failure enters recovery rather than semantic repair. The reasoning-only repair allowance respects the verified provider route ceiling and explicit user limits.
@@ -93,8 +95,9 @@ The central validation run is in progress. This section is updated with fresh re
 | Android compilation and unit suite | In progress |
 | 256 MiB session/export stress fixtures | Pending Android compilation |
 | Compose native renders, including narrow/large text | Pending Android compilation |
-| Android lint and native ARM64/x86_64 packaging | Pending Android compilation |
-| Repository validation scripts | In progress |
+| Native ARM64 and x86_64 CPU/Vulkan libraries | Both compiled successfully; final APK packaging pending |
+| Android lint and packaged-runtime validation | Pending Android compilation |
+| Repository validation scripts | 147 tests passed |
 
 The new behavioral fixtures exercise reader/router integration; 125 PR files and 45 checks; warm immutable content; late CI failures; exact patch restart; concurrent discovery deadlines; mutable read freshness; read timeout recovery; structured partial responses; current-version claim grounding; accepted task and publication fences; actual ledger/budget admission; export integrity and redaction; and native progress forwarding.
 
@@ -107,6 +110,7 @@ python gateway/check_gateway.py
 python -m unittest discover -s scripts/tests
 python scripts/test_gguf_prefill_governor.py
 python scripts/check_tool_statistics_coverage.py
+python scripts/check_research_dispatch_size.py app/build/outputs/apk/debug/app-debug.apk
 ```
 
 Physical-device throughput, Android background/process-death timing, live provider reconnect behavior and authenticated remote mutations require their actual device/service environment. Automated fixtures and native builds are evidence for the paths they execute, not measurements of those external systems. No production release or merge is part of this repair branch.

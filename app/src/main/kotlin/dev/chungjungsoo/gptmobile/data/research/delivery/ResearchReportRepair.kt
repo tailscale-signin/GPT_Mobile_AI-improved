@@ -88,4 +88,24 @@ internal object ResearchReportRepair {
         require(result.length <= 100_000)
         result
     }.getOrNull()
+
+    /** A failed correction does not erase paragraphs that already passed the available checks. */
+    fun evidenceFallback(text: String, packet: ResearchDeliveryPacket, issues: List<String>): String {
+        val retained = blocks(text, packet).filter { it.issues.isEmpty() }
+        val evidence = ResearchDeliveryValidator.fallback(packet)
+        if (retained.isEmpty()) return evidence
+        return buildString {
+            append("## Partial report: unresolved delivery checks\n\n")
+            append("The complete report has not passed delivery checks. The original paragraphs below passed structural and numerical checks and are retained without rewriting; these checks do not establish independent verification or factual accuracy.\n\n")
+            append("### Retained paragraphs\n\n")
+            retained.forEach { block ->
+                append(block.text)
+                append("\n\n")
+            }
+            append("### Unresolved delivery checks\n\n")
+            issues.distinct().forEach { append("- ").append(it).append('\n') }
+            append("\n### Saved evidence and remaining gaps\n\n")
+            append(evidence)
+        }
+    }
 }

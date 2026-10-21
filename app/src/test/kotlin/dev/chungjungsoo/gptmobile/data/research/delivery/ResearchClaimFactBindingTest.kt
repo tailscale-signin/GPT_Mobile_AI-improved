@@ -145,4 +145,18 @@ class ResearchClaimFactBindingTest {
         val report = "Partial coverage. Independent review is unavailable.\n\nAmong adults, locomotion improved by 3 points. [S1]\n\n## References\n\n[S1] ${source.url}"
         assertTrue(ResearchDeliveryValidator.validate(report, packet).issues.contains("NUMERICAL_RELATION_METADATA_REQUIRED"))
     }
+
+    @Test fun combinedCorpusFreezePreservesNewContractAndRejectsStaleFactBindings() {
+        val captured = claim().copy(numericalFactBindingRequired = true)
+        val original = ResearchSnapshot("Memory locomotion", sources = listOf(source), claims = listOf(captured), numericalFactBindingRequired = true)
+        val corpus = dev.chungjungsoo.gptmobile.data.research.ResearchCorpus.freeze(original)
+        assertTrue(corpus.numericalFactBindingRequired)
+        assertEquals(captured, corpus.claims.single())
+        assertEquals("true", corpus.json().text("numericalFactBindingRequired"))
+        val noFacts = dev.chungjungsoo.gptmobile.data.research.ResearchCorpus.freeze(original.copy(claims = listOf(captured.copy(facts = emptyList()))))
+        assertTrue(noFacts.claims.isEmpty())
+        assertEquals("true", noFacts.json().text("numericalFactBindingRequired"))
+        val stale = dev.chungjungsoo.gptmobile.data.research.ResearchCorpus.freeze(original.copy(sources = listOf(source.copy(versionId = "v2"))))
+        assertTrue(stale.claims.isEmpty())
+    }
 }

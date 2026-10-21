@@ -553,7 +553,12 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
             var responseCode: Int? = null
             var successful = false
             val lease = connectivity.acquire(uri.host) ?: throw AcademicNetworkRecovery()
-            val combinedAttempt = try { dev.chungjungsoo.gptmobile.data.agent.CombinedAcquisitionBoundary.reserve("academic-http:$eventId", 1, freePublicEndpoint = true) } catch (failure: Throwable) { connectivity.release(lease); throw failure }
+            val combinedAttempt = try {
+                dev.chungjungsoo.gptmobile.data.agent.CombinedAcquisitionBoundary.reserve("academic-http:$eventId", 1, freePublicEndpoint = true)
+            } catch (failure: Throwable) {
+                connectivity.release(lease)
+                throw failure
+            }
             var networkStarted = false
             val result = try {
                 boundBudget?.reserve("http_request", lane = lane)

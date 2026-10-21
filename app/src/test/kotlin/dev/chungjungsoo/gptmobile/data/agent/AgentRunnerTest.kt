@@ -892,6 +892,72 @@ class AgentRunnerTest {
     }
 
     @Test
+    fun `persistent identical read suppression finalizes without exhausting observed call budget`() = runBlocking {
+        var executions = 0
+        var rounds = 0
+        val exposed = mutableListOf<List<String>>()
+        val read = tool("github_read") { id, _ ->
+            executions++
+            AgentToolResult(id, ToolResultContent.Text("Retained file evidence"), false)
+        }
+        val provider = session { tools, _ ->
+            exposed += tools.map { it.name }
+            val round = rounds++
+            flow {
+                if (tools.isNotEmpty()) {
+                    emit(toolCall("same-$round", "github_read", buildJsonObject { put("path", "src/Same.kt") }))
+                } else {
+                    emit(ProviderEvent.TextDelta("Answer from retained file evidence."))
+                }
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val events = AgentRunner().run(provider, listOf(read)).toList()
+        assertEquals(3, executions)
+        assertEquals(6, rounds)
+        assertTrue("github_read" in exposed[4])
+        assertTrue(exposed[5].isEmpty())
+        val skipped = events.filterIsInstance<AgentRunEvent.ToolFinished>().filter { !it.result.dispatched }
+        assertEquals(listOf("same-3", "same-4"), skipped.map { it.call.callId })
+        assertFalse(events.any { it is AgentRunEvent.Provider && it.event is ProviderEvent.Failed })
+        assertEquals(AgentRunEvent.Provider(ProviderEvent.Completed), events.last())
+    }
+
+    @Test
+    fun `useful source work resets consecutive suppressed read rounds`() = runBlocking {
+        val paths = mutableListOf<String>()
+        var rounds = 0
+        val read = tool("github_read") { id, arguments ->
+            paths += arguments.getValue("path").toString()
+            AgentToolResult(id, ToolResultContent.Text("Retained source evidence"), false)
+        }
+        val provider = session { tools, _ ->
+            val round = rounds++
+            flow {
+                if (tools.isEmpty()) {
+                    emit(ProviderEvent.TextDelta("Answer from all retained sources."))
+                } else {
+                    val path = when (round) {
+                        4 -> "src/Second.kt"
+                        6 -> "src/Third.kt"
+                        else -> "src/Same.kt"
+                    }
+                    emit(toolCall("read-$round", "github_read", buildJsonObject { put("path", path) }))
+                }
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val events = AgentRunner().run(provider, listOf(read)).toList()
+        assertEquals(10, rounds)
+        assertEquals(5, paths.size)
+        assertEquals(3, paths.distinct().size)
+        val skipped = events.filterIsInstance<AgentRunEvent.ToolFinished>().filter { !it.result.dispatched }
+        assertEquals(listOf("read-3", "read-5", "read-7", "read-8"), skipped.map { it.call.callId })
+        assertFalse(events.any { it is AgentRunEvent.Provider && it.event is ProviderEvent.Failed })
+        assertEquals(AgentRunEvent.Provider(ProviderEvent.Completed), events.last())
+    }
+
+    @Test
     fun `tool is circuit broken after three consecutive errors`() = runBlocking {
         val executions = AtomicInteger()
         val failing = tool("github__github_api") { id, _ ->

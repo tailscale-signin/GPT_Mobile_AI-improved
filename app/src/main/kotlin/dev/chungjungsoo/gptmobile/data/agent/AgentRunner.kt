@@ -115,6 +115,7 @@ class AgentRunner(
         var observedToolCalls = 0
         var stormFinalizationAttempted = false
         var unproductiveDiscoveryRounds = 0
+        var suppressedReadRounds = 0
         val executionToolCallLimit = ToolBudgetPolicy.executionLimit(limits)
         val toolCallsByName = mutableMapOf<String, Int>()
         val consecutiveToolFailures = mutableMapOf<String, Int>()
@@ -341,9 +342,13 @@ class AgentRunner(
                     errorCode = "NOT_DISPATCHED"
                 )
             }
+            val canReadOtherSources = hostSuppressedIds.isNotEmpty() || deferredCalls.any { it.callId in perToolSuppressedIds && it.name in executableToolByName }
+            // Give a scoped read one round to choose another source, then stop
+            // paying for provider rounds that only repeat already-suppressed work.
+            suppressedReadRounds = if (executableCalls.isEmpty() && canReadOtherSources) suppressedReadRounds + 1 else 0
             val completedBatch = finishBatch(
                 calls, executedResults + deferredResults, exchanges, executableCalls.isEmpty(),
-                hostSuppressedIds.isNotEmpty() || deferredCalls.any { it.callId in perToolSuppressedIds && it.name in executableToolByName },
+                canReadOtherSources, suppressedReadRounds >= 2,
                 roundLimitReached, toolCallCount, executionToolCallLimit,
                 unproductiveDiscoveryRounds, finalResponseRequested
             )
@@ -366,6 +371,7 @@ class AgentRunner(
         exchanges: MutableList<AgentToolExchange>,
         noExecutableCalls: Boolean,
         canReadOtherSources: Boolean,
+        repeatedReadSuppression: Boolean,
         roundLimitReached: Boolean,
         toolCallCount: Int,
         executionToolCallLimit: Int,
@@ -411,6 +417,7 @@ class AgentRunner(
             limits.initialContextTokens.toLong() + replayTokens + limits.finalResponseReserveTokens + 256 >= limits.contextTokens
         val unavailableCallsOnly = noExecutableCalls && calls.isNotEmpty() && !canReadOtherSources
         val mustFinalize = unavailableCallsOnly ||
+            repeatedReadSuppression ||
             repeatedDiscoveryStalled ||
             roundLimitReached ||
             contextNearLimit ||
@@ -420,6 +427,9 @@ class AgentRunner(
         if (unavailableCallsOnly) {
             finalResponseRequested = true
             emit(AgentRunEvent.Notice("Requested tools are unavailable for this response. Finishing with the findings already collected.", persistent = false))
+        } else if (repeatedReadSuppression) {
+            finalResponseRequested = true
+            emit(AgentRunEvent.Notice("Repeated reads produced no new work. Finishing with the results already collected.", persistent = false))
         } else if (repeatedDiscoveryStalled) {
             finalResponseRequested = true
             emit(AgentRunEvent.Notice("No new tools became available after repeated discovery. Summarizing the evidence already collected.", persistent = false))
@@ -477,6 +487,7 @@ class AgentRunner(
         if (mustFinalize && allResults.isNotEmpty()) {
             allResults[allResults.lastIndex] = when {
                 unavailableCallsOnly -> appendInstruction(allResults.last(), "These tools are disabled or unavailable. Use successful findings already collected to answer now. Do not request more tools in this response.")
+                repeatedReadSuppression -> appendInstruction(allResults.last(), "Repeated reads were skipped without acquiring new evidence. Summarize the results already collected and identify remaining gaps. Do not request more tools in this response.")
                 repeatedDiscoveryStalled -> appendInstruction(allResults.last(), "No more tools became available. Do not call discovery again; summarize completed findings and clearly identify any gaps.")
                 roundLimitReached -> appendInstruction(allResults.last(), ROUND_LIMIT_FINAL_RESPONSE_INSTRUCTION)
                 contextNearLimit -> appendInstruction(allResults.last(), "The context limit is approaching. Use the available findings to give a final response now and ask whether the user wants to continue. Do not call more tools.")

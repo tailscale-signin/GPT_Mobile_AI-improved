@@ -65,6 +65,7 @@ class StreamingDebugBundleTest {
                         )
                     )
                     put("missingSequences", 2)
+                    put("storageFailed", false)
                 }
             )
         }
@@ -88,6 +89,7 @@ class StreamingDebugBundleTest {
             assertTrue(parts.getValue("events.jsonl").contains("[redacted]"))
             val manifest = Json.parseToJsonElement(parts.getValue("manifest.json")).jsonObject
             assertEquals("2", manifest.getValue("journalGaps").jsonObject.getValue("missingSequences").jsonPrimitive.content)
+            assertEquals(JsonPrimitive(false), manifest.getValue("journalGaps").jsonObject.getValue("storageFailed"))
             assertFalse(manifest.getValue("capture").jsonObject.getValue("capturedFully").jsonPrimitive.content.toBoolean())
             assertEquals(0, directory.listFiles().orEmpty().count { it.name.startsWith("debug-parts-") })
         } finally {

@@ -857,6 +857,11 @@ class ChatRepositoryImplTest {
 
     @Test
     fun `litert lm tool capable run records engine owned tool calls on the timeline`() = runBlocking {
+        val dateTool = dev.chungjungsoo.gptmobile.data.agent.tool.CurrentDateTool()
+        val resolver = mockk<AgentToolResolver>()
+        coEvery { resolver.resolve(any(), any(), any(), any(), any(), any(), any()) } returns listOf(
+            ResolvedAgentTool(dateTool, null, null, dateTool.definition.name, dateTool.definition.name)
+        )
         val runtime = FakeLocalRuntime().apply {
             // The native planner retains the date tool while respecting this model's context.
             deviceRamGb = 12L
@@ -880,6 +885,7 @@ class ChatRepositoryImplTest {
             modelCatalogRepository = FakeModelCatalogRepository(
                 listOf(CatalogEntry(id = "gemma3-1b-it", capabilities = CatalogCapabilities(tools = true)))
             ),
+            agentToolResolver = resolver,
             toolEventRecorder = ToolEventRecorder(traceDao.asDao(), proxy())
         )
 
@@ -908,9 +914,16 @@ class ChatRepositoryImplTest {
         assertTrue(completedMetrics?.durationMs != null)
         assertTrue(completedMetrics?.resultBytes != null)
         assertEquals(1, runtime.sendMessageCalls.size)
-        val selectedTools = runtime.createConversationCalls.single().tools.map { it.name }.toSet()
-        assertTrue("The engine must receive the tool it executes", "current_date" in selectedTools)
-        assertTrue(setOf("calculate_expression", "current_date", "read_file_slice", "read_url", "web_search").containsAll(selectedTools))
+        assertEquals(
+            listOf(
+                dev.chungjungsoo.gptmobile.data.localruntime.LocalToolDescriptor(
+                    dateTool.definition.name,
+                    dateTool.definition.description,
+                    dateTool.definition.inputSchema.toString()
+                )
+            ),
+            runtime.createConversationCalls.single().tools
+        )
         assertTrue(runtime.createConversationCalls.single().isConstrainedDecodingEnabled)
         assertEquals(2048, runtime.createConversationCalls.single().maxOutputTokens)
         val event = traceDao.events.single()
@@ -1653,7 +1666,9 @@ class ChatRepositoryImplTest {
             override fun getSystemService(name: String): Any? = null
             override fun getSharedPreferences(name: String, mode: Int): android.content.SharedPreferences = mockk {
                 every { getString(any(), any()) } answers { secondArg() }
-                every { getStringSet(any(), any()) } answers { secondArg() }
+                // Android exposes a mutable platform type; MockK otherwise casts
+                // Kotlin's immutable emptySet default to MutableSet before returning it.
+                every { getStringSet(any(), any()) } answers { secondArg<Set<String>?>()?.toMutableSet() }
             }
         },
         chatRoomV2Dao = proxy(),

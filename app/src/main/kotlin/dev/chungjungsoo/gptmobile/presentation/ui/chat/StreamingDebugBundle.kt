@@ -280,7 +280,10 @@ internal object StreamingDebugBundle {
     }
     private fun element(reader: JsonReader): JsonElement {
         val output = StringWriter()
-        copyValue(reader, JsonWriter(output))
+        // A nested journal field can be a scalar (for example a gap count or
+        // storageFailed). Android's writer otherwise requires an object/array
+        // at its root, even though this is just one value from a strict reader.
+        copyValue(reader, JsonWriter(output).apply { isLenient = true })
         return Json.parseToJsonElement(output.toString())
     }
     private fun copyValue(reader: JsonReader, writer: JsonWriter) {

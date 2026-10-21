@@ -32,7 +32,9 @@ import dev.chungjungsoo.gptmobile.data.network.ModelRequestPreparation
 import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.network.OpenAIAPI
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
+import dev.chungjungsoo.gptmobile.data.rag.FactRecall
 import dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository
+import dev.chungjungsoo.gptmobile.data.rag.FactVaultSnapshot
 import dev.chungjungsoo.gptmobile.data.repository.AttachmentUploadCoordinator
 import dev.chungjungsoo.gptmobile.data.repository.ChatRepositoryImpl
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
@@ -47,6 +49,7 @@ import io.mockk.mockk
 import java.io.File
 import java.io.IOException
 import kotlinx.coroutines.flow.FlowCollector
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
@@ -58,7 +61,6 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -123,7 +125,12 @@ class CombinedLifecycleIntegrationTest {
         val anthropic = mockk<AnthropicAPI>(relaxed = true)
         val google = mockk<GoogleAPI>(relaxed = true)
         val vault = mockk<FactVaultRepository>(relaxed = true)
+        val memoryState = MutableStateFlow(FactVaultSnapshot())
+        every { vault.state } returns memoryState
         coEvery { vault.scopeForChat(any()) } returns MemoryScope()
+        coEvery { vault.recallGeneration() } returns "fixture-empty-memory"
+        coEvery { vault.recallConsent() } returns memoryState.value
+        coEvery { vault.prepareTurn(any(), any(), any(), any(), any(), any(), any(), any(), any()) } returns FactRecall()
         repository = ChatRepositoryImpl(
             context, db.chatRoomDao(), db.messageDao(), db.chatPlatformModelDao(), db.agentPersistenceDao(), db.agentRunDao(), settings,
             api, mockk<GroqAPI>(relaxed = true), anthropic, google,
@@ -156,7 +163,12 @@ class CombinedLifecycleIntegrationTest {
             val result = execute(request)
             val recorded = db.agentRunDao().getById(run.runId)
             assertEquals("Contributor outcome=$result; terminal=${recorded?.terminalError}", status, recorded?.status)
-            if (status == "COMPLETED") assertEquals(ApiStateFlowOutcome.Completed, result)
+            if (status == "COMPLETED") {
+                assertEquals(ApiStateFlowOutcome.Completed, result)
+            } else {
+                assertTrue("Contributor failed before the simulated stream interruption: $result", recorded?.terminalError.orEmpty().contains("503 contributor stream ended after useful text"))
+            }
+            assertEquals(contributions[run.profileUid] ?: contribution, requireNotNull(db.agentPersistenceDao().recoveryMessage(message.id)).effectiveContent())
         }
         assertEquals(text, sessions.acceptedTask("1:${persisted.userMessage.id}")?.taskText)
         return persisted
@@ -372,6 +384,7 @@ class CombinedLifecycleIntegrationTest {
         execute(request)
         val partial = repository.fetchMessagesV2(1).single { it.id == request.assistantMessage.id }
         assertEquals("The result has a preserved explanation.", partial.effectiveContent())
+        assertEquals(dev.chungjungsoo.gptmobile.data.database.entity.ACTIVE_REVISION_LATEST, partial.activeRevisionIndex)
         val contributorRequests = requests.size
         restart()
         val retryId = "combined-synthesis:retry-frozen"
@@ -388,6 +401,11 @@ class CombinedLifecycleIntegrationTest {
         assertEquals(contributorRequests + 1, requests.size)
         assertTrue(accepted.runs.all { db.agentRunDao().getById(it.runId)?.status == "COMPLETED" })
         assertEquals(original.encode(), db.agentRunDao().getById(request.runId)?.synthesisSnapshot)
-        assertNotNull(repository.fetchMessagesV2(1).filter { it.linkedMessageId == accepted.userMessage.id }.canonicalCombinedAssistant())
+        val canonical = requireNotNull(repository.fetchMessagesV2(1).filter { it.linkedMessageId == accepted.userMessage.id }.canonicalCombinedAssistant())
+        assertEquals(retryId, canonical.currentRunId)
+        assertEquals("The result has a preserved explanation.", canonical.content)
+        val quality = requireNotNull(canonical.timeline.lastOrNull { it.combinedQuality != null }?.combinedQuality)
+        assertTrue(quality.complete)
+        assertEquals(researchHash(canonical.content), quality.answerDigest)
     }
 }

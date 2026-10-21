@@ -8,6 +8,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
 import dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveContent
+import dev.chungjungsoo.gptmobile.data.database.entity.effectiveRunId
 import dev.chungjungsoo.gptmobile.data.research.researchHash
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
@@ -83,6 +84,31 @@ class CombinedRetrySelectionTest {
             )
         )
         assertEquals(old.content, preserveCombinedRetrySelection(current, invalid, staged, "FAILED").effectiveContent())
+    }
+
+    @Test fun aPromotedV3PassageStaysSelectedWhenLaterCallbacksCarryTheOldSelection() {
+        val staged = run.copy(synthesisSnapshot = Json.encodeToString(CombinedInputSnapshot.serializer(), snapshot.copy(deliveryProtocol = "PASSAGES_V3")))
+        val stale = candidate(complete = false).let { candidate ->
+            candidate.copy(
+                activeRevisionIndex = current.activeRevisionIndex,
+                timeline = listOf(
+                    candidate.timeline.single().copy(
+                        combinedQuality = requireNotNull(candidate.timeline.single().combinedQuality).copy(
+                            passages = listOf(CombinedPassageRecord(0, candidate.content.length, researchHash(candidate.content), setOf("p")))
+                        )
+                    )
+                )
+            )
+        }
+        val promoted = preserveCombinedRetrySelection(current, stale, staged, null)
+        assertEquals(ACTIVE_REVISION_LATEST, promoted.activeRevisionIndex)
+        for (status in listOf(null, "COMPLETED", "FAILED", "CANCELED", "INTERRUPTED")) {
+            val retained = preserveCombinedRetrySelection(promoted, stale, staged, status)
+            assertEquals("Callback status=$status", ACTIVE_REVISION_LATEST, retained.activeRevisionIndex)
+            assertEquals(stale.content, retained.effectiveContent())
+            assertEquals(run.runId, retained.effectiveRunId())
+            assertEquals(listOf(old), retained.revisions)
+        }
     }
 
     @Test fun explicitFrozenReplySelectsOnlyTheRequestedExactSource() {

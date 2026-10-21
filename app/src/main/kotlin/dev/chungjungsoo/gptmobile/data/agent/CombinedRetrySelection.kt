@@ -9,7 +9,11 @@ import kotlinx.serialization.json.Json
 /** The selected old answer remains visible until the replacement is validated and committed. */
 internal fun preserveCombinedRetrySelection(current: MessageV2, candidate: MessageV2, run: AgentRun, terminalStatus: String?): MessageV2 {
     if (!run.runId.startsWith("combined-synthesis:")) return candidate
-    val selected = current.revisions.getOrNull(current.activeRevisionIndex) ?: return candidate
+    // Streaming callbacks retain the selection captured when the run started.
+    // Once a validated checkpoint selects this revision, later stale callbacks
+    // must not select the archived contributor or predecessor again.
+    val selected = current.revisions.getOrNull(current.activeRevisionIndex)
+        ?: return candidate.copy(activeRevisionIndex = ACTIVE_REVISION_LATEST)
     val snapshot = runCatching {
         Json { ignoreUnknownKeys = true }.decodeFromString<CombinedInputSnapshot>(run.synthesisSnapshot.orEmpty())
     }.getOrNull() ?: return candidate

@@ -343,7 +343,8 @@ class AgentRunner(
             }
             val completedBatch = finishBatch(
                 calls, executedResults + deferredResults, exchanges, executableCalls.isEmpty(),
-                hostSuppressedIds.isEmpty(), roundLimitReached, toolCallCount, executionToolCallLimit,
+                hostSuppressedIds.isNotEmpty() || deferredCalls.any { it.callId in perToolSuppressedIds && it.name in executableToolByName },
+                roundLimitReached, toolCallCount, executionToolCallLimit,
                 unproductiveDiscoveryRounds, finalResponseRequested
             )
             replayTokens = completedBatch.replayTokens
@@ -364,7 +365,7 @@ class AgentRunner(
         producedResults: List<AgentToolResult>,
         exchanges: MutableList<AgentToolExchange>,
         noExecutableCalls: Boolean,
-        noHostSuppression: Boolean,
+        canReadOtherSources: Boolean,
         roundLimitReached: Boolean,
         toolCallCount: Int,
         executionToolCallLimit: Int,
@@ -408,7 +409,7 @@ class AgentRunner(
         ).toLong()
         val contextNearLimit = limits.contextTokens != Int.MAX_VALUE &&
             limits.initialContextTokens.toLong() + replayTokens + limits.finalResponseReserveTokens + 256 >= limits.contextTokens
-        val unavailableCallsOnly = noExecutableCalls && calls.isNotEmpty() && noHostSuppression
+        val unavailableCallsOnly = noExecutableCalls && calls.isNotEmpty() && !canReadOtherSources
         val mustFinalize = unavailableCallsOnly ||
             repeatedDiscoveryStalled ||
             roundLimitReached ||

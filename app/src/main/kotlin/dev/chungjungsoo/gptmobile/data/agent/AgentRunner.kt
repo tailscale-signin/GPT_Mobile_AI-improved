@@ -106,6 +106,7 @@ class AgentRunner(
         var toolMayHaveExecuted = initialToolMayHaveExecuted
         var retriedWithoutTools = initialRetriedWithoutTools
         var roundRecoveryAttempted = false
+        var protocolRecoveryAttempted = false
         var emptyAnswerRecoveryAttempted = false
         var finalResponseRequested = false
         var roundLimitFinalizationAttempted = false
@@ -205,8 +206,21 @@ class AgentRunner(
             }
             val roundFailure = round.failure
             if (roundFailure != null) {
-                // An incomplete tool call is never executed. Recover once from its
-                // existing evidence with tools disabled, without replaying an action.
+                val protocolFailure = round.errorCode == "TOOL_PROTOCOL_INVALID_FRAME" || listOf(
+                    "Tool arguments were not valid JSON", "incomplete function call", "unparsed tool-call markup", "before completing the tool call"
+                ).any { roundFailure.contains(it, ignoreCase = true) }
+                if (protocolFailure) {
+                    if (!protocolRecoveryAttempted && !round.textEmitted && !session.handlesToolsInternally) {
+                        protocolRecoveryAttempted = true
+                        exposedDefinitions = exposedDefinitions.map { definition ->
+                            definition.copy(description = definition.description + " Protocol repair: call this capability only with its native function-call frame and valid JSON arguments. Never print tool-call markup as assistant text.")
+                        }
+                        emit(AgentRunEvent.Notice("The provider returned an invalid tool frame. Retrying its authorized call once.", persistent = false))
+                        continue
+                    }
+                    emit(AgentRunEvent.Provider(ProviderEvent.Failed(roundFailure, round.progressDeadline, errorCode = "TOOL_PROTOCOL_INVALID_FRAME")))
+                    return
+                }
                 if (!roundRecoveryAttempted && !round.textEmitted && !session.handlesToolsInternally && recoverableRoundFailure(roundFailure, exchanges.isNotEmpty() || round.calls.isNotEmpty())) {
                     roundRecoveryAttempted = true
                     exposedDefinitions = emptyList()
@@ -216,7 +230,7 @@ class AgentRunner(
                     kotlinx.coroutines.delay(1000)
                     continue
                 }
-                emit(AgentRunEvent.Provider(ProviderEvent.Failed(roundFailure, round.progressDeadline)))
+                emit(AgentRunEvent.Provider(ProviderEvent.Failed(roundFailure, round.progressDeadline, round.errorCode, round.failureTransportComplete)))
                 return
             }
             round.calls.forEach { emit(AgentRunEvent.Provider(it)) }
@@ -245,7 +259,7 @@ class AgentRunner(
                         emit(AgentRunEvent.Notice("The model returned no visible answer. Finalizing once with tools disabled and the results already collected.", persistent = false))
                         continue
                     }
-                    emit(failed("The model returned no visible answer after finalization. No completed tool action was repeated. Please retry or choose another model."))
+                    emit(AgentRunEvent.Provider(ProviderEvent.Failed("The model returned no visible answer after finalization. No completed tool action was repeated. Please retry or choose another model.", transportComplete = round.completed)))
                     return
                 }
                 if (round.completed) emit(AgentRunEvent.Provider(ProviderEvent.Completed))
@@ -494,7 +508,9 @@ class AgentRunner(
         val batchRejected: Boolean = false,
         val observedCalls: Int = 0,
         val progressDeadline: ProgressDeadlineOutcome? = null,
-        val batchRejection: String? = null
+        val batchRejection: String? = null,
+        val errorCode: String? = null,
+        val failureTransportComplete: Boolean = false
     )
 
     private fun recoverableRoundFailure(message: String, hasToolContext: Boolean): Boolean = (
@@ -531,33 +547,37 @@ class AgentRunner(
         var completed = false
         var failure: String? = null
         var progressDeadline: ProgressDeadlineOutcome? = null
+        var failureCode: String? = null
+        var failureTransportComplete = false
         var textEmitted = false
         val answerCandidate = StringBuilder()
         var toolDefinitionsRejected = false
-        var roundInputTokens = 0L
-        var roundOutputTokens = 0L
-        var roundTotalTokens = 0L
-        var hasRoundInputUsage = false
-        var hasRoundOutputUsage = false
-        var hasRoundTotalUsage = false
+        val roundInput = ProviderUsageCounter()
+        val roundOutput = ProviderUsageCounter()
+        val roundTotal = ProviderUsageCounter()
+        var roundRuntime: String? = null
         var roundDecodeSpeed: Double? = null
         var roundFinishReason: String? = null
         var roundReasoningTokens: Long? = null
         var roundSettingsConfirmed = false
 
         suspend fun emitRoundUsage() {
-            if (!hasRoundInputUsage && !hasRoundOutputUsage && !hasRoundTotalUsage && roundDecodeSpeed == null && roundFinishReason == null && !roundSettingsConfirmed && roundReasoningTokens == null) return
+            if (roundInput.value == null && roundOutput.value == null && roundTotal.value == null && roundDecodeSpeed == null && roundFinishReason == null && !roundSettingsConfirmed && roundReasoningTokens == null) return
             emit(
                 AgentRunEvent.Provider(
                     ProviderEvent.Usage(
-                        inputTokens = roundInputTokens.takeIf { hasRoundInputUsage }?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt(),
-                        outputTokens = roundOutputTokens.takeIf { hasRoundOutputUsage }?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt(),
-                        totalTokens = roundTotalTokens.takeIf { hasRoundTotalUsage }?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt(),
+                        inputTokens = roundInput.value?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt(),
+                        outputTokens = roundOutput.value?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt(),
+                        totalTokens = roundTotal.value?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt(),
                         cumulative = false,
                         decodeTokensPerSecond = roundDecodeSpeed,
                         finishReason = roundFinishReason,
                         effectiveSettingsConfirmed = roundSettingsConfirmed,
-                        reasoningTokens = roundReasoningTokens?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt()
+                        reasoningTokens = roundReasoningTokens?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt(),
+                        inputSource = roundInput.source,
+                        outputSource = roundOutput.source,
+                        actualRuntime = roundRuntime,
+                        phase = if (listOf(roundInput, roundOutput, roundTotal).filter { it.value != null }.all { it.phase == ProviderUsagePhase.FINAL }) ProviderUsagePhase.FINAL else ProviderUsagePhase.INTERIM
                     )
                 )
             )
@@ -595,6 +615,7 @@ class AgentRunner(
                 batchRejected = true
                 return@catch
             }
+            failureTransportComplete = false
             // Keep the first terminal provider failure; trailing transport errors
             // must not replace it or change the recovery decision.
             if (failure == null) {
@@ -619,7 +640,11 @@ class AgentRunner(
                 true
             }
         }.collect { event ->
-            if (failure != null && event !is ProviderEvent.Usage) return@collect
+            if (failure != null && event !is ProviderEvent.Usage) {
+                if (event is ProviderEvent.Failed && event.transportComplete && dev.chungjungsoo.gptmobile.data.agent.tool.isProviderOutputLimitFailure(event.message)) failureTransportComplete = true
+                if (event == ProviderEvent.Completed && dev.chungjungsoo.gptmobile.data.agent.tool.isProviderOutputLimitFailure(failure.orEmpty())) failureTransportComplete = true
+                return@collect
+            }
             when (event) {
                 is ProviderEvent.ToolCall -> {
                     if (!session.handlesToolsInternally) {
@@ -634,6 +659,8 @@ class AgentRunner(
                 is ProviderEvent.Failed -> {
                     failure = event.message
                     progressDeadline = event.progressDeadline
+                    failureCode = event.errorCode
+                    failureTransportComplete = event.transportComplete
                 }
 
                 is ProviderEvent.Notice -> emit(AgentRunEvent.Notice(event.message, event.persistent))
@@ -645,30 +672,11 @@ class AgentRunner(
                     event.decodeTokensPerSecond?.let { roundDecodeSpeed = it }
                     event.finishReason?.let { roundFinishReason = it }
                     roundSettingsConfirmed = roundSettingsConfirmed || event.effectiveSettingsConfirmed
-                    event.inputTokens?.let { tokens ->
-                        roundInputTokens = if (event.cumulative) {
-                            maxOf(roundInputTokens, tokens.toLong())
-                        } else {
-                            roundInputTokens + tokens
-                        }
-                        hasRoundInputUsage = true
-                    }
-                    event.outputTokens?.let { tokens ->
-                        roundOutputTokens = if (event.cumulative) {
-                            maxOf(roundOutputTokens, tokens.toLong())
-                        } else {
-                            roundOutputTokens + tokens
-                        }
-                        hasRoundOutputUsage = true
-                    }
-                    event.totalTokens?.let { tokens ->
-                        roundTotalTokens = if (event.cumulative) {
-                            maxOf(roundTotalTokens, tokens.toLong())
-                        } else {
-                            roundTotalTokens + tokens
-                        }
-                        hasRoundTotalUsage = true
-                    }
+                    roundRuntime = event.actualRuntime ?: roundRuntime
+                    roundInput.accept(event.inputTokens, event.cumulative, event.inputSource, event.phase)
+                    roundOutput.accept(event.outputTokens, event.cumulative, event.outputSource, event.phase)
+                    val totalSource = if (event.inputSource == event.outputSource) event.outputSource else if (measuredUsageSource(event.inputSource, event.phase) && measuredUsageSource(event.outputSource, event.phase)) "mixed_reported" else "estimated"
+                    roundTotal.accept(event.totalTokens, event.cumulative, totalSource, event.phase)
                 }
 
                 ProviderEvent.Completed -> completed = true
@@ -685,7 +693,7 @@ class AgentRunner(
         // Do not emit from finally: a cancelled or failed consumer cannot accept
         // another event. Genuine provider failures still retain observed usage.
         emitRoundUsage()
-        return RoundResult(calls, completed, failure, textEmitted, toolDefinitionsRejected, batchRejected, admission.observed, progressDeadline, batchRejection)
+        return RoundResult(calls, completed, failure, textEmitted, toolDefinitionsRejected, batchRejected, admission.observed, progressDeadline, batchRejection, failureCode, failureTransportComplete)
     }
 
     private fun toolResultText(result: AgentToolResult): String = when (val content = result.content) {

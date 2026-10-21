@@ -37,7 +37,8 @@ internal object DirectResearchModelFactory {
         stillEnabled: suspend () -> Boolean,
         prepareLocal: suspend (PlatformV2, LocalAssistPolicy) -> Boolean,
         generate: suspend (PlatformV2, ResearchModelStage, String, Int) -> ResearchModelReply,
-        onAssistStatus: suspend (AssistTaskState) -> Unit = {}
+        onAssistStatus: suspend (AssistTaskState) -> Unit = {},
+        retainPartial: (suspend (String, String, String) -> String?)? = null
     ): ResearchModelCoordinator {
         val policy = features.effectiveAssistPolicy()
         fun endpoint(target: PlatformV2): ResearchModelEndpoint {
@@ -80,6 +81,7 @@ internal object DirectResearchModelFactory {
                 identity,
                 local,
                 available = { admission() == ResearchAdmission.ADMITTED },
+                providerHost = runCatching { java.net.URI(target.apiUrl).host.orEmpty() }.getOrDefault(""),
                 admission = { admission() },
                 timeoutMillis = if (local) (policy.queueWaitSeconds + policy.loadTimeoutSeconds + policy.taskTimeoutSeconds) * 1000L else null,
                 generate = { stage, prompt, cap ->
@@ -130,6 +132,7 @@ internal object DirectResearchModelFactory {
         }
         return ResearchModelCoordinator(
             healthScope = turnId,
+            retainPartial = retainPartial,
             workers = listOfNotNull(helper?.let(::endpoint), primary.takeIf { it.compatibleType != ClientType.LITERT_LM }?.let(::endpoint)),
             reviewer = reviewer?.let(::endpoint),
             stillEnabled = stillEnabled,

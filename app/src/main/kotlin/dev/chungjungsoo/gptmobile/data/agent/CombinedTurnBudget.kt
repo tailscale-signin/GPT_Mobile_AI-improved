@@ -74,7 +74,11 @@ data class CombinedBudgetSnapshot(
     val optionalTranches: Long = 1,
     val cancelled: Boolean = false,
     val closed: Boolean = false,
-    val revision: Long = 0
+    val revision: Long = 0,
+    val deliveryStatus: String = "PENDING",
+    val retryEligible: Boolean = false,
+    val firstFailure: String? = null,
+    val deliverySnapshotId: String? = null
 ) {
     val charged: CombinedResourceQuota get() = reservations.values.fold(CombinedResourceQuota()) { sum, item -> sum + item.charged }
     val unknownAttemptIds: Set<String> get() = reservations.values.filter { it.status in setOf(CombinedReservationStatus.RESERVED, CombinedReservationStatus.UNKNOWN) }.mapTo(linkedSetOf()) { it.attemptId }
@@ -269,7 +273,16 @@ class CombinedTurnBudget(
             state.copy(
                 pendingWork = if (release) state.pendingWork - ownerKey else state.pendingWork,
                 completedWork = if (release) state.completedWork + ownerKey else state.completedWork,
-                stageOutcomes = state.stageOutcomes + (ownerKey to recorded)
+                stageOutcomes = state.stageOutcomes + (ownerKey to recorded),
+                deliveryStatus = if (ownerKey == "finalization") {
+                    when (outcome) {
+                        "COMPLETED" -> "COMPLETED"
+                        "CANCELLED", "BUDGET_BLOCKED" -> outcome
+                        else -> "RECOVERABLE_FAILURE"
+                    }
+                } else state.deliveryStatus,
+                retryEligible = if (ownerKey == "finalization") outcome !in setOf("COMPLETED", "CANCELLED", "BUDGET_BLOCKED") && !state.closed && !state.cancelled else state.retryEligible,
+                firstFailure = state.firstFailure ?: recorded.takeIf { outcome !in setOf("COMPLETED", "CANCELLED") }
             )
         )
     }
@@ -391,8 +404,15 @@ class CombinedTurnBudget(
             terminalReason = (reason ?: if (remaining.isNotEmpty()) "Required work remained unfinished when the root closed." else null)?.take(500),
             pendingWork = emptyMap(),
             completedWork = state.completedWork + state.pendingWork.keys,
-            stageOutcomes = state.stageOutcomes + unresolved
+            stageOutcomes = unresolved + state.stageOutcomes,
+            deliveryStatus = finalOutcome,
+            retryEligible = false,
+            firstFailure = state.firstFailure ?: reason.takeIf { finalOutcome != "COMPLETED" }
         )
+    }
+
+    suspend fun recordDeliverySnapshot(snapshotId: String) = mutex.withLock {
+        if (state.deliverySnapshotId != snapshotId) commit(state.copy(deliverySnapshotId = snapshotId))
     }
 
     private suspend fun commit(next: CombinedBudgetSnapshot) {

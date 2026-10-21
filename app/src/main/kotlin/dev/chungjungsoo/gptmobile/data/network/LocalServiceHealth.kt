@@ -45,12 +45,12 @@ internal object LocalServiceHealth {
 
     fun networkChanged() {
         states.clear()
-        dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.success()
+        dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.reset()
         epoch.incrementAndGet()
     }
 
     fun requireAvailable(url: String) {
-        if (endpointLocality(url) == EndpointLocality.EXTERNAL && !dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.available()) throw IOException("DNS_RECOVERY: correlated public DNS failures; retry after network recovery")
+        if (endpointLocality(url) == EndpointLocality.EXTERNAL && !dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.available(endpoint(url)?.host)) throw IOException("DNS_RECOVERY: correlated public DNS failures; retry after network recovery")
         val uri = endpoint(url) ?: return
         val time = now()
         val cooling = listOf(key(uri), dnsKey(uri)).mapNotNull(states::get).firstOrNull { it.until > time }
@@ -75,6 +75,7 @@ internal object LocalServiceHealth {
         trim()
         states.remove(dnsKey(uri))
         states[key(uri)] = State(ConnectionHealth.HEALTHY, 0, 0)
+        dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.success(uri.host)
     }
 
     fun classify(failure: Throwable): ConnectionHealth {

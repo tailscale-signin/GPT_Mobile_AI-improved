@@ -42,5 +42,17 @@ internal object CombinedContributionUsability {
 
 /** Compatibility facade for older call sites; new code names the actual structural measurement. */
 internal object CombinedContributionQuality {
+    fun sanitizeContribution(raw: String): String = raw.lines().filterNot { line ->
+        line.trim().let { it == "This model reached its response limit. Would you like me to continue?" || it.startsWith("[PARTIAL_DELEGATE_OUTPUT:") || it.startsWith("[Provider error:") }
+    }.joinToString("\n").trim()
+
+    fun currentRequestContribution(currentRequest: String, content: String): String {
+        val clean = sanitizeContribution(content)
+        val intent = dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(currentRequest).intent
+        if (intent == "SUBSTANTIVE") return clean
+        val relevant = if (intent == "TEST") Regex("(?i)\\b(?:test|testing|connection|received|ready|working)\\b") else Regex("(?i)\\b(?:hi|hello|hey|welcome|help|thanks|thank you)\\b")
+        return clean.lines().filter { relevant.containsMatchIn(it) }.joinToString("\n").take(1200)
+    }
+
     fun assess(status: String?, rawContent: String): CombinedContributionAssessment = CombinedContributionUsability.assess(status, rawContent)
 }

@@ -111,9 +111,10 @@ class ReadUrlTool(
     private suspend fun executeOnce(callId: String, arguments: JsonObject): AgentToolResult {
         val start = parseUrl(arguments) ?: return error(callId, "Read URL failed: url must be a valid HTTP(S) URL without userinfo or fragment.")
         if (start.toASCIIString() in unavailableUrls) return error(callId, "Read URL failed: this source was already unavailable in this turn. Choose another source.")
-        if (!dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.available()) return error(callId, "DNS_RECOVERY: waiting for network recovery after DNS failures on multiple services.")
+        if (!dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.available(start.host)) return error(callId, "DNS_RECOVERY: waiting for network recovery after DNS failures on multiple services.")
         return try {
             kotlinx.coroutines.withTimeoutOrNull(25_000) {
+                dev.chungjungsoo.gptmobile.data.diagnostics.JavaHeapWorkGate.run("read_url") {
                 read(
                     callId,
                     start,
@@ -122,9 +123,12 @@ class ReadUrlTool(
                     (arguments["excludeDomains"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.content?.lowercase() },
                     (arguments["extractDocument"] as? JsonPrimitive)?.booleanOrNull == true
                 )
+                }
             } ?: error(callId, "Read URL failed: page deadline reached. Choose another source.")
         } catch (exception: CancellationException) {
             throw exception
+        } catch (exception: dev.chungjungsoo.gptmobile.data.diagnostics.JavaHeapWorkDeferred) {
+            error(callId, "JAVA_HEAP_PRESSURE: waiting for Java heap capacity.")
         } catch (exception: ReadUrlException) {
             if (exception.message.orEmpty().let { it.contains("redirect") || it.contains("binary") || it.contains("HTTP 404") || it.contains("HTTP 405") }) unavailableUrls += start.toASCIIString()
             if (exception.message in setOf("HTTP 404", "HTTP 405", "HTTP 410")) {
@@ -135,7 +139,6 @@ class ReadUrlTool(
             recordFailure(start, "protocol", exception.javaClass.simpleName, exception.message)
             error(callId, "Read URL failed: ${exception.message}.")
         } catch (exception: UnknownHostException) {
-            dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.failed(start.host, exception)
             recordFailure(start, "dns", exception.javaClass.simpleName, null)
             error(callId, "Read URL failed: DNS lookup could not resolve the hostname. Check the URL and network connection.")
         } catch (exception: java.net.SocketTimeoutException) {
@@ -230,21 +233,16 @@ class ReadUrlTool(
                 val normalizedText = normalizeWhitespace(text)
                 val chunks = research?.retainBody?.invoke(normalizedText).orEmpty()
                 val plainText = truncateUtf8(normalizedText, outputCap)
-                val content = if (includeLinks) {
-                    val linkText = if (isHtmlContent(contentType)) {
-                        Regex("""<a\b[^>]*>""", RegexOption.IGNORE_CASE).findAll(rawText).joinToString("\n") { it.value }
-                    } else {
-                        rawText
-                    }
-                    ToolResultContent.Json(
-                        buildJsonObject {
-                            put("bodyChunks", JsonArray(chunks.map(::JsonPrimitive)))
-                            put("url", current.toString())
-                            put("content", plainText)
-                            put("truncated", document?.note != null || boundedBody.truncated || plainText.toByteArray().size < normalizedText.toByteArray().size)
-                            put("links", JsonArray(researchLinks(linkText, current.toString()).filter { it.length <= 2048 }.take(32).map(::JsonPrimitive)))
-                        }
-                    )
+                val documentResult = dev.chungjungsoo.gptmobile.data.research.ResearchDocumentResult(
+                    url = current.toString(),
+                    content = plainText,
+                    truncated = document?.note != null || boundedBody.truncated || plainText != normalizedText,
+                    bodyChunks = chunks,
+                    links = if (includeLinks) researchLinks(rawText, current.toString()).filter { it.length <= 2048 }.take(32) else emptyList(),
+                    status = if (document?.note != null || boundedBody.truncated || plainText != normalizedText) "partially_read" else "read"
+                )
+                val content = if (includeLinks || extractDocument) {
+                    ToolResultContent.Json(documentResult.toJson())
                 } else {
                     val partial = boundedBody.truncated || document?.note != null || plainText != normalizedText
                     val note = "\n[Source excerpt truncated; the full document was not examined.]"
@@ -253,7 +251,8 @@ class ReadUrlTool(
                 return AgentToolResult(
                     callId = callId,
                     content = content,
-                    isError = false
+                    isError = false,
+                    retainedContent = ToolResultContent.Json(documentResult.toJson()).takeUnless { content is ToolResultContent.Json }
                 )
             } finally {
                 request.response.bodyAsChannel().cancel(null)
@@ -263,6 +262,9 @@ class ReadUrlTool(
     }
 
     private suspend fun request(uri: URI): ReadUrlRequest {
+        val gate = dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared
+        val lease = gate.acquire(uri.host) ?: throw ReadUrlException("DNS_RECOVERY: waiting for network recovery")
+        try {
         val pinnedAddresses = resolveSafe(uri.host)
         val pinnedDns = Dns { hostname ->
             if (!hostname.equals(uri.host, ignoreCase = true)) throw UnknownHostException(hostname)
@@ -288,10 +290,16 @@ class ReadUrlTool(
             }
         }
         return try {
-            ReadUrlRequest(client, client.get(uri.toASCIIString()))
+            ReadUrlRequest(client, client.get(uri.toASCIIString()).also { gate.success(uri.host) })
         } catch (exception: Exception) {
             client.close()
             throw exception
+        }
+        } catch (failure: Exception) {
+            gate.failed(uri.host, failure)
+            throw failure
+        } finally {
+            gate.release(lease)
         }
     }
 
@@ -385,8 +393,33 @@ class ReadUrlTool(
     private fun error(callId: String, message: String): AgentToolResult = AgentToolResult(
         callId = callId,
         content = ToolResultContent.Text(message.take(ERROR_BYTES)),
-        isError = true
+        isError = true,
+        errorCode = readerFailureCode(message),
+        retainedContent = ToolResultContent.Json(dev.chungjungsoo.gptmobile.data.research.ResearchDocumentResult(
+            url = "", status = readerFailureStatus(message), failureCode = readerFailureCode(message), failureReason = message.take(ERROR_BYTES)
+        ).toJson())
     )
+
+    private fun readerFailureCode(message: String): String = when {
+        "JAVA_HEAP_PRESSURE" in message -> "JAVA_HEAP_PRESSURE"
+        "DNS_RECOVERY" in message -> "DNS_RECOVERY"
+        "DNS" in message -> "DNS_FAILED"
+        "redirect" in message.lowercase() -> "REDIRECT_FAILED"
+        "403" in message || "401" in message || "denied access" in message -> "SOURCE_ACCESS_BLOCKED"
+        "rate-limit" in message || "429" in message -> "RATE_LIMITED"
+        "timed out" in message || "deadline" in message -> "TIMEOUT"
+        else -> "READER_FAILED"
+    }
+
+    private fun readerFailureStatus(message: String): String = when (readerFailureCode(message)) {
+        "JAVA_HEAP_PRESSURE" -> "waiting_capacity"
+        "DNS_RECOVERY", "DNS_FAILED" -> "offline"
+        "SOURCE_ACCESS_BLOCKED" -> "blocked"
+        "RATE_LIMITED" -> "rate_limited"
+        "REDIRECT_FAILED" -> "redirect_failed"
+        "TIMEOUT" -> "timeout"
+        else -> "unavailable"
+    }
 
     private companion object {
         private val requestLocks = Array(32) { Mutex() }

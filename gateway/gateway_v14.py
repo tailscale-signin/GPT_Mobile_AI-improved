@@ -25,6 +25,7 @@ from v14.actions import IdempotencyConflict, IdempotencyExpired
 from v14.events import replay_snapshot
 from v14.memory import apply_client_recall
 from v14.tools import install_exact_routing
+from v14.catalog import install_catalog_cache
 from v14.browser import BOOTSTRAP_PATH, install_browser_proxy
 from v14.service import ServiceState, LoadGuard
 from v14.mcp import install_mcp_resilience
@@ -50,6 +51,7 @@ def approved_mcp_config():
 
 
 runtime.load_mcp_config = approved_mcp_config
+install_catalog_cache(runtime)
 install_exact_routing(runtime)
 install_mcp_resilience(runtime)
 install_browser_proxy(runtime, config)

@@ -41,8 +41,8 @@ data class SourceIdentity(
             publicationYear: Int? = null
         ): SourceIdentity {
             val normalizedDoi = normalizeDoi(doi.ifBlank { doiFromUrl(url) })
-            val normalizedPmid = pmid.trim().takeIf { it.matches(Regex("[0-9]{1,12}")) }.orEmpty()
-            val normalizedPmcid = pmcid.trim().uppercase(Locale.ROOT).takeIf { it.matches(Regex("PMC[0-9]{1,12}")) }.orEmpty()
+            val normalizedPmid = pmid.ifBlank { identifierFromResearchUrl(url, "pmid") }.trim().takeIf { it.matches(Regex("[0-9]{1,12}")) }.orEmpty()
+            val normalizedPmcid = pmcid.ifBlank { identifierFromResearchUrl(url, "pmcid") }.trim().uppercase(Locale.ROOT).takeIf { it.matches(Regex("PMC[0-9]{1,12}")) }.orEmpty()
             val canonical = canonicalResearchUrl(url)
             val normalizedTitle = normalizeFingerprint(title)
             val normalizedPassage = normalizeFingerprint(passage)
@@ -104,7 +104,7 @@ data class SourceIdentity(
 
         private fun doiFromUrl(url: String): String {
             val uri = runCatching { URI(url) }.getOrNull() ?: return ""
-            return if (uri.host.equals("doi.org", ignoreCase = true) || uri.host.equals("dx.doi.org", ignoreCase = true)) uri.path.orEmpty().removePrefix("/") else ""
+            return if (uri.host.equals("doi.org", ignoreCase = true) || uri.host.equals("dx.doi.org", ignoreCase = true)) uri.path.orEmpty().removePrefix("/") else Regex("(?i)/(?:doi/(?:full/|abs/|pdf/|epdf/)?|articles?/)(10\\.[0-9]{4,9}/[^?#]+)").find(uri.path.orEmpty())?.groupValues?.get(1).orEmpty()
         }
 
         private fun normalizeFingerprint(text: String): String = text

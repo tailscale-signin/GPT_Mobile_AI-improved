@@ -57,7 +57,8 @@ data class AgentRunRequest(
     val platform: PlatformV2,
     val userMessages: List<MessageV2>,
     val assistantMessages: List<List<MessageV2>>,
-    val chatToolConfig: ChatMcpToolConfig? = null
+    val chatToolConfig: ChatMcpToolConfig? = null,
+    val stage: AgentStageRequest? = null
 )
 
 data class ActiveAgentRun(
@@ -447,7 +448,8 @@ class AgentRunCoordinator @Inject constructor(
                 request.assistantMessages,
                 request.platform,
                 request.runId,
-                request.chatToolConfig
+                request.chatToolConfig,
+                request.stage
             ).collectApiStateUpdates(
                 onUpdate = { content, thoughts, timeline ->
                     val retained = if (content.isEmpty() && committedPrefix.isNotEmpty()) committedPrefix else content
@@ -556,6 +558,17 @@ class AgentRunCoordinator @Inject constructor(
             }
         } finally {
             withContext(NonCancellable) { checkpoints.cancelAndJoin() }
+        }
+        if (committedForHandoff && request.chatToolConfig?.combined?.role?.finalization == true) {
+            try {
+                withChatGate(request.chatId) {
+                    synthesisPlanner?.prepareFallback(request.chatId, request.runId)?.let { next -> startUnlocked(listOf(next)) }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                AppLogRecorder.record("Combined", "SUCCESSOR_NOT_STARTED · run=${request.runId} · reason=${failure.javaClass.simpleName}", "W")
+            }
         }
         if (committedForHandoff && request.chatToolConfig?.combined?.role == CombinedRunRole.CONTRIBUTOR) {
             val combined = requireNotNull(request.chatToolConfig.combined)

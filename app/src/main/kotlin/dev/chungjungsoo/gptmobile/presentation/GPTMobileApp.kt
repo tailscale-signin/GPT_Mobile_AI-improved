@@ -158,6 +158,7 @@ class GPTMobileApp :
                     val interruptedAt = System.currentTimeMillis() / 1000
                     startup.agentRunDao().interruptActiveRuns(interruptedAt)
                     startup.agentPersistenceDao().cancelInterruptedToolEvents(interruptedAt)
+                    startup.combinedLifecycleReconciler().reconcile()
                 },
                 migrateSecrets = startup.settingRepository()::migrateSecrets
             )
@@ -260,6 +261,7 @@ interface StartupDependencies {
     fun settingRepository(): SettingRepository
     fun agentRunDao(): AgentRunDao
     fun agentPersistenceDao(): AgentPersistenceDao
+    fun combinedLifecycleReconciler(): dev.chungjungsoo.gptmobile.data.agent.CombinedLifecycleReconciler
     fun localRuntime(): LocalRuntime
     fun agentRunCoordinator(): AgentRunCoordinator
 }

@@ -345,7 +345,7 @@ internal class CombinedDeliverySession(
         if (violations.isNotEmpty()) emit(ProviderEvent.Notice("The answer was delivered with an unmet instruction check.", persistent = true))
         if (correctionRequired) emit(ProviderEvent.Notice("The retained draft requires correction; it is not a checked final answer.", persistent = true))
         if (accepted.text.isBlank()) {
-            emit(ProviderEvent.Failed("Combined synthesis produced no usable answer records."))
+            emit(accepted.terminal as? ProviderEvent.Failed ?: ProviderEvent.Failed("Combined synthesis produced no usable answer records."))
         } else if (!finalReport.complete || finalReport.deliveredScopeStatus == "PARTIAL") {
             emit(accepted.terminal as? ProviderEvent.Failed ?: ProviderEvent.Failed("COMBINED_PARTIAL: The retained answer has unfinished delivery or required checks."))
         } else {

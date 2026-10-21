@@ -32,7 +32,9 @@ data class AssistantTimelineItem(
     val progressDeadline: dev.chungjungsoo.gptmobile.data.agent.ProgressDeadlineOutcome? = null,
     val combinedQuality: dev.chungjungsoo.gptmobile.data.agent.CombinedQualityReport? = null,
     val recoveryBlock: dev.chungjungsoo.gptmobile.data.agent.RecoveryBlock? = null,
-    val combinedTurn: dev.chungjungsoo.gptmobile.data.context.CombinedTurnHistory? = null
+    val combinedTurn: dev.chungjungsoo.gptmobile.data.context.CombinedTurnHistory? = null,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val combinedFallback: dev.chungjungsoo.gptmobile.data.agent.CombinedFallbackReceipt? = null
 )
 
 // Fallback for callers without a resource context; keep in sync with R.string.legacy_assistant_order_unavailable.

@@ -7,6 +7,7 @@ import threading
 import time
 import re
 from contextvars import ContextVar
+from v14.operations import MUTATION, MUTABLE_READ, IMMUTABLE_READ
 
 
 current_gateway_job_id = ContextVar("gateway_action_job_id", default=None)
@@ -99,6 +100,12 @@ class ActionLedger:
         columns = {row[1] for row in db.execute("PRAGMA table_info(gateway_actions)")}
         if "model_call_id_digest" not in columns:
             db.execute("ALTER TABLE gateway_actions ADD COLUMN model_call_id_digest TEXT")
+        if "operation_kind" not in columns:
+            db.execute("ALTER TABLE gateway_actions ADD COLUMN operation_kind TEXT NOT NULL DEFAULT 'mutation'")
+        db.execute("""CREATE TABLE IF NOT EXISTS gateway_action_attempts (
+            attempt INTEGER PRIMARY KEY AUTOINCREMENT, principal_id TEXT NOT NULL, job_id TEXT NOT NULL,
+            action_id TEXT NOT NULL, operation_kind TEXT NOT NULL, state TEXT NOT NULL,
+            started_at REAL NOT NULL, finished_at REAL)""")
         db.execute("CREATE INDEX IF NOT EXISTS index_gateway_actions_call_id ON gateway_actions(principal_id,job_id,model_call_id_digest)")
 
     @staticmethod
@@ -164,9 +171,11 @@ class ActionLedger:
                 db.close()
 
     def begin(self, principal_id: str, job_id: str, action_id: str, binding: dict, arguments: object,
-              model_call_id: str | None = None):
+              model_call_id: str | None = None, operation_kind: str = MUTATION):
         if not principal_id or principal_id == "unowned" or not job_id or not action_id:
             raise ActionLedgerUnavailable("A trusted principal, gateway job and tool call ID are required")
+        if operation_kind not in {MUTATION, MUTABLE_READ, IMMUTABLE_READ}:
+            raise ActionLedgerError("Invalid operation classification")
         binding_json, binding_digest = canonical_json(binding, maximum_bytes=16 * 1024)
         _, argument_digest = canonical_json(arguments, maximum_bytes=MAX_ACTION_ARGUMENT_BYTES)
         if model_call_id is not None and len(str(model_call_id)) > 256:
@@ -196,10 +205,14 @@ class ActionLedger:
                             return ActionReplay(json.loads(result_json))
                         if state == "completed_omitted":
                             raise ActionResultUnavailable("The prior external result was recorded but exceeded the replay limit")
+                        if state == "uncertain" and operation_kind != MUTATION:
+                            db.execute("UPDATE gateway_actions SET state='dispatching',updated_at=? WHERE principal_id=? AND job_id=? AND action_id=?", (time.time(), principal_id, job_id, action_id))
+                            db.execute("INSERT INTO gateway_action_attempts(principal_id,job_id,action_id,operation_kind,state,started_at) VALUES(?,?,?,?, 'dispatching',?)", (principal_id,job_id,action_id,operation_kind,time.time()))
+                            return None
                         raise ExternalOutcomeUnknown("A prior dispatch has no safely replayable result")
-                    unresolved = db.execute("SELECT 1 FROM gateway_actions WHERE principal_id=? AND job_id=? AND state IN ('dispatching','uncertain') LIMIT 1",
+                    unresolved = db.execute("SELECT 1 FROM gateway_actions WHERE principal_id=? AND job_id=? AND operation_kind='mutation' AND state IN ('dispatching','uncertain') LIMIT 1",
                                             (principal_id, job_id)).fetchone()
-                    if unresolved:
+                    if unresolved and operation_kind == MUTATION:
                         raise ExternalOutcomeUnknown("This gateway job has an unresolved external action; reconcile it before further dispatch")
                     count = db.execute("SELECT COUNT(*) FROM gateway_actions").fetchone()[0]
                     if count >= MAX_ACTION_ROWS:
@@ -207,6 +220,8 @@ class ActionLedger:
                     now = time.time()
                     db.execute("INSERT INTO gateway_actions(principal_id,job_id,action_id,binding_json,binding_digest,argument_digest,model_call_id_digest,state,certainty,result_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?, 'dispatching','unknown',NULL,?,?)",
                                (principal_id, job_id, action_id, binding_json, binding_digest, argument_digest, call_id_digest, now, now))
+                    db.execute("UPDATE gateway_actions SET operation_kind=? WHERE principal_id=? AND job_id=? AND action_id=?",(operation_kind,principal_id,job_id,action_id))
+                    db.execute("INSERT INTO gateway_action_attempts(principal_id,job_id,action_id,operation_kind,state,started_at) VALUES(?,?,?,?, 'dispatching',?)",(principal_id,job_id,action_id,operation_kind,now))
                 return None
             except ActionLedgerError:
                 raise
@@ -229,6 +244,7 @@ class ActionLedger:
                     with db:
                         changed = db.execute("UPDATE gateway_actions SET state=?,certainty=?,result_json=?,updated_at=? WHERE principal_id=? AND job_id=? AND action_id=? AND state='dispatching'",
                                              (state, certainty, result_json, time.time(), principal_id, job_id, action_id)).rowcount
+                        db.execute("UPDATE gateway_action_attempts SET state=?,finished_at=? WHERE principal_id=? AND job_id=? AND action_id=? AND state='dispatching'", (state,time.time(),principal_id,job_id,action_id))
                         if changed != 1:
                             raise ActionLedgerUnavailable("Tool result has no matching durable dispatch intent")
                 finally:
@@ -248,6 +264,7 @@ class ActionLedger:
                     with db:
                         db.execute("UPDATE gateway_actions SET state='uncertain',certainty='unknown',updated_at=? WHERE principal_id=? AND job_id=? AND action_id=? AND state='dispatching'",
                                    (time.time(), principal_id, job_id, action_id))
+                        db.execute("UPDATE gateway_action_attempts SET state='uncertain',finished_at=? WHERE principal_id=? AND job_id=? AND action_id=? AND state='dispatching'", (time.time(),principal_id,job_id,action_id))
                 finally:
                     db.close()
         except Exception:

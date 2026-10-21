@@ -91,8 +91,15 @@ data class CombinedModelResponse(
     val createdAt: Long? = null,
     val sourceDigest: String = "",
     val ancestryIds: Set<String> = emptySet(),
-    val structuralUsability: Int = qualityScore
+    val structuralUsability: Int = qualityScore,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val rawContentDigest: String = "",
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val disposition: ContributionDisposition = ContributionDisposition.LEGACY_UNKNOWN
 )
+
+@Serializable
+enum class ContributionDisposition { ACCEPTED_REPORT, EVIDENCE_ONLY, USABLE_PARTIAL, NO_USABLE_EVIDENCE, LEGACY_UNKNOWN }
 
 @Serializable
 data class AssistantRevision(

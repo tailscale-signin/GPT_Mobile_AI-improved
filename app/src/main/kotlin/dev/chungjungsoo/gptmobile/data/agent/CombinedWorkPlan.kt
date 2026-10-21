@@ -180,7 +180,9 @@ data class CombinedExecutionContext(
     val profileUid: String? = null,
     val workItemId: String? = null,
     val chatId: Int = 0,
-    val persistBudget: Boolean = true
+    val persistBudget: Boolean = true,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val acceptedTask: AcceptedTaskRef? = null
 ) {
     fun forRole(role: CombinedRunRole, profileUid: String? = this.profileUid, workItemId: String? = if (role == this.role) this.workItemId else null) =
         copy(role = role, profileUid = profileUid, workItemId = workItemId)

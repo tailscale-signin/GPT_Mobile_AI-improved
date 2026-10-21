@@ -94,6 +94,51 @@ internal class ResearchTaskStore(private val directory: File) {
         val dependencies = snapshot.sources.map { source -> ResearchEvidenceDependency(source.id, source.versionId, researchHash(source.passage), authority, source.publicCapture && source.retrievalReceipt.isNotBlank(), source.engines, (source.providerReceipts + source.retrievalReceipt).filter(String::isNotBlank).distinct(), task.sourceAuthorityRevision) }
         val revision = researchHash(snapshot.sources.joinToString { "${it.id}:${it.versionId}:${researchHash(it.passage)}" } + snapshot.claims.joinToString { "${it.sourceId}:${it.quote}:${it.verdict}" })
         write("checkpoint", "$runId:$authority", json.encodeToString(ResearchTaskCheckpoint(task.taskId, runId, authority, generation, snapshot.phase, revision, dependencies, snapshot.updatedAt)), persistent)
+        retainEvidence(task, runId, authority, generation, snapshot, persistent)
+    }
+
+    @Synchronized fun manifest(root: String, persistent: Boolean): ResearchEvidenceManifest? = read("manifest", root, persistent)?.let { json.decodeFromString(it) }
+
+    @Synchronized private fun retainEvidence(task: AcceptedResearchTask, runId: String, authority: String, generation: Long, snapshot: ResearchSnapshot, persistent: Boolean) {
+        val captured = RetainedResearchEvidence(task.taskId, task.rootWorkId, task.chatId, researchHash(task.taskText), runId, authority, generation, snapshot.json())
+        val encoded = json.encodeToString(captured)
+        val id = researchHash(encoded)
+        val old = manifest(task.rootWorkId, persistent) ?: ResearchEvidenceManifest(taskId = task.taskId, rootWorkId = task.rootWorkId, chatId = task.chatId, originatingUserMessageId = task.originatingUserMessageId, originalRequestDigest = researchHash(task.taskText))
+        require(old.taskId == task.taskId && old.originalRequestDigest == researchHash(task.taskText)) { "RESEARCH_MANIFEST_TASK_CHANGED" }
+        if (old.revisions.any { it.id == id }) return
+        // The immutable page is durable before its manifest pointer can be observed.
+        write("evidence", id, encoded, persistent)
+        val entry = ResearchEvidenceRevision(id, runId, authority, generation, snapshot.evidenceRevisionDigest(), snapshot.phase, snapshot.sources.count { it.readable }, snapshot.claims.count { it.exactQuoteVerified && it.verdict != "Unreviewed" }, snapshot.sources.size, snapshot.updatedAt)
+        write("manifest", task.rootWorkId, json.encodeToString(old.copy(revisions = old.revisions + entry)), persistent)
+    }
+
+    @Synchronized fun retainedEvidence(root: String, authorities: Set<String>, persistent: Boolean): List<ResearchSession> {
+        val task = accepted(root, persistent) ?: return emptyList()
+        val index = manifest(root, persistent) ?: return emptyList()
+        require(index.taskId == task.taskId && index.chatId == task.chatId && index.originalRequestDigest == researchHash(task.taskText)) { "RESEARCH_MANIFEST_TASK_CHANGED" }
+        return index.revisions.filter { it.authority in authorities }.mapNotNull { entry ->
+            val encoded = read("evidence", entry.id, persistent) ?: return@mapNotNull null
+            require(researchHash(encoded) == entry.id) { "RESEARCH_MANIFEST_INTEGRITY_FAILED" }
+            val retained = json.decodeFromString<RetainedResearchEvidence>(encoded)
+            require(retained.taskId == task.taskId && retained.rootWorkId == root && retained.chatId == task.chatId && retained.authority == entry.authority && retained.originalRequestDigest == researchHash(task.taskText)) { "RESEARCH_MANIFEST_SCOPE_CHANGED" }
+            val snapshot = ResearchSnapshot.parse(retained.snapshot) ?: return@mapNotNull null
+            require(snapshot.task == task.taskText && snapshot.evidenceRevisionDigest() == entry.evidenceRevision) { "RESEARCH_MANIFEST_EVIDENCE_CHANGED" }
+            ResearchSession(retained.runId, retained.chatId, snapshot, root, retained.authority)
+        }
+    }
+
+    @Synchronized fun retainPartial(root: String, checkpointId: String, persistent: Boolean) {
+        val task = accepted(root, persistent) ?: return
+        val index = manifest(root, persistent) ?: ResearchEvidenceManifest(taskId = task.taskId, rootWorkId = root, chatId = task.chatId, originatingUserMessageId = task.originatingUserMessageId, originalRequestDigest = researchHash(task.taskText))
+        write("manifest", root, json.encodeToString(index.copy(partialCheckpointIds = index.partialCheckpointIds + checkpointId)), persistent)
+    }
+
+    @Synchronized fun plan(root: String, value: String? = null, persistent: Boolean): String? {
+        val task = accepted(root, persistent) ?: return null
+        val existing = read("plan", root, persistent)
+        if (existing != null || value == null) return existing?.substringAfter('\n')
+        write("plan", root, task.taskId + "\n" + value, persistent)
+        return value
     }
 
     @Synchronized fun exportTasks(chatIds: Set<Int>): List<AcceptedResearchTask> = directory.listFiles().orEmpty().filter { it.extension == "task" }.map { json.decodeFromString<AcceptedResearchTask>(AtomicFile(it).openRead().bufferedReader().use { input -> input.readText() }) }.filter { it.chatId in chatIds }
@@ -104,7 +149,7 @@ internal class ResearchTaskStore(private val directory: File) {
         directory.listFiles().orEmpty().filter { it.extension == "task" }.forEach { path ->
             val task = runCatching { json.decodeFromString<AcceptedResearchTask>(path.readText()) }.getOrNull() ?: return@forEach
             if (task.chatId == chatId) {
-                directory.listFiles().orEmpty().filter { it.extension in setOf("resume", "checkpoint") && runCatching { it.readText().contains(task.taskId) }.getOrDefault(false) }.forEach { it.delete() }
+                directory.listFiles().orEmpty().filter { it.extension in setOf("resume", "checkpoint", "manifest", "evidence", "plan") && runCatching { it.readText().contains(task.taskId) }.getOrDefault(false) }.forEach { it.delete() }
                 path.delete()
             }
         }

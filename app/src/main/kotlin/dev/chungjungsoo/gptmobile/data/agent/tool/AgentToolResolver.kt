@@ -104,6 +104,7 @@ class AgentToolResolver @Inject constructor(
     }
 
     suspend fun discoverMcpTools(connection: ToolConnection, forceRefresh: Boolean = false): List<Tool> {
+        if (!forceRefresh) mcpClientManager.peekToolsForConnection(connection.connectionUid, connection.endpointUrl, connection.allowCleartext)?.let { return it }
         val config = mcpConfig(connection)
         return try {
             mcpClientManager.listTools(config, forceRefresh)
@@ -533,7 +534,7 @@ class AgentToolResolver @Inject constructor(
                     group.count { item -> item.binding.toolName in names || names.any { it.endsWith("__" + item.binding.toolName) } } * 100 +
                         words.count { word -> group.any { word in (it.binding.toolName + " " + it.connection?.name).lowercase(java.util.Locale.ROOT) } }
                 }.take(4)
-            val loaded = targets.flatMap { group ->
+            val loaded = coroutineScope { targets.map { group -> async {
                 val connection = requireNotNull(group.first().connection)
                 try {
                     resolveMcpTools(connection, group, live, profileUid)
@@ -545,7 +546,7 @@ class AgentToolResolver @Inject constructor(
                 } finally {
                     attemptedConnections.add(connection.connectionUid)
                 }
-            }
+            } }.awaitAll().flatten() }
             // Recheck after I/O. Old grants/credentials cannot publish tools to a newer turn authority.
             check(settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid } == platform && settingRepository.getFeatureSettings() == live && toolConnectionRepository.listBindingsWithConnections(profileUid) == currentBindings) { "Tool permissions changed during discovery." }
             val admitted = finalizeResolvedTools(loaded, profileUid, platform, live, currentBindings, chatToolConfig, freeProfile, disableRemote, disableLocal, onConnectionError)
@@ -1041,7 +1042,7 @@ class AgentToolResolver @Inject constructor(
         cachedOnly: Boolean = false
     ): List<ResolvedAgentTool> {
         val selectedNames = bindings.map { it.binding.toolName }.toSet()
-        val remoteTools = if (cachedOnly) mcpClientManager.peekToolsForConnection(connection.connectionUid).orEmpty() else discoverMcpTools(connection)
+        val remoteTools = if (cachedOnly) mcpClientManager.peekToolsForConnection(connection.connectionUid, connection.endpointUrl, connection.allowCleartext).orEmpty() else discoverMcpTools(connection)
         val janNafta = AmazonJanNaftaTool.recognizes(connection, remoteTools.map { it.name }.toSet())
         return remoteTools
             .filter { it.name in selectedNames }

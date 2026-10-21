@@ -22,6 +22,9 @@ interface AgentRunDao {
     @Query("SELECT * FROM agent_runs WHERE chat_id = :chatId ORDER BY created_at, run_id")
     suspend fun getByChatId(chatId: Int): List<AgentRun>
 
+    @Query("SELECT r.* FROM agent_runs r JOIN messages_v2 m ON m.message_id = r.assistant_message_id AND m.current_run_id = r.run_id AND m.ownership_fence = r.ownership_fence WHERE r.synthesis_snapshot IS NOT NULL AND r.status IN ('COMPLETED','FAILED','CANCELED','INTERRUPTED')")
+    suspend fun combinedTerminalOwners(): List<AgentRun>
+
     @Query("SELECT * FROM agent_runs WHERE chat_id = :chatId ORDER BY created_at, run_id")
     fun observeByChatId(chatId: Int): Flow<List<AgentRun>>
 

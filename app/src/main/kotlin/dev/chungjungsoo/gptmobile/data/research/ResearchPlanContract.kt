@@ -7,11 +7,12 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
-data class ResearchQuestion(val id: String, val text: String, val evidenceNeeded: String = "") {
+data class ResearchQuestion(val id: String, val text: String, val evidenceNeeded: String = "", val requirement: ResearchEvidenceRequirement? = null) {
     fun json() = buildJsonObject {
         put("id", id)
         put("text", text)
         put("evidenceNeeded", evidenceNeeded)
+        requirement?.let { put("requirement", kotlinx.serialization.json.Json.encodeToJsonElement(ResearchEvidenceRequirement.serializer(), it)) }
     }
 }
 
@@ -76,7 +77,7 @@ fun parseQuestions(rows: JsonArray): List<ResearchQuestion> {
         val evidence = obj?.planText("evidenceNeeded").orEmpty().ifBlank { obj?.planText("evidence_needed").orEmpty() }
         val id = obj?.planText("id").orEmpty().ifBlank { "Q${index + 1}" }
         require(text.isNotBlank() && text.length <= 1000 && evidence.length <= 2000 && id.matches(Regex("[A-Za-z0-9_-]{1,64}"))) { "Invalid research question" }
-        ResearchQuestion(id, text, evidence)
+        ResearchQuestion(id, text, evidence, (obj?.get("requirement") as? JsonObject)?.let { kotlinx.serialization.json.Json.decodeFromJsonElement(ResearchEvidenceRequirement.serializer(), it) })
     }.also { require(it.map { q -> q.id }.distinct().size == it.size) { "Duplicate question IDs" } }
 }
 

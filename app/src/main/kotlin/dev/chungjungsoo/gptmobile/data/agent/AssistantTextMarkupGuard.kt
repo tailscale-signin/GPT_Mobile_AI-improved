@@ -21,7 +21,7 @@ internal fun Flow<ProviderEvent>.withAssistantTextMarkupGuard(
         if (result.blocked) {
             blocked = true
             logRejectedMarkup(result.reason.orEmpty())
-            emit(ProviderEvent.Failed(result.failureMessage()))
+            emit(ProviderEvent.Failed(result.failureMessage(), errorCode = if (result.reason == "unsupported_search_claim") "UNSUPPORTED_SEARCH_CLAIM" else "TOOL_PROTOCOL_INVALID_FRAME"))
         }
     }
 
@@ -44,7 +44,7 @@ internal fun Flow<ProviderEvent>.withAssistantTextMarkupGuard(
                 if (result.blocked) {
                     blocked = true
                     logRejectedMarkup(result.reason.orEmpty())
-                    emit(ProviderEvent.Failed(result.failureMessage()))
+                    emit(ProviderEvent.Failed(result.failureMessage(), errorCode = if (result.reason == "unsupported_search_claim") "UNSUPPORTED_SEARCH_CLAIM" else "TOOL_PROTOCOL_INVALID_FRAME"))
                 }
             }
             ProviderEvent.Completed -> {
@@ -199,4 +199,22 @@ private class AssistantTextMarkupGuard {
     private companion object {
         const val MAX_PENDING_CHARACTERS = 512
     }
+}
+
+/** Normalize once at the raw provider boundary, before delivery or recovery accumulates text. */
+internal fun AgentProviderSession.withNormalizedAssistantText(): AgentProviderSession =
+    if (this is NormalizedAssistantTextSession) this else NormalizedAssistantTextSession(this)
+
+private class NormalizedAssistantTextSession(private val source: AgentProviderSession) : AgentProviderSession by source {
+    override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> {
+        val searchNames = tools.filter { AgentToolCapability.WEB_SEARCH in it.capabilities }.map { it.name }.toSet()
+        val searched = exchanges.any { exchange -> exchange.results.any { result -> !result.isError && result.dispatched && exchange.calls.any { it.callId == result.callId && it.name in searchNames } } }
+        return source.streamRound(tools, exchanges).withAssistantTextMarkupGuard(searched, searchNames)
+    }
+}
+
+internal fun sanitizeAssistantText(text: String): String {
+    val guard = AssistantTextMarkupGuard()
+    val first = guard.append(text, successfulWebSearch = true)
+    return first.text + if (first.blocked) "" else guard.finish(successfulWebSearch = true).text
 }

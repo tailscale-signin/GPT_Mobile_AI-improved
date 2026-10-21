@@ -9,8 +9,10 @@ internal data class DiagnosticClassification(
 )
 
 internal fun classifyDiagnostic(level: String?, tag: String?, message: String): DiagnosticClassification {
-    val text = message.replace(Regex("^eventId=[a-zA-Z0-9-]+(?: · | )"), "").lowercase()
+    val text = diagnosticEventMessage(message).lowercase()
     return when {
+        "oom_recovery" in text || "out_of_memory_recovered" in text -> DiagnosticClassification("memory_recovery", "warning", true, "retained_state_after_oom")
+        "outofmemoryerror" in text || "failed to allocate" in text && "bytes" in text -> DiagnosticClassification("fatal", "critical", true, "reduce_peak_memory")
         text.startsWith("synthesis_quality") && "completed_with_issues" in text -> DiagnosticClassification("combined_contract", "warning", true, "retain_answer_and_review_quality")
         "required_work_unfunded" in text || "optional combined work allowance" in text -> DiagnosticClassification("admission", "warning", true, "retain_pending_work")
         "outcome=invalid_response" in text || "status=invalid_response" in text || "schema_validation_failed" in text -> DiagnosticClassification("research_schema", "error", true, "repair_structured_output")
@@ -62,3 +64,6 @@ internal fun classifyDiagnostic(level: String?, tag: String?, message: String): 
         else -> DiagnosticClassification("informational", "info", false)
     }
 }
+
+/** Strip recorder metadata without swallowing the event label. */
+internal fun diagnosticEventMessage(message: String): String = message.replace(Regex("^(?:(?:eventId=[A-Za-z0-9-]+|monoNs=[0-9]+|bootMs=(?:[0-9]+|unknown)|processId=-?[0-9]+)(?: · | +))+"), "")

@@ -6,7 +6,8 @@ import re
 import uuid
 from gateway_security import current_device
 from v14.actions import ActionLedger, ActionReplay, ExternalOutcomeUnknown, current_gateway_job_id, current_gateway_tool_call_id, logical_action_id
-from v14.contracts import SchemaValidationError, validate_arguments, validate_schema
+from v14.contracts import SchemaValidationError, validate_arguments, validate_schema, compile_schema, model_schema
+from v14.operations import MUTATION, MUTABLE_READ, operation_class, select_equivalent
 
 
 class CatalogBindingError(ValueError):
@@ -17,6 +18,12 @@ def install_exact_routing(runtime):
     ledger = ActionLedger(runtime)
     runtime.gateway_action_ledger = ledger
     original_catalog = runtime.get_all_mcp_tools
+    compiled = {}
+    admitted = {}
+    runtime.gateway_schema_rejections = {}
+    runtime.gateway_schema_metrics = {'compiled': 0, 'cacheHits': 0, 'rejected': 0}
+    def revision(servers):
+        return hashlib.sha256(json.dumps(servers,sort_keys=True,separators=(',',':'),default=str).encode()).hexdigest()
     def catalog(force_refresh=False):
         definitions = original_catalog(force_refresh)
         names = [item['function'].get('name') for item in definitions
@@ -25,6 +32,8 @@ def install_exact_routing(runtime):
         counts = collections.Counter(names)
         valid = []
         servers = runtime.load_mcp_config()
+        config_revision = revision(servers)
+        next_admitted = {}
         for item in definitions:
             if not isinstance(item, dict) or not isinstance(item.get('function'), dict):
                 continue
@@ -35,14 +44,31 @@ def install_exact_routing(runtime):
             meta = runtime.mcp_tool_metadata.get(name, {})
             if meta.get('server') not in servers or not isinstance(meta.get('tool'), str) or name != meta['server'] + '_' + meta['tool']:
                 continue
-            schema = fn.get('parameters', {})
+            schema = meta.get('inputSchema', fn.get('parameters', {}))
             if not isinstance(schema, dict):
                 continue
-            try:
-                validate_schema(schema)
-            except SchemaValidationError:
+            key = (config_revision, name, hashlib.sha256(json.dumps(schema,sort_keys=True,separators=(',',':')).encode()).hexdigest())
+            if key not in compiled:
+                try:
+                    compiled[key] = (compile_schema(schema), model_schema(schema), None)
+                    runtime.gateway_schema_metrics['compiled'] += 1
+                except SchemaValidationError as exc:
+                    compiled[key] = (None,None,str(exc))
+                    runtime.gateway_schema_metrics['rejected'] += 1
+                while len(compiled) > 2048: compiled.pop(next(iter(compiled)))
+            else: runtime.gateway_schema_metrics['cacheHits'] += 1
+            execution, presentation, rejection = compiled[key]
+            if rejection:
+                runtime.gateway_schema_rejections[name] = {'revision':config_revision,'reason':rejection}
                 continue
-            valid.append(dict(item, function=dict(fn, parameters=schema)))
+            runtime.gateway_schema_rejections.pop(name,None)
+            next_admitted[name] = (execution,config_revision,dict(meta))
+            valid.append(dict(item, function=dict(fn, description=str(fn.get('description',''))[:240], parameters=presentation)))
+        valid = select_equivalent(valid,runtime.mcp_tool_metadata)
+        if revision(runtime.load_mcp_config()) != config_revision:
+            raise CatalogBindingError('Connection revision changed during catalogue compilation')
+        admitted.clear()
+        admitted.update(next_admitted)
         with runtime.mcp_cache_lock:
             runtime.mcp_tools_cache = list(valid)
         return valid
@@ -51,10 +77,11 @@ def install_exact_routing(runtime):
         definitions = {item['function']['name']: item for item in catalog()}
         if name not in definitions:
             raise CatalogBindingError('Unknown, disabled, malformed or ambiguous gateway tool binding')
-        meta = runtime.mcp_tool_metadata[name]
+        schema, config_revision, meta = admitted[name]
         if meta['server'] not in runtime.load_mcp_config():
             raise CatalogBindingError('Connection no longer enabled')
-        schema = definitions[name]['function']['parameters']
+        if revision(runtime.load_mcp_config()) != config_revision:
+            raise CatalogBindingError('Connection revision changed before dispatch')
         try:
             validate_arguments(schema, arguments)
         except SchemaValidationError as exc:
@@ -63,12 +90,16 @@ def install_exact_routing(runtime):
             raise InterruptedError('Tool canceled before dispatch')
         schema_digest = hashlib.sha256(json.dumps(schema, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode('utf-8')).hexdigest()
         binding = {'server': meta['server'], 'tool': meta['tool'], 'schemaDigest': schema_digest,
-                   'bindingRevision': 'gptmobile.tool-binding.v1'}
+                   'bindingRevision': 'gptmobile.tool-binding.v2', 'connectionRevision': config_revision}
         model_call_id = str(call_id or current_gateway_tool_call_id.get() or "") or None
         job_id = str(current_gateway_job_id.get() or ("internal_" + model_call_id if model_call_id else "internal_" + uuid.uuid4().hex))
         principal_id = str(current_device.get() or 'unowned')
-        action_id = logical_action_id(job_id, binding, arguments)
-        admitted = ledger.begin(principal_id, job_id, action_id, binding, arguments, model_call_id=model_call_id)
+        kind = operation_class(meta['tool'], arguments)
+        identity_binding = dict(binding)
+        if kind == MUTABLE_READ:
+            identity_binding['observationId'] = model_call_id or uuid.uuid4().hex
+        action_id = logical_action_id(job_id, identity_binding, arguments)
+        admitted = ledger.begin(principal_id, job_id, action_id, binding, arguments, model_call_id=model_call_id, operation_kind=kind)
         if isinstance(admitted, ActionReplay):
             return admitted.result
         if admitted is not None:

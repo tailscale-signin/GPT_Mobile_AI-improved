@@ -1,27 +1,32 @@
 package dev.chungjungsoo.gptmobile.data.research
 
-/** Callers admit one authority and turn root. Contributor-local task labels are not task identity. */
+/** Merge only already-authorized partitions, binding each claim to its own captured source version. */
 internal fun mergeResearchSnapshots(previous: List<ResearchSnapshot>, incoming: ResearchSnapshot): ResearchSnapshot {
     val snapshots = if (isResearchConversationOnly(incoming.task)) listOf(incoming) else previous + incoming
-    fun canonical(source: ResearchSource) = source.equivalenceGroup.ifBlank { source.canonicalUrl.ifBlank { source.url } } to source.versionId
-    val aliases = mutableMapOf<String, String>()
-    val sources = snapshots.flatMap { it.sources }.groupBy(::canonical).values.map { versions ->
-        val best = versions.maxWith(compareBy<ResearchSource> { it.readable }.thenBy { it.status == "Read" }.thenBy { it.passage.length }.thenBy { it.retrievedAt })
-        versions.forEach { aliases[it.id] = best.id }
-        best.copy(engines = versions.flatMap { it.engines }.distinct().take(20))
+    fun identity(source: ResearchSource) = source.equivalenceGroup.ifBlank { source.canonicalUrl.ifBlank { source.url } } + ":" + source.versionId.ifBlank { researchHash(source.passage) }
+    val groups = snapshots.flatMap { it.sources }.groupBy(::identity)
+    val identitiesPerId = snapshots.flatMap { it.sources }.groupBy { it.id }.mapValues { (_, values) -> values.map(::identity).distinct().size }
+    val sourcesByIdentity = groups.mapValues { (key, versions) ->
+        val best = versions.maxWith(compareBy<ResearchSource> { it.readable }.thenBy { it.retrievalQuality == "FULL_TEXT" }.thenBy { it.status == "Read" }.thenBy { it.bodyChunks.size }.thenBy { it.passage.length }.thenBy { it.retrievedAt })
+        best.copy(id = if (identitiesPerId.getValue(best.id) > 1) "S" + researchHash(key).take(16) else best.id, engines = versions.flatMap { it.engines }.distinct().take(20), providerReceipts = versions.flatMap { it.providerReceipts }.distinct())
     }
-    fun questionIdentity(question: ResearchQuestion) = "Q" + researchHash(question.text.trim() + "\n" + question.evidenceNeeded.trim()).take(16)
+    fun questionIdentity(question: ResearchQuestion) = "Q" + researchHash(question.text.trim() + "\n" + question.evidenceNeeded.trim() + "\n" + question.json().toString().replace(question.id, "")).take(16)
     val questions = snapshots.flatMap { it.questionPlan }.map { it.copy(id = questionIdentity(it)) }.distinctBy { it.id }
     val claims = snapshots.flatMap { snapshot ->
         val questionIds = snapshot.questionPlan.associate { it.id to questionIdentity(it) }
-        snapshot.claims.map { claim -> claim.copy(sourceId = aliases[claim.sourceId] ?: claim.sourceId, questionId = questionIds[claim.questionId] ?: claim.questionId) }
-    }.filter { claim -> sources.any { it.id == claim.sourceId && it.readable && claim.quote in it.passage } }
-        .associateBy { listOf(it.sourceId, it.text, it.quote, it.questionId) }.values.toList()
+        snapshot.claims.mapNotNull { claim ->
+            val original = snapshot.sources.singleOrNull { it.id == claim.sourceId } ?: return@mapNotNull null
+            if (claim.reviewedSourceVersion.isNotBlank() && claim.reviewedSourceVersion != capturedResearchVersion(original)) return@mapNotNull null
+            val retained = sourcesByIdentity[identity(original)] ?: return@mapNotNull null
+            if (!retained.readable || claim.quote.isBlank() || claim.quote !in original.passage || claim.quote !in retained.passage) return@mapNotNull null
+            claim.copy(sourceId = retained.id, questionId = questionIds[claim.questionId] ?: claim.questionId)
+        }
+    }.distinctBy { listOf(it.sourceId, it.text, it.quote, it.questionId, it.reviewedSourceVersion, it.verdict) }
     return incoming.copy(
-        sources = sources,
+        sources = sourcesByIdentity.values.toList(),
         claims = claims,
         questionPlan = questions.ifEmpty { incoming.questionPlan },
-        questions = questions.map { it.text }.ifEmpty { incoming.questions },
+        questions = questions.map { it.text }.ifEmpty { snapshots.flatMap { it.questions }.distinct() },
         queries = snapshots.flatMap { it.queries }.distinct(),
         toolEvents = snapshots.flatMap { it.toolEvents }.distinct().sortedBy { it.recordedAt }.takeLast(200)
     )

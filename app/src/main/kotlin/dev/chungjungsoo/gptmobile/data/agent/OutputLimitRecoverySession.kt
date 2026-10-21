@@ -38,7 +38,7 @@ internal class OutputLimitRecoverySession(
 
     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
         if (handlesToolsInternally && !allowInternalToolRecovery) {
-            emitAll(active.streamRound(tools, exchanges))
+            emitAll(active.streamRound(tools, exchanges).withAssistantTextMarkupGuard())
             return@flow
         }
         val evidence = exchanges // Re-admission decides fit; recovery must not silently replace completed evidence with snippets.

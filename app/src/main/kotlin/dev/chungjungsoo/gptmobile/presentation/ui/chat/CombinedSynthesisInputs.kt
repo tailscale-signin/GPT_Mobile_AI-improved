@@ -13,7 +13,8 @@ internal fun combinedSynthesisInputs(
     responses: List<MessageV2>,
     runs: Map<String, AgentRun>,
     names: Map<String, String>,
-    models: Map<String, String>
+    models: Map<String, String>,
+    currentRequest: String? = null
 ): List<CombinedModelResponse>? {
     if (responses.any { message ->
             val status = runs[message.currentRunId]?.status
@@ -29,7 +30,7 @@ internal fun combinedSynthesisInputs(
         val uid = message.platformType ?: return@mapNotNull null
         val original = message.combinedSources.firstOrNull { it.platformUid == uid }
         val originalContent = original?.content ?: message.content
-        val content = stripAssistantErrorNote(originalContent).trim()
+        val content = currentRequest?.let { currentRequestContribution(it, originalContent) } ?: sanitizeContribution(originalContent)
         if (isAssistantErrorMessage(content)) return@mapNotNull null
         // The synthesis run's status describes the editor, not the preserved contributor.
         val status = if (message.isCombinedSynthesis() && original != null) {
@@ -43,7 +44,7 @@ internal fun combinedSynthesisInputs(
             platformUid = uid,
             platformName = names[uid] ?: original?.platformName ?: "AI",
             modelName = models[uid] ?: original?.modelName.orEmpty(),
-            content = originalContent,
+            content = content,
             completionStatus = status,
             qualityScore = assessment.structuralUsability,
             structuralUsability = assessment.structuralUsability,
@@ -52,8 +53,11 @@ internal fun combinedSynthesisInputs(
             localOnly = original?.localOnly == true || message.containsLocalOnlyMemory(),
             attemptId = original?.attemptId ?: message.currentRunId,
             createdAt = original?.createdAt ?: message.createdAt,
-            sourceDigest = dev.chungjungsoo.gptmobile.data.research.researchHash(originalContent),
-            ancestryIds = original?.ancestryIds.orEmpty()
+            sourceDigest = dev.chungjungsoo.gptmobile.data.research.researchHash(content),
+            ancestryIds = original?.ancestryIds.orEmpty(),
+            rawContentDigest = original?.rawContentDigest?.takeIf(String::isNotBlank) ?: dev.chungjungsoo.gptmobile.data.research.researchHash(originalContent),
+            disposition = original?.disposition?.takeUnless { it == dev.chungjungsoo.gptmobile.data.database.entity.ContributionDisposition.LEGACY_UNKNOWN }
+                ?: if (status == AgentRunStatus.COMPLETED) dev.chungjungsoo.gptmobile.data.database.entity.ContributionDisposition.ACCEPTED_REPORT else dev.chungjungsoo.gptmobile.data.database.entity.ContributionDisposition.USABLE_PARTIAL
         )
     }
     if (sources.isEmpty()) return null

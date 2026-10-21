@@ -1,5 +1,8 @@
 package dev.chungjungsoo.gptmobile.data.repository
 
+import dev.chungjungsoo.gptmobile.data.agent.bindAcceptedStage
+import dev.chungjungsoo.gptmobile.data.agent.permitsFinalizationAttempt
+
 import android.content.Context
 import android.os.BatteryManager
 import dev.chungjungsoo.gptmobile.R
@@ -338,12 +341,34 @@ class ChatRepositoryImpl(
 
     override suspend fun cancelCombinedTurn(rootBudgetId: String) = combinedBudgets.cancel(rootBudgetId)
     override suspend fun isCombinedTurnCancelled(rootBudgetId: String): Boolean = combinedBudgets.snapshot(rootBudgetId)?.cancelled == true
+    override suspend fun canRetryCombined(rootBudgetId: String): Boolean = combinedBudgets.snapshot(rootBudgetId)?.permitsFinalizationAttempt() == true
+
+    override suspend fun publishCombinedEvidenceFallback(runId: String): Boolean {
+        val run = agentPersistenceDao.recoveryRun(runId) ?: return false
+        val accepted = dev.chungjungsoo.gptmobile.data.agent.CombinedAcceptedTurn.context(run.synthesisSnapshot) ?: return false
+        if (isCombinedTurnCancelled(accepted.rootBudgetId)) return false
+        val published = agentPersistenceDao.publishCombinedFallback(runId, run.ownershipFence) ?: return false
+        settleCombinedStage(runId, published, AgentRunStatus.FAILED, "NO_AUTHORIZED_WRITER")
+        return true
+    }
+
+    override suspend fun useCombinedReply(runId: String, expectedFence: Long, sourceProfileUid: String): MessageV2? {
+        val run = agentPersistenceDao.recoveryRun(runId) ?: return null
+        val accepted = dev.chungjungsoo.gptmobile.data.agent.CombinedAcceptedTurn.context(run.synthesisSnapshot) ?: return null
+        if (isCombinedTurnCancelled(accepted.rootBudgetId) || sourceProfileUid !in accepted.requested.participantUids) return null
+        val published = agentPersistenceDao.publishCombinedFallback(runId, expectedFence, sourceProfileUid) ?: return null
+        val budget = combinedBudgets.open(accepted)
+        budget.finishStage("finalization", "PARTIAL", "EXPLICIT_CONTRIBUTOR_FALLBACK")
+        budget.close("PARTIAL", "EXPLICIT_CONTRIBUTOR_FALLBACK")
+        return published
+    }
+
+    override suspend fun reconcileCombinedLifecycle() = dev.chungjungsoo.gptmobile.data.agent.CombinedLifecycleReconciler(agentRunDao, agentPersistenceDao, combinedBudgets).reconcile()
     override suspend fun markCombinedMergeUnavailable(chatId: Int, userMessageId: Int, rootBudgetId: String) {
         if (!agentPersistenceDao.markCombinedMergeUnavailable(chatId, userMessageId, rootBudgetId)) return
         val saved = combinedBudgets.snapshot(rootBudgetId) ?: return
         val budget = combinedBudgets.open(dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext(saved.plan.requested, saved.plan, rootBudgetId, chatId = chatId))
         budget.finishStage("finalization", "PARTIAL", "MERGE_UNAVAILABLE")
-        budget.close("PARTIAL", "MERGE_UNAVAILABLE")
     }
     override suspend fun regenerateCombinedTurn(
         userMessage: MessageV2,
@@ -1321,8 +1346,18 @@ class ChatRepositoryImpl(
         assistantMessages: List<List<MessageV2>>,
         platform: PlatformV2,
         runId: String,
-        chatToolConfig: ChatMcpToolConfig?
+        chatToolConfig: ChatMcpToolConfig?,
+        stage: dev.chungjungsoo.gptmobile.data.agent.AgentStageRequest?
     ): Flow<ApiState> = flow {
+        val boundStage = try {
+            bindStageRequest(userMessages, platform, runId, chatToolConfig, stage)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: IllegalArgumentException) {
+            emit(ApiState.Error(failure.message ?: "COMBINED_STAGE_IDENTITY_REJECTED"))
+            emit(ApiState.Done)
+            return@flow
+        }
         if (platform.compatibleType == ClientType.LITERT_LM) {
             try {
                 val selection = localModelRepository.resolveLocalModelSelection(platform.model, platform.accelerator)
@@ -1337,8 +1372,39 @@ class ChatRepositoryImpl(
             }
         }
         val fence = dev.chungjungsoo.gptmobile.data.context.PreparationReplayFence()
-        emitAll(preparedCompleteChat(userMessages, assistantMessages, platform, runId, chatToolConfig, fence))
+        emitAll(preparedCompleteChat(userMessages, assistantMessages, platform, runId, chatToolConfig, fence, boundStage))
     }.flowOn(Dispatchers.Default)
+
+    /** Bind only from persisted originals and a sealed owner; a run-name prefix is not authority. */
+    private suspend fun bindStageRequest(
+        users: List<MessageV2>,
+        profile: PlatformV2,
+        runId: String,
+        tools: ChatMcpToolConfig?,
+        requested: dev.chungjungsoo.gptmobile.data.agent.AgentStageRequest?
+    ): dev.chungjungsoo.gptmobile.data.agent.AgentStageRequest? {
+        val run = agentPersistenceDao.recoveryRun(runId)
+        val raw = run?.synthesisSnapshot
+        val isFinal = run?.displayRole == "COMBINED_FINAL" || tools?.combined?.role?.finalization == true || requested != null
+        if (!isFinal) return null
+        require(run != null && !raw.isNullOrBlank() && run.profileUid == profile.uid) { "COMBINED_STAGE_OWNER_UNAVAILABLE" }
+        require(run.synthesisKey == dev.chungjungsoo.gptmobile.data.research.researchHash(raw)) { "COMBINED_SNAPSHOT_INTEGRITY_FAILED" }
+        val snapshot = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromString<dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot>(raw)
+        val bound = snapshot.bindAcceptedStage()
+        require(requested == null || requested == bound) { "COMBINED_STAGE_REQUEST_CHANGED" }
+        require(bound.profileUid == profile.uid && snapshot.model == profile.model) { "COMBINED_STAGE_WRITER_CHANGED" }
+        val original = requireNotNull(agentPersistenceDao.recoveryMessage(run.userMessageId)) { "COMBINED_ORIGINAL_UNAVAILABLE" }
+        bound.acceptedTask.validate(original)
+        bound.acceptedTask.validate(requireNotNull(users.lastOrNull()) { "COMBINED_ORIGINAL_UNAVAILABLE" })
+        require(run.chatId == bound.acceptedTask.chatId && run.userMessageId == bound.acceptedTask.originatingUserMessageId) { "COMBINED_STAGE_PARENT_CHANGED" }
+        val current = requireNotNull(agentPersistenceDao.recoveryMessage(run.assistantMessageId)) { "COMBINED_STAGE_OWNER_UNAVAILABLE" }
+        require(current.currentRunId == runId && current.ownershipFence == run.ownershipFence) { "COMBINED_STAGE_FENCE_CHANGED" }
+        snapshot.combined?.let { frozen ->
+            require(tools?.combined == frozen && tools.allToolsDisabled && tools.delegation?.enabled != true) { "COMBINED_STAGE_POLICY_CHANGED" }
+            require(combinedBudgets.snapshot(frozen.rootBudgetId)?.cancelled != true) { "COMBINED_TURN_CANCELLED" }
+        }
+        return bound
+    }
 
     private fun preparedCompleteChat(
         userMessages: List<MessageV2>,
@@ -1346,7 +1412,8 @@ class ChatRepositoryImpl(
         platform: PlatformV2,
         runId: String,
         chatToolConfig: ChatMcpToolConfig?,
-        rebuildFence: dev.chungjungsoo.gptmobile.data.context.PreparationReplayFence
+        rebuildFence: dev.chungjungsoo.gptmobile.data.context.PreparationReplayFence,
+        stage: dev.chungjungsoo.gptmobile.data.agent.AgentStageRequest?
     ): Flow<ApiState> = channelFlow {
         val dispatchAuthority = dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.capture(settingRepository, platform, userMessages.lastOrNull()?.chatId)
         withContext(dispatchAuthority + dev.chungjungsoo.gptmobile.data.network.ProviderWaitContext { remaining -> send(ApiState.Notice("Provider rate-limited: retry in ${(remaining + 999) / 1000}s", persistent = false)) }) authorizedRun@{
@@ -1530,7 +1597,7 @@ class ChatRepositoryImpl(
                 } else {
                     profileBudget
                 }
-                val turnKey = taskRecovery?.let { "${effectiveUserMessages.lastOrNull()?.chatId}:${it.sourceMessageId}" } ?: dev.chungjungsoo.gptmobile.data.agent.rootWorkId(savedUserTurns, runId)
+                val turnKey = stage?.acceptedTask?.rootWorkId ?: taskRecovery?.let { "${effectiveUserMessages.lastOrNull()?.chatId}:${it.sourceMessageId}" } ?: dev.chungjungsoo.gptmobile.data.agent.rootWorkId(savedUserTurns, runId)
                 dev.chungjungsoo.gptmobile.data.delegation.DelegationRunControls.register(runId)
                 val admittedProfiles = settingRepository.fetchPlatformV2s()
                 val admittedFeatures = settingRepository.getFeatureSettings()
@@ -1560,10 +1627,15 @@ class ChatRepositoryImpl(
                 if (acceptedTaskText.isNotBlank()) {
                     val settingsRevision = dev.chungjungsoo.gptmobile.data.research.researchHash(kotlinx.serialization.json.Json.encodeToString(admittedFeatures) + kotlinx.serialization.json.Json.encodeToString(chatToolConfig ?: ChatMcpToolConfig()))
                     val authorityRevision = dev.chungjungsoo.gptmobile.data.research.researchHash(admittedProfiles.joinToString { "${it.uid}:${it.compatibleType}:${it.apiUrl}:${it.model}:${it.token}:${it.secretRef}:${it.disableAllTools}:${it.disableRemoteTools}" })
-                    researchSessions?.acceptTask(researchChatId, turnKey, taskRecovery?.sourceMessageId ?: savedUserTurns.lastOrNull()?.id ?: 0, acceptedTaskText, chatToolConfig?.combined?.requested?.participantUids ?: admittedProfiles.filter { it.enabled }.map { it.uid }.ifEmpty { listOf(platform.uid) }, chatToolConfig?.combined?.requested?.preferredOwnerUid, settingsRevision, authorityRevision, researchPersistent)
+                    researchSessions?.acceptTask(researchChatId, turnKey, stage?.acceptedTask?.originatingUserMessageId ?: taskRecovery?.sourceMessageId ?: savedUserTurns.lastOrNull()?.id ?: 0, acceptedTaskText, chatToolConfig?.combined?.requested?.participantUids ?: admittedProfiles.filter { it.enabled }.map { it.uid }.ifEmpty { listOf(platform.uid) }, chatToolConfig?.combined?.requested?.preferredOwnerUid, settingsRevision, authorityRevision, researchPersistent)?.let { accepted -> stage?.acceptedTask?.validate(accepted) }
                     if (taskRecovery != null) researchSessions?.recordResume(turnKey, resumeDescriptor?.generationId ?: effectiveUserMessages.lastOrNull()?.id.toString(), taskRecovery.action.name, platform.uid, settingsRevision, researchPersistent)
                 }
                 if (taskRecovery != null) researchSessions?.resumeGeneration(researchChatId, turnKey, resumeDescriptor?.generationId ?: effectiveUserMessages.lastOrNull()?.id.toString(), researchPersistent)
+                if (stage != null) {
+                    contextTurns = contextTurns.map { turn ->
+                        if (turn.isCurrentTurn) turn.copy(userMessage = turn.userMessage.copy(content = stage.stagePrompt)) else turn
+                    }
+                }
                 delegationActivity?.start(runId, researchChatId, dev.chungjungsoo.gptmobile.data.workspace.WorkspaceRepository.digest(kotlinx.serialization.json.Json.encodeToString(admittedPolicy)), platform.uid, researchPersistent)
                 val localDelegation = LocalDelegationCoordinator(
                     platform,

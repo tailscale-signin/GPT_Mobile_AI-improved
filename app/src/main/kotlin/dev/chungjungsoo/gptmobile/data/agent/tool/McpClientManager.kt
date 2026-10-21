@@ -20,6 +20,8 @@ import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.ensureActive
@@ -127,13 +129,14 @@ class McpClientManager internal constructor(
 
     private val catalogue = dev.chungjungsoo.gptmobile.data.readiness.ReadinessSnapshotStore<String, List<Tool>>(clock = { System.nanoTime() / 1_000_000 })
     private val catalogueIdentities = ConcurrentHashMap<String, Pair<Long, String>>()
-    private val catalogueFlights = dev.chungjungsoo.gptmobile.data.readiness.ReadinessSingleFlight<String, List<Tool>>(catalogueScope)
+    private val catalogueProducers = ConcurrentHashMap<String, kotlinx.coroutines.Deferred<List<Tool>>>()
 
     fun peekTools(config: McpConnectionConfig): List<Tool>? = catalogue.peek(config.validatedKey() + ":" + dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.epoch)?.value
 
-    suspend fun peekToolsForConnection(uid: String): List<Tool>? {
-        if (healthSnapshot(uid).state in setOf(McpConnectionHealthState.AUTHENTICATION_REQUIRED, McpConnectionHealthState.UNREACHABLE)) return null
-        val snapshot = catalogueIdentities[uid]?.takeIf { it.first == dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.epoch }?.let { catalogue.peek(it.second) }
+    suspend fun peekToolsForConnection(uid: String, endpointUrl: String? = null, allowCleartext: Boolean = false): List<Tool>? {
+        if (endpointUrl != null) McpConnectionConfig(uid, endpointUrl, allowCleartext).validatedKey()
+        if (healthSnapshot(uid).state == McpConnectionHealthState.AUTHENTICATION_REQUIRED) return null
+        val snapshot = catalogueIdentities[uid]?.takeIf { it.first == dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.epoch && (endpointUrl == null || it.second.startsWith("$endpointUrl|")) && it.second.endsWith("|${dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.networkEpoch}:${it.first}") }?.let { catalogue.peek(it.second) }
         kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.readiness.ReadinessCacheObservation]?.read(snapshot != null, snapshot?.let { System.nanoTime() / 1_000_000 - it.observedAt > 300_000 } == true)
         return snapshot?.value
     }
@@ -141,7 +144,7 @@ class McpClientManager internal constructor(
     fun clearReadinessCache(cancelProducers: Boolean = true) {
         catalogueIdentities.clear()
         catalogue.invalidate()
-        if (cancelProducers) catalogueFlights.invalidate()
+        if (cancelProducers) synchronized(catalogueProducers) { catalogueProducers.values.forEach { it.cancel() }; catalogueProducers.clear() }
     }
 
     suspend fun listTools(config: McpConnectionConfig, forceRefresh: Boolean = false): List<Tool> {
@@ -151,7 +154,9 @@ class McpClientManager internal constructor(
         val ready = if (forceRefresh) null else catalogue.peek(key, 300_000)
         kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.readiness.ReadinessCacheObservation]?.read(ready != null)
         ready?.let { return it.value }
-        return catalogueFlights.acquire(key) {
+        val producer = synchronized(catalogueProducers) {
+            catalogueProducers[key] ?: catalogueScope.async(start = kotlinx.coroutines.CoroutineStart.LAZY) {
+                withTimeout(8_000L) {
             val epoch = catalogue.epoch
             val tools = fetchCatalogue(config, forceRefresh).toList()
             kotlinx.coroutines.currentCoroutineContext().ensureActive()
@@ -164,7 +169,14 @@ class McpClientManager internal constructor(
                 catalogueIdentities[config.connectionUid] = policyEpoch to key
             }
             tools
+                }
+            }.also { next ->
+                catalogueProducers[key] = next
+                next.invokeOnCompletion { synchronized(catalogueProducers) { catalogueProducers.remove(key, next) } }
+            }
         }
+        producer.start()
+        return withTimeoutOrNull(2_000L) { producer.await() } ?: catalogue.peek(key)?.value.orEmpty()
     }
 
     private suspend fun fetchCatalogue(config: McpConnectionConfig, forceRefresh: Boolean): List<Tool> {

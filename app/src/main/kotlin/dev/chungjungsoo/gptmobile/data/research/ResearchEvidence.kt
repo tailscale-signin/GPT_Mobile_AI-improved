@@ -37,7 +37,7 @@ data class ResearchSource(
     val titleFingerprint: String = title.trim().lowercase().takeIf(String::isNotBlank)?.let(::researchHash).orEmpty(),
     val contentFingerprint: String = passage.trim().lowercase().takeIf(String::isNotBlank)?.let(::researchHash).orEmpty(),
     val retrievalQuality: String = when (status) {
-        "Read", "Used as evidence" -> "FULL_TEXT"
+        "Read", "Used as evidence" -> "PARTIAL_TEXT"
         "Partially read" -> "PARTIAL_TEXT"
         "Blocked" -> "BLOCKED"
         "Failed" -> "EMPTY"
@@ -57,11 +57,25 @@ data class ResearchSource(
     val failureReason: String = "",
     val bibliographyJson: String = "{}",
     val publicCapture: Boolean = false,
-    val retrievalReceipt: String = ""
+    val retrievalReceipt: String = "",
+    val structuredFullText: Boolean = false,
+    val sectionNames: Set<String> = emptySet(),
+    val captureTruncated: Boolean? = null,
+    val studyDesigns: Set<String> = emptySet(),
+    val population: String = "",
+    val intervention: String = "",
+    val outcomes: String = "",
+    val metadataProvenance: List<String> = emptyList()
 ) {
-    private val validatedContent by lazy { SourceContentValidator.validate(passage) }
-    val readable: Boolean get() = originId.isBlank() && retrievalQuality in setOf("FULL_TEXT", "PARTIAL_TEXT") && status in setOf("Read", "Partially read", "Used as evidence") && passage.isNotBlank() && validatedContent.usable
+    private val validatedContent by lazy { SourceContentValidator.validate(passage, abstractOnly = retrievalQuality == "ABSTRACT", url = url) }
+    val readable: Boolean get() = originId.isBlank() && retrievalQuality in setOf("FULL_TEXT", "PARTIAL_TEXT", "ABSTRACT") && status in setOf("Read", "Partially read", "Used as evidence", "Abstract") && passage.isNotBlank() && validatedContent.usable
     fun json() = buildJsonObject {
+        put("structuredFullText", structuredFullText)
+        put("sectionNames", JsonArray(sectionNames.map(::JsonPrimitive)))
+        captureTruncated?.let { put("captureTruncated", it) }
+        put("studyDesigns", JsonArray(studyDesigns.map(::JsonPrimitive)))
+        put("population", population); put("intervention", intervention); put("outcomes", outcomes)
+        put("metadataProvenance", JsonArray(metadataProvenance.map(::JsonPrimitive)))
         put("publicCapture", publicCapture)
         put("retrievalReceipt", retrievalReceipt)
         put("bibliographyJson", bibliographyJson)
@@ -143,7 +157,7 @@ data class ResearchToolEvent(
         put("argumentsDigest", argumentsDigest.take(64))
         put("outcome", outcome.take(40))
         put("sourceIds", JsonArray(sourceIds.take(120).map { JsonPrimitive(it.take(64)) }))
-        put("failureReason", failureReason.take(240))
+        put("failureReason", failureReason.ifBlank { if (outcome.uppercase() in setOf("FAILED", "BLOCKED", "CONSTRAINED", "BUDGET_EXHAUSTED", "AUTH_FAILED", "RATE_LIMITED", "TIMEOUT")) "TOOL_${outcome.uppercase()}" else "" }.take(240))
         put("latencyMs", latencyMs.coerceAtLeast(0))
         put("cacheHit", cacheHit)
         put("shared", shared)
@@ -235,11 +249,17 @@ data class ResearchSnapshot(
                 )
                 source.copy(
                     bibliographyJson = s.text("bibliographyJson").ifBlank { "{}" },
+                    structuredFullText = (s["structuredFullText"] as? JsonPrimitive)?.booleanOrNull == true,
+                    sectionNames = s.strings("sectionNames").take(100).toSet(),
+                    captureTruncated = (s["captureTruncated"] as? JsonPrimitive)?.booleanOrNull,
+                    studyDesigns = s.strings("studyDesigns").take(20).toSet(),
+                    population = s.text("population").take(1000), intervention = s.text("intervention").take(1000), outcomes = s.text("outcomes").take(1000),
+                    metadataProvenance = s.strings("metadataProvenance").take(30),
                     publicCapture = (s["publicCapture"] as? JsonPrimitive)?.booleanOrNull == true,
                     retrievalReceipt = s.text("retrievalReceipt").take(240),
-                    doi = SourceIdentity.normalizeDoi(s.text("doi")),
-                    pmid = s.text("pmid").takeIf { it.matches(Regex("[0-9]{1,12}")) }.orEmpty(),
-                    pmcid = s.text("pmcid").uppercase().takeIf { it.matches(Regex("PMC[0-9]{1,12}")) }.orEmpty(),
+                    doi = SourceIdentity.normalizeDoi(s.text("doi").ifBlank { source.doi }),
+                    pmid = s.text("pmid").ifBlank { source.pmid }.takeIf { it.matches(Regex("[0-9]{1,12}")) }.orEmpty(),
+                    pmcid = s.text("pmcid").ifBlank { source.pmcid }.uppercase().takeIf { it.matches(Regex("PMC[0-9]{1,12}")) }.orEmpty(),
                     canonicalUrl = SourceIdentity.canonicalResearchUrl(s.text("canonicalUrl").ifBlank { source.url }),
                     host = s.text("host").takeIf { it.matches(Regex("[A-Za-z0-9.-]{1,253}")) }?.lowercase().orEmpty().ifBlank { SourceIdentity.create(source.url).host },
                     publicationYear = (s["publicationYear"] as? JsonPrimitive)?.intOrNull?.takeIf { it in 1500..3000 },
@@ -248,7 +268,7 @@ data class ResearchSnapshot(
                     retrievalQuality = s.text("retrievalQuality").takeIf { it in setOf("FULL_TEXT", "PARTIAL_TEXT", "ABSTRACT", "METADATA", "BLOCKED", "EMPTY", "LEAD") }
                         ?.let { if (status == "Partially read" && it == "FULL_TEXT") "PARTIAL_TEXT" else it }
                         ?: when (status) {
-                            "Read", "Used as evidence" -> "FULL_TEXT"
+                            "Read", "Used as evidence" -> "PARTIAL_TEXT"
                             "Partially read" -> "PARTIAL_TEXT"
                             "Abstract" -> "ABSTRACT"
                             "Blocked" -> "BLOCKED"
@@ -408,3 +428,6 @@ fun ResearchSnapshot.evidenceRevisionDigest(): String {
 }
 
 fun ResearchSnapshot.currentReviewRecord(): ResearchReviewRecord? = reviewRecord?.takeIf { it.corpusDigest == evidenceRevisionDigest() }
+
+/** Explicit versions always win; only an unversioned legacy capture uses its exact body hash. */
+fun capturedResearchVersion(source: ResearchSource): String = source.versionId.ifBlank { researchHash(source.passage) }

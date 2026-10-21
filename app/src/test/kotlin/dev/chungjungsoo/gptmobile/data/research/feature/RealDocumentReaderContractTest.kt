@@ -48,23 +48,45 @@ class RealDocumentReaderContractTest {
             val page = PDPage()
             document.addPage(page)
             PDPageContentStream(document, page).use { stream ->
-                stream.beginText(); stream.setFont(PDType1Font.HELVETICA, 10f); stream.newLineAtOffset(20f, 700f); stream.showText(body); stream.endText()
+                stream.beginText()
+                stream.setFont(PDType1Font.HELVETICA, 10f)
+                stream.newLineAtOffset(20f, 700f)
+                stream.showText(body)
+                stream.endText()
             }
             document.save(pdf)
         }
         val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         server.createContext("/") { exchange ->
             val path = exchange.requestURI.path
-            val bytes = when (path) { "/article.pdf" -> pdf.toByteArray(); "/article.html" -> "<html><body><article><p>$body</p></article></body></html>".encodeToByteArray(); else -> body.encodeToByteArray() }
-            exchange.responseHeaders.add("Content-Type", when (path) { "/article.pdf" -> "application/pdf"; "/article.html" -> "text/html"; else -> "text/plain" })
-            exchange.sendResponseHeaders(200, bytes.size.toLong()); exchange.responseBody.use { it.write(bytes) }
+            val bytes = when (path) {
+                "/article.pdf" -> pdf.toByteArray()
+                "/article.html" -> "<html><body><article><p>$body</p></article></body></html>".encodeToByteArray()
+                else -> body.encodeToByteArray()
+            }
+            exchange.responseHeaders.add(
+                "Content-Type",
+                when (path) {
+                    "/article.pdf" -> "application/pdf"
+                    "/article.html" -> "text/html"
+                    else -> "text/plain"
+                }
+            )
+            exchange.sendResponseHeaders(200, bytes.size.toLong())
+            exchange.responseBody.use { it.write(bytes) }
         }
         server.start()
         try {
             val tool = ReadUrlTool(dns = Dns { listOf(InetAddress.getByName("127.0.0.1")) }, allowAddress = { it.isLoopbackAddress }, documentContext = context)
             for (path in listOf("/article.html", "/article.txt", "/article.pdf")) {
                 val url = "http://fixture-reader.example:${server.address.port}$path"
-                val direct = tool.execute("direct-$path", buildJsonObject { put("url", url); put("extractDocument", true) })
+                val direct = tool.execute(
+                    "direct-$path",
+                    buildJsonObject {
+                        put("url", url)
+                        put("extractDocument", true)
+                    }
+                )
                 assertFalse(direct.toString(), direct.isError)
                 val payload = (direct.content as ToolResultContent.Json).value.jsonObject
                 val document = requireNotNull(ResearchDocumentResult.fromJson(payload))
@@ -79,7 +101,10 @@ class RealDocumentReaderContractTest {
                 assertFalse(result.structuredFullText)
                 assertEquals(researchHash(result.text), result.textHash)
             }
-        } finally { server.stop(0); ResearchConnectivityGate.shared.reset() }
+        } finally {
+            server.stop(0)
+            ResearchConnectivityGate.shared.reset()
+        }
     }
 
     @Test fun forbiddenDocumentIsTypedSourceAccessFailureAndDoesNotBecomeScientificEvidence() = runBlocking {
@@ -87,7 +112,8 @@ class RealDocumentReaderContractTest {
         val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         server.createContext("/") { exchange ->
             val bytes = "Access denied".encodeToByteArray()
-            exchange.sendResponseHeaders(403, bytes.size.toLong()); exchange.responseBody.use { it.write(bytes) }
+            exchange.sendResponseHeaders(403, bytes.size.toLong())
+            exchange.responseBody.use { it.write(bytes) }
         }
         server.start()
         try {
@@ -102,6 +128,9 @@ class RealDocumentReaderContractTest {
             val state = examinationFailure(ExaminationRetrievalException(result), 0, 1000)
             assertEquals(ExaminationStage.BLOCKED_SOURCE, state.stage)
             assertFalse(state.retryable)
-        } finally { server.stop(0); ResearchConnectivityGate.shared.reset() }
+        } finally {
+            server.stop(0)
+            ResearchConnectivityGate.shared.reset()
+        }
     }
 }

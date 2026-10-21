@@ -20,7 +20,6 @@ import dev.chungjungsoo.gptmobile.data.repository.ChatRepository
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore
 import dev.chungjungsoo.gptmobile.data.research.ResearchSource
-import dev.chungjungsoo.gptmobile.data.research.academic.AcademicEvidence
 import dev.chungjungsoo.gptmobile.data.research.academic.AcademicHttpFailure
 import dev.chungjungsoo.gptmobile.data.research.academic.AcademicNativeClient
 import dev.chungjungsoo.gptmobile.data.research.academic.AcademicPaper
@@ -77,7 +76,9 @@ class ExaminationRetrievalLifecycleTest {
     @Test fun realCoordinatorPersistsTypedRetrievalFailuresAndPreservesManualCancellation() = runBlocking {
         val app = ApplicationProvider.getApplicationContext<Context>()
         val directory = kotlin.io.path.createTempDirectory("examination-retrieval").toFile()
-        val context = object : ContextWrapper(app) { override fun getFilesDir() = directory }
+        val context = object : ContextWrapper(app) {
+            override fun getFilesDir() = directory
+        }
         val database = Room.inMemoryDatabaseBuilder(app, ResearchDatabase::class.java).allowMainThreadQueries().build()
         val chats = Room.inMemoryDatabaseBuilder(app, ChatDatabaseV2::class.java).allowMainThreadQueries().build()
         var coordinator: ArticleExaminationCoordinator? = null
@@ -119,14 +120,18 @@ class ExaminationRetrievalLifecycleTest {
         } finally {
             ids.forEach { coordinator?.cancel(it) }
             delay(50)
-            database.close(); chats.close(); directory.deleteRecursively()
+            database.close()
+            chats.close()
+            directory.deleteRecursively()
         }
     }
 
     @Test fun validLookingPartialModelArtifactCannotBecomeAcceptedAfterStreamFailure() = runBlocking {
         val app = ApplicationProvider.getApplicationContext<Context>()
         val directory = kotlin.io.path.createTempDirectory("examination-partial").toFile()
-        val context = object : ContextWrapper(app) { override fun getFilesDir() = directory }
+        val context = object : ContextWrapper(app) {
+            override fun getFilesDir() = directory
+        }
         val database = Room.inMemoryDatabaseBuilder(app, ResearchDatabase::class.java).allowMainThreadQueries().build()
         val chats = Room.inMemoryDatabaseBuilder(app, ChatDatabaseV2::class.java).allowMainThreadQueries().build()
         var coordinator: ArticleExaminationCoordinator? = null
@@ -162,8 +167,11 @@ class ExaminationRetrievalLifecycleTest {
             assertTrue(database.research().studyReviews(version.versionId).isEmpty())
             assertEquals(researchHash(body), database.research().version(version.versionId)!!.contentHash)
         } finally {
-            id?.let { coordinator?.cancel(it) }; delay(50)
-            database.close(); chats.close(); directory.deleteRecursively()
+            id?.let { coordinator?.cancel(it) }
+            delay(50)
+            database.close()
+            chats.close()
+            directory.deleteRecursively()
         }
     }
 }

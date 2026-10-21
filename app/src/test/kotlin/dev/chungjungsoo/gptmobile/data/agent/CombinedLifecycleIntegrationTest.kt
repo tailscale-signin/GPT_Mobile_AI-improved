@@ -201,7 +201,7 @@ class CombinedLifecycleIntegrationTest {
     }
 
     @Test fun franceHiAndTestKeepOriginalIdentityAcrossRestartBeforeFirstFinalization() = runBlocking {
-        listOf("What is the capital of France?" to "Paris is the capital of France.", "hi" to "Hi!", "test" to "Test received.").forEach { (question, reply) ->
+        listOf("history of France" to "France developed from the Frankish kingdoms into a monarchy. The French Revolution transformed its political institutions, and the Fifth Republic began in 1958.", "hi" to "Hi!", "test" to "Test received.").forEach { (question, reply) ->
             val accepted = turn(question, reply)
             restart()
             val request = finalRequest(accepted)

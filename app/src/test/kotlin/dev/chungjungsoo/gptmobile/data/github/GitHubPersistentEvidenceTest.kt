@@ -31,10 +31,26 @@ class GitHubPersistentEvidenceTest {
         put("ref", "work")
         fields.forEach { (key, value) -> put(key, value) }
     }
-    private fun item(path: String, sha: String, size: Int) = buildJsonObject { put("path", path); put("sha", sha); put("type", "blob"); put("mode", "100644"); put("size", size) }
-    private fun commit(sha: String, tree: String) = buildJsonObject { put("sha", sha); put("commit", buildJsonObject { put("tree", buildJsonObject { put("sha", tree) }) }) }
-    private fun tree(entries: List<JsonObject>, truncated: Boolean = false) = buildJsonObject { put("tree", JsonArray(entries)); put("truncated", truncated) }
-    private fun blob(sha: String, text: String) = buildJsonObject { put("sha", sha); put("encoding", "base64"); put("content", Base64.getEncoder().encodeToString(text.encodeToByteArray())) }
+    private fun item(path: String, sha: String, size: Int) = buildJsonObject {
+        put("path", path)
+        put("sha", sha)
+        put("type", "blob")
+        put("mode", "100644")
+        put("size", size)
+    }
+    private fun commit(sha: String, tree: String) = buildJsonObject {
+        put("sha", sha)
+        put("commit", buildJsonObject { put("tree", buildJsonObject { put("sha", tree) }) })
+    }
+    private fun tree(entries: List<JsonObject>, truncated: Boolean = false) = buildJsonObject {
+        put("tree", JsonArray(entries))
+        put("truncated", truncated)
+    }
+    private fun blob(sha: String, text: String) = buildJsonObject {
+        put("sha", sha)
+        put("encoding", "base64")
+        put("content", Base64.getEncoder().encodeToString(text.encodeToByteArray()))
+    }
     private fun session(store: GitHubRepositoryStateStore, task: String = "task", account: String = "account", request: suspend (String) -> JsonElement, write: suspend (String, JsonObject) -> JsonElement = { _, _ -> error("No write expected") }) = GitHubRepositorySession(account, "connection", "conversation", task, store, request, write)
 
     @Test fun largeBlobAndLongLineUseBoundedExpandableEvidenceAcrossRestart() = runTest {
@@ -68,7 +84,9 @@ class GitHubPersistentEvidenceTest {
             assertEquals(head, restored.snapshot()!!.commitSha)
             assertTrue(restored.snapshot()!!.evidenceHandles.isNotEmpty())
             assertTrue(runCatching { session(GitHubRepositoryStateStore(directory), account = "other-account", request = fetch).execute("read_ranges", "owner", "repo", args("evidence_id" to page.getValue("evidence_id"))) }.isFailure)
-        } finally { directory.deleteRecursively() }
+        } finally {
+            directory.deleteRecursively()
+        }
     }
 
     @Test fun taskPinsRevisionButExplicitContextChangeAndNewTaskBootstrapAreSupported() = runTest {
@@ -119,7 +137,10 @@ class GitHubPersistentEvidenceTest {
             when {
                 "/commits/" in path -> commit(head, headTree)
                 "/git/trees/" in path -> tree(entries)
-                "/git/blobs/" in path -> { blobs++; blob(path.substringAfterLast('/'), "val ordinary = 1\n") }
+                "/git/blobs/" in path -> {
+                    blobs++
+                    blob(path.substringAfterLast('/'), "val ordinary = 1\n")
+                }
                 else -> error(path)
             }
         }
@@ -143,7 +164,10 @@ class GitHubPersistentEvidenceTest {
             when {
                 "/commits/" in path -> commit(head, headTree)
                 "/git/trees/" in path -> tree((1..100).map { item("binary$it", sha(it), 1) })
-                else -> { blobs++; blob(path.substringAfterLast('/'), "\u0000") }
+                else -> {
+                    blobs++
+                    blob(path.substringAfterLast('/'), "\u0000")
+                }
             }
         })
         val result = client.execute("search_repository", "owner", "repo", args("query" to JsonPrimitive("absent"))).jsonObject
@@ -172,7 +196,16 @@ class GitHubPersistentEvidenceTest {
         }
         try {
             val client = session(GitHubRepositoryStateStore(dir), request = fetch, write = write)
-            val edits = JsonArray(listOf(buildJsonObject { put("path", "A.kt"); put("expected_blob_sha", sha(1)); put("old_text", "41"); put("new_text", "42") }))
+            val edits = JsonArray(
+                listOf(
+                    buildJsonObject {
+                        put("path", "A.kt")
+                        put("expected_blob_sha", sha(1))
+                        put("old_text", "41")
+                        put("new_text", "42")
+                    }
+                )
+            )
             val staged = client.execute("stage_patch", "owner", "repo", args("edits" to edits)).jsonObject
             assertFalse(staged["committed"]!!.jsonPrimitive.booleanOrNull == true)
             assertTrue(staged.toString().contains("42"))
@@ -182,12 +215,24 @@ class GitHubPersistentEvidenceTest {
             assertEquals(receipt, session(GitHubRepositoryStateStore(dir), request = fetch, write = write).execute("commit_staged_patch", "owner", "repo", commitArgs))
             assertEquals(1, writes)
             assertTrue(runCatching { session(GitHubRepositoryStateStore(dir), task = "another", request = fetch, write = write).execute("commit_staged_patch", "owner", "repo", commitArgs) }.isFailure)
-        } finally { dir.deleteRecursively() }
+        } finally {
+            dir.deleteRecursively()
+        }
     }
 
     @Test fun exactPatchesRejectAmbiguousAnchorsWrongBlobAndTraversal() {
         val original = mapOf("A.kt" to (sha(1) to "x x"))
-        fun edit(blob: String = sha(1), path: String = "A.kt", occurrence: Int? = null) = JsonArray(listOf(buildJsonObject { put("path", path); put("expected_blob_sha", blob); put("old_text", "x"); put("new_text", "y"); occurrence?.let { put("occurrence", it) } }))
+        fun edit(blob: String = sha(1), path: String = "A.kt", occurrence: Int? = null) = JsonArray(
+            listOf(
+                buildJsonObject {
+                    put("path", path)
+                    put("expected_blob_sha", blob)
+                    put("old_text", "x")
+                    put("new_text", "y")
+                    occurrence?.let { put("occurrence", it) }
+                }
+            )
+        )
         assertTrue(runCatching { GitHubPatchStager.apply(original, edit()) }.isFailure)
         assertTrue(runCatching { GitHubPatchStager.apply(original, edit(sha(2), occurrence = 1)) }.isFailure)
         assertTrue(runCatching { GitHubPatchStager.apply(original, edit(path = "../A.kt", occurrence = 1)) }.isFailure)

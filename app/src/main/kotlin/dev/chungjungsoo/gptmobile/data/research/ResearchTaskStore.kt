@@ -167,6 +167,7 @@ internal class ResearchTaskStore(private val directory: File) {
     @Synchronized fun plan(root: String, value: String? = null, persistent: Boolean): String? {
         val task = accepted(root, persistent) ?: return null
         val existing = read("plan", root, persistent)
+        check(existing == null || existing.substringBefore('\n') == task.taskId) { "RESEARCH_PLAN_TASK_MISMATCH" }
         if (existing != null || value == null) return existing?.substringAfter('\n')
         write("plan", root, task.taskId + "\n" + value, persistent)
         return value

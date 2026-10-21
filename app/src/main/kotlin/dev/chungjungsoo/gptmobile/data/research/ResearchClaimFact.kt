@@ -103,4 +103,20 @@ fun researchClaimMatchesCapture(claim: ResearchClaim, source: ResearchSource): B
         (claim.sourceVersion.isBlank() || claim.sourceVersion == capturedResearchVersion(source)) &&
         (claim.passageHash.isBlank() || claim.passageHash == researchHash(source.passage)) &&
         (claim.reviewedSourceVersion.isBlank() || claim.reviewedSourceVersion == capturedResearchVersion(source)) &&
-        claim.facts.all { it.matchesCapture(source, claim.quote) }
+        claim.facts.all { it.matchesCapture(source, claim.quote) } &&
+        (!claim.numericalFactBindingRequired || researchQuantitiesBound(claim))
+
+internal fun researchQuantitiesBound(claim: ResearchClaim): Boolean {
+    val number = "[-+]?(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?(?:[eE][-+]?\\d+)?"
+    val quantity = Regex("(?i)(?<![\\p{L}\\p{N}])($number)\\s*(%|participants?|patients?|subjects?|volunteers?|points?|mg|kg|g|ml|litres?|liters?|mmhg|hours?|days?|weeks?|months?|years?|requests?|seconds?|milliseconds?)(?![\\p{L}\\p{N}])")
+    fun key(value: String, unit: String): Pair<String, String> {
+        val normalizedUnit = when (val normalized = unit.lowercase().removeSuffix("s")) {
+            "patient", "participant", "subject", "volunteer" -> "participant"
+            "liter", "litre" -> "litre"
+            else -> normalized
+        }
+        return (value.replace(",", "").toBigDecimalOrNull()?.stripTrailingZeros()?.toPlainString() ?: value) to normalizedUnit
+    }
+    val required = quantity.findAll(claim.text + "\n" + claim.quote).map { key(it.groupValues[1], it.groupValues[2]) }.toSet()
+    return required.all { pair -> claim.facts.any { key(it.value, it.unit) == pair } }
+}

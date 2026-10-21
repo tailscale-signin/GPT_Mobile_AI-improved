@@ -296,7 +296,7 @@ class AgentRunnerTest {
         val reader = tool("read_url") { id, args ->
             val url = (args.getValue("url") as kotlinx.serialization.json.JsonPrimitive).content
             executed += url
-            AgentToolResult(id, ToolResultContent.Text(if (url.contains("blocked")) "HTTP 403" else "Evidence"), url.contains("blocked"))
+            AgentToolResult(id, ToolResultContent.Text(if (url.contains("blocked")) "Temporary network timeout" else "Evidence"), url.contains("blocked"))
         }
         val urls = listOf("https://blocked.example/a", "https://blocked.example/b", "https://blocked.example/c", "https://blocked.example/d", "https://healthy.example/a")
         val events = AgentRunner(AgentRunLimits(maxRounds = 8)).run(
@@ -333,7 +333,18 @@ class AgentRunnerTest {
             session { tools, exchanges ->
                 flow {
                     assertTrue(tools.any { it.name == "github__github_api" })
-                    if (exchanges.size < 4) emit(toolCall("github-${exchanges.size}", "github__github_api"))
+                    if (exchanges.size < 4) {
+                        emit(
+                            ProviderEvent.ToolCall(
+                                "github-${exchanges.size}",
+                                "github__github_api",
+                                buildJsonObject {
+                                    put("action", "read_code")
+                                    put("path", if (exchanges.size < 3) "missing-${exchanges.size}.kt" else "src/Valid.kt")
+                                }
+                            )
+                        )
+                    }
                     emit(ProviderEvent.Completed)
                 }
             },

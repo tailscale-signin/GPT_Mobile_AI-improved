@@ -59,6 +59,7 @@ data class ResearchDeliveryPacket(
         put("reviewedClaims", claims.count { it.verdict != "Unreviewed" && it.exactQuoteVerified })
         put("independentReviewClaims", claims.count { it.independentReview && it.exactQuoteVerified })
         put("semanticCoverageVerified", false)
+        if (snapshot.numericalFactBindingRequired) put("numericalFactBindingRequired", true)
         put("handoffReviewStatus", snapshot.currentReviewRecord()?.status ?: "UNKNOWN_OR_STALE")
         put(
             "toolEvents",

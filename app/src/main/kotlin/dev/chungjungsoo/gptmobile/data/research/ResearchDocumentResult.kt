@@ -17,7 +17,8 @@ data class ResearchDocumentResult(
     val failureReason: String? = null,
     val tablesInspected: Boolean? = null,
     val figuresInspected: Boolean? = null,
-    val supplementsInspected: Boolean? = null
+    val supplementsInspected: Boolean? = null,
+    val citationMetadata: Map<String, String> = emptyMap()
 ) {
     fun toJson(): JsonObject = codec.encodeToJsonElement(serializer(), this) as JsonObject
 

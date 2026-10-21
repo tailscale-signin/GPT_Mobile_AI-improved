@@ -117,7 +117,7 @@ data class ResearchSource(
     }
 }
 
-data class ResearchClaim(val text: String, val sourceId: String, val quote: String, val verdict: String = "Unreviewed", val questionId: String = "", val relevance: String = "Unknown", val exactQuoteVerified: Boolean = false, val extractedBy: String = "", val extractionInvocationId: String = "", val reviewedBy: String = "", val reviewInvocationId: String = "", val independentReview: Boolean = false, val rationale: String = "", val counterEvidence: String = "", val reviewedSourceVersion: String = "", val reviewRubric: String = "", val facts: List<ResearchClaimFact> = emptyList(), val sourceVersion: String = "", val passageHash: String = "", val locator: String = "") {
+data class ResearchClaim(val text: String, val sourceId: String, val quote: String, val verdict: String = "Unreviewed", val questionId: String = "", val relevance: String = "Unknown", val exactQuoteVerified: Boolean = false, val extractedBy: String = "", val extractionInvocationId: String = "", val reviewedBy: String = "", val reviewInvocationId: String = "", val independentReview: Boolean = false, val rationale: String = "", val counterEvidence: String = "", val reviewedSourceVersion: String = "", val reviewRubric: String = "", val facts: List<ResearchClaimFact> = emptyList(), val sourceVersion: String = "", val passageHash: String = "", val locator: String = "", val numericalFactBindingRequired: Boolean = false) {
     fun json() = buildJsonObject {
         put("claimId", researchHash(sourceId + text + quote))
         put("text", text)
@@ -140,6 +140,7 @@ data class ResearchClaim(val text: String, val sourceId: String, val quote: Stri
         put("reviewedSourceVersion", reviewedSourceVersion)
         put("reviewRubric", reviewRubric)
         put("facts", JsonArray(facts.map { it.json() }))
+        put("numericalFactBindingRequired", numericalFactBindingRequired)
         put("relationMetadata", if (facts.isEmpty()) "UNKNOWN" else "CAPTURE_BOUND_NOT_INDEPENDENT_VALIDATION")
     }
 }
@@ -201,10 +202,12 @@ data class ResearchSnapshot(
     val taskId: String = "",
     val rootWorkId: String = "",
     val originatingUserMessageId: Int = 0,
-    val taskChatId: Int = 0
+    val taskChatId: Int = 0,
+    val numericalFactBindingRequired: Boolean = false
 ) {
     fun json() = buildJsonObject {
         put("version", 5)
+        put("numericalFactBindingRequired", numericalFactBindingRequired)
         put("taskId", taskId)
         put("rootWorkId", rootWorkId)
         put("originatingUserMessageId", originatingUserMessageId)
@@ -306,11 +309,12 @@ data class ResearchSnapshot(
             }
             val claimRows = value.rows("claims")
             val claims = claimRows.mapNotNull { row ->
-                val claim = validatedResearchClaims(listOf(row), sources).singleOrNull() ?: return@mapNotNull null
+                val claim = validatedResearchClaims(listOf(row), sources, bindNewCapture = false).singleOrNull() ?: return@mapNotNull null
                 val verdict = row.text("verdict").takeIf { it in setOf("Supported", "Contradicted", "Insufficient") } ?: "Unreviewed"
                 claim.copy(rationale = row.text("rationale").take(1200), counterEvidence = row.text("counterEvidence").take(1200), reviewedSourceVersion = row.text("reviewedSourceVersion").take(700), reviewRubric = row.text("reviewRubric").take(80), verdict = verdict, questionId = row.text("questionId"), relevance = row.text("relevance").takeIf { it in setOf("Relevant", "Background", "Irrelevant") } ?: "Unknown", exactQuoteVerified = (row["exactQuoteVerified"] as? JsonPrimitive)?.booleanOrNull == true, extractedBy = row.text("extractedBy").take(200), extractionInvocationId = row.text("extractionInvocationId").take(128), reviewedBy = row.text("reviewedBy").take(200), reviewInvocationId = row.text("reviewInvocationId").take(128), independentReview = (row["independentReview"] as? JsonPrimitive)?.booleanOrNull == true && row.text("extractedBy").isNotBlank() && row.text("reviewedBy").isNotBlank() && row.text("extractedBy") != row.text("reviewedBy"))
             }
             ResearchSnapshot(
+                numericalFactBindingRequired = (value["numericalFactBindingRequired"] as? JsonPrimitive)?.booleanOrNull == true,
                 taskId = value.text("taskId"), rootWorkId = value.text("rootWorkId"), originatingUserMessageId = value.number("originatingUserMessageId"), taskChatId = value.number("taskChatId"),
                 modelEvents = (value["modelEvents"] as? JsonArray).orEmpty().takeLast(200).mapNotNull { row -> runCatching { kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromJsonElement(ResearchModelEvent.serializer(), row) }.getOrNull() },
                 delegationPlan = value["delegationPlan"]?.let { kotlinx.serialization.json.Json.decodeFromJsonElement(dev.chungjungsoo.gptmobile.data.delegation.DelegationPlanCheckpoint.serializer(), it) },
@@ -357,12 +361,13 @@ fun researchDomainAllowed(url: String, include: List<String>, exclude: List<Stri
 }
 
 /** An exact quote is necessary but does not itself establish entailment. */
-fun validatedResearchClaims(rows: List<JsonObject>, sources: List<ResearchSource>): List<ResearchClaim> = rows.mapNotNull { row ->
+fun validatedResearchClaims(rows: List<JsonObject>, sources: List<ResearchSource>, bindNewCapture: Boolean = true, requireNumericalFacts: Boolean = false): List<ResearchClaim> = rows.mapNotNull { row ->
     val quote = row.text("quote").trim()
     val claim = row.text("text").trim()
     if (quote.length !in 20..1200 || claim.isBlank() || claim.length > 600) return@mapNotNull null
     if (row["facts"] != null && row["facts"] !is JsonArray) return@mapNotNull null
     val factRows = (row["facts"] as? JsonArray).orEmpty()
+    val factBindingRequired = requireNumericalFacts || (row["numericalFactBindingRequired"] as? JsonPrimitive)?.booleanOrNull == true
     if (factRows.size > 8 || factRows.any { it !is JsonObject }) return@mapNotNull null
     sources.asSequence().filter { it.id == row.text("sourceId") && it.readable && quote in it.passage }
         .mapNotNull candidate@{ source ->
@@ -374,7 +379,8 @@ fun validatedResearchClaims(rows: List<JsonObject>, sources: List<ResearchSource
             }
             val facts = factRows.map { ResearchClaimFact.bind(it as JsonObject, source, quote) }
             if (facts.any { it == null }) return@candidate null
-            ResearchClaim(claim, source.id, quote, questionId = row.text("questionId"), exactQuoteVerified = source.paperId.isBlank(), facts = facts.filterNotNull(), sourceVersion = capturedResearchVersion(source), passageHash = researchHash(source.passage), locator = "${source.location.take(240)}; characters ${source.passage.indexOf(quote)}-${source.passage.indexOf(quote) + quote.length}")
+            val bound = ResearchClaim(claim, source.id, quote, questionId = row.text("questionId"), exactQuoteVerified = source.paperId.isBlank(), facts = facts.filterNotNull(), sourceVersion = if (bindNewCapture) capturedResearchVersion(source) else row.text("sourceVersion"), passageHash = if (bindNewCapture) researchHash(source.passage) else row.text("passageHash"), locator = if (bindNewCapture) "${source.location.take(240)}; characters ${source.passage.indexOf(quote)}-${source.passage.indexOf(quote) + quote.length}" else row.text("locator").take(320), numericalFactBindingRequired = factBindingRequired)
+            bound.takeIf { !factBindingRequired || researchQuantitiesBound(it) }
         }.firstOrNull()
 }.distinctBy { listOf(it.text, it.quote, it.sourceId, it.sourceVersion) }
 

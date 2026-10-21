@@ -19,6 +19,9 @@ interface ResearchJournal {
     suspend fun retainDeliveryReceipt(receipt: dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryReceipt): Boolean = false
     suspend fun retainPartial(stage: String, profileUid: String, text: String): String? = null
     suspend fun bindTask(snapshot: ResearchSnapshot): ResearchSnapshot = snapshot
+
+    /** Accepted task planning only; this never grants access to another source or evidence scope. */
+    suspend fun publicQuestionPlan(task: String, value: ResearchPlanContract? = null): ResearchPlanContract? = null
     suspend fun save(snapshot: ResearchSnapshot)
     fun cancellationOrigin(): String = "UNKNOWN"
     fun stopRequested(): Boolean

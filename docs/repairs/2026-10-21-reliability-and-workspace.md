@@ -14,11 +14,13 @@ Publisher access failures, redirect exhaustion, offline transport, rate limits, 
 
 ### Structured stages and report delivery
 
-Transport completion, retained partial output, schema acceptance and stage acceptance are separate outcomes. A provider disconnect cannot turn an incomplete structured response into a completed extraction. Bounded partial bytes are retained privately through the captured journal generation. Transport failure enters recovery rather than semantic repair. The reasoning-only repair allowance respects the verified provider route ceiling and explicit user limits.
+Transport completion, retained partial output, schema acceptance and stage acceptance are separate outcomes. A provider disconnect cannot turn an incomplete structured response into a completed extraction. Up to 128 KiB of partial output can be saved privately through the captured journal generation; the result reports a retained checkpoint only after that write succeeds. Transport failure enters recovery rather than semantic repair. The reasoning-only repair allowance respects the verified provider route ceiling and explicit user limits.
 
 One report validator surrounds the complete output-limit recovery session. Physical continuation suffixes are assembled before report validation. Each physical request still receives its own authorization, context admission and usage receipt. Corrections identify rejected paragraphs by exact ID and prior content hash; accepted paragraph bytes cannot be replaced by the correction response. Unavailable correction yields a labelled partial evidence report, with unresolved delivery requirements retained.
 
 Delivery records contain report validity, evidence availability, packet and revision digests, source/claim/block identities, output allowance and retry eligibility. A stale generation or deleted task cannot persist an accepted receipt. Scientific coverage is not claimed merely because transport, JSON parsing or structural citation checks succeeded.
+
+New quantitative extraction binds declared values, units, populations, outcomes, comparators and qualifiers to the exact source version and supporting passage. Report validation rejects changed declared relationships and cannot bypass the binding requirement by omitting the fact records. This is a literal grounding check for supported quantity/unit forms, not independent scientific review or an inference engine for undefined units and every bare numeral. Restored legacy records remain distinguishable from newly bound evidence.
 
 ### Combined task identity and funded delivery
 
@@ -28,11 +30,15 @@ Required contributor analysis, contribution delivery and bounded correction/cont
 
 Resume Writing loads the accepted turn's evidence manifest and saved context. Source version, body and quote identities and current authority are checked before reuse. A newer empty snapshot cannot shadow richer authorized evidence. Continue Research resumes acquisition; Choose Examiner resolves configuration; Cancel Writing targets the active writer. These are separate actions in the conversation UI.
 
+The accepted task also retains one immutable question/query plan for authorized contributors. Reuse checks the original chat, root, task, participant and generation; sharing the plan does not grant access to another contributor's evidence. Simultaneous first contributors can propose plans, but only the first accepted plan becomes the shared plan.
+
 ## Bounded memory and truthful runtime progress
 
 Research session metadata is indexed by chat, turn and authority before source bodies are decoded. Session and transient evidence caches have byte limits. Full source bodies remain in app-private storage with stable references. A Java heap admission gate bounds simultaneous parsing and export work independently of native-model memory and system RAM.
 
 Debug export writes redacted records directly to files and ZIP entries. Integrity verification is also streaming and checks the manifest, digests and required conversation schema. The legacy reader remains compatible with the five-entry export format. Production no longer builds a complete research JSON tree, a redacted duplicate and a final full-size string together.
+
+The bundle has a 64 MiB total uncompressed limit. An oversized export fails explicitly rather than silently dropping records.
 
 GGUF progress now carries operation and physical-attempt identities, processed/total prompt tokens, sampled tokens, actual batch size, measured prefill rate, model name and actual runtime through IPC, provider events, the watchdog and UI. Only advancing counters extend the no-progress allowance; repeated heartbeats do not. The overall execution deadline remains separate. Cancellation, timeout, acknowledgment and worker disconnection share one terminal-receipt claim so races cannot produce contradictory terminal records.
 
@@ -46,7 +52,7 @@ The model-facing surface is split into `github_context`, `github_search`, `githu
 
 Gateway execution schemas accept supported annotations and retain the full supported contract for validation. Compact model schemas are separate. Rejected schemas produce diagnostics, and validated catalogs are revision cached. Read classification is separate from mutation identity: mutable observations can refresh, immutable content may be reused in its authorized scope, and an uncertain mutation still permits read-only reconciliation. Keys preserve the case of paths, refs, queries and contents.
 
-### Persistent snapshots, index and patches
+### Android native snapshots, index and patches
 
 A repository task retains the credential/account scope, connection, conversation, task, repository, branch, commit and tree. Source reads and searches use the pinned snapshot. CI and merge-readiness observations identify the actual SHA they checked. Switching to another explicit snapshot does not silently change an existing evidence handle's identity.
 
@@ -56,15 +62,21 @@ The file ingestion allowance is separate from the model excerpt allowance. Multi
 
 CI log capture reads a bounded local body and extracts error windows, including failures after the old 32 KiB prefix. Results state log coverage and the checked head. PR files and checks use coherent page sizes and nonduplicating continuation contracts. Changes since review compare exact saved and current revisions.
 
+These index, patch and snapshot implementations belong to the Android native repository service. Gateway operations expose their configured, authorized upstream capabilities; the gateway does not independently implement the Android local index.
+
 ### Scheduling, cache and output budgets
 
 Credential-scoped scheduling limits concurrency, prioritizes visible work, joins identical reads and shares rate-limit state. Mutable metadata and immutable blobs have separate invalidation behavior. Network reuse and model-context reuse are reported separately. Combined profiles share explicitly classified immutable source reads; each model still receives the excerpts it needs.
 
 Tool results remain structured until bounded presentation. Retained result cursors preserve snapshot, coverage and continuation information. Gateway output limits are applied to the final assembled result, including PR preload, rather than capping one prefix and appending unbounded material afterward.
 
+MCP discovery separates an authorized known schema from current execution health. A cached catalog is available immediately while refreshes share bounded work. Current defaults use a two-second interactive wait, an eight-second refresh budget and a five-minute catalog lifetime. If an upstream operation ignores cancellation, it retains its physical in-flight ownership until completion so another request cannot start a duplicate producer. A gateway output budget too small to fit the required identity and continuation receipt returns an explicit `TOOL_VIEW_CAPACITY` result.
+
 ## UI and diagnostics
 
 Workspace has a theme-aware repository session card with account, branch, revision, freshness, capability and partial-index status. Search this revision, Explain failed CI, changes since review, exact patch preview and request-efficiency details use the same native service. Optional PR check enrichment is explicit and bounded. Visible sections load on demand; a failed request does not become an automatic reload loop. Draft persistence observes actual edit state, debounces it and fences a delayed write against the latest draft before closing.
+
+Dispatch rechecks the live connection, policy and credential identity. A removed or changed connection requires the workspace to reopen; rejecting that dispatch preserves the user's draft.
 
 Research shows sources collected, claims checked against current passages, independently reviewed claims and report acceptance separately. Retained replies and merge recovery remain visible in Combined. Local chat shows actual prompt processing and CPU/Vulkan runtime rather than an inherited preference or manifest filename.
 

@@ -25,7 +25,7 @@ internal object ResearchNumericalGrounding {
     private fun contains(text: String, phrase: String) = phrase.isNotBlank() && Regex("(?iu)(?<![\\p{L}\\p{N}])${Regex.escape(phrase)}(?![\\p{L}\\p{N}])").containsMatchIn(text)
     private fun populationLabels(text: String): Set<Int> = populationFamilies.indices.filter { index -> populationFamilies[index].any { contains(text, it) } }.toSet()
 
-    fun issues(claim: String, passages: List<String>, facts: List<ResearchClaimFact> = emptyList()): List<String> {
+    fun issues(claim: String, passages: List<String>, facts: List<ResearchClaimFact> = emptyList(), requireRelationBindings: Boolean = false): List<String> {
         val sourceQuantities = passages.flatMap { quantities(it) }.toSet()
         val sourceComparisons = passages.flatMap { comparisons(it) }.toSet()
         return buildList {
@@ -33,12 +33,13 @@ internal object ResearchNumericalGrounding {
             if (comparisons(claim).any { it !in sourceComparisons }) add("NUMERICAL_COMPARATOR_ORDER_MISMATCH")
             // Legacy records have no relation proof. Their literal checks remain compatible;
             // the packet labels their relation metadata UNKNOWN and semantic validation false.
-            if (facts.isNotEmpty()) {
+            if (facts.isNotEmpty() || requireRelationBindings) {
                 claim.split(Regex("(?<=[.!?;])\\s+|\\n+")).filter(String::isNotBlank).forEach { sentence ->
                     quantities(sentence).forEach quantity@{ pair ->
                         val matching = facts.filter { (number(it.value) to unit(it.unit)) == pair }
                         if (matching.isEmpty()) {
-                            if (Regex("(?i)improv|reduc|increase|decrease|score|outcome|effect").containsMatchIn(sentence)) add("NUMERICAL_RELATION_METADATA_REQUIRED")
+                            if (requireRelationBindings && passages.any { sentence.trim().removePrefix("> ") in it }) return@quantity
+                            if (requireRelationBindings || Regex("(?i)improv|reduc|increase|decrease|score|outcome|effect").containsMatchIn(sentence)) add("NUMERICAL_RELATION_METADATA_REQUIRED")
                             return@quantity
                         }
                         // A literal sentence may be quoted without inventing its missing labels.

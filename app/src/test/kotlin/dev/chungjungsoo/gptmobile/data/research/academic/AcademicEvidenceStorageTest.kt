@@ -24,7 +24,9 @@ class AcademicEvidenceStorageTest {
     @Test fun durableEvidenceUsesBoundedBodySidecarAndRetainsLegacyInlineCompatibility() = runBlocking {
         val base = ApplicationProvider.getApplicationContext<Context>()
         val directory = kotlin.io.path.createTempDirectory("academic-bodies").toFile()
-        val context = object : ContextWrapper(base) { override fun getFilesDir() = directory }
+        val context = object : ContextWrapper(base) {
+            override fun getFilesDir() = directory
+        }
         try {
             val paper = AcademicPaper("doi:10.1234/example", "Study", "https://example.org/article", abstract = "Measured outcomes in 24 adults did not differ. ".repeat(20))
             val evidence = AcademicNativeClient(context).read(paper, { true }, persistent = true)
@@ -46,19 +48,25 @@ class AcademicEvidenceStorageTest {
             val traversal = legacy.copy(paperId = "unsafe", bodyReference = "../private")
             File(storage, researchHash("unsafe|v1") + ".json").writeText(Json.encodeToString(traversal))
             assertNull(AcademicNativeClient(context).evidence("unsafe", "v1"))
-        } finally { directory.deleteRecursively() }
+        } finally {
+            directory.deleteRecursively()
+        }
     }
 
     @Test fun temporaryAcademicReadingDoesNotWriteEvidenceBodies() = runBlocking {
         val base = ApplicationProvider.getApplicationContext<Context>()
         val directory = kotlin.io.path.createTempDirectory("academic-temporary").toFile()
-        val context = object : ContextWrapper(base) { override fun getFilesDir() = directory }
+        val context = object : ContextWrapper(base) {
+            override fun getFilesDir() = directory
+        }
         try {
             val client = AcademicNativeClient(context)
             val paper = AcademicPaper("paper", "Study", "https://example.org/article", abstract = "A short meaningful provider abstract.")
             val evidence = client.read(paper, { true }, persistent = false)
             assertEquals(evidence, client.evidence(evidence.paperId, evidence.versionId))
             assertFalse(File(directory, "academic-evidence-v1").exists())
-        } finally { directory.deleteRecursively() }
+        } finally {
+            directory.deleteRecursively()
+        }
     }
 }

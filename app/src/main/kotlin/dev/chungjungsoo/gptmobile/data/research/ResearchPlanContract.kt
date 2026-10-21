@@ -18,6 +18,24 @@ data class ResearchQuestion(val id: String, val text: String, val evidenceNeeded
 
 data class ResearchQuery(val id: String, val text: String, val questionIds: List<String>)
 data class ResearchPlanContract(val questions: List<ResearchQuestion>, val queries: List<ResearchQuery>, val noResearchNeeded: Boolean = false, val fallback: Boolean = false) {
+    fun json() = buildJsonObject {
+        put("schemaVersion", 1)
+        put("questions", JsonArray(questions.map { it.json() }))
+        put(
+            "queries",
+            JsonArray(
+                queries.map { query ->
+                    buildJsonObject {
+                        put("id", query.id)
+                        put("text", query.text)
+                        put("questionIds", JsonArray(query.questionIds.map(::JsonPrimitive)))
+                    }
+                }
+            )
+        )
+        put("noResearchNeeded", noResearchNeeded)
+        put("fallback", fallback)
+    }
     fun validateTask(task: String) {
         val policyPhrases = listOf("source goal", "coverage policy", "retry failed stage", "proceed primary-only")
         require(questions.none { question -> policyPhrases.any { phrase -> question.text.contains(phrase, true) && !task.contains(phrase, true) } }) { "Planner researched an operational instruction instead of the accepted task" }

@@ -96,7 +96,10 @@ class ResearchEvidenceAdmissionRegressionTest {
             if (calls == 2) throw DelegateGenerationException(DelegateFailureKind.OUTPUT_LIMIT, "Output limit", 0, 0, 0, true, partialText = "{\"questions\":[]")
             ResearchModelReply("""{"questions":[],"queries":[]}""", "canonical")
         }
-        val coordinator = ResearchModelCoordinator(listOf(target), onEvent = { events += it }, retainPartial = { _, _, text -> kept += text; "private-${kept.size}" })
+        val coordinator = ResearchModelCoordinator(listOf(target), onEvent = { events += it }, retainPartial = { _, _, text ->
+            kept += text
+            "private-${kept.size}"
+        })
         assertNull(coordinator.generate(ResearchModelStage.PLAN, "Plan", 128))
         assertNull(coordinator.generate(ResearchModelStage.PLAN, "Plan", 128))
         assertEquals(2, kept.size)

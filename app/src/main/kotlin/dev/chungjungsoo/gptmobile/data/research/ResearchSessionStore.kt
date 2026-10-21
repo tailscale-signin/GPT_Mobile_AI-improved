@@ -518,6 +518,21 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
             snapshot.copy(task = accepted.taskText, taskId = accepted.taskId, rootWorkId = accepted.rootWorkId, originatingUserMessageId = accepted.originatingUserMessageId, taskChatId = accepted.chatId)
         }
 
+        override suspend fun publicQuestionPlan(task: String, value: ResearchPlanContract?): ResearchPlanContract? = withContext(Dispatchers.IO) {
+            lock.withLock {
+                if (chatId in deletedChats || generation != currentGeneration(chatId, turnId, persistent)) return@withLock null
+                val accepted = taskStore.accepted(turnId, persistent) ?: return@withLock null
+                if (accepted.chatId != chatId || accepted.rootWorkId != turnId || ownerScope !in accepted.participantUids || normalizedTask(task) != normalizedTask(accepted.taskText)) return@withLock null
+                val requiresEvidence = accepted.intent == "REQUIRED"
+                val encoded = value?.also { it.validateTask(accepted.taskText) }?.json()?.also { ResearchPlanContract.parse(it, requiresEvidence) }?.toString()
+                require(encoded == null || encoded.toByteArray(Charsets.UTF_8).size <= 64 * 1024) { "Research question plan exceeds the bounded contract" }
+                taskStore.plan(turnId, encoded, persistent)?.let { stored ->
+                    val objectValue = Json.parseToJsonElement(stored) as JsonObject
+                    ResearchPlanContract.parse(objectValue, requiresEvidence).copy(fallback = objectValue["fallback"]?.let { it is JsonPrimitive && it.content == "true" } == true).also { it.validateTask(accepted.taskText) }
+                }
+            }
+        }
+
         override suspend fun save(snapshot: ResearchSnapshot) = withContext(Dispatchers.IO) {
             lock.withLock {
                 if (chatId in deletedChats || generation != currentGeneration(chatId, turnId, persistent)) return@withLock

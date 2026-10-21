@@ -23,6 +23,7 @@ internal fun mergeResearchSnapshots(previous: List<ResearchSnapshot>, incoming: 
         }
     }.distinctBy { listOf(it.sourceId, it.text, it.quote, it.questionId, it.reviewedSourceVersion, it.verdict) }
     return incoming.copy(
+        numericalFactBindingRequired = snapshots.any { it.numericalFactBindingRequired },
         sources = sourcesByIdentity.values.toList(),
         claims = claims,
         questionPlan = questions.ifEmpty { incoming.questionPlan },

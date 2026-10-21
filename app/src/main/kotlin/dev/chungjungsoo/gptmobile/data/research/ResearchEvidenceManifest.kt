@@ -47,17 +47,24 @@ internal data class RetainedResearchEvidence(
 internal fun richestResearchSnapshot(snapshots: List<ResearchSnapshot>): ResearchSnapshot? {
     if (snapshots.isEmpty()) return null
     require(snapshots.map { it.task }.distinct().size == 1) { "RESEARCH_MANIFEST_TASK_CHANGED" }
-    val best = snapshots.maxWith(compareBy<ResearchSnapshot> { it.sources.count(ResearchSource::readable) }
-        .thenBy { it.claims.count { claim -> claim.exactQuoteVerified && claim.verdict != "Unreviewed" } }
-        .thenBy { it.sources.size }.thenBy { it.claims.size }.thenBy { it.updatedAt })
+    val best = snapshots.maxWith(
+        compareBy<ResearchSnapshot> { it.sources.count(ResearchSource::readable) }
+            .thenBy { it.claims.count { claim -> claim.exactQuoteVerified && claim.verdict != "Unreviewed" } }
+            .thenBy { it.sources.size }.thenBy { it.claims.size }.thenBy { it.updatedAt }
+    )
     // Merging an exact subset would unnecessarily rename question IDs and stale an otherwise
     // current review digest. Preserve the strongest immutable snapshot verbatim in that case.
     if (snapshots.all { other ->
-            best.sources.containsAll(other.sources) && best.claims.containsAll(other.claims) &&
-                best.questionPlan.containsAll(other.questionPlan) && best.questions.containsAll(other.questions) &&
-                best.queries.containsAll(other.queries) && best.toolEvents.containsAll(other.toolEvents) &&
+            best.sources.containsAll(other.sources) &&
+                best.claims.containsAll(other.claims) &&
+                best.questionPlan.containsAll(other.questionPlan) &&
+                best.questions.containsAll(other.questions) &&
+                best.queries.containsAll(other.queries) &&
+                best.toolEvents.containsAll(other.toolEvents) &&
                 (other.currentReviewRecord() == null || other.currentReviewRecord() == best.currentReviewRecord())
         }
-    ) return best
+    ) {
+        return best
+    }
     return mergeResearchSnapshots(snapshots.filterNot { it === best }, best)
 }

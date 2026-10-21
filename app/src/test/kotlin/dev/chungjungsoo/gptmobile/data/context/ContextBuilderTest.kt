@@ -19,7 +19,7 @@ class ContextBuilderTest {
         assertNull(turns.single().assistantMessage)
     }
 
-    @Test fun unavailableCombinedTurnRetainsTheUserWithoutInventingAnAssistant() {
+    @Test fun unavailableOlderCombinedTurnIsOmittedWhileCurrentUserTextIsPreserved() {
         val notice = "[Combined turn: the merged final was unavailable.]"
         val users = listOf(MessageV2(id = 1, platformType = null, content = "Earlier request"), MessageV2(id = 2, platformType = null, content = "Explain this quoted text: $notice"))
         val candidate = MessageV2(
@@ -33,7 +33,7 @@ class ContextBuilderTest {
             )
         )
         val turns = ContextBuilder().build(users, listOf(listOf(candidate), emptyList()), PlatformV2(uid = "p", name = "P"))
-        assertEquals(users, turns.map { it.userMessage })
+        assertEquals(listOf(users.last()), turns.map { it.userMessage })
         assertTrue(turns.all { it.assistantMessage == null })
         assertTrue(turns.last().userMessage.content.contains(notice))
     }

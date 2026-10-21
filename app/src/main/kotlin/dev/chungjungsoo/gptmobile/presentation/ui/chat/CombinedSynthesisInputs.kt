@@ -29,7 +29,7 @@ internal fun combinedSynthesisInputs(
         val uid = message.platformType ?: return@mapNotNull null
         val original = message.combinedSources.firstOrNull { it.platformUid == uid }
         val originalContent = original?.content ?: message.content
-        val content = currentRequest?.let { currentRequestContribution(it, originalContent) } ?: sanitizeContribution(originalContent)
+        val content = currentRequest?.let { CombinedContributionQuality.currentRequestContribution(it, originalContent) } ?: CombinedContributionQuality.sanitizeContribution(originalContent)
         if (isAssistantErrorMessage(content)) return@mapNotNull null
         // The synthesis run's status describes the editor, not the preserved contributor.
         val status = if (message.isCombinedSynthesis() && original != null) {

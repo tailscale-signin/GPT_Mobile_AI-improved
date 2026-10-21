@@ -18,7 +18,9 @@ internal class GitHubResultViews(
     private val pageBytes: Int = 8 * 1024,
     private val capacityBytes: Int = 4 * 1024 * 1024
 ) {
-    init { require(pageBytes >= 2048) }
+    init {
+        require(pageBytes >= 2048)
+    }
     private data class Entry(val scope: String, val operation: String, val fragments: List<JsonObject>, val metadata: JsonObject, val continuations: List<JsonObject>, val expires: Long, val bytes: Int, val originalError: Boolean)
     private val entries = LinkedHashMap<String, Entry>()
     private var retainedBytes = 0
@@ -35,22 +37,37 @@ internal class GitHubResultViews(
         val continuations = mutableListOf<JsonObject>()
         val body = retainContinuations(value, "", operation, modelName, request, continuations)
         val small = buildJsonObject {
-            put("schema", SCHEMA); put("operation", operation); put("local_page_complete", true); put("data", body)
-            if (continuations.isNotEmpty()) { put("remote_continuations", JsonArray(continuations)); if (continuations.size == 1) put("continuation_call", continuations.single().getValue("call")) }
+            put("schema", SCHEMA)
+            put("operation", operation)
+            put("local_page_complete", true)
+            put("data", body)
+            if (continuations.isNotEmpty()) {
+                put("remote_continuations", JsonArray(continuations))
+                if (continuations.size == 1) put("continuation_call", continuations.single().getValue("call"))
+            }
         }
         if (small.toString().toByteArray().size <= pageBytes) return upstream.copy(content = ToolResultContent.Json(small))
         purge()
         var metadataBytes = 0
-        val metadata = JsonObject((value as? JsonObject).orEmpty().filter { (key, item) ->
-            val cost = key.length + item.toString().toByteArray().size
-            (key in METADATA && cost <= 256 && metadataBytes + cost <= minOf(768, pageBytes / 8)).also { if (it) metadataBytes += cost }
-        })
+        val metadata = JsonObject(
+            (value as? JsonObject).orEmpty().filter { (key, item) ->
+                val cost = key.length + item.toString().toByteArray().size
+                (key in METADATA && cost <= 256 && metadataBytes + cost <= minOf(768, pageBytes / 8)).also { if (it) metadataBytes += cost }
+            }
+        )
         val fragments = mutableListOf<JsonObject>()
         fragment("", body, fragments)
         // Continuations too large for the final envelope remain exact, retrievable records.
         // They are appended only after every data fragment; no remote record is discarded.
         val lastContinuations = if (continuations.toString().toByteArray().size <= pageBytes / 4) continuations else emptyList()
-        if (lastContinuations.isEmpty()) continuations.forEach { continuation -> fragments += buildJsonObject { put("kind", "remote_continuation"); put("continuation", continuation) } }
+        if (lastContinuations.isEmpty()) {
+            continuations.forEach { continuation ->
+                fragments += buildJsonObject {
+                    put("kind", "remote_continuation")
+                    put("continuation", continuation)
+                }
+            }
+        }
         if (lastContinuations.isNotEmpty()) fragments += buildJsonObject { put("kind", "continuation_boundary") }
         if (fragments.any { it.toString().toByteArray().size > pageBytes / 3 } || fragments.isEmpty()) return overflow(upstream, operation, value)
         // Retain fragments and compact metadata only, without a duplicate source tree.
@@ -82,31 +99,62 @@ internal class GitHubResultViews(
         var next = offset
         fun envelope(): JsonObject = buildJsonObject {
             val complete = next == entry.fragments.size
-            put("schema", SCHEMA); put("operation", entry.operation); put("local_page_complete", complete)
-            put("metadata", entry.metadata); put("fragments", JsonArray(records)); put("fragment_offset", offset); put("total_fragments", entry.fragments.size)
+            put("schema", SCHEMA)
+            put("operation", entry.operation)
+            put("local_page_complete", complete)
+            put("metadata", entry.metadata)
+            put("fragments", JsonArray(records))
+            put("fragment_offset", offset)
+            put("total_fragments", entry.fragments.size)
             put("reconstruction", "JSON pointers refer to the original result; string offsets count UTF-16 characters. Finish all local pages before executing any remote continuation.")
-            if (!complete) put("continuation_call", buildJsonObject { put("tool", modelName); put("arguments", buildJsonObject { put("view_cursor", "$id:$next") }) })
-            else if (entry.continuations.isNotEmpty()) {
+            if (!complete) {
+                put(
+                    "continuation_call",
+                    buildJsonObject {
+                        put("tool", modelName)
+                        put("arguments", buildJsonObject { put("view_cursor", "$id:$next") })
+                    }
+                )
+            } else if (entry.continuations.isNotEmpty()) {
                 put("remote_continuations", JsonArray(entry.continuations))
                 if (entry.continuations.size == 1) put("continuation_call", entry.continuations.single().getValue("call"))
             }
         }
         while (next < entry.fragments.size) {
-            records += entry.fragments[next]; next++
-            if (envelope().toString().toByteArray().size > pageBytes) { records.removeAt(records.lastIndex); next--; break }
+            records += entry.fragments[next]
+            next++
+            if (envelope().toString().toByteArray().size > pageBytes) {
+                records.removeAt(records.lastIndex)
+                next--
+                break
+            }
         }
         check(records.isNotEmpty()) { "GitHub retained page exceeded its validated fragment budget." }
         return envelope()
     }
 
     private fun retainContinuations(value: JsonElement, pointer: String, operation: String, modelName: String, request: JsonObject, target: MutableList<JsonObject>): JsonElement = when (value) {
-        is JsonObject -> JsonObject(value.mapNotNull { (key, child) ->
-            if ((key == "continuation" || key.endsWith("_continuation")) && child is JsonObject) {
-                val args = continuationArguments(operation, request, child)
-                target += buildJsonObject { put("pointer", "$pointer/$key"); put("native", child); put("call", buildJsonObject { put("tool", modelName); put("arguments", args) }) }
-                null
-            } else key to retainContinuations(child, pointer + "/" + key.replace("~", "~0").replace("/", "~1"), operation, modelName, request, target)
-        }.toMap())
+        is JsonObject -> JsonObject(
+            value.mapNotNull { (key, child) ->
+                if ((key == "continuation" || key.endsWith("_continuation")) && child is JsonObject) {
+                    val args = continuationArguments(operation, request, child)
+                    target += buildJsonObject {
+                        put("pointer", "$pointer/$key")
+                        put("native", child)
+                        put(
+                            "call",
+                            buildJsonObject {
+                                put("tool", modelName)
+                                put("arguments", args)
+                            }
+                        )
+                    }
+                    null
+                } else {
+                    key to retainContinuations(child, pointer + "/" + key.replace("~", "~0").replace("/", "~1"), operation, modelName, request, target)
+                }
+            }.toMap()
+        )
         is JsonArray -> JsonArray(value.mapIndexed { index, child -> retainContinuations(child, "$pointer/$index", operation, modelName, request, target) })
         else -> value
     }
@@ -115,22 +163,37 @@ internal class GitHubResultViews(
         val properties = (GitHubOperationTool.definition(operation).inputSchema["properties"] as JsonObject).keys
         val values = (request - "view_cursor").toMutableMap()
         continuation.filterKeys { it in properties && it != "action" }.forEach { (key, value) -> values[key] = value }
-        if (operation == "github_context") { values["action"] = JsonPrimitive("changes"); continuation["base"]?.let { values["base_sha"] = it } }
-        if (operation == "github_pr") { values["action"] = JsonPrimitive("context"); continuation["expected_head"]?.let { values["expected_head_sha"] = it } }
+        if (operation == "github_context") {
+            values["action"] = JsonPrimitive("changes")
+            continuation["base"]?.let { values["base_sha"] = it }
+        }
+        if (operation == "github_pr") {
+            values["action"] = JsonPrimitive("context")
+            continuation["expected_head"]?.let { values["expected_head_sha"] = it }
+        }
         if (operation == "github_read" && "path" in continuation) {
             val start = (continuation["start_line"] as? JsonPrimitive)?.intOrNull ?: 1
-            values["ranges"] = JsonArray(listOf(buildJsonObject {
-                put("path", continuation.getValue("path")); put("start_line", start)
-                put("end_line", continuation["end_line"] ?: JsonPrimitive(start + 199))
-                continuation["start_offset"]?.let { put("start_offset", it) }
-            }))
+            values["ranges"] = JsonArray(
+                listOf(
+                    buildJsonObject {
+                        put("path", continuation.getValue("path"))
+                        put("start_line", start)
+                        put("end_line", continuation["end_line"] ?: JsonPrimitive(start + 199))
+                        continuation["start_offset"]?.let { put("start_offset", it) }
+                    }
+                )
+            )
         }
         return JsonObject(values.filterKeys { it in properties })
     }
 
     private fun fragment(pointer: String, value: JsonElement, target: MutableList<JsonObject>) {
         if (value.toString().toByteArray().size <= minOf(2000, pageBytes / 4)) {
-            target += buildJsonObject { put("pointer", pointer); put("value", value) }; return
+            target += buildJsonObject {
+                put("pointer", pointer)
+                put("value", value)
+            }
+            return
         }
         when (value) {
             is JsonObject -> value.forEach { (key, child) -> fragment(pointer + "/" + key.replace("~", "~0").replace("/", "~1"), child, target) }
@@ -142,7 +205,12 @@ internal class GitHubResultViews(
                     var end = minOf(start + minOf(200, (pageBytes / 24).coerceAtLeast(1)), text.length)
                     if (end < text.length && text[end].isLowSurrogate()) end--
                     if (end == start) end = minOf(start + 2, text.length)
-                    target += buildJsonObject { put("pointer", pointer); put("value", text.substring(start, end)); put("offset", start); put("total_characters", text.length) }
+                    target += buildJsonObject {
+                        put("pointer", pointer)
+                        put("value", text.substring(start, end))
+                        put("offset", start)
+                        put("total_characters", text.length)
+                    }
                     start = end
                 }
             }
@@ -150,21 +218,37 @@ internal class GitHubResultViews(
     }
 
     private fun overflow(upstream: AgentToolResult, operation: String, value: JsonElement): AgentToolResult = upstream.copy(
-        content = ToolResultContent.Json(buildJsonObject {
-            put("schema", SCHEMA); put("operation", operation); put("local_page_complete", false); put("error", "RETAINED_RESULT_CAPACITY")
-            put("upstream_completed", !upstream.isError); put("upstream_dispatched", upstream.dispatched)
-            var receiptBytes = 0
-            put("receipt", JsonObject((value as? JsonObject).orEmpty().filter { (key, item) ->
-                val size = item.toString().toByteArray().size
-                (key in METADATA + RECEIPTS && size <= 1024 && receiptBytes + size <= 2048).also { if (it) receiptBytes += size }
-            }))
-            put("next_step", "The upstream operation already returned. Reconcile its commit, stage, PR, run or release receipt with a read; never repeat a mutation to recover its output. Immutable reads can request a smaller range or page.")
-        }),
-        isError = true, errorCode = "RETAINED_RESULT_CAPACITY"
+        content = ToolResultContent.Json(
+            buildJsonObject {
+                put("schema", SCHEMA)
+                put("operation", operation)
+                put("local_page_complete", false)
+                put("error", "RETAINED_RESULT_CAPACITY")
+                put("upstream_completed", !upstream.isError)
+                put("upstream_dispatched", upstream.dispatched)
+                var receiptBytes = 0
+                put(
+                    "receipt",
+                    JsonObject(
+                        (value as? JsonObject).orEmpty().filter { (key, item) ->
+                            val size = item.toString().toByteArray().size
+                            (key in METADATA + RECEIPTS && size <= 1024 && receiptBytes + size <= 2048).also { if (it) receiptBytes += size }
+                        }
+                    )
+                )
+                put("next_step", "The upstream operation already returned. Reconcile its commit, stage, PR, run or release receipt with a read; never repeat a mutation to recover its output. Immutable reads can request a smaller range or page.")
+            }
+        ),
+        isError = true,
+        errorCode = "RETAINED_RESULT_CAPACITY"
     )
 
-    private fun purge() { entries.filterValues { it.expires <= now() }.keys.toList().forEach(::evict) }
-    private fun evict(id: String) { entries.remove(id)?.let { retainedBytes -= it.bytes } }
+    private fun purge() {
+        entries.filterValues { it.expires <= now() }.keys.toList().forEach(::evict)
+    }
+    private fun evict(id: String) {
+        entries.remove(id)?.let { retainedBytes -= it.bytes }
+    }
     companion object {
         const val SCHEMA = "github.operation.v1"
         private const val MAX_SOURCE_BYTES = 1024 * 1024

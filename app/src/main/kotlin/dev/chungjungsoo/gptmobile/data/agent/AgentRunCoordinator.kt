@@ -219,7 +219,7 @@ class AgentRunCoordinator @Inject constructor(
     }
 
     fun cancelRuns(runIds: Set<String>) {
-        requestCancellation(runIds.filterTo(mutableSetOf()) { it in jobs }, isInterrupted = false)
+        requestCancellation(runIds.filterTo(mutableSetOf()) { jobs.containsKey(it) }, isInterrupted = false)
     }
 
     fun cancelAll() {

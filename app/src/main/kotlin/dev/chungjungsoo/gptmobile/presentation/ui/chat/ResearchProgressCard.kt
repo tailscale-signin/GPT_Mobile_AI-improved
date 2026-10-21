@@ -34,8 +34,11 @@ import dev.chungjungsoo.gptmobile.presentation.common.FadingModalBottomSheet as 
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 internal fun ResearchProgressCard(
-    sessions: List<ResearchSession>, activeRunIds: Set<String>, stop: (String) -> Unit,
-    writerFailure: String? = null, onRecovery: ((String) -> Unit)? = null,
+    sessions: List<ResearchSession>,
+    activeRunIds: Set<String>,
+    stop: (String) -> Unit,
+    writerFailure: String? = null,
+    onRecovery: ((String) -> Unit)? = null,
     deliveryReceipt: dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryReceipt? = null,
     cancelWriting: (() -> Unit)? = null
 ) {
@@ -59,14 +62,52 @@ internal fun ResearchProgressCard(
             androidx.compose.foundation.layout.Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Rounded.Search, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                 Column(Modifier.weight(1f)) {
-                    Text(when { collecting -> "Research · ${snapshot.phase}"; writing -> "Writing from saved evidence"; deliveryReceipt?.accepted == true -> "Research report ready"; else -> "Research evidence retained" }, style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        when {
+                            collecting -> "Research · ${snapshot.phase}"
+                            writing -> "Writing from saved evidence"
+                            deliveryReceipt?.accepted == true -> "Research report ready"
+                            else -> "Research evidence retained"
+                        },
+                        style = MaterialTheme.typography.titleMedium
+                    )
                     Text("$readable of ${snapshot.targetSources} readable · $saved discovered", style = MaterialTheme.typography.bodySmall)
                 }
                 if (active) androidx.compose.material3.CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
             }
             androidx.compose.material3.LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
-            val independent = snapshot.claims.count { it.independentReview && it.exactQuoteVerified }
-            Text(if (independent > 0) "$independent claims independently passage-reviewed" else "Independent review not completed", style = MaterialTheme.typography.labelMedium)
+            val checked = snapshot.claims.count { claim ->
+                val source = snapshot.sources.firstOrNull { it.id == claim.sourceId }
+                claim.exactQuoteVerified &&
+                    source?.readable == true &&
+                    claim.quote.isNotBlank() &&
+                    source.passage.contains(claim.quote) &&
+                    claim.reviewedSourceVersion == dev.chungjungsoo.gptmobile.data.research.capturedResearchVersion(source)
+            }
+            val independent = snapshot.claims.count { claim ->
+                val source = snapshot.sources.firstOrNull { it.id == claim.sourceId }
+                claim.independentReview &&
+                    claim.exactQuoteVerified &&
+                    source?.readable == true &&
+                    claim.quote.isNotBlank() &&
+                    source.passage.contains(claim.quote) &&
+                    claim.reviewedSourceVersion == dev.chungjungsoo.gptmobile.data.research.capturedResearchVersion(source)
+            }
+            androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("$saved sources collected", style = MaterialTheme.typography.labelMedium)
+                Text("$checked claims checked against passages", style = MaterialTheme.typography.labelMedium)
+                Text("$independent independently reviewed", style = MaterialTheme.typography.labelMedium)
+                Text(
+                    when (deliveryReceipt?.reportValidity) {
+                        dev.chungjungsoo.gptmobile.data.research.delivery.ResearchReportValidity.ACCEPTED -> "Report accepted"
+                        dev.chungjungsoo.gptmobile.data.research.delivery.ResearchReportValidity.EVIDENCE_ONLY -> "Evidence only · report not accepted"
+                        dev.chungjungsoo.gptmobile.data.research.delivery.ResearchReportValidity.REJECTED -> "Report needs correction"
+                        dev.chungjungsoo.gptmobile.data.research.delivery.ResearchReportValidity.INCOMPLETE -> "Report incomplete"
+                        null -> if (writing) "Report writing" else "Report not yet accepted"
+                    },
+                    style = MaterialTheme.typography.labelMedium
+                )
+            }
             if (!active && (writerFailure != null || deliveryReceipt?.retryEligible == true)) {
                 Text("Evidence retained · writing needs attention", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.error)
             }

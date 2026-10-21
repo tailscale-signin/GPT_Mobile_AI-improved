@@ -6,11 +6,13 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubTool
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
+import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
 import dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryContext
 import dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceClient
 import dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceStore
 import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
+import java.security.MessageDigest
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
@@ -97,6 +99,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
     val state = _state.asStateFlow()
     private var client: GitHubWorkspaceClient? = null
     private var tool: GitHubTool? = null
+    private var credentialDigest: ByteArray? = null
 
     @kotlinx.serialization.Serializable
     private data class Draft(val selection: GitHubRepositoryContext?, val baseSha: String, val directory: String, val file: JsonObject?, val staged: List<GitHubStagedFile>, val edits: Map<String, String>, val reviewBaseline: String = "", val patchStage: JsonObject? = null)
@@ -108,10 +111,12 @@ class GitHubWorkspaceViewModel @Inject constructor(
     private fun draft(state: GitHubWorkspaceState): Pair<String, Draft>? = state.connection?.connectionUid?.let { connection ->
         state.selection?.let { connection to Draft(it, state.headSha, state.directory, state.file, state.staged, state.editorDrafts, state.reviewBaseline, state.patchStage) }
     }
-    private suspend fun persist(draft: PendingDraft) = draftWrites.withLock {
-        if (draft.sequence <= (persistedDraftSequence[draft.connection] ?: -1)) return@withLock
-        drafts.write(draft.connection, Json.encodeToString(Draft.serializer(), draft.value))
-        persistedDraftSequence[draft.connection] = draft.sequence
+    private suspend fun persist(pending: PendingDraft) = draftWrites.withLock {
+        val current = draft(_state.value)
+        if (current == null || current.first != pending.connection || current.second != pending.value) return@withLock
+        if (pending.sequence <= (persistedDraftSequence[pending.connection] ?: -1)) return@withLock
+        drafts.write(pending.connection, Json.encodeToString(Draft.serializer(), pending.value))
+        persistedDraftSequence[pending.connection] = pending.sequence
     }
 
     @OptIn(kotlinx.coroutines.FlowPreview::class)
@@ -138,11 +143,16 @@ class GitHubWorkspaceViewModel @Inject constructor(
     fun open(connection: ToolConnection) {
         if (_state.value.connection?.connectionUid == connection.connectionUid && client != null) return
         if (_state.value.busy) return
+        client = null
+        tool = null
+        credentialDigest = null
         _state.value = GitHubWorkspaceState(connection = connection)
         work {
             val current = connections.getConnection(connection.connectionUid) ?: error("Connection was removed.")
+            require(current.type == ToolConnectionType.GITHUB) { "This connection is no longer a GitHub connection. Reopen the workspace with a GitHub connection." }
             val bytes = current.secretRef?.let { vault.read(it) }
             val token = try {
+                credentialDigest = bytes?.let { MessageDigest.getInstance("SHA-256").digest(it) }
                 bytes?.decodeToString()?.trim().orEmpty()
             } finally {
                 bytes?.fill(0)
@@ -151,6 +161,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
             val features = settings.getFeatureSettings()
             client = GitHubWorkspaceClient(token, conditionalReads = features.githubConditionalReads, blobCache = features.githubBlobCache, freshnessSeconds = features.pluginExecution[dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB]?.githubCacheSeconds ?: 15, connectionUid = current.connectionUid, conversationId = "workspace", taskId = "workspace:${current.connectionUid}", stateStore = repositoryState, requestPriority = 10)
             tool = GitHubTool(token, featureSettings = features)
+            _state.update { it.copy(connection = current) }
             val account = api("get_account").jsonObject
             _state.update { it.copy(connection = current, login = account.text("login")) }
             loadRepositories(1)
@@ -159,12 +170,12 @@ class GitHubWorkspaceViewModel @Inject constructor(
             recovered?.takeIf { it.selection == _state.value.selection }?.let { draft ->
                 val dirty = draft.staged.isNotEmpty() || draft.edits.isNotEmpty() || draft.patchStage != null
                 val changed = dirty && _state.value.headSha != draft.baseSha
-                _state.update {
-                    it.copy(
-                        headSha = if (dirty) draft.baseSha else it.headSha,
+                _state.update { currentState ->
+                    currentState.copy(
+                        headSha = if (dirty) draft.baseSha else currentState.headSha,
                         directory = draft.directory,
-                        file = draft.file.takeIf { dirty || it.headSha == draft.baseSha },
-                        directoryLoaded = draft.file != null && (dirty || it.headSha == draft.baseSha),
+                        file = draft.file.takeIf { dirty || currentState.headSha == draft.baseSha },
+                        directoryLoaded = draft.file != null && (dirty || currentState.headSha == draft.baseSha),
                         staged = draft.staged,
                         editorDrafts = draft.edits,
                         reviewBaseline = draft.reviewBaseline,
@@ -185,6 +196,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
                 if (pending != null) kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { persist(pending) }
                 client = null
                 tool = null
+                credentialDigest = null
                 _state.value = GitHubWorkspaceState()
                 onSaved()
             } catch (cancelled: CancellationException) {
@@ -215,7 +227,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
     }
 
     private suspend fun selectRepositoryInternal(owner: String, repo: String, preferredRef: String? = null) {
-        val metadata = requireNotNull(client).execute(
+        val metadata = api(
             "get_repository",
             buildJsonObject {
                 put("owner", owner)
@@ -260,11 +272,11 @@ class GitHubWorkspaceViewModel @Inject constructor(
         ).jsonObject
         val sha = result.text("commit_sha")
         check(sha.isNotBlank()) { "Missing branch head." }
-        _state.update { it.copy(headSha = sha, file = null, snapshot = result["snapshot"] as? JsonObject, indexStatus = result["index"] as? JsonObject, observedAt = System.currentTimeMillis(), directoryLoaded = false, activityLoaded = false, pullsLoaded = false) }
+        _state.update { it.copy(headSha = sha, file = null, snapshot = result["snapshot"] as? JsonObject, indexStatus = result["index"] as? JsonObject, observedAt = System.currentTimeMillis(), directoryLoaded = false, activityLoaded = false, pullsLoaded = false, searchResult = null, ciDigest = null, changedFiles = null, pullPackage = null, pullDetail = null) }
     }
 
     fun onSectionVisible(section: Int) {
-        if (_state.value.busy || _state.value.selection == null || _state.value.headSha.isBlank()) return
+        if (_state.value.busy || _state.value.error != null || _state.value.selection == null || _state.value.headSha.isBlank()) return
         when {
             section == 3 && !_state.value.activityLoaded -> refreshActivity()
             section == 0 && !_state.value.directoryLoaded -> browse(_state.value.directory)
@@ -621,9 +633,33 @@ class GitHubWorkspaceViewModel @Inject constructor(
         extra.forEach { (key, value) -> put(key, value) }
     }
 
-    private suspend fun api(action: String, extra: JsonObject = buildJsonObject {}) = requireNotNull(client).execute(action, arguments(extra))
+    private suspend fun requireActiveConnection(mutation: Boolean) {
+        val opened = requireNotNull(_state.value.connection) { "Reopen the GitHub workspace before continuing." }
+        val current = connections.getConnection(opened.connectionUid) ?: error("This GitHub connection was removed. Reopen the workspace with an available connection.")
+        check(current.type == ToolConnectionType.GITHUB && current.type == opened.type) { "This connection is no longer a GitHub connection. Reopen the workspace before continuing." }
+        check(current.secretRef == opened.secretRef && current.authType == opened.authType && current.oauthClientId == opened.oauthClientId && current.endpointUrl == opened.endpointUrl) {
+            "GitHub connection credentials or endpoint changed. Reopen the workspace before continuing."
+        }
+        if (mutation) {
+            check(_state.value.canWrite && current.toolPolicy != "READ_ONLY") { "Current GitHub connection policy and repository write access are required for this action." }
+        }
+        val expected = credentialDigest ?: error("Reopen the GitHub workspace before continuing.")
+        val bytes = current.secretRef?.let { vault.read(it) }
+        val unchanged = try {
+            bytes != null && MessageDigest.isEqual(expected, MessageDigest.getInstance("SHA-256").digest(bytes))
+        } finally {
+            bytes?.fill(0)
+        }
+        check(unchanged) { "GitHub credentials changed or are unavailable. Reopen the workspace before continuing." }
+    }
+
+    private suspend fun api(action: String, extra: JsonObject = buildJsonObject {}): kotlinx.serialization.json.JsonElement {
+        requireActiveConnection(mutation = action !in GitHubWorkspaceClient.readActions)
+        return requireNotNull(client).execute(action, arguments(extra))
+    }
 
     private suspend fun toolRequest(action: String, extra: JsonObject): String {
+        requireActiveConnection(mutation = action !in GitHubWorkspaceClient.readActions)
         val result = requireNotNull(tool).execute(
             "workspace",
             buildJsonObject {

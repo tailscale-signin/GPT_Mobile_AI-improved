@@ -1299,7 +1299,7 @@ private fun ChatMessagePair(
                     GPTMobileIcon(loading = shouldShowReplyLoadingIndicator(isActiveMessage, loadingStates))
                 }
                 if (hasCombinedTabs && combinedStatus != CombinedResponseStatus.GENERATING) {
-                    val retained = combinedProfiles.count { it.message.effectiveContent().isNotBlank() }
+                    val retained = combinedProfiles.count { it.message?.effectiveContent()?.isNotBlank() == true }
                     if (combinedStatus == CombinedResponseStatus.FAILED || isSourceResponse) {
                         androidx.compose.material3.Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
                             Column(Modifier.padding(12.dp)) {

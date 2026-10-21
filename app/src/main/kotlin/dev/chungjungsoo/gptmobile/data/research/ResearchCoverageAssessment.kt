@@ -6,17 +6,13 @@ data class ResearchCoverageAssessment(val coveredQuestionIds: Set<String>, val m
 
 /** Readability, passage support, question relevance and publication suitability are separate gates. */
 fun assessResearchCoverage(questions: List<ResearchQuestion>, claims: List<ResearchClaim>, sources: List<ResearchSource>): ResearchCoverageAssessment {
-    val sourceById = sources.associateBy { it.id }
     val accepted = claims.filter { claim ->
-        val source = sourceById[claim.sourceId]
+        val source = sources.firstOrNull { researchClaimMatchesCapture(claim, it) }
         val question = questions.firstOrNull { it.id == claim.questionId }
         claim.verdict == "Supported" &&
             claim.relevance == "Relevant" &&
             claim.exactQuoteVerified &&
             source != null &&
-            claim.quote.isNotBlank() &&
-            claim.quote in source.passage &&
-            (claim.reviewedSourceVersion.isBlank() || claim.reviewedSourceVersion == capturedResearchVersion(source)) &&
             question != null &&
             source.readable &&
             source.isRetracted != true &&

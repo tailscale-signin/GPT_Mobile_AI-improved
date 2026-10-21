@@ -19,8 +19,12 @@ data class AcceptedTaskRef(
     }
 
     fun validate(task: AcceptedResearchTask) {
-        require(task.taskId == taskId && task.rootWorkId == rootWorkId && task.chatId == chatId &&
-            task.originatingUserMessageId == originatingUserMessageId && researchHash(task.taskText) == originalRequestDigest
+        require(
+            task.taskId == taskId &&
+                task.rootWorkId == rootWorkId &&
+                task.chatId == chatId &&
+                task.originatingUserMessageId == originatingUserMessageId &&
+                researchHash(task.taskText) == originalRequestDigest
         ) { "ACCEPTED_TASK_REGISTRY_MISMATCH" }
     }
 
@@ -51,8 +55,11 @@ fun CombinedInputSnapshot.bindAcceptedStage(): AgentStageRequest {
     val reference = acceptedTask ?: combined?.acceptedTask ?: AcceptedTaskRef.from(userMessage)
     reference.validate(userMessage)
     combined?.let { policy ->
-        require(policy.requested.userPrompt == userMessage.content && profileUid in policy.requested.participantUids &&
-            (policy.profileUid == null || policy.profileUid == profileUid) && policy.chatId == userMessage.chatId
+        require(
+            policy.requested.userPrompt == userMessage.content &&
+                profileUid in policy.requested.participantUids &&
+                (policy.profileUid == null || policy.profileUid == profileUid) &&
+                policy.chatId == userMessage.chatId
         ) { "COMBINED_STAGE_POLICY_MISMATCH" }
         policy.acceptedTask?.let { require(it == reference) { "COMBINED_STAGE_TASK_MISMATCH" } }
     }

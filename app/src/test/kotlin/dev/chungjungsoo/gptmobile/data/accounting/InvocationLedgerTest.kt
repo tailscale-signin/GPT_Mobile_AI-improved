@@ -33,7 +33,7 @@ class InvocationLedgerTest {
                 override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
                     val dispatch = requireNotNull(kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext])
                     val runtime = dev.chungjungsoo.gptmobile.data.context.RuntimeFingerprint("connection", "route", "credential", "model", "model", "epoch", "template", "allocation")
-                    val receipt = dev.chungjungsoo.gptmobile.data.context.RequestAdmission.prepare("payload", "delegate", dev.chungjungsoo.gptmobile.data.context.CapacitySnapshot(runtime, 10000), dev.chungjungsoo.gptmobile.data.context.RequestMeasurement(1, 1, dev.chungjungsoo.gptmobile.data.context.TokenMeasurementKind.UTF8_ESTIMATE), 10, "permissions").receipt
+                    val receipt = dev.chungjungsoo.gptmobile.data.context.RequestAdmission.prepare("payload", "delegate", dev.chungjungsoo.gptmobile.data.context.CapacitySnapshot(runtime, 10000), dev.chungjungsoo.gptmobile.data.context.RequestMeasurement(1, 1, dev.chungjungsoo.gptmobile.data.context.TokenMeasurementKind.UTF8_ESTIMATE), 10, "permissions").receipt.copy(physicalAttemptId = "physical-test")
                     dispatch.serialized("{}", receipt)
                     dispatch.armHttp()
                     val trace = requireNotNull(dispatch.takeHttpTrace())

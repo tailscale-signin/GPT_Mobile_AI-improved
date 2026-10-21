@@ -115,12 +115,15 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
             val ids = aliases.mapNotNull { dao.aliasWork("${researchHash(session.authority)}|$it") }.distinct().ifEmpty { aliases.mapNotNull { dao.aliasWork("public|$it") }.distinct() }
             if (ids.size != 1) continue
             val version = dao.versions(ids.single()).singleOrNull { it.sourceVersion == source.versionId && (it.publicSource || it.authority == session.authority) && it.bodyChunksJson == kotlinx.serialization.json.Json.encodeToString(kotlinx.serialization.builtins.ListSerializer(kotlinx.serialization.serializer<String>()), source.bodyChunks) } ?: continue
-            val passages = dao.passages(version.versionId).filter { it.quote in source.passage && researchHash(it.quote) == it.textHash }.map { it.passageId }.toSet()
+            val passages = dao.passages(version.versionId).filter { it.quote.isNotBlank() && it.quote in source.passage && researchHash(it.quote) == it.textHash }.map { it.passageId }.toSet()
             val fields = dao.fields(version.versionId).filter { field ->
                 val refs = runCatching { Json.decodeFromString<List<String>>(field.passageIdsJson) }.getOrDefault(emptyList())
                 refs.isNotEmpty() && refs.all { it in passages }
             }
-            result[source.id] = buildJsonObject {
+            val boundFields = buildJsonObject {
+                put("sourceVersion", capturedResearchVersion(source))
+                put("passageHash", researchHash(source.passage))
+                put("archiveVersionId", version.versionId)
                 put(
                     "fields",
                     JsonArray(
@@ -136,6 +139,8 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                     )
                 )
             }
+            result["${source.id}:${capturedResearchVersion(source)}"] = boundFields
+            result[source.id] = boundFields
         }
         result
     }
@@ -310,14 +315,16 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
         }
         override fun stopRequested() = runId in stops || chatId in deletedChats || (chatId to turnId) in stoppedTurns || generation != currentGeneration(chatId, turnId, persistent)
         override suspend fun load(): ResearchSnapshot? = withContext(Dispatchers.IO) {
-            if (chatId in deletedChats) return@withContext null
+            if (stopRequested()) return@withContext null
+            taskStore.accepted(turnId, persistent)?.let { return@withContext load(it.taskText) }
             lock.withLock {
                 mutable.value[runId]?.takeIf { it.chatId == chatId && it.authority == authority }?.snapshot
                     ?: if (persistent) read(file(runId))?.takeIf { it.chatId == chatId && it.authority == authority }?.snapshot else null
             }
         }
         override suspend fun load(task: String): ResearchSnapshot? = withContext(Dispatchers.IO) {
-            if (chatId in deletedChats) return@withContext null
+            if (stopRequested()) return@withContext null
+            val originalTask = taskStore.accepted(turnId, persistent)?.taskText ?: task
             // A turn has one corpus, including sibling subquestions.
             lock.withLock {
                 val inMemory = mutable.value.values.filter { it.chatId == chatId && it.turnId == turnId && it.authority == authority }
@@ -332,11 +339,10 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                     emptyList()
                 }
                 val retained = taskStore.retainedEvidence(turnId, setOf(authority), persistent)
-                val own = richestResearchSnapshot((persisted + inMemory + retained).filter { it.chatId == chatId && it.turnId == turnId && it.authority == authority && normalizedTask(it.snapshot.task) == normalizedTask(task) }.map { it.snapshot })
-                val siblings = if (shareEnabled) mutable.value.values.filter { it.chatId == chatId && it.turnId == turnId && it.authority != authority && normalizedTask(it.snapshot.task) == normalizedTask(task) } else emptyList()
+                val own = richestResearchSnapshot((persisted + inMemory + retained).filter { it.chatId == chatId && it.turnId == turnId && it.authority == authority && normalizedTask(it.snapshot.task) == normalizedTask(originalTask) }.map { it.snapshot })
+                val siblings = if (shareEnabled) mutable.value.values.filter { it.chatId == chatId && it.turnId == turnId && it.authority != authority && normalizedTask(it.snapshot.task) == normalizedTask(originalTask) } else emptyList()
                 val public = authorizedResearchTransfer(siblings, null).filter { it.sources.isNotEmpty() }
                 if (public.isEmpty()) own else richestResearchSnapshot(public + listOfNotNull(own))
-
             }
         }
         override suspend fun <T> withTaskLock(task: String, block: suspend () -> T): T {
@@ -789,7 +795,10 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
         stoppedTurns.removeAll { it.first == chatId }
         synchronized(turnBudgets) { turnBudgets.keys.removeAll { it.first == chatId } }
         lock.withLock {
-            directory.listFiles().orEmpty().filter { (it.extension == "json" && sessionIndex.metadata(it)?.chatId == chatId) || (it.extension in setOf("budget", "ledger", "cursor", "fence", "partial") && it.length() <= 256 * 1024 && runCatching { Json.parseToJsonElement(it.readText()).jsonObject.number("chatId") == chatId }.getOrDefault(false)) }.forEach { AtomicFile(it).delete(); sessionIndex.remove(it) }
+            directory.listFiles().orEmpty().filter { (it.extension == "json" && sessionIndex.metadata(it)?.chatId == chatId) || (it.extension in setOf("budget", "ledger", "cursor", "fence", "partial") && it.length() <= 256 * 1024 && runCatching { Json.parseToJsonElement(it.readText()).jsonObject.number("chatId") == chatId }.getOrDefault(false)) }.forEach {
+                AtomicFile(it).delete()
+                sessionIndex.remove(it)
+            }
             val retained = directory.listFiles().orEmpty().filter { it.extension == "json" }.flatMap { file ->
                 runCatching { references(Json.parseToJsonElement(file.readText()).jsonObject).orEmpty().map { (it as JsonPrimitive).content } }.getOrDefault(emptyList())
             }.toSet()

@@ -95,7 +95,7 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
     val workspaceScroll = rememberScrollState()
     var tab by rememberSaveable { mutableIntStateOf(3) }
     LaunchedEffect(tab, state.commitDetail) { workspaceScroll.scrollTo(0) }
-    LaunchedEffect(tab, state.selection, state.headSha, state.busy) { viewModel.onSectionVisible(tab) }
+    LaunchedEffect(tab, state.selection, state.headSha, state.busy, state.error) { viewModel.onSectionVisible(tab) }
     var repositoryMenu by remember { mutableStateOf(false) }
     var branchMenu by remember { mutableStateOf(false) }
     var repositoryQuery by remember { mutableStateOf("") }

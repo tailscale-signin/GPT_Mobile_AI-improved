@@ -117,10 +117,14 @@ data class ResearchSource(
     }
 }
 
-data class ResearchClaim(val text: String, val sourceId: String, val quote: String, val verdict: String = "Unreviewed", val questionId: String = "", val relevance: String = "Unknown", val exactQuoteVerified: Boolean = false, val extractedBy: String = "", val extractionInvocationId: String = "", val reviewedBy: String = "", val reviewInvocationId: String = "", val independentReview: Boolean = false, val rationale: String = "", val counterEvidence: String = "", val reviewedSourceVersion: String = "", val reviewRubric: String = "") {
+data class ResearchClaim(val text: String, val sourceId: String, val quote: String, val verdict: String = "Unreviewed", val questionId: String = "", val relevance: String = "Unknown", val exactQuoteVerified: Boolean = false, val extractedBy: String = "", val extractionInvocationId: String = "", val reviewedBy: String = "", val reviewInvocationId: String = "", val independentReview: Boolean = false, val rationale: String = "", val counterEvidence: String = "", val reviewedSourceVersion: String = "", val reviewRubric: String = "", val facts: List<ResearchClaimFact> = emptyList(), val sourceVersion: String = "", val passageHash: String = "", val locator: String = "") {
     fun json() = buildJsonObject {
+        put("claimId", researchHash(sourceId + text + quote))
         put("text", text)
         put("sourceId", sourceId)
+        put("sourceVersion", sourceVersion)
+        put("passageHash", passageHash)
+        put("locator", locator)
         put("quote", quote)
         put("verdict", verdict)
         put("questionId", questionId)
@@ -135,6 +139,8 @@ data class ResearchClaim(val text: String, val sourceId: String, val quote: Stri
         put("counterEvidence", counterEvidence)
         put("reviewedSourceVersion", reviewedSourceVersion)
         put("reviewRubric", reviewRubric)
+        put("facts", JsonArray(facts.map { it.json() }))
+        put("relationMetadata", if (facts.isEmpty()) "UNKNOWN" else "CAPTURE_BOUND_NOT_INDEPENDENT_VALIDATION")
     }
 }
 
@@ -292,18 +298,17 @@ data class ResearchSnapshot(
             }.distinctBy { source ->
                 when {
                     source.paperId.isNotBlank() -> "${source.paperId}:${source.versionId}"
-                    source.doi.isNotBlank() -> "doi:${source.doi}"
-                    source.pmid.isNotBlank() -> "pmid:${source.pmid}"
-                    source.pmcid.isNotBlank() -> "pmcid:${source.pmcid}"
-                    else -> source.canonicalUrl.ifBlank { source.url }
+                    source.doi.isNotBlank() -> "doi:${source.doi}:${capturedResearchVersion(source)}"
+                    source.pmid.isNotBlank() -> "pmid:${source.pmid}:${capturedResearchVersion(source)}"
+                    source.pmcid.isNotBlank() -> "pmcid:${source.pmcid}:${capturedResearchVersion(source)}"
+                    else -> "${source.canonicalUrl.ifBlank { source.url }}:${capturedResearchVersion(source)}"
                 }
             }
             val claimRows = value.rows("claims")
-            val claims = validatedResearchClaims(claimRows, sources).map { claim ->
-                val verdict = claimRows.firstOrNull { it.text("sourceId") == claim.sourceId && it.text("text").trim().take(600) == claim.text && it.text("quote").trim().take(1200) == claim.quote }
-                    ?.text("verdict")?.takeIf { it in setOf("Supported", "Contradicted", "Insufficient") } ?: "Unreviewed"
-                val row = claimRows.first { it.text("sourceId") == claim.sourceId && it.text("text").trim() == claim.text && it.text("quote").trim() == claim.quote }
-                claim.copy(rationale = row.text("rationale").take(1200), counterEvidence = row.text("counterEvidence").take(1200), reviewedSourceVersion = row.text("reviewedSourceVersion").take(200), reviewRubric = row.text("reviewRubric").take(80), verdict = verdict, questionId = row.text("questionId"), relevance = row.text("relevance").takeIf { it in setOf("Relevant", "Background", "Irrelevant") } ?: "Unknown", exactQuoteVerified = (row["exactQuoteVerified"] as? JsonPrimitive)?.booleanOrNull == true, extractedBy = row.text("extractedBy").take(200), extractionInvocationId = row.text("extractionInvocationId").take(128), reviewedBy = row.text("reviewedBy").take(200), reviewInvocationId = row.text("reviewInvocationId").take(128), independentReview = (row["independentReview"] as? JsonPrimitive)?.booleanOrNull == true && row.text("extractedBy").isNotBlank() && row.text("reviewedBy").isNotBlank() && row.text("extractedBy") != row.text("reviewedBy"))
+            val claims = claimRows.mapNotNull { row ->
+                val claim = validatedResearchClaims(listOf(row), sources).singleOrNull() ?: return@mapNotNull null
+                val verdict = row.text("verdict").takeIf { it in setOf("Supported", "Contradicted", "Insufficient") } ?: "Unreviewed"
+                claim.copy(rationale = row.text("rationale").take(1200), counterEvidence = row.text("counterEvidence").take(1200), reviewedSourceVersion = row.text("reviewedSourceVersion").take(700), reviewRubric = row.text("reviewRubric").take(80), verdict = verdict, questionId = row.text("questionId"), relevance = row.text("relevance").takeIf { it in setOf("Relevant", "Background", "Irrelevant") } ?: "Unknown", exactQuoteVerified = (row["exactQuoteVerified"] as? JsonPrimitive)?.booleanOrNull == true, extractedBy = row.text("extractedBy").take(200), extractionInvocationId = row.text("extractionInvocationId").take(128), reviewedBy = row.text("reviewedBy").take(200), reviewInvocationId = row.text("reviewInvocationId").take(128), independentReview = (row["independentReview"] as? JsonPrimitive)?.booleanOrNull == true && row.text("extractedBy").isNotBlank() && row.text("reviewedBy").isNotBlank() && row.text("extractedBy") != row.text("reviewedBy"))
             }
             ResearchSnapshot(
                 taskId = value.text("taskId"), rootWorkId = value.text("rootWorkId"), originatingUserMessageId = value.number("originatingUserMessageId"), taskChatId = value.number("taskChatId"),
@@ -353,12 +358,25 @@ fun researchDomainAllowed(url: String, include: List<String>, exclude: List<Stri
 
 /** An exact quote is necessary but does not itself establish entailment. */
 fun validatedResearchClaims(rows: List<JsonObject>, sources: List<ResearchSource>): List<ResearchClaim> = rows.mapNotNull { row ->
-    val source = sources.firstOrNull { it.id == row.text("sourceId") && it.readable } ?: return@mapNotNull null
     val quote = row.text("quote").trim()
     val claim = row.text("text").trim()
-    if (quote.length !in 20..1200 || quote !in source.passage || claim.isBlank() || claim.length > 600) return@mapNotNull null
-    ResearchClaim(claim, source.id, quote, questionId = row.text("questionId"), exactQuoteVerified = source.paperId.isBlank())
-}.distinctBy { it.text to it.sourceId }
+    if (quote.length !in 20..1200 || claim.isBlank() || claim.length > 600) return@mapNotNull null
+    if (row["facts"] != null && row["facts"] !is JsonArray) return@mapNotNull null
+    val factRows = (row["facts"] as? JsonArray).orEmpty()
+    if (factRows.size > 8 || factRows.any { it !is JsonObject }) return@mapNotNull null
+    sources.asSequence().filter { it.id == row.text("sourceId") && it.readable && quote in it.passage }
+        .mapNotNull candidate@{ source ->
+            if (row.text("reviewedSourceVersion").let { it.isNotBlank() && it != capturedResearchVersion(source) } ||
+                row.text("sourceVersion").let { it.isNotBlank() && it != capturedResearchVersion(source) } ||
+                row.text("passageHash").let { it.isNotBlank() && it != researchHash(source.passage) }
+            ) {
+                return@candidate null
+            }
+            val facts = factRows.map { ResearchClaimFact.bind(it as JsonObject, source, quote) }
+            if (facts.any { it == null }) return@candidate null
+            ResearchClaim(claim, source.id, quote, questionId = row.text("questionId"), exactQuoteVerified = source.paperId.isBlank(), facts = facts.filterNotNull(), sourceVersion = capturedResearchVersion(source), passageHash = researchHash(source.passage), locator = "${source.location.take(240)}; characters ${source.passage.indexOf(quote)}-${source.passage.indexOf(quote) + quote.length}")
+        }.firstOrNull()
+}.distinctBy { listOf(it.text, it.quote, it.sourceId, it.sourceVersion) }
 
 /** Bounded overlap flags likely copies; it never proves that publishers are independent. */
 fun relatedResearchPassages(left: String, right: String): Boolean {

@@ -242,15 +242,19 @@ class CombinedSynthesisPlanner @Inject constructor(
         if (!chatRepository.canRetryCombined(policy.rootBudgetId)) return null
         val persisted = chatRepository.persistAgentRetry(
             PersistAgentRetryRequest(
-                user, owner,
+                user,
+                owner,
                 AgentRunDraft(COMBINED_RUN_PREFIX + UUID.randomUUID().toString(), writer.uid, writer.compatibleType.name, successor.model, synthesisKey = dev.chungjungsoo.gptmobile.data.research.researchHash(nextRaw), synthesisSnapshot = nextRaw),
                 successorOfRunId = failedRunId
             )
         )
         return AgentRunRequest(
-            persisted.run.runId, chatId, persisted.assistantMessage,
+            persisted.run.runId,
+            chatId,
+            persisted.assistantMessage,
             writer.copy(model = successor.model, temperature = successor.temperature, systemPrompt = listOf(successor.systemPrompt, combinedEditorialInstruction(successor.deliveryProtocol)).filter(String::isNotBlank).joinToString("\n\n"), disableAllTools = true, disableLocalTools = true),
-            successor.history + successor.userMessage, successor.replies + listOf(emptyList()),
+            successor.history + successor.userMessage,
+            successor.replies + listOf(emptyList()),
             requireNotNull(successor.acceptedTools).copy(allToolsDisabled = true, delegation = dev.chungjungsoo.gptmobile.data.model.ConversationDelegationSettings(enabled = false), combined = successor.combined),
             successor.bindAcceptedStage()
         )

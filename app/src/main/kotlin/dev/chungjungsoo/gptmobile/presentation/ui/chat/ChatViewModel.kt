@@ -9,9 +9,9 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chungjungsoo.gptmobile.R
-import dev.chungjungsoo.gptmobile.data.agent.bindAcceptedStage
 import dev.chungjungsoo.gptmobile.data.agent.AgentRunCoordinator
 import dev.chungjungsoo.gptmobile.data.agent.AgentRunRequest
+import dev.chungjungsoo.gptmobile.data.agent.bindAcceptedStage
 import dev.chungjungsoo.gptmobile.data.agent.temperatureFor
 import dev.chungjungsoo.gptmobile.data.agent.tool.DelegationRecoveryInteractions
 import dev.chungjungsoo.gptmobile.data.catalog.CatalogEntry
@@ -1251,8 +1251,11 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             agentRunCoordinator.withChatGate(owner.chatId) {
                 val published = chatRepository.useCombinedReply(requireNotNull(owner.currentRunId), owner.ownershipFence, sourceProfileUid)
-                if (published == null) _attachmentNotice.value = "The saved reply changed or is no longer available. Refresh the response before selecting it."
-                else _groupedMessages.value = fetchGroupedMessages(owner.chatId)
+                if (published == null) {
+                    _attachmentNotice.value = "The saved reply changed or is no longer available. Refresh the response before selecting it."
+                } else {
+                    _groupedMessages.value = fetchGroupedMessages(owner.chatId)
+                }
             }
         }
     }
@@ -1772,57 +1775,59 @@ class ChatViewModel @Inject constructor(
     }
 
     suspend fun exportDebugFile(directory: java.io.File): java.io.File = dev.chungjungsoo.gptmobile.data.diagnostics.JavaHeapWorkGate.run("debug-export") {
-            check(debugMode.value) { "Enable Debug mode to export diagnostic conversation data." }
-            val room = _chatRoom.value
-            val visible = persistableMessages(_groupedMessages.value)
-            val allProfiles = _platformsInApp.value.toList()
-            val tools = _chatToolConfig.value
-            val features = featureSettings.value
-            val draft = question.text.toString()
-            val live = agentRunCoordinator.streamMessages.value.values.filter { it.chatId == room.id }.toList()
-            val baseRecords = chatRepository.fetchDebugRecords(room.id)
-            val records = kotlinx.serialization.json.JsonObject(baseRecords + ("researchLifecycle" to (researchSessionStore?.featureDiagnostics(room.id) ?: kotlinx.serialization.json.JsonObject(emptyMap()))))
-            val messages = withContext(Dispatchers.IO) {
-                chatRepository.fetchMessagesV2(room.id).associateBy { it.id }.toMutableMap().apply {
-                    visible.filter { it.id > 0 }.forEach { put(it.id, it) }
-                    live.filter { it.id > 0 }.forEach { put(it.id, it) }
-                }.values.toList().plus(visible.filter { it.id <= 0 }).sortedWith(compareBy<MessageV2> { it.createdAt }.thenBy { it.id })
+        check(debugMode.value) { "Enable Debug mode to export diagnostic conversation data." }
+        val room = _chatRoom.value
+        val visible = persistableMessages(_groupedMessages.value)
+        val allProfiles = _platformsInApp.value.toList()
+        val tools = _chatToolConfig.value
+        val features = featureSettings.value
+        val draft = question.text.toString()
+        val live = agentRunCoordinator.streamMessages.value.values.filter { it.chatId == room.id }.toList()
+        val baseRecords = chatRepository.fetchDebugRecords(room.id)
+        val records = kotlinx.serialization.json.JsonObject(baseRecords + ("researchLifecycle" to (researchSessionStore?.featureDiagnostics(room.id) ?: kotlinx.serialization.json.JsonObject(emptyMap()))))
+        val messages = withContext(Dispatchers.IO) {
+            chatRepository.fetchMessagesV2(room.id).associateBy { it.id }.toMutableMap().apply {
+                visible.filter { it.id > 0 }.forEach { put(it.id, it) }
+                live.filter { it.id > 0 }.forEach { put(it.id, it) }
+            }.values.toList().plus(visible.filter { it.id <= 0 }).sortedWith(compareBy<MessageV2> { it.createdAt }.thenBy { it.id })
+        }
+        val dependencyIds = buildSet {
+            addAll(enabledPlatformsInChat)
+            messages.forEach { message ->
+                message.platformType?.let(::add)
+                (message.combinedSources + message.revisions.flatMap { it.combinedSources }).forEach { add(it.platformUid) }
+                (message.timeline + message.revisions.flatMap { it.timeline }).mapNotNull { it.assistDiagnostic?.profileUid }.forEach(::add)
             }
-            val dependencyIds = buildSet {
-                addAll(enabledPlatformsInChat)
-                messages.forEach { message ->
-                    message.platformType?.let(::add)
-                    (message.combinedSources + message.revisions.flatMap { it.combinedSources }).forEach { add(it.platformUid) }
-                    (message.timeline + message.revisions.flatMap { it.timeline }).mapNotNull { it.assistDiagnostic?.profileUid }.forEach(::add)
-                }
-                (records["invocations"] as? kotlinx.serialization.json.JsonArray).orEmpty().forEach { row ->
-                    ((row as? kotlinx.serialization.json.JsonObject)?.get("profileUid") as? kotlinx.serialization.json.JsonPrimitive)?.content?.let(::add)
-                }
-                features.localAssistPolicy.profileUid?.let(::add)
+            (records["invocations"] as? kotlinx.serialization.json.JsonArray).orEmpty().forEach { row ->
+                ((row as? kotlinx.serialization.json.JsonObject)?.get("profileUid") as? kotlinx.serialization.json.JsonPrimitive)?.content?.let(::add)
             }
-            val profiles = allProfiles.filter { it.uid in dependencyIds }
-            withContext(Dispatchers.IO) {
-                check(directory.mkdirs() || directory.isDirectory)
-                val json = kotlinx.serialization.json.Json { encodeDefaults = true }
-                val safeTitle = room.title.replace(Regex("[^\\p{L}\\p{N}._ -]"), "_").take(80)
-                val destination = java.io.File(directory, "export_${safeTitle}_${System.currentTimeMillis()}.zip")
-                val conversation = java.io.File.createTempFile("debug-conversation-", ".json", directory)
-                val staging = java.io.File.createTempFile("debug-bundle-", ".partial", directory)
-                try {
-                    conversation.bufferedWriter().use { writer ->
-                        writeChatDebugExport(room, messages, profiles, tools, features, draft, records, emptyList(), json,
-                            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.entries.value, writer,
-                            researchStream = { consume -> researchSessionStore?.streamChat(room.id, consume) })
-                    }
-                    StreamingDebugBundle.write(conversation, staging)
-                    StreamingDebugBundle.verify(staging)
-                    check(staging.renameTo(destination)) { "Unable to publish the completed export" }
-                    destination
-                } finally {
-                    conversation.delete()
-                    staging.delete()
+            features.localAssistPolicy.profileUid?.let(::add)
+        }
+        val profiles = allProfiles.filter { it.uid in dependencyIds }
+        withContext(Dispatchers.IO) {
+            check(directory.mkdirs() || directory.isDirectory)
+            val json = kotlinx.serialization.json.Json { encodeDefaults = true }
+            val safeTitle = room.title.replace(Regex("[^\\p{L}\\p{N}._ -]"), "_").take(80)
+            val destination = java.io.File(directory, "export_${safeTitle}_${System.currentTimeMillis()}.zip")
+            val conversation = java.io.File.createTempFile("debug-conversation-", ".json", directory)
+            val staging = java.io.File.createTempFile("debug-bundle-", ".partial", directory)
+            try {
+                conversation.bufferedWriter().use { writer ->
+                    writeChatDebugExport(
+                        room, messages, profiles, tools, features, draft, records, emptyList(), json,
+                        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.entries.value, writer,
+                        researchStream = { consume -> researchSessionStore?.streamChat(room.id, consume) }
+                    )
                 }
+                StreamingDebugBundle.write(conversation, staging)
+                StreamingDebugBundle.verify(staging)
+                check(staging.renameTo(destination)) { "Unable to publish the completed export" }
+                destination
+            } finally {
+                conversation.delete()
+                staging.delete()
             }
+        }
     }
 
     suspend fun exportChat(format: ChatExportFormat = ChatExportFormat.MARKDOWN): Pair<String, String> {

@@ -15,11 +15,11 @@ internal fun mergeResearchSnapshots(previous: List<ResearchSnapshot>, incoming: 
     val claims = snapshots.flatMap { snapshot ->
         val questionIds = snapshot.questionPlan.associate { it.id to questionIdentity(it) }
         snapshot.claims.mapNotNull { claim ->
-            val original = snapshot.sources.singleOrNull { it.id == claim.sourceId } ?: return@mapNotNull null
-            if (claim.reviewedSourceVersion.isNotBlank() && claim.reviewedSourceVersion != capturedResearchVersion(original)) return@mapNotNull null
+            val original = snapshot.sources.firstOrNull { researchClaimMatchesCapture(claim, it) } ?: return@mapNotNull null
             val retained = sourcesByIdentity[identity(original)] ?: return@mapNotNull null
-            if (!retained.readable || claim.quote.isBlank() || claim.quote !in original.passage || claim.quote !in retained.passage) return@mapNotNull null
-            claim.copy(sourceId = retained.id, questionId = questionIds[claim.questionId] ?: claim.questionId)
+            val remapped = claim.copy(sourceId = retained.id, questionId = questionIds[claim.questionId] ?: claim.questionId, facts = claim.facts.map { it.copy(sourceId = retained.id) })
+            if (!researchClaimMatchesCapture(remapped, retained)) return@mapNotNull null
+            remapped
         }
     }.distinctBy { listOf(it.sourceId, it.text, it.quote, it.questionId, it.reviewedSourceVersion, it.verdict) }
     return incoming.copy(

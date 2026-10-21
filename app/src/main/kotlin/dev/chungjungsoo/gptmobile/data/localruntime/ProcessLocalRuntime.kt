@@ -436,6 +436,7 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
         mutableState.value = LocalRuntimeState(processIsolated = true, lifecycle = "FAILED", fallbackReason = reason)
         binding?.completeExceptionally(IllegalStateException(reason))
         pending.values.forEach {
+            recordTerminal(it, "WORKER_DISCONNECTED", false)
             it.cancelling = true
             it.toolJobs.values.forEach { job -> job.cancel() }
             it.events?.offer(LocalRuntimeEvent.Error(reason))
@@ -452,8 +453,7 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
     }
 
     private fun recordTerminal(request: Pending, terminal: String, acknowledged: Boolean) {
-        if (request.packet.operation != "GENERATE" || request.receiptRecorded) return
-        request.receiptRecorded = true
+        if (request.packet.operation != "GENERATE" || !request.receiptRecorded.compareAndSet(false, true)) return
         val progress = request.lastProgress
         AppLogRecorder.record("LocalModel", "LOCAL_TERMINAL_RECEIPT · request=${request.packet.requestId} · physicalAttempt=${request.physicalAttemptId ?: "unknown"} · operation=${progress?.operationId ?: -1} · terminal=$terminal · cancellationOrigin=${request.cancellationOrigin ?: "none"} · acknowledged=$acknowledged · lastStage=${progress?.stage ?: "unknown"} · processed=${progress?.processedTokens ?: -1} · total=${progress?.promptTokens ?: -1} · sampled=${progress?.sampledTokens ?: -1}")
     }
@@ -463,7 +463,7 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
 
         @Volatile var cancellationOrigin: String? = null
 
-        @Volatile var receiptRecorded = false
+        val receiptRecorded = java.util.concurrent.atomic.AtomicBoolean(false)
         val finished = CompletableDeferred<RuntimeWire>()
         var sequence = 0L
 

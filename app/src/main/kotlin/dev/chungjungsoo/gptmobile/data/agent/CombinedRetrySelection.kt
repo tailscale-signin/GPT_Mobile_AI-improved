@@ -23,7 +23,8 @@ internal fun preserveCombinedRetrySelection(current: MessageV2, candidate: Messa
         report.answerDigest == researchHash(candidate.content) &&
         report.deliveredScopeStatus in setOf("COMPLETED", "COMPLETED_WITH_LIMITS") &&
         report.issues.none { it in COMBINED_FRAMING_FAILURES }
-    val committedPartial = candidate.content.isNotBlank() && report != null &&
+    val committedPartial = candidate.content.isNotBlank() &&
+        report != null &&
         report.answerDigest == researchHash(candidate.content) &&
         report.issues.none { it in COMBINED_FRAMING_FAILURES }
     return candidate.copy(activeRevisionIndex = if (accepted || committedPartial) ACTIVE_REVISION_LATEST else current.activeRevisionIndex)

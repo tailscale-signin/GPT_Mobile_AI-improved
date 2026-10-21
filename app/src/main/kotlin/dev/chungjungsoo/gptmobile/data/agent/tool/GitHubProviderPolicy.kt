@@ -10,10 +10,11 @@ internal object GitHubProviderPolicy {
         val native = (tools + nativeAlternatives).filter { it.nativeGitHub }
         val authenticated = native.filter { it.nativeGitHubAuthenticated }.mapNotNull { GitHubOperationTool.operationName(it.realToolName) }.toSet()
         val official = connections.filter { connection ->
-            connection.type == ToolConnectionType.MCP && runCatching {
-                val uri = URI(connection.endpointUrl)
-                uri.host.equals("api.githubcopilot.com", true) || uri.host.equals("api.github.com", true) && uri.path.orEmpty().startsWith("/mcp")
-            }.getOrDefault(false)
+            connection.type == ToolConnectionType.MCP &&
+                runCatching {
+                    val uri = URI(connection.endpointUrl)
+                    uri.host.equals("api.githubcopilot.com", true) || uri.host.equals("api.github.com", true) && uri.path.orEmpty().startsWith("/mcp")
+                }.getOrDefault(false)
         }.map { it.connectionUid }.toSet()
         val remote = tools.filter { it.connectionUid in official && !it.nativeGitHub }.mapNotNull { equivalent(it.realToolName) }.toSet()
         return tools.filter { tool ->

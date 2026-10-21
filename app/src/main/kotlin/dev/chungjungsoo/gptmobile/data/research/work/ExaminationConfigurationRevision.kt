@@ -6,13 +6,13 @@ import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
 import dev.chungjungsoo.gptmobile.data.model.delegationFor
-import dev.chungjungsoo.gptmobile.data.model.isToolPluginEnabledForProfile
 import dev.chungjungsoo.gptmobile.data.research.feature.ResearchProfileResolver
 import dev.chungjungsoo.gptmobile.data.research.researchHash
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.put
 
 /** Only examiner/reviewer, retrieval consent and execution capacity changes wake a blocked job. */

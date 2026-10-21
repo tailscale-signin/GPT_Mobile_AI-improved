@@ -65,18 +65,19 @@ class GitHubTool(
     internal val hasRepositoryContext get() = repositoryContext != null
     private val scheduler = dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.schedulerForCredential(apiToken)
     private val workspaceClient by lazy {
-        GitHubWorkspaceClient(apiToken, httpClient, rateLimits = rateLimits,
+        GitHubWorkspaceClient(
+            apiToken, httpClient, rateLimits = rateLimits,
             responseCache = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.forCredential(apiToken) else dev.chungjungsoo.gptmobile.data.github.GitHubResponseCache(),
             conditionalReads = featureSettings.githubConditionalReads, blobCache = featureSettings.githubBlobCache,
             freshnessSeconds = featureSettings.pluginExecution[dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB]?.githubCacheSeconds ?: 15,
-            connectionUid = connectionUid, conversationId = conversationId, taskId = taskId, persistentState = persistentState, stateStore = stateStore, scheduler = scheduler)
+            connectionUid = connectionUid, conversationId = conversationId, taskId = taskId, persistentState = persistentState, stateStore = stateStore, scheduler = scheduler
+        )
     }
     internal fun operations(): List<GitHubOperationTool> {
         val suffix = modelToolName.removePrefix("github").takeIf { it.startsWith("__") }.orEmpty()
         val scope = dev.chungjungsoo.gptmobile.data.research.researchHash("$apiToken|$connectionUid|$conversationId|$taskId")
         return GitHubOperationTool.names.map { GitHubOperationTool(it, this, scope, it + suffix) }
     }
-
 
     companion object {
         private const val BASE_URL = "https://api.github.com"
@@ -943,9 +944,29 @@ class GitHubTool(
         return if (response.status.isSuccess()) {
             val receipt = jsonParser.parseToJsonElement(text).jsonObject
             val selection = try {
-                workspaceClient.execute("resolve_context", buildJsonObject { put("owner", owner); put("repo", repo); put("ref", branch); put("refresh", true) })
-            } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { null }
-            successResult(callId, buildJsonObject { put("branch", branch); put("receipt", receipt); put("upstream_completed", true); selection?.let { put("context", it) } ?: put("context_refresh_required", true) }.toString())
+                workspaceClient.execute(
+                    "resolve_context",
+                    buildJsonObject {
+                        put("owner", owner)
+                        put("repo", repo)
+                        put("ref", branch)
+                        put("refresh", true)
+                    }
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            }
+            successResult(
+                callId,
+                buildJsonObject {
+                    put("branch", branch)
+                    put("receipt", receipt)
+                    put("upstream_completed", true)
+                    selection?.let { put("context", it) } ?: put("context_refresh_required", true)
+                }.toString()
+            )
         } else {
             classifyGitHubHttpFailure(callId, "create_branch", arguments, response, text)
         }

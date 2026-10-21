@@ -129,6 +129,15 @@
       "upstreamAttempts": "Observable MCP calls and correlated Ktor sends (including request retries/redirects); gateway-internal retries remain unavailable unless explicitly reported"
     },
     {
+      "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubOperationTool.kt",
+      "canonicalOwner": "ToolIdentity.of(facade operation name, connectionUid); the existing GitHub connection and credential scope remain the authority owner",
+      "capture": "ToolExecutionBudget and ObservedTool after admission; retained-result cursor reads are marked sharedResult with dispatched=false and do not create upstream attempts",
+      "outcome": "Structured github.operation.v1 envelope preserves the raw native result, completed mutation receipt and dispatch outcome even when local presentation capacity is exhausted",
+      "probe": "No business-operation probes; context and mutable CI actions execute only after normal tool admission",
+      "configuration": "Shared GitHub connection/profile selectors and ToolStatisticsPanel/ToolStatisticsLink; legacy github remains a hidden executable compatibility alias",
+      "upstreamAttempts": "Shared credential scheduler counts actual native or legacy HTTP sends separately from local page expansion; only explicit immutable commit reads can be result-shared across model contributors"
+    },
+    {
       "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubTool.kt",
       "canonicalOwner": "ToolIdentity.of(realToolName, connectionUid); marketplace package instance retained",
       "capture": "ToolExecutionBudget after admission; ObservedTool records distinct child subjects under inherited collection policy and suppresses same-subject double wrapping",

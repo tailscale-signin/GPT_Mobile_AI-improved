@@ -67,15 +67,23 @@ class ProgressiveToolCatalogTest {
         assertEquals(8, catalog.selected(tools).size)
     }
 
-    @Test fun repeatedSearchesProgressThroughUndiscoveredTools() = runTest {
+    @Test fun repeatedBroadDiscoveryIsStableAndExplicitNamesCanStillReachEveryAuthorizedTool() = runTest {
         val catalog = requireNotNull(ProgressiveToolCatalog.create(tools, "task"))
         val query = JsonObject(mapOf("query" to JsonPrimitive("task")))
         val seen = catalog.selected(tools).map { it.name }.toMutableSet()
+        val initial = seen.toSet()
         repeat(10) { round ->
-            catalog.execute("discovery-$round", query)
+            val result = catalog.execute("discovery-$round", query)
             val advertised = catalog.selected(tools).map { it.name }.toSet()
             assertTrue(advertised.size <= ProgressiveToolCatalog.INITIAL_TOOLS)
-            if (seen.size < tools.size) assertTrue(advertised.any { it !in seen })
+            assertEquals(initial, advertised)
+            assertTrue(result.content.toString().contains("catalog_unchanged"))
+        }
+        for (tool in tools) {
+            catalog.execute("explicit-${tool.name}", JsonObject(mapOf("names" to kotlinx.serialization.json.JsonArray(listOf(JsonPrimitive(tool.name))))))
+            val advertised = catalog.selected(tools).map { it.name }.toSet()
+            assertTrue(tool.name in advertised)
+            assertTrue(advertised.size <= ProgressiveToolCatalog.INITIAL_TOOLS)
             seen += advertised
         }
         assertEquals(tools.map { it.name }.toSet(), seen)
@@ -83,6 +91,43 @@ class ProgressiveToolCatalogTest {
         assertFalse(result.isError)
         assertTrue(catalog.selected(tools).any { it.name == "task_1" })
         assertEquals(ProgressiveToolCatalog.INITIAL_TOOLS, catalog.selected(tools).size)
+    }
+
+    @Test fun repeatedDiscoveryRetainsRequiredSearchAndReaderCapabilitiesWithinTheSchemaBudget() = runTest {
+        val search = AgentToolDefinition("search_web", "Search published sources", JsonObject(emptyMap()), setOf(AgentToolCapability.WEB_SEARCH))
+        val reader = AgentToolDefinition("read_source", "Read exact source content", JsonObject(emptyMap()), setOf(AgentToolCapability.PAGE_READER))
+        val authorized = tools + search + reader
+        val catalog = requireNotNull(ProgressiveToolCatalog.create(authorized, "Search latest sources and verify their contents"))
+        val required = setOf(search.name, reader.name)
+        assertTrue(catalog.selected(authorized).map { it.name }.containsAll(required))
+        for (tool in tools) {
+            catalog.execute("discover-${tool.name}", JsonObject(mapOf("query" to JsonPrimitive(tool.name))))
+            val selected = catalog.selected(authorized)
+            assertTrue(selected.map { it.name }.containsAll(required + tool.name))
+            assertTrue(selected.size <= ProgressiveToolCatalog.INITIAL_TOOLS)
+            assertTrue(selected.sumOf { ProgressiveToolCatalog.schemaTokens(it) } <= ProgressiveToolCatalog.SCHEMA_TOKEN_ALLOWANCE)
+        }
+        assertFalse(catalog.selected(authorized - reader).contains(reader))
+    }
+
+    @Test fun coldDiscoveredReaderStaysAvailableAcrossFurtherToolDiscoveries() = runTest {
+        val search = AgentToolDefinition("search_web", "Search sources", JsonObject(emptyMap()), setOf(AgentToolCapability.WEB_SEARCH))
+        val reader = AgentToolDefinition("remote_reader", "Read source content", JsonObject(emptyMap()), setOf(AgentToolCapability.PAGE_READER))
+        var acquisitions = 0
+        val catalog = ProgressiveToolCatalog(tools + search, "Verify latest sources", acquireCold = { _, _ ->
+            acquisitions++
+            listOf(reader)
+        })
+        val readerQuery = JsonObject(mapOf("query" to JsonPrimitive(reader.name)))
+        catalog.execute("acquire", readerQuery)
+        catalog.execute("repeat-acquire", readerQuery)
+        assertEquals(1, acquisitions)
+        val authorized = tools + search + reader
+        for (name in listOf("task_80", "task_40", "task_70", "task_80")) {
+            catalog.execute(name, JsonObject(mapOf("names" to kotlinx.serialization.json.JsonArray(listOf(JsonPrimitive(name))))))
+            assertTrue(catalog.selected(authorized).map { it.name }.containsAll(listOf(search.name, reader.name, name)))
+        }
+        assertEquals(emptyList<AgentToolDefinition>(), catalog.selected(emptyList()))
     }
 
     @Test fun explicitKnownToolRemainsDiscoverableAfterActivation() = runTest {

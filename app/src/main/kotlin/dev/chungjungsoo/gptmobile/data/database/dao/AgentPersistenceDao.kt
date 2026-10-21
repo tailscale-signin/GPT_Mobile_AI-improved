@@ -175,7 +175,7 @@ interface AgentPersistenceDao {
     @Transaction
     suspend fun commitCombinedDeliveryCheckpoint(row: dev.chungjungsoo.gptmobile.data.database.entity.CombinedDeliveryCheckpoint, expectedGeneration: Long, synthesisKey: String): Boolean {
         val run = recoveryRun(row.runId) ?: return false
-        if (run.status != "RUNNING" || run.ownershipFence != row.fence || run.synthesisKey != synthesisKey) return false
+        if (run.status != "RUNNING" || run.ownershipFence != row.fence || run.synthesisKey != synthesisKey || !validCombinedPublication(run)) return false
         val message = rawRecoveryMessage(run.assistantMessageId) ?: return false
         if (message.currentRunId != row.runId || message.ownershipFence != row.fence) return false
         val old = combinedDeliveryCheckpoint(row.runId, row.revisionId)
@@ -310,10 +310,14 @@ interface AgentPersistenceDao {
         val existing = current.revisions.indexOfFirst { revision ->
             revision.runId == source.attemptId && (source.rawContentDigest.ifBlank { source.sourceDigest } == dev.chungjungsoo.gptmobile.data.research.researchHash(revision.content) || source.content == revision.content)
         }
-        val restored = if (existing >= 0) current.copy(activeRevisionIndex = existing) else current.copy(
-            revisions = current.revisions + dev.chungjungsoo.gptmobile.data.database.entity.AssistantRevision(source.content, createdAt = source.createdAt ?: run.createdAt, runId = source.attemptId),
-            activeRevisionIndex = current.revisions.size
-        )
+        val restored = if (existing >= 0) {
+            current.copy(activeRevisionIndex = existing)
+        } else {
+            current.copy(
+                revisions = current.revisions + dev.chungjungsoo.gptmobile.data.database.entity.AssistantRevision(source.content, createdAt = source.createdAt ?: run.createdAt, runId = source.attemptId),
+                activeRevisionIndex = current.revisions.size
+            )
+        }
         updateMessage(restored)
         return restored
     }
@@ -340,22 +344,36 @@ interface AgentPersistenceDao {
             val resumed = snapshot.copy(resumeFromRunId = runId, committedPrefix = "", deliveryResumeFromRevisionId = if (snapshot.deliveryProtocol == "PASSAGES_V3") snapshot.liveRevisionId(runId) else null)
             val resumedRaw = resumed.encode()
             persistAgentRetry(PersistAgentRetryRequest(original, current, dev.chungjungsoo.gptmobile.data.database.entity.AgentRunDraft("combined-synthesis:" + UUID.randomUUID(), prior.profileUid, prior.providerSnapshot, prior.modelSnapshot, at, dev.chungjungsoo.gptmobile.data.research.researchHash(resumedRaw), resumedRaw), resumeCombinedFrom = runId)).assistantMessage
-        } else current
+        } else {
+            current
+        }
         val receipt = dev.chungjungsoo.gptmobile.data.agent.CombinedFallbackReceipt(if (source != null) "USE_REPLY" else "EVIDENCE_ONLY", source?.platformUid, source?.attemptId, source?.completionStatus, source?.sourceDigest ?: dev.chungjungsoo.gptmobile.data.research.researchHash(text), snapshot.snapshotId, runId)
         val report = dev.chungjungsoo.gptmobile.data.agent.CombinedQualityReport(answerDigest = dev.chungjungsoo.gptmobile.data.research.researchHash(text), status = "PARTIAL", deliveredScopeStatus = "PARTIAL", revisionId = UUID.randomUUID().toString(), issues = listOf(if (source != null) "EXPLICIT_CONTRIBUTOR_FALLBACK" else "NO_AUTHORIZED_WRITER"))
-        val published = target.copy(content = text, activeRevisionIndex = ACTIVE_REVISION_LATEST, timeline = listOf(
-            dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.TEXT, content = text),
-            dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(
-                dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE,
-                combinedQuality = report,
-                combinedFallback = receipt,
-                researchDeliveryReceipt = if (source == null) dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryReceipt(
-                    reportValidity = if (text.isNotBlank()) dev.chungjungsoo.gptmobile.data.research.delivery.ResearchReportValidity.EVIDENCE_ONLY else dev.chungjungsoo.gptmobile.data.research.delivery.ResearchReportValidity.INCOMPLETE,
-                    evidenceAvailable = snapshot.evidence.records.any { it.readable }, packetDigest = snapshot.inputDigest, revisionId = report.revisionId,
-                    issueCodes = listOf("NO_AUTHORIZED_WRITER"), sourceIds = snapshot.evidence.records.filter { it.readable }.map { it.id }, retryEligible = true
-                ) else null
+        val published = target.copy(
+            content = text,
+            activeRevisionIndex = ACTIVE_REVISION_LATEST,
+            timeline = listOf(
+                dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.TEXT, content = text),
+                dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(
+                    dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE,
+                    combinedQuality = report,
+                    combinedFallback = receipt,
+                    researchDeliveryReceipt = if (source == null) {
+                        dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryReceipt(
+                            reportValidity = if (text.isNotBlank()) dev.chungjungsoo.gptmobile.data.research.delivery.ResearchReportValidity.EVIDENCE_ONLY else dev.chungjungsoo.gptmobile.data.research.delivery.ResearchReportValidity.INCOMPLETE,
+                            evidenceAvailable = snapshot.evidence.records.any { it.readable },
+                            packetDigest = snapshot.inputDigest,
+                            revisionId = report.revisionId,
+                            issueCodes = listOf("NO_AUTHORIZED_WRITER"),
+                            sourceIds = snapshot.evidence.records.filter { it.readable }.map { it.id },
+                            retryEligible = true
+                        )
+                    } else {
+                        null
+                    }
+                )
             )
-        ))
+        )
         return if (finishRunningWithMessage(published, requireNotNull(target.currentRunId), "FAILED", at, if (source != null) "EXPLICIT_CONTRIBUTOR_FALLBACK" else "NO_AUTHORIZED_WRITER")) published else null
     }
 
@@ -801,11 +819,31 @@ interface AgentPersistenceDao {
         val current = recoveryMessage(assistantMessage.id) ?: return
         val run = recoveryRun(runId) ?: return
         if (current.currentRunId != runId || current.ownershipFence != run.ownershipFence || assistantMessage.ownershipFence != run.ownershipFence) return
+        if (!validCombinedPublication(run)) return
         val selected = dev.chungjungsoo.gptmobile.data.agent.preserveCombinedRetrySelection(current, assistantMessage, run, status)
         updateMessage(selected)
         publishReply(run, selected, status, completedAt ?: System.currentTimeMillis() / 1000)
         updateRunStatus(runId, status, startedAt, completedAt, terminalError)
         if (getChatRoom(assistantMessage.chatId)?.isArchived == true) setArchivedWithCompression(assistantMessage.chatId, true)
+    }
+
+    /** Recheck the sealed original at publication, after any asynchronous provider work. */
+    private suspend fun validCombinedPublication(run: AgentRun): Boolean {
+        if (run.synthesisKey == null) return true
+        val raw = run.synthesisSnapshot ?: return false
+        if (run.synthesisKey != dev.chungjungsoo.gptmobile.data.research.researchHash(raw)) return false
+        return try {
+            val snapshot = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromString<dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot>(raw)
+            val stage = dev.chungjungsoo.gptmobile.data.agent.AcceptedTaskRef.from(snapshot.userMessage)
+            val original = recoveryMessage(run.userMessageId) ?: return false
+            stage.validate(original)
+            snapshot.acceptedTask?.validate(original)
+            (snapshot.version < 6 || snapshot.inputDigest == snapshot.contentDigest()) && snapshot.profileUid == run.profileUid && run.chatId == original.chatId
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            false
+        }
     }
 
     /** Commit the complete accumulated answer and terminal status under the same ownership check. */
@@ -830,6 +868,7 @@ interface AgentPersistenceDao {
         ) {
             return false
         }
+        if (!validCombinedPublication(run)) return false
         val selected = dev.chungjungsoo.gptmobile.data.agent.preserveCombinedRetrySelection(current, assistantMessage, run, status)
         preserveCombinedPrefix(selected)
         updateMessage(selected)
@@ -848,6 +887,7 @@ interface AgentPersistenceDao {
         if (run.status != "RUNNING" || run.assistantMessageId != message.id || run.chatId != message.chatId) return false
         val current = recoveryMessage(message.id) ?: return false
         if (current.currentRunId != runId || current.ownershipFence != run.ownershipFence || message.ownershipFence != run.ownershipFence) return false
+        if (!validCombinedPublication(run)) return false
         val selected = dev.chungjungsoo.gptmobile.data.agent.preserveCombinedRetrySelection(current, message, run, null)
         preserveCombinedPrefix(selected)
         updateMessage(selected)

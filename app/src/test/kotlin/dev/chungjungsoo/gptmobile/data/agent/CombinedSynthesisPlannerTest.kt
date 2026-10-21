@@ -44,7 +44,7 @@ class CombinedSynthesisPlannerTest {
     @Test fun finalContributorCanPersistAndDispatchSynthesisWithoutAChatViewModel() = runTest {
         fixture("COMPLETED")
         coEvery { settings.fetchPlatformV2s() } returns listOf(dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2(uid = "p", name = "Primary", enabled = true, model = "m"))
-        coEvery { research.exportChat(1) } returns emptyList()
+        coEvery { research.exportTurn(1, any(), any()) } returns emptyList()
         every { chats.observeToolEvents(1) } returns flowOf(emptyList())
         coEvery { chats.persistAgentRetry(any()) } answers {
             val request = firstArg<dev.chungjungsoo.gptmobile.data.database.entity.PersistAgentRetryRequest>()

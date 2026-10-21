@@ -314,6 +314,25 @@ class LiteRtLmAdapterTest {
     }
 
     @Test
+    fun nativeProgressPayloadSurvivesRuntimeToProviderBoundary() = runBlocking {
+        val sample = dev.chungjungsoo.gptmobile.data.localruntime.GgufNativeProgress(
+            operationId = 7, stage = "prefill", promptTokens = 4096, processedTokens = 256, sampledTokens = 0,
+            elapsedMs = 1200, nativeCode = 0, observedAtMs = 1201, effectiveBatch = 64,
+            prefillTokensPerSecond = 213.0, actualRuntime = "LLAMA_CPP_CPU", modelName = "fixture.gguf",
+            runtimeRequestId = "runtime-7", physicalAttemptId = "physical-1"
+        )
+        val runtime = FakeLocalRuntime().apply {
+            scriptedEvents = listOf(listOf(LocalRuntimeEvent.PhaseChanged(LocalInferencePhase.PREFILL, sample), LocalRuntimeEvent.TextDelta("answer"), LocalRuntimeEvent.Done))
+        }
+        val events = adapter(runtime).openSession(turns("hello"), localPlatform()).streamRound(emptyList(), emptyList()).toList()
+        val reported = events.filterIsInstance<ProviderEvent.PhaseChanged>().single { it.nativeProgress != null }
+        assertEquals(LocalInferencePhase.PREFILL, reported.phase)
+        assertEquals(sample, reported.nativeProgress)
+        assertEquals("answer", events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
+        assertEquals(ProviderEvent.Completed, events.last())
+    }
+
+    @Test
     fun `runtime phase events are forwarded before generated text`() = runBlocking {
         val runtime = FakeLocalRuntime().apply {
             scriptedEvents = listOf(

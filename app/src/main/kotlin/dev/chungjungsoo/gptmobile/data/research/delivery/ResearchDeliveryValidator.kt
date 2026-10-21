@@ -41,10 +41,10 @@ internal object ResearchDeliveryValidator {
             val readable = cited.mapNotNull { id -> packet.studies.firstOrNull { it.id == id } }
             if (cited.any { id -> packet.unread.any { it.id == id } } && !Regex("(?i)unread|not read|metadata.only|retrieval failed").containsMatchIn(paragraph)) issues += "METADATA_PRESENTED_AS_READ"
             if (readable.isNotEmpty()) {
-                val support = readable.joinToString("\n") { it.passage + "\n" + it.publishedAt + " " + it.publicationYear?.toString().orEmpty() + "\n" + ResearchDeliveryPacket.bibliography(it) + "\n" + packet.studyFields[it.id].orEmpty() }
+                val support = readable.joinToString("\n") { it.passage + "\n" + it.publishedAt + " " + it.publicationYear?.toString().orEmpty() + "\n" + ResearchDeliveryPacket.bibliography(it) + "\n" + packet.studyFieldsFor(it) }
                 val allowed = numbers.findAll(support).map { it.value.replace(",", "") }.toSet()
                 val withoutLinks = paragraph.replace(Regex("https?://[^\\s)]+|\\[S[0-9a-f]+\\]|10\\.\\d{4,9}/[^\\s]+"), "")
-                issues += ResearchNumericalGrounding.issues(withoutLinks, readable.map { it.passage })
+                issues += ResearchNumericalGrounding.issues(withoutLinks, readable.map { it.passage }, readable.flatMap { source -> packet.claimsFor(source).filter { it.verdict == "Supported" && it.exactQuoteVerified }.flatMap { it.facts } })
                 if (numbers.findAll(withoutLinks).any { it.value.replace(",", "") !in allowed }) issues += "NUMERICAL_CLAIM_NOT_IN_CITED_PASSAGE"
             }
         }

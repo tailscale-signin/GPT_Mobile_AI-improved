@@ -510,8 +510,12 @@ class AgentToolResolver @Inject constructor(
 
         val expanded = resolved.flatMap { base ->
             val github = base.tool as? GitHubTool
-            if (github == null) listOf(base) else listOf(base) + github.operations().map { operation ->
-                base.copy(tool = operation, realToolName = operation.operation, modelToolName = operation.definition.name, shareableReadOnly = operation.operation in setOf("github_read", "github_search"))
+            if (github == null) {
+                listOf(base)
+            } else {
+                listOf(base) + github.operations().map { operation ->
+                    base.copy(tool = operation, realToolName = operation.operation, modelToolName = operation.definition.name, shareableReadOnly = operation.operation in setOf("github_read", "github_search"))
+                }
             }
         }
         val finalized = finalizeResolvedTools(expanded, profileUid, platform, featureSettings, bindings, chatToolConfig, freeProfile, disableRemote, disableLocal, onConnectionError)
@@ -1023,7 +1027,12 @@ class AgentToolResolver @Inject constructor(
         return tool.resolved(actualConnection?.connectionUid, actualConnection?.name, BuiltInAgentTool.GITHUB).copy(nativeGitHub = true, nativeGitHubAuthenticated = tool.hasCredential, canReuseResult = {
             val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
             val live = settingRepository.getFeatureSettings()
-            current != null && admittedProfile != null && dev.chungjungsoo.gptmobile.data.agent.sameRecoveryDestination(admittedProfile, current) && current.enabled && !current.disableAllTools && !current.disableRemoteTools &&
+            current != null &&
+                admittedProfile != null &&
+                dev.chungjungsoo.gptmobile.data.agent.sameRecoveryDestination(admittedProfile, current) &&
+                current.enabled &&
+                !current.disableAllTools &&
+                !current.disableRemoteTools &&
                 live.isToolPluginEnabledForProfile(profileUid, ToolPluginId.GITHUB) &&
                 (actualConnection == null || (toolConnectionRepository.getConnection(actualConnection.connectionUid) == actualConnection && live.isToolPluginEnabledForProfile(profileUid, ToolPluginId.connection(actualConnection.connectionUid))))
         })

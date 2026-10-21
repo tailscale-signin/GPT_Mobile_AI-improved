@@ -281,7 +281,9 @@ class CombinedTurnBudget(
                         "CANCELLED", "BUDGET_BLOCKED" -> outcome
                         else -> "RECOVERABLE_FAILURE"
                     }
-                } else state.deliveryStatus,
+                } else {
+                    state.deliveryStatus
+                },
                 retryEligible = if (ownerKey == "finalization") outcome !in setOf("COMPLETED", "CANCELLED", "BUDGET_BLOCKED") && !state.closed && !state.cancelled else state.retryEligible,
                 firstFailure = state.firstFailure ?: recorded.takeIf { outcome !in setOf("COMPLETED", "CANCELLED") }
             )

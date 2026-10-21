@@ -27,7 +27,7 @@ internal class RequestDispatchContext(private val candidates: Set<JsonObject>, p
         val receipt = receipts.lastOrNull() ?: return
         val owner = runId
         val invocation = invocationId
-        val attempt = receipt.physicalAttemptId
+        val attempt = receipt.physicalAttemptId ?: return
         val role = dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticRole.from(receipt.role)
         val trace = dev.chungjungsoo.gptmobile.data.network.HttpAttemptTrace { kind, elapsed ->
             owner?.let { dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(it, kind, role, invocationId = invocation, physicalAttemptId = attempt, elapsedMillis = elapsed) }

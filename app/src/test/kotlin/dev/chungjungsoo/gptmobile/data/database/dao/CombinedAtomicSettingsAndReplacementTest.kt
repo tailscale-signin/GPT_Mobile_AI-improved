@@ -147,6 +147,8 @@ class CombinedAtomicSettingsAndReplacementTest {
             val (_, owner) = seedCompletedTurn(db)
             val dao = db.agentPersistenceDao()
             val run = requireNotNull(dao.recoveryRun(requireNotNull(owner.currentRunId))).copy(displayRole = "COMBINED_FINAL")
+            dao.publishReply(run, owner, "COMPLETED", 99)
+            assertEquals("PARTIAL", dao.publication("1:2:combined")?.deliveryKind)
             val report = CombinedQualityReport(
                 answerDigest = researchHash(owner.content),
                 revisionId = "checked",
@@ -171,6 +173,14 @@ class CombinedAtomicSettingsAndReplacementTest {
             )
             dao.publishReply(run, final, "COMPLETED", 101)
             assertEquals("FINAL", dao.publication("1:2:combined")?.deliveryKind)
+            val stale = final.copy(content = final.content + " Unchecked appendix")
+            dao.publishReply(run, stale, "COMPLETED", 102)
+            assertEquals("PARTIAL", dao.publication("1:2:combined")?.deliveryKind)
+            val invalidFraming = final.copy(
+                timeline = final.timeline.map { item -> item.copy(combinedQuality = item.combinedQuality?.copy(issues = listOf("INVALID_DELIVERY_RECORD"))) }
+            )
+            dao.publishReply(run, invalidFraming, "COMPLETED", 103)
+            assertEquals("PARTIAL", dao.publication("1:2:combined")?.deliveryKind)
         } finally {
             db.close()
         }

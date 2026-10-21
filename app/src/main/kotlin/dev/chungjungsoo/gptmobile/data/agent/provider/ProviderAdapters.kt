@@ -573,15 +573,22 @@ class OpenAICompatibleAdapter @Inject constructor(
                         var terminalReceived = false
                         var streamInterrupted = false
                         var deliveredPayload = false
+                        var protocolErrorCode: String? = null
                         suspend fun publish(event: ProviderEvent) {
                             if (event is ProviderEvent.TextDelta || event is ProviderEvent.ThinkingDelta || event is ProviderEvent.ToolCall) deliveredPayload = true
-                            emit(event)
+                            if (event is ProviderEvent.Failed) {
+                                roundFailed = true
+                                lastFailedMessage = event.message
+                                protocolErrorCode = protocolErrorCode ?: event.errorCode
+                            } else {
+                                emit(event)
+                            }
                         }
 
                         groqAPI.streamChatCompletion(request, platform.timeout, config)
                             .transformWhile { chunk ->
                                 emit(chunk)
-                                chunk.choices.orEmpty().none { it.finishReason != null } && chunk.error == null
+                                !chunk.streamFinished && chunk.error == null
                             }
                             .catch { error ->
                                 if (error is CancellationException || error is ToolDefinitionsRejectedException) throw error
@@ -591,12 +598,17 @@ class OpenAICompatibleAdapter @Inject constructor(
                                 canRotate = ApiCredentialRotator.isRotatableError(error)
                             }
                             .collect { chunk ->
+                                if (chunk.streamFinished) {
+                                    terminalReceived = true
+                                    assembler.finish().forEach { publish(it) }
+                                }
                                 (chunk.usage ?: chunk.groqMetadata?.usage)?.let { usage ->
-                                    emit(ProviderEvent.Usage(usage.promptTokens, usage.completionTokens, usage.totalTokens, reasoningTokens = (usage.completionTokensDetails?.get("reasoning_tokens") as? JsonPrimitive)?.intOrNull?.takeIf { it >= 0 }, phase = if (chunk.choices.orEmpty().any { it.finishReason != null }) ProviderUsagePhase.FINAL else ProviderUsagePhase.INTERIM))
+                                    emit(ProviderEvent.Usage(usage.promptTokens, usage.completionTokens, usage.totalTokens, reasoningTokens = (usage.completionTokensDetails?.get("reasoning_tokens") as? JsonPrimitive)?.intOrNull?.takeIf { it >= 0 }, phase = if (terminalReceived || chunk.choices.orEmpty().any { it.finishReason != null }) ProviderUsagePhase.FINAL else ProviderUsagePhase.INTERIM))
                                 }
                                 chunk.error?.let { error ->
                                     roundFailed = true
                                     lastFailedMessage = error.message
+                                    protocolErrorCode = error.code ?: protocolErrorCode
                                     canRotate = ApiCredentialRotator.containsQuotaOrRateLimitMessage(error.message)
                                 } ?: chunk.choices.orEmpty().forEach { choice ->
                                     reasoningParser.append(
@@ -607,6 +619,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                                     }
                                     if (choice.finishReason != null) terminalReceived = true
                                     if (choice.finishReason == "length") {
+                                        assembler.discardIncomplete()
                                         emit(ProviderEvent.Usage(finishReason = choice.finishReason))
                                         roundFailed = true
                                         lastFailedMessage = GROQ_OUTPUT_LIMIT_MESSAGE
@@ -620,6 +633,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                                     }
                                 }
                             }
+                        assembler.discardIncomplete().forEach { publish(it) }
                         reasoningParser.flush().forEach { state ->
                             state.toProviderEvent()?.let { publish(it) }
                         }
@@ -634,7 +648,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                         } else if (canRotate && !deliveredPayload && attempt < attempts - 1) {
                             continue
                         } else {
-                            emit(ProviderEvent.Failed(lastFailedMessage ?: "Provider request failed", transportComplete = terminalReceived && !streamInterrupted && lastFailedMessage == GROQ_OUTPUT_LIMIT_MESSAGE))
+                            emit(ProviderEvent.Failed(lastFailedMessage ?: "Provider request failed", errorCode = protocolErrorCode, transportComplete = terminalReceived && !streamInterrupted && protocolErrorCode == null && lastFailedMessage == GROQ_OUTPUT_LIMIT_MESSAGE))
                             return@flow
                         }
                     }
@@ -715,6 +729,18 @@ class OpenAICompatibleAdapter @Inject constructor(
                         // NVIDIA NIMs can return reasoning_content or inline <think> blocks.
                         val llamaReasoningParser = if (isLlama || isNvidia) GroqReasoningParser() else null
                         var deliveredPayload = false
+                        var protocolErrorCode: String? = null
+                        suspend fun publishAssembly(event: ProviderEvent) {
+                            if (event is ProviderEvent.Failed) {
+                                roundFailed = true
+                                if (lastFinishReason != "length") {
+                                    lastFailedMessage = event.message
+                                    protocolErrorCode = protocolErrorCode ?: event.errorCode
+                                }
+                            } else {
+                                emit(event)
+                            }
+                        }
 
                         openAIAPI.streamChatCompletion(request, platform.timeout, requestConfig)
                             .catch { error ->
@@ -729,7 +755,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                                 chunk.retryDurationMs?.let { emit(ProviderEvent.Usage(retryDurationMs = it, retryAttempts = chunk.retryAttempts)) }
                                 if (chunk.streamFinished) {
                                     terminalReceived = true
-                                    assembler.finish().forEach { emit(it) }
+                                    assembler.finish().forEach { publishAssembly(it) }
                                 }
                                 chunk.usage?.let { usage ->
                                     emit(
@@ -738,7 +764,8 @@ class OpenAICompatibleAdapter @Inject constructor(
                                             outputTokens = usage.completionTokens,
                                             totalTokens = usage.totalTokens,
                                             decodeTokensPerSecond = chunk.timings?.decodeTokensPerSecond,
-                                            reasoningTokens = (usage.completionTokensDetails?.get("reasoning_tokens") as? JsonPrimitive)?.intOrNull?.takeIf { it >= 0 }
+                                            reasoningTokens = (usage.completionTokensDetails?.get("reasoning_tokens") as? JsonPrimitive)?.intOrNull?.takeIf { it >= 0 },
+                                            phase = if (terminalReceived || chunk.choices.orEmpty().any { it.finishReason != null }) ProviderUsagePhase.FINAL else ProviderUsagePhase.INTERIM
                                         )
                                     )
                                 }
@@ -765,6 +792,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                                     roundFailed = true
                                     streamInterrupted = true
                                     lastFailedMessage = error.message
+                                    protocolErrorCode = error.code ?: protocolErrorCode
                                     canRotate = ApiCredentialRotator.containsQuotaOrRateLimitMessage(error.message)
                                 } ?: chunk.choices.orEmpty().forEach { choice ->
                                     if (choice.finishReason != null) {
@@ -791,18 +819,18 @@ class OpenAICompatibleAdapter @Inject constructor(
                                             reasoning = null,
                                             toolCalls = choice.effectiveDelta.toolCalls,
                                             finishReason = choice.finishReason
-                                        ).forEach { emit(it) }
+                                        ).forEach { publishAssembly(it) }
                                     } else {
                                         assembler.accept(
                                             content = choice.effectiveDelta.content,
                                             reasoning = effectiveReasoning,
                                             toolCalls = choice.effectiveDelta.toolCalls,
                                             finishReason = choice.finishReason
-                                        ).forEach { emit(it) }
+                                        ).forEach { publishAssembly(it) }
                                     }
                                 }
                             }
-                        assembler.discardIncomplete().forEach { emit(it) }
+                        assembler.discardIncomplete().forEach { publishAssembly(it) }
                         llamaReasoningParser?.flush()?.forEach { state ->
                             state.toProviderEvent()?.let { emit(it) }
                         }
@@ -831,7 +859,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                         } else if (canRotate && !deliveredPayload && attempt < attempts - 1) {
                             break
                         } else {
-                            emit(ProviderEvent.Failed(lastFailedMessage ?: "Provider request failed", transportComplete = !streamInterrupted && terminalReceived && lastFinishReason == "length"))
+                            emit(ProviderEvent.Failed(lastFailedMessage ?: "Provider request failed", errorCode = protocolErrorCode, transportComplete = !streamInterrupted && terminalReceived && protocolErrorCode == null && lastFinishReason == "length"))
                             return@flow
                         }
                     }

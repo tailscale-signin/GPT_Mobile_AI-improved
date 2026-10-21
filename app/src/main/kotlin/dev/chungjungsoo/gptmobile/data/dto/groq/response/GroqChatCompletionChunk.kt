@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.dto.groq.response
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.ChatCompletionUsage
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 
 @Serializable
 data class GroqChatCompletionChunk(
@@ -28,7 +29,10 @@ data class GroqChatCompletionChunk(
     val usage: ChatCompletionUsage? = null,
 
     @SerialName("x_groq")
-    val groqMetadata: GroqStreamMetadata? = null
+    val groqMetadata: GroqStreamMetadata? = null,
+
+    // Transport-owned signal: socket EOF alone is never proof of completion.
+    @Transient val streamFinished: Boolean = false
 )
 
 @Serializable

@@ -45,6 +45,8 @@ class DelegationPolicyResolverTest {
         assertEquals(listOf("b", "a"), DelegationPolicyResolver.ranked(listOf(first, second, excluded), policy).map { it.uid })
         assertFalse(DelegationPolicyResolver.sameModel(first, second))
         assertTrue(DelegationPolicyResolver.sameModel(first, first.copy(uid = "alias")))
+        assertEquals(ModelIndependence.UNKNOWN, CanonicalModelIdentity.independence(first, first.copy(uid = "alias")))
+        assertFalse(DelegationPolicyResolver.sameModel(first, first.copy(uid = "other-deployment", apiUrl = "http://localhost:9090")))
     }
 
     @Test fun importedTemplateIsStrictAndCannotCarryPermissions() {

@@ -11,6 +11,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -67,7 +68,7 @@ class ResearchSessionStoreHeapTest {
     }
 
     @Test fun moreThanFortyMiBOfRetainedEvidenceStreamsWithoutLoadingAllSessionsInto256MiBHeap() = runBlocking {
-        if (!java.lang.Boolean.getBoolean("gptmobile.heapStress")) return@runBlocking
+        assumeTrue("The large corpus gate requires scripts/heap-stress.init.gradle", java.lang.Boolean.getBoolean("gptmobile.heapStress"))
         assertTrue("This gate must run in the constrained heap worker", Runtime.getRuntime().maxMemory() <= 256L * 1024 * 1024)
         seedLargeCorpus()
         assertTrue(directory.listFiles().orEmpty().filter { it.extension == "source" }.sumOf { it.length() } > 40L * 1024 * 1024)

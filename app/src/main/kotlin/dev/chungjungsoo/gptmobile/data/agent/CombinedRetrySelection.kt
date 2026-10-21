@@ -13,7 +13,8 @@ internal fun preserveCombinedRetrySelection(current: MessageV2, candidate: Messa
     val snapshot = runCatching {
         Json { ignoreUnknownKeys = true }.decodeFromString<CombinedInputSnapshot>(run.synthesisSnapshot.orEmpty())
     }.getOrNull() ?: return candidate
-    if (snapshot.sources.isEmpty() && snapshot.evidence.records.isEmpty() || selected.content.isBlank()) return candidate
+    if (selected.content.isBlank()) return candidate
+    if (snapshot.resumeFromRunId == null && snapshot.sources.isEmpty() && snapshot.evidence.records.isEmpty()) return candidate
     val report = candidate.timeline.lastOrNull { it.combinedQuality != null }?.combinedQuality
     val accepted = terminalStatus == "COMPLETED" &&
         candidate.content.isNotBlank() &&
@@ -23,11 +24,26 @@ internal fun preserveCombinedRetrySelection(current: MessageV2, candidate: Messa
         report.answerDigest == researchHash(candidate.content) &&
         report.deliveredScopeStatus in setOf("COMPLETED", "COMPLETED_WITH_LIMITS") &&
         report.issues.none { it in COMBINED_FRAMING_FAILURES }
-    val committedPartial = candidate.content.isNotBlank() &&
+    val committedPartial = snapshot.deliveryProtocol == "PASSAGES_V3" &&
+        candidate.content.isNotBlank() &&
         report != null &&
         report.answerDigest == researchHash(candidate.content) &&
+        report.passages.isNotEmpty() &&
+        report.passages.all { it.matches(candidate.content) } &&
         report.issues.none { it in COMBINED_FRAMING_FAILURES }
-    return candidate.copy(activeRevisionIndex = if (accepted || committedPartial) ACTIVE_REVISION_LATEST else current.activeRevisionIndex)
+    val fallback = candidate.timeline.lastOrNull { it.combinedFallback != null }?.combinedFallback
+    val explicitReply = terminalStatus == "FAILED" &&
+        fallback?.kind == "USE_REPLY" &&
+        fallback.snapshotId == snapshot.snapshotId &&
+        fallback.predecessorRunId == snapshot.resumeFromRunId &&
+        fallback.sourceDigest == researchHash(candidate.content) &&
+        snapshot.sources.any { source ->
+            source.platformUid == fallback.sourceProfileUid &&
+                source.attemptId == fallback.sourceRunId &&
+                source.completionStatus == fallback.sourceCompletionStatus &&
+                source.content == candidate.content
+        }
+    return candidate.copy(activeRevisionIndex = if (accepted || committedPartial || explicitReply) ACTIVE_REVISION_LATEST else current.activeRevisionIndex)
 }
 
 internal val COMBINED_FRAMING_FAILURES = setOf(

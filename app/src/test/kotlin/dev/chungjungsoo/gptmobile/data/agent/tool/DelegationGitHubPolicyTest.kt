@@ -108,7 +108,8 @@ class DelegationGitHubPolicyTest {
 
         assertEquals(listOf(calculator, github), routed)
         assertFalse(routed.any { it.isShellExecutionTool() })
-        assertEquals(listOf(posix, calculator), preferNativeGitHubForTask(listOf(posix, calculator, github), "Calculate 2 + 2"))
+        // Current-task schema selection must not revoke an already authorized executor.
+        assertEquals(listOf(posix, calculator, github), preferNativeGitHubForTask(listOf(posix, calculator, github), "Calculate 2 + 2"))
     }
 
     @Test

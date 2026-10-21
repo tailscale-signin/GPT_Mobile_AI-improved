@@ -57,52 +57,63 @@ class GitHubRepositoryStateStore private constructor(private val directory: File
     }
 
     suspend fun read(scope: String, key: String): JsonObject? = withContext(Dispatchers.IO) {
-        mutex.withLock {
-            val identity = "$scope:$key"
-            values[identity]?.let { return@withLock it }
-            val file = directory?.let { File(it, digest(identity) + ".record") } ?: return@withLock null
-            if (!file.isFile || file.length() > MAX_RECORD_BYTES) return@withLock null
-            val raw = file.readBytes()
-            val value = runCatching { json.parseToJsonElement(crypt(identity, raw, false).decodeToString()) as? JsonObject }.getOrNull() ?: return@withLock null
-            remember(identity, value)
-            file.setLastModified(System.currentTimeMillis())
-            value
-        }
+        mutex.withLock { readLocked(scope, key) }
     }
 
     suspend fun write(scope: String, key: String, value: JsonObject) = withContext(Dispatchers.IO) {
+        mutex.withLock { writeLocked(scope, key, value) }
+    }
+
+    /** Update metadata without losing another session's selected revision or evidence handles. */
+    suspend fun update(scope: String, key: String, transform: (JsonObject?) -> JsonObject): JsonObject = withContext(Dispatchers.IO) {
         mutex.withLock {
-            val identity = "$scope:$key"
-            val plain = value.toString().encodeToByteArray()
-            require(plain.size <= MAX_RECORD_BYTES - 28) { "GitHub state record exceeds its byte budget." }
-            directory?.let { dir ->
-                check(dir.isDirectory || dir.mkdirs())
-                val target = File(dir, digest(identity) + ".record")
-                val temp = File.createTempFile("record-", ".tmp", dir)
-                try {
-                    temp.outputStream().use {
-                        it.write(crypt(identity, plain, true))
-                        it.flush()
-                    }
-                    check(temp.renameTo(target)) { "Could not atomically retain GitHub task state." }
-                } finally {
-                    temp.delete()
+            transform(readLocked(scope, key)).also { writeLocked(scope, key, it) }
+        }
+    }
+
+    private suspend fun readLocked(scope: String, key: String): JsonObject? {
+        val identity = "$scope:$key"
+        values[identity]?.let { return it }
+        val file = directory?.let { File(it, digest(identity) + ".record") } ?: return null
+        if (!file.isFile || file.length() > MAX_RECORD_BYTES) return null
+        val raw = file.readBytes()
+        val value = runCatching { json.parseToJsonElement(crypt(identity, raw, false).decodeToString()) as? JsonObject }.getOrNull() ?: return null
+        remember(identity, value)
+        file.setLastModified(System.currentTimeMillis())
+        return value
+    }
+
+    private suspend fun writeLocked(scope: String, key: String, value: JsonObject) {
+        val identity = "$scope:$key"
+        val plain = value.toString().encodeToByteArray()
+        require(plain.size <= MAX_RECORD_BYTES - 28) { "GitHub state record exceeds its byte budget." }
+        directory?.let { dir ->
+            check(dir.isDirectory || dir.mkdirs())
+            val target = File(dir, digest(identity) + ".record")
+            val temp = File.createTempFile("record-", ".tmp", dir)
+            try {
+                temp.outputStream().use {
+                    it.write(crypt(identity, plain, true))
+                    it.flush()
                 }
-                val records = dir.listFiles { f -> f.extension == "record" }.orEmpty().sortedBy { it.lastModified() }
-                var total = records.sumOf { it.length() }
-                var count = records.size
-                for (record in records) {
-                    if (total <= MAX_DISK_BYTES && count <= MAX_RECORDS) break
-                    if (record == target) continue
-                    val size = record.length()
-                    if (record.delete()) {
-                        total -= size
-                        count--
-                    }
+                check(temp.renameTo(target)) { "Could not atomically retain GitHub task state." }
+            } finally {
+                temp.delete()
+            }
+            val records = dir.listFiles { f -> f.extension == "record" }.orEmpty().sortedBy { it.lastModified() }
+            var total = records.sumOf { it.length() }
+            var count = records.size
+            for (record in records) {
+                if (total <= MAX_DISK_BYTES && count <= MAX_RECORDS) break
+                if (record == target) continue
+                val size = record.length()
+                if (record.delete()) {
+                    total -= size
+                    count--
                 }
             }
-            remember(identity, value)
         }
+        remember(identity, value)
     }
 
     suspend fun remove(scope: String, key: String) = mutex.withLock {

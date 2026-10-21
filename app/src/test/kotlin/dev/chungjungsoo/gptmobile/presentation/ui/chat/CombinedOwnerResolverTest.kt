@@ -5,8 +5,15 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class CombinedOwnerResolverTest {
-    @Test fun failedPreferredProfileFallsBackToASelectedCompletedContributor() {
+    @Test fun failedPreferredProfileRemainsEligibleWhenItsContributionIsUsable() {
         val sources = listOf(source("preferred", "FAILED"), source("peer"))
+        assertEquals(listOf("preferred", "peer"), CombinedOwnerResolver.eligibleOrder(sources, listOf("preferred", "peer"), "preferred", setOf("preferred", "peer")))
+        assertEquals("FAILED", sources.first().completionStatus)
+        assertEquals(listOf("peer"), CombinedOwnerResolver.eligibleOrder(sources, listOf("preferred", "peer"), "preferred", setOf("peer")))
+    }
+
+    @Test fun failedPreferredProfileWithoutUsableContentFallsBackToCompletedContributor() {
+        val sources = listOf(source("preferred", "FAILED").copy(content = ""), source("peer"))
         assertEquals(listOf("peer"), CombinedOwnerResolver.eligibleOrder(sources, listOf("preferred", "peer"), "preferred", setOf("preferred", "peer")))
     }
 

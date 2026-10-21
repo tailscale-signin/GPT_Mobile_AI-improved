@@ -9,6 +9,7 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
+import dev.chungjungsoo.gptmobile.data.agent.ProviderUsagePhase
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.context.ConversationTurn
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
@@ -77,6 +78,117 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 class ProviderAdaptersTest {
+    @Test fun groqRetainsUsageAfterTheFinishedChoiceAndStopsAtTransportDone() = runBlocking {
+        for (usageJson in listOf(
+            """{"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":7,"total_tokens":17}}""",
+            """{"choices":[],"x_groq":{"usage":{"prompt_tokens":10,"completion_tokens":7,"total_tokens":17}}}"""
+        )) {
+            val terminal = NetworkClient.json.decodeFromString<GroqChatCompletionChunk>(
+                """{"choices":[{"index":0,"delta":{"content":"Finished"},"finish_reason":"stop"}]}"""
+            )
+            val usage = NetworkClient.json.decodeFromString<GroqChatCompletionChunk>(usageJson)
+            val api = FakeGroqAPI(
+                ArrayDeque(
+                    listOf(
+                        flow {
+                            emit(terminal)
+                            emit(usage)
+                            emit(GroqChatCompletionChunk(streamFinished = true))
+                            error("The adapter must stop at the explicit transport receipt")
+                        }
+                    )
+                )
+            )
+            val events = OpenAICompatibleAdapter(FakeOpenAIAPI(), api, attachmentEncoder())
+                .openSession(turns(), platform(ClientType.GROQ)).streamRound(emptyList(), emptyList()).toList()
+            assertEquals(ProviderEvent.Usage(10, 7, 17, phase = ProviderUsagePhase.FINAL), events.filterIsInstance<ProviderEvent.Usage>().single { it.totalTokens != null })
+            assertEquals(1, events.count { it == ProviderEvent.Completed })
+            assertFalse(events.any { it is ProviderEvent.Failed })
+        }
+    }
+
+    @Test fun compatiblePartialUsageStaysInterimUntilTheFinalUsageReceipt() = runBlocking {
+        val partial = NetworkClient.json.decodeFromString<ChatCompletionChunk>(
+            """{"choices":[{"index":0,"delta":{"content":"Partial"}}],"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}}"""
+        )
+        val terminal = NetworkClient.json.decodeFromString<ChatCompletionChunk>(
+            """{"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}"""
+        )
+        val finalUsage = NetworkClient.json.decodeFromString<ChatCompletionChunk>(
+            """{"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":7,"total_tokens":17}}"""
+        )
+        for (complete in listOf(false, true)) {
+            val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(if (complete) flowOf(partial, terminal, finalUsage) else flowOf(partial))))
+            val events = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+                .openSession(turns(), platform(ClientType.CUSTOM)).streamRound(emptyList(), emptyList()).toList()
+            val usage = events.filterIsInstance<ProviderEvent.Usage>().filter { it.totalTokens != null }
+            assertEquals(ProviderUsagePhase.INTERIM, usage.first().phase)
+            assertEquals(if (complete) ProviderEvent.Completed else events.filterIsInstance<ProviderEvent.Failed>().single(), events.last())
+            if (complete) assertEquals(ProviderEvent.Usage(10, 7, 17, phase = ProviderUsagePhase.FINAL), usage.last())
+        }
+    }
+
+    @Test fun malformedToolArgumentsProduceOneFailureAndCannotCompleteTheRound() = runBlocking {
+        val payload = """{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call1","type":"function","function":{"name":"weather","arguments":"{"}}]},"finish_reason":"tool_calls"}]}"""
+        for (type in listOf(ClientType.CUSTOM, ClientType.GROQ)) {
+            val openai = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(flowOf(NetworkClient.json.decodeFromString<ChatCompletionChunk>(payload)))))
+            val groq = FakeGroqAPI(ArrayDeque(listOf(flowOf(NetworkClient.json.decodeFromString<GroqChatCompletionChunk>(payload)))))
+            val events = OpenAICompatibleAdapter(openai, groq, attachmentEncoder())
+                .openSession(turns(), platform(type)).streamRound(listOf(definition), emptyList()).toList()
+            assertEquals("TOOL_PROTOCOL_INVALID_FRAME", events.filterIsInstance<ProviderEvent.Failed>().single().errorCode)
+            assertFalse(events.any { it is ProviderEvent.ToolCall || it == ProviderEvent.Completed })
+        }
+    }
+
+    @Test fun outputLimitDiscardsPendingToolsWithoutLosingTheContinuationReason() = runBlocking {
+        val partial = """{"choices":[{"index":0,"delta":{"content":"Saved research.","tool_calls":[{"index":0,"id":"call1","type":"function","function":{"name":"weather","arguments":"{"}}]}}]}"""
+        val limited = """{"choices":[{"index":0,"delta":{},"finish_reason":"length"}]}"""
+        for (type in listOf(ClientType.CUSTOM, ClientType.GROQ)) {
+            val openai = FakeOpenAIAPI(
+                chatRounds = ArrayDeque(
+                    listOf(
+                        flowOf(
+                            NetworkClient.json.decodeFromString<ChatCompletionChunk>(partial),
+                            NetworkClient.json.decodeFromString<ChatCompletionChunk>(limited),
+                            ChatCompletionChunk(streamFinished = true)
+                        )
+                    )
+                )
+            )
+            val groq = FakeGroqAPI(
+                ArrayDeque(
+                    listOf(
+                        flowOf(
+                            NetworkClient.json.decodeFromString<GroqChatCompletionChunk>(partial),
+                            NetworkClient.json.decodeFromString<GroqChatCompletionChunk>(limited),
+                            GroqChatCompletionChunk(streamFinished = true)
+                        )
+                    )
+                )
+            )
+            val events = OpenAICompatibleAdapter(openai, groq, attachmentEncoder())
+                .openSession(turns(), platform(type)).streamRound(listOf(definition), emptyList()).toList()
+            val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+            assertTrue(dev.chungjungsoo.gptmobile.data.agent.tool.isProviderOutputLimitFailure(failure.message))
+            assertTrue(failure.transportComplete)
+            assertNull(failure.errorCode)
+            assertFalse(events.any { it is ProviderEvent.ToolCall || it == ProviderEvent.Completed })
+            assertEquals("Saved research.", events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
+        }
+    }
+
+    @Test fun providerErrorCodesSurviveCompatibleAndGroqFailures() = runBlocking {
+        val payload = """{"error":{"message":"Upstream interrupted this request","code":"upstream_interrupted"}}"""
+        for (type in listOf(ClientType.CUSTOM, ClientType.GROQ)) {
+            val openai = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(flowOf(NetworkClient.json.decodeFromString<ChatCompletionChunk>(payload)))))
+            val groq = FakeGroqAPI(ArrayDeque(listOf(flowOf(NetworkClient.json.decodeFromString<GroqChatCompletionChunk>(payload)))))
+            val events = OpenAICompatibleAdapter(openai, groq, attachmentEncoder())
+                .openSession(turns(), platform(type)).streamRound(emptyList(), emptyList()).toList()
+            assertEquals("upstream_interrupted", events.filterIsInstance<ProviderEvent.Failed>().single().errorCode)
+            assertFalse(events.contains(ProviderEvent.Completed))
+        }
+    }
+
     @Test fun anthropicCleanEofRetainsTextWithoutSuccessfulCompletionOrRotation() = runBlocking {
         val api = FakeAnthropicAPI(
             ArrayDeque(
@@ -140,7 +252,7 @@ class ProviderAdaptersTest {
             chatRounds = ArrayDeque(
                 listOf(
                     flow { throw IllegalArgumentException("max_tokens is too large: 256000. This model supports at most 131072 completion tokens, whereas you provided 256000.") },
-                    emptyFlow()
+                    flowOf(ChatCompletionChunk(choices = listOf(Choice(delta = Delta(content = "Completed within the reported cap."), finishReason = "stop"))))
                 )
             )
         )
@@ -155,6 +267,7 @@ class ProviderAdaptersTest {
             )
             .streamRound(emptyList(), emptyList()).toList()
         assertEquals(listOf(256000, 131072), api.chatRequests.map { it.maxTokens })
+        assertEquals("Completed within the reported cap.", events.filterIsInstance<ProviderEvent.TextDelta>().single().text)
         assertTrue(events.none { it is ProviderEvent.Failed })
         assertTrue(events.any { it == ProviderEvent.Completed })
     }
@@ -1380,7 +1493,20 @@ class ProviderAdaptersTest {
             val events = OpenAICompatibleAdapter(FakeOpenAIAPI(), groq, attachmentEncoder())
                 .openSession(turns(), platform(ClientType.GROQ))
                 .streamRound(emptyList(), emptyList()).toList()
-            assertEquals(ProviderEvent.Usage(10, 7, 17), events.filterIsInstance<ProviderEvent.Usage>().single())
+            assertEquals(ProviderEvent.Usage(10, 7, 17, phase = ProviderUsagePhase.INTERIM), events.filterIsInstance<ProviderEvent.Usage>().single())
+            assertFalse(events.contains(ProviderEvent.Completed))
+            assertFalse(events.filterIsInstance<ProviderEvent.Failed>().single().transportComplete)
+
+            val terminal = NetworkClient.json.decodeFromString<GroqChatCompletionChunk>(
+                fixture.replace("\"choices\":[]", """"choices":[{"index":0,"delta":{"content":"Finished"},"finish_reason":"stop"}]""")
+            )
+            val completeGroq = FakeGroqAPI(ArrayDeque(listOf(flowOf(terminal))))
+            val completeEvents = OpenAICompatibleAdapter(FakeOpenAIAPI(), completeGroq, attachmentEncoder())
+                .openSession(turns(), platform(ClientType.GROQ))
+                .streamRound(emptyList(), emptyList()).toList()
+            assertEquals(ProviderEvent.Usage(10, 7, 17, phase = ProviderUsagePhase.FINAL), completeEvents.filterIsInstance<ProviderEvent.Usage>().single { it.totalTokens != null })
+            assertTrue(completeEvents.contains(ProviderEvent.Completed))
+            assertFalse(completeEvents.any { it is ProviderEvent.Failed })
         }
     }
 

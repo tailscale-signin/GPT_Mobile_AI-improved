@@ -83,15 +83,19 @@ class GroqAPIImpl @Inject constructor(
                     val line = channel.readLine() ?: break
                     val data = SseUtils.extractSseData(line) ?: continue
 
-                    if (data == "[DONE]") break
-
-                    try {
-                        val chunk = NetworkClient.openAIJson.decodeFromString<GroqChatCompletionChunk>(data)
-                        receivedPayload = true
-                        emit(chunk)
-                    } catch (e: Exception) {
-                        Log.w("GroqAPI", "Skipping malformed Groq chunk: $data", e)
+                    if (data == "[DONE]") {
+                        emit(GroqChatCompletionChunk(streamFinished = true))
+                        break
                     }
+
+                    val chunk = try {
+                        NetworkClient.openAIJson.decodeFromString<GroqChatCompletionChunk>(data)
+                    } catch (e: kotlinx.serialization.SerializationException) {
+                        Log.w("GroqAPI", "Skipping malformed Groq chunk", e)
+                        continue
+                    }
+                    receivedPayload = true
+                    emit(chunk)
                 }
             }
         } catch (e: Exception) {

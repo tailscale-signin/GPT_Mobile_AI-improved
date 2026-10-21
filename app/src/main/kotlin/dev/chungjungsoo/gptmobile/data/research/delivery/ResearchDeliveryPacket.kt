@@ -61,19 +61,23 @@ data class ResearchDeliveryPacket(
         put("semanticCoverageVerified", false)
         if (snapshot.numericalFactBindingRequired) put("numericalFactBindingRequired", true)
         put("handoffReviewStatus", snapshot.currentReviewRecord()?.status ?: "UNKNOWN_OR_STALE")
-        put(
-            "toolEvents",
-            JsonArray(
-                snapshot.toolEvents.takeLast(if (compactMetadata) 0 else 12).map { event ->
-                    buildJsonObject {
-                        put("engine", event.engine.take(80))
-                        put("outcome", event.outcome.take(40))
-                        put("query", event.query.take(160))
-                        put("cacheHit", event.cacheHit)
+        // A small handoff must spend its bytes on captured text. Empty metadata
+        // containers are optional; the complete audit stays in the original snapshot.
+        if (!compactMetadata) {
+            put(
+                "toolEvents",
+                JsonArray(
+                    snapshot.toolEvents.takeLast(12).map { event ->
+                        buildJsonObject {
+                            put("engine", event.engine.take(80))
+                            put("outcome", event.outcome.take(40))
+                            put("query", event.query.take(160))
+                            put("cacheHit", event.cacheHit)
+                        }
                     }
-                }
+                )
             )
-        )
+        }
         put(
             "questions",
             JsonArray(
@@ -123,46 +127,52 @@ data class ResearchDeliveryPacket(
                 }
             )
         )
-        put(
-            "unreadLeads",
-            JsonArray(
-                unread.map { source ->
-                    buildJsonObject {
-                        put("id", source.id)
-                        put("title", source.title)
-                        put("url", source.url)
-                        put("doi", source.doi)
-                        put("reason", source.failureReason.ifBlank { source.status })
+        if (!minimalMetadata || unread.isNotEmpty()) {
+            put(
+                "unreadLeads",
+                JsonArray(
+                    unread.map { source ->
+                        buildJsonObject {
+                            put("id", source.id)
+                            put("title", source.title)
+                            put("url", source.url)
+                            put("doi", source.doi)
+                            put("reason", source.failureReason.ifBlank { source.status })
+                        }
                     }
-                }
+                )
             )
-        )
-        put("omitted", JsonObject(omitted.mapValues { JsonPrimitive(it.value) }))
+        }
+        val omissionCounts = if (minimalMetadata) omitted.filterValues { it != 0 } else omitted
+        put("omitted", JsonObject(omissionCounts.mapValues { JsonPrimitive(it.value) }))
         put("questionCoverage", JsonObject(snapshot.questionPlan.associate { question -> question.id to JsonArray(claims.filter { it.questionId == question.id }.map { it.sourceId }.distinct().map(::JsonPrimitive)) }))
         val unrepresented = snapshot.questionPlan.filter { question -> snapshot.claims.any { it.questionId == question.id } && claims.none { it.questionId == question.id } }.map { JsonPrimitive(it.id) }
         if (unrepresented.isNotEmpty()) put("unrepresentedQuestions", JsonArray(unrepresented))
         put("omissionDetailStatus", if (includeOmissionDetails) "COMPLETE" else "AUTHORIZED_JOURNAL_REQUIRED")
-        put(
-            "omittedRecords",
-            JsonArray(
-                (if (includeOmissionDetails) snapshot.claims.filter { it !in claims } else emptyList()).map { claim ->
-                    buildJsonObject {
-                        put("claimId", researchHash(claim.sourceId + claim.text + claim.quote))
-                        put("questionId", claim.questionId)
-                        put("sourceId", claim.sourceId)
-                        put(
-                            "reason",
-                            when {
-                                snapshot.sources.any { it.id == claim.sourceId && it.isRetracted == true } -> "RETRACTED"
-                                claim.relevance == "Irrelevant" -> "IRRELEVANT"
-                                snapshot.sources.none { researchClaimMatchesCapture(claim, it) } -> "INVALID_SOURCE_VERSION_OR_SPAN"
-                                else -> "BUDGET_DEFERRED"
-                            }
-                        )
+        val omittedClaims = if (includeOmissionDetails) snapshot.claims.filter { it !in claims } else emptyList()
+        if (!minimalMetadata || omittedClaims.isNotEmpty()) {
+            put(
+                "omittedRecords",
+                JsonArray(
+                    omittedClaims.map { claim ->
+                        buildJsonObject {
+                            put("claimId", researchHash(claim.sourceId + claim.text + claim.quote))
+                            put("questionId", claim.questionId)
+                            put("sourceId", claim.sourceId)
+                            put(
+                                "reason",
+                                when {
+                                    snapshot.sources.any { it.id == claim.sourceId && it.isRetracted == true } -> "RETRACTED"
+                                    claim.relevance == "Irrelevant" -> "IRRELEVANT"
+                                    snapshot.sources.none { researchClaimMatchesCapture(claim, it) } -> "INVALID_SOURCE_VERSION_OR_SPAN"
+                                    else -> "BUDGET_DEFERRED"
+                                }
+                            )
+                        }
                     }
-                }
+                )
             )
-        )
+        }
         put("retention", if (minimalMetadata) "Unread leads are not evidence; full captures remain in the authorized journal." else "Full evidence remains in the authorized research journal; metadata-only leads cannot support findings.")
     }
 

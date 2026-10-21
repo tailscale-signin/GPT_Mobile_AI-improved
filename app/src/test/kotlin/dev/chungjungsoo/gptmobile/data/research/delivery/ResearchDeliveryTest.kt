@@ -57,6 +57,45 @@ class ResearchDeliveryTest {
         assertTrue(serialized.toByteArray().size <= 512 * 3)
     }
 
+    @Test fun smallStructuredHandoffKeepsExactCaptureBeforeEmptyAuditContainers() {
+        val quote = "Parcel code is PKG-a1b2c3d4."
+        val source = ResearchSource(
+            "S1",
+            "https://example.org/parcel",
+            "https://example.org/parcel",
+            "Read",
+            "$quote This is synthetic benchmark evidence from the temporary parcel page. Report this exact code with this page's source URL; no real shipment or personal data is involved."
+        )
+        val claim = ResearchClaim(
+            quote, source.id, quote, "Supported", questionId = "Q1", relevance = "Relevant", exactQuoteVerified = true,
+            sourceVersion = dev.chungjungsoo.gptmobile.data.research.capturedResearchVersion(source),
+            passageHash = dev.chungjungsoo.gptmobile.data.research.researchHash(source.passage),
+            reviewedSourceVersion = dev.chungjungsoo.gptmobile.data.research.capturedResearchVersion(source)
+        )
+        val snapshot = ResearchSnapshot(
+            "Research https://example.org/parcel using the supplied tools and report the parcel code with its source URL.",
+            sources = listOf(source),
+            claims = listOf(claim),
+            complete = true,
+            phase = "Complete",
+            questionPlan = listOf(dev.chungjungsoo.gptmobile.data.research.ResearchQuestion("Q1", "What is the parcel code?", "Exact fixture passage")),
+            notes = listOf("Question coverage: 1/1; missing=. Passage support is separate from independent review.", "Planning: Validated. Collection: 1/1."),
+            numericalFactBindingRequired = true
+        )
+        val packet = ResearchDeliveryPacket.build(snapshot, ResearchReportDetail.BRIEF, tokenBudget = 512)
+        val json = packet.json()
+        val selected = (json["studies"] as kotlinx.serialization.json.JsonArray).single() as kotlinx.serialization.json.JsonObject
+        assertEquals(listOf(source), packet.studies)
+        assertTrue(selected["unreviewedPassage"].toString().contains(quote))
+        assertEquals(dev.chungjungsoo.gptmobile.data.research.capturedResearchVersion(source), (selected["versionId"] as kotlinx.serialization.json.JsonPrimitive).content)
+        assertEquals(dev.chungjungsoo.gptmobile.data.research.researchHash(source.passage), (selected["passageHash"] as kotlinx.serialization.json.JsonPrimitive).content)
+        assertEquals(listOf(claim), packet.snapshot.claims)
+        assertEquals(1, packet.omitted.getValue("claimsByBudget"))
+        assertTrue(json["unrepresentedQuestions"].toString().contains("Q1"))
+        assertTrue(json.toString().contains("\"independentReviewClaims\":0"))
+        assertTrue(json.toString().toByteArray().size <= 512 * 3)
+    }
+
     @Test fun smallHandoffRetainsReadableEvidenceBeforeUnreadLeads() {
         val readable = read.copy(passage = passage.repeat(30))
         val leads = (2..18).map { unread.copy(id = "S$it", equivalenceGroup = "lead-$it") }

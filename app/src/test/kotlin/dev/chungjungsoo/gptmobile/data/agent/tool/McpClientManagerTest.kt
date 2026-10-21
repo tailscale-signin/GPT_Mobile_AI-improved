@@ -337,15 +337,27 @@ class McpClientManagerTest {
             SlowInitializeMcpFixtureServer(started, startCount).use { second ->
                 val client = testClient()
                 val manager = McpClientManager(client)
+                try {
+                    val firstConfig = McpConnectionConfig("connection-1", first.url, allowCleartext = true)
+                    val secondConfig = McpConnectionConfig("connection-2", second.url, allowCleartext = true)
+                    val one = async { manager.listTools(firstConfig) }
+                    val two = async { manager.listTools(secondConfig) }
 
-                val one = async { manager.listTools(McpConnectionConfig("connection-1", first.url, allowCleartext = true)) }
-                val two = async { manager.listTools(McpConnectionConfig("connection-2", second.url, allowCleartext = true)) }
-
-                withTimeout(2_000) { started.await() }
-                assertEquals(listOf("echo"), one.await().map { it.name })
-                assertEquals(listOf("echo"), two.await().map { it.name })
-                manager.closeAll()
-                client.close()
+                    withTimeout(2_000) { started.await() }
+                    // Both slow handshakes outlive the 2-second consumer allowance.
+                    // Their independent producers continue and populate the cache.
+                    assertTrue(one.await().isEmpty())
+                    assertTrue(two.await().isEmpty())
+                    withTimeout(8_000) {
+                        while (manager.peekTools(firstConfig) == null || manager.peekTools(secondConfig) == null) kotlinx.coroutines.delay(25)
+                    }
+                    assertEquals(listOf("echo"), manager.listTools(firstConfig).map { it.name })
+                    assertEquals(listOf("echo"), manager.listTools(secondConfig).map { it.name })
+                    assertEquals(2, startCount.get())
+                } finally {
+                    manager.closeAll()
+                    client.close()
+                }
             }
         }
     }

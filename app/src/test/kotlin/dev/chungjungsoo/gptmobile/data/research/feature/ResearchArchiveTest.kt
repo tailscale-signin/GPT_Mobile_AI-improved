@@ -114,14 +114,14 @@ class ResearchArchiveTest {
     @Test fun fullCaptureProofSurvivesRepeatedRevalidationButLegacyFullBadgeDoesNotCreateProof() = runBlocking {
         val body = "Methods: 24 participants were randomized. Results: no difference was measured."
         val source = ResearchSource("proof", "https://example.org/proof", "Trial", "Read", body, bodyChunks = listOf("body"), structuredFullText = true, sectionNames = setOf("methods", "results"), captureTruncated = false)
-        val full = ResearchArchiveIngestor.capture(database, source, "public", true, -1, "proof", true, 0, researchHash(body), body.encodeToByteArray().size.toLong())
+        val full = ResearchArchiveIngestor.capture(database, source, "public", true, -1, "proof", true, 0, researchHash(body), body.encodeToByteArray().size.toLong(), ownerKind = "import", ownerId = "proof")
         assertEquals(ArticleCoverage.FULL_TEXT_CAPTURED, full.coverage)
         val repair = ResearchSourceRepair(database, io.mockk.mockk())
         repeat(3) {
             assertTrue(repair.classify(requireNotNull(database.research().version(full.versionId)), body).fullTextProven)
             assertEquals(ArticleCoverage.FULL_TEXT_CAPTURED, database.research().version(full.versionId)!!.coverage)
         }
-        val ordinary = ResearchArchiveIngestor.capture(database, source.copy(id = "old", url = "https://example.org/old", canonicalUrl = "https://example.org/old", doi = "10.1234/old", structuredFullText = false, captureTruncated = null), "public", true, -1, "old", true, 0, researchHash(body), body.encodeToByteArray().size.toLong())
+        val ordinary = ResearchArchiveIngestor.capture(database, source.copy(id = "old", url = "https://example.org/old", canonicalUrl = "https://example.org/old", doi = "10.1234/old", structuredFullText = false, captureTruncated = null), "public", true, -1, "old", true, 0, researchHash(body), body.encodeToByteArray().size.toLong(), ownerKind = "import", ownerId = "old")
         assertEquals(ArticleCoverage.PARTIAL_TEXT, ordinary.coverage)
         val dao = database.research()
         assertEquals(0, dao.reclassifyVersion(ordinary.versionId, "wrong hash", ArticleCoverage.PARTIAL_TEXT, ArticleCoverage.FULL_TEXT_CAPTURED, "wrong"))

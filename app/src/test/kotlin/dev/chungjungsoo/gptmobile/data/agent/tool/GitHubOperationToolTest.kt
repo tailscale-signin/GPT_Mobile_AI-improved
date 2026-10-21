@@ -133,7 +133,7 @@ class GitHubOperationToolTest {
 
     @Test fun independentPrFilesAndChecksContinuationsStayBoundToTheSameHead() = runBlocking {
         val backend = Backend().also {
-            it.body = args("""{"files_continuation":{"action":"pr_context","pull_number":17,"page":2,"expected_head":"$sha","include_patches":false},"checks_continuation":{"action":"pr_context","pull_number":17,"page":1,"check_page":3,"expected_head":"$sha","include_patches":false}}""")
+            it.body = args("""{"files_continuation":{"action":"pr_context","pull_number":17,"page":2,"expected_head":"$sha","expected_base_sha":"${"b".repeat(40)}","include_patches":false,"include_files":true,"include_checks":false},"checks_continuation":{"action":"pr_context","pull_number":17,"page":1,"check_page":3,"expected_head":"$sha","expected_base_sha":"${"b".repeat(40)}","include_patches":false,"include_files":false,"include_checks":true}}""")
         }
         val tool = GitHubOperationTool("github_pr", backend, "scope")
         val initial = result(tool.execute("first", args("""{"action":"context","pull_number":17}""")))
@@ -144,6 +144,9 @@ class GitHubOperationToolTest {
             valid("github_pr", next)
             assertEquals("context", next["action"]?.jsonPrimitive?.content)
             assertEquals(sha, next["expected_head_sha"]?.jsonPrimitive?.content)
+            assertEquals("b".repeat(40), next["expected_base_sha"]?.jsonPrimitive?.content)
+            assertEquals(entry.jsonObject["native"]!!.jsonObject["include_files"], next["include_files"])
+            assertEquals(entry.jsonObject["native"]!!.jsonObject["include_checks"], next["include_checks"])
             tool.execute("page", next)
             assertEquals(sha, backend.calls.last()["expected_head"]?.jsonPrimitive?.content)
         }

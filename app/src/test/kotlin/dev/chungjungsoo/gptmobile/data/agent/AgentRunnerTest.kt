@@ -243,7 +243,10 @@ class AgentRunnerTest {
                         emit(ProviderEvent.Failed("Tool arguments were not valid JSON."))
                         emit(ProviderEvent.Usage(100, 4096, 4196))
                     } else {
-                        assertTrue(tools.isEmpty())
+                        // Invalid native frames use one protocol repair with the same
+                        // authorized capabilities; no incomplete action was dispatched.
+                        assertEquals(listOf("write"), tools.map { it.name })
+                        assertTrue(tools.single().description.contains("Protocol repair"))
                         emit(ProviderEvent.TextDelta("The incomplete action was not performed."))
                         emit(ProviderEvent.Completed)
                     }
@@ -806,10 +809,10 @@ class AgentRunnerTest {
     }
 
     @Test
-    fun `single tool is circuit broken after per response repeat limit`() = runBlocking {
+    fun `ordinary tool is circuit broken after per response repeat limit`() = runBlocking {
         val executions = AtomicInteger()
         val providerCalls = AtomicInteger()
-        val repeated = tool("github__github_api") { id, _ ->
+        val repeated = tool("ordinary_lookup") { id, _ ->
             executions.incrementAndGet()
             AgentToolResult(id, ToolResultContent.Text("ok"), false)
         }
@@ -817,7 +820,7 @@ class AgentRunnerTest {
             val round = providerCalls.getAndIncrement()
             flow {
                 if (tools.isNotEmpty()) {
-                    emit(toolCall("call-$round", "github__github_api"))
+                    emit(toolCall("call-$round", "ordinary_lookup"))
                 } else {
                     emit(ProviderEvent.TextDelta("finished"))
                 }
@@ -829,6 +832,62 @@ class AgentRunnerTest {
 
         assertEquals(24, executions.get())
         assertTrue(events.filterIsInstance<AgentRunEvent.ToolFinished>().any { it.result.isError })
+        assertEquals(AgentRunEvent.Provider(ProviderEvent.Completed), events.last())
+    }
+
+    @Test
+    fun `thirty distinct GitHub reads remain executable within the run allowance`() = runBlocking {
+        val paths = mutableListOf<String>()
+        var rounds = 0
+        val read = tool("github_read") { id, arguments ->
+            paths += arguments["path"].toString()
+            AgentToolResult(id, ToolResultContent.Text("file content"), false)
+        }
+        val provider = session { _, _ ->
+            val round = rounds++
+            flow {
+                if (round < 30) {
+                    emit(toolCall("read-$round", "github_read", buildJsonObject { put("path", "src/File$round.kt") }))
+                } else {
+                    emit(ProviderEvent.TextDelta("Read all thirty distinct files."))
+                }
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val events = AgentRunner(AgentRunLimits(maxRounds = 40, maxToolCalls = 50)).run(provider, listOf(read)).toList()
+        assertEquals(30, paths.size)
+        assertEquals(30, paths.distinct().size)
+        assertFalse(events.filterIsInstance<AgentRunEvent.ToolFinished>().any { it.result.isError })
+        assertEquals(AgentRunEvent.Provider(ProviderEvent.Completed), events.last())
+    }
+
+    @Test
+    fun `identical GitHub read arguments are bounded without disabling other reads`() = runBlocking {
+        var executions = 0
+        var rounds = 0
+        val exposed = mutableListOf<List<String>>()
+        val read = tool("github_read") { id, _ ->
+            executions++
+            AgentToolResult(id, ToolResultContent.Text("file content"), false)
+        }
+        val provider = session { tools, _ ->
+            exposed += tools.map { it.name }
+            val round = rounds++
+            flow {
+                when {
+                    round < 4 -> emit(toolCall("same-$round", "github_read", buildJsonObject { put("path", "src/Same.kt") }))
+                    round == 4 -> emit(toolCall("different", "github_read", buildJsonObject { put("path", "src/Different.kt") }))
+                    else -> emit(ProviderEvent.TextDelta("Used the retained file results."))
+                }
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val events = AgentRunner(AgentRunLimits(maxRounds = 10, maxToolCalls = 12)).run(provider, listOf(read)).toList()
+        assertEquals(4, executions)
+        val denied = events.filterIsInstance<AgentRunEvent.ToolFinished>().single { it.result.isError }
+        assertEquals("same-3", denied.call.callId)
+        assertFalse(denied.result.dispatched)
+        assertTrue("github_read" in exposed[4])
         assertEquals(AgentRunEvent.Provider(ProviderEvent.Completed), events.last())
     }
 

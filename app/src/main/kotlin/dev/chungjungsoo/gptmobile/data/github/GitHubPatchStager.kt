@@ -21,7 +21,15 @@ internal object GitHubPatchStager {
             val replacement = edit["new_text"]?.jsonPrimitive?.contentOrNull ?: error("new_text is required.")
             require(old.isNotEmpty()) { "An empty anchor cannot identify an exact edit." }
             val before = changed[path] ?: original.second
-            val positions = Regex(Regex.escape(old)).findAll(before).map { it.range.first }.take(10001).toList()
+            // Overlapping matches are ambiguous too (for example "aa" inside "aaa").
+            // A non-overlapping regex search would silently select the first occurrence.
+            val positions = buildList {
+                var next = before.indexOf(old)
+                while (next >= 0 && size < 10001) {
+                    add(next)
+                    next = before.indexOf(old, next + 1)
+                }
+            }
             val occurrence = edit["occurrence"]?.jsonPrimitive?.intOrNull
             require(positions.isNotEmpty()) { "Exact edit anchor was not found: $path" }
             require(occurrence != null || positions.size == 1) { "Ambiguous edit anchor; supply an explicit occurrence: $path" }

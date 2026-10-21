@@ -262,6 +262,9 @@ class CombinedTurnBudget(
 
     /** A contributor's response, including failure, releases its unused protected baseline. */
     suspend fun finishStage(ownerKey: String, outcome: String, reason: String? = null) = mutex.withLock {
+        // Recovery and late callbacks still retain their raw run outcomes, but a closed root's
+        // delivery disposition is final. Replaying them must not undo explicit Use Reply/cancel.
+        if (state.closed || state.cancelled) return@withLock
         require(ownerKey == "finalization" || ownerKey in state.plan.baselineByOwner || ownerKey in state.pendingWork || ownerKey in state.plan.requested.participantUids.map { "contributor:$it" })
         require(outcome in TERMINAL_OUTCOMES)
         val recorded = if (reason.isNullOrBlank()) outcome else "$outcome:${reason.take(300)}"

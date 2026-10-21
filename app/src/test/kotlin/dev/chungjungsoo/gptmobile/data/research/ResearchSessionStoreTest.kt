@@ -56,6 +56,16 @@ class ResearchSessionStoreTest {
         assertEquals("What changed in the latest release?", related.load("  WHAT changed in the latest   release? ")?.task)
         assertNull(store.journal("profile-c", 1, true, turnId = "1:43").load("What changed in the latest release?"))
         assertNotNull(related.load("A sibling subquestion shares the same corpus"))
+        assertEquals("What changed in the latest release?", ResearchSessionStore(context).journal("profile-d", 1, true, turnId = "1:42").load("Another sibling subquestion")?.task)
+    }
+
+    @Test fun acceptedOriginalTaskDoesNotFallBackToAnUnregisteredLegacyTask() = runBlocking {
+        val store = ResearchSessionStore(context)
+        store.journal("legacy", 1, true, "1:42").save(ResearchSnapshot("Unregistered old subquestion"))
+        store.acceptTask(1, "1:42", 42, "Accepted original request", listOf("p1"), "p1", "settings", "sources", true)
+        val current = store.journal("current", 1, true, "1:42", ownerScope = "p1")
+        assertNull(current.load("Unregistered old subquestion"))
+        assertEquals("Accepted original request", store.acceptedTask("1:42")?.taskText)
     }
 
     @Test fun taskScopedResearchLockSerializesSiblingProfiles() = runBlocking {

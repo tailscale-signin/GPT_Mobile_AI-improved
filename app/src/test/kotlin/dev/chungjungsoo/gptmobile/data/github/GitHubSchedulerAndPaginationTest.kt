@@ -47,8 +47,8 @@ class GitHubSchedulerAndPaginationTest {
             }
         }
         runCurrent()
-        val joined = async { scheduler.execute("blob:one") { error("Duplicate immutable dispatch") } }
-        val cancelled = async { scheduler.execute(priority = 20) { error("Cancelled work must not execute") } }
+        val joined = async { scheduler.execute<String>("blob:one") { error("Duplicate immutable dispatch") } }
+        val cancelled = async { scheduler.execute<Unit>(priority = 20) { error("Cancelled work must not execute") } }
         val background = async { scheduler.execute(priority = -1) { order += "background" } }
         val visible = async { scheduler.execute(priority = 10) { order += "visible" } }
         runCurrent()
@@ -96,41 +96,49 @@ class GitHubSchedulerAndPaginationTest {
 
     @Test fun prContextReaches125FilesAnd45ChecksWithImmutableHeadFence() = runTest {
         var mutableHead = head
+        val filePages = mutableListOf<Int>()
+        val checkPages = mutableListOf<Int>()
         val http = HttpClient(
             MockEngine { request ->
                 val page = request.url.parameters["page"]?.toInt() ?: 1
                 assertTrue(request.url.parameters["per_page"] == null || request.url.parameters["per_page"] == "30")
                 when {
                     request.url.encodedPath.endsWith("/pulls/7") -> respond("""{"number":7,"changed_files":125,"head":{"sha":"$mutableHead"},"base":{"sha":"${"b".repeat(40)}"}}""")
-                    request.url.encodedPath.endsWith("/files") -> respond(
-                        JsonArray(
-                            ((page - 1) * 30 until minOf(page * 30, 125)).map {
-                                buildJsonObject {
-                                    put("filename", "src/$it.kt")
-                                    put("sha", head)
-                                    put("patch", "x".repeat(4000))
-                                    put("status", "modified")
-                                }
-                            }
-                        ).toString()
-                    )
-                    request.url.encodedPath.endsWith("/check-runs") -> respond(
-                        buildJsonObject {
-                            put("total_count", 45)
-                            put(
-                                "check_runs",
-                                JsonArray(
-                                    ((page - 1) * 30 until minOf(page * 30, 45)).map {
-                                        buildJsonObject {
-                                            put("id", it)
-                                            put("status", "completed")
-                                            put("conclusion", "success")
-                                        }
+                    request.url.encodedPath.endsWith("/files") -> {
+                        filePages += page
+                        respond(
+                            JsonArray(
+                                ((page - 1) * 30 until minOf(page * 30, 125)).map {
+                                    buildJsonObject {
+                                        put("filename", "src/$it.kt")
+                                        put("sha", head)
+                                        put("patch", "x".repeat(4000))
+                                        put("status", "modified")
                                     }
+                                }
+                            ).toString()
+                        )
+                    }
+                    request.url.encodedPath.endsWith("/check-runs") -> {
+                        checkPages += page
+                        respond(
+                            buildJsonObject {
+                                put("total_count", 45)
+                                put(
+                                    "check_runs",
+                                    JsonArray(
+                                        ((page - 1) * 30 until minOf(page * 30, 45)).map {
+                                            buildJsonObject {
+                                                put("id", it)
+                                                put("status", "completed")
+                                                put("conclusion", "success")
+                                            }
+                                        }
+                                    )
                                 )
-                            )
-                        }.toString()
-                    )
+                            }.toString()
+                        )
+                    }
                     else -> error(request.url.toString())
                 }
             }
@@ -146,6 +154,7 @@ class GitHubSchedulerAndPaginationTest {
             repeat(5) { index ->
                 val response = client.execute("pr_context", next).jsonObject
                 if (first == null) first = response
+                if (index > 0) assertFalse("File continuations must not resend checks", "checks" in response)
                 response["files"]!!.jsonArray.forEach { row ->
                     val file = row.jsonObject
                     files += file["filename"]!!.jsonPrimitive.content
@@ -163,8 +172,78 @@ class GitHubSchedulerAndPaginationTest {
             assertEquals(30, first!!["checks"]!!.jsonObject["returned"]!!.jsonPrimitive.intOrNull)
             assertEquals(15, moreChecks["checks"]!!.jsonObject["returned"]!!.jsonPrimitive.intOrNull)
             assertFalse(moreChecks["checks"]!!.jsonObject["has_more"]!!.jsonPrimitive.booleanOrNull == true)
+            assertFalse("Check continuations must not resend files", "files" in moreChecks)
+            assertEquals(listOf(1, 2, 3, 4, 5), filePages)
+            assertEquals(listOf(1, 2), checkPages)
             mutableHead = "c".repeat(40)
             assertTrue(runCatching { client.execute("pr_context", next) }.exceptionOrNull()?.message?.contains("head changed", true) == true)
+        } finally {
+            http.close()
+        }
+    }
+
+    @Test fun prFilesAreRejectedWhenHeadOrBaseChangesDuringTheMutableRead() = runTest {
+        for (changedSide in listOf("head", "base")) {
+            var metadataReads = 0
+            var checkReads = 0
+            val base = "b".repeat(40)
+            val http = HttpClient(
+                MockEngine { request ->
+                    when {
+                        request.url.encodedPath.endsWith("/pulls/7") -> {
+                            metadataReads++
+                            val observedHead = if (changedSide == "head" && metadataReads > 1) "c".repeat(40) else head
+                            val observedBase = if (changedSide == "base" && metadataReads > 1) "d".repeat(40) else base
+                            respond("""{"number":7,"changed_files":1,"head":{"sha":"$observedHead"},"base":{"sha":"$observedBase"}}""")
+                        }
+                        request.url.encodedPath.endsWith("/files") -> respond("""[{"filename":"changed.kt","sha":"$head"}]""")
+                        request.url.encodedPath.endsWith("/check-runs") -> {
+                            checkReads++
+                            respond("""{"check_runs":[],"total_count":0}""")
+                        }
+                        else -> error(request.url.toString())
+                    }
+                }
+            )
+            try {
+                val failure = runCatching { GitHubWorkspaceClient("moving-pr-$changedSide", http).execute("pr_context", args { put("pull_number", 7) }) }.exceptionOrNull()
+                assertTrue(failure?.message.orEmpty().contains("while files were loading"))
+                assertEquals(2, metadataReads)
+                assertEquals(0, checkReads)
+            } finally {
+                http.close()
+            }
+        }
+    }
+
+    @Test fun prFileContinuationRejectsChangedBaseEvenWhenHeadIsUnchanged() = runTest {
+        var base = "b".repeat(40)
+        var fileReads = 0
+        val http = HttpClient(
+            MockEngine { request ->
+                when {
+                    request.url.encodedPath.endsWith("/pulls/7") -> respond("""{"number":7,"changed_files":31,"head":{"sha":"$head"},"base":{"sha":"$base"}}""")
+                    request.url.encodedPath.endsWith("/files") -> {
+                        fileReads++
+                        respond("[]")
+                    }
+                    else -> error(request.url.toString())
+                }
+            }
+        )
+        try {
+            val client = GitHubWorkspaceClient("retargeted-pr", http)
+            val first = client.execute(
+                "pr_context",
+                args {
+                    put("pull_number", 7)
+                    put("include_checks", false)
+                }
+            ).jsonObject
+            base = "c".repeat(40)
+            val failure = runCatching { client.execute("pr_context", JsonObject(args() + first["files_continuation"]!!.jsonObject)) }.exceptionOrNull()
+            assertTrue(failure?.message.orEmpty().contains("base changed"))
+            assertEquals(1, fileReads)
         } finally {
             http.close()
         }

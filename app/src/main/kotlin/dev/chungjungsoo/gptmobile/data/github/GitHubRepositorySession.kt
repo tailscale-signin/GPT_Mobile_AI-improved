@@ -32,15 +32,23 @@ internal class GitHubRepositorySession(
         ignoreUnknownKeys = true
         encodeDefaults = true
     }
-    private var current: GitHubTaskSnapshot? = null
     private fun String.sha() = matches(Regex("[a-fA-F0-9]{40}|[a-fA-F0-9]{64}"))
     private fun JsonObject.s(key: String) = (get(key) as? JsonPrimitive)?.content.orEmpty()
     private fun root(owner: String, repo: String) = "/repos/${GitHubWorkspaceClient.segment(owner)}/${GitHubWorkspaceClient.segment(repo)}"
     private fun blobScope(context: GitHubTaskSnapshot) = "$accountId:${context.owner.lowercase()}/${context.repo.lowercase()}"
 
-    suspend fun snapshot(): GitHubTaskSnapshot? = current ?: store.read(scope, "snapshot")?.let {
+    private fun decodeSnapshot(value: JsonObject?): GitHubTaskSnapshot? = value?.let {
         runCatching { codec.decodeFromJsonElement(GitHubTaskSnapshot.serializer(), it) }.getOrNull()?.takeIf { row -> row.accountId == accountId && row.connectionUid == connectionUid && row.conversationId == conversationId && row.taskId == taskId }
-    }?.also { current = it }
+    }
+
+    suspend fun snapshot(): GitHubTaskSnapshot? = decodeSnapshot(store.read(scope, "snapshot"))
+
+    private suspend fun updateSnapshot(transform: (GitHubTaskSnapshot) -> GitHubTaskSnapshot) {
+        store.update(scope, "snapshot") { retained ->
+            val current = requireNotNull(decodeSnapshot(retained)) { "The repository task revision is unavailable; resolve it again." }
+            codec.encodeToJsonElement(GitHubTaskSnapshot.serializer(), transform(current)) as JsonObject
+        }
+    }
 
     suspend fun context(): GitHubRepositoryContext? = snapshot()?.let { GitHubRepositoryContext(it.owner, it.repo, it.ref) }
         ?: store.read(conversationScope, "selected_context")?.let { row ->
@@ -49,7 +57,6 @@ internal class GitHubRepositorySession(
 
     private suspend fun save(value: GitHubTaskSnapshot) {
         store.write(scope, "snapshot", codec.encodeToJsonElement(GitHubTaskSnapshot.serializer(), value) as JsonObject)
-        current = value
         store.write(
             conversationScope,
             "selected_context",
@@ -346,8 +353,9 @@ internal class GitHubRepositorySession(
                 put("items", JsonArray(results))
             }
         )
-        val pinned = snapshot() ?: context
-        save(pinned.copy(evidenceHandles = (pinned.evidenceHandles + evidenceId).distinct().takeLast(128), updatedAt = System.currentTimeMillis()))
+        updateSnapshot { pinned ->
+            pinned.copy(evidenceHandles = (pinned.evidenceHandles + evidenceId).distinct().takeLast(128), updatedAt = System.currentTimeMillis())
+        }
         return buildJsonObject {
             put("evidence_id", evidenceId)
             put("commit_sha", context.commitSha)
@@ -398,7 +406,10 @@ internal class GitHubRepositorySession(
                 put("preview", preview)
             }
         )
-        save(context.copy(stagedPatchId = id, updatedAt = System.currentTimeMillis()))
+        updateSnapshot { pinned ->
+            require(pinned.owner.equals(context.owner, true) && pinned.repo.equals(context.repo, true) && pinned.commitSha == context.commitSha && pinned.ref == context.ref) { "Task revision changed while preparing the patch; review and restage it." }
+            pinned.copy(stagedPatchId = id, updatedAt = System.currentTimeMillis())
+        }
         return buildJsonObject {
             put("stage_id", id)
             put("expected_head_sha", expected)

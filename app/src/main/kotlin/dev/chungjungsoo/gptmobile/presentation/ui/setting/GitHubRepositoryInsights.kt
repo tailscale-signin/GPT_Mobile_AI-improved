@@ -72,12 +72,10 @@ internal fun GitHubRepositoryInsights(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Icon(Icons.Rounded.AccountTree, null, tint = colors.primary)
-                Column(Modifier.weight(1f)) {
-                    Text("Repository session", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                    Text(state.selection?.fullName.orEmpty(), style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
-                }
+                Text("Repository session", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text(if (state.canWrite) "Can edit" else "Read only", style = MaterialTheme.typography.labelMedium, color = colors.primary)
             }
+            Text(state.selection?.fullName.orEmpty(), style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 SessionPill("@${state.login.ifBlank { "connected account" }}")
                 SessionPill(state.selection?.ref.orEmpty())

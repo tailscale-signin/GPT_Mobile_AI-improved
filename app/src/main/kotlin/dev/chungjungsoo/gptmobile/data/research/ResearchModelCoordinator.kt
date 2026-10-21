@@ -114,7 +114,7 @@ internal class ResearchModelCoordinator(
     suspend fun rejectGrounding(invocationId: String?) {
         val previous = events.lastOrNull { it.invocationId == invocationId && it.stage == ResearchModelStage.EXTRACT.name } ?: return
         incompleteStages.add(previous.stage)
-        record(previous.copy(outcome = "VALIDATION_FAILED", reason = "NO_GROUNDED_CLAIMS", failurePhase = "GROUNDING", failureCategory = "EVIDENCE_VALIDATION"))
+        record(previous.copy(outcome = "VALIDATION_FAILED", reason = "NO_GROUNDED_CLAIMS", failurePhase = "GROUNDING", failureCategory = "EVIDENCE_VALIDATION", stageAccepted = false))
     }
 
     private suspend fun record(event: ResearchModelEvent) {
@@ -189,7 +189,7 @@ internal class ResearchModelCoordinator(
                 if (reply != null && (!reply.transportComplete || reply.transportFailure != null || reply.outputLimitReached || reply.text.startsWith("[PARTIAL_DELEGATE_OUTPUT:"))) {
                     val limited = reply.outputLimitReached || reply.text.startsWith("[PARTIAL_DELEGATE_OUTPUT:")
                     val checkpoint = keepPartial(stage, target, reply.text)
-                    record(event.copy(outcome = "FAILED", reason = if (limited) "OUTPUT_LIMIT_BEFORE_SCHEMA" else "TRANSPORT_INCOMPLETE", failurePhase = "GENERATION", failureCategory = if (limited) "OUTPUT_LIMIT" else "TRANSPORT", durationMs = elapsed(started), invocationId = reply.invocationId, partialRetained = checkpoint != null, checkpointId = checkpoint, providerHost = target.providerHost, finishReason = reply.finishReason, requestId = reply.requestId))
+                    record(event.copy(outcome = "FAILED", reason = if (limited) "OUTPUT_LIMIT_BEFORE_SCHEMA" else "TRANSPORT_INCOMPLETE", failurePhase = "GENERATION", failureCategory = if (limited) "OUTPUT_LIMIT" else "TRANSPORT", durationMs = elapsed(started), invocationId = reply.invocationId, transportComplete = reply.transportComplete && reply.transportFailure == null, partialRetained = checkpoint != null, checkpointId = checkpoint, providerHost = target.providerHost, finishReason = reply.finishReason, requestId = reply.requestId))
                     continue
                 }
                 if (reply == null) {

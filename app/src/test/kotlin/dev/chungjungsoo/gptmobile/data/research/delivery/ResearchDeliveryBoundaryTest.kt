@@ -102,11 +102,18 @@ class ResearchDeliveryBoundaryTest {
             emit(ProviderEvent.Completed)
         }
         val denial = IllegalStateException("Dispatch rejected", SecurityException("Destination changed"))
-        val delivery = ResearchDeliverySession(initial, { packet }) { _, repair -> if (repair) throw denial else initial }
+        val receipts = mutableListOf<ResearchDeliveryReceipt>()
+        val delivery = ResearchDeliverySession(initial, { packet }, saveReceipt = { receipts += it }) { _, repair -> if (repair) throw denial else initial }
         val events = mutableListOf<ProviderEvent>()
         val error = runCatching { delivery.streamRound(emptyList(), emptyList()).collect { events += it } }.exceptionOrNull()
-        assertTrue(error === denial)
+        // Coroutine stack recovery may copy the wrapper; authorization is carried
+        // by its typed cause, not by object identity across a suspension boundary.
+        assertTrue(error is IllegalStateException)
+        assertEquals("Dispatch rejected", error?.message)
+        assertTrue(generateSequence(error) { it.cause }.any { it is SecurityException && it.message == "Destination changed" })
         assertFalse(events.any { it is ProviderEvent.TextDelta || it == ProviderEvent.Completed })
+        assertFalse(events.filterIsInstance<ProviderEvent.Notice>().any { it.researchDelivery != null })
+        assertTrue(receipts.isEmpty())
     }
 
     @Test fun failedRepairRetainsExactValidParagraphBytesAndRejectsTheReport() = runTest {

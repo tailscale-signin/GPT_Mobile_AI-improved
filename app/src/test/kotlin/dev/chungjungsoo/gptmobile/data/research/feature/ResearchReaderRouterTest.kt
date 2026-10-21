@@ -67,7 +67,7 @@ class ResearchReaderRouterTest {
             assertEquals(evidence, ResearchReaderRouter.fallback(paper, evidence, readers, sessions, emptyList(), emptyList()) { true })
         }
         assertEquals(initial, ResearchReaderRouter.fallback(paper, initial, readers, sessions, emptyList(), listOf("example.org")) { true })
-        assertEquals(initial, ResearchReaderRouter.fallback(paper, initial, readers, sessions, emptyList(), emptyList()) { false })
+        assertEquals(initial.copy(retrievalStatus = "permission_denied", failureCode = "PERMISSION_REVOKED"), ResearchReaderRouter.fallback(paper, initial, readers, sessions, emptyList(), emptyList()) { false })
         coVerify(exactly = 0) { tool.execute(any(), any()) }
     }
 

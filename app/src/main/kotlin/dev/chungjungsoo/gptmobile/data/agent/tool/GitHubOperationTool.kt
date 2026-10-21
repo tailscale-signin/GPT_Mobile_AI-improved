@@ -180,11 +180,13 @@ internal class GitHubOperationTool(
                 "github_pr" -> {
                     properties["action"] = choice("context", "create", "update", "comment", "merge")
                     properties["pull_number"] = field("integer")
-                    listOf("title", "body", "head", "base", "expected_head_sha").forEach { properties[it] = field("string") }
+                    listOf("title", "body", "head", "base", "expected_head_sha", "expected_base_sha").forEach { properties[it] = field("string") }
                     properties["draft"] = field("boolean")
                     properties["page"] = field("integer")
                     properties["check_page"] = field("integer")
                     properties["include_patches"] = field("boolean")
+                    properties["include_files"] = field("boolean")
+                    properties["include_checks"] = field("boolean")
                 }
                 "github_ci" -> {
                     properties["action"] = choice("failure", "runs", "jobs", "logs", "dispatch", "rerun", "cancel")

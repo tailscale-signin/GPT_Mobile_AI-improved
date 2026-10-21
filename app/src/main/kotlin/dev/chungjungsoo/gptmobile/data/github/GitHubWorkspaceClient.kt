@@ -531,22 +531,41 @@ class GitHubWorkspaceClient(
     private suspend fun prContext(root: String, number: Int, args: JsonObject, page: Int): JsonObject {
         val pr = request("$root/pulls/$number").jsonObject
         val head = pr["head"]?.jsonObject?.get("sha")?.jsonPrimitive?.content.orEmpty()
+        val base = pr["base"]?.jsonObject?.get("sha")?.jsonPrimitive?.content.orEmpty()
+        require(head.isNotBlank()) { "Pull request head is unavailable; refresh before reviewing files or checks." }
         val expected = args["expected_head"]?.jsonPrimitive?.content.orEmpty().ifBlank { args["expected_head_sha"]?.jsonPrimitive?.content.orEmpty() }
         require(expected.isBlank() || expected == head) { "Pull request head changed; restart the review at its new head." }
+        val expectedBase = args["expected_base_sha"]?.jsonPrimitive?.content.orEmpty()
+        require(expectedBase.isBlank() || expectedBase == base) { "Pull request base changed; restart the review at its new revision." }
+        val includeFiles = args["include_files"]?.jsonPrimitive?.booleanOrNull != false
+        val includeChecks = args["include_checks"]?.jsonPrimitive?.booleanOrNull != false
+        require(includeFiles || includeChecks) { "Select pull request files, checks, or both." }
         val checkPage = (args["check_page"]?.jsonPrimitive?.content?.toIntOrNull() ?: 1).also { require(it in 1..1000) }
-        val files = request("$root/pulls/$number/files?per_page=30&page=$page").jsonArray
+        val files = if (includeFiles) request("$root/pulls/$number/files?per_page=30&page=$page").jsonArray else JsonArray(emptyList())
+        if (includeFiles) {
+            // The files endpoint is mutable, so an expected head checked only before
+            // the read cannot establish which revision supplied the returned patch.
+            val after = request("$root/pulls/$number").jsonObject
+            require(after["head"]?.jsonObject?.get("sha")?.jsonPrimitive?.content == head && after["base"]?.jsonObject?.get("sha")?.jsonPrimitive?.content.orEmpty() == base) {
+                "Pull request head changed or its base changed while files were loading; restart the review at its new revision."
+            }
+        }
         val total = pr["changed_files"]?.jsonPrimitive?.content?.toIntOrNull() ?: files.size
-        val checks = if (head.isBlank()) null else compactChecks(request("$root/commits/${segment(head)}/check-runs?per_page=30&page=$checkPage").jsonObject, checkPage)
+        val checks = if (includeChecks) compactChecks(request("$root/commits/${segment(head)}/check-runs?per_page=30&page=$checkPage").jsonObject, checkPage) else null
         val patches = args["include_patches"]?.jsonPrimitive?.booleanOrNull == true
         return buildJsonObject {
             put("pull_request", project(pr, "number", "title", "state", "draft", "merged", "mergeable", "mergeable_state", "html_url", "changed_files", "additions", "deletions", "head", "base"))
             put("expected_head", head)
             put("files_total", total)
-            put("files_returned", files.size)
-            put("page", page)
-            put("files_truncated", page * 30 < total)
-            put("has_more", page * 30 < total)
-            if (page * 30 < total) {
+            put("files_included", includeFiles)
+            put("checks_included", includeChecks)
+            if (includeFiles) {
+                put("files_returned", files.size)
+                put("page", page)
+                put("files_truncated", page * 30 < total)
+                put("has_more", page * 30 < total)
+            }
+            if (includeFiles && page * 30 < total) {
                 put(
                     "files_continuation",
                     buildJsonObject {
@@ -554,26 +573,31 @@ class GitHubWorkspaceClient(
                         put("pull_number", number)
                         put("page", page + 1)
                         put("expected_head", head)
+                        if (base.isNotBlank()) put("expected_base_sha", base)
                         put("include_patches", patches)
+                        put("include_files", true)
+                        put("include_checks", false)
                     }
                 )
             }
-            put(
-                "files",
-                JsonArray(
-                    files.map { row ->
-                        val item = row.jsonObject
-                        buildJsonObject {
-                            project(item, "filename", "status", "additions", "deletions", "changes", "sha", "previous_filename").forEach { (key, value) -> put(key, value) }
-                            if (patches) {
-                                val patch = item["patch"]?.jsonPrimitive?.content
-                                patch?.let { put("patch", GitHubRepositorySession.utf8Prefix(it, 2000)) }
-                                put("patch_truncated", patch == null || patch.encodeToByteArray().size > 2000)
+            if (includeFiles) {
+                put(
+                    "files",
+                    JsonArray(
+                        files.map { row ->
+                            val item = row.jsonObject
+                            buildJsonObject {
+                                project(item, "filename", "status", "additions", "deletions", "changes", "sha", "previous_filename").forEach { (key, value) -> put(key, value) }
+                                if (patches) {
+                                    val patch = item["patch"]?.jsonPrimitive?.content
+                                    patch?.let { put("patch", GitHubRepositorySession.utf8Prefix(it, 2000)) }
+                                    put("patch_truncated", patch == null || patch.encodeToByteArray().size > 2000)
+                                }
                             }
                         }
-                    }
+                    )
                 )
-            )
+            }
             checks?.let { put("checks", it) }
             if (checks?.get("has_more")?.jsonPrimitive?.booleanOrNull == true) {
                 put(
@@ -584,7 +608,10 @@ class GitHubWorkspaceClient(
                         put("page", page)
                         put("check_page", checkPage + 1)
                         put("expected_head", head)
+                        if (base.isNotBlank()) put("expected_base_sha", base)
                         put("include_patches", patches)
+                        put("include_files", false)
+                        put("include_checks", true)
                     }
                 )
             }

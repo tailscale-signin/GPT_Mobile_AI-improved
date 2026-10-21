@@ -116,7 +116,7 @@ class ToolApprovalManager @Inject constructor(private val database: ChatDatabase
     }
     suspend fun finish(runId: String, callId: String, success: Boolean) = dao.finish("$runId:$callId", if (success) "COMPLETED" else "OUTCOME_UNKNOWN")
     suspend fun authorizeOrThrow(connectionId: String, runId: String, callId: String, tool: String, arguments: JsonObject, schema: JsonObject? = null): Boolean {
-        if (connections.getConnection(connectionId)?.type == "GITHUB" && dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(tool) != null) {
+        if (dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(tool) != null && connections.getConnection(connectionId)?.type == "GITHUB") {
             val native = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.nativeArguments(tool, arguments) ?: return false
             return authorizeOrThrow(connectionId, runId, callId, "github", native, schema)
         }
@@ -130,7 +130,7 @@ class ToolApprovalManager @Inject constructor(private val database: ChatDatabase
     }
 
     suspend fun authorize(connectionId: String, runId: String, callId: String, tool: String, arguments: JsonObject, schema: JsonObject? = null): Boolean {
-        if (connections.getConnection(connectionId)?.type == "GITHUB" && dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(tool) != null) {
+        if (dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(tool) != null && connections.getConnection(connectionId)?.type == "GITHUB") {
             val native = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.nativeArguments(tool, arguments) ?: return false
             return authorize(connectionId, runId, callId, "github", native, schema)
         }

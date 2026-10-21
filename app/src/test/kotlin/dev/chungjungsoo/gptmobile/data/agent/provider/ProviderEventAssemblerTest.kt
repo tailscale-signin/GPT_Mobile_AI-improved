@@ -1,7 +1,9 @@
 package dev.chungjungsoo.gptmobile.data.agent.provider
 
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
+import dev.chungjungsoo.gptmobile.data.agent.ProviderUsagePhase
 import dev.chungjungsoo.gptmobile.data.dto.anthropic.response.MessageResponseChunk
+import dev.chungjungsoo.gptmobile.data.dto.anthropic.response.MessageStopResponseChunk
 import dev.chungjungsoo.gptmobile.data.dto.google.response.GenerateContentResponse
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.ChatCompletionChunk
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.ChatFunctionDelta
@@ -234,16 +236,23 @@ class ProviderEventAssemblerTest {
         val assembler = AnthropicEventAssembler()
         val start = """{"type":"message_start","message":{"id":"m1","model":"claude","content":[],"usage":{"input_tokens":20,"cache_read_input_tokens":30,"cache_creation_input_tokens":10,"output_tokens":1}}}"""
         val delta = """{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":25}}"""
-        assembler.accept(NetworkClient.json.decodeFromString<MessageResponseChunk>(start))
+        val initial = assembler.accept(NetworkClient.json.decodeFromString<MessageResponseChunk>(start))
+        assertEquals(ProviderEvent.Usage(60, 1, 61, phase = ProviderUsagePhase.INITIAL), initial.single())
         val events = assembler.accept(NetworkClient.json.decodeFromString<MessageResponseChunk>(delta))
-        assertEquals(ProviderEvent.Usage(60, 25, 85), events.single())
+        assertEquals(ProviderEvent.Usage(60, 25, 85, phase = ProviderUsagePhase.INTERIM), events.single())
+        val stopped = assembler.accept(MessageStopResponseChunk)
+        assertEquals(ProviderEvent.Usage(60, 25, 85, phase = ProviderUsagePhase.FINAL), stopped.filterIsInstance<ProviderEvent.Usage>().single())
+        assertEquals(ProviderEvent.Completed, stopped.last())
     }
 
     @Test
     fun `Gemini usage includes reasoning output without inventing unknown usage`() {
         val fixture = """{"usageMetadata":{"promptTokenCount":12,"candidatesTokenCount":8,"thoughtsTokenCount":6,"totalTokenCount":26}}"""
         val events = GeminiEventMapper.accept(NetworkClient.json.decodeFromString<GenerateContentResponse>(fixture))
-        assertEquals(ProviderEvent.Usage(12, 14, 26, reasoningTokens = 6), events.filterIsInstance<ProviderEvent.Usage>().single())
+        assertEquals(ProviderEvent.Usage(12, 14, 26, reasoningTokens = 6, phase = ProviderUsagePhase.INTERIM), events.filterIsInstance<ProviderEvent.Usage>().single())
+        val terminal = """{"candidates":[{"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":12,"candidatesTokenCount":8,"thoughtsTokenCount":6,"totalTokenCount":26}}"""
+        val finalUsage = GeminiEventMapper.accept(NetworkClient.json.decodeFromString<GenerateContentResponse>(terminal)).filterIsInstance<ProviderEvent.Usage>().single { it.totalTokens != null }
+        assertEquals(ProviderEvent.Usage(12, 14, 26, reasoningTokens = 6, phase = ProviderUsagePhase.FINAL), finalUsage)
         assertTrue(GeminiEventMapper.accept(GenerateContentResponse()).filterIsInstance<ProviderEvent.Usage>().isEmpty())
     }
 

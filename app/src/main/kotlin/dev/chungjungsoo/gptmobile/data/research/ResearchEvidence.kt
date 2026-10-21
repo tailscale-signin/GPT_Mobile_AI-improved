@@ -68,7 +68,7 @@ data class ResearchSource(
     val metadataProvenance: List<String> = emptyList()
 ) {
     private val validatedContent by lazy { SourceContentValidator.validate(passage, abstractOnly = retrievalQuality == "ABSTRACT", url = url) }
-    val readable: Boolean get() = originId.isBlank() && retrievalQuality in setOf("FULL_TEXT", "PARTIAL_TEXT", "ABSTRACT") && status in setOf("Read", "Partially read", "Used as evidence", "Abstract") && passage.isNotBlank() && validatedContent.usable
+    val readable: Boolean get() = originId.isBlank() && retrievalQuality in setOf("FULL_TEXT", "PARTIAL_TEXT") && status in setOf("Read", "Partially read", "Used as evidence") && passage.isNotBlank() && validatedContent.usable
     fun json() = buildJsonObject {
         put("structuredFullText", structuredFullText)
         put("sectionNames", JsonArray(sectionNames.map(::JsonPrimitive)))
@@ -253,8 +253,12 @@ data class ResearchSnapshot(
                     return@mapNotNull null
                 }
                 val status = s.text("status").takeIf { it in setOf("Discovered", "Metadata only", "Abstract", "Read", "Partially read", "Used as evidence", "Blocked", "Failed", "Deferred", "PENDING_DOCUMENT_EXTRACTION") } ?: "Failed"
+                // A stored source record has a 64 KiB bound. The writer's shorter
+                // prompt excerpt allowance must not rewrite captured evidence on
+                // restore, which changes its hash and discards valid late quotes.
+                val passage = s.text("passage").also { require(it.length <= 64 * 1024) }
                 val source = ResearchSource(
-                    id, url, s.text("title").take(240), status, s.text("passage").take(6000), s.number("depth").coerceIn(0, 2),
+                    id, url, s.text("title").take(240), status, passage, s.number("depth").coerceIn(0, 2),
                     (s["retrievedAt"] as? JsonPrimitive)?.longOrNull?.coerceAtLeast(0) ?: 0, s.text("publishedAt").take(80),
                     s.strings("engines").take(20).map { it.take(120) }, s.text("fingerprint").take(64), s.text("originId").take(64), s.text("location").take(240)
                 )

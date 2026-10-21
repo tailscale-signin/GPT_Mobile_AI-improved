@@ -234,6 +234,22 @@ class CombinedTurnBudgetTest {
         assertEquals(CombinedBudgetPool.FINALIZATION, (result as CombinedBudgetAdmission.Granted).reservation.pool)
     }
 
+    @Test fun lateStageRecoveryCannotReplaceAnExplicitlyClosedDeliveryDisposition() = runBlocking {
+        val context = context()
+        val budget = CombinedTurnBudgetStore.inMemory().open(context)
+        budget.finishStage("finalization", "PARTIAL", "EXPLICIT_CONTRIBUTOR_FALLBACK")
+        budget.close("PARTIAL", "EXPLICIT_CONTRIBUTOR_FALLBACK")
+        val closed = budget.snapshot()
+        budget.finishStage("finalization", "FAILED", "EXPLICIT_CONTRIBUTOR_FALLBACK")
+        assertEquals(closed, budget.snapshot())
+
+        val canceled = CombinedTurnBudgetStore.inMemory().open(context)
+        canceled.cancel()
+        val stopped = canceled.snapshot()
+        canceled.finishStage("finalization", "INTERRUPTED", "Process stopped")
+        assertEquals(stopped, canceled.snapshot())
+    }
+
     private fun context(
         hard: CombinedHardLimits = CombinedHardLimits(),
         optionalTools: Long = 100,

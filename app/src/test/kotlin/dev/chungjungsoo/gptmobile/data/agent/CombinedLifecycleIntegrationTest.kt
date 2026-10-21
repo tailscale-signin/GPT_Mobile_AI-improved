@@ -4,7 +4,6 @@ import android.content.ContextWrapper
 import androidx.room.Room
 import dev.chungjungsoo.gptmobile.data.accounting.InvocationLedger
 import dev.chungjungsoo.gptmobile.data.context.ContextBuilder
-import dev.chungjungsoo.gptmobile.data.context.PhysicalAttemptBoundary
 import dev.chungjungsoo.gptmobile.data.context.canonicalCombinedAssistant
 import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunDraft
@@ -29,7 +28,10 @@ import dev.chungjungsoo.gptmobile.data.model.ConversationCombinedSettings
 import dev.chungjungsoo.gptmobile.data.network.AnthropicAPI
 import dev.chungjungsoo.gptmobile.data.network.GoogleAPI
 import dev.chungjungsoo.gptmobile.data.network.GroqAPI
+import dev.chungjungsoo.gptmobile.data.network.ModelRequestPreparation
+import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.network.OpenAIAPI
+import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository
 import dev.chungjungsoo.gptmobile.data.repository.AttachmentUploadCoordinator
 import dev.chungjungsoo.gptmobile.data.repository.ChatRepositoryImpl
@@ -97,12 +99,17 @@ class CombinedLifecycleIntegrationTest {
         coEvery { settings.getFeatureSettings() } returns AppFeatureSettings()
         coEvery { settings.fetchPlatformV2s() } answers { profiles }
         api = mockk(relaxed = true)
+        val requestPreparation = ModelRequestPreparation(mockk(relaxed = true))
         every { api.streamChatCompletion(any(), any(), any()) } answers {
             val request = firstArg<ChatCompletionRequest>()
+            val config = thirdArg<ProviderRequestConfig>()
             flow {
-                PhysicalAttemptBoundary.dispatch()
-                requests += request
-                answer(request)
+                // Keep the production serialization, capacity check and physical admission;
+                // only the remote response is deterministic in this lifecycle fixture.
+                val wire = requestPreparation.prepare(NetworkClient.openAIJson.encodeToString(ChatCompletionRequest.serializer(), request), config, request.model, null)
+                val admitted = NetworkClient.openAIJson.decodeFromString(ChatCompletionRequest.serializer(), wire)
+                requests += admitted
+                answer(admitted)
             }
         }
         restart()
@@ -126,7 +133,7 @@ class CombinedLifecycleIntegrationTest {
         )
     }
 
-    private suspend fun turn(text: String, contribution: String, status: String = "COMPLETED"): PersistAgentTurnResult {
+    private suspend fun turn(text: String, contribution: String, status: String = "COMPLETED", contributions: Map<String, String> = emptyMap()): PersistAgentTurnResult {
         val policy = CombinedPolicyResolver.accept(ConversationCombinedSettings(effort = 100), profiles.map { it.uid }, profiles.associate { it.uid to it.model }, text, preferredOwnerUid = "p1")
         val execution = CombinedExecutionContext(policy, CombinedPolicyResolver.resolve(policy, 1024, toolsAllowed = false), "root-${System.nanoTime()}", chatId = 1)
         val tools = ChatMcpToolConfig(allToolsDisabled = true, combined = execution)
@@ -139,15 +146,16 @@ class CombinedLifecycleIntegrationTest {
                 profiles.associate { it.uid to it.model }
             )
         )
-        answer = {
-            emitText(contribution, complete = status == "COMPLETED")
-            if (status != "COMPLETED") throw IOException("503 contributor stream ended after useful text")
-        }
         persisted.runs.zip(persisted.assistantMessages).forEach { (run, message) ->
+            answer = {
+                emitText(contributions[run.profileUid] ?: contribution, complete = status == "COMPLETED")
+                if (status != "COMPLETED") throw IOException("503 contributor stream ended after useful text")
+            }
             val bound = requireNotNull(CombinedAcceptedTurn.decode(run.synthesisSnapshot))
             val request = AgentRunRequest(run.runId, 1, message, profiles.single { it.uid == run.profileUid }, listOf(persisted.userMessage), listOf(emptyList()), bound.tools.copy(combined = bound.context.forRole(CombinedRunRole.CONTRIBUTOR, run.profileUid)))
             val result = execute(request)
-            assertEquals(status, db.agentRunDao().getById(run.runId)?.status)
+            val recorded = db.agentRunDao().getById(run.runId)
+            assertEquals("Contributor outcome=$result; terminal=${recorded?.terminalError}", status, recorded?.status)
             if (status == "COMPLETED") assertEquals(ApiStateFlowOutcome.Completed, result)
         }
         assertEquals(text, sessions.acceptedTask("1:${persisted.userMessage.id}")?.taskText)
@@ -326,7 +334,7 @@ class CombinedLifecycleIntegrationTest {
     }
 
     @Test fun explicitUseReplyPublishesExactlyFrozenReplyWithNewFenceAndPreservesRawFailures() = runBlocking {
-        val accepted = turn("Explain the result", "The exact retained result.", "FAILED")
+        val accepted = turn("Explain the result", "The previous primary reply.", "FAILED", mapOf("p2" to "The exact retained result."))
         val request = finalRequest(accepted)
         answer = { throw IOException("503 final writer unavailable") }
         execute(request)
@@ -335,12 +343,22 @@ class CombinedLifecycleIntegrationTest {
         assertEquals("The exact retained result.", selected.effectiveContent())
         assertTrue(selected.ownershipFence > request.assistantMessage.ownershipFence)
         assertEquals("USE_REPLY", selected.timeline.mapNotNull { it.combinedFallback }.last().kind)
+        val reloaded = repository.fetchMessagesV2(1).single { it.id == selected.id }
+        assertEquals(selected.effectiveContent(), reloaded.effectiveContent())
+        assertEquals("The exact retained result.", reloaded.effectiveContent())
         assertEquals("FAILED", db.agentRunDao().getById(request.runId)?.status)
         assertTrue(accepted.runs.all { db.agentRunDao().getById(it.runId)?.status == "FAILED" })
         val budget = requireNotNull(budgets.snapshot(root(accepted).rootBudgetId))
         assertTrue(budget.closed)
         assertEquals("PARTIAL", budget.terminalOutcome)
         assertNull(repository.useCombinedReply(request.runId, request.assistantMessage.ownershipFence, "p2"))
+        restart()
+        repository.reconcileCombinedLifecycle()
+        val restored = requireNotNull(budgets.snapshot(root(accepted).rootBudgetId))
+        assertEquals("PARTIAL", restored.deliveryStatus)
+        assertEquals("PARTIAL", restored.terminalOutcome)
+        assertFalse(restored.retryEligible)
+        assertEquals("The exact retained result.", repository.fetchMessagesV2(1).single { it.id == selected.id }.effectiveContent())
     }
 
     @Test fun validatedPartialSurvivesRestartAndFrozenRetryWithoutReplayingContributors() = runBlocking {

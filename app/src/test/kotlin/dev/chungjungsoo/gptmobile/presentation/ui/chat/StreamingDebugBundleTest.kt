@@ -22,6 +22,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -94,7 +95,7 @@ class StreamingDebugBundleTest {
         }
     }
 
-    @Test fun corruptDigestAndWellHashedIncompleteConversationAreRejected() = runBlocking {
+    @Test fun corruptDigestAndWellHashedIncompleteConversationAreRejected(): Unit = runBlocking {
         val directory = kotlin.io.path.createTempDirectory("debug-corrupt-").toFile()
         try {
             val parts = produce(directory, emptyList()).inputStream().use(DebugExportBundle::read)
@@ -129,7 +130,7 @@ class StreamingDebugBundleTest {
     }
 
     @Test fun fortyMiBTwoThousandMessageExportCompletesUnder256MiBHeapWithoutConversationTree() = runBlocking {
-        if (!java.lang.Boolean.getBoolean("gptmobile.heapStress")) return@runBlocking
+        assumeTrue("The large export gate requires scripts/heap-stress.init.gradle", java.lang.Boolean.getBoolean("gptmobile.heapStress"))
         assertTrue("This gate must run in the constrained heap worker", Runtime.getRuntime().maxMemory() <= 256L * 1024 * 1024)
         val directory = kotlin.io.path.createTempDirectory("debug-heap-").toFile()
         try {

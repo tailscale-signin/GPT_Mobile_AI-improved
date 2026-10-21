@@ -2,6 +2,9 @@ package dev.chungjungsoo.gptmobile.data.github
 
 import java.nio.file.Files
 import java.util.Base64
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -130,6 +133,99 @@ class GitHubPersistentEvidenceTest {
         assertNotEquals(first.snapshot()!!.taskId, next.snapshot()!!.taskId)
     }
 
+    @Test fun anotherSessionSelectingANewRevisionIsNotOverwrittenByAnOlderEvidenceRead() = runTest {
+        val store = GitHubRepositoryStateStore()
+        val fetch: suspend (String) -> JsonElement = { path ->
+            when {
+                path.endsWith("/commits/other") -> commit(old, oldTree)
+                "/commits/" in path -> commit(head, headTree)
+                "/git/trees/" in path -> tree(listOf(item("A.kt", sha(1), 8)))
+                "/git/blobs/" in path -> blob(sha(1), "val x=1\n")
+                else -> error(path)
+            }
+        }
+        val earlier = session(store, request = fetch)
+        earlier.execute("resolve_context", "owner", "repo", args())
+        val later = session(store, request = fetch)
+        later.execute("resolve_context", "owner", "repo", args("ref" to JsonPrimitive("other")))
+        val read = earlier.execute("read_ranges", "owner", "repo", args("commit_sha" to JsonPrimitive(head), "path" to JsonPrimitive("A.kt"))).jsonObject
+        assertEquals(head, read["commit_sha"]!!.jsonPrimitive.content)
+        assertEquals(old, earlier.snapshot()!!.commitSha)
+        assertEquals(old, later.snapshot()!!.commitSha)
+        assertTrue(later.snapshot()!!.evidenceHandles.contains(read["evidence_id"]!!.jsonPrimitive.content))
+        assertEquals("other", session(store, task = "following-task", request = fetch).context()!!.ref)
+    }
+
+    @Test fun concurrentEvidenceReadsRetainEveryHandleWithoutRebindingTheSnapshot() = runTest {
+        val store = GitHubRepositoryStateStore()
+        val body = (1..8).joinToString("\n") { "line $it" }
+        val fetch: suspend (String) -> JsonElement = { path ->
+            when {
+                "/commits/" in path -> commit(head, headTree)
+                "/git/trees/" in path -> tree(listOf(item("A.kt", sha(1), body.length)))
+                "/git/blobs/" in path -> blob(sha(1), body)
+                else -> error(path)
+            }
+        }
+        val client = session(store, request = fetch)
+        client.execute("resolve_context", "owner", "repo", args())
+        val handles = (1..8).map { line ->
+            async {
+                session(store, request = fetch).execute("read_ranges", "owner", "repo", args("path" to JsonPrimitive("A.kt"), "start_line" to JsonPrimitive(line), "end_line" to JsonPrimitive(line))).jsonObject["evidence_id"]!!.jsonPrimitive.content
+            }
+        }.awaitAll()
+        assertEquals(8, handles.distinct().size)
+        assertEquals(handles.toSet(), client.snapshot()!!.evidenceHandles.toSet())
+        assertEquals(head, client.snapshot()!!.commitSha)
+    }
+
+    @Test fun revisionChangeWhilePatchBodiesLoadCannotPublishAnOldStageOverTheNewSelection() = runTest {
+        val store = GitHubRepositoryStateStore()
+        val readingBlob = CompletableDeferred<Unit>()
+        val releaseBlob = CompletableDeferred<Unit>()
+        val fetch: suspend (String) -> JsonElement = { path ->
+            when {
+                path.endsWith("/commits/other") -> commit(old, oldTree)
+                "/commits/" in path -> commit(head, headTree)
+                "/git/trees/" in path -> tree(listOf(item("A.kt", sha(1), 8)))
+                else -> {
+                    readingBlob.complete(Unit)
+                    releaseBlob.await()
+                    blob(sha(1), "val x=1\n")
+                }
+            }
+        }
+        val client = session(store, request = fetch)
+        client.execute("resolve_context", "owner", "repo", args())
+        val staged = async {
+            runCatching {
+                client.execute(
+                    "stage_patch",
+                    "owner",
+                    "repo",
+                    args(
+                        "edits" to JsonArray(
+                            listOf(
+                                buildJsonObject {
+                                    put("path", "A.kt")
+                                    put("expected_blob_sha", sha(1))
+                                    put("old_text", "x=1")
+                                    put("new_text", "x=2")
+                                }
+                            )
+                        )
+                    )
+                )
+            }
+        }
+        readingBlob.await()
+        session(store, request = fetch).execute("resolve_context", "owner", "repo", args("ref" to JsonPrimitive("other")))
+        releaseBlob.complete(Unit)
+        assertTrue(staged.await().exceptionOrNull()?.message.orEmpty().contains("Task revision changed"))
+        assertEquals(old, client.snapshot()!!.commitSha)
+        assertEquals(null, client.snapshot()!!.stagedPatchId)
+    }
+
     @Test fun searchContinuationIsBoundedIncludesScopeAndReusesUnchangedBlobs() = runTest {
         var blobs = 0
         val entries = (1..30).map { item("src/F${it.toString().padStart(2, '0')}.kt", sha(it), 24) }
@@ -237,6 +333,24 @@ class GitHubPersistentEvidenceTest {
         assertTrue(runCatching { GitHubPatchStager.apply(original, edit(sha(2), occurrence = 1)) }.isFailure)
         assertTrue(runCatching { GitHubPatchStager.apply(original, edit(path = "../A.kt", occurrence = 1)) }.isFailure)
         assertEquals("x y", GitHubPatchStager.apply(original, edit(occurrence = 2)).single().jsonObject["content"]!!.jsonPrimitive.content)
+    }
+
+    @Test fun exactPatchAnchorsCountOverlappingOccurrencesBeforeSelectingAnEdit() {
+        val original = mapOf("A.kt" to (sha(1) to "aaa"))
+        fun edit(occurrence: Int? = null) = JsonArray(
+            listOf(
+                buildJsonObject {
+                    put("path", "A.kt")
+                    put("expected_blob_sha", sha(1))
+                    put("old_text", "aa")
+                    put("new_text", "y")
+                    occurrence?.let { put("occurrence", it) }
+                }
+            )
+        )
+        assertTrue(runCatching { GitHubPatchStager.apply(original, edit()) }.exceptionOrNull()?.message.orEmpty().contains("Ambiguous"))
+        assertEquals("ya", GitHubPatchStager.apply(original, edit(1)).single().jsonObject["content"]!!.jsonPrimitive.content)
+        assertEquals("ay", GitHubPatchStager.apply(original, edit(2)).single().jsonObject["content"]!!.jsonPrimitive.content)
     }
 
     @Test fun treeComparisonPagesEveryOneOf350ChangedFiles() = runTest {

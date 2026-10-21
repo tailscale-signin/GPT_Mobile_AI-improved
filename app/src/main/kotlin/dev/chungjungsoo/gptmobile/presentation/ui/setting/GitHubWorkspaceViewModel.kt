@@ -505,7 +505,8 @@ class GitHubWorkspaceViewModel @Inject constructor(
         reviewPull(continuation)
     }
     private suspend fun reviewPull(arguments: JsonObject) {
-        val packet = api("pr_context", JsonObject(arguments + ("include_patches" to JsonPrimitive(true)))).jsonObject
+        val incoming = api("pr_context", JsonObject(arguments + ("include_patches" to JsonPrimitive(true)))).jsonObject
+        val packet = retainGitHubPullReviewSections(_state.value.pullPackage, incoming)
         val pr = packet["pull_request"]?.jsonObject ?: error("Pull request is unavailable")
         val detail = buildString {
             appendLine("#${pr.text("number")} ${pr.text("title")}")

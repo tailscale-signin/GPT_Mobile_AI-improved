@@ -115,7 +115,9 @@ class ScientificAppraisalContractTest {
         assertFalse(ArticleSectionCoverage(inspected = setOf("methods", "results", "limitations")).complete)
         assertFalse(ArticleSectionCoverage(inspected = setOf("methods"), figuresAvailable = true, supplementsAvailable = true).complete)
         assertFalse(ArticleSectionCoverage(inspected = setOf("methods", "results", "limitations"), figuresAvailable = true, supplementsAvailable = true).complete)
-        assertTrue(ArticleSectionCoverage(inspected = setOf("methods", "results", "limitations"), figuresInspection = ContentInspection.INSPECTED, supplementsInspection = ContentInspection.NOT_APPLICABLE, supplementsReason = "No supplement declared by the complete structured article").complete)
+        val inspected = ArticleSectionCoverage(inspected = setOf("methods", "results", "limitations"), figuresInspection = ContentInspection.INSPECTED, supplementsInspection = ContentInspection.NOT_APPLICABLE, supplementsReason = "No supplement declared by the complete structured article", tablesInspection = ContentInspection.INSPECTED)
+        assertTrue(inspected.complete)
+        assertFalse(inspected.copy(tablesInspection = ContentInspection.UNKNOWN).complete)
     }
 
     @Test fun countsCannotUseUnrelatedNumbersOrSubstringsFromTheSamePassage() {

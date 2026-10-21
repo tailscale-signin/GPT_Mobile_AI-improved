@@ -34,6 +34,7 @@ class AndroidResearchWorkflowTest {
             listOf(dev.chungjungsoo.gptmobile.data.research.ResearchQuery("QRY1", "research device requests", listOf("Q1")))
         )
         val journal = object : ResearchJournal by saved {
+            override fun scoped(authority: String, sharePublicEvidence: Boolean): ResearchJournal = this
             override suspend fun publicQuestionPlan(task: String, value: dev.chungjungsoo.gptmobile.data.research.ResearchPlanContract?) = shared
         }
         var planningCalls = 0

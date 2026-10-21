@@ -3583,23 +3583,6 @@ class ChatRepositoryImpl(
                 combined = passCombined
             ) ?: guarded
         }
-        val wordGoal = dev.chungjungsoo.gptmobile.data.agent.LongResponsePolicy.requestedWords(
-            if (runId.startsWith("combined-synthesis:")) {
-                runCatching { kotlinx.serialization.json.Json.parseToJsonElement(latestUser?.content.orEmpty()).let { it as? kotlinx.serialization.json.JsonObject }?.get("original_request").let { it as? kotlinx.serialization.json.JsonPrimitive }?.content }.getOrNull().orEmpty()
-            } else {
-                latestUser?.content.orEmpty()
-            }
-        ).takeIf { editorialPass || chatToolConfig?.combined == null }
-        val comprehensiveEditorial = editorialPass && dev.chungjungsoo.gptmobile.data.agent.comprehensiveCombinedEnvelope(latestUser?.content.orEmpty())
-        val structuredEditorial = editorialPass && dev.chungjungsoo.gptmobile.data.agent.passageCombinedEnvelope(latestUser?.content.orEmpty())
-        val remainingWordGoal = wordGoal?.takeUnless { structuredEditorial }?.let { (it - previousAnswerWords).coerceAtLeast(0) }
-        val continuationLimit = if (editorialPass) {
-            dev.chungjungsoo.gptmobile.data.agent.CombinedResponseBudget.continuationLimit(latestUser?.content.orEmpty(), requestConstraints.outputLimit(platform.maxTokens), remainingWordGoal, chatToolConfig?.combined)
-        } else {
-            dev.chungjungsoo.gptmobile.data.agent.LongResponsePolicy.continuationLimit(remainingWordGoal, requestConstraints.outputLimit(platform.maxTokens))
-        }
-        val sectionRecovery = editorialPass && dev.chungjungsoo.gptmobile.BuildConfig.COMBINED_SECTION_RECOVERY && !structuredEditorial
-        val checkpoint = if (sectionRecovery && latestUser != null) dev.chungjungsoo.gptmobile.data.agent.CombinedContinuationCheckpoint(workspace, latestUser, platform.uid, runId) else null
         val frozenResume = if (editorialPass) {
             agentPersistenceDao.recoveryRun(runId)?.synthesisSnapshot?.let {
                 kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromString<dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot>(it)
@@ -3607,6 +3590,30 @@ class ChatRepositoryImpl(
         } else {
             null
         }
+        val editorialEnvelope = frozenResume?.prompt ?: latestUser?.content.orEmpty()
+        val wordGoal = dev.chungjungsoo.gptmobile.data.agent.LongResponsePolicy.requestedWords(
+            if (runId.startsWith("combined-synthesis:")) {
+                frozenResume?.userMessage?.content
+                    ?: runCatching { kotlinx.serialization.json.Json.parseToJsonElement(editorialEnvelope).let { it as? kotlinx.serialization.json.JsonObject }?.get("original_request").let { it as? kotlinx.serialization.json.JsonPrimitive }?.content }.getOrNull().orEmpty()
+            } else {
+                latestUser?.content.orEmpty()
+            }
+        ).takeIf { editorialPass || chatToolConfig?.combined == null }
+        // The admitted frozen snapshot owns delivery framing even when recovery passes the original request.
+        val structuredEditorial = editorialPass &&
+            (
+                frozenResume?.let { it.deliveryProtocol in setOf("PASSAGES_V2", "PASSAGES_V3") }
+                    ?: dev.chungjungsoo.gptmobile.data.agent.passageCombinedEnvelope(editorialEnvelope)
+                )
+        val comprehensiveEditorial = editorialPass && (structuredEditorial || dev.chungjungsoo.gptmobile.data.agent.comprehensiveCombinedEnvelope(editorialEnvelope))
+        val remainingWordGoal = wordGoal?.takeUnless { structuredEditorial }?.let { (it - previousAnswerWords).coerceAtLeast(0) }
+        val continuationLimit = if (editorialPass) {
+            dev.chungjungsoo.gptmobile.data.agent.CombinedResponseBudget.continuationLimit(editorialEnvelope, requestConstraints.outputLimit(platform.maxTokens), remainingWordGoal, chatToolConfig?.combined)
+        } else {
+            dev.chungjungsoo.gptmobile.data.agent.LongResponsePolicy.continuationLimit(remainingWordGoal, requestConstraints.outputLimit(platform.maxTokens))
+        }
+        val sectionRecovery = editorialPass && dev.chungjungsoo.gptmobile.BuildConfig.COMBINED_SECTION_RECOVERY && !structuredEditorial
+        val checkpoint = if (sectionRecovery && latestUser != null) dev.chungjungsoo.gptmobile.data.agent.CombinedContinuationCheckpoint(workspace, latestUser, platform.uid, runId) else null
         val restoredDraft = if (frozenResume?.resumeFromRunId != null) frozenResume.committedPrefix else checkpoint?.restore().orEmpty()
         val multipassFinalTurns = AtomicReference<List<ConversationTurn>?>(null)
         val firstSession = contextPlan.multipass?.let { plan ->

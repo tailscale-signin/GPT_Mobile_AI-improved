@@ -64,7 +64,19 @@ internal fun richestResearchSnapshot(snapshots: List<ResearchSnapshot>): Researc
                 (other.currentReviewRecord() == null || other.currentReviewRecord() == best.currentReviewRecord())
         }
     ) {
-        return best
+        // Sparse checkpoints can still record work spent after this capture. Keep
+        // the exact evidence/review while carrying their monotonic counters.
+        val retained = best.copy(
+            round = snapshots.maxOf { it.round },
+            attempts = snapshots.maxOf { it.attempts },
+            searches = snapshots.maxOf { it.searches },
+            engineResponses = snapshots.maxOf { it.engineResponses },
+            engineFailures = snapshots.maxOf { it.engineFailures },
+            targetSources = snapshots.maxOf { it.targetSources },
+            numericalFactBindingRequired = snapshots.any { it.numericalFactBindingRequired },
+            extractedSourceVersions = snapshots.flatMap { it.extractedSourceVersions }.toSet()
+        )
+        return if (retained == best) best else retained
     }
     return mergeResearchSnapshots(snapshots.filterNot { it === best }, best)
 }

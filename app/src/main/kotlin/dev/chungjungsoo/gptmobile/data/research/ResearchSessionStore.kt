@@ -324,7 +324,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
         }
         override suspend fun load(task: String): ResearchSnapshot? = withContext(Dispatchers.IO) {
             if (stopRequested()) return@withContext null
-            val originalTask = taskStore.accepted(turnId, persistent)?.taskText ?: task
+            val acceptedTask = taskStore.accepted(turnId, persistent)
             // A turn has one corpus, including sibling subquestions.
             lock.withLock {
                 val inMemory = mutable.value.values.filter { it.chatId == chatId && it.turnId == turnId && it.authority == authority }
@@ -339,8 +339,17 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                     emptyList()
                 }
                 val retained = taskStore.retainedEvidence(turnId, setOf(authority), persistent)
-                val own = richestResearchSnapshot((persisted + inMemory + retained).filter { it.chatId == chatId && it.turnId == turnId && it.authority == authority && normalizedTask(it.snapshot.task) == normalizedTask(originalTask) }.map { it.snapshot })
-                val siblings = if (shareEnabled) mutable.value.values.filter { it.chatId == chatId && it.turnId == turnId && it.authority != authority && normalizedTask(it.snapshot.task) == normalizedTask(originalTask) } else emptyList()
+                val authorized = (persisted + inMemory + retained).filter { it.chatId == chatId && it.turnId == turnId && it.authority == authority }
+                // Older checkpoints predate the accepted-task registry. Within their existing turn
+                // and authority, sibling subquestions can reuse one retained corpus. Select one
+                // exact task group; never combine unrelated turns or rewrite an accepted request.
+                val corpusTask = acceptedTask?.taskText
+                    ?: authorized.firstOrNull { normalizedTask(it.snapshot.task) == normalizedTask(task) }?.snapshot?.task
+                    ?: pointed?.takeIf { it.chatId == chatId && it.turnId == turnId && it.authority == authority }?.snapshot?.task
+                    ?: authorized.maxByOrNull { it.snapshot.updatedAt }?.snapshot?.task
+                    ?: task
+                val own = richestResearchSnapshot(authorized.filter { it.snapshot.task == corpusTask }.map { it.snapshot })
+                val siblings = if (shareEnabled) mutable.value.values.filter { it.chatId == chatId && it.turnId == turnId && it.authority != authority && it.snapshot.task == corpusTask } else emptyList()
                 val public = authorizedResearchTransfer(siblings, null).filter { it.sources.isNotEmpty() }
                 if (public.isEmpty()) own else richestResearchSnapshot(public + listOfNotNull(own))
             }

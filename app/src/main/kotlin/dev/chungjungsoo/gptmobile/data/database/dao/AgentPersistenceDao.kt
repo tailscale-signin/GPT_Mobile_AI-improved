@@ -347,7 +347,7 @@ interface AgentPersistenceDao {
         } else {
             current
         }
-        val receipt = dev.chungjungsoo.gptmobile.data.agent.CombinedFallbackReceipt(if (source != null) "USE_REPLY" else "EVIDENCE_ONLY", source?.platformUid, source?.attemptId, source?.completionStatus, source?.sourceDigest ?: dev.chungjungsoo.gptmobile.data.research.researchHash(text), snapshot.snapshotId, runId)
+        val receipt = dev.chungjungsoo.gptmobile.data.agent.CombinedFallbackReceipt(if (source != null) "USE_REPLY" else "EVIDENCE_ONLY", source?.platformUid, source?.attemptId, source?.completionStatus, dev.chungjungsoo.gptmobile.data.research.researchHash(text), snapshot.snapshotId, runId)
         val report = dev.chungjungsoo.gptmobile.data.agent.CombinedQualityReport(answerDigest = dev.chungjungsoo.gptmobile.data.research.researchHash(text), status = "PARTIAL", deliveredScopeStatus = "PARTIAL", revisionId = UUID.randomUUID().toString(), issues = listOf(if (source != null) "EXPLICIT_CONTRIBUTOR_FALLBACK" else "NO_AUTHORIZED_WRITER"))
         val published = target.copy(
             content = text,
@@ -363,7 +363,7 @@ interface AgentPersistenceDao {
                             reportValidity = if (text.isNotBlank()) dev.chungjungsoo.gptmobile.data.research.delivery.ResearchReportValidity.EVIDENCE_ONLY else dev.chungjungsoo.gptmobile.data.research.delivery.ResearchReportValidity.INCOMPLETE,
                             evidenceAvailable = snapshot.evidence.records.any { it.readable },
                             packetDigest = snapshot.inputDigest,
-                            revisionId = report.revisionId,
+                            revisionId = dev.chungjungsoo.gptmobile.data.research.researchHash(text),
                             issueCodes = listOf("NO_AUTHORIZED_WRITER"),
                             sourceIds = snapshot.evidence.records.filter { it.readable }.map { it.id },
                             retryEligible = true
@@ -416,11 +416,12 @@ interface AgentPersistenceDao {
         val quality = message.timeline.lastOrNull { it.combinedQuality != null }?.combinedQuality
         val limitedCombinedDelivery = run.displayRole == dev.chungjungsoo.gptmobile.data.chat.ReplyDisplayRole.COMBINED &&
             quality?.let {
-                it.correctionRequired ||
-                    !it.complete ||
-                    it.deliveredScopeStatus !in setOf("COMPLETED", "COMPLETED_WITH_LIMITS") ||
-                    it.answerDigest != dev.chungjungsoo.gptmobile.data.research.researchHash(message.content)
-            } == true
+                !it.correctionRequired &&
+                    it.complete &&
+                    it.deliveredScopeStatus in setOf("COMPLETED", "COMPLETED_WITH_LIMITS") &&
+                    it.answerDigest == dev.chungjungsoo.gptmobile.data.research.researchHash(message.content) &&
+                    it.issues.none { issue -> issue in dev.chungjungsoo.gptmobile.data.agent.COMBINED_FRAMING_FAILURES }
+            } != true
         val kind = if (status == "COMPLETED" && !limitedCombinedDelivery) "FINAL" else "PARTIAL"
         val digest = dev.chungjungsoo.gptmobile.data.research.researchHash(content)
         if (previous?.contentDigest == digest && previous.deliveryKind == kind && previous.ownerFence == run.ownershipFence) return

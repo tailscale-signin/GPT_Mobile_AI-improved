@@ -67,6 +67,109 @@ class ResearchRepairContractsTest {
         val merged = mergeResearchSnapshots(listOf(snapshot), reviewed)
         assertEquals(64, merged.claims.size)
         assertEquals("Supported", merged.claims.first().verdict)
+        val lateExtraction = mergeResearchSnapshots(listOf(merged), snapshot)
+        assertEquals(64, lateExtraction.claims.size)
+        assertEquals("Supported", lateExtraction.claims.first().verdict)
+    }
+
+    @Test fun exactEvidenceCheckpointKeepsItsReviewDigestAndAnEmptyShellCannotRenameQuestions() {
+        val source = ResearchSource("S1", "https://example.org/retained", "Retained", "Read", "An exact retained scientific passage.")
+        val original = ResearchSnapshot("Task", sources = listOf(source), questionPlan = listOf(ResearchQuestion("Q1", "What was measured?", "Captured results")), attempts = 31, searches = 3, engineResponses = 22, engineFailures = 9, targetSources = 12)
+        val reviewed = original.copy(reviewRecord = ResearchReviewRecord("UNAVAILABLE", original.evidenceRevisionDigest(), researchHash("handoff"), "Reviewer unavailable"))
+        val firstSave = mergeResearchSnapshots(emptyList(), reviewed)
+        assertEquals(original.evidenceRevisionDigest(), firstSave.evidenceRevisionDigest())
+        assertEquals("UNAVAILABLE", firstSave.currentReviewRecord()?.status)
+        val shell = mergeResearchSnapshots(listOf(firstSave), ResearchSnapshot("Task", phase = "Writing", attempts = 9, updatedAt = 900))
+        assertEquals(original.evidenceRevisionDigest(), shell.evidenceRevisionDigest())
+        assertEquals("Q1", shell.questionPlan.single().id)
+        assertEquals("UNAVAILABLE", shell.currentReviewRecord()?.status)
+        assertEquals("Writing", shell.phase)
+        assertEquals(listOf(31, 3, 22, 9, 12), listOf(shell.attempts, shell.searches, shell.engineResponses, shell.engineFailures, shell.targetSources))
+        assertEquals(900L, shell.updatedAt)
+        val later = mergeResearchSnapshots(listOf(shell), shell.copy(attempts = 40, searches = 4, engineResponses = 25, engineFailures = 10, targetSources = 15, updatedAt = 1000))
+        assertEquals(listOf(40, 4, 25, 10, 15), listOf(later.attempts, later.searches, later.engineResponses, later.engineFailures, later.targetSources))
+        assertEquals(original.evidenceRevisionDigest(), later.evidenceRevisionDigest())
+        assertEquals("UNAVAILABLE", later.currentReviewRecord()?.status)
+    }
+
+    @Test fun failedEmptyRetryPreservesOneUnambiguousCaptureWhileChangedVersionsRemainSeparate() {
+        val source = ResearchSource("S1", "https://example.org/retained", "Retained", "Read", "An exact retained scientific passage.")
+        val previous = ResearchSnapshot("Task", sources = listOf(source))
+        val failed = source.copy(status = "Failed", passage = "", retrievalQuality = "EMPTY", retrievedAt = 9, failureReason = "HOST_DNS_UNAVAILABLE")
+        val kept = mergeResearchSnapshots(listOf(previous), previous.copy(sources = listOf(failed)))
+        assertEquals(1, kept.sources.size)
+        assertTrue(kept.sources.single().readable)
+        assertEquals(source.passage, kept.sources.single().passage)
+        assertEquals("HOST_DNS_UNAVAILABLE", kept.sources.single().failureReason)
+        val changed = source.copy(passage = "A different retained scientific passage.", versionId = "version-two")
+        val versions = mergeResearchSnapshots(listOf(previous), previous.copy(sources = listOf(changed)))
+        assertEquals(2, versions.sources.size)
+        assertEquals(2, versions.sources.map { it.id }.distinct().size)
+        assertTrue(versions.sources.any { it.versionId == "version-two" && it.passage == changed.passage })
+    }
+
+    @Test fun incrementalEvidenceCannotResetAcquisitionCountersOrExtractionReceipts() {
+        val first = ResearchSource("S1", "https://example.org/first", "First", "Read", "The first retained source contains measured results.")
+        val second = ResearchSource("S2", "https://example.org/second", "Second", "Read", "The second retained source contains additional results.")
+        val previous = ResearchSnapshot(
+            "Task", sources = listOf(first), round = 4, attempts = 31, searches = 3,
+            engineResponses = 22, engineFailures = 9, targetSources = 12,
+            extractedSourceVersions = setOf("S1:${capturedResearchVersion(first)}")
+        )
+        val incoming = ResearchSnapshot(
+            "Task", sources = listOf(second), round = 1, attempts = 2, searches = 1,
+            engineResponses = 1, engineFailures = 1, targetSources = 2,
+            extractedSourceVersions = setOf("S2:${capturedResearchVersion(second)}")
+        )
+        val merged = mergeResearchSnapshots(listOf(previous), incoming)
+        assertEquals(setOf("S1", "S2"), merged.sources.map { it.id }.toSet())
+        assertEquals(listOf(4, 31, 3, 22, 9, 12), listOf(merged.round, merged.attempts, merged.searches, merged.engineResponses, merged.engineFailures, merged.targetSources))
+        assertEquals(previous.extractedSourceVersions + incoming.extractedSourceVersions, merged.extractedSourceVersions)
+    }
+
+    @Test fun richerReviewedCaptureRetainsWorkSpentByLaterSparseCheckpoint() {
+        val source = ResearchSource("S1", "https://example.org/retained", "Retained", "Read", "An exact retained scientific passage.")
+        val captured = ResearchSnapshot("Task", sources = listOf(source), round = 1, attempts = 2)
+        val reviewed = captured.copy(reviewRecord = ResearchReviewRecord("UNAVAILABLE", captured.evidenceRevisionDigest(), researchHash("handoff"), "Reviewer unavailable"))
+        val later = ResearchSnapshot("Task", round = 4, attempts = 31, searches = 3, engineResponses = 22, engineFailures = 9, targetSources = 12, updatedAt = captured.updatedAt + 1)
+        val retained = requireNotNull(richestResearchSnapshot(listOf(reviewed, later)))
+        assertEquals(reviewed.evidenceRevisionDigest(), retained.evidenceRevisionDigest())
+        assertEquals("UNAVAILABLE", retained.currentReviewRecord()?.status)
+        assertEquals(listOf(4, 31, 3, 22, 9, 12), listOf(retained.round, retained.attempts, retained.searches, retained.engineResponses, retained.engineFailures, retained.targetSources))
+    }
+
+    @Test fun storedPassageKeepsExactBytesAndReviewedQuoteBeyondPromptExcerptLimit() {
+        val quote = "The late results section reports no measured improvement in performance."
+        val passage = "Captured background and methods. ".repeat(250) + quote
+        val source = ResearchSource("S1", "https://example.org/long-study", "Long study", "Read", passage, versionId = "capture-v1")
+        val claim = ResearchClaim(
+            "No measured improvement was reported.", source.id, quote, "Supported", "Q1", "Relevant", true,
+            sourceVersion = source.versionId, passageHash = researchHash(passage), reviewedSourceVersion = source.versionId
+        )
+        val snapshot = ResearchSnapshot("Task", sources = listOf(source), claims = listOf(claim))
+        val reviewed = snapshot.copy(reviewRecord = ResearchReviewRecord("PASSED", snapshot.evidenceRevisionDigest(), researchHash("handoff"), "Reviewed exact passage"))
+        val restored = requireNotNull(ResearchSnapshot.parse(reviewed.json()))
+        assertEquals(passage, restored.sources.single().passage)
+        assertEquals(claim, restored.claims.single())
+        assertEquals(reviewed.evidenceRevisionDigest(), restored.evidenceRevisionDigest())
+        assertEquals("PASSED", restored.currentReviewRecord()?.status)
+    }
+
+    @Test fun questionIdentityDoesNotRemoveIdentifierTextFromQuestionContent() {
+        fun snapshot(index: Int): ResearchSnapshot {
+            val source = ResearchSource("S$index", "https://example.org/$index", "Quarterly results", "Read", "The Q1 result was measured using the retained protocol.")
+            val question = ResearchQuestion("Q$index", "How was Q1 measured?", "The Q1 measurement protocol")
+            val claim = ResearchClaim("Q1 used the retained protocol.", source.id, source.passage, "Supported", question.id, "Relevant", true)
+            return ResearchSnapshot("Compare quarterly results", sources = listOf(source), claims = listOf(claim), questionPlan = listOf(question))
+        }
+        val firstMerge = mergeResearchSnapshots(listOf(snapshot(1)), snapshot(2))
+        assertEquals(1, firstMerge.questionPlan.size)
+        assertEquals("How was Q1 measured?", firstMerge.questionPlan.single().text)
+        assertEquals(setOf(firstMerge.questionPlan.single().id), firstMerge.claims.map { it.questionId }.toSet())
+        val continued = mergeResearchSnapshots(listOf(firstMerge), snapshot(3))
+        assertEquals(firstMerge.questionPlan, continued.questionPlan)
+        assertEquals(setOf(firstMerge.questionPlan.single().id), continued.claims.map { it.questionId }.toSet())
+        assertEquals(3, continued.claims.size)
     }
 
     @Test fun oversizedQuoteIsRejectedWithoutManufacturingATruncatedQuote() {

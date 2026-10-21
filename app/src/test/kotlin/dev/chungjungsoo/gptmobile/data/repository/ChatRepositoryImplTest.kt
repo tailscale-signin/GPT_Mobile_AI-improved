@@ -359,6 +359,13 @@ class ChatRepositoryImplTest {
                     listOf(
                         kotlinx.coroutines.flow.flow {
                             pending.value = listOf(prompt)
+                            // Finish the fast fixture response only after the real inbox
+                            // has made this addition visible and started its grace period.
+                            withTimeout(5_000) {
+                                dev.chungjungsoo.gptmobile.data.queue.FollowUpProgressStore.state.first {
+                                    it[prompt.id]?.phase == dev.chungjungsoo.gptmobile.data.queue.FollowUpPhase.COUNTDOWN
+                                }
+                            }
                             emit(chunk(initial))
                         },
                         flowOf(chunk(appendix)),
@@ -851,7 +858,7 @@ class ChatRepositoryImplTest {
     @Test
     fun `litert lm tool capable run records engine owned tool calls on the timeline`() = runBlocking {
         val runtime = FakeLocalRuntime().apply {
-            // This timeline fixture needs room for the complete expanded tool surface.
+            // The native planner retains the date tool while respecting this model's context.
             deviceRamGb = 12L
             scriptedEvents = listOf(
                 listOf(
@@ -877,11 +884,11 @@ class ChatRepositoryImplTest {
         )
 
         val states = repository.completeChat(
-            userMessages = listOf(MessageV2(content = "Hi", platformType = null)),
+            userMessages = listOf(MessageV2(content = "What is today's date?", platformType = null)),
             assistantMessages = emptyList(),
             platform = localPlatform().copy(maxTokens = 2048),
             runId = "run-local-tool"
-        ).toList().filterNot { it is ApiState.AssistStatus || it is ApiState.GatewayProgressChanged || it is ApiState.ProgressCheckpoint || (it is ApiState.Notice && (it.message.startsWith("Context estimate:") || it.message.startsWith("Context: no app-imposed limit."))) }
+        ).toList().filterNot { it is ApiState.AssistStatus || it is ApiState.GatewayProgressChanged || it is ApiState.ProgressCheckpoint || (it is ApiState.Notice && (it.message.startsWith("Context estimate:") || it.message.startsWith("Context: no app-imposed limit.") || it.message.startsWith("Local context:"))) }
 
         assertEquals(
             listOf(
@@ -901,10 +908,9 @@ class ChatRepositoryImplTest {
         assertTrue(completedMetrics?.durationMs != null)
         assertTrue(completedMetrics?.resultBytes != null)
         assertEquals(1, runtime.sendMessageCalls.size)
-        assertEquals(
-            listOf("calculate_expression", "current_date", "read_file_slice", "read_url", "web_search"),
-            runtime.createConversationCalls.single().tools.map { it.name }.sorted()
-        )
+        val selectedTools = runtime.createConversationCalls.single().tools.map { it.name }.toSet()
+        assertTrue("The engine must receive the tool it executes", "current_date" in selectedTools)
+        assertTrue(setOf("calculate_expression", "current_date", "read_file_slice", "read_url", "web_search").containsAll(selectedTools))
         assertTrue(runtime.createConversationCalls.single().isConstrainedDecodingEnabled)
         assertEquals(2048, runtime.createConversationCalls.single().maxOutputTokens)
         val event = traceDao.events.single()

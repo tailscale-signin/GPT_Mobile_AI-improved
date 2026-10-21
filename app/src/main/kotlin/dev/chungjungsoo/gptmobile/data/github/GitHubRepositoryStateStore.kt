@@ -43,7 +43,18 @@ class GitHubRepositoryStateStore private constructor(private val directory: File
     private val mutex = Mutex()
     private val values = LinkedHashMap<String, JsonObject>(16, 0.75f, true)
     private var memoryCharacters = 0
-    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+    private val json = Json {
+        ignoreUnknownKeys = true
+        encodeDefaults = true
+    }
+
+    /** Existence only: index coverage must not decode every retained source body. */
+    suspend fun contains(scope: String, key: String): Boolean = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val identity = "$scope:$key"
+            values.containsKey(identity) || directory?.let { File(it, digest(identity) + ".record") }?.let { it.isFile && it.length() in 1..MAX_RECORD_BYTES.toLong() } == true
+        }
+    }
 
     suspend fun read(scope: String, key: String): JsonObject? = withContext(Dispatchers.IO) {
         mutex.withLock {
@@ -69,9 +80,14 @@ class GitHubRepositoryStateStore private constructor(private val directory: File
                 val target = File(dir, digest(identity) + ".record")
                 val temp = File.createTempFile("record-", ".tmp", dir)
                 try {
-                    temp.outputStream().use { it.write(crypt(identity, plain, true)); it.flush() }
+                    temp.outputStream().use {
+                        it.write(crypt(identity, plain, true))
+                        it.flush()
+                    }
                     check(temp.renameTo(target)) { "Could not atomically retain GitHub task state." }
-                } finally { temp.delete() }
+                } finally {
+                    temp.delete()
+                }
                 val records = dir.listFiles { f -> f.extension == "record" }.orEmpty().sortedBy { it.lastModified() }
                 var total = records.sumOf { it.length() }
                 var count = records.size
@@ -79,7 +95,10 @@ class GitHubRepositoryStateStore private constructor(private val directory: File
                     if (total <= MAX_DISK_BYTES && count <= MAX_RECORDS) break
                     if (record == target) continue
                     val size = record.length()
-                    if (record.delete()) { total -= size; count-- }
+                    if (record.delete()) {
+                        total -= size
+                        count--
+                    }
                 }
             }
             remember(identity, value)
@@ -100,16 +119,27 @@ class GitHubRepositoryStateStore private constructor(private val directory: File
 
     private suspend fun crypt(identity: String, bytes: ByteArray, encrypt: Boolean): ByteArray {
         val secrets = vault ?: return bytes
-        val key = secrets.read(KEY) ?: if (encrypt) ByteArray(32).also { SecureRandom().nextBytes(it); secrets.put(KEY, it) } else error("GitHub state key is unavailable.")
+        val key = secrets.read(KEY) ?: if (encrypt) {
+            ByteArray(32).also {
+                SecureRandom().nextBytes(it)
+                secrets.put(KEY, it)
+            }
+        } else {
+            error("GitHub state key is unavailable.")
+        }
         return try {
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-            if (encrypt) cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES")) else {
+            if (encrypt) {
+                cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"))
+            } else {
                 require(bytes.size >= 28)
                 cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, bytes.copyOfRange(0, 12)))
             }
             cipher.updateAAD(identity.encodeToByteArray())
             if (encrypt) cipher.iv + cipher.doFinal(bytes) else cipher.doFinal(bytes, 12, bytes.size - 12)
-        } finally { key.fill(0) }
+        } finally {
+            key.fill(0)
+        }
     }
 
     companion object {

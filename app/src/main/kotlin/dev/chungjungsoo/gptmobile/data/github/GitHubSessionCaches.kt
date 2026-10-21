@@ -4,6 +4,7 @@ package dev.chungjungsoo.gptmobile.data.github
 internal object GitHubSessionCaches {
     private data class State(val cache: GitHubResponseCache = GitHubResponseCache(), val limits: GitHubRateLimitManager = GitHubRateLimitManager(), val scheduler: GitHubRequestScheduler = GitHubRequestScheduler(), val store: GitHubRepositoryStateStore = GitHubRepositoryStateStore())
     private val states = LinkedHashMap<String, State>(8, 0.75f, true)
+
     @Synchronized private fun state(token: String): State = states.getOrPut(GitHubRepositoryStateStore.digest(token)) { State() }.also {
         while (states.size > 8) states.remove(states.keys.first())?.cache?.clear()
     }
@@ -11,5 +12,9 @@ internal object GitHubSessionCaches {
     fun rateLimitsForCredential(token: String): GitHubRateLimitManager = state(token).limits
     fun schedulerForCredential(token: String): GitHubRequestScheduler = state(token).scheduler
     fun stateForCredential(token: String): GitHubRepositoryStateStore = state(token).store
-    @Synchronized fun clear() { states.values.forEach { it.cache.clear() }; states.clear() }
+
+    @Synchronized fun clear() {
+        states.values.forEach { it.cache.clear() }
+        states.clear()
+    }
 }

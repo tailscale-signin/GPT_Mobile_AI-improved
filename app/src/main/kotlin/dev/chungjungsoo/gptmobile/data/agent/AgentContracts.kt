@@ -67,7 +67,8 @@ data class AgentToolDefinition(
     val name: String,
     val description: String,
     val inputSchema: JsonObject,
-    val capabilities: Set<AgentToolCapability> = emptySet()
+    val capabilities: Set<AgentToolCapability> = emptySet(),
+    val modelVisible: Boolean = true
 )
 
 enum class AgentToolCapability { WEB_SEARCH, PAGE_READER }

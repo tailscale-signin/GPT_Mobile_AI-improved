@@ -110,20 +110,20 @@ internal fun CompactAgentActivityBar(
             if (progress != null) {
                 Text(liveText, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f), maxLines = 3)
             } else {
-            AnimatedContent(
-                targetState = liveText,
-                transitionSpec = { fadeIn(tween(280)) togetherWith fadeOut(tween(180)) },
-                label = "agentLiveActivity",
-                modifier = Modifier.weight(1f)
-            ) { text ->
-                Text(
-                    text = text,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
+                AnimatedContent(
+                    targetState = liveText,
+                    transitionSpec = { fadeIn(tween(280)) togetherWith fadeOut(tween(180)) },
+                    label = "agentLiveActivity",
+                    modifier = Modifier.weight(1f)
+                ) { text ->
+                    Text(
+                        text = text,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
         }
         progress?.runtimeSummary()?.takeIf(String::isNotBlank)?.let { runtime ->

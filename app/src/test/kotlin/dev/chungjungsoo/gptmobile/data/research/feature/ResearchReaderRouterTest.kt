@@ -50,9 +50,15 @@ class ResearchReaderRouterTest {
 
     @Test fun readerFailurePreservesPreviouslyReadableAbstract() = runBlocking {
         coEvery { tool.execute(any(), any()) } throws java.net.UnknownHostException("offline")
-        assertEquals(initial, ResearchReaderRouter.fallback(paper, initial, readers, sessions, emptyList(), emptyList()) { true })
+        val offline = ResearchReaderRouter.fallback(paper, initial, readers, sessions, emptyList(), emptyList()) { true }
+        assertEquals(initial.text, offline.text)
+        assertEquals("abstract_only", offline.retrievalStatus)
+        assertEquals("NETWORK_UNAVAILABLE", offline.failureCode)
         coEvery { tool.execute(any(), any()) } returns response("Verify you are human. CAPTCHA")
-        assertEquals(initial, ResearchReaderRouter.fallback(paper, initial, readers, sessions, emptyList(), emptyList()) { true })
+        val blocked = ResearchReaderRouter.fallback(paper, initial, readers, sessions, emptyList(), emptyList()) { true }
+        assertEquals(initial.text, blocked.text)
+        assertEquals("abstract_only", blocked.retrievalStatus)
+        assertEquals("SOURCE_ACCESS_BLOCKED", blocked.failureCode)
     }
 
     @Test fun permissionAndDomainRestrictionsNeverDispatchFallback() = runBlocking {

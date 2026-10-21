@@ -15,7 +15,9 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
     private val advanced = Regex("(?iu)\\b(research|study|studies|papers|repository|github)\\b").containsMatchIn(task)
     private val toolAllowance = if (advanced) 16 else INITIAL_TOOLS
     private val schemaAllowance = if (advanced) 6000 else SCHEMA_TOKEN_ALLOWANCE
-    private val candidates = definitions.associateBy { it.name }.toMutableMap()
+    private val taskText = task
+    private val candidates = definitions.filter { it.modelVisible }.associateBy { it.name }.toMutableMap()
+    private val requiredCapabilities = if (Regex("(?i)\\b(research|search|sources|papers|studies|latest|news|verify|article|citations)\\b").containsMatchIn(task)) setOf(AgentToolCapability.WEB_SEARCH, AgentToolCapability.PAGE_READER) else emptySet()
     private val active = window(ranked(task).filter { initialNames == null || it.name in initialNames }).map { it.name }.toMutableSet()
     private val discovered = active.toMutableSet()
 
@@ -51,7 +53,7 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
     )
 
     @Synchronized
-    fun selected(allowed: List<AgentToolDefinition>): List<AgentToolDefinition> = allowed.filter { it.name in active || it.name == NAME }
+    fun selected(allowed: List<AgentToolDefinition>): List<AgentToolDefinition> = allowed.filter { it.modelVisible && (it.name in active || it.name == NAME) }
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
         val query = (arguments["query"] as? JsonPrimitive)?.content.orEmpty().take(4096)
@@ -65,7 +67,7 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
                 val acquired = acquireCold.invoke(query, names)
                 if (acquired.isNotEmpty()) {
                     synchronized(this) {
-                        acquired.forEach { candidates[it.name] = it }
+                        acquired.filter { it.modelVisible }.forEach { candidates[it.name] = it }
                         acquiredQueryKeys += key
                     }
                 }
@@ -79,10 +81,15 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
         val names = (arguments["names"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.content }.take(12)
         if (query.isBlank() && names.isEmpty()) return@synchronized AgentToolResult(callId, ToolResultContent.Text("Provide a task query or exact tool names."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
         val exact = candidates.values.firstOrNull { it.name.equals(query.trim(), ignoreCase = true) }
-        val undiscovered = if (query.isNotBlank()) ranked(query).filterNot { it.name in discovered } else emptyList()
+        val undiscovered = if (query.isNotBlank()) ranked(query) else emptyList()
         val found = (names.mapNotNull(candidates::get) + listOfNotNull(exact) + undiscovered).distinctBy { it.name }.take(12)
         val previousActive = active.toSet()
-        val selected = window(found + active.mapNotNull(candidates::get))
+        val pinned = requiredCapabilities.mapNotNull { capability ->
+            (active.mapNotNull(candidates::get) + ranked(taskText)).firstOrNull { capability in it.capabilities }
+        }
+        val explicit = names.mapNotNull(candidates::get) + listOfNotNull(exact)
+        val retained = ranked(taskText).filter { it.name in active }
+        val selected = window(pinned + explicit + retained + found + active.mapNotNull(candidates::get))
         active.clear()
         active.addAll(selected.map { it.name })
         val admitted = found.filter { it.name in active }
@@ -101,7 +108,7 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
             )
             put("schema_budget_excluded", JsonArray(found.filterNot { it.name in active }.map { JsonPrimitive(it.name) }))
             put("schema_token_allowance", schemaAllowance)
-            put("selection_policy", "Exact requested tools replace older advertised tools; executable permissions are unchanged. Oversized schemas require a smaller provider definition.")
+            put("selection_policy", "Current-task capabilities remain available; explicit relevant requests may replace lower-priority schemas. Executable permissions are unchanged.")
             put("unknown_names", JsonArray(names.filterNot(candidates::containsKey).map(::JsonPrimitive)))
             put("authorized_tool_count", candidates.size)
             put("remaining_tool_count", candidates.size - discovered.size)
@@ -129,31 +136,34 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
 
     private fun ranked(query: String): List<AgentToolDefinition> {
         val needle = query.lowercase(java.util.Locale.ROOT).trim()
-        val words = Regex("[\\p{L}\\p{N}]+").findAll(query.lowercase(java.util.Locale.ROOT)).map { it.value }.filter { it.length > 2 }.toSet()
-        return candidates.values.sortedByDescending { tool ->
+        val words = Regex("[\\p{L}\\p{N}]+").findAll(needle).map { it.value }.filter { it.length > 2 && it !in STOP_WORDS }.toSet()
+        val github = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(query)
+        return candidates.values.map { tool ->
             val name = tool.name.lowercase(java.util.Locale.ROOT)
-            val description = tool.description.take(2048).lowercase(java.util.Locale.ROOT)
-            (
-                if (name == needle) {
-                    1000
-                } else if (needle.isNotEmpty() && needle in name) {
-                    100
-                } else {
-                    0
-                }
-                ) + words.sumOf { word -> (if (word in name) 5 else 0) + (if (word in description) 1 else 0) }
-        }
+            val description = tool.description.take(1024).lowercase(java.util.Locale.ROOT)
+            val operation = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(name)
+            val score = when {
+                name == needle -> 10000
+                operation != null -> if (operation in github) 1000 - github.indexOf(operation) else 0
+                github.isNotEmpty() && needle == taskText.lowercase(java.util.Locale.ROOT).trim() -> 0
+                tool.capabilities.any { it in requiredCapabilities } -> 500
+                needle.isNotEmpty() && needle in name -> 100
+                else -> words.sumOf { word -> (if (word in name) 8 else 0) + (if (word in description) 1 else 0) }
+            }
+            tool to score
+        }.filter { it.second > 0 }.sortedWith(compareByDescending<Pair<AgentToolDefinition, Int>> { it.second }.thenBy { it.first.name }).map { it.first }
     }
 
     companion object {
         const val NAME = "discover_available_tools"
         const val INITIAL_TOOLS = 8
+        private val STOP_WORDS = setOf("the", "and", "for", "this", "that", "with", "please", "can", "could", "use", "help", "what", "how", "all", "work", "continue")
 
         // Leaves room for the discovery schema and source content in the parent request planner.
         const val SCHEMA_TOKEN_ALLOWANCE = 2_000
         internal fun schemaTokens(tool: AgentToolDefinition): Int = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(tool.name + tool.description + tool.inputSchema.toString())
         fun create(definitions: List<AgentToolDefinition>, task: String, initialNames: Set<String>? = null): ProgressiveToolCatalog? =
-            if (definitions.any { it.name == NAME } || definitions.size <= INITIAL_TOOLS && definitions.sumOf { schemaTokens(it).toLong() } <= SCHEMA_TOKEN_ALLOWANCE) null else ProgressiveToolCatalog(definitions, task, initialNames)
+            if (definitions.any { it.name == NAME } || definitions.none { !it.modelVisible || dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) != null } && definitions.size <= INITIAL_TOOLS && definitions.sumOf { schemaTokens(it).toLong() } <= SCHEMA_TOKEN_ALLOWANCE) null else ProgressiveToolCatalog(definitions, task, initialNames)
     }
 }
 

@@ -27,7 +27,11 @@ internal class GitHubRepositorySession(
     private val commit: suspend (String, JsonObject) -> JsonElement
 ) {
     private val scope = listOf(accountId, connectionUid, conversationId, taskId).joinToString(":")
-    private val codec = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+    private val conversationScope = listOf(accountId, connectionUid, conversationId).joinToString(":")
+    private val codec = Json {
+        ignoreUnknownKeys = true
+        encodeDefaults = true
+    }
     private var current: GitHubTaskSnapshot? = null
     private fun String.sha() = matches(Regex("[a-fA-F0-9]{40}|[a-fA-F0-9]{64}"))
     private fun JsonObject.s(key: String) = (get(key) as? JsonPrimitive)?.content.orEmpty()
@@ -38,24 +42,42 @@ internal class GitHubRepositorySession(
         runCatching { codec.decodeFromJsonElement(GitHubTaskSnapshot.serializer(), it) }.getOrNull()?.takeIf { row -> row.accountId == accountId && row.connectionUid == connectionUid && row.conversationId == conversationId && row.taskId == taskId }
     }?.also { current = it }
 
+    suspend fun context(): GitHubRepositoryContext? = snapshot()?.let { GitHubRepositoryContext(it.owner, it.repo, it.ref) }
+        ?: store.read(conversationScope, "selected_context")?.let { row ->
+            GitHubRepositoryContext(row.s("owner"), row.s("repo"), row.s("ref")).takeIf { it.owner.isNotBlank() && it.repo.isNotBlank() && it.ref.isNotBlank() }
+        }
+
     private suspend fun save(value: GitHubTaskSnapshot) {
         store.write(scope, "snapshot", codec.encodeToJsonElement(GitHubTaskSnapshot.serializer(), value) as JsonObject)
         current = value
+        store.write(
+            conversationScope,
+            "selected_context",
+            buildJsonObject {
+                put("owner", value.owner)
+                put("repo", value.repo)
+                put("ref", value.ref)
+            }
+        )
     }
 
-    suspend fun resolve(owner: String, repo: String, args: JsonObject): GitHubTaskSnapshot {
+    suspend fun resolve(owner: String, repo: String, args: JsonObject, selectContext: Boolean = false): GitHubTaskSnapshot {
         val explicit = args.s("commit_sha").ifBlank { args.s("ref").takeIf { it.sha() }.orEmpty() }
         if (explicit.isNotEmpty()) require(explicit.sha()) { "commit_sha must be an immutable 40/64-hex commit." }
         val retained = snapshot()
-        val refresh = args["refresh"]?.jsonPrimitive?.booleanOrNull == true
+        val requestedRef = args.s("ref").ifBlank { args.s("branch") }
+        val refresh = args["refresh"]?.jsonPrimitive?.booleanOrNull == true || selectContext && requestedRef.isNotBlank() && requestedRef != retained?.ref
         if (!refresh && retained != null && retained.owner.equals(owner, true) && retained.repo.equals(repo, true) && (explicit.isBlank() || explicit == retained.commitSha)) return retained
         val repository = root(owner, repo)
-        val ref = explicit.ifBlank { args.s("ref").ifBlank { args.s("branch").ifBlank { request(repository).jsonObject.s("default_branch").ifBlank { "HEAD" } } } }
+        val previous = context()?.takeIf { it.owner.equals(owner, true) && it.repo.equals(repo, true) }
+        val ref = explicit.ifBlank { args.s("ref").ifBlank { args.s("branch").ifBlank { previous?.ref.orEmpty().ifBlank { request(repository).jsonObject.s("default_branch").ifBlank { "HEAD" } } } } }
         val response = request("$repository/commits/${GitHubWorkspaceClient.segment(ref)}").jsonObject
         val sha = response.s("sha")
         val tree = response["commit"]?.jsonObject?.get("tree")?.jsonObject?.s("sha").orEmpty()
         require(sha.sha() && tree.sha() && (explicit.isBlank() || explicit.equals(sha, true))) { "GitHub did not supply the requested immutable commit and tree." }
-        return GitHubTaskSnapshot(accountId, connectionUid, conversationId, taskId, owner, repo, if (explicit.isBlank()) ref else retained?.ref ?: ref, sha, tree).also { save(it) }
+        return GitHubTaskSnapshot(accountId, connectionUid, conversationId, taskId, owner, repo, if (explicit.isBlank()) ref else requestedRef.takeUnless { it.sha() || it.isBlank() } ?: retained?.ref ?: ref, sha, tree).also { resolved ->
+            if (retained == null || refresh || selectContext || retained.owner != owner || retained.repo != repo) save(resolved)
+        }
     }
 
     private suspend fun tree(context: GitHubTaskSnapshot): JsonObject {
@@ -84,15 +106,21 @@ internal class GitHubRepositorySession(
         val response = request("${root(context.owner, context.repo)}/git/blobs/$sha").jsonObject
         require(response.s("sha").isBlank() || response.s("sha") == sha) { "Returned blob identity differs from the selected tree." }
         val bytes = when (response.s("encoding")) {
-            "base64" -> { require(response.s("content").length <= MAX_BLOB_BYTES * 2); Base64.getMimeDecoder().decode(response.s("content")) }
+            "base64" -> {
+                require(response.s("content").length <= MAX_BLOB_BYTES * 2)
+                Base64.getMimeDecoder().decode(response.s("content"))
+            }
             "utf-8", "utf8", "" -> response.s("content").encodeToByteArray()
             else -> error("Unsupported blob encoding.")
         }
         require(bytes.size <= MAX_BLOB_BYTES && bytes.none { it == 0.toByte() }) { "Only bounded UTF-8 text blobs can be ingested." }
         val text = bytes.decodeToString(throwOnInvalidSequence = true)
         val result = buildJsonObject {
-            put("sha", sha); put("content", text); put("bytes", bytes.size)
-            put("content_hash", GitHubRepositoryStateStore.digest(text)); put("index", GitHubLocalIndex.build(text))
+            put("sha", sha)
+            put("content", text)
+            put("bytes", bytes.size)
+            put("content_hash", GitHubRepositoryStateStore.digest(text))
+            put("index", GitHubLocalIndex.build(text))
         }
         store.write(blobScope(context), "blob:$sha", result)
         return result
@@ -105,13 +133,23 @@ internal class GitHubRepositorySession(
             val requested = JsonObject(args + mapOf("commit_sha" to retained.getValue("commit_sha"), "ranges" to (args["ranges"] ?: retained.getValue("ranges"))))
             return read(resolve(owner, repo, requested), requested)
         }
-        val context = resolve(owner, repo, args)
+        val requested = if (action == "changed_since" && args.s("head").isNotBlank()) {
+            val head = request("${root(owner, repo)}/commits/${GitHubWorkspaceClient.segment(args.s("head"))}").jsonObject.s("sha")
+            JsonObject(args + ("commit_sha" to JsonPrimitive(head)))
+        } else {
+            args
+        }
+        val context = resolve(owner, repo, requested, action in setOf("resolve_context", "task_context"))
         return when (action) {
             "resolve_context", "task_context" -> buildJsonObject {
-                put("owner", owner); put("repo", repo); put("ref", context.ref)
-                put("commit_sha", context.commitSha); put("tree_sha", context.treeSha)
+                put("owner", owner)
+                put("repo", repo)
+                put("ref", context.ref)
+                put("commit_sha", context.commitSha)
+                put("tree_sha", context.treeSha)
                 put("snapshot", codec.encodeToJsonElement(GitHubTaskSnapshot.serializer(), context))
-                put("index", indexStatus(context)); put("persistent_scope", scope.substringBefore(':'))
+                put("index", indexStatus(context))
+                put("persistent_scope", scope.substringBefore(':'))
             }
             "index_status" -> indexStatus(context)
             "search_repository" -> search(context, args)
@@ -127,13 +165,16 @@ internal class GitHubRepositorySession(
         val tree = tree(context)
         val candidates = tree["tree"]!!.jsonArray.map { it.jsonObject }.filter { it.s("type") == "blob" }
         var loaded = 0
-        for (entry in candidates) if (store.read(blobScope(context), "blob:${entry.s("sha")}") != null) loaded++
+        for (entry in candidates) if (store.contains(blobScope(context), "blob:${entry.s("sha")}")) loaded++
         return buildJsonObject {
-            put("commit_sha", context.commitSha); put("tree_sha", context.treeSha)
-            put("total_paths", candidates.size); put("indexed_blobs", loaded)
+            put("commit_sha", context.commitSha)
+            put("tree_sha", context.treeSha)
+            put("total_paths", candidates.size)
+            put("indexed_blobs", loaded)
             put("complete", loaded == candidates.size && tree["truncated"]?.jsonPrimitive?.booleanOrNull != true)
             put("tree_complete", tree["truncated"]?.jsonPrimitive?.booleanOrNull != true)
-            put("kind", "lexical"); put("compiler_resolution", false)
+            put("kind", "lexical")
+            put("compiler_resolution", false)
         }
     }
 
@@ -154,32 +195,87 @@ internal class GitHubRepositorySession(
             val item = all[next]
             if (mode == "paths") {
                 next++
-                if (item.s("path").contains(query, true)) hits += buildJsonObject { put("path", item["path"]!!); put("sha", item["sha"]!!) }
+                if (item.s("path").contains(query, true)) {
+                    hits += buildJsonObject {
+                        put("path", item["path"]!!)
+                        put("sha", item["sha"]!!)
+                    }
+                }
                 continue
             }
             val cached = store.read(blobScope(context), "blob:${item.s("sha")}")
             if (cached == null && fetched >= 24) break
             next++
-            if ((item["size"]?.jsonPrimitive?.longOrNull ?: 0) > MAX_BLOB_BYTES) { skipped++; continue }
-            val content = try { cached ?: blob(context, item).also { fetched++ } } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled } catch (_: IllegalArgumentException) { skipped++; continue }
+            if ((item["size"]?.jsonPrimitive?.longOrNull ?: 0) > MAX_BLOB_BYTES) {
+                skipped++
+                continue
+            }
+            val content = try {
+                if (cached == null) fetched++
+                cached ?: blob(context, item)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: IllegalArgumentException) {
+                skipped++
+                continue
+            } catch (_: java.nio.charset.CharacterCodingException) {
+                skipped++
+                continue
+            }
             val text = content.s("content")
             val lexical = content["index"]?.jsonObject
             val lines = if (mode in setOf("definitions", "references")) {
                 if (lexical?.get("${mode}_complete")?.jsonPrimitive?.booleanOrNull != true) incompleteSymbols = true
                 lexical?.get(mode)?.jsonArray.orEmpty().map { it.jsonObject }.filter { it.s("name") == query }.mapNotNull { it["line"]?.jsonPrimitive?.intOrNull }.toSet()
-            } else emptySet()
+            } else {
+                emptySet()
+            }
             val matches = text.lineSequence().mapIndexedNotNull { index, line ->
-                if (if (mode in setOf("definitions", "references")) index + 1 in lines else line.contains(query, true)) buildJsonObject { put("line", index + 1); put("text", utf8Prefix(line, 500)) } else null
+                if (if (mode in setOf("definitions", "references")) index + 1 in lines else line.contains(query, true)) {
+                    buildJsonObject {
+                        put("line", index + 1)
+                        put("text", utf8Prefix(line, 500))
+                    }
+                } else {
+                    null
+                }
             }.take(10).toList()
-            if (matches.isNotEmpty()) hits += buildJsonObject { put("path", item["path"]!!); put("sha", item["sha"]!!); put("matches", JsonArray(matches)) }
+            if (matches.isNotEmpty()) {
+                hits += buildJsonObject {
+                    put("path", item["path"]!!)
+                    put("sha", item["sha"]!!)
+                    put("matches", JsonArray(matches))
+                }
+            }
         }
         return buildJsonObject {
-            put("query", query); put("mode", mode); put("commit_sha", context.commitSha); put("tree_sha", context.treeSha)
-            put("items", JsonArray(hits)); put("returned", hits.size); put("scanned_files", next - cursor); put("new_blobs", fetched)
-            put("total_candidate_files", all.size); put("skipped_files", skipped); put("symbols_incomplete", incompleteSymbols)
-            put("has_more", next < all.size); put("complete", next == all.size && cursor == 0 && skipped == 0 && !incompleteSymbols && data["truncated"]?.jsonPrimitive?.booleanOrNull != true)
+            put("query", query)
+            put("mode", mode)
+            put("commit_sha", context.commitSha)
+            put("tree_sha", context.treeSha)
+            put("items", JsonArray(hits))
+            put("returned", hits.size)
+            put("scanned_files", next - cursor)
+            put("new_blobs", fetched)
+            put("total_candidate_files", all.size)
+            put("skipped_files", skipped)
+            put("symbols_incomplete", incompleteSymbols)
+            put("has_more", next < all.size)
+            put("complete", next == all.size && cursor == 0 && skipped == 0 && !incompleteSymbols && data["truncated"]?.jsonPrimitive?.booleanOrNull != true)
             put("coverage", "Query coverage is limited to the scanned interval and retained lexical positions.")
-            if (next < all.size) put("continuation", buildJsonObject { put("action", "search_repository"); put("commit_sha", context.commitSha); put("index_cursor", next); put("query", query); put("mode", mode) })
+            if (next < all.size) {
+                put(
+                    "continuation",
+                    buildJsonObject {
+                        put("action", "search_repository")
+                        put("commit_sha", context.commitSha)
+                        put("index_cursor", next)
+                        put("query", query)
+                        put("mode", mode)
+                        put("path_prefix", args.s("path_prefix"))
+                    }
+                )
+            }
         }
     }
 
@@ -198,30 +294,71 @@ internal class GitHubRepositorySession(
             val start = (range["start_line"]?.jsonPrimitive?.intOrNull ?: 1).also { require(it >= 1) }
             val end = (range["end_line"]?.jsonPrimitive?.intOrNull ?: start + 299).also { require(it >= start && it - start < 2000) }
             val selected = lines.drop(start - 1).take(end - start + 1).joinToString("\n")
-            val offset = (range["start_offset"]?.jsonPrimitive?.intOrNull ?: 0).also { require(it in 0..selected.length) }
+            val offset = (range["start_offset"]?.jsonPrimitive?.intOrNull ?: 0).also { require(it in 0..selected.length && (it == 0 || it == selected.length || !Character.isLowSurrogate(selected[it]))) { "start_offset must be a valid UTF-16 character boundary." } }
             val excerpt = utf8Prefix(selected.substring(offset), remaining)
             remaining -= excerpt.encodeToByteArray().size
             val truncated = offset + excerpt.length < selected.length
             buildJsonObject {
-                put("path", path); put("sha", entry["sha"]!!); put("commit_sha", context.commitSha)
-                put("start_line", start); put("end_line", minOf(end, lines.size)); put("total_lines", lines.size)
-                put("start_offset", offset); put("content", excerpt); put("truncated", truncated || end < lines.size || start > 1 || offset > 0)
+                put("path", path)
+                put("sha", entry["sha"]!!)
+                put("commit_sha", context.commitSha)
+                put("start_line", start)
+                put("end_line", minOf(end, lines.size))
+                put("total_lines", lines.size)
+                put("start_offset", offset)
+                put("content", excerpt)
+                put("truncated", truncated || end < lines.size || start > 1 || offset > 0)
                 put("complete_file", start == 1 && end >= lines.size && offset == 0 && !truncated)
                 put("has_more", truncated || end < lines.size)
-                if (truncated) put("continuation", buildJsonObject { put("path", path); put("start_line", start); put("end_line", end); put("start_offset", offset + excerpt.length); put("commit_sha", context.commitSha) })
-                else if (end < lines.size) put("continuation", buildJsonObject { put("path", path); put("start_line", end + 1); put("commit_sha", context.commitSha) })
+                if (truncated) {
+                    put(
+                        "continuation",
+                        buildJsonObject {
+                            put("path", path)
+                            put("start_line", start)
+                            put("end_line", end)
+                            put("start_offset", offset + excerpt.length)
+                            put("commit_sha", context.commitSha)
+                        }
+                    )
+                } else if (end < lines.size) {
+                    put(
+                        "continuation",
+                        buildJsonObject {
+                            put("path", path)
+                            put("start_line", end + 1)
+                            put("commit_sha", context.commitSha)
+                        }
+                    )
+                }
             }
         }
         val evidenceId = GitHubRepositoryStateStore.digest(scope + context.commitSha + results.toString())
-        store.write(scope, "evidence:$evidenceId", buildJsonObject {
-            put("owner", context.owner); put("repo", context.repo); put("commit_sha", context.commitSha); put("tree_sha", context.treeSha)
-            put("ranges", ranges); put("items", JsonArray(results))
-        })
-        save(context.copy(evidenceHandles = (context.evidenceHandles + evidenceId).distinct().takeLast(128), updatedAt = System.currentTimeMillis()))
-        return buildJsonObject { put("evidence_id", evidenceId); put("commit_sha", context.commitSha); put("tree_sha", context.treeSha); put("items", JsonArray(results)); put("excerpt_bytes", MAX_EXCERPT_BYTES - remaining) }
+        store.write(
+            scope,
+            "evidence:$evidenceId",
+            buildJsonObject {
+                put("owner", context.owner)
+                put("repo", context.repo)
+                put("commit_sha", context.commitSha)
+                put("tree_sha", context.treeSha)
+                put("ranges", ranges)
+                put("items", JsonArray(results))
+            }
+        )
+        val pinned = snapshot() ?: context
+        save(pinned.copy(evidenceHandles = (pinned.evidenceHandles + evidenceId).distinct().takeLast(128), updatedAt = System.currentTimeMillis()))
+        return buildJsonObject {
+            put("evidence_id", evidenceId)
+            put("commit_sha", context.commitSha)
+            put("tree_sha", context.treeSha)
+            put("items", JsonArray(results))
+            put("excerpt_bytes", MAX_EXCERPT_BYTES - remaining)
+        }
     }
 
     private suspend fun stage(context: GitHubTaskSnapshot, args: JsonObject): JsonObject {
+        require(snapshot()?.commitSha == context.commitSha) { "Select the intended task revision before staging a patch." }
         val expected = args.s("expected_head_sha").ifBlank { context.commitSha }
         require(expected == context.commitSha) { "Patch expected head must equal the pinned task commit." }
         val edits = args["edits"] as? JsonArray ?: error("edits is required.")
@@ -233,16 +370,42 @@ internal class GitHubRepositorySession(
         }
         val files = GitHubPatchStager.apply(originals, edits)
         val id = GitHubRepositoryStateStore.digest(scope + context.commitSha + files.toString())
-        val preview = JsonArray(files.map { row ->
-            val file = row.jsonObject
-            val before = originals.getValue(file.s("path")).second
-            val after = file.s("content")
-            val first = before.commonPrefixWith(after).length
-            buildJsonObject { put("path", file["path"]!!); put("expected_blob_sha", file["expected_blob_sha"]!!); put("original_bytes", before.encodeToByteArray().size); put("result_bytes", after.encodeToByteArray().size); put("before", utf8Prefix(before.drop((first - 120).coerceAtLeast(0)), 1200)); put("after", utf8Prefix(after.drop((first - 120).coerceAtLeast(0)), 1200)); put("preview_bounded", true) }
-        })
-        store.write(scope, "stage:$id", buildJsonObject { put("owner", context.owner); put("repo", context.repo); put("expected_head_sha", expected); put("files", files); put("preview", preview) })
+        val preview = JsonArray(
+            files.map { row ->
+                val file = row.jsonObject
+                val before = originals.getValue(file.s("path")).second
+                val after = file.s("content")
+                val first = before.commonPrefixWith(after).length
+                buildJsonObject {
+                    put("path", file["path"]!!)
+                    put("expected_blob_sha", file["expected_blob_sha"]!!)
+                    put("original_bytes", before.encodeToByteArray().size)
+                    put("result_bytes", after.encodeToByteArray().size)
+                    put("before", utf8Prefix(before.drop((first - 120).coerceAtLeast(0)), 1200))
+                    put("after", utf8Prefix(after.drop((first - 120).coerceAtLeast(0)), 1200))
+                    put("preview_bounded", true)
+                }
+            }
+        )
+        store.write(
+            scope,
+            "stage:$id",
+            buildJsonObject {
+                put("owner", context.owner)
+                put("repo", context.repo)
+                put("expected_head_sha", expected)
+                put("files", files)
+                put("preview", preview)
+            }
+        )
         save(context.copy(stagedPatchId = id, updatedAt = System.currentTimeMillis()))
-        return buildJsonObject { put("stage_id", id); put("expected_head_sha", expected); put("preview", preview); put("files_changed", files.size); put("committed", false) }
+        return buildJsonObject {
+            put("stage_id", id)
+            put("expected_head_sha", expected)
+            put("preview", preview)
+            put("files_changed", files.size)
+            put("committed", false)
+        }
     }
 
     private suspend fun commitStage(context: GitHubTaskSnapshot, args: JsonObject): JsonElement {
@@ -269,11 +432,46 @@ internal class GitHubRepositorySession(
         val changes = (before.keys + after.keys).sorted().filter { before[it]?.s("sha") != after[it]?.s("sha") || before[it]?.s("mode") != after[it]?.s("mode") }
         val page = (args["page"]?.jsonPrimitive?.intOrNull ?: 1).also { require(it in 1..1000) }
         return buildJsonObject {
-            put("base_sha", base.commitSha); put("head_sha", context.commitSha); put("files_total", changes.size)
-            put("files", JsonArray(changes.drop((page - 1) * 100).take(100).map { path -> buildJsonObject { put("filename", path); put("status", if (before[path] == null) "added" else if (after[path] == null) "removed" else "modified"); put("sha", after[path]?.get("sha") ?: JsonNull); put("previous_sha", before[path]?.get("sha") ?: JsonNull) } }))
-            put("page", page); put("has_more", page * 100 < changes.size); put("files_truncated", page * 100 < changes.size)
+            put("base_sha", base.commitSha)
+            put("head_sha", context.commitSha)
+            put("files_total", changes.size)
+            put(
+                "files",
+                JsonArray(
+                    changes.drop((page - 1) * 100).take(100).map { path ->
+                        buildJsonObject {
+                            put("filename", path)
+                            put(
+                                "status",
+                                if (before[path] == null) {
+                                    "added"
+                                } else if (after[path] == null) {
+                                    "removed"
+                                } else {
+                                    "modified"
+                                }
+                            )
+                            put("sha", after[path]?.get("sha") ?: JsonNull)
+                            put("previous_sha", before[path]?.get("sha") ?: JsonNull)
+                        }
+                    }
+                )
+            )
+            put("page", page)
+            put("has_more", page * 100 < changes.size)
+            put("files_truncated", page * 100 < changes.size)
             put("tree_complete", oldTree["truncated"]?.jsonPrimitive?.booleanOrNull != true && newTree["truncated"]?.jsonPrimitive?.booleanOrNull != true)
-            if (page * 100 < changes.size) put("continuation", buildJsonObject { put("action", "changed_since"); put("base", base.commitSha); put("commit_sha", context.commitSha); put("page", page + 1) })
+            if (page * 100 < changes.size) {
+                put(
+                    "continuation",
+                    buildJsonObject {
+                        put("action", "changed_since")
+                        put("base", base.commitSha)
+                        put("commit_sha", context.commitSha)
+                        put("page", page + 1)
+                    }
+                )
+            }
         }
     }
 
@@ -285,7 +483,10 @@ internal class GitHubRepositorySession(
             if (value.length <= bytes / 4 || value.encodeToByteArray().size <= bytes) return value
             var low = 0
             var high = minOf(value.length, bytes)
-            while (low < high) { val middle = (low + high + 1) / 2; if (value.substring(0, middle).encodeToByteArray().size <= bytes) low = middle else high = middle - 1 }
+            while (low < high) {
+                val middle = (low + high + 1) / 2
+                if (value.substring(0, middle).encodeToByteArray().size <= bytes) low = middle else high = middle - 1
+            }
             if (low > 0 && Character.isHighSurrogate(value[low - 1])) low--
             return value.substring(0, low)
         }

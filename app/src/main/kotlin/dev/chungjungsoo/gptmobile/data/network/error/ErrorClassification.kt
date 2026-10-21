@@ -50,7 +50,15 @@ data class ClassifiedError(
 object ErrorClassification {
 
     fun classify(throwable: Throwable): ClassifiedError {
-        val msg = throwable.message?.lowercase().orEmpty()
+        val causes = mutableListOf<Throwable>()
+        val seen = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<Throwable, Boolean>())
+        var next: Throwable? = throwable
+        while (next != null && causes.size < 16 && seen.add(next)) {
+            causes += next
+            next = next.cause
+        }
+        val msg = causes.joinToString(" ") { it.message.orEmpty() }.lowercase()
+        val dnsFailure = causes.any { it is java.net.UnknownHostException } || "unable to resolve host" in msg || "dns_recovery" in msg
 
         return when {
             throwable is kotlinx.coroutines.CancellationException -> ClassifiedError(ErrorCategory.CLIENT_CANCELLED, ErrorSeverity.LOW, false, 0, "Request was cancelled.", throwable)
@@ -78,12 +86,12 @@ object ErrorClassification {
                 originalThrowable = throwable
             )
 
-            msg.contains("unable to resolve host") || msg.contains("network is unreachable") || msg.contains("dns_recovery") || msg.contains("local_service_unreachable") || generateSequence(throwable) { it.cause }.take(8).any { it is java.net.UnknownHostException } -> ClassifiedError(
+            dnsFailure || msg.contains("network is unreachable") || msg.contains("local_service_unreachable") || causes.any { it is java.net.ConnectException } -> ClassifiedError(
                 category = ErrorCategory.NETWORK_DISCONNECTED,
                 severity = ErrorSeverity.MEDIUM,
                 isRetryable = true,
                 suggestedBackoffMs = 5_000L,
-                userMessage = "No internet connection. Please check your Wi-Fi or mobile data.",
+                userMessage = if (dnsFailure) "DNS resolution failed for this endpoint. Check its address and network DNS settings." else "This endpoint is unreachable. Check its address, service and network connection.",
                 originalThrowable = throwable
             )
 

@@ -13,7 +13,8 @@ data class ResearchEvidenceManifest(
     val originatingUserMessageId: Int,
     val originalRequestDigest: String,
     val revisions: List<ResearchEvidenceRevision> = emptyList(),
-    val partialCheckpointIds: Set<String> = emptySet()
+    val partialCheckpointIds: Set<String> = emptySet(),
+    val deliveryReceiptIds: Set<String> = emptySet()
 )
 
 @Serializable

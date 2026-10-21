@@ -77,7 +77,7 @@ class ArticleExaminationRecoveryTest {
                 val reply = if (attempts in 2..3) "{" else """{"schemaVersion":1,"design":"RANDOMIZED_TRIAL","passages":[{"id":"P1","quote":"Methods: randomized 100 participants.","locator":"Methods","start":0}],"fields":[],"judgments":[],"limitations":["Uncertain effect"]}"""
                 object : AgentProviderSession {
                     override val handlesToolsInternally = false
-                    override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(ProviderEvent.TextDelta(reply), ProviderEvent.Failed("Synthetic stream reset"))
+                    override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(ProviderEvent.TextDelta(reply), ProviderEvent.Completed)
                 }
             }
             coordinator = ArticleExaminationCoordinator(archive, settings, chats, academic, models, Provider { error("No gateway authorized") }, sessions)

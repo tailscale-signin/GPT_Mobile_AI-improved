@@ -30,7 +30,10 @@ internal class ResearchConnectivityGate(private val now: () -> Long = { System.n
         expire()
         if (healthy(host) || failedHosts.size < 2 && blockedUntil == 0L) return 0L
         if (now() < blockedUntil || probeLease != null) return null
-        return (++leaseSequence).also { probeLease = it; probeStarted = now() }
+        return (++leaseSequence).also {
+            probeLease = it
+            probeStarted = now()
+        }
     }
 
     @Synchronized fun release(lease: Long) {
@@ -43,8 +46,12 @@ internal class ResearchConnectivityGate(private val now: () -> Long = { System.n
         failedHosts.remove(key)
         healthyHosts[key] = now()
         trim(healthyHosts)
-        if (failedHosts.isEmpty()) { blockedUntil = 0L; backoff = WINDOW }
-        else if (probeLease != null) blockedUntil = maxOf(blockedUntil, now() + WINDOW)
+        if (failedHosts.isEmpty()) {
+            blockedUntil = 0L
+            backoff = WINDOW
+        } else if (probeLease != null) {
+            blockedUntil = maxOf(blockedUntil, now() + WINDOW)
+        }
     }
 
     /** Compatibility for explicit network-change callers only; responses must use success(host). */

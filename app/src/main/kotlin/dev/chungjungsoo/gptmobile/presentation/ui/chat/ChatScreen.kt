@@ -706,6 +706,8 @@ fun ChatScreen(
                         onPlatformLongPress = chatViewModel::togglePlatformDisabled,
                         onSelectText = chatViewModel::openSelectTextSheet,
                         onRetry = chatViewModel::retryChat,
+                        onRetryCombinedMerge = chatViewModel::retryCombinedMerge,
+                        onUseCombinedReply = chatViewModel::useCombinedReply,
                         onInspectContext = onInspectContext?.let { inspect ->
                             { run -> inspect(chatRoom.id, run) }
                         },
@@ -733,15 +735,23 @@ fun ChatScreen(
                         }
                     }
                 }
-                val chatResearch = researchSessions.values.filter { it.chatId == chatRoom.id && (it.runId in agentRunsById || it.runId in activeAgentRuns) }
-                if (chatResearch.isNotEmpty()) {
+                val allChatResearch = researchSessions.values.filter { it.chatId == chatRoom.id && (it.runId in agentRunsById || it.runId in activeAgentRuns) }
+                val shownResearch = allChatResearch.maxWithOrNull(compareBy<dev.chungjungsoo.gptmobile.data.research.ResearchSession> { it.turnId.substringAfterLast(':').toIntOrNull() ?: agentRunsById[it.runId]?.userMessageId ?: 0 }.thenBy { it.snapshot.updatedAt })
+                val shownUserId = shownResearch?.turnId?.substringAfterLast(':')?.toIntOrNull() ?: shownResearch?.runId?.let { agentRunsById[it]?.userMessageId }
+                val chatResearch = allChatResearch.filter { it.turnId == shownResearch?.turnId }
+                val researchTurnRuns = agentRunsById.values.filter { it.chatId == chatRoom.id && it.userMessageId == shownUserId }
+                if (chatResearch.isNotEmpty() && shownUserId != null) {
                     item(key = "research-progress") {
+                        val turnRow = groupedMessages.assistantMessages.getOrNull(groupedMessages.userMessages.indexOfFirst { it.id == shownUserId }).orEmpty()
+                        val receiptOwner = turnRow.sortedByDescending { message -> message.currentRunId?.let { agentRunsById[it]?.synthesisKey != null } == true }.firstOrNull { message -> message.effectiveTimeline().any { it.researchDeliveryReceipt != null } }
                         ResearchProgressCard(
                             chatResearch,
-                            activeAgentRuns.keys,
+                            researchTurnRuns.filter { it.runId in activeAgentRuns }.mapTo(mutableSetOf()) { it.runId },
                             chatViewModel::stopResearch,
-                            writerFailure = chatResearch.maxByOrNull { it.snapshot.updatedAt }?.runId?.let { agentRunsById[it] }?.takeIf { it.status == "FAILED" }?.terminalError,
-                            onRecovery = chatViewModel::sendPromptResponse
+                            writerFailure = researchTurnRuns.filter { it.status == "FAILED" }.maxByOrNull { it.createdAt }?.terminalError,
+                            onRecovery = { action -> chatViewModel.recoverResearch(shownUserId, action) },
+                            deliveryReceipt = receiptOwner?.effectiveTimeline()?.lastOrNull { it.researchDeliveryReceipt != null }?.researchDeliveryReceipt,
+                            cancelWriting = { chatViewModel.cancelResearchWriting(shownUserId) }
                         )
                     }
                 }
@@ -1126,6 +1136,8 @@ private fun ChatMessagePair(
     onPlatformLongPress: (String) -> Unit,
     onSelectText: (String) -> Unit,
     onRetry: (Int, Int) -> Unit,
+    onRetryCombinedMerge: (Int) -> Unit = {},
+    onUseCombinedReply: (Int, String) -> Unit = { _, _ -> },
     onInspectContext: ((String) -> Unit)? = null,
     onFavoriteClick: (Int, Int) -> Unit,
     onFavoriteLongPress: () -> Unit,
@@ -1285,6 +1297,22 @@ private fun ChatMessagePair(
             ) {
                 if (!hasCombinedTabs) {
                     GPTMobileIcon(loading = shouldShowReplyLoadingIndicator(isActiveMessage, loadingStates))
+                }
+                if (hasCombinedTabs && combinedStatus != CombinedResponseStatus.GENERATING) {
+                    val retained = combinedProfiles.count { it.message.effectiveContent().isNotBlank() }
+                    if (combinedStatus == CombinedResponseStatus.FAILED || isSourceResponse) {
+                        androidx.compose.material3.Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+                            Column(Modifier.padding(12.dp)) {
+                                Text(if (isSourceResponse) "Saved model reply" else "Combined writing needs attention", style = MaterialTheme.typography.titleSmall)
+                                Text("$retained replies retained for this request", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                androidx.compose.foundation.layout.Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
+                                    if (combinedSynthesisIndex >= 0 && combinedStatus == CombinedResponseStatus.FAILED) TextButton(onClick = { onRetryCombinedMerge(messageIndex) }, enabled = isIdle && canUseChat) { Text("Retry merge") }
+                                    if (!isSourceResponse) TextButton(onClick = { combinedProfiles.firstOrNull()?.let { onCombinedProfileClick(it.uid) } }) { Text("View replies") }
+                                    if (isSourceResponse && combinedSynthesisIndex >= 0 && assistantContent.isNotBlank()) TextButton(onClick = { onUseCombinedReply(messageIndex, selectedProfile!!.uid) }, enabled = isIdle && canUseChat) { Text("Use reply") }
+                                }
+                            }
+                        }
+                    }
                 }
                 if (hasCombinedTabs && selectedProfile == null) {
                     if (selectedAssistantMessage?.hasHistoricalRevisionSelected() == true && selectedAssistantMessage.effectiveCombinedSources().isEmpty()) {

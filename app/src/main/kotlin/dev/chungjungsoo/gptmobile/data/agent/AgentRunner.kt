@@ -125,7 +125,7 @@ class AgentRunner(
                 val host = runCatching { URI(url).host?.lowercase(java.util.Locale.ROOT) }.getOrNull()
                 return "${call.name}|host=${host ?: "invalid-url"}"
             }
-            return call.name
+            return toolRepeatKey(call).takeIf { "|operation=" in it } ?: call.name
         }
 
         while (true) {
@@ -744,7 +744,7 @@ class AgentRunner(
                 }
                 consecutiveToolFailures[toolName] = failures
                 if (failures >= MAX_CONSECUTIVE_TOOL_FAILURES) {
-                    if ("|host=" in toolName) {
+                    if ("|host=" in toolName || "|operation=" in toolName) {
                         blockedReadScopes += toolName
                         AppLogRecorder.record("Agent", "TOOL_FAILURE_CIRCUIT_OPEN · scope=$toolName · failures=$failures · otherHostsAvailable=true", "W")
                     } else {

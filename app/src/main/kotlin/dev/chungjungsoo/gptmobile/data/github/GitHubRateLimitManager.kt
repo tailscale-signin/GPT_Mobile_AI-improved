@@ -26,7 +26,9 @@ class GitHubRateLimitManager {
     private val resources = java.util.concurrent.ConcurrentHashMap<String, Snapshot>()
 
     private val secondaryUntil = java.util.concurrent.atomic.AtomicLong()
-    fun cooldown(seconds: Long, nowMillis: Long = System.currentTimeMillis()) { secondaryUntil.updateAndGet { maxOf(it, nowMillis + seconds.coerceIn(1, 86400) * 1000) } }
+    fun cooldown(seconds: Long, nowMillis: Long = System.currentTimeMillis()) {
+        secondaryUntil.updateAndGet { maxOf(it, nowMillis + seconds.coerceIn(1, 86400) * 1000) }
+    }
 
     fun record(headers: Headers, status: Int = 200) {
         val state = Snapshot(
@@ -35,10 +37,15 @@ class GitHubRateLimitManager {
             remaining = headers["X-RateLimit-Remaining"]?.toLongOrNull(),
             used = headers["X-RateLimit-Used"]?.toLongOrNull(),
             resetEpochSeconds = headers["X-RateLimit-Reset"]?.toLongOrNull(),
-            retryAfterSeconds = headers["Retry-After"]?.toLongOrNull()
+            retryAfterSeconds = headers["Retry-After"]?.let { raw ->
+                raw.toLongOrNull() ?: runCatching { ((java.time.ZonedDateTime.parse(raw, java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME).toInstant().toEpochMilli() - System.currentTimeMillis() + 999) / 1000).coerceAtLeast(0) }.getOrNull()
+            }
         )
-        if (state.retryAfterSeconds != null) cooldown(state.retryAfterSeconds)
-        else if (status == 429) cooldown(60)
+        if (state.retryAfterSeconds != null) {
+            cooldown(state.retryAfterSeconds)
+        } else if (status == 429) {
+            cooldown(60)
+        }
         latest = state
         if (state.remaining != null || state.retryAfterSeconds != null) resources[state.resource ?: "core"] = state
     }
@@ -88,6 +95,16 @@ class GitHubRateLimitManager {
         state.retryAfterSeconds?.let { put("retry_after_seconds", it) }
         put("backoff_recommended", JsonPrimitive(shouldBackOff()))
         put("secondary_until_ms", secondaryUntil.get())
-        put("resources", JsonObject(resources.mapValues { (_, value) -> buildJsonObject { value.remaining?.let { put("remaining", it) }; value.resetEpochSeconds?.let { put("reset_epoch_seconds", it) } } }))
+        put(
+            "resources",
+            JsonObject(
+                resources.mapValues { (_, value) ->
+                    buildJsonObject {
+                        value.remaining?.let { put("remaining", it) }
+                        value.resetEpochSeconds?.let { put("reset_epoch_seconds", it) }
+                    }
+                }
+            )
+        )
     }
 }

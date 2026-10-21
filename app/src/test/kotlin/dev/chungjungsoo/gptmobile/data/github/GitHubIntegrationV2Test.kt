@@ -24,10 +24,11 @@ class GitHubIntegrationV2Test {
         val steps = GitHubOperationPlanner.plan("Fix the bug, merge it, then publish a release")
             .map { it.jsonObject["id"]!!.jsonPrimitive.content }
 
-        assertTrue("repo_status" in steps)
+        assertTrue("resolve_context" in steps)
         assertTrue("branch_head" in steps)
-        assertTrue("commit" in steps)
-        assertTrue("checks" in steps)
+        assertTrue("stage_patch" in steps)
+        assertTrue("commit_staged_patch" in steps)
+        assertTrue("ci_failure_digest" in steps)
         assertTrue("draft_pr" in steps)
         assertTrue("merge_gate" in steps)
         assertTrue("release_status" in steps)
@@ -130,7 +131,8 @@ class GitHubIntegrationV2Test {
     fun repo_map_returns_compact_source_index() = runTest {
         val http = HttpClient(
             MockEngine { request ->
-                assertTrue(request.url.encodedPath.endsWith("/git/trees/main"))
+                if (request.url.encodedPath.endsWith("/commits/main")) return@MockEngine respond("""{"sha":"${"a".repeat(40)}","commit":{"tree":{"sha":"${"b".repeat(40)}"}}}""")
+                assertTrue(request.url.encodedPath.endsWith("/git/trees/${"b".repeat(40)}"))
                 assertEquals("1", request.url.parameters["recursive"])
                 respond(
                     """

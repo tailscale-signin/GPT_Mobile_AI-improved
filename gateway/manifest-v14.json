@@ -55,7 +55,7 @@
     "v14/browser-bootstrap.js": "d2b43d5c473a294fe9b27d19e828d4c93c02e1454a12f2a1a4075384f6b9c399",
     "v14/browser.py": "ab46b807439cac21f766a03e0f7a60d72155f5ba433618f2866d35b3aea725b1",
     "v14/config.py": "acd9a5fcfc3b2cd155d82088c765cc21ab736ba90de6ab48c13526d1634af09c",
-    "v14/contracts.py": "af1310a11915fd96825888c9d18a3d5c2ac4f33320f28f008d8ca006ecc75714",
+    "v14/contracts.py": "c6f23620ef9d0fcfa8683ec4f148bbeecf2071cbdf25ce51d2293ae8ea78fc4b",
     "v14/deadlines.py": "46c1e962f41d4f3d28902a4d1d1a2870a4c0b5608394e16be6c6dc255991d1a1",
     "v14/errors.py": "40fe6f6aec5a1d394404a5ec104afbf247563add126be833d594b249430fc4ec",
     "v14/events.py": "fed5e9666da811e0359c07ced7d337364a2427e61bd43b50bf79d7c1b7824d96",
@@ -72,8 +72,9 @@
     "v14/tools.py": "87741976cde97caf80964200ded9a06253c9b085997ff02554680c2809c96394",
     "tests/test_deep_research_overhaul.py": "75db5e20ef7d740240e709e85edba4400c7ed3290fdafe4230eace5992117104",
     "v14/catalog.py": "e7c65b9469c8bdf67bf85012dbc9fc2192f2adc11f04b1f3ca1cfe45bfd6454c",
-    "v14/results.py": "d4e87d07002bb8a452cf86e430526b3f1b02d794077e61e27e2ec52c4de1d092",
-    "v14/operations.py": "8dfcd5dd06824cfd25c1a34a6bde479950d0d22f4b95b745f22ab1729ece0690"
+    "v14/results.py": "343f69f9a6803cd8b3d6466149159b347b202a99bb5d9b33754d1adc74af6f80",
+    "v14/operations.py": "8dfcd5dd06824cfd25c1a34a6bde479950d0d22f4b95b745f22ab1729ece0690",
+    "tests/test_gateway_v14_upgrade.py": "9b41b1713e365e59925884308acf69a9d83eb929f96990a9dbb02f0054b5053b"
   },
   "sourceDescription": "sourceCommit identifies the reviewed baseline; file hashes identify this package and its protocol, catalog, schema and delivery repair overlay."
 }

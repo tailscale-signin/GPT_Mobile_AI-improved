@@ -28,4 +28,21 @@ class ResearchResultCacheTest {
         time = 9
         assertNull(cache["c"])
     }
+
+    @Test fun byteWeightedEvidenceEvictsOldRecordsAndRejectsOversizedEntries() {
+        var time = 0L
+        val cache = ResearchResultCache<String, String>(1000, 100, maxWeight = 12, weigh = { it.encodeToByteArray().size }, now = { time })
+        cache["first"] = "🧪🧪"
+        cache["second"] = "12345678"
+        assertNull(cache["first"])
+        assertEquals(8L, cache.weight)
+        cache["oversized"] = "x".repeat(13)
+        assertNull(cache["oversized"])
+        assertEquals(1, cache.size)
+        time = 999
+        assertEquals("12345678", cache["second"])
+        time = 1000
+        assertNull(cache["second"])
+        assertEquals(0L, cache.weight)
+    }
 }

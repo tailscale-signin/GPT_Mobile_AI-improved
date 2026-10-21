@@ -33,10 +33,14 @@ internal object GitHubPatchStager {
             changed[path] = after
         }
         require(changed.size <= 20 && changed.values.sumOf { it.toByteArray().size } <= 4 * 1024 * 1024) { "Patch exceeds its change-set byte budget." }
-        return JsonArray(changed.map { (path, content) -> buildJsonObject {
-            put("path", path)
-            put("expected_blob_sha", originals.getValue(path).first)
-            put("content", content)
-        } })
+        return JsonArray(
+            changed.map { (path, content) ->
+                buildJsonObject {
+                    put("path", path)
+                    put("expected_blob_sha", originals.getValue(path).first)
+                    put("content", content)
+                }
+            }
+        )
     }
 }

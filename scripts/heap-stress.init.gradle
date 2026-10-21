@@ -1,0 +1,9 @@
+// Explicit constrained-JVM regression gate; run only the heap/export test classes.
+allprojects {
+    tasks.withType(Test).configureEach {
+        maxHeapSize = '256m'
+        maxParallelForks = 1
+        forkEvery = 1
+        systemProperty 'gptmobile.heapStress', 'true'
+    }
+}

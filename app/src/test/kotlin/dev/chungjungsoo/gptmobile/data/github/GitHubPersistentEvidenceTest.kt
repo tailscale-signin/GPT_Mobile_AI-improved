@@ -1,0 +1,229 @@
+package dev.chungjungsoo.gptmobile.data.github
+
+import java.nio.file.Files
+import java.util.Base64
+import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class GitHubPersistentEvidenceTest {
+    private val head = "a".repeat(40)
+    private val old = "b".repeat(40)
+    private val headTree = "c".repeat(40)
+    private val oldTree = "d".repeat(40)
+    private fun sha(index: Int) = index.toString(16).padStart(40, '0')
+    private fun args(vararg fields: Pair<String, JsonElement>) = buildJsonObject {
+        put("ref", "work")
+        fields.forEach { (key, value) -> put(key, value) }
+    }
+    private fun item(path: String, sha: String, size: Int) = buildJsonObject { put("path", path); put("sha", sha); put("type", "blob"); put("mode", "100644"); put("size", size) }
+    private fun commit(sha: String, tree: String) = buildJsonObject { put("sha", sha); put("commit", buildJsonObject { put("tree", buildJsonObject { put("sha", tree) }) }) }
+    private fun tree(entries: List<JsonObject>, truncated: Boolean = false) = buildJsonObject { put("tree", JsonArray(entries)); put("truncated", truncated) }
+    private fun blob(sha: String, text: String) = buildJsonObject { put("sha", sha); put("encoding", "base64"); put("content", Base64.getEncoder().encodeToString(text.encodeToByteArray())) }
+    private fun session(store: GitHubRepositoryStateStore, task: String = "task", account: String = "account", request: suspend (String) -> JsonElement, write: suspend (String, JsonObject) -> JsonElement = { _, _ -> error("No write expected") }) = GitHubRepositorySession(account, "connection", "conversation", task, store, request, write)
+
+    @Test fun largeBlobAndLongLineUseBoundedExpandableEvidenceAcrossRestart() = runTest {
+        val directory = Files.createTempDirectory("github-large-evidence").toFile()
+        val text = "val payload = \"" + "alpha🧪".repeat(50000) + "\"\nfun finalMarker() = 7\n"
+        var requests = 0
+        val fetch: suspend (String) -> JsonElement = { path ->
+            requests++
+            when {
+                "/commits/" in path -> commit(head, headTree)
+                "/git/trees/" in path -> tree(listOf(item("src/Large.kt", sha(1), text.encodeToByteArray().size)))
+                "/git/blobs/" in path -> blob(sha(1), text)
+                else -> error(path)
+            }
+        }
+        try {
+            val first = session(GitHubRepositoryStateStore(directory), request = fetch)
+            val page = first.execute("read_ranges", "owner", "repo", args("path" to JsonPrimitive("src/Large.kt"), "end_line" to JsonPrimitive(1))).jsonObject
+            val firstItem = page["items"]!!.jsonArray.single().jsonObject
+            assertTrue(firstItem["truncated"]!!.jsonPrimitive.booleanOrNull == true)
+            assertFalse(firstItem["complete_file"]!!.jsonPrimitive.booleanOrNull == true)
+            assertTrue(firstItem["content"]!!.jsonPrimitive.content.encodeToByteArray().size <= 32768)
+            assertEquals(3, requests)
+            val restored = session(GitHubRepositoryStateStore(directory), request = { error("Immutable content must survive restart: $it") })
+            val expanded = restored.execute("read_ranges", "owner", "repo", args("evidence_id" to page.getValue("evidence_id"), "ranges" to JsonArray(listOf(firstItem.getValue("continuation"))))).jsonObject
+            val next = expanded["items"]!!.jsonArray.single().jsonObject
+            assertEquals(firstItem["content"]!!.jsonPrimitive.content.length, next["start_offset"]!!.jsonPrimitive.intOrNull)
+            assertEquals(text.substring(firstItem["content"]!!.jsonPrimitive.content.length).take(next["content"]!!.jsonPrimitive.content.length), next["content"]!!.jsonPrimitive.content)
+            val found = restored.execute("search_repository", "owner", "repo", args("query" to JsonPrimitive("finalMarker"), "mode" to JsonPrimitive("definitions"))).jsonObject
+            assertEquals("src/Large.kt", found["items"]!!.jsonArray.single().jsonObject["path"]!!.jsonPrimitive.content)
+            assertEquals(head, restored.snapshot()!!.commitSha)
+            assertTrue(restored.snapshot()!!.evidenceHandles.isNotEmpty())
+            assertTrue(runCatching { session(GitHubRepositoryStateStore(directory), account = "other-account", request = fetch).execute("read_ranges", "owner", "repo", args("evidence_id" to page.getValue("evidence_id"))) }.isFailure)
+        } finally { directory.deleteRecursively() }
+    }
+
+    @Test fun taskPinsRevisionButExplicitContextChangeAndNewTaskBootstrapAreSupported() = runTest {
+        val store = GitHubRepositoryStateStore()
+        val fetch: suspend (String) -> JsonElement = { path ->
+            when {
+                path.endsWith("/commits/other") || path.endsWith("/commits/$old") -> commit(old, oldTree)
+                "/commits/" in path -> commit(head, headTree)
+                "/git/trees/" in path -> tree(emptyList())
+                else -> error(path)
+            }
+        }
+        val client = session(store, request = fetch)
+        client.execute("resolve_context", "owner", "repo", args())
+        client.execute("search_repository", "owner", "repo", args("ref" to JsonPrimitive("other"), "query" to JsonPrimitive("x")))
+        assertEquals(head, client.snapshot()!!.commitSha)
+        client.execute("resolve_context", "owner", "repo", args("ref" to JsonPrimitive("other")))
+        assertEquals(old, client.snapshot()!!.commitSha)
+        assertTrue(runCatching { client.execute("read_ranges", "owner", "repo", args("commit_sha" to JsonPrimitive(head), "ranges" to JsonArray(emptyList()))) }.isFailure)
+    }
+
+    @Test fun immutableAlternateReadDoesNotRebindTaskAndConversationSelectionSeedsNextTask() = runTest {
+        val store = GitHubRepositoryStateStore()
+        val fetch: suspend (String) -> JsonElement = { path ->
+            when {
+                path.endsWith("/commits/other") || path.endsWith("/commits/$old") -> commit(old, oldTree)
+                "/commits/" in path -> commit(head, headTree)
+                "/git/trees/" in path -> tree(listOf(item("A.kt", sha(1), 8)))
+                "/git/blobs/" in path -> blob(sha(1), "val x=1\n")
+                else -> error(path)
+            }
+        }
+        val first = session(store, request = fetch)
+        first.execute("resolve_context", "owner", "repo", args("ref" to JsonPrimitive("other")))
+        first.execute("read_ranges", "owner", "repo", args("commit_sha" to JsonPrimitive(head), "path" to JsonPrimitive("A.kt")))
+        assertEquals(old, first.snapshot()!!.commitSha)
+        val next = session(store, task = "next-task", request = fetch)
+        assertEquals("other", next.context()!!.ref)
+        val fresh = next.execute("resolve_context", "owner", "repo", buildJsonObject {}).jsonObject
+        assertEquals(old, fresh["commit_sha"]!!.jsonPrimitive.content)
+        assertNotEquals(first.snapshot()!!.taskId, next.snapshot()!!.taskId)
+    }
+
+    @Test fun searchContinuationIsBoundedIncludesScopeAndReusesUnchangedBlobs() = runTest {
+        var blobs = 0
+        val entries = (1..30).map { item("src/F${it.toString().padStart(2, '0')}.kt", sha(it), 24) }
+        val fetch: suspend (String) -> JsonElement = { path ->
+            when {
+                "/commits/" in path -> commit(head, headTree)
+                "/git/trees/" in path -> tree(entries)
+                "/git/blobs/" in path -> { blobs++; blob(path.substringAfterLast('/'), "val ordinary = 1\n") }
+                else -> error(path)
+            }
+        }
+        val client = session(GitHubRepositoryStateStore(), request = fetch)
+        val first = client.execute("search_repository", "owner", "repo", args("query" to JsonPrimitive("missing"), "path_prefix" to JsonPrimitive("src/"))).jsonObject
+        assertEquals(24, blobs)
+        assertTrue(first["has_more"]!!.jsonPrimitive.booleanOrNull == true)
+        assertFalse(first["complete"]!!.jsonPrimitive.booleanOrNull == true)
+        val continuation = first["continuation"]!!.jsonObject
+        assertEquals("src/", continuation["path_prefix"]!!.jsonPrimitive.content)
+        client.execute("search_repository", "owner", "repo", continuation)
+        assertEquals(30, blobs)
+        client.execute("search_repository", "owner", "repo", args("query" to JsonPrimitive("missing")))
+        assertEquals(30, blobs)
+        assertEquals(30, client.execute("index_status", "owner", "repo", args()).jsonObject["indexed_blobs"]!!.jsonPrimitive.intOrNull)
+    }
+
+    @Test fun binaryCandidatesConsumeTheFetchBudgetInsteadOfBypassingIt() = runTest {
+        var blobs = 0
+        val client = session(GitHubRepositoryStateStore(), request = { path ->
+            when {
+                "/commits/" in path -> commit(head, headTree)
+                "/git/trees/" in path -> tree((1..100).map { item("binary$it", sha(it), 1) })
+                else -> { blobs++; blob(path.substringAfterLast('/'), "\u0000") }
+            }
+        })
+        val result = client.execute("search_repository", "owner", "repo", args("query" to JsonPrimitive("absent"))).jsonObject
+        assertEquals(24, blobs)
+        assertEquals(24, result["skipped_files"]!!.jsonPrimitive.intOrNull)
+        assertTrue(result["has_more"]!!.jsonPrimitive.booleanOrNull == true)
+    }
+
+    @Test fun stagedExactPatchPersistsOriginalBlobAndCommitsOnceAcrossRestart() = runTest {
+        val dir = Files.createTempDirectory("github-stage").toFile()
+        var writes = 0
+        val fetch: suspend (String) -> JsonElement = { path ->
+            when {
+                "/commits/" in path -> commit(head, headTree)
+                "/git/trees/" in path -> tree(listOf(item("A.kt", sha(1), 30)))
+                else -> blob(sha(1), "fun answer() = 41\n")
+            }
+        }
+        val write: suspend (String, JsonObject) -> JsonElement = { _, data ->
+            writes++
+            assertEquals(head, data["expected_head_sha"]!!.jsonPrimitive.content)
+            val file = data["files"]!!.jsonArray.single().jsonObject
+            assertEquals(sha(1), file["expected_blob_sha"]!!.jsonPrimitive.content)
+            assertEquals("fun answer() = 42\n", file["content"]!!.jsonPrimitive.content)
+            buildJsonObject { put("sha", old) }
+        }
+        try {
+            val client = session(GitHubRepositoryStateStore(dir), request = fetch, write = write)
+            val edits = JsonArray(listOf(buildJsonObject { put("path", "A.kt"); put("expected_blob_sha", sha(1)); put("old_text", "41"); put("new_text", "42") }))
+            val staged = client.execute("stage_patch", "owner", "repo", args("edits" to edits)).jsonObject
+            assertFalse(staged["committed"]!!.jsonPrimitive.booleanOrNull == true)
+            assertTrue(staged.toString().contains("42"))
+            val restored = session(GitHubRepositoryStateStore(dir), request = fetch, write = write)
+            val commitArgs = args("stage_id" to staged.getValue("stage_id"), "branch" to JsonPrimitive("work"), "message" to JsonPrimitive("Fix answer"))
+            val receipt = restored.execute("commit_staged_patch", "owner", "repo", commitArgs)
+            assertEquals(receipt, session(GitHubRepositoryStateStore(dir), request = fetch, write = write).execute("commit_staged_patch", "owner", "repo", commitArgs))
+            assertEquals(1, writes)
+            assertTrue(runCatching { session(GitHubRepositoryStateStore(dir), task = "another", request = fetch, write = write).execute("commit_staged_patch", "owner", "repo", commitArgs) }.isFailure)
+        } finally { dir.deleteRecursively() }
+    }
+
+    @Test fun exactPatchesRejectAmbiguousAnchorsWrongBlobAndTraversal() {
+        val original = mapOf("A.kt" to (sha(1) to "x x"))
+        fun edit(blob: String = sha(1), path: String = "A.kt", occurrence: Int? = null) = JsonArray(listOf(buildJsonObject { put("path", path); put("expected_blob_sha", blob); put("old_text", "x"); put("new_text", "y"); occurrence?.let { put("occurrence", it) } }))
+        assertTrue(runCatching { GitHubPatchStager.apply(original, edit()) }.isFailure)
+        assertTrue(runCatching { GitHubPatchStager.apply(original, edit(sha(2), occurrence = 1)) }.isFailure)
+        assertTrue(runCatching { GitHubPatchStager.apply(original, edit(path = "../A.kt", occurrence = 1)) }.isFailure)
+        assertEquals("x y", GitHubPatchStager.apply(original, edit(occurrence = 2)).single().jsonObject["content"]!!.jsonPrimitive.content)
+    }
+
+    @Test fun treeComparisonPagesEveryOneOf350ChangedFiles() = runTest {
+        val client = session(GitHubRepositoryStateStore(), request = { path ->
+            when {
+                path.endsWith("/commits/$old") -> commit(old, oldTree)
+                "/commits/" in path -> commit(head, headTree)
+                oldTree in path -> tree((1..350).map { item("src/$it.kt", sha(it), 1) })
+                headTree in path -> tree((1..350).map { item("src/$it.kt", sha(it + 1000), 1) })
+                else -> error(path)
+            }
+        })
+        val names = mutableSetOf<String>()
+        var request = args("base" to JsonPrimitive(old))
+        repeat(4) { page ->
+            val result = client.execute("changed_since", "owner", "repo", request).jsonObject
+            assertEquals(350, result["files_total"]!!.jsonPrimitive.intOrNull)
+            assertTrue(result["tree_complete"]!!.jsonPrimitive.booleanOrNull == true)
+            result["files"]!!.jsonArray.forEach { names += it.jsonObject["filename"]!!.jsonPrimitive.content }
+            if (page < 3) request = result["continuation"]!!.jsonObject else assertFalse(result["has_more"]!!.jsonPrimitive.booleanOrNull == true)
+        }
+        assertEquals(350, names.size)
+    }
+
+    @Test fun localIndexMakesBoundsAndOneCharacterSymbolsExplicit() {
+        val index = GitHubLocalIndex.build("val x = 1\n".repeat(10000))
+        assertTrue(index["definitions"]!!.jsonArray.any { it.jsonObject["name"]!!.jsonPrimitive.content == "x" })
+        assertTrue(index["definitions"]!!.jsonArray.size <= 2000)
+        assertTrue(index["references"]!!.jsonArray.size <= 6000)
+        assertFalse(index["definitions_complete"]!!.jsonPrimitive.booleanOrNull == true)
+        assertFalse(index["references_complete"]!!.jsonPrimitive.booleanOrNull == true)
+        assertFalse(index["compiler_resolution"]!!.jsonPrimitive.booleanOrNull == true)
+        assertNotNull(index["line_count"])
+    }
+}

@@ -2,7 +2,6 @@ package dev.chungjungsoo.gptmobile.data.github
 
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
@@ -38,5 +37,8 @@ internal object GitHubLocalIndex {
             put("line_count", text.count { it == '\n' } + 1)
         }
     }
-    private fun occurrence(name: String, line: Int) = buildJsonObject { put("name", name); put("line", line) }
+    private fun occurrence(name: String, line: Int) = buildJsonObject {
+        put("name", name)
+        put("line", line)
+    }
 }

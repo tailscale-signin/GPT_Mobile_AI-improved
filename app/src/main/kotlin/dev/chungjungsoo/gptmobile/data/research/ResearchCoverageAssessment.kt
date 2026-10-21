@@ -10,17 +10,17 @@ fun assessResearchCoverage(questions: List<ResearchQuestion>, claims: List<Resea
     val accepted = claims.filter { claim ->
         val source = sourceById[claim.sourceId]
         val question = questions.firstOrNull { it.id == claim.questionId }
-        val needsPeerReview = question?.evidenceNeeded?.contains("peer", ignoreCase = true) == true
         claim.verdict == "Supported" &&
             claim.relevance == "Relevant" &&
             claim.exactQuoteVerified &&
-            source != null && claim.quote.isNotBlank() && claim.quote in source.passage &&
+            source != null &&
+            claim.quote.isNotBlank() &&
+            claim.quote in source.passage &&
             (claim.reviewedSourceVersion.isBlank() || claim.reviewedSourceVersion == capturedResearchVersion(source)) &&
             question != null &&
-            source?.readable == true &&
+            source.readable &&
             source.isRetracted != true &&
-            researchSourceCanAnswer(question, source) &&
-            (!needsPeerReview || source.reviewStatus.equals("peer_reviewed", ignoreCase = true) && source.isPreprint != true)
+            researchSourceCanAnswer(question, source)
     }
     val covered = accepted.map { it.questionId }.toSet()
     return ResearchCoverageAssessment(covered, questions.map { it.id }.toSet() - covered, accepted, questions.filter { question -> sources.any { it.readable && assessResearchRequirement(question, it) == ResearchRequirementResult.METADATA_REQUIRED } }.map { it.id }.toSet())

@@ -26,7 +26,6 @@ class ProviderEventAssemblerTest {
         assertTrue(stop.none { it == ProviderEvent.Completed })
     }
 
-
     @Test
     fun `all terminal output limit formats preserve partial text and report failure`() {
         val responses = OpenAIResponsesEventAssembler()

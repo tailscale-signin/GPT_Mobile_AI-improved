@@ -1,8 +1,8 @@
 package dev.chungjungsoo.gptmobile.data.github
 
 import java.util.concurrent.atomic.AtomicLong
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
@@ -23,7 +23,10 @@ class GitHubRequestScheduler(private val concurrency: Int = 2, private val maxQu
         var owner = true
         val shared = key?.let {
             synchronized(lock) {
-                inFlight[it]?.also { owner = false; joined.incrementAndGet() }
+                inFlight[it]?.also {
+                    owner = false
+                    joined.incrementAndGet()
+                }
                     ?: CompletableDeferred<Any?>().also { created -> inFlight[it] = created }
             }
         }
@@ -48,7 +51,10 @@ class GitHubRequestScheduler(private val concurrency: Int = 2, private val maxQu
 
     private suspend fun acquire(priority: Int) {
         val waiter = synchronized(lock) {
-            if (active < concurrency.coerceAtLeast(1)) { active++; null } else {
+            if (active < concurrency.coerceAtLeast(1)) {
+                active++
+                null
+            } else {
                 check(queue.size < maxQueued) { "GITHUB_WAITING_CAPACITY: request queue is full; retry after current requests complete." }
                 Waiter(priority, ++sequence, CompletableDeferred()).also(queue::add)
             }
@@ -65,13 +71,24 @@ class GitHubRequestScheduler(private val concurrency: Int = 2, private val maxQu
     private fun release() {
         synchronized(lock) {
             val next = queue.sortedWith(compareByDescending<Waiter> { it.priority }.thenBy { it.sequence }).firstOrNull()
-            if (next == null) active-- else { queue.remove(next); next.ready.complete(Unit) }
+            if (next == null) {
+                active--
+            } else {
+                queue.remove(next)
+                next.ready.complete(Unit)
+            }
         }
     }
 
-    fun recordRequest() { physical.incrementAndGet() }
-    fun recordBytes(count: Long) { if (count > 0) bytes.addAndGet(count) }
-    fun recordCacheHit() { cacheHits.incrementAndGet() }
+    fun recordRequest() {
+        physical.incrementAndGet()
+    }
+    fun recordBytes(count: Long) {
+        if (count > 0) bytes.addAndGet(count)
+    }
+    fun recordCacheHit() {
+        cacheHits.incrementAndGet()
+    }
     fun metrics() = synchronized(lock) {
         buildJsonObject {
             put("physical_requests", physical.get())

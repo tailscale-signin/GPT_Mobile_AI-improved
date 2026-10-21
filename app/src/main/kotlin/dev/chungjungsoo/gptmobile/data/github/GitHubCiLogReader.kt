@@ -10,12 +10,17 @@ import java.io.ByteArrayOutputStream
 import java.net.URI
 import kotlinx.coroutines.yield
 
-internal class GitHubCiLogReader(private val client: HttpClient, private val token: String, private val scheduler: GitHubRequestScheduler, private val cache: GitHubResponseCache) {
+internal class GitHubCiLogReader(private val client: HttpClient, private val token: String, private val scheduler: GitHubRequestScheduler, private val cache: GitHubResponseCache, private val requestPriority: Int = 0) {
     data class Log(val text: String, val bytes: Int, val complete: Boolean)
 
     suspend fun read(path: String, immutable: Boolean): Log {
-        if (immutable) cache.getDecodedBlob("ci-log:$path")?.let { scheduler.recordCacheHit(); return Log(it, it.encodeToByteArray().size, true) }
-        return scheduler.execute(if (immutable) "ci-log:$path" else null, priority = 1) {
+        if (immutable) {
+            cache.getDecodedBlob("ci-log:$path")?.let {
+                scheduler.recordCacheHit()
+                return Log(it, it.encodeToByteArray().size, true)
+            }
+        }
+        return scheduler.execute(if (immutable) "ci-log:$path" else null, priority = requestPriority) {
             val network = client.config { followRedirects = false }
             try {
                 var url = "https://api.github.com$path"
@@ -44,8 +49,14 @@ internal class GitHubCiLogReader(private val client: HttpClient, private val tok
                         var eof = false
                         while (output.size() <= MAX_LOG_BYTES) {
                             val read = channel.readAvailable(buffer, 0, minOf(buffer.size, MAX_LOG_BYTES + 1 - output.size()))
-                            if (read < 0) { eof = true; break }
-                            if (read == 0) { yield(); continue }
+                            if (read < 0) {
+                                eof = true
+                                break
+                            }
+                            if (read == 0) {
+                                yield()
+                                continue
+                            }
                             output.write(buffer, 0, read)
                             scheduler.recordBytes(read.toLong())
                             if (output.size() > MAX_LOG_BYTES) break
@@ -55,12 +66,18 @@ internal class GitHubCiLogReader(private val client: HttpClient, private val tok
                         val text = bytes.copyOf(minOf(bytes.size, MAX_LOG_BYTES)).decodeToString()
                         if (immutable && complete) cache.putDecodedBlob("ci-log:$path", text)
                         return@execute Log(text, minOf(bytes.size, MAX_LOG_BYTES), complete)
-                    } finally { channel.cancel(null) }
+                    } finally {
+                        channel.cancel(null)
+                    }
                 }
                 error("Too many CI log redirects.")
-            } finally { network.close() }
+            } finally {
+                network.close()
+            }
         }
     }
 
-    companion object { const val MAX_LOG_BYTES = 4 * 1024 * 1024 }
+    companion object {
+        const val MAX_LOG_BYTES = 4 * 1024 * 1024
+    }
 }

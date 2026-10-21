@@ -21,12 +21,18 @@ internal class ResearchSessionIndex(private val directory: File) {
     fun metadata(file: File): Entry? = runCatching {
         require(file.extension == "json" && file.length() in 1..512 * 1024)
         val sidecar = sidecar(file)
-        val cached = if (sidecar.isFile && sidecar.length() in 1..8192) runCatching {
-            val value = Json.parseToJsonElement(AtomicFile(sidecar).openRead().bufferedReader().use { it.readText() }).jsonObject
-            if (value.text("modified").toLongOrNull() != file.lastModified() || value.text("bytes").toLongOrNull() != file.length()) null else {
-                Entry(file, value.text("runId"), value.number("chatId"), value.text("turnId"), value.text("authority"), value.text("complete") == "true", value.text("updatedAt").toLong())
-            }
-        }.getOrNull() else null
+        val cached = if (sidecar.isFile && sidecar.length() in 1..8192) {
+            runCatching {
+                val value = Json.parseToJsonElement(AtomicFile(sidecar).openRead().bufferedReader().use { it.readText() }).jsonObject
+                if (value.text("modified").toLongOrNull() != file.lastModified() || value.text("bytes").toLongOrNull() != file.length()) {
+                    null
+                } else {
+                    Entry(file, value.text("runId"), value.number("chatId"), value.text("turnId"), value.text("authority"), value.text("complete") == "true", value.text("updatedAt").toLong())
+                }
+            }.getOrNull()
+        } else {
+            null
+        }
         cached ?: scan(file).also(::write)
     }.getOrNull()
 

@@ -19,7 +19,7 @@ internal fun academicFailureEvidence(paper: AcademicPaper, error: Exception): Ac
         redirect != null -> "REDIRECT_FAILED"
         http?.status == 429 -> "RATE_LIMITED"
         http?.status in setOf(401, 403) -> "SOURCE_ACCESS_BLOCKED"
-        http?.status in 500..599 -> "SERVER_TEMPORARY"
+        http?.status?.let { it in 500..599 } == true -> "SERVER_TEMPORARY"
         http?.status in setOf(404, 405, 410) -> "SOURCE_UNAVAILABLE"
         error.message == "Academic provider disabled" -> "PROVIDER_DISABLED"
         error is IOException -> "TRANSPORT_FAILED"

@@ -19,7 +19,13 @@ fun enrichResearchSourceMetadata(source: ResearchSource, captured: String): Rese
         if ("meta analys" in designText) add("META_ANALYSIS")
     }
     val type = source.publicationType.takeUnless { it.isBlank() || it == "unknown" } ?: labeled.ifBlank { designs.firstOrNull()?.lowercase() ?: "unknown" }
-    return source.copy(doi = doi, pmid = pmid, pmcid = pmcid, publicationType = type, studyDesigns = source.studyDesigns + designs,
+    return source.copy(
+        doi = doi,
+        pmid = pmid,
+        pmcid = pmcid,
+        publicationType = type,
+        studyDesigns = source.studyDesigns + designs,
         equivalenceGroup = SourceIdentity.create(source.url, source.title, source.passage, doi, pmid, pmcid, source.publicationYear).equivalenceKey,
-        metadataProvenance = (source.metadataProvenance + "authorized_capture:${researchHash(captured)}").distinct())
+        metadataProvenance = (source.metadataProvenance + "authorized_capture:${researchHash(captured)}").distinct()
+    )
 }

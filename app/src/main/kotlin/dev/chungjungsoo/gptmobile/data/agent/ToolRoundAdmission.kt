@@ -33,12 +33,13 @@ internal class ToolRoundAdmission(
         if (call.callId.length > 256) return reject("CALL_ID_CHARACTERS", call.callId.length, 256, call)
         if (call.name.length > 256) return reject("TOOL_NAME_CHARACTERS", call.name.length, 256, call)
         if (call.callId in ids) return reject("DUPLICATE_CALL_ID", 2, 1, call)
-        if ((byName[call.name] ?: 0) >= maxSameTool.coerceIn(1, 32)) return reject("SAME_TOOL_COUNT", (byName[call.name] ?: 0) + 1, maxSameTool.coerceIn(1, 32), call)
         val available = maxArgumentBytes.coerceIn(1, 64 * 1024) - argumentBytes
         val size = boundedJsonBytes(call.arguments, available)
         if (size > available) return reject("ARGUMENT_BYTES_LOWER_BOUND", argumentBytes + size, maxArgumentBytes.coerceIn(1, 64 * 1024), call)
+        val repeatKey = toolRepeatKey(call)
+        if ((byName[repeatKey] ?: 0) >= maxSameTool.coerceIn(1, 32)) return reject("SAME_TOOL_COUNT", (byName[repeatKey] ?: 0) + 1, maxSameTool.coerceIn(1, 32), call)
         ids += call.callId
-        byName[call.name] = (byName[call.name] ?: 0) + 1
+        byName[repeatKey] = (byName[repeatKey] ?: 0) + 1
         argumentBytes += size
         return true
     }

@@ -269,10 +269,11 @@ class CombinedTurnBudget(
         // A failed/partial merge can be explicitly retried within its accepted budget. Keep its
         // unused final reserve protected until delivery or a closed/cancelled root ends the task.
         val release = ownerKey != "finalization" || outcome in setOf("COMPLETED", "CANCELLED", "BUDGET_BLOCKED")
+        val stageItems = state.pendingWork.filterValues { it.kind == CombinedWorkKind.STAGE && it.assignedOwnerKey == ownerKey }.keys + ownerKey
         commit(
             state.copy(
-                pendingWork = if (release) state.pendingWork - ownerKey else state.pendingWork,
-                completedWork = if (release) state.completedWork + ownerKey else state.completedWork,
+                pendingWork = if (release) state.pendingWork - stageItems else state.pendingWork,
+                completedWork = if (release) state.completedWork + stageItems else state.completedWork,
                 stageOutcomes = state.stageOutcomes + (ownerKey to recorded),
                 deliveryStatus = if (ownerKey == "finalization") {
                     when (outcome) {
@@ -372,7 +373,7 @@ class CombinedTurnBudget(
         hardLimitReason(state, protectedRemaining(state) + adjustment, null, checkCost = false)?.let { throw CombinedBudgetExceeded(it) }
         commit(
             state.copy(
-                pendingWork = state.pendingWork + (item.id to item.copy(reason = reason, kind = if (item.role.finalization) CombinedWorkKind.STAGE else CombinedWorkKind.EVIDENCE, assignedOwnerKey = owner)),
+                pendingWork = state.pendingWork + (item.id to item.copy(reason = reason, kind = if (item.role.finalization || item.role == CombinedRunRole.CONTRIBUTOR) CombinedWorkKind.STAGE else CombinedWorkKind.EVIDENCE, assignedOwnerKey = owner)),
                 baselineAdjustments = if (adjustment == CombinedResourceQuota()) state.baselineAdjustments else state.baselineAdjustments + CombinedBudgetAdjustment(owner, reason, adjustment)
             )
         )

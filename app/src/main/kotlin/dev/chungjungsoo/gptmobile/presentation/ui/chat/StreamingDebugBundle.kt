@@ -37,7 +37,10 @@ internal object StreamingDebugBundle {
             var schema = ""
             var messages = false
             var profileArray = false
-            var capture: JsonElement = buildJsonObject { put("level", "legacy-unknown"); put("capturedFully", false) }
+            var capture: JsonElement = buildJsonObject {
+                put("level", "legacy-unknown")
+                put("capturedFully", false)
+            }
             var journalPresent = false
             val gaps = mutableMapOf<String, JsonElement>()
             var clock: JsonElement = JsonObject(emptyMap())
@@ -49,8 +52,14 @@ internal object StreamingDebugBundle {
                         while (reader.hasNext()) {
                             when (reader.nextName()) {
                                 "schema" -> schema = reader.nextString()
-                                "messages" -> { messages = reader.peek() == JsonToken.BEGIN_ARRAY; reader.skipValue() }
-                                "profiles" -> { profileArray = reader.peek() == JsonToken.BEGIN_ARRAY; reader.skipValue() }
+                                "messages" -> {
+                                    messages = reader.peek() == JsonToken.BEGIN_ARRAY
+                                    reader.skipValue()
+                                }
+                                "profiles" -> {
+                                    profileArray = reader.peek() == JsonToken.BEGIN_ARRAY
+                                    reader.skipValue()
+                                }
                                 "capture" -> capture = element(reader)
                                 "responseMapping" -> response.bufferedWriter().use { copyValue(reader, JsonWriter(it)) }
                                 "profileDependencies" -> profiles.bufferedWriter().use { copyValue(reader, JsonWriter(it)) }
@@ -69,7 +78,10 @@ internal object StreamingDebugBundle {
                                     reader.endArray()
                                 }
                                 "runJournal" -> {
-                                    if (reader.peek() != JsonToken.BEGIN_OBJECT) { reader.skipValue(); continue }
+                                    if (reader.peek() != JsonToken.BEGIN_OBJECT) {
+                                        reader.skipValue()
+                                        continue
+                                    }
                                     journalPresent = true
                                     reader.beginObject()
                                     while (reader.hasNext()) {
@@ -120,12 +132,19 @@ internal object StreamingDebugBundle {
                 put("journalAvailability", if (journalPresent) "retained" else "not-captured-or-unavailable")
                 put("journalGaps", JsonObject(gaps))
                 put("payloads", "No additional payload capture; permitted retained content is in conversation.json")
-                put("files", JsonArray(digests.map { (name, digest) -> buildJsonObject {
-                    put("name", name)
-                    put("bytes", digest.bytes)
-                    put("sha256", digest.sha256)
-                    put("digestRepresentation", "redacted-export-file-utf8")
-                } }))
+                put(
+                    "files",
+                    JsonArray(
+                        digests.map { (name, digest) ->
+                            buildJsonObject {
+                                put("name", name)
+                                put("bytes", digest.bytes)
+                                put("sha256", digest.sha256)
+                                put("digestRepresentation", "redacted-export-file-utf8")
+                            }
+                        }
+                    )
+                )
             }.toString().toByteArray()
             require(manifest.size <= 64 * 1024 && digests.values.sumOf { it.bytes } + manifest.size <= MAX_BYTES) { "Diagnostic bundle exceeds the storage limit; no data was truncated." }
             ZipOutputStream(destination.outputStream().buffered()).use { zip ->
@@ -148,6 +167,7 @@ internal object StreamingDebugBundle {
         val observed = mutableMapOf<String, Digest>()
         var manifest: JsonObject? = null
         var remaining = MAX_BYTES
+        var conversationSchema: String? = null
         ZipInputStream(file.inputStream().buffered()).use { zip ->
             while (true) {
                 val entry = zip.nextEntry ?: break
@@ -156,6 +176,10 @@ internal object StreamingDebugBundle {
                     val bytes = zip.readBytesBounded(minOf(remaining, 64 * 1024L).toInt())
                     manifest = Json.parseToJsonElement(bytes.decodeToString(throwOnInvalidSequence = true)).jsonObject
                     observed[entry.name] = Digest(bytes.size.toLong(), debugBodyDigest(bytes.decodeToString()))
+                } else if (entry.name == "conversation.json") {
+                    val input = DigestingInput(zip, remaining)
+                    conversationSchema = verifyConversation(JsonReader(input.reader()))
+                    observed[entry.name] = input.snapshot()
                 } else {
                     observed[entry.name] = digest(zip, remaining)
                 }
@@ -166,7 +190,7 @@ internal object StreamingDebugBundle {
         require(observed.keys == names) { "CORRUPT_EXPORT: missing bundle file" }
         val contract = requireNotNull(manifest)
         require((contract["schema"] as? JsonPrimitive)?.content == DebugExportSchema.BUNDLE) { "UNSUPPORTED_EXPORT_SCHEMA" }
-        require((contract["conversationSchema"] as? JsonPrimitive)?.content in DebugExportSchema.supportedConversations)
+        require((contract["conversationSchema"] as? JsonPrimitive)?.content == conversationSchema) { "CORRUPT_EXPORT: conversation schema mismatch" }
         val records = contract["files"] as? JsonArray ?: error("CORRUPT_EXPORT: missing manifest records")
         require(records.size == 4)
         val seen = hashSetOf<String>()
@@ -177,6 +201,57 @@ internal object StreamingDebugBundle {
             val actual = requireNotNull(observed[name])
             require((row["bytes"] as? JsonPrimitive)?.content?.toLongOrNull() == actual.bytes && (row["sha256"] as? JsonPrimitive)?.content == actual.sha256) { "CORRUPT_EXPORT: checksum mismatch" }
         }
+    }
+
+    private fun verifyConversation(reader: JsonReader): String {
+        var schema: String? = null
+        var messages = false
+        var profiles = false
+        reader.beginObject()
+        while (reader.hasNext()) {
+            when (reader.nextName()) {
+                "schema" -> schema = reader.nextString()
+                "messages" -> {
+                    messages = reader.peek() == JsonToken.BEGIN_ARRAY
+                    reader.skipValue()
+                }
+                "profiles" -> {
+                    profiles = reader.peek() == JsonToken.BEGIN_ARRAY
+                    reader.skipValue()
+                }
+                else -> reader.skipValue()
+            }
+        }
+        reader.endObject()
+        require(reader.peek() == JsonToken.END_DOCUMENT && schema in DebugExportSchema.supportedConversations && messages && profiles) { "CORRUPT_EXPORT: incomplete conversation" }
+        return requireNotNull(schema)
+    }
+
+    /** Does not own/close the ZIP stream; one entry is the bounded EOF for this reader. */
+    private class DigestingInput(private val source: InputStream, private val limit: Long) : InputStream() {
+        private val hash = MessageDigest.getInstance("SHA-256")
+        private var count = 0L
+        override fun read(): Int {
+            val value = source.read()
+            if (value >= 0) {
+                checkSize(1)
+                hash.update(value.toByte())
+            }
+            return value
+        }
+        override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+            val amount = source.read(buffer, offset, length)
+            if (amount > 0) {
+                checkSize(amount)
+                hash.update(buffer, offset, amount)
+            }
+            return amount
+        }
+        private fun checkSize(amount: Int) {
+            count += amount
+            require(count <= limit) { "CORRUPT_EXPORT: payload exceeds limit" }
+        }
+        fun snapshot(): Digest = Digest(count, hash.digest().joinToString("") { "%02x".format(it) })
     }
 
     private fun digest(input: InputStream, limit: Long): Digest {
@@ -211,21 +286,30 @@ internal object StreamingDebugBundle {
     private fun copyValue(reader: JsonReader, writer: JsonWriter) {
         when (reader.peek()) {
             JsonToken.BEGIN_OBJECT -> {
-                reader.beginObject(); writer.beginObject()
-                while (reader.hasNext()) { writer.name(reader.nextName()); copyValue(reader, writer) }
-                reader.endObject(); writer.endObject()
+                reader.beginObject()
+                writer.beginObject()
+                while (reader.hasNext()) {
+                    writer.name(reader.nextName())
+                    copyValue(reader, writer)
+                }
+                reader.endObject()
+                writer.endObject()
             }
             JsonToken.BEGIN_ARRAY -> {
-                reader.beginArray(); writer.beginArray()
+                reader.beginArray()
+                writer.beginArray()
                 while (reader.hasNext()) copyValue(reader, writer)
-                reader.endArray(); writer.endArray()
+                reader.endArray()
+                writer.endArray()
             }
             JsonToken.STRING -> writer.value(reader.nextString())
             JsonToken.NUMBER -> writer.value(java.math.BigDecimal(reader.nextString()))
             JsonToken.BOOLEAN -> writer.value(reader.nextBoolean())
-            JsonToken.NULL -> { reader.nextNull(); writer.nullValue() }
+            JsonToken.NULL -> {
+                reader.nextNull()
+                writer.nullValue()
+            }
             else -> error("CORRUPT_EXPORT: invalid JSON token")
         }
-        writer.flush()
     }
 }

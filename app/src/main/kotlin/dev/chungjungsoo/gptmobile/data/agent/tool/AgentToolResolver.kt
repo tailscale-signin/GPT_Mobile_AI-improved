@@ -51,7 +51,9 @@ data class ResolvedAgentTool(
     val shareableReadOnly: Boolean = false,
     val canReuseResult: (suspend () -> Boolean)? = null,
     val dynamicTools: (() -> List<ResolvedAgentTool>)? = null,
-    val progressiveCatalog: dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog? = null
+    val progressiveCatalog: dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog? = null,
+    val nativeGitHub: Boolean = false,
+    val nativeGitHubAuthenticated: Boolean = false
 )
 
 class AgentToolResolver @Inject constructor(
@@ -82,7 +84,8 @@ class AgentToolResolver @Inject constructor(
     private val researchSessions: dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore? = null,
     private val statistics: dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsRepository? = null,
     private val researchArchive: dev.chungjungsoo.gptmobile.data.research.feature.ResearchArchiveRepository? = null,
-    private val articleExaminations: javax.inject.Provider<dev.chungjungsoo.gptmobile.data.research.feature.ArticleExaminationCoordinator>? = null
+    private val articleExaminations: javax.inject.Provider<dev.chungjungsoo.gptmobile.data.research.feature.ArticleExaminationCoordinator>? = null,
+    private val gitHubRepositoryState: dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore? = null
 ) {
     suspend fun warmSelectedCatalogues(profileUid: String, limit: Int = 4) {
         val features = settingRepository.getFeatureSettings()
@@ -344,9 +347,9 @@ class AgentToolResolver @Inject constructor(
             // anonymous GitHub access because that would bypass the plugin toggle.
             if (featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.GITHUB)) {
                 if (configuredNativeGitHubConnections.isEmpty()) {
-                    resolved += GitHubTool(featureSettings = featureSettings).resolved(null, null, BuiltInAgentTool.GITHUB)
+                    resolved += resolveGitHub(null, profileUid, userMessage)
                 }
-                nativeGitHubConnections.forEach { connection -> resolved += resolveGitHub(connection) }
+                nativeGitHubConnections.forEach { connection -> resolved += resolveGitHub(connection, profileUid, userMessage) }
             }
             if (featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.WEB_SEARCH)) {
                 resolved += defaultWebSearch.resolved(null, null, WEB_SEARCH_TOOL)
@@ -366,7 +369,7 @@ class AgentToolResolver @Inject constructor(
                     if (binding.binding.toolName == BuiltInAgentTool.DEVICE_LOCATION && !allowDeviceLocation) {
                         return@forEach
                     }
-                    resolveBinding(binding, featureSettings)?.let { customResolvedTool ->
+                    resolveBinding(binding, featureSettings, profileUid, userMessage)?.let { customResolvedTool ->
                         resolved.removeAll { it.modelToolName == customResolvedTool.modelToolName }
                         resolved += customResolvedTool
                     }
@@ -379,12 +382,6 @@ class AgentToolResolver @Inject constructor(
                 .filter { examinationRunKey == null || it.connection?.connectionUid == researchSelection.gatewayConnectionUid }
                 .filter { pluginEnabledForBinding(featureSettings, profileUid, it) }
                 .filter { it.connection?.alias != "deep_research" || academicAllowed && it.connection?.connectionUid == researchSelection.gatewayConnectionUid }
-                .filterNot { binding ->
-                    // Prefer the native GitHub API surface when it is connected.
-                    // Keeping GitHub Official MCP visible at the same time causes
-                    // agents to repeat searches/PR reads through both providers.
-                    nativeGitHubConnections.isNotEmpty() && binding.connection?.isGitHubMcpEndpoint() == true
-                }
                 .groupBy { requireNotNull(it.connection).connectionUid }
                 .toSortedMap()
                 .values
@@ -511,7 +508,14 @@ class AgentToolResolver @Inject constructor(
             }
         }
 
-        val finalized = finalizeResolvedTools(resolved, profileUid, platform, featureSettings, bindings, chatToolConfig, freeProfile, disableRemote, disableLocal, onConnectionError)
+        val expanded = resolved.flatMap { base ->
+            val github = base.tool as? GitHubTool
+            if (github == null) listOf(base) else listOf(base) + github.operations().map { operation ->
+                base.copy(tool = operation, realToolName = operation.operation, modelToolName = operation.definition.name, shareableReadOnly = operation.operation in setOf("github_read", "github_search"))
+            }
+        }
+        val finalized = finalizeResolvedTools(expanded, profileUid, platform, featureSettings, bindings, chatToolConfig, freeProfile, disableRemote, disableLocal, onConnectionError)
+        val catalogTask = githubCatalogTask(profileUid, userMessage, resolved.any { (it.tool as? GitHubTool)?.hasRepositoryContext == true })
         val coldBindings = if (cachedCataloguesOnly && allowRemoteMcp && userMessage != null) {
             bindings.filter { binding ->
                 binding.connection?.type == ToolConnectionType.MCP &&
@@ -522,10 +526,14 @@ class AgentToolResolver @Inject constructor(
         } else {
             emptyList()
         }
-        if (coldBindings.isEmpty()) return finalized
+        if (coldBindings.isEmpty()) {
+            if (finalized.none { it.nativeGitHub }) return finalized
+            val directory = dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog(finalized.map { it.tool.definition }, catalogTask)
+            return finalized + ResolvedAgentTool(directory, null, "Authorized tool directory", directory.definition.name, directory.definition.name, progressiveCatalog = directory)
+        }
         val discovered = java.util.concurrent.ConcurrentHashMap<String, ResolvedAgentTool>()
         val attemptedConnections = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
-        val directory = dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog(finalized.map { it.tool.definition }, userMessage?.content.orEmpty(), acquireCold = { query, names ->
+        val directory = dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog(finalized.map { it.tool.definition }, catalogTask, acquireCold = { query, names ->
             val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
             check(current == platform && current?.enabled == true) { "Selected profile changed; retry discovery." }
             val live = settingRepository.getFeatureSettings()
@@ -558,7 +566,7 @@ class AgentToolResolver @Inject constructor(
             }
             // Recheck after I/O. Old grants/credentials cannot publish tools to a newer turn authority.
             check(settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid } == platform && settingRepository.getFeatureSettings() == live && toolConnectionRepository.listBindingsWithConnections(profileUid) == currentBindings) { "Tool permissions changed during discovery." }
-            val admitted = finalizeResolvedTools(loaded, profileUid, platform, live, currentBindings, chatToolConfig, freeProfile, disableRemote, disableLocal, onConnectionError)
+            val admitted = finalizeResolvedTools(loaded, profileUid, platform, live, currentBindings, chatToolConfig, freeProfile, disableRemote, disableLocal, onConnectionError, finalized.filter { it.nativeGitHub })
             admitted.forEach { next ->
                 val previous = finalized.firstOrNull { it.modelToolName == next.modelToolName } ?: discovered[next.modelToolName]
                 check(previous == null || previous.connectionUid == next.connectionUid && previous.realToolName == next.realToolName) { "Ambiguous discovered tool alias; no action dispatched." }
@@ -580,7 +588,8 @@ class AgentToolResolver @Inject constructor(
         freeProfile: Boolean,
         disableRemote: Boolean,
         disableLocal: Boolean,
-        onConnectionError: (String) -> Unit
+        onConnectionError: (String) -> Unit,
+        nativeGitHubAlternatives: List<ResolvedAgentTool> = emptyList()
     ): List<ResolvedAgentTool> {
         val collisions = resolved.groupBy { it.modelToolName }.filterValues { group -> group.map { it.connectionUid to it.realToolName }.distinct().size > 1 }.keys
         if (collisions.isNotEmpty()) onConnectionError("Ambiguous tool aliases excluded: " + collisions.sorted().joinToString(", "))
@@ -600,7 +609,7 @@ class AgentToolResolver @Inject constructor(
                 "TOOL_RESOLUTION_EMPTY · profileType=${platform?.compatibleType?.name ?: "UNKNOWN"} · reason=$reason · authorizedTools=0"
             )
         }
-        return callable
+        val authorized = callable
             .filter { tool ->
                 if (tool.modelToolName in AmazonNativeTool.names + AmazonLocalTool.names) {
                     featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.AMAZON_FREE)
@@ -626,7 +635,9 @@ class AgentToolResolver @Inject constructor(
                         tool.modelToolName,
                         tool.realToolName,
                         tool.connectionUid,
-                        "web_search".takeIf { tool.isWebSearchEngine() }
+                        "web_search".takeIf { tool.isWebSearchEngine() },
+                        "github".takeIf { tool.nativeGitHub },
+                        tool.connectionUid?.let { "$it:github" }.takeIf { tool.nativeGitHub }
                     )
                     val legacyIds = if (tool.connectionUid == "optional-openstreetmap") {
                         when (tool.realToolName) {
@@ -658,7 +669,7 @@ class AgentToolResolver @Inject constructor(
                 val fallback = when {
                     resolved.isWebSearchEngine() -> ToolPluginId.WEB_SEARCH
                     resolved.isAmazonProductTool() -> ToolPluginId.AMAZON_SEARCH
-                    resolved.realToolName == "github" -> ToolPluginId.GITHUB
+                    resolved.nativeGitHub -> ToolPluginId.GITHUB
                     else -> id
                 }
                 (featureSettings.pluginExecution[id] ?: featureSettings.pluginExecution[fallback])?.let { config -> resolved.copy(tool = ConfiguredPluginTool(resolved.tool, config)) } ?: resolved
@@ -700,7 +711,7 @@ class AgentToolResolver @Inject constructor(
             }
             .map { resolved ->
                 val connection = resolved.connectionUid ?: return@map resolved
-                if (connection == "optional-universal-marketplace") return@map resolved
+                if (connection == "optional-universal-marketplace" || resolved.nativeGitHub) return@map resolved
                 val admittedBindings = bindings.filter { it.binding.connectionUid == connection }.let { rows -> rows.filter { it.binding.toolName in setOf(resolved.realToolName, "*") }.ifEmpty { rows } }
                 val admittedNames = admittedBindings.map { it.binding.toolName }.toSet()
                 val previousCheck = resolved.canReuseResult
@@ -718,6 +729,7 @@ class AgentToolResolver @Inject constructor(
             }
             .map { resolved -> if (statistics == null) resolved else resolved.copy(tool = observedChild(resolved.tool, resolved.realToolName, resolved.connectionUid)) }
             .sortedBy { it.modelToolName }
+        return GitHubProviderPolicy.select(authorized, nativeGitHubAlternatives, bindings.mapNotNull { it.connection }.distinctBy { it.connectionUid })
     }
 
     private fun observedChild(tool: AgentTool, name: String = tool.definition.name, connection: String? = null): AgentTool =
@@ -762,7 +774,7 @@ class AgentToolResolver @Inject constructor(
         }
     }
 
-    private suspend fun resolveBinding(binding: AgentToolBindingWithConnection, featureSettings: AppFeatureSettings): ResolvedAgentTool? = when (binding.binding.toolName) {
+    private suspend fun resolveBinding(binding: AgentToolBindingWithConnection, featureSettings: AppFeatureSettings, profileUid: String, userMessage: MessageV2?): ResolvedAgentTool? = when (binding.binding.toolName) {
         WEB_SEARCH_TOOL -> resolveWebSearch(binding.connection)
 
         BuiltInAgentTool.READ_URL -> if (binding.binding.connectionUid == null) {
@@ -789,7 +801,7 @@ class AgentToolResolver @Inject constructor(
             null
         }
 
-        BuiltInAgentTool.GITHUB -> resolveGitHub(binding.connection)
+        BuiltInAgentTool.GITHUB -> resolveGitHub(binding.connection, profileUid, userMessage)
 
         else -> null
     }
@@ -984,7 +996,7 @@ class AgentToolResolver @Inject constructor(
         )
     }
 
-    private suspend fun resolveGitHub(connection: ToolConnection?): ResolvedAgentTool {
+    private suspend fun resolveGitHub(connection: ToolConnection?, profileUid: String, userMessage: MessageV2?): ResolvedAgentTool {
         val actualConnection = connection
         val token = actualConnection?.secretRef?.let { secretRef ->
             secretVault.read(secretRef)?.let { bytes ->
@@ -1002,9 +1014,37 @@ class AgentToolResolver @Inject constructor(
             featureSettings = features,
             modelToolName = actualConnection?.let { "github__${it.alias}" } ?: BuiltInAgentTool.GITHUB,
             accountName = actualConnection?.name,
-            repositoryContext = actualConnection?.let { gitHubWorkspaceStore?.get(it.connectionUid) }
+            repositoryContext = actualConnection?.let { gitHubWorkspaceStore?.get(it.connectionUid) },
+            connectionUid = actualConnection?.connectionUid.orEmpty(), conversationId = userMessage?.chatId?.toString().orEmpty(), taskId = userMessage?.let { "${it.chatId}:${it.id}" }.orEmpty(),
+            persistentState = userMessage?.chatId?.let { factVault?.scopeForChat(it)?.isTemporary != true } ?: true,
+            stateStore = gitHubRepositoryState
         )
-        return tool.resolved(actualConnection?.connectionUid, actualConnection?.name, BuiltInAgentTool.GITHUB)
+        val admittedProfile = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
+        return tool.resolved(actualConnection?.connectionUid, actualConnection?.name, BuiltInAgentTool.GITHUB).copy(nativeGitHub = true, nativeGitHubAuthenticated = tool.hasCredential, canReuseResult = {
+            val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
+            val live = settingRepository.getFeatureSettings()
+            current != null && admittedProfile != null && dev.chungjungsoo.gptmobile.data.agent.sameRecoveryDestination(admittedProfile, current) && current.enabled && !current.disableAllTools && !current.disableRemoteTools &&
+                live.isToolPluginEnabledForProfile(profileUid, ToolPluginId.GITHUB) &&
+                (actualConnection == null || (toolConnectionRepository.getConnection(actualConnection.connectionUid) == actualConnection && live.isToolPluginEnabledForProfile(profileUid, ToolPluginId.connection(actualConnection.connectionUid))))
+        })
+    }
+
+    private suspend fun githubCatalogTask(profileUid: String, userMessage: MessageV2?, selectedRepository: Boolean): String {
+        val task = userMessage?.content.orEmpty()
+        if (dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(task).intent != "SUBSTANTIVE") return task
+        val store = gitHubRepositoryState
+        val scope = "intent:$profileUid:${userMessage?.chatId ?: 0}"
+        val temporary = userMessage?.chatId?.let { factVault?.scopeForChat(it)?.isTemporary == true } == true
+        val previous = if (temporary) null else store?.read(scope, "github")?.get("task")?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
+        val explicit = GitHubOperationTool.taskTools(task).isNotEmpty()
+        val followup = Regex("(?i)\\b(continue|resume|fix|patch|push|commit|branch|release|review|test|build)\\b").containsMatchIn(task)
+        val selected = when {
+            explicit -> task
+            followup && (selectedRepository || previous != null) -> "repository " + task + " " + previous.orEmpty()
+            else -> task
+        }.take(4096)
+        if (!temporary && GitHubOperationTool.taskTools(selected).isNotEmpty()) store?.write(scope, "github", kotlinx.serialization.json.buildJsonObject { put("task", kotlinx.serialization.json.JsonPrimitive(selected)) })
+        return selected
     }
 
     private suspend fun resolveWebSearch(connection: ToolConnection?): ResolvedAgentTool? {

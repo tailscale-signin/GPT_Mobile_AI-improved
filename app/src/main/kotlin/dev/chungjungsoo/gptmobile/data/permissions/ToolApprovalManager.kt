@@ -116,6 +116,10 @@ class ToolApprovalManager @Inject constructor(private val database: ChatDatabase
     }
     suspend fun finish(runId: String, callId: String, success: Boolean) = dao.finish("$runId:$callId", if (success) "COMPLETED" else "OUTCOME_UNKNOWN")
     suspend fun authorizeOrThrow(connectionId: String, runId: String, callId: String, tool: String, arguments: JsonObject, schema: JsonObject? = null): Boolean {
+        if (connections.getConnection(connectionId)?.type == "GITHUB" && dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(tool) != null) {
+            val native = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.nativeArguments(tool, arguments) ?: return false
+            return authorizeOrThrow(connectionId, runId, callId, "github", native, schema)
+        }
         if (authorize(connectionId, runId, callId, tool, arguments, schema)) return true
         val connection = connections.getConnection(connectionId)
         val current = dao.observe("$runId:$callId").first()
@@ -126,6 +130,10 @@ class ToolApprovalManager @Inject constructor(private val database: ChatDatabase
     }
 
     suspend fun authorize(connectionId: String, runId: String, callId: String, tool: String, arguments: JsonObject, schema: JsonObject? = null): Boolean {
+        if (connections.getConnection(connectionId)?.type == "GITHUB" && dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(tool) != null) {
+            val native = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.nativeArguments(tool, arguments) ?: return false
+            return authorize(connectionId, runId, callId, "github", native, schema)
+        }
         val nativeEntry = dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog.find(connectionId)
         if (nativeEntry != null && dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceCatalog.supports(nativeEntry)) {
             // Explicitly enabled, compiled-in adapters expose only this reviewed read-only allowlist.
@@ -146,7 +154,7 @@ class ToolApprovalManager @Inject constructor(private val database: ChatDatabase
         val githubRead = tool != "github" ||
             arguments["action"]?.let {
                 (it as? kotlinx.serialization.json.JsonPrimitive)?.content in setOf(
-                    "search_repositories", "search_issues", "search_code", "get_file_contents", "get_issue", "get_pull_request", "list_pull_requests", "list_workflow_runs", "list_workflows", "get_workflow_run", "list_workflow_jobs", "list_workflow_artifacts", "get_job_logs"
+                    "read_saved_result", "stage_patch", "search_repositories", "search_issues", "search_code", "get_file_contents", "get_issue", "get_pull_request", "list_pull_requests", "list_workflow_runs", "list_workflows", "get_workflow_run", "list_workflow_jobs", "list_workflow_artifacts", "get_job_logs"
                 ) + dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceClient.readActions
             } == true
         val readOnly = githubRead && tool in connection.approvedReadTools.lines().map(String::trim)

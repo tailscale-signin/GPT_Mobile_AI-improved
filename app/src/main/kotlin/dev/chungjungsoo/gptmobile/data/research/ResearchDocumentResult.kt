@@ -22,7 +22,10 @@ data class ResearchDocumentResult(
     fun toJson(): JsonObject = codec.encodeToJsonElement(serializer(), this) as JsonObject
 
     companion object {
-        private val codec = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+        private val codec = Json {
+            ignoreUnknownKeys = true
+            encodeDefaults = true
+        }
         fun fromJson(value: JsonObject): ResearchDocumentResult? = runCatching { codec.decodeFromJsonElement(serializer(), value) }.getOrNull()
     }
 }

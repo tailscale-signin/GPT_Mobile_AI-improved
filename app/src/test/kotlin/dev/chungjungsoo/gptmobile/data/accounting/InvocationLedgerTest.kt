@@ -20,6 +20,63 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class InvocationLedgerTest {
+    @Test fun provenUnsentDnsAttemptRefundsReservationButAmbiguousDisconnectDoesNot() = runTest {
+        for (proven in listOf(true, false)) {
+            val saved = mutableListOf<ModelInvocation>()
+            val dao = mockk<InvocationDao>(relaxed = true)
+            every { dao.recent() } returns flowOf(emptyList())
+            coEvery { dao.save(any()) } answers { saved += firstArg<ModelInvocation>() }
+            val database = mockk<ChatDatabaseV2>()
+            every { database.invocationDao() } returns dao
+            val ledger = InvocationLedger(database)
+            val session = object : AgentProviderSession {
+                override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                    val dispatch = requireNotNull(kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext])
+                    val runtime = dev.chungjungsoo.gptmobile.data.context.RuntimeFingerprint("connection", "route", "credential", "model", "model", "epoch", "template", "allocation")
+                    val receipt = dev.chungjungsoo.gptmobile.data.context.RequestAdmission.prepare("payload", "delegate", dev.chungjungsoo.gptmobile.data.context.CapacitySnapshot(runtime, 10000), dev.chungjungsoo.gptmobile.data.context.RequestMeasurement(1, 1, dev.chungjungsoo.gptmobile.data.context.TokenMeasurementKind.UTF8_ESTIMATE), 10, "permissions").receipt
+                    dispatch.serialized("{}", receipt)
+                    dispatch.armHttp()
+                    val trace = requireNotNull(dispatch.takeHttpTrace())
+                    trace.mark(dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.HTTP_CALL_START)
+                    if (proven) {
+                        trace.failed(java.net.UnknownHostException("unresolved.example"))
+                    } else {
+                        trace.connectionOrRequestStarted()
+                        trace.failed(java.io.IOException("connection reset"))
+                    }
+                    emit(ProviderEvent.Failed("Transport failed"))
+                }
+            }
+            ledger.wrap(session, "parent", "turn", "CUSTOM", "model", "delegate", 300, 100, 1000).streamRound(emptyList(), emptyList()).toList()
+            val record = saved.single()
+            assertEquals(if (proven) "NOT_DISPATCHED" else "FAILED", record.status)
+            assertEquals(if (proven) 0 else 300, record.inputTokens)
+            assertEquals(0, record.outputTokens)
+            if (proven) assertEquals(0L, record.costMicros)
+        }
+    }
+
+    @Test fun interimUsageRemainsEstimatedAndCannotShrinkObservedGeneratedOutput() = runTest {
+        val saved = mutableListOf<ModelInvocation>()
+        val dao = mockk<InvocationDao>(relaxed = true)
+        every { dao.recent() } returns flowOf(emptyList())
+        coEvery { dao.save(any()) } answers { saved += firstArg<ModelInvocation>() }
+        val database = mockk<ChatDatabaseV2>()
+        every { database.invocationDao() } returns dao
+        val session = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(
+                ProviderEvent.Usage(20, 1, 21, phase = dev.chungjungsoo.gptmobile.data.agent.ProviderUsagePhase.INITIAL),
+                ProviderEvent.TextDelta("substantial partial output ".repeat(20)),
+                ProviderEvent.Failed("Interrupted")
+            )
+        }
+        InvocationLedger(database).wrap(session, "parent", "turn", "CUSTOM", "model", "delegate", 100, 500, 1000).streamRound(emptyList(), emptyList()).toList()
+        assertTrue(saved.single().estimated)
+        assertTrue(saved.single().outputTokens > 1)
+        assertEquals("provider_reported_initial", saved.single().outputTokenSource)
+        assertEquals(1L, saved.single().observedOutputTokens)
+    }
+
     @Test fun `outcome attribution and reservations survive completion failure and cancellation`() = runTest {
         for (outcome in listOf("COMPLETED", "FAILED", "CANCELED", "INTERRUPTED")) {
             val saved = mutableListOf<ModelInvocation>()

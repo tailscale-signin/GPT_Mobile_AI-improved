@@ -801,27 +801,30 @@ internal class AndroidResearchWorkflow(
                 else -> "Read"
             }
             val key = source.equivalenceGroup.ifBlank { canonicalSearchUrl(source.url) }
-            sources[key] = dev.chungjungsoo.gptmobile.data.research.enrichResearchSourceMetadata(source.copy(
-                status = status,
-                publicCapture = if (usable) publicReader else source.publicCapture,
-                retrievalReceipt = receipt,
-                failureReason = if (usable) "" else result?.errorCode?.takeIf(String::isNotBlank) ?: status.uppercase(),
-                passage = if (usable) passage else "",
-                bodyChunks = if (usable) (payload as? JsonObject)?.strings("bodyChunks").orEmpty().ifEmpty { journal?.retainBody(text).orEmpty() } else emptyList(),
-                retrievedAt = now(),
-                fingerprint = fingerprint,
-                contentFingerprint = fingerprint,
-                retrievalQuality = when (status) {
-                    "Read" -> "PARTIAL_TEXT"
-                    "Partially read" -> "PARTIAL_TEXT"
-                    "Blocked" -> "BLOCKED"
-                    "Failed" -> "EMPTY"
-                    else -> "LEAD"
-                },
-                originId = origin,
-                captureTruncated = (payload as? JsonObject)?.get("truncated")?.let { (it as? JsonPrimitive)?.booleanOrNull },
-                structuredFullText = false
-            ), text)
+            sources[key] = dev.chungjungsoo.gptmobile.data.research.enrichResearchSourceMetadata(
+                source.copy(
+                    status = status,
+                    publicCapture = if (usable) publicReader else source.publicCapture,
+                    retrievalReceipt = receipt,
+                    failureReason = if (usable) "" else result?.errorCode?.takeIf(String::isNotBlank) ?: status.uppercase(),
+                    passage = if (usable) passage else "",
+                    bodyChunks = if (usable) (payload as? JsonObject)?.strings("bodyChunks").orEmpty().ifEmpty { journal?.retainBody(text).orEmpty() } else emptyList(),
+                    retrievedAt = now(),
+                    fingerprint = fingerprint,
+                    contentFingerprint = fingerprint,
+                    retrievalQuality = when (status) {
+                        "Read" -> "PARTIAL_TEXT"
+                        "Partially read" -> "PARTIAL_TEXT"
+                        "Blocked" -> "BLOCKED"
+                        "Failed" -> "EMPTY"
+                        else -> "LEAD"
+                    },
+                    originId = origin,
+                    captureTruncated = (payload as? JsonObject)?.get("truncated")?.let { (it as? JsonPrimitive)?.booleanOrNull },
+                    structuredFullText = false
+                ),
+                text
+            )
             if (valid && allowed && source.depth < options.linkDepth) {
                 val links = (payload as? JsonObject)?.strings("links").orEmpty()
                 links.filter { options.allowExternalLinks || runCatching { URI(it).host.equals(URI(finalUrl).host, true) }.getOrDefault(false) }

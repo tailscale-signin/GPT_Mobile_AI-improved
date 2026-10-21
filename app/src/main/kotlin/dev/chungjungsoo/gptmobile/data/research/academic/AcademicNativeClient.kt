@@ -454,7 +454,13 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
             fun atomic(file: File, content: ByteArray) {
                 val target = android.util.AtomicFile(file)
                 val output = target.startWrite()
-                try { output.write(content); target.finishWrite(output) } catch (failure: Throwable) { target.failWrite(output); throw failure }
+                try {
+                    output.write(content)
+                    target.finishWrite(output)
+                } catch (failure: Throwable) {
+                    target.failWrite(output)
+                    throw failure
+                }
             }
             val body = evidence.textHash + ".body"
             atomic(File(evidenceDirectory, body), bytes)
@@ -466,7 +472,11 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
             for (record in records) {
                 if (total <= 64L * 1024 * 1024 && count <= 256) break
                 if (record.name == "$identity.json") continue
-                val size = record.length(); if (record.delete()) { total -= size; count-- }
+                val size = record.length()
+                if (record.delete()) {
+                    total -= size
+                    count--
+                }
             }
             val liveBodies = evidenceDirectory.listFiles { entry -> entry.extension == "json" }.orEmpty().mapNotNull { entry -> runCatching { json.decodeFromString<AcademicEvidence>(entry.readText()).bodyReference }.getOrNull() }.toSet()
             evidenceDirectory.listFiles { entry -> entry.extension == "body" && entry.name !in liveBodies }.orEmpty().forEach { it.delete() }
@@ -542,9 +552,9 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
             val eventId = UUID.randomUUID().toString()
             var responseCode: Int? = null
             var successful = false
-            val combinedAttempt = dev.chungjungsoo.gptmobile.data.agent.CombinedAcquisitionBoundary.reserve("academic-http:$eventId", 1, freePublicEndpoint = true)
-            var networkStarted = false
             val lease = connectivity.acquire(uri.host) ?: throw AcademicNetworkRecovery()
+            val combinedAttempt = try { dev.chungjungsoo.gptmobile.data.agent.CombinedAcquisitionBoundary.reserve("academic-http:$eventId", 1, freePublicEndpoint = true) } catch (failure: Throwable) { connectivity.release(lease); throw failure }
+            var networkStarted = false
             val result = try {
                 boundBudget?.reserve("http_request", lane = lane)
                 networkStarted = true
@@ -591,6 +601,7 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
                         successful = true
                         dev.chungjungsoo.gptmobile.data.diagnostics.JavaHeapWorkGate.run("academic_body") { download.readText(Charsets.UTF_8) } to response.headers["Content-Type"].orEmpty()
                     } finally {
+                        stream.cancel(null)
                         download.delete()
                     }
                 }

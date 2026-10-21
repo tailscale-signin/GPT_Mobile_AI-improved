@@ -256,7 +256,7 @@ class ResearchDeliveryTest {
         assertEquals(0, toolsAdvertised)
     }
 
-    @Test fun detailedReportRetriesInToolFreeChaptersBeforeEvidenceFallback() = runTest {
+    @Test fun emptyDetailedReportRetriesInToolFreeChaptersBeforeEvidenceFallback() = runTest {
         val detailed = packet().copy(snapshot = packet().snapshot.copy(task = "Hydrogen inhalation clinical trials"), detail = ResearchReportDetail.DETAILED)
         var generated = 0
         val headerOne = """
@@ -292,7 +292,7 @@ class ResearchDeliveryTest {
                 val answer = when (generated) {
                     3 -> headerOne
                     4 -> headerTwo
-                    else -> "Unsupported unsourced draft."
+                    else -> ""
                 }
                 emit(ProviderEvent.TextDelta(answer))
                 emit(ProviderEvent.Completed)

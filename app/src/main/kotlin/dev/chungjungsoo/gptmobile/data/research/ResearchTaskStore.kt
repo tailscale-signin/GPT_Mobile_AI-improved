@@ -147,6 +147,23 @@ internal class ResearchTaskStore(private val directory: File) {
         write("manifest", root, json.encodeToString(index.copy(partialCheckpointIds = index.partialCheckpointIds + checkpointId)), persistent)
     }
 
+    @Synchronized fun retainDelivery(root: String, runId: String, authority: String, generation: Long, receipt: dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryReceipt, persistent: Boolean): Boolean {
+        val task = accepted(root, persistent) ?: return false
+        val index = manifest(root, persistent) ?: ResearchEvidenceManifest(taskId = task.taskId, rootWorkId = root, chatId = task.chatId, originatingUserMessageId = task.originatingUserMessageId, originalRequestDigest = researchHash(task.taskText))
+        val body = kotlinx.serialization.json.buildJsonObject {
+            put("taskId", kotlinx.serialization.json.JsonPrimitive(task.taskId))
+            put("rootWorkId", kotlinx.serialization.json.JsonPrimitive(root))
+            put("runId", kotlinx.serialization.json.JsonPrimitive(runId))
+            put("authority", kotlinx.serialization.json.JsonPrimitive(authority))
+            put("generation", kotlinx.serialization.json.JsonPrimitive(generation))
+            put("receipt", json.encodeToJsonElement(dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryReceipt.serializer(), receipt))
+        }.toString()
+        val id = researchHash(body)
+        write("delivery", id, body, persistent)
+        write("manifest", root, json.encodeToString(index.copy(deliveryReceiptIds = index.deliveryReceiptIds + id)), persistent)
+        return true
+    }
+
     @Synchronized fun plan(root: String, value: String? = null, persistent: Boolean): String? {
         val task = accepted(root, persistent) ?: return null
         val existing = read("plan", root, persistent)
@@ -163,7 +180,7 @@ internal class ResearchTaskStore(private val directory: File) {
         directory.listFiles().orEmpty().filter { it.extension == "task" }.forEach { path ->
             val task = runCatching { json.decodeFromString<AcceptedResearchTask>(path.readText()) }.getOrNull() ?: return@forEach
             if (task.chatId == chatId) {
-                directory.listFiles().orEmpty().filter { it.extension in setOf("resume", "checkpoint", "manifest", "evidence", "plan") && runCatching { it.readText().contains(task.taskId) }.getOrDefault(false) }.forEach { it.delete() }
+                directory.listFiles().orEmpty().filter { it.extension in setOf("resume", "checkpoint", "manifest", "evidence", "plan", "delivery") && runCatching { it.readText().contains(task.taskId) }.getOrDefault(false) }.forEach { it.delete() }
                 path.delete()
             }
         }

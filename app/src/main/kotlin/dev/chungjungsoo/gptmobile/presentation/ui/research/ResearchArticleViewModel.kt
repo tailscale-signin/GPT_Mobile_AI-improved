@@ -77,10 +77,10 @@ class ResearchArticleViewModel @Inject constructor(private val archive: Research
         }
     }
     fun saveCrawlerForChat(chatId: Int, profileUid: String, tools: ChatMcpToolConfig) = action {
-        require(chatId > 0 && profiles.value.any { it.uid == profileUid && it.enabled })
+        require(chatId > 0 && (profileUid.isBlank() || profiles.value.count { it.uid == profileUid && it.enabled } == 1))
         settings.mutateFeatureSettings { current ->
             val selection = current.conversationResearch[chatId] ?: tools.research ?: dev.chungjungsoo.gptmobile.data.model.MultiSearchResearchSelection()
-            current.copy(conversationResearch = current.conversationResearch + (chatId to selection.copy(crawlerProfileUid = profileUid)))
+            current.copy(conversationResearch = current.conversationResearch + (chatId to selection.copy(crawlerProfileUid = profileUid.takeIf { it.isNotBlank() })))
         }
     }
     fun examine(request: ExaminationRequest, tools: () -> ChatMcpToolConfig) {

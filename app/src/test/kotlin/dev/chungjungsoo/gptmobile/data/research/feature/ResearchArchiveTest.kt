@@ -110,4 +110,25 @@ class ResearchArchiveTest {
         assertEquals("My category", dao.allCategories().first { it.categoryId == "uncategorized" }.label)
         assertEquals("My topic", dao.topic(ResearchArchiveIngestor.DEFAULT_TOPIC)!!.label)
     }
+
+    @Test fun fullCaptureProofSurvivesRepeatedRevalidationButLegacyFullBadgeDoesNotCreateProof() = runBlocking {
+        val body = "Methods: 24 participants were randomized. Results: no difference was measured."
+        val source = ResearchSource("proof", "https://example.org/proof", "Trial", "Read", body, bodyChunks = listOf("body"), structuredFullText = true, sectionNames = setOf("methods", "results"), captureTruncated = false)
+        val full = ResearchArchiveIngestor.capture(database, source, "public", true, -1, "proof", true, 0, researchHash(body), body.encodeToByteArray().size.toLong())
+        assertEquals(ArticleCoverage.FULL_TEXT_CAPTURED, full.coverage)
+        val repair = ResearchSourceRepair(database, io.mockk.mockk())
+        repeat(3) {
+            assertTrue(repair.classify(requireNotNull(database.research().version(full.versionId)), body).fullTextProven)
+            assertEquals(ArticleCoverage.FULL_TEXT_CAPTURED, database.research().version(full.versionId)!!.coverage)
+        }
+        val ordinary = ResearchArchiveIngestor.capture(database, source.copy(id = "old", url = "https://example.org/old", canonicalUrl = "https://example.org/old", doi = "10.1234/old", structuredFullText = false, captureTruncated = null), "public", true, -1, "old", true, 0, researchHash(body), body.encodeToByteArray().size.toLong())
+        assertEquals(ArticleCoverage.PARTIAL_TEXT, ordinary.coverage)
+        val dao = database.research()
+        assertEquals(0, dao.reclassifyVersion(ordinary.versionId, "wrong hash", ArticleCoverage.PARTIAL_TEXT, ArticleCoverage.FULL_TEXT_CAPTURED, "wrong"))
+        assertEquals(1, dao.reclassifyVersion(ordinary.versionId, ordinary.contentHash, ArticleCoverage.PARTIAL_TEXT, ArticleCoverage.FULL_TEXT_CAPTURED, "legacy badge"))
+        assertFalse(repair.classify(requireNotNull(dao.version(ordinary.versionId)), body).fullTextProven)
+        assertEquals(ArticleCoverage.PARTIAL_TEXT, dao.version(ordinary.versionId)!!.coverage)
+        assertEquals(0, dao.reclassifyVersion(ordinary.versionId, ordinary.contentHash, ArticleCoverage.FULL_TEXT_CAPTURED, ArticleCoverage.UNAVAILABLE, "stale worker"))
+        assertEquals(ordinary.contentHash, dao.version(ordinary.versionId)!!.contentHash)
+    }
 }

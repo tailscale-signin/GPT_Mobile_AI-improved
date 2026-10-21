@@ -171,7 +171,10 @@ class McpClientManager internal constructor(
         val key = config.validatedKey() + ":" + policyEpoch
         val ready = if (forceRefresh) null else catalogue.peek(key, 300_000)
         kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.readiness.ReadinessCacheObservation]?.read(ready != null)
-        ready?.let { return it.value }
+        ready?.let {
+            catalogueIdentities[config.connectionUid] = policyEpoch to key
+            return it.value
+        }
         val producer = synchronized(catalogueProducers) {
             catalogueProducers[key] ?: catalogueScope.async(start = kotlinx.coroutines.CoroutineStart.LAZY) {
                 withTimeout(8_000L) {
@@ -194,7 +197,9 @@ class McpClientManager internal constructor(
             }
         }
         producer.start()
-        return withTimeoutOrNull(2_000L) { producer.await() } ?: catalogue.peek(key)?.value.orEmpty()
+        val result = withTimeoutOrNull(2_000L) { producer.await() } ?: catalogue.peek(key)?.value.orEmpty()
+        if (catalogue.peek(key) != null) catalogueIdentities[config.connectionUid] = policyEpoch to key
+        return result
     }
 
     private suspend fun fetchCatalogue(config: McpConnectionConfig, forceRefresh: Boolean): List<Tool> {
@@ -490,6 +495,7 @@ class McpClientManager internal constructor(
     }
 
     suspend fun closeAll() {
+        clearReadinessCache()
         healthOrder.invalidateAll().forEach { uid ->
             resetHealth(uid)
             statistics?.observeHealth(uid, "NOT_CHECKED", "CONFIG_CHANGED", nowMs())

@@ -115,14 +115,14 @@ class ReadUrlTool(
         return try {
             kotlinx.coroutines.withTimeoutOrNull(25_000) {
                 dev.chungjungsoo.gptmobile.data.diagnostics.JavaHeapWorkGate.run("read_url") {
-                read(
-                    callId,
-                    start,
-                    (arguments["includeLinks"] as? JsonPrimitive)?.booleanOrNull == true,
-                    (arguments["includeDomains"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.content?.lowercase() },
-                    (arguments["excludeDomains"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.content?.lowercase() },
-                    (arguments["extractDocument"] as? JsonPrimitive)?.booleanOrNull == true
-                )
+                    read(
+                        callId,
+                        start,
+                        (arguments["includeLinks"] as? JsonPrimitive)?.booleanOrNull == true,
+                        (arguments["includeDomains"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.content?.lowercase() },
+                        (arguments["excludeDomains"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.content?.lowercase() },
+                        (arguments["extractDocument"] as? JsonPrimitive)?.booleanOrNull == true
+                    )
                 }
             } ?: error(callId, "Read URL failed: page deadline reached. Choose another source.")
         } catch (exception: CancellationException) {
@@ -265,36 +265,36 @@ class ReadUrlTool(
         val gate = dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared
         val lease = gate.acquire(uri.host) ?: throw ReadUrlException("DNS_RECOVERY: waiting for network recovery")
         try {
-        val pinnedAddresses = resolveSafe(uri.host)
-        val pinnedDns = Dns { hostname ->
-            if (!hostname.equals(uri.host, ignoreCase = true)) throw UnknownHostException(hostname)
-            pinnedAddresses
-        }
-        // ponytail: per-call client isolates DNS pins; pool per agent run only if profiling shows setup cost matters.
-        val client = HttpClient(OkHttp) {
-            install(dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsHttpPlugin)
-            followRedirects = false
-            install(io.ktor.client.plugins.HttpTimeout) {
-                connectTimeoutMillis = 8_000
-                socketTimeoutMillis = 12_000
-                requestTimeoutMillis = 20_000
+            val pinnedAddresses = resolveSafe(uri.host)
+            val pinnedDns = Dns { hostname ->
+                if (!hostname.equals(uri.host, ignoreCase = true)) throw UnknownHostException(hostname)
+                pinnedAddresses
             }
-            engine {
-                dns = pinnedDns
-                clientCacheSize = 0
-                config {
-                    followRedirects(false)
-                    followSslRedirects(false)
-                    proxy(Proxy.NO_PROXY)
+            // ponytail: per-call client isolates DNS pins; pool per agent run only if profiling shows setup cost matters.
+            val client = HttpClient(OkHttp) {
+                install(dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsHttpPlugin)
+                followRedirects = false
+                install(io.ktor.client.plugins.HttpTimeout) {
+                    connectTimeoutMillis = 8_000
+                    socketTimeoutMillis = 12_000
+                    requestTimeoutMillis = 20_000
+                }
+                engine {
+                    dns = pinnedDns
+                    clientCacheSize = 0
+                    config {
+                        followRedirects(false)
+                        followSslRedirects(false)
+                        proxy(Proxy.NO_PROXY)
+                    }
                 }
             }
-        }
-        return try {
-            ReadUrlRequest(client, client.get(uri.toASCIIString()).also { gate.success(uri.host) })
-        } catch (exception: Exception) {
-            client.close()
-            throw exception
-        }
+            return try {
+                ReadUrlRequest(client, client.get(uri.toASCIIString()).also { gate.success(uri.host) })
+            } catch (exception: Exception) {
+                client.close()
+                throw exception
+            }
         } catch (failure: Exception) {
             gate.failed(uri.host, failure)
             throw failure
@@ -395,9 +395,14 @@ class ReadUrlTool(
         content = ToolResultContent.Text(message.take(ERROR_BYTES)),
         isError = true,
         errorCode = readerFailureCode(message),
-        retainedContent = ToolResultContent.Json(dev.chungjungsoo.gptmobile.data.research.ResearchDocumentResult(
-            url = "", status = readerFailureStatus(message), failureCode = readerFailureCode(message), failureReason = message.take(ERROR_BYTES)
-        ).toJson())
+        retainedContent = ToolResultContent.Json(
+            dev.chungjungsoo.gptmobile.data.research.ResearchDocumentResult(
+                url = "",
+                status = readerFailureStatus(message),
+                failureCode = readerFailureCode(message),
+                failureReason = message.take(ERROR_BYTES)
+            ).toJson()
+        )
     )
 
     private fun readerFailureCode(message: String): String = when {

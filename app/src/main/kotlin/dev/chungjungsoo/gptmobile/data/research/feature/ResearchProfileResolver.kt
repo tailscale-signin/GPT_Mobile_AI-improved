@@ -8,8 +8,9 @@ enum class ExaminerSelectionStatus { READY, UNSELECTED, MISSING, DISABLED, AMBIG
 data class ExaminerSelection(val status: ExaminerSelectionStatus, val profileUid: String = "", val profile: PlatformV2? = null)
 
 internal object ResearchProfileResolver {
-    fun examinerSelection(features: AppFeatureSettings, profiles: List<PlatformV2>, chatId: Int, tools: ChatMcpToolConfig, override: String = ""): ExaminerSelection {
-        val uid = examinerUid(features, chatId, tools, override)
+    fun examinerSelection(features: AppFeatureSettings, profiles: List<PlatformV2>, chatId: Int, tools: ChatMcpToolConfig, override: String = ""): ExaminerSelection = selection(examinerUid(features, chatId, tools, override), profiles)
+
+    fun selection(uid: String, profiles: List<PlatformV2>): ExaminerSelection {
         if (uid.isBlank()) return ExaminerSelection(ExaminerSelectionStatus.UNSELECTED)
         val matches = profiles.filter { it.uid == uid }
         if (matches.isEmpty()) return ExaminerSelection(ExaminerSelectionStatus.MISSING, uid)
@@ -31,4 +32,12 @@ internal object ResearchProfileResolver {
             dev.chungjungsoo.gptmobile.data.delegation.CanonicalModelIdentity.independence(it, appraiser) == dev.chungjungsoo.gptmobile.data.delegation.ModelIndependence.DIFFERENT
         }
     }
+}
+
+fun examinerSelectionIssue(selection: ExaminerSelection): String? = when (selection.status) {
+    ExaminerSelectionStatus.READY -> null
+    ExaminerSelectionStatus.UNSELECTED -> "Choose Examiner to start an examination."
+    ExaminerSelectionStatus.MISSING -> "The saved Examiner profile is missing. Choose an available Examiner."
+    ExaminerSelectionStatus.DISABLED -> "The saved Examiner profile is disabled. Enable it or choose another Examiner."
+    ExaminerSelectionStatus.AMBIGUOUS -> "The saved Examiner selection is ambiguous. Choose a unique profile."
 }

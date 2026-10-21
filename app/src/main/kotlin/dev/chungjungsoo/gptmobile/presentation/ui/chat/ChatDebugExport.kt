@@ -17,7 +17,6 @@ import dev.chungjungsoo.gptmobile.data.research.ResearchSession
 import java.security.MessageDigest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -208,20 +207,20 @@ internal suspend fun writeChatDebugExport(
             if (key == "answerSegments" && value is JsonArray) {
                 val previous = mutableMapOf<String, String>()
                 array(key, value.asSequence()) { element ->
-                            val segment = element as JsonObject
-                            val run = (segment["runId"] as JsonPrimitive).content
-                            val body = exportedBody((segment["text"] as JsonPrimitive).content)
-                            val digest = debugBodyDigest(body)
-                            JsonObject(
-                                segment.toMutableMap().apply {
-                                    put("text", JsonPrimitive(body))
-                                    put("digest", JsonPrimitive(digest))
-                                    put("previousDigest", previous[run]?.let(::JsonPrimitive) ?: kotlinx.serialization.json.JsonNull)
-                                    put("utf8Bytes", JsonPrimitive(body.toByteArray(Charsets.UTF_8).size))
-                                    put("digestRepresentation", JsonPrimitive("redacted-export-segment-utf8"))
-                                    previous[run] = digest
-                                }
-                            )
+                    val segment = element as JsonObject
+                    val run = (segment["runId"] as JsonPrimitive).content
+                    val body = exportedBody((segment["text"] as JsonPrimitive).content)
+                    val digest = debugBodyDigest(body)
+                    JsonObject(
+                        segment.toMutableMap().apply {
+                            put("text", JsonPrimitive(body))
+                            put("digest", JsonPrimitive(digest))
+                            put("previousDigest", previous[run]?.let(::JsonPrimitive) ?: kotlinx.serialization.json.JsonNull)
+                            put("utf8Bytes", JsonPrimitive(body.toByteArray(Charsets.UTF_8).size))
+                            put("digestRepresentation", JsonPrimitive("redacted-export-segment-utf8"))
+                            previous[run] = digest
+                        }
+                    )
                 }
             } else {
                 put(key, value)
@@ -229,66 +228,68 @@ internal suspend fun writeChatDebugExport(
         }
         arrayFrom("research") { emit ->
             researchStream { session ->
-                emit(buildJsonObject {
-                    put("runId", session.runId)
-                    put("chatId", session.chatId)
-                    put("turnId", session.turnId)
-                    put("authority", session.authority)
-                    put("evidence", session.snapshot.json())
-                })
+                emit(
+                    buildJsonObject {
+                        put("runId", session.runId)
+                        put("chatId", session.chatId)
+                        put("turnId", session.turnId)
+                        put("authority", session.authority)
+                        put("evidence", session.snapshot.json())
+                    }
+                )
             }
         }
         array("responseMapping", messages.asSequence().filter { it.platformType != null }) { message ->
-                    buildJsonObject {
-                        put("messageId", message.id)
-                        put("userMessageId", message.linkedMessageId)
-                        put("runId", message.currentRunId)
-                        put("profileUid", message.platformType)
-                        put("digestRepresentation", "redacted-export-body-utf8")
-                        put("bodySha256", debugBodyDigest(exportedBody(message.content)))
-                        put("selectedBodySha256", debugBodyDigest(exportedBody(message.effectiveContent())))
-                        put("characters", message.content.length)
-                        put("activeRevisionIndex", message.activeRevisionIndex)
-                        put(
-                            "revisionMapping",
-                            JsonArray(
-                                message.revisions.mapIndexed { index, revision ->
-                                    buildJsonObject {
-                                        put("index", index)
-                                        put("runId", revision.runId)
-                                        put("bodySha256", debugBodyDigest(exportedBody(revision.content)))
-                                        put(
-                                            "contributionMapping",
-                                            JsonArray(
-                                                revision.combinedSources.mapIndexed { sourceIndex, source ->
-                                                    buildJsonObject {
-                                                        put("id", "C${sourceIndex + 1}")
-                                                        put("profileUid", source.platformUid)
-                                                        put("bodySha256", debugBodyDigest(exportedBody(source.content)))
-                                                        put("characters", source.content.length)
-                                                    }
-                                                }
-                                            )
-                                        )
-                                    }
-                                }
-                            )
-                        )
-                        put(
-                            "contributionMapping",
-                            JsonArray(
-                                message.combinedSources.mapIndexed { index, source ->
-                                    buildJsonObject {
-                                        put("id", "C${index + 1}")
-                                        put("profileUid", source.platformUid)
-                                        put("bodySha256", debugBodyDigest(exportedBody(source.content)))
-                                        put("characters", source.content.length)
-                                    }
-                                }
-                            )
-                        )
-                        put("coverage", "Contribution bodies are supplied for inspection. Inclusion in the prompt does not prove semantic coverage in the final answer.")
-                    }
+            buildJsonObject {
+                put("messageId", message.id)
+                put("userMessageId", message.linkedMessageId)
+                put("runId", message.currentRunId)
+                put("profileUid", message.platformType)
+                put("digestRepresentation", "redacted-export-body-utf8")
+                put("bodySha256", debugBodyDigest(exportedBody(message.content)))
+                put("selectedBodySha256", debugBodyDigest(exportedBody(message.effectiveContent())))
+                put("characters", message.content.length)
+                put("activeRevisionIndex", message.activeRevisionIndex)
+                put(
+                    "revisionMapping",
+                    JsonArray(
+                        message.revisions.mapIndexed { index, revision ->
+                            buildJsonObject {
+                                put("index", index)
+                                put("runId", revision.runId)
+                                put("bodySha256", debugBodyDigest(exportedBody(revision.content)))
+                                put(
+                                    "contributionMapping",
+                                    JsonArray(
+                                        revision.combinedSources.mapIndexed { sourceIndex, source ->
+                                            buildJsonObject {
+                                                put("id", "C${sourceIndex + 1}")
+                                                put("profileUid", source.platformUid)
+                                                put("bodySha256", debugBodyDigest(exportedBody(source.content)))
+                                                put("characters", source.content.length)
+                                            }
+                                        }
+                                    )
+                                )
+                            }
+                        }
+                    )
+                )
+                put(
+                    "contributionMapping",
+                    JsonArray(
+                        message.combinedSources.mapIndexed { index, source ->
+                            buildJsonObject {
+                                put("id", "C${index + 1}")
+                                put("profileUid", source.platformUid)
+                                put("bodySha256", debugBodyDigest(exportedBody(source.content)))
+                                put("characters", source.content.length)
+                            }
+                        }
+                    )
+                )
+                put("coverage", "Contribution bodies are supplied for inspection. Inclusion in the prompt does not prove semantic coverage in the final answer.")
+            }
         }
     }
 }

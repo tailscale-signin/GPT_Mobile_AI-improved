@@ -77,8 +77,8 @@ internal data class ResearchModelEndpoint(
     val available: suspend () -> Boolean,
     val timeoutMillis: Long? = null,
     val admission: (suspend () -> ResearchAdmission)? = null,
-    val generate: suspend (ResearchModelStage, String, Int) -> ResearchModelReply,
-    val providerHost: String = ""
+    val providerHost: String = "",
+    val generate: suspend (ResearchModelStage, String, Int) -> ResearchModelReply
 )
 
 /** Local-first, no tools, no recursive delegation, and no silent cross-account fallback. */
@@ -188,23 +188,24 @@ internal class ResearchModelCoordinator(
                 }
                 if (reply != null && (!reply.transportComplete || reply.transportFailure != null || reply.outputLimitReached || reply.text.startsWith("[PARTIAL_DELEGATE_OUTPUT:"))) {
                     val limited = reply.outputLimitReached || reply.text.startsWith("[PARTIAL_DELEGATE_OUTPUT:")
-                    val checkpoint = if (reply.text.isNotBlank()) retainPartial?.invoke(stage.name, target.profileUid, dev.chungjungsoo.gptmobile.data.agent.tool.boundedDelegatePartial(reply.text)) else null
+                    val checkpoint = keepPartial(stage, target, reply.text)
                     record(event.copy(outcome = "FAILED", reason = if (limited) "OUTPUT_LIMIT_BEFORE_SCHEMA" else "TRANSPORT_INCOMPLETE", failurePhase = "GENERATION", failureCategory = if (limited) "OUTPUT_LIMIT" else "TRANSPORT", durationMs = elapsed(started), invocationId = reply.invocationId, partialRetained = checkpoint != null, checkpointId = checkpoint, providerHost = target.providerHost, finishReason = reply.finishReason, requestId = reply.requestId))
                     continue
                 }
-                if (reply?.transportComplete == true && target.providerHost.isNotBlank()) dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.success(target.providerHost)
-                if (reply == null || reply.text.startsWith("[PARTIAL_DELEGATE_OUTPUT:") || !valid(stage, parseDelegationObject(reply.text))) {
-                    failed(shared = reply == null || reply.text.isBlank() || reply.text.startsWith("[PARTIAL_DELEGATE_OUTPUT:") || parseDelegationObject(reply.text) == null)
+                if (reply == null) {
+                    if (target.local) failed(shared = true)
+                    record(event.copy(outcome = "TIMED_OUT", durationMs = elapsed(started), reason = "MODEL_DEADLINE", failurePhase = "GENERATION", failureCategory = "TRANSPORT", providerHost = target.providerHost))
+                    continue
+                }
+                if (reply.transportComplete == true && target.providerHost.isNotBlank()) dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.success(target.providerHost)
+                if (!valid(stage, parseDelegationObject(reply.text))) {
+                    failed(shared = reply.text.isBlank() || parseDelegationObject(reply.text) == null)
                     record(
                         event.copy(
-                            outcome = if (reply == null) "TIMED_OUT" else "INVALID_RESPONSE",
+                            outcome = "INVALID_RESPONSE",
                             durationMs = elapsed(started),
-                            invocationId = reply?.invocationId,
-                            reason = if (reply == null) {
-                                "MODEL_DEADLINE"
-                            } else if (reply.text.startsWith("[PARTIAL_DELEGATE_OUTPUT:")) {
-                                "OUTPUT_LIMIT_BEFORE_SCHEMA"
-                            } else if (reply.text.isBlank()) {
+                            invocationId = reply.invocationId,
+                            reason = if (reply.text.isBlank()) {
                                 "NO_VISIBLE_OUTPUT"
                             } else if (parseDelegationObject(reply.text) == null) {
                                 "MALFORMED_JSON"
@@ -212,7 +213,9 @@ internal class ResearchModelCoordinator(
                                 "SCHEMA_VALIDATION_FAILED"
                             },
                             failurePhase = "VALIDATION",
-                            failureCategory = "STRUCTURED_OUTPUT"
+                            failureCategory = "STRUCTURED_OUTPUT",
+                            transportComplete = true,
+                            providerHost = target.providerHost
                         )
                     )
                     continue
@@ -232,7 +235,8 @@ internal class ResearchModelCoordinator(
                 val category = failureCategory(error)
                 val dns = generateSequence<Throwable>(error) { it.cause?.takeUnless { cause -> cause === it } }.take(16).any { it is java.net.UnknownHostException } || error.message.orEmpty().contains("UnknownHostException") || error.message.orEmpty().contains("DNS", true)
                 if (dns && target.providerHost.isNotBlank()) dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.failed(target.providerHost, java.net.UnknownHostException("DNS resolution failed"))
-                val checkpoint = delegated?.partialText?.takeIf { it.isNotBlank() }?.let { retainPartial?.invoke(stage.name, target.profileUid, it) }
+                val checkpoint = delegated?.partialText?.takeIf { it.isNotBlank() }?.let { keepPartial(stage, target, it) }
+                if (delegated?.transportComplete == true && target.providerHost.isNotBlank()) dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.success(target.providerHost)
                 if (category !in setOf("TRANSPORT", "OUTPUT_LIMIT", "BUDGET_DENIED", "AUTHORIZATION")) failed(shared = failureCategory(error) in setOf("TRANSPORT", "RATE_LIMITED", "PROVIDER_OVERLOADED", "RUNTIME_QUARANTINED") || error.message.orEmpty().contains("provider unavailable", true))
                 record(
                     event.copy(
@@ -261,6 +265,17 @@ internal class ResearchModelCoordinator(
         return null
     }
 
+    private suspend fun keepPartial(stage: ResearchModelStage, target: ResearchModelEndpoint, text: String): String? {
+        if (text.isBlank()) return null
+        return try {
+            retainPartial?.invoke(stage.name, target.profileUid, dev.chungjungsoo.gptmobile.data.agent.tool.boundedDelegatePartial(text))
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     private fun elapsed(started: Long): Long = (monotonicClock() - started).coerceAtLeast(0)
 
     companion object {
@@ -273,6 +288,7 @@ internal class ResearchModelCoordinator(
             return when {
                 delegated?.kind == dev.chungjungsoo.gptmobile.data.agent.tool.DelegateFailureKind.TRANSPORT_FAILURE -> "TRANSPORT"
                 delegated?.kind == dev.chungjungsoo.gptmobile.data.agent.tool.DelegateFailureKind.OUTPUT_LIMIT -> "OUTPUT_LIMIT"
+                delegated?.kind == dev.chungjungsoo.gptmobile.data.agent.tool.DelegateFailureKind.AUTH_FAILURE -> "AUTHORIZATION"
                 messages.contains("CombinedBudgetExceeded") || messages.contains("BUDGET", true) || messages.contains("ALLOWANCE", true) -> "BUDGET_DENIED"
                 listOf("PERMISSION_DENIED", "SOURCE_PERMISSION_REVOKED", "DISPATCH_POLICY_CHANGED").any { messages.contains(it, true) } -> "AUTHORIZATION"
                 messages.contains("PROFILE_", true) -> "PROFILE_RESOLUTION"

@@ -66,7 +66,8 @@ data class ExaminationCheckpoint(
     val combined: dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext? = null,
     val waitingConfigurationRevision: String? = null,
     val failure: ExaminationFailure? = null,
-    val retryAttempt: Int = 0
+    val retryAttempt: Int = 0,
+    val unfinishedModelCheckpoint: String? = null
 )
 
 @Serializable
@@ -169,6 +170,10 @@ class ArticleExaminationCoordinator @Inject constructor(
         if (checkpoint.failure?.retryable != true || (checkpoint.failure.retryAtMs ?: Long.MAX_VALUE) > System.currentTimeMillis()) return null
         if (archive.dao.deleted("archive:${job.workId}") != null || archive.dao.deleted("chat:${job.chatId}") != null) return null
         val tools = checkpoint.acceptedTools ?: return null
+        checkpoint.combined?.let { combined ->
+            val budget = (combinedBudgets ?: dev.chungjungsoo.gptmobile.data.agent.CombinedTurnBudgetStore.installedOrNull())?.open(combined)?.snapshot()
+            if (budget == null || budget.cancelled || budget.closed) return null
+        }
         return submit(ExaminationRequest(job.workId, job.profileUid, job.chatId, job.requestedVersionId, job.authority, job.origin, checkpoint.rootWorkId, checkpoint.parentRunId), { tools.copy(combined = checkpoint.combined) }, automaticRetry = true)
     }
 
@@ -198,6 +203,12 @@ class ArticleExaminationCoordinator @Inject constructor(
             if (request.chatId != 0) {
                 val chat = chats.chatRoomDao().getChatRoomsByIds(listOf(request.chatId)).singleOrNull()
                 check(chat != null && !chat.isTemporary) { "Durable examination is unavailable in a deleted or temporary chat" }
+            }
+            if (request.origin != ExaminationOrigin.USER_EXAMINE) {
+                archive.dao.jobsForWork(request.workId).firstOrNull { prior ->
+                    prior.chatId == request.chatId && prior.origin == request.origin && prior.authority == request.authority && prior.cancellationOrigin in setOf("USER_STOP", "USER_PAUSE") &&
+                        runCatching { Json.decodeFromString<ExaminationCheckpoint>(prior.checkpointJson).rootWorkId == request.rootWorkId }.getOrDefault(false)
+                }?.let { return@withLock it.jobId }
             }
             val policy = policyHash(features, profile, currentTools(), request.chatId)
             val acceptedRoot = acceptedCombined?.let { "|combined:${it.rootBudgetId}:${it.workItemId.orEmpty()}" }.orEmpty()
@@ -340,6 +351,8 @@ class ArticleExaminationCoordinator @Inject constructor(
                 if (attempt > 1) stage(currentStage, "Retrying invalid model output; source and completed progress retained")
                 val output = StringBuilder()
                 var failure: String? = null
+                var completed = false
+                var failureComplete = false
                 var limited = false
                 val ids = mutableListOf<String>()
                 val started = System.nanoTime()
@@ -350,7 +363,11 @@ class ArticleExaminationCoordinator @Inject constructor(
                                 check(output.length + event.text.length <= maxChars) { "EXAMINATION_OUTPUT_TOO_LARGE: $kind exceeded $maxChars characters" }
                                 output.append(event.text)
                             }
-                            is ProviderEvent.Failed -> failure = event.message
+                            is ProviderEvent.Failed -> {
+                                failure = event.message
+                                failureComplete = event.transportComplete
+                            }
+                            ProviderEvent.Completed -> completed = true
                             is ProviderEvent.Usage -> limited = limited || event.finishReason in setOf("length", "max_tokens", "output_limit")
                             is ProviderEvent.ToolCall -> error("Examination assessment cannot execute tools")
                             else -> Unit
@@ -360,8 +377,25 @@ class ArticleExaminationCoordinator @Inject constructor(
                     checkpoint = checkpoint.copy(invocationIds = (checkpoint.invocationIds + ids).distinct())
                     dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ResearchExamine", "MODEL_ATTEMPT · jobId=${record.jobId} · lease=${record.lease} · stage=$currentStage · kind=$kind · profile=${actor.uid} · model=${actor.model} · provider=${actor.compatibleType} · connection=${actor.providerConnectionUid.orEmpty()} · attempt=$attempt · chunk=${checkpoint.nextChunk}/${checkpoint.chunkCount} · invocations=${ids.joinToString(",")} · durationMs=${(System.nanoTime() - started) / 1_000_000} · outputChars=${output.length} · outputHash=${researchHash(output.toString())} · truncated=$limited · failure=${dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.redact(failure.orEmpty()).take(500)}")
                 }
-                check(!limited) { "EXAMINATION_OUTPUT_TRUNCATED: $kind reached its output limit; saved evidence retained" }
-                check(failure == null || output.isNotBlank()) { "EXAMINATION_PROVIDER_FAILED: ${dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.redact(failure.orEmpty())}" }
+                if (limited || failure != null || !completed) {
+                    if (output.isNotBlank() && allowed()) {
+                        val root = checkpoint.rootWorkId ?: "examination:${record.jobId}"
+                        val retained = try {
+                            sessions.journal("examination:${record.jobId}", request.chatId, true, root, authority = request.authority, shareEnabled = false, acceptedTools = checkpoint.acceptedTools).retainPartial(kind, actor.uid, output.toString())
+                        } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { null }
+                        checkpoint = checkpoint.copy(unfinishedModelCheckpoint = retained)
+                    }
+                    throw dev.chungjungsoo.gptmobile.data.agent.tool.DelegateGenerationException(
+                        kind = if (limited) dev.chungjungsoo.gptmobile.data.agent.tool.DelegateFailureKind.OUTPUT_LIMIT else dev.chungjungsoo.gptmobile.data.agent.tool.DelegateFailureKind.TRANSPORT_FAILURE,
+                        message = if (limited) "EXAMINATION_OUTPUT_TRUNCATED: saved evidence retained" else "EXAMINATION_PROVIDER_FAILED: ${dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.redact(failure.orEmpty().ifBlank { "No completion signal" })}",
+                        inputTokens = 0,
+                        outputTokens = 0,
+                        totalTokens = 0,
+                        usageEstimated = true,
+                        partialText = output.toString(),
+                        transportComplete = completed && failure == null || failureComplete
+                    )
+                }
                 check(allowed()) { "Examination permission changed after model response" }
                 output.toString()
             },

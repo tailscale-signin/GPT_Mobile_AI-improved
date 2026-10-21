@@ -182,7 +182,9 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
                     val now = SystemClock.elapsedRealtime()
                     val remaining = if (watchdogBackend in setOf(dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend.LLAMA_CPP, dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend.GENIEX_LLAMA_CPP)) {
                         minOf(600_000L - (now - startedAtMs), watchdogBudgetMs - (now - lastMeaningfulAtMs)).coerceAtLeast(0)
-                    } else LocalPrefillDeadline.processWatchdogRemainingMs(startedAtMs, now, text.length, watchdogBackend)
+                    } else {
+                        LocalPrefillDeadline.processWatchdogRemainingMs(startedAtMs, now, text.length, watchdogBackend)
+                    }
                     if (remaining <= 0L) null else withTimeoutOrNull(remaining) { true to request.events!!.take() }
                 }
                 if (next == null) {
@@ -458,7 +460,9 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
 
     private class Pending(val packet: RuntimeWire, val events: LocalEventBuffer? = null, val physicalAttemptId: String? = null) {
         @Volatile var lastProgress: GgufNativeProgress? = null
+
         @Volatile var cancellationOrigin: String? = null
+
         @Volatile var receiptRecorded = false
         val finished = CompletableDeferred<RuntimeWire>()
         var sequence = 0L

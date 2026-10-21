@@ -9,20 +9,27 @@ internal class ExaminationRetrievalException(val evidence: AcademicEvidence) : j
 
 internal fun examinationFailure(error: Exception, attempt: Int, now: Long = System.currentTimeMillis()): ExaminationFailure {
     val evidence = (error as? ExaminationRetrievalException)?.evidence
+    val causes = generateSequence<Throwable>(error) { it.cause?.takeUnless { cause -> cause === it } }.take(16).toList()
+    val delegated = causes.filterIsInstance<dev.chungjungsoo.gptmobile.data.agent.tool.DelegateGenerationException>().firstOrNull()
     val code = evidence?.failureCode ?: when {
+        delegated?.kind == dev.chungjungsoo.gptmobile.data.agent.tool.DelegateFailureKind.TRANSPORT_FAILURE -> "TRANSPORT_FAILED"
+        delegated?.kind == dev.chungjungsoo.gptmobile.data.agent.tool.DelegateFailureKind.OUTPUT_LIMIT -> "OUTPUT_LIMIT"
+        delegated?.kind == dev.chungjungsoo.gptmobile.data.agent.tool.DelegateFailureKind.AUTH_FAILURE -> "EXAMINER_AUTH_REQUIRED"
         error is dev.chungjungsoo.gptmobile.data.diagnostics.JavaHeapWorkDeferred || error.message.orEmpty().contains("JAVA_HEAP_PRESSURE") -> "JAVA_HEAP_PRESSURE"
         error.javaClass.simpleName == "CombinedBudgetExceeded" || error.message.orEmpty().contains("BUDGET", true) -> "ADMITTED_CAPACITY_EXHAUSTED"
         error.message.orEmpty().contains("permission", true) -> "PERMISSION_REVOKED"
-        error is java.net.UnknownHostException || error is java.net.NoRouteToHostException -> "NETWORK_UNAVAILABLE"
+        causes.any { it is java.net.UnknownHostException || it is java.net.NoRouteToHostException } -> "NETWORK_UNAVAILABLE"
         error.message.orEmpty().contains("EXAMINATION_OUTPUT_INVALID") -> "OUTPUT_INVALID"
+        causes.any { it is java.net.SocketTimeoutException || it is io.ktor.client.plugins.HttpRequestTimeoutException } -> "TIMEOUT"
+        error is java.io.IOException -> "TRANSPORT_FAILED"
         else -> evidence?.retrievalStatus?.uppercase() ?: "EXAMINATION_FAILED"
     }
     val stage = when (code) {
         "JAVA_HEAP_PRESSURE", "ADMITTED_CAPACITY_EXHAUSTED" -> ExaminationStage.WAITING_CAPACITY
-        "NETWORK_UNAVAILABLE", "TRANSPORT_FAILED", "TIMEOUT", "OFFLINE", "SERVER_TEMPORARY" -> ExaminationStage.WAITING_NETWORK
+        "NETWORK_UNAVAILABLE", "TRANSPORT_FAILED", "TIMEOUT", "OFFLINE", "SERVER_TEMPORARY", "DNS_RECOVERY", "DNS_FAILED" -> ExaminationStage.WAITING_NETWORK
         "RATE_LIMITED" -> ExaminationStage.WAITING_RATE_LIMIT
         "SOURCE_ACCESS_BLOCKED", "BLOCKED", "REDIRECT_FAILED" -> ExaminationStage.BLOCKED_SOURCE
-        "PERMISSION_REVOKED" -> ExaminationStage.PAUSED
+        "PERMISSION_REVOKED", "EXAMINER_AUTH_REQUIRED" -> ExaminationStage.PAUSED
         "METADATA_ONLY", "UNAVAILABLE", "SOURCE_UNAVAILABLE" -> ExaminationStage.UNAVAILABLE
         else -> ExaminationStage.FAILED
     }

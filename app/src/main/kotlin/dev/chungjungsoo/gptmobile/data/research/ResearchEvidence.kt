@@ -74,7 +74,9 @@ data class ResearchSource(
         put("sectionNames", JsonArray(sectionNames.map(::JsonPrimitive)))
         captureTruncated?.let { put("captureTruncated", it) }
         put("studyDesigns", JsonArray(studyDesigns.map(::JsonPrimitive)))
-        put("population", population); put("intervention", intervention); put("outcomes", outcomes)
+        put("population", population)
+        put("intervention", intervention)
+        put("outcomes", outcomes)
         put("metadataProvenance", JsonArray(metadataProvenance.map(::JsonPrimitive)))
         put("publicCapture", publicCapture)
         put("retrievalReceipt", retrievalReceipt)

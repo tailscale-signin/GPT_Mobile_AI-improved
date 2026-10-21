@@ -54,7 +54,8 @@ class GitHubWorkspaceClient(
     private val taskId: String = "",
     private val persistentState: Boolean = true,
     stateStore: GitHubRepositoryStateStore? = null,
-    private val scheduler: GitHubRequestScheduler = GitHubSessionCaches.schedulerForCredential(token)
+    private val scheduler: GitHubRequestScheduler = GitHubSessionCaches.schedulerForCredential(token),
+    private val requestPriority: Int = 0
 ) {
     companion object {
         const val API_VERSION = "2026-03-10"
@@ -104,7 +105,7 @@ class GitHubWorkspaceClient(
         GitHubRepositorySession(GitHubRepositoryStateStore.digest(token), connectionUid, conversationId, taskId, repositoryState, { request(it) }, { root, args -> commitFiles(root, args) })
     }
     suspend fun taskSnapshot(): GitHubTaskSnapshot? = repositorySession.snapshot()
-    suspend fun taskContext(): GitHubRepositoryContext? = taskSnapshot()?.let { GitHubRepositoryContext(it.owner, it.repo, it.ref) }
+    suspend fun taskContext(): GitHubRepositoryContext? = repositorySession.context()
 
     private data class ReleaseDispatchReceipt(val root: String, val workflowId: String, val sourceSha: String, val tagName: String, val correlationId: String)
 
@@ -118,7 +119,12 @@ class GitHubWorkspaceClient(
 
         if (action == "plan_change") return GitHubOperationPlanner.plan(field("query"))
         if (action == "rate_limit_status") return rateLimitStatus()
-        if (action == "efficiency") return buildJsonObject { put("requests", scheduler.metrics()); put("rate_limits", rateLimits.toJson()) }
+        if (action == "efficiency") {
+            return buildJsonObject {
+                put("requests", scheduler.metrics())
+                put("rate_limits", rateLimits.toJson())
+            }
+        }
 
         val page = field("page").ifBlank { "1" }.toInt()
         require(page in 1..1000) { "Page must be between 1 and 1000." }
@@ -148,13 +154,27 @@ class GitHubWorkspaceClient(
             "list_open_pull_requests" -> pageResult(request("$root/pulls?state=open&sort=updated&direction=desc&$pagination"), page, "number", "title", "state", "draft", "head", "base", "html_url", "updated_at")
             "list_commits" -> pageResult(request("$root/commits?sha=${segment(ref.ifBlank { "HEAD" })}&$pagination"), page, "sha", "commit", "html_url")
             "get_commit_detail" -> {
-                val result = request("$root/commits/${segment(required("ref"))}?per_page=100").jsonObject
+                val result = request("$root/commits/${segment(required("ref"))}?per_page=100&page=$page").jsonObject
                 buildJsonObject {
                     put("sha", result["sha"] ?: JsonNull)
                     put("commit", result["commit"] ?: JsonNull)
                     put("stats", result["stats"] ?: JsonNull)
-                    put("files", JsonArray(result["files"]?.jsonArray.orEmpty().take(50)))
-                    put("files_truncated", result["files"]?.jsonArray.orEmpty().size >= 50)
+                    val files = result["files"]?.jsonArray.orEmpty()
+                    put("files", JsonArray(files))
+                    put("page", page)
+                    put("files_returned", files.size)
+                    put("has_more", files.size == 100)
+                    put("files_truncated", files.size == 100)
+                    if (files.size == 100) {
+                        put(
+                            "continuation",
+                            buildJsonObject {
+                                put("action", "get_commit_detail")
+                                put("ref", result["sha"] ?: JsonPrimitive(required("ref")))
+                                put("page", page + 1)
+                            }
+                        )
+                    }
                 }
             }
             "get_commit_status_summary" -> {
@@ -520,22 +540,54 @@ class GitHubWorkspaceClient(
         val patches = args["include_patches"]?.jsonPrimitive?.booleanOrNull == true
         return buildJsonObject {
             put("pull_request", project(pr, "number", "title", "state", "draft", "merged", "mergeable", "mergeable_state", "html_url", "changed_files", "additions", "deletions", "head", "base"))
-            put("expected_head", head); put("files_total", total); put("files_returned", files.size); put("page", page)
-            put("files_truncated", page * 30 < total); put("has_more", page * 30 < total)
-            if (page * 30 < total) put("files_continuation", buildJsonObject { put("action", "pr_context"); put("pull_number", number); put("page", page + 1); put("expected_head", head); put("include_patches", patches) })
-            put("files", JsonArray(files.map { row ->
-                val item = row.jsonObject
-                buildJsonObject {
-                    project(item, "filename", "status", "additions", "deletions", "changes", "sha", "previous_filename").forEach { (key, value) -> put(key, value) }
-                    if (patches) {
-                        val patch = item["patch"]?.jsonPrimitive?.content
-                        patch?.let { put("patch", GitHubRepositorySession.utf8Prefix(it, 2000)) }
-                        put("patch_truncated", patch == null || patch.encodeToByteArray().size > 2000)
+            put("expected_head", head)
+            put("files_total", total)
+            put("files_returned", files.size)
+            put("page", page)
+            put("files_truncated", page * 30 < total)
+            put("has_more", page * 30 < total)
+            if (page * 30 < total) {
+                put(
+                    "files_continuation",
+                    buildJsonObject {
+                        put("action", "pr_context")
+                        put("pull_number", number)
+                        put("page", page + 1)
+                        put("expected_head", head)
+                        put("include_patches", patches)
                     }
-                }
-            }))
+                )
+            }
+            put(
+                "files",
+                JsonArray(
+                    files.map { row ->
+                        val item = row.jsonObject
+                        buildJsonObject {
+                            project(item, "filename", "status", "additions", "deletions", "changes", "sha", "previous_filename").forEach { (key, value) -> put(key, value) }
+                            if (patches) {
+                                val patch = item["patch"]?.jsonPrimitive?.content
+                                patch?.let { put("patch", GitHubRepositorySession.utf8Prefix(it, 2000)) }
+                                put("patch_truncated", patch == null || patch.encodeToByteArray().size > 2000)
+                            }
+                        }
+                    }
+                )
+            )
             checks?.let { put("checks", it) }
-            if (checks?.get("has_more")?.jsonPrimitive?.booleanOrNull == true) put("checks_continuation", buildJsonObject { put("action", "pr_context"); put("pull_number", number); put("page", page); put("check_page", checkPage + 1); put("expected_head", head); put("include_patches", patches) })
+            if (checks?.get("has_more")?.jsonPrimitive?.booleanOrNull == true) {
+                put(
+                    "checks_continuation",
+                    buildJsonObject {
+                        put("action", "pr_context")
+                        put("pull_number", number)
+                        put("page", page)
+                        put("check_page", checkPage + 1)
+                        put("expected_head", head)
+                        put("include_patches", patches)
+                    }
+                )
+            }
         }
     }
 
@@ -706,6 +758,9 @@ class GitHubWorkspaceClient(
                 buildJsonArray {
                     paths.forEachIndexed { index, file ->
                         val existing = entries[file]
+                        files[index].jsonObject["expected_blob_sha"]?.jsonPrimitive?.content?.let { expectedBlob ->
+                            require(expectedBlob == existing?.get("sha")?.jsonPrimitive?.content) { "Original blob changed for $file; restage the patch." }
+                        }
                         val mode = existing?.get("mode")?.jsonPrimitive?.content ?: "100644"
                         require(mode in setOf("100644", "100755")) { "Cannot replace a directory, symlink or submodule: $file" }
                         require(
@@ -799,7 +854,7 @@ class GitHubWorkspaceClient(
             args["make_latest"]?.jsonPrimitive?.content?.takeIf { it in setOf("true", "false", "legacy") }?.let { put("make_latest", it) }
         }
         val created = request("$root/releases", HttpMethod.Post, payload).jsonObject
-        responseCache.clear()
+        responseCache.invalidateMutable(root)
         return compactRelease(created)
     }
 
@@ -820,7 +875,7 @@ class GitHubWorkspaceClient(
         }
         require(payload.isNotEmpty()) { "Provide at least one release field to update." }
         val updated = request("$root/releases/$releaseId", HttpMethod.Patch, payload).jsonObject
-        responseCache.clear()
+        responseCache.invalidateMutable(root)
         return compactRelease(updated)
     }
 
@@ -839,7 +894,7 @@ class GitHubWorkspaceClient(
             if (isDraft && !wantsDraft) {
                 val id = existing["id"]?.jsonPrimitive?.content?.toLongOrNull() ?: error("Existing draft release has no id.")
                 val published = request("$root/releases/$id", HttpMethod.Patch, buildJsonObject { put("draft", false) }).jsonObject
-                responseCache.clear()
+                responseCache.invalidateMutable(root)
                 return buildJsonObject {
                     put("status", "published_existing_draft")
                     put("strategy", "release_api")
@@ -881,7 +936,7 @@ class GitHubWorkspaceClient(
                     if (dispatchedRuns.size >= 128) dispatchedRuns.clear()
                     dispatchedRuns[dispatchedRunId] = ReleaseDispatchReceipt(root, workflowId, sourceSha, tagName, correlationId)
                 }
-                responseCache.clear()
+                responseCache.invalidateMutable(root)
                 return buildJsonObject {
                     put(
                         "dispatch_receipt",
@@ -1057,7 +1112,10 @@ class GitHubWorkspaceClient(
         if (jobId == null && runId == null) {
             val branch = ref.takeIf { it.isNotBlank() }?.let { "&branch=${segment(it)}" }.orEmpty()
             run = request("$root/actions/runs?status=failure&per_page=1$branch").jsonObject["workflow_runs"]?.jsonArray?.firstOrNull()?.jsonObject
-                ?: return buildJsonObject { put("status", "no_failed_run"); put("ref", ref) }
+                ?: return buildJsonObject {
+                    put("status", "no_failed_run")
+                    put("ref", ref)
+                }
             runId = run["id"]?.jsonPrimitive?.content?.toLongOrNull()
         }
         var job: JsonObject? = null
@@ -1069,39 +1127,70 @@ class GitHubWorkspaceClient(
                 if (job != null || jobs.size < 100) break
             }
             jobId = job?.get("id")?.jsonPrimitive?.content?.toLongOrNull()
-            if (jobId == null) return buildJsonObject { put("status", "failed_job_unavailable"); put("run_id", runId) }
+            if (jobId == null) {
+                return buildJsonObject {
+                    put("status", "failed_job_unavailable")
+                    put("run_id", runId)
+                }
+            }
         }
-        require(jobId > 0)
+        val resolvedJobId = requireNotNull(jobId).also { require(it > 0) }
         if (job == null) job = request("$root/actions/jobs/$jobId").jsonObject
-        val actualRun = job["run_id"]?.jsonPrimitive?.content?.toLongOrNull()
+        val resolvedJob = requireNotNull(job)
+        val actualRun = resolvedJob["run_id"]?.jsonPrimitive?.content?.toLongOrNull()
         require(runId == null || actualRun == null || actualRun == runId) { "Job belongs to another workflow run." }
         runId = runId ?: actualRun
         if (run == null && runId != null) run = request("$root/actions/runs/$runId").jsonObject
         val expectedHead = args["expected_head_sha"]?.jsonPrimitive?.content.orEmpty()
-        val head = run?.get("head_sha")?.jsonPrimitive?.content.orEmpty().ifBlank { job["head_sha"]?.jsonPrimitive?.content.orEmpty() }
+        val head = run?.get("head_sha")?.jsonPrimitive?.content.orEmpty().ifBlank { resolvedJob["head_sha"]?.jsonPrimitive?.content.orEmpty() }
         require(expectedHead.isBlank() || expectedHead == head) { "CI evidence belongs to a different commit." }
-        val log = GitHubCiLogReader(client, token, scheduler, responseCache).read("$root/actions/jobs/$jobId/logs", job["status"]?.jsonPrimitive?.content == "completed")
+        val log = GitHubCiLogReader(client, token, scheduler, responseCache, requestPriority).read("$root/actions/jobs/$resolvedJobId/logs", resolvedJob["status"]?.jsonPrimitive?.content == "completed")
         val lines = log.text.split('\n')
         val failure = Regex("error|failed|failure|exception|fatal|traceback|exit code", RegexOption.IGNORE_CASE)
         val positions = lines.indices.filter { failure.containsMatchIn(lines[it]) }.takeLast(60)
         val requestedStart = args["start_line"]?.jsonPrimitive?.content?.toIntOrNull()
         val requestedEnd = args["end_line"]?.jsonPrimitive?.content?.toIntOrNull()
         if (requestedStart != null) require(requestedStart >= 1 && (requestedEnd ?: requestedStart + 99) >= requestedStart && (requestedEnd ?: requestedStart + 99) - requestedStart < 2000)
-        val selected = if (requestedStart != null) ((requestedStart - 1)..minOf(lines.lastIndex, (requestedEnd ?: requestedStart + 99) - 1)).toSet()
-            else positions.flatMap { at -> ((at - 2).coerceAtLeast(0)..(at + 3).coerceAtMost(lines.lastIndex)).toList() }.toSet().ifEmpty { ((lines.size - 40).coerceAtLeast(0)..lines.lastIndex).toSet() }
+        val selected = if (requestedStart != null) {
+            ((requestedStart - 1)..minOf(lines.lastIndex, (requestedEnd ?: requestedStart + 99) - 1)).toSet()
+        } else {
+            positions.flatMap { at -> ((at - 2).coerceAtLeast(0)..(at + 3).coerceAtMost(lines.lastIndex)).toList() }.toSet().ifEmpty { ((lines.size - 40).coerceAtLeast(0)..lines.lastIndex).toSet() }
+        }
         var remaining = 24 * 1024
         val excerpts = selected.sorted().mapNotNull { index ->
-            if (remaining <= 0 || index !in lines.indices) null else {
-                val text = GitHubRepositorySession.utf8Prefix(lines[index], minOf(remaining, 1200)); remaining -= text.encodeToByteArray().size
-                buildJsonObject { put("line", index + 1); put("text", text) }
+            if (remaining <= 0 || index !in lines.indices) {
+                null
+            } else {
+                val text = GitHubRepositorySession.utf8Prefix(lines[index], minOf(remaining, 1200))
+                remaining -= text.encodeToByteArray().size
+                buildJsonObject {
+                    put("line", index + 1)
+                    put("text", text)
+                }
             }
         }
         return buildJsonObject {
-            put("status", "available"); put("run_id", runId); put("job_id", jobId); put("head_sha", head)
-            put("log_bytes", log.bytes); put("log_complete", log.complete); put("truncated", !log.complete)
-            put("total_lines", lines.size); put("failure_lines", JsonArray(positions.map { JsonPrimitive(it + 1) })); put("excerpts", JsonArray(excerpts))
+            put("status", "available")
+            put("run_id", runId)
+            put("job_id", jobId)
+            put("head_sha", head)
+            put("log_bytes", log.bytes)
+            put("log_complete", log.complete)
+            put("truncated", !log.complete)
+            put("total_lines", lines.size)
+            put("failure_lines", JsonArray(positions.map { JsonPrimitive(it + 1) }))
+            put("excerpts", JsonArray(excerpts))
             put("evidence_id", GitHubRepositoryStateStore.digest(root + jobId + head + log.text))
-            put("expand_with", buildJsonObject { put("action", "ci_failure_digest"); put("job_id", jobId); put("run_id", runId); put("expected_head_sha", head); put("start_line", positions.lastOrNull()?.plus(1) ?: 1) })
+            put(
+                "expand_with",
+                buildJsonObject {
+                    put("action", "ci_failure_digest")
+                    put("job_id", jobId)
+                    put("run_id", runId)
+                    put("expected_head_sha", head)
+                    put("start_line", positions.lastOrNull()?.plus(1) ?: 1)
+                }
+            )
         }
     }
 
@@ -1122,43 +1211,43 @@ class GitHubWorkspaceClient(
 
     private suspend fun graphQl(query: String, variables: JsonObject): JsonObject {
         require(token.isNotBlank()) { "A GitHub credential is required for GraphQL." }
-        return scheduler.execute {
-        rateLimits.requireAvailable("graphql")
-        scheduler.recordRequest()
-        val response = client.request("https://api.github.com/graphql") {
-            method = HttpMethod.Post
-            header(HttpHeaders.Accept, "application/vnd.github+json")
-            header(HttpHeaders.UserAgent, "GPT-Mobile-App")
-            header("X-GitHub-Api-Version", API_VERSION)
-            header(HttpHeaders.Authorization, "Bearer $token")
-            contentType(ContentType.Application.Json)
-            setBody(
-                buildJsonObject {
-                    put("query", query)
-                    put("variables", variables)
-                }.toString()
-            )
-        }
-        rateLimits.record(response.headers, response.status.value)
-        val text = response.bodyAsText()
-        if (!response.status.isSuccess()) {
-            val githubMessage = runCatching {
-                json.parseToJsonElement(text).jsonObject["message"]?.jsonPrimitive?.content
-            }.getOrNull()
-            error(
-                "GitHub GraphQL HTTP ${response.status.value}" +
-                    githubMessage?.let { " · message=$it" }.orEmpty() + ". " +
-                    requestHint(
-                        response.status.value,
-                        response.headers["Retry-After"],
-                        response.headers["X-RateLimit-Reset"],
-                        githubMessage,
-                        response.headers["X-RateLimit-Remaining"]
-                    )
-            )
-        }
-        scheduler.recordBytes(text.encodeToByteArray().size.toLong())
-        json.parseToJsonElement(text).jsonObject
+        return scheduler.execute(priority = requestPriority) {
+            rateLimits.requireAvailable("graphql")
+            scheduler.recordRequest()
+            val response = client.request("https://api.github.com/graphql") {
+                method = HttpMethod.Post
+                header(HttpHeaders.Accept, "application/vnd.github+json")
+                header(HttpHeaders.UserAgent, "GPT-Mobile-App")
+                header("X-GitHub-Api-Version", API_VERSION)
+                header(HttpHeaders.Authorization, "Bearer $token")
+                contentType(ContentType.Application.Json)
+                setBody(
+                    buildJsonObject {
+                        put("query", query)
+                        put("variables", variables)
+                    }.toString()
+                )
+            }
+            rateLimits.record(response.headers, response.status.value)
+            val text = response.bodyAsText()
+            if (!response.status.isSuccess()) {
+                val githubMessage = runCatching {
+                    json.parseToJsonElement(text).jsonObject["message"]?.jsonPrimitive?.content
+                }.getOrNull()
+                error(
+                    "GitHub GraphQL HTTP ${response.status.value}" +
+                        githubMessage?.let { " · message=$it" }.orEmpty() + ". " +
+                        requestHint(
+                            response.status.value,
+                            response.headers["Retry-After"],
+                            response.headers["X-RateLimit-Reset"],
+                            githubMessage,
+                            response.headers["X-RateLimit-Remaining"]
+                        )
+                )
+            }
+            scheduler.recordBytes(text.encodeToByteArray().size.toLong())
+            json.parseToJsonElement(text).jsonObject
         }
     }
 
@@ -1175,62 +1264,65 @@ class GitHubWorkspaceClient(
         // Mutable branch heads and permission checks are always revalidated.
         val freshList = path.startsWith("/user/repos") || path.matches(Regex("/repos/[^/]+/[^/]+/(?:branches|contents)(?:[?].*)?"))
         if (cached != null && freshList && System.currentTimeMillis() - cached.storedAtMillis < freshnessSeconds.coerceIn(0, 120) * 1000L) return cached.value
-        if (cached != null && cached.immutable) { scheduler.recordCacheHit(); return cached.value }
-        return scheduler.execute(if (method == HttpMethod.Get && immutablePath(path)) cacheKey else null) {
-        if (path != "/rate_limit") rateLimits.requireAvailable(if (path.startsWith("/search/")) "search" else "core")
-        scheduler.recordRequest()
-        val response = client.request("https://api.github.com$path") {
-            this.method = method
-            header(HttpHeaders.Accept, "application/vnd.github+json")
-            header(HttpHeaders.UserAgent, "GPT-Mobile-App")
-            header("X-GitHub-Api-Version", API_VERSION)
-            if (token.isNotBlank()) header(HttpHeaders.Authorization, "Bearer $token")
-            cached?.etag?.takeIf { it.isNotBlank() }?.let { header(HttpHeaders.IfNoneMatch, it) }
-            if (body != null) {
-                contentType(ContentType.Application.Json)
-                setBody(body.toString())
-            }
-        }
-        rateLimits.record(response.headers, response.status.value)
-        if (response.status.value == 304 && cached != null) {
-            responseCache.put(cacheKey, cached.etag, cached.value)
+        if (cached != null && cached.immutable) {
             scheduler.recordCacheHit()
-            return@execute cached.value
+            return cached.value
         }
+        return scheduler.execute(if (method == HttpMethod.Get && immutablePath(path)) cacheKey else null, priority = requestPriority) {
+            if (path != "/rate_limit") rateLimits.requireAvailable(if (path.startsWith("/search/")) "search" else "core")
+            scheduler.recordRequest()
+            val response = client.request("https://api.github.com$path") {
+                this.method = method
+                header(HttpHeaders.Accept, "application/vnd.github+json")
+                header(HttpHeaders.UserAgent, "GPT-Mobile-App")
+                header("X-GitHub-Api-Version", API_VERSION)
+                if (token.isNotBlank()) header(HttpHeaders.Authorization, "Bearer $token")
+                cached?.etag?.takeIf { it.isNotBlank() }?.let { header(HttpHeaders.IfNoneMatch, it) }
+                if (body != null) {
+                    contentType(ContentType.Application.Json)
+                    setBody(body.toString())
+                }
+            }
+            rateLimits.record(response.headers, response.status.value)
+            if (response.status.value == 304 && cached != null) {
+                responseCache.put(cacheKey, cached.etag, cached.value)
+                scheduler.recordCacheHit()
+                return@execute cached.value
+            }
 
-        val text = response.bodyAsText()
-        scheduler.recordBytes(text.encodeToByteArray().size.toLong())
-        if (!response.status.isSuccess()) {
-            if (response.status.value in setOf(401, 403)) responseCache.clear()
-            val githubMessage = runCatching {
-                json.parseToJsonElement(text).jsonObject["message"]?.jsonPrimitive?.content
-            }.getOrNull()?.takeIf { it.isNotBlank() }
-            if (response.status.value == 403 && githubMessage?.contains("secondary rate", true) == true) rateLimits.cooldown(response.headers["Retry-After"]?.toLongOrNull() ?: 60)
-            val details = buildList {
-                githubMessage?.let { add("message=$it") }
-                response.headers["X-RateLimit-Remaining"]?.let { add("rateLimitRemaining=$it") }
-                response.headers["Retry-After"]?.let { add("retryAfter=$it") }
-                response.headers["X-OAuth-Scopes"]?.takeIf { it.isNotBlank() }?.let { add("oauthScopes=$it") }
-                response.headers["X-Accepted-OAuth-Scopes"]?.takeIf { it.isNotBlank() }?.let { add("acceptedOAuthScopes=$it") }
-                response.headers["X-Accepted-GitHub-Permissions"]?.takeIf { it.isNotBlank() }?.let { add("acceptedGitHubPermissions=$it") }
-                response.headers["X-GitHub-SSO"]?.takeIf { it.isNotBlank() }?.let { add("sso=$it") }
-            }.joinToString(" · ")
-            error(
-                "GitHub HTTP ${response.status.value}" +
-                    (if (details.isBlank()) ". " else " · $details. ") +
-                    requestHint(
-                        response.status.value,
-                        response.headers["Retry-After"],
-                        response.headers["X-RateLimit-Reset"],
-                        githubMessage,
-                        response.headers["X-RateLimit-Remaining"]
-                    )
-            )
-        }
-        val parsed = if (text.isBlank()) JsonObject(emptyMap()) else json.parseToJsonElement(text)
-        if (method != HttpMethod.Get) responseCache.invalidateMutable(path.substringBefore("/git/").substringBefore("/pulls/").substringBefore("/releases"))
-        if (cacheable) responseCache.put(cacheKey, response.headers[HttpHeaders.ETag], parsed, immutablePath(path))
-        parsed
+            val text = response.bodyAsText()
+            scheduler.recordBytes(text.encodeToByteArray().size.toLong())
+            if (!response.status.isSuccess()) {
+                if (response.status.value in setOf(401, 403)) responseCache.clear()
+                val githubMessage = runCatching {
+                    json.parseToJsonElement(text).jsonObject["message"]?.jsonPrimitive?.content
+                }.getOrNull()?.takeIf { it.isNotBlank() }
+                if (response.status.value == 403 && githubMessage?.contains("secondary rate", true) == true) rateLimits.cooldown(response.headers["Retry-After"]?.toLongOrNull() ?: 60)
+                val details = buildList {
+                    githubMessage?.let { add("message=$it") }
+                    response.headers["X-RateLimit-Remaining"]?.let { add("rateLimitRemaining=$it") }
+                    response.headers["Retry-After"]?.let { add("retryAfter=$it") }
+                    response.headers["X-OAuth-Scopes"]?.takeIf { it.isNotBlank() }?.let { add("oauthScopes=$it") }
+                    response.headers["X-Accepted-OAuth-Scopes"]?.takeIf { it.isNotBlank() }?.let { add("acceptedOAuthScopes=$it") }
+                    response.headers["X-Accepted-GitHub-Permissions"]?.takeIf { it.isNotBlank() }?.let { add("acceptedGitHubPermissions=$it") }
+                    response.headers["X-GitHub-SSO"]?.takeIf { it.isNotBlank() }?.let { add("sso=$it") }
+                }.joinToString(" · ")
+                error(
+                    "GitHub HTTP ${response.status.value}" +
+                        (if (details.isBlank()) ". " else " · $details. ") +
+                        requestHint(
+                            response.status.value,
+                            response.headers["Retry-After"],
+                            response.headers["X-RateLimit-Reset"],
+                            githubMessage,
+                            response.headers["X-RateLimit-Remaining"]
+                        )
+                )
+            }
+            val parsed = if (text.isBlank()) JsonObject(emptyMap()) else json.parseToJsonElement(text)
+            if (method != HttpMethod.Get) responseCache.invalidateMutable(path.substringBefore("/git/").substringBefore("/pulls/").substringBefore("/releases"))
+            if (cacheable) responseCache.put(cacheKey, response.headers[HttpHeaders.ETag], parsed, immutablePath(path))
+            parsed
         }
     }
 

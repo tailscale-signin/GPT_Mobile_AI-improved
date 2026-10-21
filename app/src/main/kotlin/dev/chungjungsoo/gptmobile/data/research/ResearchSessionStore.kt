@@ -345,6 +345,15 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
             val taskLock = locks[(key.hashCode() and Int.MAX_VALUE) % locks.size]
             return taskLock.withLock { block() }
         }
+        override suspend fun retainDeliveryReceipt(receipt: dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryReceipt): Boolean = withContext(Dispatchers.IO) {
+            lock.withLock {
+                if (stopRequested() || generation != currentGeneration(chatId, turnId, persistent)) return@withLock false
+                val accepted = taskStore.accepted(turnId, persistent) ?: return@withLock false
+                if (accepted.chatId != chatId) return@withLock false
+                taskStore.retainDelivery(turnId, runId, authority, generation, receipt, persistent)
+            }
+        }
+
         override suspend fun retainPartial(stage: String, profileUid: String, text: String): String? = withContext(Dispatchers.IO) {
             if (!persistent || text.isBlank()) return@withContext null
             lock.withLock {

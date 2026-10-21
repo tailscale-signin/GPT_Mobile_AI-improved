@@ -17,8 +17,13 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -27,7 +32,6 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
 @kotlinx.serialization.Serializable
@@ -64,7 +68,20 @@ data class GitHubWorkspaceState(
     val pullRequests: List<JsonObject> = emptyList(),
     val pullDetail: String? = null,
     val pullPage: Int = 1,
-    val morePullRequests: Boolean = false
+    val morePullRequests: Boolean = false,
+    val snapshot: JsonObject? = null,
+    val indexStatus: JsonObject? = null,
+    val efficiency: JsonObject? = null,
+    val observedAt: Long? = null,
+    val activityLoaded: Boolean = false,
+    val pullsLoaded: Boolean = false,
+    val directoryLoaded: Boolean = false,
+    val searchResult: JsonObject? = null,
+    val ciDigest: JsonObject? = null,
+    val patchStage: JsonObject? = null,
+    val reviewBaseline: String = "",
+    val changedFiles: JsonObject? = null,
+    val pullPackage: JsonObject? = null
 )
 
 @HiltViewModel
@@ -73,7 +90,8 @@ class GitHubWorkspaceViewModel @Inject constructor(
     private val vault: SecretVault,
     private val store: GitHubWorkspaceStore,
     private val drafts: dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceDraftStore,
-    private val settings: dev.chungjungsoo.gptmobile.data.repository.SettingRepository
+    private val settings: dev.chungjungsoo.gptmobile.data.repository.SettingRepository,
+    private val repositoryState: dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore? = null
 ) : ViewModel() {
     private val _state = MutableStateFlow(GitHubWorkspaceState())
     val state = _state.asStateFlow()
@@ -81,22 +99,36 @@ class GitHubWorkspaceViewModel @Inject constructor(
     private var tool: GitHubTool? = null
 
     @kotlinx.serialization.Serializable
-    private data class Draft(val selection: GitHubRepositoryContext?, val baseSha: String, val directory: String, val file: JsonObject?, val staged: List<GitHubStagedFile>, val edits: Map<String, String>)
+    private data class Draft(val selection: GitHubRepositoryContext?, val baseSha: String, val directory: String, val file: JsonObject?, val staged: List<GitHubStagedFile>, val edits: Map<String, String>, val reviewBaseline: String = "", val patchStage: JsonObject? = null)
 
-    init {
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            _state.collect { state ->
-                val connection = state.connection ?: return@collect
-                if (state.busy || state.selection == null) return@collect
+    private val draftWrites = kotlinx.coroutines.sync.Mutex()
+    private val draftSequence = java.util.concurrent.atomic.AtomicLong()
+    private val persistedDraftSequence = mutableMapOf<String, Long>()
+    private data class PendingDraft(val sequence: Long, val connection: String, val value: Draft)
+    private fun draft(state: GitHubWorkspaceState): Pair<String, Draft>? = state.connection?.connectionUid?.let { connection ->
+        state.selection?.let { connection to Draft(it, state.headSha, state.directory, state.file, state.staged, state.editorDrafts, state.reviewBaseline, state.patchStage) }
+    }
+    private suspend fun persist(draft: PendingDraft) = draftWrites.withLock {
+        if (draft.sequence <= (persistedDraftSequence[draft.connection] ?: -1)) return@withLock
+        drafts.write(draft.connection, Json.encodeToString(Draft.serializer(), draft.value))
+        persistedDraftSequence[draft.connection] = draft.sequence
+    }
+
+    @OptIn(kotlinx.coroutines.FlowPreview::class)
+    private fun observeDrafts() = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+        _state.map { if (it.busy) null else draft(it) }.filterNotNull().distinctUntilChanged()
+            .map { PendingDraft(draftSequence.incrementAndGet(), it.first, it.second) }.debounce(400).collect { pending ->
                 try {
-                    drafts.write(connection.connectionUid, Json.encodeToString(Draft.serializer(), Draft(state.selection, state.headSha, state.directory, state.file, state.staged, state.editorDrafts)))
+                    persist(pending)
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (_: Exception) {
                     _state.update { it.copy(error = "Workspace edits could not be saved for recovery. Keep this screen open and retry.") }
                 }
             }
-        }
+    }
+    init {
+        observeDrafts()
     }
 
     fun editDraft(path: String, content: String, original: String) {
@@ -117,22 +149,26 @@ class GitHubWorkspaceViewModel @Inject constructor(
             }
             require(token.isNotBlank()) { "Edit this GitHub connection and add a token first." }
             val features = settings.getFeatureSettings()
-            client = GitHubWorkspaceClient(token, conditionalReads = features.githubConditionalReads, blobCache = features.githubBlobCache, freshnessSeconds = features.pluginExecution[dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB]?.githubCacheSeconds ?: 15)
+            client = GitHubWorkspaceClient(token, conditionalReads = features.githubConditionalReads, blobCache = features.githubBlobCache, freshnessSeconds = features.pluginExecution[dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB]?.githubCacheSeconds ?: 15, connectionUid = current.connectionUid, conversationId = "workspace", taskId = "workspace:${current.connectionUid}", stateStore = repositoryState, requestPriority = 10)
             tool = GitHubTool(token, featureSettings = features)
             val account = api("get_account").jsonObject
             _state.update { it.copy(connection = current, login = account.text("login")) }
             loadRepositories(1)
-            val recovered = drafts.read(current.connectionUid)?.let { Json.decodeFromString(Draft.serializer(), it) }
+            val recovered = draftWrites.withLock { drafts.read(current.connectionUid)?.let { Json.decodeFromString(Draft.serializer(), it) } }
             (recovered?.selection ?: store.get(current.connectionUid))?.let { selectRepositoryInternal(it.owner, it.repo, it.ref) }
             recovered?.takeIf { it.selection == _state.value.selection }?.let { draft ->
-                val changed = _state.value.headSha != draft.baseSha
+                val dirty = draft.staged.isNotEmpty() || draft.edits.isNotEmpty() || draft.patchStage != null
+                val changed = dirty && _state.value.headSha != draft.baseSha
                 _state.update {
                     it.copy(
-                        headSha = draft.baseSha,
+                        headSha = if (dirty) draft.baseSha else it.headSha,
                         directory = draft.directory,
-                        file = draft.file,
+                        file = draft.file.takeIf { dirty || it.headSha == draft.baseSha },
+                        directoryLoaded = draft.file != null && (dirty || it.headSha == draft.baseSha),
                         staged = draft.staged,
                         editorDrafts = draft.edits,
+                        reviewBaseline = draft.reviewBaseline,
+                        patchStage = draft.patchStage,
                         notice = if (changed) "Edits recovered at their original base. The branch moved; review before committing." else "Workspace edits recovered."
                     )
                 }
@@ -140,10 +176,23 @@ class GitHubWorkspaceViewModel @Inject constructor(
         }
     }
 
-    fun close() {
-        client = null
-        tool = null
-        _state.value = GitHubWorkspaceState()
+    fun close(onSaved: () -> Unit = {}) {
+        if (_state.value.busy) return
+        val pending = draft(_state.value)?.let { PendingDraft(draftSequence.incrementAndGet(), it.first, it.second) }
+        _state.update { it.copy(busy = true) }
+        viewModelScope.launch {
+            try {
+                if (pending != null) kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { persist(pending) }
+                client = null
+                tool = null
+                _state.value = GitHubWorkspaceState()
+                onSaved()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                _state.update { it.copy(busy = false, error = "The latest draft could not be saved. Keep the workspace open and retry.") }
+            }
+        }
     }
 
     fun clearError() = _state.update { it.copy(error = null) }
@@ -151,7 +200,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
         if (_state.value.busy) return
         _state.update { it.copy(staged = it.staged.filterNot { file -> file.path == path }) }
     }
-    fun discard() = _state.update { it.copy(staged = emptyList(), editorDrafts = emptyMap()) }
+    fun discard() = _state.update { it.copy(staged = emptyList(), editorDrafts = emptyMap(), patchStage = null) }
     fun moreRepositories() = work { loadRepositories(_state.value.repositoryPage + 1) }
 
     private suspend fun loadRepositories(page: Int) {
@@ -161,7 +210,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
     }
 
     fun selectRepository(owner: String, repo: String) = work {
-        require(_state.value.staged.isEmpty() && _state.value.editorDrafts.isEmpty()) { "Commit or discard staged edits before switching repositories." }
+        require(_state.value.staged.isEmpty() && _state.value.editorDrafts.isEmpty() && _state.value.patchStage == null) { "Commit or discard staged edits before switching repositories." }
         selectRepositoryInternal(owner, repo)
     }
 
@@ -177,7 +226,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
         require(default.isNotBlank()) { "Repository has no default branch." }
         val selected = GitHubRepositoryContext(owner, repo, preferredRef ?: default)
         val canWrite = metadata["permissions"]?.jsonObject?.flag("push") == true && !metadata.flag("archived") && _state.value.connection?.toolPolicy != "READ_ONLY"
-        _state.update { it.copy(selection = selected, defaultBranch = default, canWrite = canWrite, branches = emptyList(), file = null, staged = emptyList(), editorDrafts = emptyMap(), pullRequests = emptyList(), commits = emptyList(), commitDetail = null, activityUpdatedAt = null, pullDetail = null, directory = "", headSha = "", entries = emptyList()) }
+        _state.update { it.copy(selection = selected, defaultBranch = default, canWrite = canWrite, branches = emptyList(), file = null, staged = emptyList(), editorDrafts = emptyMap(), pullRequests = emptyList(), commits = emptyList(), commitDetail = null, activityUpdatedAt = null, pullDetail = null, directory = "", headSha = "", entries = emptyList(), snapshot = null, indexStatus = null, searchResult = null, ciDigest = null, patchStage = null, changedFiles = null, reviewBaseline = "", activityLoaded = false, directoryLoaded = false, pullPackage = null) }
         loadBranches(1)
         loadHeadAndDirectory()
     }
@@ -190,24 +239,37 @@ class GitHubWorkspaceViewModel @Inject constructor(
     }
 
     fun selectBranch(branch: String) = work {
-        require(_state.value.staged.isEmpty() && _state.value.editorDrafts.isEmpty()) { "Commit or discard staged edits before switching branches." }
-        _state.update { it.copy(selection = it.selection?.copy(ref = branch), directory = "", file = null, entries = emptyList(), headSha = "", commits = emptyList(), commitDetail = null, activityUpdatedAt = null) }
+        require(_state.value.staged.isEmpty() && _state.value.editorDrafts.isEmpty() && _state.value.patchStage == null) { "Commit or discard staged edits before switching branches." }
+        _state.update { it.copy(selection = it.selection?.copy(ref = branch), directory = "", file = null, entries = emptyList(), headSha = "", commits = emptyList(), commitDetail = null, activityUpdatedAt = null, snapshot = null, indexStatus = null, searchResult = null, ciDigest = null, changedFiles = null, activityLoaded = false, directoryLoaded = false, pullPackage = null) }
         loadHeadAndDirectory()
     }
 
     fun refreshBranch() = work {
-        require(_state.value.staged.isEmpty() && _state.value.editorDrafts.isEmpty()) { "Discard or commit staged edits before refreshing the snapshot." }
+        require(_state.value.staged.isEmpty() && _state.value.editorDrafts.isEmpty() && _state.value.patchStage == null) { "Discard or commit staged edits before refreshing the snapshot." }
         loadHeadAndDirectory()
     }
 
     private suspend fun loadHeadAndDirectory() {
         val selected = requireNotNull(_state.value.selection)
-        val result = api("get_branch_head", buildJsonObject { put("branch", selected.ref) }).jsonObject
-        val sha = result["object"]?.jsonObject?.text("sha").orEmpty()
+        val result = api(
+            "resolve_context",
+            buildJsonObject {
+                put("ref", selected.ref)
+                put("refresh", true)
+            }
+        ).jsonObject
+        val sha = result.text("commit_sha")
         check(sha.isNotBlank()) { "Missing branch head." }
-        _state.update { it.copy(headSha = sha, file = null) }
-        browseInternal(_state.value.directory)
-        loadActivityInternal()
+        _state.update { it.copy(headSha = sha, file = null, snapshot = result["snapshot"] as? JsonObject, indexStatus = result["index"] as? JsonObject, observedAt = System.currentTimeMillis(), directoryLoaded = false, activityLoaded = false, pullsLoaded = false) }
+    }
+
+    fun onSectionVisible(section: Int) {
+        if (_state.value.busy || _state.value.selection == null || _state.value.headSha.isBlank()) return
+        when {
+            section == 3 && !_state.value.activityLoaded -> refreshActivity()
+            section == 0 && !_state.value.directoryLoaded -> browse(_state.value.directory)
+            section == 2 && !_state.value.pullsLoaded -> loadPullRequests()
+        }
     }
 
     fun browse(path: String) = work { browseInternal(path) }
@@ -221,22 +283,35 @@ class GitHubWorkspaceViewModel @Inject constructor(
                 put("ref", _state.value.headSha)
             }
         ).jsonObject
-        _state.update { it.copy(directory = path, directoryPage = page, moreEntries = result.flag("has_more"), entries = ((if (page == 1) emptyList() else it.entries) + result["entries"]?.jsonArray.orEmpty().map { entry -> entry.jsonObject }).distinctBy { entry -> entry.text("path") }.sortedWith(compareBy<JsonObject> { entry -> entry.text("type") != "dir" }.thenBy { entry -> entry.text("name") }), file = null, notice = if (result.flag("directory_limit_reached")) "GitHub limited this directory to 1,000 entries." else it.notice) }
+        _state.update { it.copy(directory = path, directoryLoaded = true, directoryPage = page, moreEntries = result.flag("has_more"), entries = ((if (page == 1) emptyList() else it.entries) + result["entries"]?.jsonArray.orEmpty().map { entry -> entry.jsonObject }).distinctBy { entry -> entry.text("path") }.sortedWith(compareBy<JsonObject> { entry -> entry.text("type") != "dir" }.thenBy { entry -> entry.text("name") }), file = null, notice = if (result.flag("directory_limit_reached")) "GitHub limited this directory to 1,000 entries." else it.notice) }
     }
 
     fun readFile(path: String) = work {
-        val file = api(
-            "read_code",
+        val result = api(
+            "read_ranges",
             buildJsonObject {
                 put("path", path)
-                put("ref", _state.value.headSha)
+                put("commit_sha", _state.value.headSha)
                 put("end_line", 2000)
             }
         ).jsonObject
-        _state.update { it.copy(file = file) }
+        val file = result["items"]?.jsonArray?.firstOrNull()?.jsonObject ?: error("File evidence is unavailable.")
+        _state.update { it.copy(file = JsonObject(file + ("evidence_id" to result.getValue("evidence_id"))), directory = path.substringBeforeLast('/', ""), directoryLoaded = true) }
+    }
+
+    fun moreFileRange() = work {
+        val previous = _state.value.file ?: return@work
+        val continuation = previous["continuation"] as? JsonObject ?: return@work
+        val result = api("read_ranges", continuation).jsonObject
+        val file = result["items"]?.jsonArray?.firstOrNull()?.jsonObject ?: error("File range is unavailable.")
+        _state.update { it.copy(file = JsonObject(file + ("evidence_id" to result.getValue("evidence_id")))) }
     }
 
     fun stage(path: String, original: String, content: String): Boolean {
+        if (_state.value.file?.flag("complete_file") != true || _state.value.file?.text("path") != path || _state.value.patchStage != null) {
+            _state.update { it.copy(error = "Only a complete file may be replaced. Use an exact patch for a source excerpt.") }
+            return false
+        }
         if (content.toByteArray().size > 256_000) {
             _state.update { it.copy(error = "File exceeds the text budget.") }
             return false
@@ -337,7 +412,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
     private suspend fun loadActivityInternal() {
         loadCommits(1)
         loadPullRequestsInternal(1)
-        _state.update { it.copy(activityUpdatedAt = System.currentTimeMillis()) }
+        _state.update { it.copy(activityUpdatedAt = System.currentTimeMillis(), activityLoaded = true) }
     }
 
     private suspend fun loadCommits(page: Int) {
@@ -368,7 +443,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
         kotlinx.coroutines.withTimeoutOrNull(15_000L) {
             kotlinx.coroutines.coroutineScope {
                 val gate = kotlinx.coroutines.sync.Semaphore(4)
-                rows.map { row ->
+                rows.take(5).map { row ->
                     async {
                         gate.acquire()
                         try {
@@ -400,34 +475,123 @@ class GitHubWorkspaceViewModel @Inject constructor(
     fun morePullRequests() = work { loadPullRequestsInternal(_state.value.pullPage + 1) }
     private suspend fun loadPullRequestsInternal(page: Int) {
         val response = api("list_open_pull_requests", buildJsonObject { put("page", page) }).jsonObject
-        val result = enrichPullRequests(response["items"]?.jsonArray.orEmpty().map { it.jsonObject })
-        _state.update { it.copy(pullRequests = if (page == 1) result else (it.pullRequests + result).distinctBy { pr -> pr.text("number") }, pullPage = page, morePullRequests = response.flag("has_more"), pullDetail = null) }
+        val result = response["items"]?.jsonArray.orEmpty().map { it.jsonObject }
+        _state.update { it.copy(pullRequests = if (page == 1) result else (it.pullRequests + result).distinctBy { pr -> pr.text("number") }, pullPage = page, pullsLoaded = true, morePullRequests = response.flag("has_more"), pullDetail = null) }
     }
 
     fun inspectPullRequest(number: Int, page: Int = 1) = work {
-        val result = api(
-            "get_pull_request_files",
+        reviewPull(
             buildJsonObject {
                 put("pull_number", number)
                 put("page", page)
             }
-        ).jsonObject
-        val pr = Json.parseToJsonElement(toolRequest("get_pull_request", buildJsonObject { put("pull_number", number) })).jsonObject
-        val sha = pr["head"]?.jsonObject?.text("sha").orEmpty()
-        val checks = api("get_commit_checks", buildJsonObject { put("ref", sha) })
+        )
+    }
+    fun continuePullReview(checks: Boolean = false) = work {
+        val packet = _state.value.pullPackage ?: return@work
+        val continuation = packet[if (checks) "checks_continuation" else "files_continuation"] as? JsonObject ?: return@work
+        reviewPull(continuation)
+    }
+    private suspend fun reviewPull(arguments: JsonObject) {
+        val packet = api("pr_context", JsonObject(arguments + ("include_patches" to JsonPrimitive(true)))).jsonObject
+        val pr = packet["pull_request"]?.jsonObject ?: error("Pull request is unavailable")
         val detail = buildString {
             appendLine("#${pr.text("number")} ${pr.text("title")}")
-            appendLine("${pr.text("state")} · ${pr["head"]?.jsonObject?.text("ref")} → ${pr["base"]?.jsonObject?.text("ref")}")
-            appendLine(pr.text("body"))
-            result["items"]?.jsonArray?.forEach { item ->
-                val file = item.jsonObject
+            appendLine("Checked head ${packet.text("expected_head")}")
+            appendLine("Page ${packet.text("page")} · ${packet.text("files_returned")} of ${packet.text("files_total")} files")
+            packet["files"]?.jsonArray.orEmpty().forEach { row ->
+                val file = row.jsonObject
                 appendLine("\n${file.text("filename")} · ${file.text("status")}")
-                appendLine(file["patch"]?.jsonPrimitive?.content ?: "Patch unavailable; open this file on GitHub.")
+                appendLine(file.text("patch").ifBlank { "Patch unavailable." })
+                if (file.flag("patch_truncated")) appendLine("Partial patch; read the file at this head for complete evidence.")
             }
-            if (result.flag("has_more")) appendLine("\nMore changed files available on GitHub.")
-            appendLine("\nChecks: $checks")
+            appendLine("\nChecks: ${packet["checks"]}")
         }
-        _state.update { it.copy(pullDetail = detail) }
+        _state.update { it.copy(pullPackage = packet, pullDetail = detail) }
+    }
+
+    fun refreshVisibleChecks() = work {
+        val rows = _state.value.pullRequests
+        val enriched = enrichPullRequests(rows.take(5))
+        _state.update { it.copy(pullRequests = enriched + rows.drop(5)) }
+    }
+
+    fun searchRevision(query: String, mode: String = "literal", continuation: Boolean = false) = work {
+        val extra = if (continuation) _state.value.searchResult?.get("continuation") as? JsonObject else null
+        val result = api(
+            "search_repository",
+            extra ?: buildJsonObject {
+                put("query", query.trim())
+                put("mode", mode)
+                put("commit_sha", _state.value.headSha)
+            }
+        ).jsonObject
+        _state.update { it.copy(searchResult = result) }
+        val index = api("index_status", buildJsonObject { put("commit_sha", _state.value.headSha) }).jsonObject
+        _state.update { it.copy(indexStatus = index) }
+    }
+    fun explainFailedCi() = work {
+        val result = api("ci_failure_digest").jsonObject
+        _state.update { it.copy(ciDigest = result) }
+    }
+    fun markReviewed() {
+        _state.update { it.copy(reviewBaseline = it.headSha, changedFiles = null, notice = "Review baseline saved at ${it.headSha.take(8)}.") }
+    }
+    fun changesSinceReview(next: Boolean = false) = work {
+        val state = _state.value
+        require(state.reviewBaseline.isNotBlank()) { "Mark a revision reviewed first." }
+        val arguments = if (next) state.changedFiles?.get("continuation") as? JsonObject else null
+        val result = api(
+            "changed_since",
+            arguments ?: buildJsonObject {
+                put("base", state.reviewBaseline)
+                put("commit_sha", state.headSha)
+            }
+        ).jsonObject
+        _state.update { it.copy(changedFiles = result) }
+    }
+    fun stageExactPatch(oldText: String, newText: String) = work {
+        val state = _state.value
+        require(state.canWrite && state.selection?.ref != state.defaultBranch && state.staged.isEmpty()) { "Prepare exact patches on an editable working branch without other staged files." }
+        val file = requireNotNull(state.file)
+        val staged = api(
+            "stage_patch",
+            buildJsonObject {
+                put("commit_sha", state.headSha)
+                put("expected_head_sha", state.headSha)
+                put(
+                    "edits",
+                    buildJsonArray {
+                        add(
+                            buildJsonObject {
+                                put("path", file.text("path"))
+                                put("expected_blob_sha", file.text("sha"))
+                                put("old_text", oldText)
+                                put("new_text", newText)
+                            }
+                        )
+                    }
+                )
+            }
+        ).jsonObject
+        _state.update { it.copy(patchStage = staged, notice = "Exact patch prepared. Review its preview in Changes before committing.") }
+    }
+    fun commitExactPatch(message: String) = work {
+        val state = _state.value
+        require(state.canWrite && message.isNotBlank())
+        val stage = requireNotNull(state.patchStage)
+        api(
+            "commit_staged_patch",
+            buildJsonObject {
+                put("stage_id", stage.text("stage_id"))
+                put("expected_head_sha", stage.text("expected_head_sha"))
+                put("commit_sha", state.headSha)
+                put("branch", requireNotNull(state.selection).ref)
+                put("message", message)
+            }
+        )
+        _state.update { it.copy(patchStage = null, notice = "Reviewed patch committed.") }
+        loadHeadAndDirectory()
     }
 
     private fun work(block: suspend () -> Unit) {
@@ -435,7 +599,9 @@ class GitHubWorkspaceViewModel @Inject constructor(
         _state.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
             try {
-                block()
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { block() }
+                val metrics = client?.execute("efficiency", buildJsonObject {}) as? JsonObject
+                _state.update { it.copy(efficiency = metrics) }
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
@@ -465,7 +631,11 @@ class GitHubWorkspaceViewModel @Inject constructor(
                 put("action", action)
             }
         )
-        val text = (result.content as ToolResultContent.Text).text
+        val text = when (val content = result.content) {
+            is ToolResultContent.Text -> content.text
+            is ToolResultContent.Json -> content.value.toString()
+            else -> error("GitHub returned no structured result")
+        }
         check(!result.isError) { text }
         return text
     }

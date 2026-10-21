@@ -30,7 +30,7 @@ internal class GitHubOperationTool(
         val native = nativeArguments(operation, arguments)
             ?: return AgentToolResult(callId, ToolResultContent.Text("Unsupported GitHub operation."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
         val result = backend.execute(callId, native)
-        return views.present(scope, operation, definition.name, result)
+        return views.present(scope, operation, definition.name, result, arguments)
     }
 
     companion object {
@@ -54,7 +54,12 @@ internal class GitHubOperationTool(
                 "github_release" -> when (requested) { "", "status" -> "release_status"; "publish" -> "publish_release"; else -> return null }
                 else -> return null
             }
-            return JsonObject(args + ("action" to JsonPrimitive(action)))
+            val translated = args.toMutableMap()
+            if (action == "create_branch") args["from_branch"]?.let { translated["base"] = it }
+            if (action == "changed_since") args["base_sha"]?.let { translated["base"] = it }
+            if (action == "pr_context") args["expected_head_sha"]?.let { translated["expected_head"] = it }
+            translated["action"] = JsonPrimitive(action)
+            return JsonObject(translated)
         }
 
         fun taskTools(task: String): Set<String> {
@@ -76,7 +81,7 @@ internal class GitHubOperationTool(
             val properties = linkedMapOf("owner" to field("string"), "repo" to field("string"), "commit_sha" to field("string"), "view_cursor" to field("string"))
             when (operation) {
                 "github_context" -> { properties["action"] = choice("resolve", "index", "changes", "efficiency"); properties["ref"] = field("string"); properties["base_sha"] = field("string"); properties["refresh"] = field("boolean"); properties["page"] = field("integer") }
-                "github_search" -> { properties["query"] = field("string"); properties["mode"] = choice("literal", "definitions", "references", "paths", "tests"); properties["index_cursor"] = field("integer"); properties["page"] = field("integer") }
+                "github_search" -> { properties["path_prefix"] = field("string"); properties["query"] = field("string"); properties["mode"] = choice("literal", "definitions", "references", "paths", "tests"); properties["index_cursor"] = field("integer"); properties["page"] = field("integer") }
                 "github_read" -> {
                     properties["evidence_id"] = field("string")
                     properties["ranges"] = buildJsonObject { put("type", "array"); put("maxItems", 8); put("items", buildJsonObject { put("type", "object"); put("properties", buildJsonObject { put("path", field("string")); put("start_line", field("integer")); put("end_line", field("integer")); put("start_offset", field("integer")) }); put("required", JsonArray(listOf("path", "start_line", "end_line").map(::JsonPrimitive))) }) }
@@ -86,7 +91,7 @@ internal class GitHubOperationTool(
                     properties["edits"] = buildJsonObject { put("type", "array"); put("maxItems", 20); put("items", buildJsonObject { put("type", "object"); put("properties", buildJsonObject { listOf("path", "expected_blob_sha", "old_text", "new_text").forEach { put(it, field("string")) }; put("occurrence", field("integer")) }); put("required", JsonArray(listOf("path", "expected_blob_sha", "old_text", "new_text").map(::JsonPrimitive))) }) }
                 }
                 "github_commit" -> { properties["action"] = choice("commit", "branch"); listOf("stage_id", "branch", "message", "expected_head_sha", "from_branch").forEach { properties[it] = field("string") } }
-                "github_pr" -> { properties["action"] = choice("context", "create", "update", "comment", "merge"); properties["pull_number"] = field("integer"); listOf("title", "body", "head", "base", "expected_head_sha").forEach { properties[it] = field("string") }; properties["draft"] = field("boolean"); properties["page"] = field("integer") }
+                "github_pr" -> { properties["action"] = choice("context", "create", "update", "comment", "merge"); properties["pull_number"] = field("integer"); listOf("title", "body", "head", "base", "expected_head_sha").forEach { properties[it] = field("string") }; properties["draft"] = field("boolean"); properties["page"] = field("integer"); properties["check_page"] = field("integer"); properties["include_patches"] = field("boolean") }
                 "github_ci" -> { properties["action"] = choice("failure", "runs", "jobs", "logs", "dispatch", "rerun", "cancel"); listOf("run_id", "job_id", "page").forEach { properties[it] = field("integer") }; listOf("workflow_id", "branch", "ref").forEach { properties[it] = field("string") }; properties["inputs"] = field("object") }
                 "github_release" -> { properties["action"] = choice("status", "publish"); listOf("tag_name", "target_commitish", "name", "body", "workflow_id").forEach { properties[it] = field("string") }; properties["draft"] = field("boolean"); properties["prerelease"] = field("boolean") }
             }

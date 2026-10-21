@@ -3,7 +3,6 @@ package dev.chungjungsoo.gptmobile.data.research.delivery
 import dev.chungjungsoo.gptmobile.data.research.researchHash
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
@@ -32,12 +31,19 @@ internal object ResearchReportRepair {
         val rejected = blocks(text, packet).filter { it.issues.isNotEmpty() }
         val plan = buildJsonObject {
             put("issues", JsonArray(issues.map(::JsonPrimitive)))
-            put("replaceable", JsonArray(rejected.map { block -> buildJsonObject {
-                put("block_id", block.id)
-                put("previous_sha256", block.digest)
-                put("text", block.text)
-                put("issues", JsonArray(block.issues.map(::JsonPrimitive)))
-            } }))
+            put(
+                "replaceable",
+                JsonArray(
+                    rejected.map { block ->
+                        buildJsonObject {
+                            put("block_id", block.id)
+                            put("previous_sha256", block.digest)
+                            put("text", block.text)
+                            put("issues", JsonArray(block.issues.map(::JsonPrimitive)))
+                        }
+                    }
+                )
+            )
             put("preserved_block_ids", JsonArray(blocks(text, packet).filter { it.issues.isEmpty() }.map { JsonPrimitive(it.id) }))
         }
         return "Correct only the rejected blocks. Return one JSON object with replacements:[{block_id,previous_sha256,text}] and append:string. " +
@@ -74,7 +80,10 @@ internal object ResearchReportRepair {
                 cursor = block.end
             }
             append(text.substring(cursor))
-            if (appendText.isNotBlank()) { append("\n\n"); append(appendText) }
+            if (appendText.isNotBlank()) {
+                append("\n\n")
+                append(appendText)
+            }
         }
         require(result.length <= 100_000)
         result

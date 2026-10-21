@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -80,6 +82,10 @@ import kotlinx.serialization.json.jsonObject
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, viewModel: GitHubWorkspaceViewModel = hiltViewModel()) {
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        val release = dev.chungjungsoo.gptmobile.data.diagnostics.FrameTimingRecorder.screen("GitHubWorkspace")
+        onDispose { release() }
+    }
     val state by viewModel.state.collectAsStateWithLifecycle()
     val buildsViewModel: GitHubBuildsViewModel = hiltViewModel()
     val buildsState by buildsViewModel.state.collectAsStateWithLifecycle()
@@ -89,6 +95,7 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
     val workspaceScroll = rememberScrollState()
     var tab by rememberSaveable { mutableIntStateOf(3) }
     LaunchedEffect(tab, state.commitDetail) { workspaceScroll.scrollTo(0) }
+    LaunchedEffect(tab, state.selection, state.headSha, state.busy) { viewModel.onSectionVisible(tab) }
     var repositoryMenu by remember { mutableStateOf(false) }
     var branchMenu by remember { mutableStateOf(false) }
     var repositoryQuery by remember { mutableStateOf("") }
@@ -109,14 +116,13 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
     }
     fun close() {
         if (state.busy) return
-        if (state.staged.isNotEmpty() || state.editorDrafts.isNotEmpty() || editorDirty) {
+        if (state.staged.isNotEmpty() || state.editorDrafts.isNotEmpty() || state.patchStage != null || editorDirty) {
             confirmClose = true
         } else {
-            viewModel.close()
-            onDismiss()
+            viewModel.close { onDismiss() }
         }
     }
-    val canNavigate = !state.busy && !editorDirty && state.staged.isEmpty() && state.editorDrafts.isEmpty()
+    val canNavigate = !state.busy && !editorDirty && state.staged.isEmpty() && state.editorDrafts.isEmpty() && state.patchStage == null
     Dialog(onDismissRequest = { close() }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Scaffold(
             modifier = Modifier.fillMaxSize().glassWindowBackdrop(),
@@ -203,7 +209,6 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
                     workspaceTabs.forEach { (id, label) ->
                         Tab(selected = tab == id, enabled = !editorDirty || id == 0, onClick = {
                             tab = id
-                            if (id == 2 && state.selection != null) viewModel.loadPullRequests()
                         }, text = { Text(if (id == 1 && state.staged.isNotEmpty()) "$label (${state.staged.size})" else label, maxLines = 1) })
                     }
                 }
@@ -216,7 +221,21 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
                                 val selection = requireNotNull(state.selection)
                                 GitHubBuildsPanel(connection.connectionUid, selection.owner, selection.repo, selection.ref, Modifier.fillMaxSize(), buildsViewModel)
                             }
-                            3 -> GitHubActivityDashboard(state, viewModel, onOpenPulls = { tab = 2 }, onOpenUrl = uriHandler::openUri)
+                            3 -> {
+                                GitHubRepositoryInsights(
+                                    state,
+                                    onSearch = { query, mode -> viewModel.searchRevision(query, mode) },
+                                    onContinueSearch = { viewModel.searchRevision("", continuation = true) },
+                                    onExplainCi = viewModel::explainFailedCi,
+                                    onMarkReviewed = viewModel::markReviewed,
+                                    onChanges = viewModel::changesSinceReview,
+                                    onOpenFile = { path ->
+                                        tab = 0
+                                        viewModel.readFile(path)
+                                    }
+                                )
+                                GitHubActivityDashboard(state, viewModel, onOpenPulls = { tab = 2 }, onOpenUrl = uriHandler::openUri)
+                            }
                             0 -> {
                                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
                                     TextButton(onClick = { viewModel.browse("") }, enabled = !state.busy && !editorDirty) {
@@ -233,12 +252,14 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
                                     OutlinedTextField(fileQuery, { fileQuery = it }, singleLine = true, label = { Text("Filter loaded files") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, modifier = Modifier.fillMaxWidth())
                                     val entries = state.entries.filter { it.text("name").contains(fileQuery, true) }.sortedWith(compareBy({ it.text("type") != "dir" }, { it.text("name").lowercase() }))
                                     if (entries.isEmpty() && !state.busy) WorkspaceEmpty(Icons.Rounded.Search, if (fileQuery.isBlank()) "This folder is empty" else "No matching files", if (state.moreEntries) "Load more files to keep looking." else "Try another folder or search.")
-                                    entries.forEach { entry ->
-                                        Surface(onClick = { if (entry.text("type") == "dir") viewModel.browse(entry.text("path")) else viewModel.readFile(entry.text("path")) }, enabled = !state.busy, shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
-                                            Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                                Icon(if (entry.text("type") == "dir") Icons.Rounded.Folder else Icons.Rounded.Description, null, Modifier.size(22.dp))
-                                                Text(entry.text("name"), Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                                if (state.staged.any { it.path == entry.text("path") }) WorkspaceBadge("Staged")
+                                    LazyColumn(Modifier.fillMaxWidth().heightIn(max = 480.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        items(entries, key = { it.text("path") }) { entry ->
+                                            Surface(onClick = { if (entry.text("type") == "dir") viewModel.browse(entry.text("path")) else viewModel.readFile(entry.text("path")) }, enabled = !state.busy, shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
+                                                Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                                    Icon(if (entry.text("type") == "dir") Icons.Rounded.Folder else Icons.Rounded.Description, null, Modifier.size(22.dp))
+                                                    Text(entry.text("name"), Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                    if (state.staged.any { it.path == entry.text("path") }) WorkspaceBadge("Staged")
+                                                }
                                             }
                                         }
                                     }
@@ -247,6 +268,9 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
                                     val file = requireNotNull(state.file)
                                     val original = file.text("content")
                                     val path = file.text("path")
+                                    var anchor by rememberSaveable(path, state.headSha) { mutableStateOf("") }
+                                    var replacement by rememberSaveable(path, state.headSha) { mutableStateOf("") }
+                                    var patchEditor by rememberSaveable(path, state.headSha) { mutableStateOf(false) }
                                     var edited by rememberSaveable(path, state.headSha) { mutableStateOf(state.editorDrafts[path] ?: state.staged.firstOrNull { it.path == path }?.content ?: original) }
                                     LaunchedEffect(path, state.headSha) {
                                         editorDirty = edited != (state.staged.firstOrNull { it.path == path }?.content ?: original)
@@ -256,11 +280,12 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
                                         IconButton(onClick = { copy(path) }) { Icon(Icons.Rounded.ContentCopy, "Copy file path") }
                                         file.text("html_url").takeIf { it.startsWith("https://github.com/") }?.let { url -> IconButton(onClick = { uriHandler.openUri(url) }) { Icon(Icons.Rounded.Launch, "Open file on GitHub") } }
                                     }
-                                    Text("${original.lines().size} lines · ${original.toByteArray().size} bytes", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("Lines ${file.text("start_line")}–${file.text("end_line")} of ${file.text("total_lines")} · ${original.toByteArray().size} excerpt bytes", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     TextButton(onClick = { viewModel.browse(state.directory) }, enabled = !state.busy && !editorDirty) { Text("Back to files") }
-                                    if (file.flag("has_more")) {
-                                        Text("Preview of the first 2,000 lines. Open the complete file on GitHub to edit it.", style = MaterialTheme.typography.bodySmall)
+                                    if (!file.flag("complete_file")) {
+                                        Text("Bounded source excerpt. Use an exact patch to change this range safely.", style = MaterialTheme.typography.bodySmall)
                                         WorkspaceCode(original)
+                                        if (file.flag("has_more")) TextButton(onClick = viewModel::moreFileRange, enabled = !state.busy) { Text("Next source range") }
                                     } else {
                                         OutlinedTextField(edited, {
                                             if (it.toByteArray().size <= 256_000) {
@@ -283,6 +308,14 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
                                         if (state.selection?.ref == state.defaultBranch) Text("Create a working branch in Changes to start editing.", style = MaterialTheme.typography.bodySmall)
                                         if (editorDirty) Text("Stage or reset your edits before leaving this file.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                                     }
+                                    if (state.canWrite && state.selection?.ref != state.defaultBranch) {
+                                        TextButton(onClick = { patchEditor = !patchEditor }, enabled = !state.busy && !editorDirty) { Text(if (patchEditor) "Hide exact patch editor" else "Prepare an exact patch") }
+                                        if (patchEditor) {
+                                            OutlinedTextField(anchor, { anchor = it.take(16000) }, label = { Text("Exact existing text") }, modifier = Modifier.fillMaxWidth(), textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace))
+                                            OutlinedTextField(replacement, { replacement = it.take(16000) }, label = { Text("Replacement text") }, modifier = Modifier.fillMaxWidth(), textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace))
+                                            Button(onClick = { viewModel.stageExactPatch(anchor, replacement) }, enabled = !state.busy && anchor.isNotEmpty() && anchor != replacement && state.staged.isEmpty()) { Text("Preview exact patch") }
+                                        }
+                                    }
                                 }
                             }
                             1 -> {
@@ -291,7 +324,7 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
                                     OutlinedTextField(branchName, { branchName = it }, label = { Text("New working branch") }, leadingIcon = { Icon(Icons.Rounded.AccountTree, null) }, singleLine = true, modifier = Modifier.fillMaxWidth())
                                     Button(onClick = { viewModel.createBranch(branchName) }, enabled = state.canWrite && canNavigate && branchName.isNotBlank()) { Text("Create branch") }
                                 }
-                                if (state.staged.isEmpty()) WorkspaceEmpty(Icons.Rounded.Commit, "No staged changes", "Edit a file in Code, then stage it here for review.")
+                                if (state.staged.isEmpty() && state.patchStage == null) WorkspaceEmpty(Icons.Rounded.Commit, "No staged changes", "Edit a file in Code, then stage it here for review.")
                                 state.staged.forEach { file ->
                                     Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp)) {
                                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -308,11 +341,12 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
                                         }
                                     }
                                 }
-                                if (state.staged.isNotEmpty()) {
+                                state.patchStage?.let { GitHubPatchPreview(it) }
+                                if (state.staged.isNotEmpty() || state.patchStage != null) {
                                     OutlinedTextField(message, { message = it.take(4000) }, label = { Text("Commit message") }, modifier = Modifier.fillMaxWidth())
                                     Button(onClick = { confirmCommit = true }, enabled = state.canWrite && !state.busy && !editorDirty && message.isNotBlank()) {
                                         Icon(Icons.Rounded.Commit, null, Modifier.padding(end = 8.dp), tint = MaterialTheme.colorScheme.onPrimary)
-                                        Text("Commit ${state.staged.size} files")
+                                        Text(if (state.patchStage != null) "Commit reviewed patch" else "Commit ${state.staged.size} files")
                                     }
                                     TextButton(onClick = viewModel::discard, enabled = !state.busy && !editorDirty) { Text("Discard staged changes") }
                                 }
@@ -344,7 +378,10 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
                                     }
                                 }
                                 if (state.morePullRequests) TextButton(onClick = viewModel::morePullRequests, enabled = !state.busy) { Text("Load more pull requests") }
+                                TextButton(onClick = viewModel::refreshVisibleChecks, enabled = !state.busy && state.pullRequests.isNotEmpty()) { Text("Refresh checks for first 5 PRs") }
                                 state.pullDetail?.let { WorkspaceCode(it) }
+                                if (state.pullPackage?.get("files_continuation") != null) TextButton(onClick = { viewModel.continuePullReview() }, enabled = !state.busy) { Text("Next changed files") }
+                                if (state.pullPackage?.get("checks_continuation") != null) TextButton(onClick = { viewModel.continuePullReview(checks = true) }, enabled = !state.busy) { Text("Next checks") }
                             }
                         }
                     }
@@ -355,11 +392,11 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
             AlertDialog(
                 onDismissRequest = { confirmCommit = false },
                 title = { Text("Commit reviewed changes?") },
-                text = { Text("${state.staged.size} files → ${state.selection?.fullName} @ ${state.selection?.ref}\n\n$message") },
+                text = { Text("${if (state.patchStage != null) "Staged exact patch" else "${state.staged.size} files"} → ${state.selection?.fullName} @ ${state.selection?.ref}\n\n$message") },
                 confirmButton = {
                     TextButton(onClick = {
                         confirmCommit = false
-                        viewModel.commit(message)
+                        if (state.patchStage != null) viewModel.commitExactPatch(message) else viewModel.commit(message)
                     }) { Text("Commit") }
                 },
                 dismissButton = { TextButton(onClick = { confirmCommit = false }) { Text("Cancel") } }
@@ -368,13 +405,12 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
         if (confirmClose) {
             AlertDialog(
                 onDismissRequest = { confirmClose = false },
-                title = { Text("Discard uncommitted changes?") },
-                text = { Text("Uncommitted editor changes and ${state.staged.size} staged files will be discarded.") },
+                title = { Text("Save changes and close?") },
+                text = { Text("Your editor changes and staged patches will remain available when you reopen this workspace.") },
                 confirmButton = {
                     TextButton(onClick = {
-                        viewModel.close()
-                        onDismiss()
-                    }) { Text("Discard and close") }
+                        viewModel.close { onDismiss() }
+                    }) { Text("Save and close") }
                 },
                 dismissButton = { TextButton(onClick = { confirmClose = false }) { Text("Keep editing") } }
             )

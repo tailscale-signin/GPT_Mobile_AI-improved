@@ -28,8 +28,8 @@ class GitHubResponseCache(
 
     @Synchronized fun get(key: String): Entry? = entries[key]
 
-    @Synchronized fun put(key: String, etag: String?, value: JsonElement, immutable: Boolean = false) {
-        if (etag.isNullOrBlank() && !immutable) return
+    @Synchronized fun put(key: String, etag: String?, value: JsonElement, immutable: Boolean = false, allowWithoutEtag: Boolean = false) {
+        if (etag.isNullOrBlank() && !immutable && !allowWithoutEtag) return
         val size = value.toString().length
         if (size > maxCharacters) return
         entryCharacters += size - (entrySizes.put(key, size) ?: 0)
@@ -53,7 +53,10 @@ class GitHubResponseCache(
 
     @Synchronized fun invalidateMutable(repositoryPrefix: String = "") {
         val remove = entries.filter { (key, entry) -> !entry.immutable && (repositoryPrefix.isBlank() || repositoryPrefix in key) }.keys
-        for (key in remove) { entries.remove(key); entryCharacters -= entrySizes.remove(key) ?: 0 }
+        for (key in remove) {
+            entries.remove(key)
+            entryCharacters -= entrySizes.remove(key) ?: 0
+        }
     }
 
     @Synchronized fun clear() {

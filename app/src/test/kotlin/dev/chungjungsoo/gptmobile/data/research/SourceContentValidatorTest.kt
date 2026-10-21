@@ -18,7 +18,7 @@ class SourceContentValidatorTest {
     @Test fun realArticleWithCookieFooterRemainsReadable() {
         val article = "Methods and results from a controlled trial. ".repeat(250) + "Accept all cookies. Cookie preferences."
         assertTrue(SourceContentValidator.validate(article).usable)
-        assertEquals(SourceContentValidator.Kind.ARTICLE_PARTIAL, SourceContentValidator.validate(article).kind)
+        assertEquals(SourceContentValidator.Kind.PARTIAL_ARTICLE, SourceContentValidator.validate(article).kind)
     }
 
     @Test fun strongerCaptureSurvivesNewerPartialRefresh() {

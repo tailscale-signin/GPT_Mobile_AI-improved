@@ -47,7 +47,10 @@ class ResearchExaminationWorker @AssistedInject constructor(
             for (job in archive.dao.allJobs().filter { it.stage in dev.chungjungsoo.gptmobile.data.research.feature.ExaminationLifecycle.waiting }) {
                 val checkpoint = runCatching { Json.decodeFromString<dev.chungjungsoo.gptmobile.data.research.feature.ExaminationCheckpoint>(job.checkpointJson) }.getOrNull() ?: continue
                 if (checkpoint.failure?.retryable != true) continue
-                if ((checkpoint.failure.retryAtMs ?: Long.MAX_VALUE) > System.currentTimeMillis()) { pending = true; continue }
+                if ((checkpoint.failure.retryAtMs ?: Long.MAX_VALUE) > System.currentTimeMillis()) {
+                    pending = true
+                    continue
+                }
                 try {
                     val resumed = coordinator.resumeWaiting(job.jobId)
                     if (resumed != null) {
@@ -55,7 +58,11 @@ class ResearchExaminationWorker @AssistedInject constructor(
                         val after = archive.dao.job(resumed)?.checkpointJson?.let { Json.decodeFromString<dev.chungjungsoo.gptmobile.data.research.feature.ExaminationCheckpoint>(it) }
                         if (after?.failure?.retryable == true) pending = true
                     }
-                } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { pending = true }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    pending = true
+                }
             }
         }
         if (!features.researchFeature.enabled || features.researchFeature.autoExamination == AutoExamination.OFF) {
@@ -64,7 +71,6 @@ class ResearchExaminationWorker @AssistedInject constructor(
         }
         if (!features.researchFeature.backgroundExamination && !withContext(Dispatchers.Main) { ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) }) return Result.retry()
         val profiles = settings.fetchPlatformV2s()
-        val configurationRevision = examinationConfigurationRevision(features, profiles)
         // Only process-loss recovery is automatic; user Pause/Stop always requires user action.
         archive.dao.allJobs().filter { it.origin != dev.chungjungsoo.gptmobile.data.research.feature.ExaminationOrigin.USER_EXAMINE && it.stage == dev.chungjungsoo.gptmobile.data.research.feature.ExaminationStage.PAUSED && (it.terminalReason == "Process interrupted; explicit resume required" || it.cancellationOrigin == "WAITING_FOR_CONFIGURATION") }.forEach { job ->
             val checkpoint = runCatching { Json.decodeFromString<dev.chungjungsoo.gptmobile.data.research.feature.ExaminationCheckpoint>(job.checkpointJson) }.getOrNull()
@@ -131,8 +137,11 @@ class ResearchExaminationWorker @AssistedInject constructor(
                         archive.dao.outbox(row.copy(operation = Json.encodeToString(scheduled.copy(waitingReason = "OUTPUT_INVALID", waitingRevision = null))))
                     } else if (stage in dev.chungjungsoo.gptmobile.data.research.feature.ExaminationLifecycle.waiting) {
                         val retained = archive.dao.job(id)?.checkpointJson?.let { Json.decodeFromString<dev.chungjungsoo.gptmobile.data.research.feature.ExaminationCheckpoint>(it) }
-                        if (retained?.failure?.retryable == true) pending = true
-                        else archive.dao.outbox(row.copy(operation = Json.encodeToString(scheduled.copy(waitingReason = if (stage == dev.chungjungsoo.gptmobile.data.research.feature.ExaminationStage.BLOCKED_SOURCE) "SOURCE_BLOCKED" else "CAPACITY_EXHAUSTED"))))
+                        if (retained?.failure?.retryable == true) {
+                            pending = true
+                        } else {
+                            archive.dao.outbox(row.copy(operation = Json.encodeToString(scheduled.copy(waitingReason = if (stage == dev.chungjungsoo.gptmobile.data.research.feature.ExaminationStage.BLOCKED_SOURCE) "SOURCE_BLOCKED" else "CAPACITY_EXHAUSTED"))))
+                        }
                     } else {
                         pending = true
                     }

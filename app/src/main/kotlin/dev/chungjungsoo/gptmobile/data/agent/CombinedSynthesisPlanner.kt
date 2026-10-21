@@ -40,7 +40,7 @@ class CombinedSynthesisPlanner @Inject constructor(
         val profiles = settingRepository.fetchPlatformV2s()
         val sources = combinedSynthesisInputs(responses, runs, profiles.associate { it.uid to it.name }, accepted.context.requested.requestedModels, userMessage.content).orEmpty()
         val retainedPublicEvidence = if (sources.isEmpty() && accepted.context.requested.acceptedResearch != null) {
-            researchSessionStore.exportChat(chatId).any { session ->
+            researchSessionStore.exportTurn(chatId, setOf("$chatId:$userId")).any { session ->
                 session.turnId == "$chatId:$userId" && dev.chungjungsoo.gptmobile.data.research.researchHash(session.snapshot.task.trim()) == dev.chungjungsoo.gptmobile.data.research.researchHash(userMessage.content.trim()) && session.snapshot.sources.any { it.readable && it.publicCapture && it.retrievalReceipt.isNotBlank() }
             }
         } else {
@@ -98,7 +98,7 @@ class CombinedSynthesisPlanner @Inject constructor(
 
         val normalizedResearchTask = dev.chungjungsoo.gptmobile.data.research.researchHash(userMessage.content.trim())
         val researchTurnId = "${leadMessage.chatId}:${userMessage.id}"
-        val turnSessions = researchSessionStore.exportChat(leadMessage.chatId).filter { session ->
+        val turnSessions = researchSessionStore.exportTurn(leadMessage.chatId, setOf(researchTurnId)).filter { session ->
             session.turnId == researchTurnId &&
                 dev.chungjungsoo.gptmobile.data.research.researchHash(session.snapshot.task.trim()) == normalizedResearchTask
         }

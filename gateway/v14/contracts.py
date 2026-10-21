@@ -55,9 +55,6 @@ def compile_schema(schema):
             if not kinds or any(not isinstance(k,str) or k not in _TYPES for k in kinds) or len(set(kinds))!=len(kinds): raise SchemaValidationError('Invalid schema type')
         if 'nullable' in spec:
             if not isinstance(spec['nullable'],bool): raise SchemaValidationError('nullable must be boolean')
-            if spec['nullable']:
-                out={'anyOf':[out,{'type':'null'}]}
-                return out
         if 'required' in out and (not isinstance(out['required'],list) or len(out['required'])>100 or any(not isinstance(k,str) for k in out['required']) or len(set(out['required']))!=len(out['required'])): raise SchemaValidationError('Invalid required properties')
         if 'enum' in out and (not isinstance(out['enum'],list) or not 1<=len(out['enum'])<=100): raise SchemaValidationError('Invalid enum')
         for key in ('minLength','maxLength','minItems','maxItems','minProperties','maxProperties'):
@@ -74,9 +71,9 @@ def compile_schema(schema):
             if not isinstance(pattern,str) or len(pattern)>256 or re.search(r'[()|\\]|\{\d',pattern) or re.search(r'(?:\*|\+|\?){2}',pattern): raise SchemaValidationError('Pattern exceeds the safe subset')
             try: re.compile(pattern)
             except re.error as exc: raise SchemaValidationError('Invalid pattern') from exc
-        return out
+        return {'anyOf':[out,{'type':'null'}]} if spec.get('nullable') else out
     try: json.dumps(root,allow_nan=False)
-    except (ValueError,TypeError) as exc: raise SchemaValidationError('Schema is not finite JSON') from exc
+    except (ValueError,TypeError,RecursionError) as exc: raise SchemaValidationError('Schema is not finite JSON') from exc
     return visit(root)
 
 def validate_schema(schema,*,depth=0):

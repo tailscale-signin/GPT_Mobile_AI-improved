@@ -95,7 +95,8 @@ internal fun CompactAgentActivityBar(
             stringResource(R.string.agent_live_finalizing)
     }
 
-    val liveText = overrideText?.takeIf(String::isNotBlank) ?: inferredText
+    val progress = run?.nativeProgress
+    val liveText = overrideText?.takeIf(String::isNotBlank) ?: progress?.workSummary() ?: inferredText
 
     Column(modifier = modifier.fillMaxWidth().padding(vertical = 8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
@@ -106,6 +107,9 @@ internal fun CompactAgentActivityBar(
                 modifier = Modifier.size(22.dp)
             )
             Spacer(Modifier.width(10.dp))
+            if (progress != null) {
+                Text(liveText, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f), maxLines = 3)
+            } else {
             AnimatedContent(
                 targetState = liveText,
                 transitionSpec = { fadeIn(tween(280)) togetherWith fadeOut(tween(180)) },
@@ -120,11 +124,23 @@ internal fun CompactAgentActivityBar(
                     overflow = TextOverflow.Ellipsis
                 )
             }
+            }
         }
-        LinearProgressIndicator(
-            modifier = Modifier.fillMaxWidth().padding(top = 8.dp).height(2.dp),
-            trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
-        )
+        progress?.runtimeSummary()?.takeIf(String::isNotBlank)?.let { runtime ->
+            Text(runtime, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp), maxLines = 2)
+        }
+        if (progress != null && progress.promptTokens > 0 && progress.sampledTokens <= 0 && progress.processedTokens >= 0) {
+            LinearProgressIndicator(
+                progress = { (progress.processedTokens.toFloat() / progress.promptTokens).coerceIn(0f, 1f) },
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp).height(3.dp),
+                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
+            )
+        } else {
+            LinearProgressIndicator(
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp).height(2.dp),
+                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
+            )
+        }
     }
 }
 
@@ -240,6 +256,11 @@ internal fun AgentFlightRecorderCard(
                         .padding(top = 10.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    run.nativeProgress?.let { progress ->
+                        Text(progress.runtimeSummary(), style = MaterialTheme.typography.labelLarge)
+                        Text(progress.workSummary(), style = MaterialTheme.typography.bodySmall)
+                        progress.effectiveBatch?.let { Text("Current prompt batch · $it tokens", style = MaterialTheme.typography.labelSmall) }
+                    }
                     AgentMetricRow(
                         run = run,
                         totalToolCalls = totalToolCalls,

@@ -345,7 +345,16 @@ interface AgentPersistenceDao {
         val report = dev.chungjungsoo.gptmobile.data.agent.CombinedQualityReport(answerDigest = dev.chungjungsoo.gptmobile.data.research.researchHash(text), status = "PARTIAL", deliveredScopeStatus = "PARTIAL", revisionId = UUID.randomUUID().toString(), issues = listOf(if (source != null) "EXPLICIT_CONTRIBUTOR_FALLBACK" else "NO_AUTHORIZED_WRITER"))
         val published = target.copy(content = text, activeRevisionIndex = ACTIVE_REVISION_LATEST, timeline = listOf(
             dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.TEXT, content = text),
-            dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE, combinedQuality = report, combinedFallback = receipt)
+            dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(
+                dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE,
+                combinedQuality = report,
+                combinedFallback = receipt,
+                researchDeliveryReceipt = if (source == null) dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryReceipt(
+                    reportValidity = if (text.isNotBlank()) dev.chungjungsoo.gptmobile.data.research.delivery.ResearchReportValidity.EVIDENCE_ONLY else dev.chungjungsoo.gptmobile.data.research.delivery.ResearchReportValidity.INCOMPLETE,
+                    evidenceAvailable = snapshot.evidence.records.any { it.readable }, packetDigest = snapshot.inputDigest, revisionId = report.revisionId,
+                    issueCodes = listOf("NO_AUTHORIZED_WRITER"), sourceIds = snapshot.evidence.records.filter { it.readable }.map { it.id }, retryEligible = true
+                ) else null
+            )
         ))
         return if (finishRunningWithMessage(published, requireNotNull(target.currentRunId), "FAILED", at, if (source != null) "EXPLICIT_CONTRIBUTOR_FALLBACK" else "NO_AUTHORIZED_WRITER")) published else null
     }

@@ -25,14 +25,17 @@ data class ArticleSectionCoverage(
     val figuresInspection: ContentInspection = ContentInspection.UNKNOWN,
     val supplementsInspection: ContentInspection = ContentInspection.UNKNOWN,
     val figuresReason: String = "",
-    val supplementsReason: String = ""
+    val supplementsReason: String = "",
+    val tablesInspection: ContentInspection = ContentInspection.UNKNOWN,
+    val tablesReason: String = ""
 ) {
     // Old availability booleans are not proof that content was actually inspected.
     val complete: Boolean get() = required.isNotEmpty() &&
         inspected.containsAll(required) &&
         omitted.isEmpty() &&
         sufficient(figuresInspection, figuresReason) &&
-        sufficient(supplementsInspection, supplementsReason)
+        sufficient(supplementsInspection, supplementsReason) &&
+        sufficient(tablesInspection, tablesReason)
     private fun sufficient(state: ContentInspection, reason: String) = state == ContentInspection.INSPECTED || state == ContentInspection.NOT_APPLICABLE && reason.isNotBlank()
 }
 

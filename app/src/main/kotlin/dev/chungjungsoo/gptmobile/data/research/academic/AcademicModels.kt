@@ -64,7 +64,13 @@ data class AcademicEvidence(
     val structuredFullText: Boolean = false,
     val sectionNames: Set<String> = emptySet(),
     val declaredFigures: Int? = null,
-    val declaredSupplements: Int? = null
+    val declaredSupplements: Int? = null,
+    val declaredTables: Int? = null,
+    val failureCode: String? = null,
+    val failureReason: String? = null,
+    val retryAtMs: Long? = null,
+    val redirectChain: List<String> = emptyList(),
+    val bodyReference: String? = null
 ) {
     fun verify(quote: String, requestedVersion: String): String = when {
         requestedVersion != versionId -> "version_mismatch"

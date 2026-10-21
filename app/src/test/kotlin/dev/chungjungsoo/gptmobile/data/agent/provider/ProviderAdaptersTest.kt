@@ -404,7 +404,7 @@ class ProviderAdaptersTest {
     }
 
     @Test
-    fun `llama never dispatches an unfinished call and recovery is bounded without tools`() = runBlocking {
+    fun `llama never dispatches an unfinished call and native protocol recovery is bounded`() = runBlocking {
         val api = FakeOpenAIAPI(
             chatRounds = ArrayDeque(
                 listOf(
@@ -422,7 +422,7 @@ class ProviderAdaptersTest {
         assertTrue(events.filterIsInstance<AgentRunEvent.ToolFinished>().isEmpty())
         assertTrue(events.filterIsInstance<AgentRunEvent.Provider>().any { it.event is ProviderEvent.Failed })
         assertEquals(2, api.chatRequests.size)
-        assertTrue(api.chatRequests.last().tools.isNullOrEmpty())
+        assertEquals(listOf("device_location"), api.chatRequests.last().tools.orEmpty().map { it.function.name })
     }
 
     private val definition = AgentToolDefinition(

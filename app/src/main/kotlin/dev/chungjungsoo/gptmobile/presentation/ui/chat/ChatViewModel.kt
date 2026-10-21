@@ -1730,8 +1730,7 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    suspend fun exportChat(format: ChatExportFormat = ChatExportFormat.MARKDOWN): Pair<String, String> {
-        if (format == ChatExportFormat.DEBUG) {
+    suspend fun exportDebugFile(directory: java.io.File): java.io.File = dev.chungjungsoo.gptmobile.data.diagnostics.JavaHeapWorkGate.run("debug-export") {
             check(debugMode.value) { "Enable Debug mode to export diagnostic conversation data." }
             val room = _chatRoom.value
             val visible = persistableMessages(_groupedMessages.value)
@@ -1761,28 +1760,32 @@ class ChatViewModel @Inject constructor(
                 features.localAssistPolicy.profileUid?.let(::add)
             }
             val profiles = allProfiles.filter { it.uid in dependencyIds }
-            val research = researchSessionStore?.exportChat(room.id).orEmpty()
-            val json = kotlinx.serialization.json.Json {
-                encodeDefaults = true
-                prettyPrint = true
+            withContext(Dispatchers.IO) {
+                check(directory.mkdirs() || directory.isDirectory)
+                val json = kotlinx.serialization.json.Json { encodeDefaults = true }
+                val safeTitle = room.title.replace(Regex("[^\\p{L}\\p{N}._ -]"), "_").take(80)
+                val destination = java.io.File(directory, "export_${safeTitle}_${System.currentTimeMillis()}.zip")
+                val conversation = java.io.File.createTempFile("debug-conversation-", ".json", directory)
+                val staging = java.io.File.createTempFile("debug-bundle-", ".partial", directory)
+                try {
+                    conversation.bufferedWriter().use { writer ->
+                        writeChatDebugExport(room, messages, profiles, tools, features, draft, records, emptyList(), json,
+                            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.entries.value, writer,
+                            researchStream = { consume -> researchSessionStore?.streamChat(room.id, consume) })
+                    }
+                    StreamingDebugBundle.write(conversation, staging)
+                    StreamingDebugBundle.verify(staging)
+                    check(staging.renameTo(destination)) { "Unable to publish the completed export" }
+                    destination
+                } finally {
+                    conversation.delete()
+                    staging.delete()
+                }
             }
-            val body = withContext(Dispatchers.IO) {
-                buildChatDebugExport(
-                    room,
-                    messages,
-                    profiles,
-                    tools,
-                    features,
-                    draft,
-                    records,
-                    research,
-                    json,
-                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.entries.value
-                )
-            }
-            val safeTitle = room.title.replace(Regex("[^\\p{L}\\p{N}._ -]"), "_").take(80)
-            return "export_${safeTitle}_${System.currentTimeMillis()}.${format.extension}" to body
-        }
+    }
+
+    suspend fun exportChat(format: ChatExportFormat = ChatExportFormat.MARKDOWN): Pair<String, String> {
+        require(format != ChatExportFormat.DEBUG) { "Diagnostic exports use exportDebugFile so large histories stay off the heap." }
         val exported = groupPersistedMessages(completeWindowMessages(_groupedMessages.value), enabledPlatformsInChat, _chatRoom.value.id)
         val content = exported.assistantMessages.flatten()
             .map { assistantExportText(it, format, debugMode = debugMode.value) }
@@ -2640,7 +2643,7 @@ class ChatViewModel @Inject constructor(
 
         val normalizedResearchTask = dev.chungjungsoo.gptmobile.data.research.researchHash(userMessage.content.trim())
         val researchTurnId = "${leadMessage.chatId}:${userMessage.id}"
-        val turnSessions = researchSessionStore?.exportChat(leadMessage.chatId).orEmpty().filter { session ->
+        val turnSessions = researchSessionStore?.exportTurn(leadMessage.chatId, setOf(researchTurnId)).orEmpty().filter { session ->
             session.turnId == researchTurnId &&
                 dev.chungjungsoo.gptmobile.data.research.researchHash(session.snapshot.task.trim()) == normalizedResearchTask
         }

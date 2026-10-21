@@ -11,6 +11,8 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentProviderSession
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
+import dev.chungjungsoo.gptmobile.data.agent.ProviderUsageCounter
+import dev.chungjungsoo.gptmobile.data.agent.measuredUsageSource
 import dev.chungjungsoo.gptmobile.data.context.ContextBudgetService
 import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2
 import dev.chungjungsoo.gptmobile.data.diagnostics.LocalDiagnosticsPolicy
@@ -230,6 +232,11 @@ class InvocationLedger @Inject constructor(
             var firstToolRecorded = false
             var visibleBytes = 0L
             var reasoningBytes = 0L
+            val inputCounter = ProviderUsageCounter()
+            val outputCounter = ProviderUsageCounter()
+            fun retainedInput(): Int = if (measuredUsageSource(inputSource)) input ?: record.inputTokens else maxOf(input ?: 0, record.inputTokens)
+            fun retainedOutput(): Int = if (measuredUsageSource(outputSource)) output ?: 0 else maxOf(output ?: 0, ((generatedBytes + 2) / 3).coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
+            fun estimatedUsage(): Boolean = input == null || output == null || !measuredUsageSource(inputSource) || !measuredUsageSource(outputSource)
             var providerReasoningTokens: Int? = null
             var finishReason: String? = null
             var settingsConfirmed = false
@@ -274,10 +281,12 @@ class InvocationLedger @Inject constructor(
                                 )
                             }
                             is ProviderEvent.Usage -> {
-                                input = if (event.inputSource == "runtime_reported" && inputSource != "runtime_reported") event.inputTokens ?: input else mergeUsageCount(input, event.inputTokens, event.cumulative)
-                                output = if (event.outputSource == "runtime_reported" && outputSource != "runtime_reported") event.outputTokens ?: output else mergeUsageCount(output, event.outputTokens, event.cumulative)
-                                if (event.inputTokens != null && event.inputSource != "unavailable") inputSource = event.inputSource
-                                if (event.outputTokens != null && event.outputSource != "unavailable") outputSource = event.outputSource
+                                inputCounter.accept(event.inputTokens, event.cumulative, event.inputSource, event.phase)
+                                outputCounter.accept(event.outputTokens, event.cumulative, event.outputSource, event.phase)
+                                input = inputCounter.value?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt()
+                                output = outputCounter.value?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt()
+                                inputSource = inputCounter.source
+                                outputSource = outputCounter.source
                                 providerReasoningTokens = mergeUsageCount(providerReasoningTokens, event.reasoningTokens, event.cumulative)
                                 actualRuntime = event.actualRuntime ?: actualRuntime
                                 finishReason = event.finishReason?.take(80) ?: finishReason
@@ -296,9 +305,9 @@ class InvocationLedger @Inject constructor(
                             liveRequests.update {
                                 it + (
                                     record.id to record.copy(
-                                        inputTokens = input ?: record.inputTokens,
-                                        outputTokens = output ?: ((generatedBytes + 2) / 3).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
-                                        estimated = input == null || output == null || inputSource == "estimated" || outputSource == "estimated",
+                                        inputTokens = retainedInput(),
+                                        outputTokens = retainedOutput(),
+                                        estimated = estimatedUsage(),
                                         inputTokenSource = inputSource,
                                         outputTokenSource = outputSource,
                                         finishReason = finishReason,
@@ -327,15 +336,25 @@ class InvocationLedger @Inject constructor(
                         generatedBytes = visibleBytes + reasoningBytes
                         dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(parentRunId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.OUTPUT_CHECKPOINT, invocationId = record.id, outputBoundary = dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceBoundary.PROVIDER_VISIBLE, outputRepresentation = dev.chungjungsoo.gptmobile.data.diagnostics.OutputTextRepresentation.VISIBLE_UTF8, outputFingerprint = fingerprint)
                     }
-                    dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(parentRunId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.INVOCATION_FINISHED, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticRole.from(kind), invocationId = record.id, inputTokens = input?.toLong(), outputTokens = output?.toLong(), visibleBytes = visibleBytes, reasoningBytes = reasoningBytes, elapsedMillis = (System.nanoTime() - started) / 1_000_000, successful = status == "COMPLETED", measured = input != null && output != null)
-                    val recordedOutput = output ?: ((generatedBytes + 2) / 3).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
-                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "Finished ${record.id} · incidentId=${record.id} · status=$status · durationMs=${(System.nanoTime() - started) / 1_000_000} · output=$recordedOutput · estimated=${input == null || output == null} · inputSource=$inputSource · outputSource=$outputSource · visibleBytes=$visibleBytes · reasoningBytes=$reasoningBytes · usageBreakdownReliable=${providerReasoningTokens == null || output == null || providerReasoningTokens!! <= output!!} · reportedReasoningTokens=${providerReasoningTokens ?: "unknown"} · toolCallTokens=unknown · visibleOutputTokens=unknown · finishReason=${finishReason ?: "unreported"} · settingsConfirmed=$settingsConfirmed · parentRunId=$parentRunId · turnKey=$turnKey · requestKind=$kind", if (status in setOf("COMPLETED", "CANCELED")) "I" else "W")
+                    val unsent = dispatch.provenUnsentAttemptIds()
+                    unsent.forEach { combinedAccounting?.notDispatched(it) }
+                    val entirelyUnsent = generatedBytes == 0L && dispatch.receipts.isNotEmpty() && dispatch.receipts.all { it.physicalAttemptId in unsent }
+                    if (entirelyUnsent && generatedBytes == 0L) {
+                        input = 0
+                        output = 0
+                        inputSource = "not_dispatched"
+                        outputSource = "not_dispatched"
+                        status = "NOT_DISPATCHED"
+                    }
+                    dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(parentRunId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.INVOCATION_FINISHED, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticRole.from(kind), invocationId = record.id, inputTokens = input?.toLong(), outputTokens = output?.toLong(), visibleBytes = visibleBytes, reasoningBytes = reasoningBytes, elapsedMillis = (System.nanoTime() - started) / 1_000_000, successful = status == "COMPLETED", measured = !estimatedUsage())
+                    val recordedOutput = if (entirelyUnsent) 0 else retainedOutput()
+                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "Finished ${record.id} · incidentId=${record.id} · status=$status · durationMs=${(System.nanoTime() - started) / 1_000_000} · output=$recordedOutput · estimated=${estimatedUsage()} · inputSource=$inputSource · outputSource=$outputSource · visibleBytes=$visibleBytes · reasoningBytes=$reasoningBytes · usageBreakdownReliable=false · reportedReasoningTokens=${providerReasoningTokens ?: "unknown"} · toolCallTokens=unknown · visibleOutputTokens=unknown · finishReason=${finishReason ?: "unreported"} · settingsConfirmed=$settingsConfirmed · parentRunId=$parentRunId · turnKey=$turnKey · requestKind=$kind", if (status in setOf("COMPLETED", "CANCELED")) "I" else "W")
                     try {
                         if (retainAccounting) {
                             val observation = record.copy(
-                                inputTokens = input ?: record.inputTokens,
-                                outputTokens = output ?: ((generatedBytes + 2) / 3).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
-                                estimated = input == null || output == null || inputSource == "estimated" || outputSource == "estimated",
+                                inputTokens = if (entirelyUnsent) 0 else retainedInput(),
+                                outputTokens = if (entirelyUnsent) 0 else retainedOutput(),
+                                estimated = !entirelyUnsent && estimatedUsage(),
                                 inputTokenSource = inputSource,
                                 outputTokenSource = outputSource,
                                 finishReason = finishReason,
@@ -346,7 +365,13 @@ class InvocationLedger @Inject constructor(
                                 requestAdmissionReceipts = dispatch.receipts.toList().takeIf { it.isNotEmpty() }?.let { kotlinx.serialization.json.Json.encodeToString(it) },
                                 observedInputTokens = input?.toLong(),
                                 observedOutputTokens = output?.toLong(),
-                                costMicros = if (status == "COMPLETED" && input != null && output != null) price?.cost(requireNotNull(input), requireNotNull(output)) else record.costMicros,
+                                costMicros = if (entirelyUnsent) {
+                                    0
+                                } else if (status == "COMPLETED" && !estimatedUsage()) {
+                                    price?.cost(requireNotNull(input), requireNotNull(output))
+                                } else {
+                                    record.costMicros
+                                },
                                 durationMs = (System.nanoTime() - started) / 1_000_000,
                                 firstTokenMs = first
                             )

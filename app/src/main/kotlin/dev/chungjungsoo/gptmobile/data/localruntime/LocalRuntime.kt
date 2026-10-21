@@ -152,7 +152,13 @@ data class GgufNativeProgress(
     val observedAtMs: Long = 0,
     val configuration: String? = null,
     val loadFraction: Double? = null,
-    val allocationObservation: NativeAllocationObservation? = null
+    val allocationObservation: NativeAllocationObservation? = null,
+    val effectiveBatch: Int? = null,
+    val prefillTokensPerSecond: Double? = null,
+    val actualRuntime: String? = null,
+    val modelName: String? = null,
+    val runtimeRequestId: String? = null,
+    val physicalAttemptId: String? = null
 )
 
 sealed interface LocalRuntimeEvent {

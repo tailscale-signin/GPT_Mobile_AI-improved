@@ -44,6 +44,7 @@ internal class ResearchConnectivityGate(private val now: () -> Long = { System.n
         healthyHosts[key] = now()
         trim(healthyHosts)
         if (failedHosts.isEmpty()) { blockedUntil = 0L; backoff = WINDOW }
+        else if (probeLease != null) blockedUntil = maxOf(blockedUntil, now() + WINDOW)
     }
 
     /** Compatibility for explicit network-change callers only; responses must use success(host). */

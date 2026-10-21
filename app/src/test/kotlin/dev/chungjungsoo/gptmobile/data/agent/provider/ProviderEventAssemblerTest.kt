@@ -15,6 +15,17 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProviderEventAssemblerTest {
+    @Test fun anthropicUsageIsInterimUntilMessageStopAndLimitIsNotStageSuccess() {
+        val assembler = AnthropicEventAssembler()
+        val delta = assembler.accept(NetworkClient.json.decodeFromString<MessageResponseChunk>("""{"type":"message_delta","delta":{"stop_reason":"max_tokens","stop_sequence":null},"usage":{"output_tokens":100}}"""))
+        assertEquals(dev.chungjungsoo.gptmobile.data.agent.ProviderUsagePhase.INTERIM, delta.filterIsInstance<ProviderEvent.Usage>().single().phase)
+        assertTrue(!delta.filterIsInstance<ProviderEvent.Failed>().single().transportComplete)
+        val stop = assembler.accept(dev.chungjungsoo.gptmobile.data.dto.anthropic.response.MessageStopResponseChunk)
+        assertEquals(dev.chungjungsoo.gptmobile.data.agent.ProviderUsagePhase.FINAL, stop.filterIsInstance<ProviderEvent.Usage>().single().phase)
+        assertTrue(stop.filterIsInstance<ProviderEvent.Failed>().single().transportComplete)
+        assertTrue(stop.none { it == ProviderEvent.Completed })
+    }
+
 
     @Test
     fun `all terminal output limit formats preserve partial text and report failure`() {

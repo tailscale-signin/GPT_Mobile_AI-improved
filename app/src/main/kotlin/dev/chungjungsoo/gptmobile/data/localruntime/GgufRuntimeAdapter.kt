@@ -244,10 +244,19 @@ internal class GgufRuntimeAdapter(private val context: Context) : LocalRuntime {
                 val attemptStarted = SystemClock.elapsedRealtime()
                 var lastEmission = 0L
                 var lastStage = ""
+                var effectiveBatch: Int? = null
+                var reusedPromptTokens = 0L
+                var prefillStartedMs = 0L
                 val spec = checkNotNull(loaded)
                 fun observe(stage: String, total: Long, processed: Long, sampled: Long, elapsed: Long, code: Int) {
                     val now = SystemClock.elapsedRealtime()
-                    val progress = GgufNativeProgress(activeOperation, stage, total, processed, sampled, elapsed, code, now)
+                    if (stage == "PREFILL_BEGIN") { reusedPromptTokens = processed.coerceAtLeast(0); prefillStartedMs = elapsed }
+                    if (stage == "PREFILL_BATCH_BEGIN" && code > 0) effectiveBatch = code
+                    val progress = GgufNativeProgress(activeOperation, stage, total, processed, sampled, elapsed, if (stage == "PREFILL_BATCH_BEGIN") 0 else code, now,
+                        effectiveBatch = effectiveBatch,
+                        prefillTokensPerSecond = if (elapsed > prefillStartedMs && processed >= reusedPromptTokens && sampled <= 0) (processed - reusedPromptTokens) * 1000.0 / (elapsed - prefillStartedMs) else null,
+                        actualRuntime = "llama.cpp · " + if (LocalAccelerators.normalize(spec.accelerator) == LocalAccelerators.GPU) "Vulkan" else "CPU",
+                        modelName = modelReceipt.substringAfter("file=", "").substringBefore(';'))
                     val previous = latest.getAndSet(progress)
                     if (processed > (previous?.processedTokens ?: -1) || sampled > (previous?.sampledTokens ?: -1) || stage in setOf("RENDER_END", "TOKENIZE_END")) lastWorkAt.set(now)
                     if ((!stage.startsWith("PREFILL_BATCH") && stage != lastStage) || now - lastEmission >= 250 || stage == "NATIVE_RETURN") {

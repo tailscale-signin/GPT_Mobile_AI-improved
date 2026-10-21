@@ -88,19 +88,24 @@ class AgentToolResolver @Inject constructor(
         val features = settingRepository.getFeatureSettings()
         val profile = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid } ?: return
         if (!features.remoteMcpConnections || !profile.enabled || profile.disableAllTools || profile.disableRemoteTools) return
-        toolConnectionRepository.listBindingsWithConnections(profileUid)
+        val connections = toolConnectionRepository.listBindingsWithConnections(profileUid)
             .filter { it.connection?.type == ToolConnectionType.MCP && pluginEnabledForBinding(features, profileUid, it) }
-            .mapNotNull { it.connection }.distinctBy { it.connectionUid }.take(limit).forEach { connection ->
-                // This coordinator path only reads or silently refreshes an already installed grant;
-                // missing/revoked OAuth raises a capability error and never opens an authorization UI.
-                if (connection.authType != ToolConnectionAuthType.OAUTH || connection.secretRef != null) {
-                    try {
-                        discoverMcpTools(connection)
-                    } catch (cancelled: CancellationException) {
-                        throw cancelled
-                    } catch (_: Exception) { }
+            .mapNotNull { it.connection }.distinctBy { it.connectionUid }.take(limit.coerceIn(0, 64))
+        coroutineScope {
+            connections.map { connection ->
+                async {
+                    // This coordinator path only reads or silently refreshes an already installed grant;
+                    // missing/revoked OAuth raises a capability error and never opens an authorization UI.
+                    if (connection.authType != ToolConnectionAuthType.OAUTH || connection.secretRef != null) {
+                        try {
+                            discoverMcpTools(connection)
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) { }
+                    }
                 }
-            }
+            }.awaitAll()
+        }
     }
 
     suspend fun discoverMcpTools(connection: ToolConnection, forceRefresh: Boolean = false): List<Tool> {
@@ -534,19 +539,23 @@ class AgentToolResolver @Inject constructor(
                     group.count { item -> item.binding.toolName in names || names.any { it.endsWith("__" + item.binding.toolName) } } * 100 +
                         words.count { word -> group.any { word in (it.binding.toolName + " " + it.connection?.name).lowercase(java.util.Locale.ROOT) } }
                 }.take(4)
-            val loaded = coroutineScope { targets.map { group -> async {
-                val connection = requireNotNull(group.first().connection)
-                try {
-                    resolveMcpTools(connection, group, live, profileUid)
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (_: Exception) {
-                    onConnectionError("${connection.name}: discovery unavailable; other authorized tools remain available.")
-                    emptyList()
-                } finally {
-                    attemptedConnections.add(connection.connectionUid)
-                }
-            } }.awaitAll().flatten() }
+            val loaded = coroutineScope {
+                targets.map { group ->
+                    async {
+                        val connection = requireNotNull(group.first().connection)
+                        try {
+                            resolveMcpTools(connection, group, live, profileUid)
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            onConnectionError("${connection.name}: discovery unavailable; other authorized tools remain available.")
+                            emptyList()
+                        } finally {
+                            attemptedConnections.add(connection.connectionUid)
+                        }
+                    }
+                }.awaitAll().flatten()
+            }
             // Recheck after I/O. Old grants/credentials cannot publish tools to a newer turn authority.
             check(settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid } == platform && settingRepository.getFeatureSettings() == live && toolConnectionRepository.listBindingsWithConnections(profileUid) == currentBindings) { "Tool permissions changed during discovery." }
             val admitted = finalizeResolvedTools(loaded, profileUid, platform, live, currentBindings, chatToolConfig, freeProfile, disableRemote, disableLocal, onConnectionError)

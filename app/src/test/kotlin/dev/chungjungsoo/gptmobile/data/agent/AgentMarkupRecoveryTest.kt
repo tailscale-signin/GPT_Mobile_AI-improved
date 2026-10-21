@@ -10,7 +10,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentMarkupRecoveryTest {
-    @Test fun rawToolMarkupGetsOneToolFreeRecoveryWithoutDispatch() = runTest {
+    @Test fun rawToolMarkupGetsOneNativeProtocolRecoveryWithoutDispatch() = runTest {
         var rounds = 0
         var executions = 0
         val tool = object : AgentTool {
@@ -25,7 +25,8 @@ class AgentMarkupRecoveryTest {
                 if (++rounds == 1) {
                     emit(ProviderEvent.TextDelta("<tool_call>{\"name\":\"read\"}</tool_call>"))
                 } else {
-                    assertTrue(tools.isEmpty())
+                    assertEquals(listOf("read"), tools.map { it.name })
+                    assertTrue(tools.single().description.contains("Protocol repair"))
                     emit(ProviderEvent.TextDelta("The requested read could not be completed."))
                 }
                 emit(ProviderEvent.Completed)

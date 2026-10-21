@@ -206,9 +206,13 @@ class AgentRunner(
             }
             val roundFailure = round.failure
             if (roundFailure != null) {
-                val protocolFailure = round.errorCode == "TOOL_PROTOCOL_INVALID_FRAME" || listOf(
-                    "Tool arguments were not valid JSON", "incomplete function call", "unparsed tool-call markup", "before completing the tool call"
-                ).any { roundFailure.contains(it, ignoreCase = true) }
+                val protocolFailure = round.errorCode == "TOOL_PROTOCOL_INVALID_FRAME" ||
+                    listOf(
+                        "Tool arguments were not valid JSON",
+                        "incomplete function call",
+                        "unparsed tool-call markup",
+                        "before completing the tool call"
+                    ).any { roundFailure.contains(it, ignoreCase = true) }
                 if (protocolFailure) {
                     if (!protocolRecoveryAttempted && !round.textEmitted && !session.handlesToolsInternally) {
                         protocolRecoveryAttempted = true
@@ -663,7 +667,7 @@ class AgentRunner(
                     failureTransportComplete = event.transportComplete
                 }
 
-                is ProviderEvent.Notice -> emit(AgentRunEvent.Notice(event.message, event.persistent))
+                is ProviderEvent.Notice -> emit(AgentRunEvent.Notice(event.message, event.persistent, event.researchDelivery))
 
                 is ProviderEvent.Usage -> {
                     event.reasoningTokens?.let { tokens ->
@@ -675,7 +679,13 @@ class AgentRunner(
                     roundRuntime = event.actualRuntime ?: roundRuntime
                     roundInput.accept(event.inputTokens, event.cumulative, event.inputSource, event.phase)
                     roundOutput.accept(event.outputTokens, event.cumulative, event.outputSource, event.phase)
-                    val totalSource = if (event.inputSource == event.outputSource) event.outputSource else if (measuredUsageSource(event.inputSource, event.phase) && measuredUsageSource(event.outputSource, event.phase)) "mixed_reported" else "estimated"
+                    val totalSource = if (event.inputSource == event.outputSource) {
+                        event.outputSource
+                    } else if (measuredUsageSource(event.inputSource, event.phase) && measuredUsageSource(event.outputSource, event.phase)) {
+                        "mixed_reported"
+                    } else {
+                        "estimated"
+                    }
                     roundTotal.accept(event.totalTokens, event.cumulative, totalSource, event.phase)
                 }
 

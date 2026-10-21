@@ -42,16 +42,23 @@ internal object CombinedContributionUsability {
 
 /** Compatibility facade for older call sites; new code names the actual structural measurement. */
 internal object CombinedContributionQuality {
-    fun sanitizeContribution(raw: String): String = raw.lines().filterNot { line ->
-        line.trim().let { it == "This model reached its response limit. Would you like me to continue?" || it.startsWith("[PARTIAL_DELEGATE_OUTPUT:") || it.startsWith("[Provider error:") }
-    }.joinToString("\n").trim()
+    fun sanitizeContribution(raw: String): String {
+        val text = dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(dev.chungjungsoo.gptmobile.util.stripAssistantErrorNote(raw))
+        val clean = text.lines().filterNot { line ->
+            line.trim().let { it == "This model reached its response limit. Would you like me to continue?" || it.startsWith("[PARTIAL_DELEGATE_OUTPUT:") || it.startsWith("[Provider error:") }
+        }.joinToString("\n")
+        return dev.chungjungsoo.gptmobile.data.agent.sanitizeAssistantText(clean).trim()
+    }
 
     fun currentRequestContribution(currentRequest: String, content: String): String {
         val clean = sanitizeContribution(content)
         val intent = dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(currentRequest).intent
         if (intent == "SUBSTANTIVE") return clean
-        val relevant = if (intent == "TEST") Regex("(?i)\\b(?:test|testing|connection|received|ready|working)\\b") else Regex("(?i)\\b(?:hi|hello|hey|welcome|help|thanks|thank you)\\b")
-        return clean.lines().filter { relevant.containsMatchIn(it) }.joinToString("\n").take(1200)
+        val greeting = Regex("(?i)^(?:(?:hi|hello|hey)(?: there| again)?|welcome(?: back)?|good (?:morning|afternoon|evening)|(?:thank you|thanks)(?: very much)?|you(?:'|’)re welcome)[!,. ]*$|^(?:how|what) can I (?:help|assist)(?: you)?(?: with)?(?: today)?[?!,. ]*$")
+        val test = Regex("(?i)^(?:(?:test|testing|message|connection)(?: message| test)? (?:received|acknowledged|successful|works|working|is working|is active)|(?:I(?:'|’)m|I am) (?:here|ready)|ready|working|connected|received|test successful)[!,. ]*$")
+        return clean.split(Regex("(?<=[.!?])\\s+|\\n+")).map(String::trim)
+            .filter { it.length <= 240 && (greeting.matches(it) || intent == "TEST" && test.matches(it)) }
+            .joinToString(" ").take(1200)
     }
 
     fun assess(status: String?, rawContent: String): CombinedContributionAssessment = CombinedContributionUsability.assess(status, rawContent)

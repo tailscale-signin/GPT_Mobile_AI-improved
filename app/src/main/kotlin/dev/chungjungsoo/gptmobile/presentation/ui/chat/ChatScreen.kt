@@ -316,6 +316,10 @@ fun ChatScreen(
     val enabledProfileUids = remember(appEnabledPlatforms) { appEnabledPlatforms.mapTo(mutableSetOf()) { it.uid } }
     val canUseChat = activePlatformUids.isNotEmpty() && activePlatformUids.all { it in enabledProfileUids }
     val isIdle = loadingStates.all { it == ChatViewModel.LoadingState.Idle }
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        val release = dev.chungjungsoo.gptmobile.data.diagnostics.FrameTimingRecorder.screen("Chat")
+        onDispose { release() }
+    }
     val context = LocalContext.current
     val lastMessageIndex = groupedMessages.userMessages.lastIndex
     var inspectedCombinedTurn by rememberSaveable(chatRoom.id) { mutableStateOf<String?>(null) }
@@ -1672,25 +1676,24 @@ fun ChatDropdownMenu(
 
 private suspend fun exportChat(context: Context, chatViewModel: ChatViewModel, format: ChatExportFormat) {
     try {
-        val (fileName, fileContent) = chatViewModel.exportChat(format)
-        if (fileContent.isBlank()) {
-            Toast.makeText(context, "No AI responses to export yet.", Toast.LENGTH_SHORT).show()
-            return
-        }
-        val file = withContext(Dispatchers.IO) {
-            val destination = File(context.getExternalFilesDir(null), fileName)
-            val staging = File(destination.parentFile, ".${destination.name}.partial")
-            try {
-                if (format == ChatExportFormat.DEBUG) {
-                    staging.outputStream().use { DebugExportBundle.write(fileContent, it) }
-                    staging.inputStream().use(DebugExportBundle::read)
-                } else {
+        val file = if (format == ChatExportFormat.DEBUG) {
+            chatViewModel.exportDebugFile(context.getExternalFilesDir(null) ?: context.filesDir)
+        } else {
+            val (fileName, fileContent) = chatViewModel.exportChat(format)
+            if (fileContent.isBlank()) {
+                Toast.makeText(context, "No AI responses to export yet.", Toast.LENGTH_SHORT).show()
+                return
+            }
+            withContext(Dispatchers.IO) {
+                val destination = File(context.getExternalFilesDir(null), fileName)
+                val staging = File(destination.parentFile, ".${destination.name}.partial")
+                try {
                     staging.writeText(fileContent)
+                    check(staging.renameTo(destination)) { "Unable to publish the completed export" }
+                    destination
+                } finally {
+                    staging.delete()
                 }
-                check(staging.renameTo(destination)) { "Unable to publish the completed export" }
-                destination
-            } finally {
-                staging.delete()
             }
         }
         val uri = getUriForFile(context, "${context.packageName}.fileprovider", file)

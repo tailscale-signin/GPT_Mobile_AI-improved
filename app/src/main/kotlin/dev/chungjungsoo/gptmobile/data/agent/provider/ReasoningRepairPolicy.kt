@@ -4,7 +4,7 @@ package dev.chungjungsoo.gptmobile.data.agent.provider
 internal object ReasoningRepairPolicy {
     fun nextCap(current: Int, transportComplete: Boolean, transportFailure: Boolean, attempted: Boolean, providerCeiling: Int? = null, userCap: Int? = null): Int? {
         if (!transportComplete || transportFailure || attempted || current <= 0) return null
-        val next = minOf(current.toLong() * 2L, Int.MAX_VALUE.toLong(), providerCeiling?.takeIf { it > 0 }?.toLong() ?: Long.MAX_VALUE, userCap?.takeIf { it > 0 }?.toLong() ?: Long.MAX_VALUE).toInt()
+        val next = minOf(current.toLong() * 2L, 16_384L, providerCeiling?.takeIf { it > 0 }?.toLong() ?: Long.MAX_VALUE, userCap?.takeIf { it > 0 }?.toLong() ?: Long.MAX_VALUE).toInt()
         return next.takeIf { it > current }
     }
 }

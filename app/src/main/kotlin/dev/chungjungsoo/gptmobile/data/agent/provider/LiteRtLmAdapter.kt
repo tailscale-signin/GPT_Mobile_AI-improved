@@ -664,7 +664,7 @@ class LiteRtLmAdapter(
                                         .collect { event ->
                                             when (event) {
                                                 is LocalRuntimeEvent.PhaseChanged -> {
-                                                    send(ProviderEvent.PhaseChanged(event.phase))
+                                                    send(ProviderEvent.PhaseChanged(event.phase, event.nativeProgress))
                                                 }
 
                                                 is LocalRuntimeEvent.TextDelta -> {
@@ -829,7 +829,7 @@ class LiteRtLmAdapter(
                                                 send(ProviderEvent.Failed(event.message))
                                             }
                                             is LocalRuntimeEvent.Metrics -> recordMetrics(event.metrics)
-                                            is LocalRuntimeEvent.PhaseChanged -> send(ProviderEvent.PhaseChanged(event.phase))
+                                            is LocalRuntimeEvent.PhaseChanged -> send(ProviderEvent.PhaseChanged(event.phase, event.nativeProgress))
                                             is LocalRuntimeEvent.Drain -> event.acknowledged.complete(Unit)
                                             LocalRuntimeEvent.Done -> Unit
                                         }

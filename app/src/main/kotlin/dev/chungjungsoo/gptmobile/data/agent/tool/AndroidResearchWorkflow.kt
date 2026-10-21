@@ -747,9 +747,13 @@ internal class AndroidResearchWorkflow(
                         !readable -> "METADATA"
                         status == "abstract_only" -> "ABSTRACT"
                         status == "partially_read" || classifyResearchAccess(text) == ResearchAccessDisposition.PREVIEW -> "PARTIAL_TEXT"
-                        else -> "FULL_TEXT"
+                        payload?.get("structuredFullText") == JsonPrimitive(true) -> "FULL_TEXT"
+                        else -> "PARTIAL_TEXT"
                     },
                     versionId = payload?.text("versionId").orEmpty().ifBlank { source.versionId },
+                    structuredFullText = payload?.get("structuredFullText") == JsonPrimitive(true),
+                    sectionNames = payload?.strings("sectionNames").orEmpty().toSet(),
+                    captureTruncated = status != "read",
                     fingerprint = hash,
                     originId = duplicate,
                     location = payload?.text("section").orEmpty().ifBlank { "Captured academic excerpt" },
@@ -780,7 +784,8 @@ internal class AndroidResearchWorkflow(
             val payload = (result?.retainedContent ?: result?.content)?.researchPayload()
             val text = result?.pageEvidenceText().orEmpty()
             val access = classifyResearchAccess(text)
-            val valid = result != null && !result.isError && text.length >= 80 && access in setOf(ResearchAccessDisposition.READABLE, ResearchAccessDisposition.PREVIEW)
+            val admission = dev.chungjungsoo.gptmobile.data.research.SourceContentValidator.validate(text, url = source.url)
+            val valid = result != null && !result.isError && text.isNotBlank() && admission.usable && access in setOf(ResearchAccessDisposition.READABLE, ResearchAccessDisposition.PREVIEW)
             val passage = if (valid) relevantEvidence(text, state.task, 6000) else ""
             val finalUrl = (payload as? JsonObject)?.text("url").orEmpty().ifBlank { source.url }
             val allowed = researchDomainAllowed(finalUrl, included, excluded)
@@ -796,7 +801,7 @@ internal class AndroidResearchWorkflow(
                 else -> "Read"
             }
             val key = source.equivalenceGroup.ifBlank { canonicalSearchUrl(source.url) }
-            sources[key] = source.copy(
+            sources[key] = dev.chungjungsoo.gptmobile.data.research.enrichResearchSourceMetadata(source.copy(
                 status = status,
                 publicCapture = if (usable) publicReader else source.publicCapture,
                 retrievalReceipt = receipt,
@@ -807,14 +812,16 @@ internal class AndroidResearchWorkflow(
                 fingerprint = fingerprint,
                 contentFingerprint = fingerprint,
                 retrievalQuality = when (status) {
-                    "Read" -> "FULL_TEXT"
+                    "Read" -> "PARTIAL_TEXT"
                     "Partially read" -> "PARTIAL_TEXT"
                     "Blocked" -> "BLOCKED"
                     "Failed" -> "EMPTY"
                     else -> "LEAD"
                 },
-                originId = origin
-            )
+                originId = origin,
+                captureTruncated = (payload as? JsonObject)?.get("truncated")?.let { (it as? JsonPrimitive)?.booleanOrNull },
+                structuredFullText = false
+            ), text)
             if (valid && allowed && source.depth < options.linkDepth) {
                 val links = (payload as? JsonObject)?.strings("links").orEmpty()
                 links.filter { options.allowExternalLinks || runCatching { URI(it).host.equals(URI(finalUrl).host, true) }.getOrDefault(false) }
@@ -836,12 +843,13 @@ internal class AndroidResearchWorkflow(
         if (readers.isEmpty()) return
         val questionTerms = researchTerms(state.task + " " + state.questions.joinToString(" "))
         while (!exhausted && !acquisitionExhausted && !stopped() && collecting() && collectionWorkCount() < sourceTarget) {
-            if (!dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.available()) {
+            val reachable = sources.values.filter { it.status == "Discovered" && dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.available(runCatching { URI(it.url).host }.getOrNull()) }
+            if (reachable.isEmpty() && sources.values.any { it.status == "Discovered" } && !dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.available()) {
                 checkpoint("Waiting for network")
                 break
             }
             val remaining = sourceTarget - collectionWorkCount()
-            val batch = sources.values.filter { it.status == "Discovered" }.sortedByDescending { source ->
+            val batch = reachable.sortedByDescending { source ->
                 researchTerms(source.title + " " + source.url).count { it in questionTerms }
             }.distinctBy { runCatching { URI(it.url).host }.getOrNull() }.take(remaining)
             val claimed = batch.filter { journal?.claimWork(it.equivalenceGroup.ifBlank { it.url }, (options.pageTimeoutSeconds * 2L + 5) * 1000) != false }

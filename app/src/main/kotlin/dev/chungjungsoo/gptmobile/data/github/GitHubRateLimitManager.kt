@@ -25,7 +25,10 @@ class GitHubRateLimitManager {
     private var latest: Snapshot = Snapshot()
     private val resources = java.util.concurrent.ConcurrentHashMap<String, Snapshot>()
 
-    fun record(headers: Headers) {
+    private val secondaryUntil = java.util.concurrent.atomic.AtomicLong()
+    fun cooldown(seconds: Long, nowMillis: Long = System.currentTimeMillis()) { secondaryUntil.updateAndGet { maxOf(it, nowMillis + seconds.coerceIn(1, 86400) * 1000) } }
+
+    fun record(headers: Headers, status: Int = 200) {
         val state = Snapshot(
             resource = headers["X-RateLimit-Resource"],
             limit = headers["X-RateLimit-Limit"]?.toLongOrNull(),
@@ -34,11 +37,15 @@ class GitHubRateLimitManager {
             resetEpochSeconds = headers["X-RateLimit-Reset"]?.toLongOrNull(),
             retryAfterSeconds = headers["Retry-After"]?.toLongOrNull()
         )
+        if (state.retryAfterSeconds != null) cooldown(state.retryAfterSeconds)
+        else if (status == 429) cooldown(60)
         latest = state
         if (state.remaining != null || state.retryAfterSeconds != null) resources[state.resource ?: "core"] = state
     }
 
     fun requireAvailable(resource: String = "core", nowEpochSeconds: Long = System.currentTimeMillis() / 1000) {
+        val secondary = ((secondaryUntil.get() + 999) / 1000 - nowEpochSeconds).coerceAtLeast(0)
+        check(secondary == 0L) { "GitHub secondary rate limit: retry after $secondary seconds." }
         val state = resources[resource] ?: return
         val delay = maxOf(
             retryAfterRemaining(state, nowEpochSeconds),
@@ -51,13 +58,17 @@ class GitHubRateLimitManager {
 
     fun shouldBackOff(nowEpochSeconds: Long = System.currentTimeMillis() / 1000): Boolean {
         val state = latest
+        if (secondaryUntil.get() > nowEpochSeconds * 1000) return true
         if (retryAfterRemaining(state, nowEpochSeconds) > 0L) return true
         return state.remaining == 0L && (state.resetEpochSeconds ?: 0L) > nowEpochSeconds
     }
 
     fun retryDelayMillis(nowEpochSeconds: Long = System.currentTimeMillis() / 1000): Long {
         val state = latest
+        val secondary = (secondaryUntil.get() - nowEpochSeconds * 1000).coerceAtLeast(0)
+        if (secondary > 0) return secondary
         retryAfterRemaining(state, nowEpochSeconds).takeIf { it > 0 }?.let { return it * 1000 }
+        if (state.remaining != 0L) return 0L
         return ((state.resetEpochSeconds ?: nowEpochSeconds) - nowEpochSeconds)
             .coerceAtLeast(0L) * 1000
     }
@@ -76,5 +87,7 @@ class GitHubRateLimitManager {
         state.resetEpochSeconds?.let { put("reset_epoch_seconds", it) }
         state.retryAfterSeconds?.let { put("retry_after_seconds", it) }
         put("backoff_recommended", JsonPrimitive(shouldBackOff()))
+        put("secondary_until_ms", secondaryUntil.get())
+        put("resources", JsonObject(resources.mapValues { (_, value) -> buildJsonObject { value.remaining?.let { put("remaining", it) }; value.resetEpochSeconds?.let { put("reset_epoch_seconds", it) } } }))
     }
 }

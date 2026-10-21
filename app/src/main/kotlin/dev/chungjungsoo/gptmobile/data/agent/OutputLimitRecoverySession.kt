@@ -38,7 +38,7 @@ internal class OutputLimitRecoverySession(
 
     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
         if (handlesToolsInternally && !allowInternalToolRecovery) {
-            emitAll(active.streamRound(tools, exchanges).withAssistantTextMarkupGuard())
+            emitAll(active.streamRound(tools, exchanges).withAssistantTextMarkupGuard(validateSearchClaims = false))
             return@flow
         }
         val evidence = exchanges // Re-admission decides fit; recovery must not silently replace completed evidence with snippets.
@@ -60,7 +60,7 @@ internal class OutputLimitRecoverySession(
             var savedCharacters = 0
             try {
                 active.streamRound(if (continuing) emptyList() else tools, if (continuing) emptyList() else exchanges)
-                    .withSummedRequestUsage().collect { event ->
+                    .withAssistantTextMarkupGuard(validateSearchClaims = false).withSummedRequestUsage().collect { event ->
                         when (event) {
                             is ProviderEvent.ToolCall -> {
                                 if (!admission.admit(event)) throw ToolBatchOversizeException()
@@ -200,9 +200,9 @@ internal fun continuationSuffix(previous: String, next: String): String {
 
 /** Convert cumulative provider snapshots into one additive usage event per request. */
 internal fun Flow<ProviderEvent>.withSummedRequestUsage(): Flow<ProviderEvent> = flow {
-    var input: Int? = null
-    var output: Int? = null
-    var total: Int? = null
+    val input = ProviderUsageCounter()
+    val output = ProviderUsageCounter()
+    val total = ProviderUsageCounter()
     var reasoning: Int? = null
     var speed: Double? = null
     var metadata: ProviderEvent.Usage? = null
@@ -218,9 +218,9 @@ internal fun Flow<ProviderEvent>.withSummedRequestUsage(): Flow<ProviderEvent> =
                 actualRuntime = event.actualRuntime ?: previous?.actualRuntime,
                 effectiveSettingsConfirmed = event.effectiveSettingsConfirmed || previous?.effectiveSettingsConfirmed == true
             )
-            event.inputTokens?.let { input = add(input, it, event.cumulative) }
-            event.outputTokens?.let { output = add(output, it, event.cumulative) }
-            event.totalTokens?.let { total = add(total, it, event.cumulative) }
+            input.accept(event.inputTokens, event.cumulative, event.inputSource, event.phase)
+            output.accept(event.outputTokens, event.cumulative, event.outputSource, event.phase)
+            total.accept(event.totalTokens, event.cumulative, if (measuredUsageSource(event.inputSource, event.phase) && measuredUsageSource(event.outputSource, event.phase)) "mixed_reported" else "estimated", event.phase)
             event.reasoningTokens?.let { reasoning = add(reasoning, it, event.cumulative) }
             event.decodeTokensPerSecond?.let { speed = it }
         } else {
@@ -228,6 +228,16 @@ internal fun Flow<ProviderEvent>.withSummedRequestUsage(): Flow<ProviderEvent> =
         }
     }
     metadata?.let { last ->
-        emit(last.copy(inputTokens = input, outputTokens = output, totalTokens = total, cumulative = false, decodeTokensPerSecond = speed, reasoningTokens = reasoning))
+        emit(
+            last.copy(
+                inputTokens = input.value?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt(),
+                outputTokens = output.value?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt(),
+                totalTokens = total.value?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt(),
+                inputSource = input.source,
+                outputSource = output.source,
+                phase = if (listOf(input, output, total).filter { it.value != null }.all { it.phase == ProviderUsagePhase.FINAL }) ProviderUsagePhase.FINAL else ProviderUsagePhase.INTERIM,
+                cumulative = false, decodeTokensPerSecond = speed, reasoningTokens = reasoning
+            )
+        )
     }
 }

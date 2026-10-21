@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.agent.provider
 
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
+import dev.chungjungsoo.gptmobile.data.agent.ProviderUsagePhase
 import dev.chungjungsoo.gptmobile.data.agent.ToolBatchOversizeException
 import dev.chungjungsoo.gptmobile.data.agent.ToolRoundAdmission
 import dev.chungjungsoo.gptmobile.data.agent.ToolStreamGuard
@@ -90,7 +91,7 @@ class OpenAIResponsesEventAssembler {
             val reason = (event.response.incompleteDetails?.get("reason") as? JsonPrimitive)?.content
             if (reason == "max_output_tokens") {
                 add(ProviderEvent.Usage(finishReason = "max_tokens"))
-                add(ProviderEvent.Failed("The response reached its output limit. Saved output and tool results are retained for bounded continuation."))
+                add(ProviderEvent.Failed("The response reached its output limit. Saved output and tool results are retained for bounded continuation.", transportComplete = true))
             } else {
                 add(ProviderEvent.Failed("The response was incomplete. Saved output and tool results will be used to continue on the next request."))
             }
@@ -185,16 +186,20 @@ class AnthropicEventAssembler {
     private val completed = sortedMapOf<Int, MessageContent>()
 
     private var inputTokens: Int? = null
+    private var outputTokens: Int? = null
+    private var outputLimited = false
 
     fun accept(event: MessageResponseChunk): List<ProviderEvent> = when (event) {
         is MessageStartResponseChunk -> {
             val usage = event.message.usage
             inputTokens = usage.inputTokens + (usage.cacheReadInputTokens ?: 0) + (usage.cacheCreationInputTokens ?: 0)
-            listOf(ProviderEvent.Usage(inputTokens, usage.outputTokens, inputTokens!! + usage.outputTokens))
+            listOf(ProviderEvent.Usage(inputTokens, usage.outputTokens, inputTokens!! + usage.outputTokens, phase = ProviderUsagePhase.INITIAL))
         }
         is MessageDeltaResponseChunk -> buildList {
-            add(ProviderEvent.Usage(inputTokens, event.usage.outputTokens, inputTokens?.plus(event.usage.outputTokens)))
+            outputTokens = event.usage.outputTokens
+            add(ProviderEvent.Usage(inputTokens, event.usage.outputTokens, inputTokens?.plus(event.usage.outputTokens), phase = ProviderUsagePhase.INTERIM))
             if (event.delta.stopReason == dev.chungjungsoo.gptmobile.data.dto.anthropic.response.StopReason.MAX_TOKENS) {
+                outputLimited = true
                 add(ProviderEvent.Failed("The response reached its output limit. Saved output and tool results will be used to continue on the next request."))
             }
         }
@@ -288,7 +293,10 @@ class AnthropicEventAssembler {
 
         is ErrorResponseChunk -> listOf(ProviderEvent.Failed(event.error.message))
 
-        MessageStopResponseChunk -> listOf(ProviderEvent.Completed)
+        MessageStopResponseChunk -> buildList {
+            outputTokens?.let { add(ProviderEvent.Usage(inputTokens, it, inputTokens?.plus(it), phase = ProviderUsagePhase.FINAL)) }
+            if (outputLimited) add(ProviderEvent.Failed("The response reached its output limit. Saved output and tool results will be used to continue on the next request.", transportComplete = true)) else add(ProviderEvent.Completed)
+        }
 
         else -> emptyList()
     }
@@ -302,7 +310,7 @@ object GeminiEventMapper {
         val events = mutableListOf<ProviderEvent>()
         response.usageMetadata?.let { usage ->
             val output = if (usage.candidateTokens != null || usage.thoughtTokens != null) (usage.candidateTokens ?: 0) + (usage.thoughtTokens ?: 0) else null
-            events += ProviderEvent.Usage(usage.promptTokens, output, usage.totalTokens, reasoningTokens = usage.thoughtTokens?.takeIf { it >= 0 })
+            events += ProviderEvent.Usage(usage.promptTokens, output, usage.totalTokens, reasoningTokens = usage.thoughtTokens?.takeIf { it >= 0 }, phase = if (response.candidates.orEmpty().any { it.finishReason != null }) ProviderUsagePhase.FINAL else ProviderUsagePhase.INTERIM)
         }
         val admission = ToolRoundAdmission()
         response.candidates.orEmpty().asSequence().flatMap { it.content?.parts.orEmpty().asSequence() }.forEach { part ->
@@ -317,7 +325,7 @@ object GeminiEventMapper {
         }
         response.candidates.orEmpty().mapNotNull { it.finishReason }.firstOrNull()?.let { events += ProviderEvent.Usage(finishReason = it) }
         if (response.candidates.orEmpty().any { it.finishReason == "MAX_TOKENS" }) {
-            events += ProviderEvent.Failed("The response reached its output limit. Saved output and tool results will be used to continue on the next request.")
+            events += ProviderEvent.Failed("The response reached its output limit. Saved output and tool results will be used to continue on the next request.", transportComplete = true)
         }
         return events
     }
@@ -332,9 +340,9 @@ private fun toolCall(callId: String, name: String, arguments: String): List<Prov
         if (parsed is JsonObject) {
             listOf(ProviderEvent.ToolCall(callId, name, parsed))
         } else {
-            listOf(ProviderEvent.Failed("Tool arguments must be a JSON object."))
+            listOf(ProviderEvent.Failed("Tool arguments must be a JSON object.", errorCode = "TOOL_PROTOCOL_INVALID_FRAME"))
         }
     } catch (_: Exception) {
-        listOf(ProviderEvent.Failed("Tool arguments were not valid JSON."))
+        listOf(ProviderEvent.Failed("Tool arguments were not valid JSON.", errorCode = "TOOL_PROTOCOL_INVALID_FRAME"))
     }
 }

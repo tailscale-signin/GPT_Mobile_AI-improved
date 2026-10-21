@@ -116,15 +116,29 @@ internal class ResearchTaskStore(private val directory: File) {
         val task = accepted(root, persistent) ?: return emptyList()
         val index = manifest(root, persistent) ?: return emptyList()
         require(index.taskId == task.taskId && index.chatId == task.chatId && index.originalRequestDigest == researchHash(task.taskText)) { "RESEARCH_MANIFEST_TASK_CHANGED" }
-        return index.revisions.filter { it.authority in authorities }.mapNotNull { entry ->
-            val encoded = read("evidence", entry.id, persistent) ?: return@mapNotNull null
-            require(researchHash(encoded) == entry.id) { "RESEARCH_MANIFEST_INTEGRITY_FAILED" }
-            val retained = json.decodeFromString<RetainedResearchEvidence>(encoded)
-            require(retained.taskId == task.taskId && retained.rootWorkId == root && retained.chatId == task.chatId && retained.authority == entry.authority && retained.originalRequestDigest == researchHash(task.taskText)) { "RESEARCH_MANIFEST_SCOPE_CHANGED" }
-            val snapshot = ResearchSnapshot.parse(retained.snapshot) ?: return@mapNotNull null
-            require(snapshot.task == task.taskText && snapshot.evidenceRevisionDigest() == entry.evidenceRevision) { "RESEARCH_MANIFEST_EVIDENCE_CHANGED" }
-            ResearchSession(retained.runId, retained.chatId, snapshot, root, retained.authority)
+        return index.revisions.filter { it.authority in authorities }.groupBy { it.authority }.values.mapNotNull { entries ->
+            var retainedSession: ResearchSession? = null
+            entries.sortedWith(compareByDescending<ResearchEvidenceRevision> { it.readableSources }.thenByDescending { it.reviewedClaims }.thenByDescending { it.totalSources }.thenByDescending { it.updatedAt }).forEach { entry ->
+                val encoded = read("evidence", entry.id, persistent) ?: return@forEach
+                require(researchHash(encoded) == entry.id) { "RESEARCH_MANIFEST_INTEGRITY_FAILED" }
+                val retained = json.decodeFromString<RetainedResearchEvidence>(encoded)
+                require(retained.taskId == task.taskId && retained.rootWorkId == root && retained.chatId == task.chatId && retained.authority == entry.authority && retained.originalRequestDigest == researchHash(task.taskText)) { "RESEARCH_MANIFEST_SCOPE_CHANGED" }
+                val snapshot = ResearchSnapshot.parse(retained.snapshot) ?: return@forEach
+                require(snapshot.task == task.taskText) { "RESEARCH_MANIFEST_EVIDENCE_CHANGED" }
+                val strongest = richestResearchSnapshot(listOfNotNull(retainedSession?.snapshot, snapshot)) ?: return@forEach
+                retainedSession = ResearchSession(if (strongest === snapshot) retained.runId else retainedSession?.runId ?: retained.runId, retained.chatId, strongest, root, retained.authority)
+            }
+            retainedSession
         }
+    }
+
+    @Synchronized fun retainedBodyChunks(): Set<String> {
+        val retained = linkedSetOf<String>()
+        directory.listFiles().orEmpty().filter { it.extension == "evidence" }.forEach { path ->
+            val page = json.decodeFromString<RetainedResearchEvidence>(AtomicFile(path).openRead().bufferedReader().use { it.readText() })
+            page.snapshot.rows("sources").forEach { retained += it.strings("bodyChunks") }
+        }
+        return retained
     }
 
     @Synchronized fun retainPartial(root: String, checkpointId: String, persistent: Boolean) {

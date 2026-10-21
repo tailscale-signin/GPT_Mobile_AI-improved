@@ -6,7 +6,6 @@ import dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.containsLocalOnlyMemory
 import dev.chungjungsoo.gptmobile.util.isAssistantErrorMessage
-import dev.chungjungsoo.gptmobile.util.stripAssistantErrorNote
 
 /** Build from the latest candidate, never a historical revision selected for inspection. */
 internal fun combinedSynthesisInputs(
@@ -40,6 +39,13 @@ internal fun combinedSynthesisInputs(
         }
         val assessment = CombinedContributionUsability.assess(status, content, allowPartial = true)
         if (!assessment.admitted) return@mapNotNull null
+        val receipt = message.timeline.lastOrNull { it.researchDeliveryReceipt != null }?.researchDeliveryReceipt
+        val disposition = when (receipt?.reportValidity) {
+            dev.chungjungsoo.gptmobile.data.research.delivery.ResearchReportValidity.ACCEPTED -> dev.chungjungsoo.gptmobile.data.database.entity.ContributionDisposition.ACCEPTED_REPORT
+            dev.chungjungsoo.gptmobile.data.research.delivery.ResearchReportValidity.EVIDENCE_ONLY -> dev.chungjungsoo.gptmobile.data.database.entity.ContributionDisposition.EVIDENCE_ONLY
+            dev.chungjungsoo.gptmobile.data.research.delivery.ResearchReportValidity.INCOMPLETE, dev.chungjungsoo.gptmobile.data.research.delivery.ResearchReportValidity.REJECTED -> dev.chungjungsoo.gptmobile.data.database.entity.ContributionDisposition.USABLE_PARTIAL
+            null -> null
+        }
         CombinedModelResponse(
             platformUid = uid,
             platformName = names[uid] ?: original?.platformName ?: "AI",
@@ -56,7 +62,7 @@ internal fun combinedSynthesisInputs(
             sourceDigest = dev.chungjungsoo.gptmobile.data.research.researchHash(content),
             ancestryIds = original?.ancestryIds.orEmpty(),
             rawContentDigest = original?.rawContentDigest?.takeIf(String::isNotBlank) ?: dev.chungjungsoo.gptmobile.data.research.researchHash(originalContent),
-            disposition = original?.disposition?.takeUnless { it == dev.chungjungsoo.gptmobile.data.database.entity.ContributionDisposition.LEGACY_UNKNOWN }
+            disposition = disposition ?: original?.disposition?.takeUnless { it == dev.chungjungsoo.gptmobile.data.database.entity.ContributionDisposition.LEGACY_UNKNOWN }
                 ?: if (status == AgentRunStatus.COMPLETED) dev.chungjungsoo.gptmobile.data.database.entity.ContributionDisposition.ACCEPTED_REPORT else dev.chungjungsoo.gptmobile.data.database.entity.ContributionDisposition.USABLE_PARTIAL
         )
     }

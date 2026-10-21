@@ -34,6 +34,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
     private val appContext = context
     private val directory = File(context.filesDir, "research-history")
     private val taskStore = ResearchTaskStore(directory)
+    private val sessionIndex = ResearchSessionIndex(directory)
     private val lock = Mutex()
     private val readerHealth = ConcurrentHashMap<Pair<Int, String>, ResearchReaderHealth>()
     private val turnBudgets = linkedMapOf<Pair<Int, String>, Pair<Long, ResearchBudget>>()
@@ -143,13 +144,18 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
         check(chatId !in deletedChats) { "Conversation was deleted" }
         taskStore.accept(AcceptedResearchTask(taskId = researchHash("task:$rootWorkId"), rootWorkId = rootWorkId, chatId = chatId, originatingUserMessageId = sourceMessageId, taskText = task, intent = if (isResearchConversationOnly(task)) "NOT_NEEDED" else "REQUIRED", participantUids = participants.distinct(), primaryUid = primary, settingsRevision = settingsRevision, sourceAuthorityRevision = authorityRevision, acceptedAt = System.currentTimeMillis()), persistent)
     }
+    suspend fun acceptedTask(rootWorkId: String, persistent: Boolean = true): AcceptedResearchTask? = withContext(Dispatchers.IO) { taskStore.accepted(rootWorkId, persistent) }
+    suspend fun evidenceManifest(rootWorkId: String, persistent: Boolean = true): ResearchEvidenceManifest? = withContext(Dispatchers.IO) { taskStore.manifest(rootWorkId, persistent) }
     suspend fun exportAcceptedTasks(chatIds: Set<Int>): List<AcceptedResearchTask> = withContext(Dispatchers.IO) { taskStore.exportTasks(chatIds) }
     suspend fun restoreAcceptedTasks(tasks: List<AcceptedResearchTask>) = withContext(Dispatchers.IO) {
         tasks.filter { it.chatId !in deletedChats }.forEach { task -> taskStore.accept(task, true) }
     }
     suspend fun recordResume(rootWorkId: String, actionId: String, stage: String, destination: String, policyRevision: String, persistent: Boolean) = withContext(Dispatchers.IO) {
         val task = taskStore.accepted(rootWorkId, persistent) ?: return@withContext
-        val latest = mutable.value.values.filter { it.turnId == rootWorkId }.maxByOrNull { it.snapshot.updatedAt }
+        val scopes = taskStore.manifest(rootWorkId, persistent)?.revisions.orEmpty().mapTo(linkedSetOf()) { it.authority }
+        val candidates = mutable.value.values.filter { it.turnId == rootWorkId } + taskStore.retainedEvidence(rootWorkId, scopes, persistent)
+        val strongest = richestResearchSnapshot(candidates.map { it.snapshot })
+        val latest = candidates.firstOrNull { it.snapshot == strongest }
         val revision = latest?.snapshot?.let { researchHash(it.json().toString()) }.orEmpty()
         taskStore.resume(ResearchResumeRequest(actionId, task.taskId, rootWorkId, latest?.runId.orEmpty(), stage, destination, revision, policyRevision, System.currentTimeMillis()), persistent)
     }
@@ -321,24 +327,16 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                 val persisted = if (pointed != null) {
                     listOf(pointed)
                 } else if (persistent && inMemory.isEmpty()) {
-                    directory.listFiles().orEmpty().filter { it.extension == "json" }.mapNotNull(::read).filter { it.authority == authority }
+                    sessionIndex.entries(chatId, setOf(turnId), setOf(authority)).mapNotNull { read(it.file) }
                 } else {
                     emptyList()
                 }
-                val own = (persisted + inMemory).filter { it.chatId == chatId && it.turnId == turnId && it.authority == authority }.maxByOrNull { it.snapshot.updatedAt }?.snapshot
+                val retained = taskStore.retainedEvidence(turnId, setOf(authority), persistent)
+                val own = richestResearchSnapshot((persisted + inMemory + retained).filter { it.chatId == chatId && it.turnId == turnId && it.authority == authority && normalizedTask(it.snapshot.task) == normalizedTask(task) }.map { it.snapshot })
                 val siblings = if (shareEnabled) mutable.value.values.filter { it.chatId == chatId && it.turnId == turnId && it.authority != authority && normalizedTask(it.snapshot.task) == normalizedTask(task) } else emptyList()
-                val publicSources = siblings.flatMap { it.snapshot.sources }.filter { it.publicCapture && it.retrievalReceipt.isNotBlank() }
-                if (publicSources.isEmpty()) {
-                    own
-                } else {
-                    val base = own ?: ResearchSnapshot(task)
-                    val merged = (base.sources + publicSources).groupBy { it.equivalenceGroup.ifBlank { it.canonicalUrl } }.values.map { versions -> versions.maxWith(compareBy<ResearchSource> { it.readable }.thenBy { it.retrievalQuality == "FULL_TEXT" }.thenBy { it.bodyChunks.size }.thenBy { it.passage.length }.thenBy { it.retrievedAt }) }
-                    val sharedClaims = siblings.flatMap { sibling ->
-                        val permittedIds = sibling.snapshot.sources.filter { it.publicCapture && it.retrievalReceipt.isNotBlank() }.mapTo(hashSetOf()) { it.id }
-                        sibling.snapshot.claims.filter { it.sourceId in permittedIds }
-                    }
-                    base.copy(sources = merged, claims = (base.claims + sharedClaims).filter { claim -> merged.any { it.id == claim.sourceId && claim.quote.isNotBlank() && claim.quote in it.passage } }.distinctBy { Triple(it.sourceId, it.text, it.quote) })
-                }
+                val public = authorizedResearchTransfer(siblings, null).filter { it.sources.isNotEmpty() }
+                if (public.isEmpty()) own else richestResearchSnapshot(public + listOfNotNull(own))
+
             }
         }
         override suspend fun <T> withTaskLock(task: String, block: suspend () -> T): T {
@@ -347,6 +345,38 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
             val taskLock = locks[(key.hashCode() and Int.MAX_VALUE) % locks.size]
             return taskLock.withLock { block() }
         }
+        override suspend fun retainPartial(stage: String, profileUid: String, text: String): String? = withContext(Dispatchers.IO) {
+            if (!persistent || text.isBlank()) return@withContext null
+            lock.withLock {
+                if (stopRequested() || generation != currentGeneration(chatId, turnId, persistent)) return@withLock null
+                check(directory.mkdirs() || directory.isDirectory)
+                var retained = text.take(120 * 1024)
+                fun payload() = buildJsonObject {
+                    put("schemaVersion", 1)
+                    put("chatId", chatId)
+                    put("runId", runId)
+                    put("turnId", turnId)
+                    put("authority", authority)
+                    put("generationFence", generation)
+                    put("stage", stage.take(96))
+                    put("profileUid", profileUid.take(256))
+                    put("accepted", false)
+                    put("truncated", retained.length < text.length)
+                    put("text", retained)
+                }.toString().toByteArray()
+                var bytes = payload()
+                while (bytes.size > 128 * 1024 && retained.isNotEmpty()) {
+                    retained = retained.dropLast(maxOf(1, retained.length / 8))
+                    if (retained.lastOrNull()?.isHighSurrogate() == true) retained = retained.dropLast(1)
+                    bytes = payload()
+                }
+                val name = researchHash("$chatId:$turnId:$authority:$runId:$generation:$stage:$profileUid") + ".partial"
+                writeAtomic(File(directory, name), bytes)
+                taskStore.retainPartial(turnId, name, persistent)
+                name
+            }
+        }
+
         override suspend fun retainBody(text: String): List<String> = withContext(Dispatchers.IO) {
             lock.withLock {
                 check(!stopRequested()) { "Research stopped" }
@@ -487,7 +517,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                 }
                 val session = ResearchSession(runId, chatId, snapshot, turnId, authority)
                 if (!persistent) {
-                    mutable.update { (it + (runId to session)).entries.sortedByDescending { entry -> entry.value.snapshot.updatedAt }.take(24).associate { entry -> entry.toPair() } }
+                    mutable.update { boundedSessions(it + (runId to session)) }
                     return@withLock
                 }
                 try {
@@ -521,6 +551,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                                 }
                             }
                             this@ResearchSessionStore.sourceRefs[cacheKey] = source to name
+                            trimSourceCache()
                             JsonPrimitive(name)
                         }
                         val claimRefs = snapshot.claims.map { claim ->
@@ -553,19 +584,19 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                             put("runId", runId)
                         }.toString().toByteArray()
                     )
+                    sessionIndex.record(session, file(runId))
                     val examinationScheduled = indexCommittedSources(snapshot)
-                    mutable.update { (it + (runId to session)).entries.sortedByDescending { entry -> entry.value.snapshot.updatedAt }.take(24).associate { entry -> entry.toPair() } }
+                    mutable.update { boundedSessions(it + (runId to session)) }
                     if (acceptedTools != null && (examinationScheduled || snapshot.complete || snapshot.sources.size != previousSourceCount)) dev.chungjungsoo.gptmobile.data.research.work.ResearchExaminationWorker.enqueue(appContext)
                     // Retention is incremental; never rescan the corpus per network chunk.
-                    val retained = completedFiles ?: directory.listFiles().orEmpty()
-                        .filter { it.extension == "json" && read(it)?.snapshot?.complete == true }
-                        .associateWith { it.lastModified() }.toMutableMap().also { completedFiles = it }
+                    val retained = completedFiles ?: sessionIndex.entries().filter { it.complete }
+                        .associate { it.file to it.updatedAt }.toMutableMap().also { completedFiles = it }
                     if (snapshot.complete) retained[file(runId)] = System.currentTimeMillis()
                     retained.entries.sortedByDescending { it.value }.drop(48).forEach { (old, _) ->
                         AtomicFile(old).delete()
+                        sessionIndex.remove(old)
                         retained.remove(old)
                     }
-                    if (sourceRefs.size > 8000) sourceRefs.clear()
                 } catch (failure: Exception) {
                     val previouslyRetained = mutable.value.values.filter { it.chatId == chatId && it.turnId == turnId && it.authority == authority }
                         .flatMap { it.snapshot.sources }.filter { it.readable }.map { it.equivalenceGroup.ifBlank { it.canonicalUrl } }.toSet()
@@ -577,7 +608,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                         },
                         notes = snapshot.notes + "Research storage failed; new documents are not counted as durably retained."
                     )
-                    mutable.update { it + (runId to session.copy(snapshot = partial)) }
+                    mutable.update { boundedSessions(it + (runId to session.copy(snapshot = partial))) }
                     throw failure
                 }
             }
@@ -589,7 +620,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
     suspend fun storageStats(): StorageStats = withContext(Dispatchers.IO) {
         lock.withLock {
             val files = directory.listFiles().orEmpty()
-            val resumable = files.asSequence().filter { it.extension == "json" }.mapNotNull(::read).filter { !it.snapshot.complete }.take(24).toList()
+            val resumable = boundedSessions(sessionIndex.entries().asSequence().filter { !it.complete }.take(24).mapNotNull { read(it.file) }.associateBy { it.runId }).values.toList()
             StorageStats(files.count { it.extension == "source" }, files.sumOf { it.length() }, resumable)
         }
     }
@@ -641,8 +672,8 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
     suspend fun migrateFeatureHistory(allowedChats: Set<Int>) = withContext(Dispatchers.IO) {
         val database = featureDatabase ?: return@withContext
         lock.withLock {
-            directory.listFiles().orEmpty().filter { it.extension == "json" }.sortedBy { it.name }.forEach { manifest ->
-                val session = read(manifest) ?: return@forEach
+            sessionIndex.entries().filter { it.chatId in allowedChats }.forEach { entry ->
+                val session = read(entry.file) ?: return@forEach
                 if (session.chatId !in allowedChats || database.research().deleted("chat:${session.chatId}") != null) return@forEach
                 val receipt = "history:" + researchHash("${session.runId}|${session.authority}|${session.snapshot.updatedAt}")
                 if (database.research().imported(receipt)) return@forEach
@@ -674,15 +705,54 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
 
     suspend fun loadChat(chatId: Int) = withContext(Dispatchers.IO) {
         lock.withLock {
-            val restored = directory.listFiles().orEmpty().filter { it.extension == "json" }.mapNotNull(::read).filter { it.chatId == chatId }
-            mutable.update { current -> (restored.associateBy { it.runId } + current).entries.sortedWith(compareByDescending<Map.Entry<String, ResearchSession>> { it.value.chatId == chatId }.thenByDescending { it.value.snapshot.updatedAt }).take(24).associate { it.toPair() } }
+            if (chatId in deletedChats) return@withLock
+            val restored = linkedMapOf<String, ResearchSession>()
+            var bytes = 0L
+            for (entry in sessionIndex.entries(chatId).take(24)) {
+                val session = read(entry.file) ?: continue
+                val cost = retainedBytes(session)
+                if (bytes + cost > SESSION_CACHE_BYTES) continue
+                restored[session.runId] = session
+                bytes += cost
+            }
+            mutable.update { current -> boundedSessions(restored + current, chatId) }
         }
     }
 
-    suspend fun exportChat(chatId: Int): List<ResearchSession> = withContext(Dispatchers.IO) {
+    suspend fun exportChat(chatId: Int): List<ResearchSession> = exportSelected(chatId, null, null)
+
+    suspend fun exportTurn(chatId: Int, turnIds: Set<String>, allowedAuthorities: Set<String>? = null): List<ResearchSession> =
+        exportSelected(chatId, turnIds, allowedAuthorities)
+
+    private suspend fun exportSelected(chatId: Int, turnIds: Set<String>?, authorities: Set<String>?): List<ResearchSession> = withContext(Dispatchers.IO) {
         lock.withLock {
-            val stored = directory.listFiles().orEmpty().filter { it.extension == "json" }.mapNotNull(::read).filter { it.chatId == chatId }
-            (stored.associateBy { it.runId } + mutable.value.filterValues { it.chatId == chatId }).values.sortedBy { it.snapshot.updatedAt }
+            if (chatId in deletedChats) return@withLock emptyList()
+            val stored = sessionIndex.entries(chatId, turnIds, authorities).mapNotNull { read(it.file) }
+            val memory = mutable.value.filterValues { it.chatId == chatId && (turnIds == null || it.turnId in turnIds) && (authorities == null || it.authority in authorities) }
+            val roots = turnIds ?: (stored.map { it.turnId } + memory.values.map { it.turnId }).toSet()
+            val retained = roots.flatMap { root ->
+                val scopes = authorities ?: taskStore.manifest(root, true)?.revisions.orEmpty().mapTo(linkedSetOf()) { it.authority }
+                taskStore.retainedEvidence(root, scopes, true) + taskStore.retainedEvidence(root, scopes, false)
+            }
+            (stored + memory.values + retained).groupBy { it.runId to it.authority }.values.map { versions ->
+                val strongest = requireNotNull(richestResearchSnapshot(versions.map { it.snapshot }))
+                versions.first().copy(snapshot = strongest)
+            }.sortedBy { it.snapshot.updatedAt }
+        }
+    }
+
+    /** The export consumer releases each session before the next evidence body is decoded. */
+    suspend fun streamChat(chatId: Int, consume: suspend (ResearchSession) -> Unit) = withContext(Dispatchers.IO) {
+        lock.withLock {
+            if (chatId in deletedChats) return@withLock
+            val memory = mutable.value.filterValues { it.chatId == chatId }
+            val seen = hashSetOf<String>()
+            for (entry in sessionIndex.entries(chatId).asReversed()) {
+                val session = memory[entry.runId] ?: read(entry.file) ?: continue
+                seen += session.runId
+                consume(session)
+            }
+            memory.values.filter { it.runId !in seen }.sortedBy { it.snapshot.updatedAt }.forEach { consume(it) }
         }
     }
 
@@ -710,7 +780,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
         stoppedTurns.removeAll { it.first == chatId }
         synchronized(turnBudgets) { turnBudgets.keys.removeAll { it.first == chatId } }
         lock.withLock {
-            directory.listFiles().orEmpty().filter { read(it)?.chatId == chatId || (it.extension in setOf("budget", "ledger", "cursor", "fence") && runCatching { Json.parseToJsonElement(it.readText()).jsonObject.number("chatId") == chatId }.getOrDefault(false)) }.forEach { AtomicFile(it).delete() }
+            directory.listFiles().orEmpty().filter { (it.extension == "json" && sessionIndex.metadata(it)?.chatId == chatId) || (it.extension in setOf("budget", "ledger", "cursor", "fence", "partial") && it.length() <= 256 * 1024 && runCatching { Json.parseToJsonElement(it.readText()).jsonObject.number("chatId") == chatId }.getOrDefault(false)) }.forEach { AtomicFile(it).delete(); sessionIndex.remove(it) }
             val retained = directory.listFiles().orEmpty().filter { it.extension == "json" }.flatMap { file ->
                 runCatching { references(Json.parseToJsonElement(file.readText()).jsonObject).orEmpty().map { (it as JsonPrimitive).content } }.getOrDefault(emptyList())
             }.toSet()
@@ -739,7 +809,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
             }.toSet()
             val retainedChunks = retained.flatMap { name ->
                 runCatching { Json.parseToJsonElement(File(directory, name).readText()).jsonObject.strings("bodyChunks") }.getOrDefault(emptyList())
-            }.toSet() + featureChunks + pendingChunks
+            }.toSet() + featureChunks + pendingChunks + taskStore.retainedBodyChunks()
             directory.listFiles().orEmpty().filter { it.extension == "chunk" && it.name !in retainedChunks }.forEach { AtomicFile(it).delete() }
             mutable.update { sessions -> sessions.filterValues { it.chatId != chatId } }
         }
@@ -874,6 +944,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                 val source = Json.parseToJsonElement(AtomicFile(file).openRead().use { it.readBytes().decodeToString() }).jsonObject
                 retained += source.strings("bodyChunks")
             }
+            retained += taskStore.retainedBodyChunks()
             directory.listFiles().orEmpty().filter { it.extension == "chunk" && it.name !in retained }.forEach { AtomicFile(it).delete() }
         }
     }
@@ -964,6 +1035,37 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
         val pages = value["sourcePages"] as? JsonArray ?: return value["sourceRefs"] as? JsonArray
         require(value.number("storageVersion") in 3..4)
         return JsonArray(pages.flatMap { readReferenceTree((it as JsonPrimitive).content) })
+    }
+
+    private fun retainedBytes(session: ResearchSession): Long = 4096L + session.snapshot.sources.sumOf { source ->
+        512L + 2L * (source.passage.length + source.title.length + source.url.length)
+    } + session.snapshot.claims.sumOf { claim -> 384L + 2L * (claim.text.length + claim.quote.length + claim.rationale.length + claim.counterEvidence.length) }
+
+    private fun boundedSessions(values: Map<String, ResearchSession>, preferredChat: Int? = null): Map<String, ResearchSession> {
+        var bytes = 0L
+        val result = linkedMapOf<String, ResearchSession>()
+        values.values.sortedWith(compareByDescending<ResearchSession> { it.chatId == preferredChat }.thenByDescending { it.snapshot.updatedAt }).forEach { session ->
+            val cost = retainedBytes(session)
+            if (result.size < 24 && bytes + cost <= SESSION_CACHE_BYTES) {
+                result[session.runId] = session
+                bytes += cost
+            }
+        }
+        return result
+    }
+
+    private fun trimSourceCache() {
+        var bytes = sourceRefs.values.sumOf { 512L + 2L * (it.first.passage.length + it.first.title.length + it.first.url.length) }
+        val entries = sourceRefs.entries.iterator()
+        while ((sourceRefs.size > 128 || bytes > 4L * 1024 * 1024) && entries.hasNext()) {
+            val entry = entries.next()
+            bytes -= 512L + 2L * (entry.value.first.passage.length + entry.value.first.title.length + entry.value.first.url.length)
+            sourceRefs.remove(entry.key, entry.value)
+        }
+    }
+
+    private companion object {
+        const val SESSION_CACHE_BYTES = 16L * 1024 * 1024
     }
 
     private fun file(runId: String) = File(directory, researchHash(runId) + ".json")

@@ -1,14 +1,14 @@
 package dev.chungjungsoo.gptmobile.data.network
 
 import dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind
-import java.util.UUID
 import java.io.IOException
 import java.net.InetSocketAddress
 import java.net.Proxy
 import java.net.UnknownHostException
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
-import okhttp3.Connection
 import okhttp3.Call
+import okhttp3.Connection
 import okhttp3.EventListener
 import okhttp3.Interceptor
 import okhttp3.Response
@@ -21,7 +21,9 @@ internal class HttpAttemptTrace(private val record: (RunDiagnosticKind, Long) ->
     private val unsentDnsFailure = AtomicBoolean()
     val provenUnsent: Boolean get() = callStarted.get() && !connectionOrRequestStarted.get() && unsentDnsFailure.get()
 
-    fun connectionOrRequestStarted() { connectionOrRequestStarted.set(true) }
+    fun connectionOrRequestStarted() {
+        connectionOrRequestStarted.set(true)
+    }
 
     fun failed(error: IOException) {
         val seen = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<Throwable, Boolean>())
@@ -63,11 +65,21 @@ internal object ReadinessHttpTrace {
             override fun callStart(call: Call) {
                 trace?.mark(RunDiagnosticKind.HTTP_CALL_START)
             }
-            override fun connectStart(call: Call, inetSocketAddress: InetSocketAddress, proxy: Proxy) { trace?.connectionOrRequestStarted() }
-            override fun connectionAcquired(call: Call, connection: Connection) { trace?.connectionOrRequestStarted() }
-            override fun requestHeadersStart(call: Call) { trace?.connectionOrRequestStarted() }
-            override fun requestBodyStart(call: Call) { trace?.connectionOrRequestStarted() }
-            override fun callFailed(call: Call, ioe: IOException) { trace?.failed(ioe) }
+            override fun connectStart(call: Call, inetSocketAddress: InetSocketAddress, proxy: Proxy) {
+                trace?.connectionOrRequestStarted()
+            }
+            override fun connectionAcquired(call: Call, connection: Connection) {
+                trace?.connectionOrRequestStarted()
+            }
+            override fun requestHeadersStart(call: Call) {
+                trace?.connectionOrRequestStarted()
+            }
+            override fun requestBodyStart(call: Call) {
+                trace?.connectionOrRequestStarted()
+            }
+            override fun callFailed(call: Call, ioe: IOException) {
+                trace?.failed(ioe)
+            }
             override fun requestBodyEnd(call: Call, byteCount: Long) {
                 trace?.mark(RunDiagnosticKind.REQUEST_BODY_END)
             }

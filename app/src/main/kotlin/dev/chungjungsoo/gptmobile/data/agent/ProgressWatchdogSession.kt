@@ -56,6 +56,7 @@ internal fun AgentProviderSession.withProgressWatchdog(
             // lease until it actually stops; the watchdog never releases a native lease.
             val transportScope = CoroutineScope(currentCoroutineContext().minusKey(Job) + SupervisorJob())
             val seenTransitions = hashSetOf<String>()
+            val nativeProgress = dev.chungjungsoo.gptmobile.data.localruntime.NativeProgressTracker()
             val firstStageTimes = mutableMapOf(ObservedProgressStage.WAITING_FOR_MODEL to started)
             var generationStarted = started
             var generationObserved = false
@@ -84,6 +85,7 @@ internal fun AgentProviderSession.withProgressWatchdog(
                             is ProviderEvent.ToolCall -> event.callId.isNotBlank() && newTransition("tool_started:${event.callId}")
                             is ProviderEvent.ToolResult -> event.call.callId.isNotBlank() && newTransition("tool_completed:${event.call.callId}")
                             is ProviderEvent.Usage -> event.cumulative && advancingCounters(event.inputTokens?.toLong(), event.outputTokens?.toLong())
+                            is ProviderEvent.PhaseChanged -> nativeProgress.advance(event.nativeProgress)
                             is ProviderEvent.LocalMetrics -> advancingCounters(event.metrics.native?.prefillTokens?.toLong(), event.metrics.native?.decodeTokens?.toLong())
                             is ProviderEvent.GatewayProgressUpdate -> {
                                 val progress = event.progress

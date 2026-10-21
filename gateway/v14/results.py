@@ -11,16 +11,22 @@ def bound_result(value,maximum):
     if maximum<=0 or len(text)<=maximum: return text
     continuations=[];identities=[]
     def retain(node):
-        if isinstance(node,dict):
-            for key,item in node.items():
-                if key in {'nextCursor','next_cursor','cursor','endCursor','view_cursor','continuation'} and isinstance(item,str) and item:
-                    if len(item)>4096: raise ToolViewCapacity('TOOL_VIEW_CAPACITY: continuation exceeds safe receipt limit')
-                    continuations.append({'key':key,'value':item})
-                if key.lower() in {'sha','head_sha','base_sha','blob_sha','tree_sha','commit_sha'} and isinstance(item,str): identities.append({'key':key,'value':item})
-                retain(item)
-        elif isinstance(node,list):
-            for item in node: retain(item)
+        pending=[(node,0)];visited=0
+        while pending:
+            current,depth=pending.pop();visited+=1
+            if depth>64 or visited>100000: raise ToolViewCapacity('TOOL_VIEW_CAPACITY: result structure exceeds receipt traversal bound')
+            if isinstance(current,dict):
+                for key,item in current.items():
+                    if key in {'nextCursor','next_cursor','cursor','endCursor','view_cursor','continuation'} and isinstance(item,str) and item:
+                        if len(item)>4096: raise ToolViewCapacity('TOOL_VIEW_CAPACITY: continuation exceeds safe receipt limit')
+                        continuations.append({'key':key,'value':item})
+                    if key.lower() in {'sha','head_sha','base_sha','blob_sha','tree_sha','commit_sha'} and isinstance(item,str): identities.append({'key':key,'value':item})
+                    pending.append((item,depth+1))
+            elif isinstance(current,list):
+                pending.extend((item,depth+1) for item in current)
     try: retain(json.loads(text))
+    except RecursionError as error:
+        raise ToolViewCapacity("TOOL_VIEW_CAPACITY: result nesting exceeds safe parser bound") from error
     except json.JSONDecodeError:
         for match in re.finditer(r'"(nextCursor|next_cursor|endCursor|view_cursor|continuation)"\s*:\s*("(?:[^"\\]|\\.)*")',text):
             retain({match.group(1):json.loads(match.group(2))})

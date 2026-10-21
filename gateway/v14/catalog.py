@@ -43,7 +43,8 @@ class CatalogCache:
             with self.lock:
                 if self.flights.get(key,(None,None))[0] is event:
                     self.health[key]={'authorized':True,'schemaKnown':key in self.cache,'connectionHealthy':False,'executionAvailable':False,'reason':'DISCOVERY_DEADLINE','retryAt':time.monotonic()+30}
-                    self.flights.pop(key,None)
+                    # Keep physical ownership until the producer exits, even if transport ignores cancellation.
+                    # The completed event lets callers leave without starting duplicate hidden requests.
             event.set()
         timer=threading.Timer(self.total,expired);timer.daemon=True;timer.start()
         try:

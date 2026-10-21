@@ -3,6 +3,7 @@
 #include "llama-ext.h"
 #include "ggml-backend.h"
 #include "gguf_chat_template.h"
+#include "gguf_prefill_governor.h"
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -289,24 +290,18 @@ extern "C" JNIEXPORT jlongArray JNICALL Java_dev_melo_gguf_GgufNative_generatePr
         jlong input = reused, output = 0, stop = 1;
         const auto start = Clock::now();
         report("PREFILL_BEGIN", tokenCount, input, output);
-        int adaptiveBatch = engine->cpuOnly ? 1 : engine->batchTokens;
+        GgufPrefillGovernor governor(engine->batchTokens, engine->cpuOnly);
         for (int offset = static_cast<int>(reused); offset < tokenCount && !engine->stop;) {
-            const int n = std::min(adaptiveBatch, tokenCount - offset);
+            const int n = governor.selected(tokenCount - offset);
             auto batch = llama_batch_get_one(tokens.data() + offset, n);
-            report("PREFILL_BATCH_BEGIN", tokenCount, input, output);
+            report("PREFILL_BATCH_BEGIN", tokenCount, input, output, n);
             const auto batchStart = Clock::now();
             const int result = llama_decode(engine->context, batch);
             report("PREFILL_BATCH_END", tokenCount, result == 0 ? input + n : input, output, result);
             if (result != 0) { stop = engine->stop ? 2 : 3; break; }
             input += n;
             offset += n;
-            // Keep useful progress observable between native calls. A slow first
-            // graph must never hide hundreds of tokens behind a single watchdog gap.
-            if (engine->cpuOnly) {
-                const long batchMs = elapsed(batchStart);
-                if (batchMs < 1500) adaptiveBatch = std::min({adaptiveBatch * 2, engine->batchTokens, 32});
-                else if (batchMs > 5000) adaptiveBatch = std::max(1, adaptiveBatch / 2);
-            }
+            governor.observed(elapsed(batchStart));
         }
         const jlong prefillMs = elapsed(start);
         const auto decodeStart = Clock::now();

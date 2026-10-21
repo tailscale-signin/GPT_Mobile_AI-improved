@@ -64,7 +64,9 @@ data class ExaminationCheckpoint(
     val pendingReviews: List<ResearchStudyReview> = emptyList(),
     val profileSnapshotJson: String? = null,
     val combined: dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext? = null,
-    val waitingConfigurationRevision: String? = null
+    val waitingConfigurationRevision: String? = null,
+    val failure: ExaminationFailure? = null,
+    val retryAttempt: Int = 0
 )
 
 @Serializable
@@ -104,7 +106,8 @@ class ArticleExaminationCoordinator @Inject constructor(
     private val models: ChatRepository,
     private val toolResolver: javax.inject.Provider<dev.chungjungsoo.gptmobile.data.agent.tool.AgentToolResolver>,
     private val sessions: dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore,
-    private val combinedBudgets: dev.chungjungsoo.gptmobile.data.agent.CombinedTurnBudgetStore? = null
+    private val combinedBudgets: dev.chungjungsoo.gptmobile.data.agent.CombinedTurnBudgetStore? = null,
+    @param:dagger.hilt.android.qualifiers.ApplicationContext private val applicationContext: android.content.Context? = null
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lock = Mutex()
@@ -159,7 +162,17 @@ class ArticleExaminationCoordinator @Inject constructor(
         require(request.origin != ExaminationOrigin.USER_EXAMINE)
         return submit(request, currentTools)
     }
-    private suspend fun submit(request: ExaminationRequest, currentTools: () -> ChatMcpToolConfig): String {
+    suspend fun resumeWaiting(id: String): String? {
+        val job = archive.dao.job(id) ?: return null
+        if (job.stage !in ExaminationLifecycle.waiting) return null
+        val checkpoint = runCatching { Json.decodeFromString<ExaminationCheckpoint>(job.checkpointJson) }.getOrNull() ?: return null
+        if (checkpoint.failure?.retryable != true || (checkpoint.failure.retryAtMs ?: Long.MAX_VALUE) > System.currentTimeMillis()) return null
+        if (archive.dao.deleted("archive:${job.workId}") != null || archive.dao.deleted("chat:${job.chatId}") != null) return null
+        val tools = checkpoint.acceptedTools ?: return null
+        return submit(ExaminationRequest(job.workId, job.profileUid, job.chatId, job.requestedVersionId, job.authority, job.origin, checkpoint.rootWorkId, checkpoint.parentRunId), { tools.copy(combined = checkpoint.combined) }, automaticRetry = true)
+    }
+
+    private suspend fun submit(request: ExaminationRequest, currentTools: () -> ChatMcpToolConfig, automaticRetry: Boolean = false): String {
         recover()
         val acceptedCombined = if (request.origin == ExaminationOrigin.USER_EXAMINE) {
             null
@@ -168,7 +181,8 @@ class ArticleExaminationCoordinator @Inject constructor(
         }
         return lock.withLock {
             val features = settings.getFeatureSettings()
-            val profile = requireNotNull(settings.fetchPlatformV2s().firstOrNull { it.enabled && it.uid == ResearchProfileResolver.examinerUid(features, request.chatId, currentTools(), request.profileUid) }) { "Choose an enabled examination profile" }
+            val selection = ResearchProfileResolver.examinerSelection(features, settings.fetchPlatformV2s(), request.chatId, currentTools(), request.profileUid)
+            val profile = requireNotNull(selection.profile) { "Choose an enabled examination profile: EXAMINER_${selection.status.name}" }
             examinationAdmission(features, profile, request, currentTools())?.let { error(it) }
             val reviewPolicy = dev.chungjungsoo.gptmobile.data.delegation.DelegationPolicyResolver.suppressForCombined(features.delegationFor(profile.uid).normalized(), acceptedCombined)
             val reviewer = ResearchProfileResolver.dedicatedReviewer(features, settings.fetchPlatformV2s(), profile)
@@ -212,7 +226,7 @@ class ArticleExaminationCoordinator @Inject constructor(
             val dedup = if (request.reexamine || explicitReadd) researchHash("$baseKey|${UUID.randomUUID()}") else baseKey
             val old = archive.dao.jobForKey(dedup)
             if (old != null && (active[old.jobId]?.isActive == true || old.stage in COMPLETE && Json.decodeFromString<ExaminationCheckpoint>(old.checkpointJson).pendingReviews.isNotEmpty())) return@withLock old.jobId
-            val checkpoint = old?.checkpointJson ?: Json.encodeToString(
+            val checkpoint = old?.checkpointJson?.let { saved -> Json.encodeToString(Json.decodeFromString<ExaminationCheckpoint>(saved).let { if (automaticRetry) it else it.copy(failure = null, retryAttempt = 0) }) } ?: Json.encodeToString(
                 ExaminationCheckpoint(
                     admittedAt = System.currentTimeMillis(),
                     acceptedTools = currentTools(),
@@ -428,16 +442,10 @@ class ArticleExaminationCoordinator @Inject constructor(
                                         } ?: dev.chungjungsoo.gptmobile.data.research.academic.AcademicEvidence(paper.paperId, researchHash(""), paper.canonicalUrl, System.currentTimeMillis(), researchHash(""), "", "timeout")
                                     } catch (cancelled: CancellationException) {
                                         throw cancelled
-                                    } catch (failure: IllegalArgumentException) {
-                                        if (failure.message != "Academic provider disabled") throw failure
-                                        check(ResearchArchiveIngestor.publicUrl(savedPaper.canonicalUrl) && allowed()) { "Public source fallback is not authorized" }
-                                        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ResearchExamine", "READER_PROVIDER_CHANGED · jobId=${record.jobId} · fallback=public_source_url", "W")
-                                        academic.read(savedPaper, ::allowed, access, persistent = false, maxTextCharacters = 240000, targetedCrawl = features.researchFeature.targetedCrawl)
-                                    } catch (failure: java.io.IOException) {
-                                        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ResearchExamine", "READER_FAILED · jobId=${record.jobId} · detail=${examinationFailureDetail(failure)} · fallback=authorized_reader", "W")
-                                        dev.chungjungsoo.gptmobile.data.research.academic.AcademicEvidence(paper.paperId, researchHash(""), paper.canonicalUrl, System.currentTimeMillis(), researchHash(""), "", "transport_failed")
+                                    } catch (failure: Exception) {
+                                        dev.chungjungsoo.gptmobile.data.research.academic.academicFailureEvidence(paper, failure) ?: throw failure
                                     }
-                                    val evidence = if (initial.retrievalStatus !in setOf("read", "blocked", "permission_denied", "authentication_required")) {
+                                    val evidence = if (initial.retrievalStatus !in setOf("read", "permission_denied", "waiting_capacity")) {
                                         val readers = toolResolver.get().resolve(profile.uid, currentTools(), dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(chatId = request.chatId, content = paper.canonicalUrl, platformType = null))
                                         ResearchReaderRouter.fallback(paper, initial, readers, sessions, researchDomains(options.includeDomains), researchDomains(options.excludeDomains), ::allowed)
                                     } else {
@@ -475,7 +483,8 @@ class ArticleExaminationCoordinator @Inject constructor(
                             dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ResearchExamine", "SOURCE_READ · jobId=${record.jobId} · owner=${if (selection.gatewayConnectionUid == null) "native" else "selected_gateway"} · providers=${selection.enabledProviders.sorted().joinToString(",")} · status=${evidence.retrievalStatus} · textChars=${evidence.text.length} · receipts=${evidence.providerReceipts.joinToString(",")}")
                             check(evidence.text.length <= 240000 && (evidence.text.isEmpty() || evidence.textHash == researchHash(evidence.text))) { "Article text is oversized or its integrity check failed" }
                             val body = evidence.text.takeIf { evidence.retrievalStatus in setOf("read", "partially_read", "abstract_only") && it.isNotBlank() } ?: paper.abstract
-                            check(body.isNotBlank()) { evidence.retrievalStatus }
+                            if (body.isBlank()) throw ExaminationRetrievalException(evidence)
+                            if (!dev.chungjungsoo.gptmobile.data.research.SourceContentValidator.validate(body, abstractOnly = !evidence.retrievalStatus.let { it in setOf("read", "partially_read") }, url = evidence.sourceUrl).usable) throw ExaminationRetrievalException(evidence.copy(retrievalStatus = "blocked", failureCode = "SOURCE_ACCESS_BLOCKED"))
                             check(dev.chungjungsoo.gptmobile.data.agent.tool.classifyResearchAccess(body) !in setOf(dev.chungjungsoo.gptmobile.data.agent.tool.ResearchAccessDisposition.CHALLENGE, dev.chungjungsoo.gptmobile.data.agent.tool.ResearchAccessDisposition.AUTH_REQUIRED)) { "SOURCE_CHALLENGE: Source access requires recovery; no scientific result accepted" }
                             val readable = evidence.retrievalStatus in setOf("read", "partially_read")
                             val preview = dev.chungjungsoo.gptmobile.data.agent.tool.classifyResearchAccess(body) == dev.chungjungsoo.gptmobile.data.agent.tool.ResearchAccessDisposition.PREVIEW
@@ -491,12 +500,17 @@ class ArticleExaminationCoordinator @Inject constructor(
                                 retrievedAt = evidence.retrievedAt, passage = body, doi = paper.doi, pmid = paper.identifiers["pmid"].orEmpty(), pmcid = paper.identifiers["pmcid"].orEmpty(),
                                 paperId = paper.paperId, versionId = evidence.versionId, reviewStatus = paper.reviewStatus, publicationType = paper.publicationType,
                                 publicationYear = paper.year, isPreprint = paper.isPreprint, isRetracted = paper.isRetracted, accessUrl = evidence.sourceUrl,
+                                structuredFullText = evidence.structuredFullText,
+                                sectionNames = evidence.sectionNames,
+                                captureTruncated = evidence.retrievalStatus != "read",
                                 retrievalQuality = if (!readable) {
                                     "ABSTRACT"
                                 } else if (evidence.retrievalStatus == "partially_read" || preview) {
                                     "PARTIAL_TEXT"
-                                } else {
+                                } else if (evidence.structuredFullText) {
                                     "FULL_TEXT"
+                                } else {
+                                    "PARTIAL_TEXT"
                                 }
                             )
                             check(allowed())
@@ -700,8 +714,11 @@ Outcome: ${Json.encodeToString(outcome)}
             }
             throw cancel
         } catch (error: Exception) {
-            if (archive.dao.advanceJob(record.jobId, record.lease, ExaminationStage.FAILED, Json.encodeToString(checkpoint), examinationFailureDetail(error, includeFrames = false).take(1600), System.currentTimeMillis()) == 1) {
-                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ResearchExamine", "STAGE_COMMITTED · jobId=${record.jobId} · workId=${record.workId} · lease=${record.lease} · stage=FAILED · from=$currentStage · profile=${profile.uid} · model=${profile.model} · chunk=${checkpoint.nextChunk}/${checkpoint.chunkCount} · invocations=${checkpoint.invocationIds.joinToString(",")} · detail=${examinationFailureDetail(error)} · frames=${error.stackTrace.filter { it.className.startsWith("dev.chungjungsoo.gptmobile") }.take(8).joinToString(" <- ")}", "W")
+            val failure = examinationFailure(error, checkpoint.retryAttempt)
+            checkpoint = checkpoint.copy(failure = failure, retryAttempt = checkpoint.retryAttempt + 1)
+            if (archive.dao.advanceJob(record.jobId, record.lease, failure.stage, Json.encodeToString(checkpoint), failure.code + ": " + failure.detail, System.currentTimeMillis(), if (failure.code == "PERMISSION_REVOKED") "PERMISSION_REVOKED" else null) == 1) {
+                if (failure.retryable) applicationContext?.let { dev.chungjungsoo.gptmobile.data.research.work.ResearchExaminationWorker.enqueue(it) }
+                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ResearchExamine", "STAGE_COMMITTED · jobId=${record.jobId} · workId=${record.workId} · lease=${record.lease} · stage=${failure.stage} · cause=${failure.code} · from=$currentStage · profile=${profile.uid} · model=${profile.model} · chunk=${checkpoint.nextChunk}/${checkpoint.chunkCount} · invocations=${checkpoint.invocationIds.joinToString(",")} · detail=${examinationFailureDetail(error)} · frames=${error.stackTrace.filter { it.className.startsWith("dev.chungjungsoo.gptmobile") }.take(8).joinToString(" <- ")}", "W")
             }
         }
     }
@@ -787,6 +804,8 @@ internal fun verifiedStructuredCoverage(evidence: dev.chungjungsoo.gptmobile.dat
         inspected = sections,
         figuresInspection = if (evidence.declaredFigures == 0) ContentInspection.NOT_APPLICABLE else ContentInspection.UNAVAILABLE,
         supplementsInspection = if (evidence.declaredSupplements == 0) ContentInspection.NOT_APPLICABLE else ContentInspection.UNAVAILABLE,
+        tablesInspection = if (evidence.declaredTables == 0) ContentInspection.NOT_APPLICABLE else ContentInspection.UNAVAILABLE,
+        tablesReason = if (evidence.declaredTables == 0) "Complete structured body declares no tables" else "Tables have not been independently inspected",
         figuresReason = if (evidence.declaredFigures == 0) "Complete structured article body declares no figures" else "Declared figures have not been independently inspected",
         supplementsReason = if (evidence.declaredSupplements == 0) "Complete structured article declares no supplementary material" else "Supplementary material has not been independently inspected"
     )

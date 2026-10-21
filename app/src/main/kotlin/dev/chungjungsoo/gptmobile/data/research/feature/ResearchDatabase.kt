@@ -220,6 +220,9 @@ interface ResearchDao {
     @Query("SELECT * FROM research_versions WHERE versionId = :id")
     suspend fun version(id: String): ResearchWorkVersion?
 
+    @Query("UPDATE research_versions SET coverage=:coverage, failure=:failure WHERE versionId=:id AND contentHash=:contentHash AND coverage=:expectedCoverage")
+    suspend fun reclassifyVersion(id: String, contentHash: String, expectedCoverage: ArticleCoverage, coverage: ArticleCoverage, failure: String): Int
+
     @Query("SELECT * FROM research_versions WHERE workId = :workId ORDER BY retrievedAt DESC LIMIT 100")
     suspend fun versions(workId: String): List<ResearchWorkVersion>
 
@@ -357,7 +360,7 @@ interface ResearchDao {
     @Transaction
     suspend fun interruptJob(id: String, lease: Long, stage: ExaminationStage, reason: String, origin: String, at: Long): Int {
         val old = job(id) ?: return 0
-        if (old.lease != lease || old.stage !in ExaminationLifecycle.active && old.stage != ExaminationStage.PAUSED && old.stage != ExaminationStage.FAILED) return 0
+        if (old.lease != lease || old.stage !in ExaminationLifecycle.active && old.stage !in ExaminationLifecycle.waiting && old.stage != ExaminationStage.PAUSED && old.stage != ExaminationStage.FAILED) return 0
         job(old.copy(stage = stage, lease = lease + 1, terminalReason = reason, updatedAt = at, deadlineAt = 0, cancellationOrigin = origin))
         transition(ExaminationTransition(0, id, lease, stage, at, old.workerId, reason, origin))
         return 1

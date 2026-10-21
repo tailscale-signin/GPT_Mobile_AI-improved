@@ -43,17 +43,34 @@ class ResearchExaminationWorker @AssistedInject constructor(
         coordinator.recover()
         var pending = !sessions.retryPendingDiscovery()
         val features = settings.getFeatureSettings()
+        if (features.researchFeature.enabled && (features.researchFeature.backgroundExamination || withContext(Dispatchers.Main) { ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) })) {
+            for (job in archive.dao.allJobs().filter { it.stage in dev.chungjungsoo.gptmobile.data.research.feature.ExaminationLifecycle.waiting }) {
+                val checkpoint = runCatching { Json.decodeFromString<dev.chungjungsoo.gptmobile.data.research.feature.ExaminationCheckpoint>(job.checkpointJson) }.getOrNull() ?: continue
+                if (checkpoint.failure?.retryable != true) continue
+                if ((checkpoint.failure.retryAtMs ?: Long.MAX_VALUE) > System.currentTimeMillis()) { pending = true; continue }
+                try {
+                    val resumed = coordinator.resumeWaiting(job.jobId)
+                    if (resumed != null) {
+                        coordinator.awaitExecution(resumed)
+                        val after = archive.dao.job(resumed)?.checkpointJson?.let { Json.decodeFromString<dev.chungjungsoo.gptmobile.data.research.feature.ExaminationCheckpoint>(it) }
+                        if (after?.failure?.retryable == true) pending = true
+                    }
+                } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { pending = true }
+            }
+        }
         if (!features.researchFeature.enabled || features.researchFeature.autoExamination == AutoExamination.OFF) {
             archive.dao.trimUnexamined(features.researchFeature.unexaminedStudyLimit, System.currentTimeMillis())
             return if (pending) Result.retry() else Result.success()
         }
         if (!features.researchFeature.backgroundExamination && !withContext(Dispatchers.Main) { ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) }) return Result.retry()
-        val configurationRevision = examinationConfigurationRevision(features, settings.fetchPlatformV2s())
+        val profiles = settings.fetchPlatformV2s()
+        val configurationRevision = examinationConfigurationRevision(features, profiles)
         // Only process-loss recovery is automatic; user Pause/Stop always requires user action.
         archive.dao.allJobs().filter { it.origin != dev.chungjungsoo.gptmobile.data.research.feature.ExaminationOrigin.USER_EXAMINE && it.stage == dev.chungjungsoo.gptmobile.data.research.feature.ExaminationStage.PAUSED && (it.terminalReason == "Process interrupted; explicit resume required" || it.cancellationOrigin == "WAITING_FOR_CONFIGURATION") }.forEach { job ->
             val checkpoint = runCatching { Json.decodeFromString<dev.chungjungsoo.gptmobile.data.research.feature.ExaminationCheckpoint>(job.checkpointJson) }.getOrNull()
             val tools = checkpoint?.acceptedTools?.copy(combined = checkpoint.combined)
-            if (checkpoint?.waitingConfigurationRevision == configurationRevision) return@forEach
+            val jobRevision = examinationConfigurationRevision(features, profiles, job.chatId, job.profileUid, tools ?: ChatMcpToolConfig())
+            if (checkpoint?.waitingConfigurationRevision == jobRevision) return@forEach
             val combined = checkpoint?.combined
             if (combined != null) {
                 val budget = dev.chungjungsoo.gptmobile.data.agent.CombinedTurnBudgetStore.installedOrNull()?.open(combined)?.snapshot()
@@ -72,7 +89,7 @@ class ResearchExaminationWorker @AssistedInject constructor(
                     if (configurationBlocked(failure)) {
                         archive.database.withTransaction {
                             val live = archive.dao.job(job.jobId)
-                            if (live?.lease == job.lease) archive.dao.job(live.copy(checkpointJson = Json.encodeToString(requireNotNull(checkpoint).copy(waitingConfigurationRevision = configurationRevision)), cancellationOrigin = "WAITING_FOR_CONFIGURATION", terminalReason = "Examination is waiting for configuration. Review the selected examiner, reader and paper permissions."))
+                            if (live?.lease == job.lease) archive.dao.job(live.copy(checkpointJson = Json.encodeToString(requireNotNull(checkpoint).copy(waitingConfigurationRevision = jobRevision)), cancellationOrigin = "WAITING_FOR_CONFIGURATION", terminalReason = "Examination is waiting for configuration. Review the selected examiner, reader and paper permissions."))
                         }
                     } else {
                         pending = true
@@ -88,11 +105,18 @@ class ResearchExaminationWorker @AssistedInject constructor(
             for (row in batch) {
                 try {
                     val scheduled = Json.decodeFromString<ScheduledExamination>(row.operation)
-                    if (scheduled.waitingReason in setOf("USER_PAUSED", "OUTPUT_INVALID") || scheduled.waitingReason != null && scheduled.waitingRevision == configurationRevision) continue
+                    val rowRevision = examinationConfigurationRevision(features, profiles, scheduled.request.chatId, scheduled.request.profileUid, scheduled.tools)
+                    if (scheduled.waitingReason in setOf("USER_PAUSED", "OUTPUT_INVALID", "SOURCE_BLOCKED", "CAPACITY_EXHAUSTED") || scheduled.waitingReason != null && scheduled.waitingRevision == rowRevision) continue
                     val policy = settings.getFeatureSettings().researchFeature
                     if (!policy.enabled || policy.autoExamination == AutoExamination.OFF || policy.autoExamination == AutoExamination.WHEN_NEEDED && !scheduled.needed) continue
                     if (archive.dao.deleted("archive:${scheduled.request.workId}") != null || archive.dao.deleted("chat:${scheduled.request.chatId}") != null) {
                         archive.dao.acknowledge(row.id, row.createdAt)
+                        continue
+                    }
+                    val waiting = archive.dao.jobsForWork(scheduled.request.workId).firstOrNull { job -> job.chatId == scheduled.request.chatId && job.origin == scheduled.request.origin && job.authority == scheduled.request.authority && job.stage in dev.chungjungsoo.gptmobile.data.research.feature.ExaminationLifecycle.waiting }
+                    if (waiting != null) {
+                        val saved = runCatching { Json.decodeFromString<dev.chungjungsoo.gptmobile.data.research.feature.ExaminationCheckpoint>(waiting.checkpointJson) }.getOrNull()
+                        if (saved?.failure?.retryable == true) pending = true
                         continue
                     }
                     val id = coordinator.automaticExamine(scheduled.request) { scheduled.tools }
@@ -105,6 +129,10 @@ class ResearchExaminationWorker @AssistedInject constructor(
                         archive.dao.outbox(row.copy(operation = Json.encodeToString(scheduled.copy(waitingReason = "USER_PAUSED", waitingRevision = null))))
                     } else if (stage == dev.chungjungsoo.gptmobile.data.research.feature.ExaminationStage.FAILED && archive.dao.job(id)?.terminalReason?.contains("EXAMINATION_OUTPUT_INVALID") == true) {
                         archive.dao.outbox(row.copy(operation = Json.encodeToString(scheduled.copy(waitingReason = "OUTPUT_INVALID", waitingRevision = null))))
+                    } else if (stage in dev.chungjungsoo.gptmobile.data.research.feature.ExaminationLifecycle.waiting) {
+                        val retained = archive.dao.job(id)?.checkpointJson?.let { Json.decodeFromString<dev.chungjungsoo.gptmobile.data.research.feature.ExaminationCheckpoint>(it) }
+                        if (retained?.failure?.retryable == true) pending = true
+                        else archive.dao.outbox(row.copy(operation = Json.encodeToString(scheduled.copy(waitingReason = if (stage == dev.chungjungsoo.gptmobile.data.research.feature.ExaminationStage.BLOCKED_SOURCE) "SOURCE_BLOCKED" else "CAPACITY_EXHAUSTED"))))
                     } else {
                         pending = true
                     }
@@ -113,7 +141,7 @@ class ResearchExaminationWorker @AssistedInject constructor(
                 } catch (failure: Exception) {
                     if (configurationBlocked(failure)) {
                         val scheduled = Json.decodeFromString<ScheduledExamination>(row.operation)
-                        archive.dao.outbox(row.copy(operation = Json.encodeToString(scheduled.copy(waitingReason = "WAITING_FOR_CONFIGURATION", waitingRevision = configurationRevision))))
+                        archive.dao.outbox(row.copy(operation = Json.encodeToString(scheduled.copy(waitingReason = "WAITING_FOR_CONFIGURATION", waitingRevision = examinationConfigurationRevision(features, profiles, scheduled.request.chatId, scheduled.request.profileUid, scheduled.tools)))))
                     } else {
                         pending = true
                     }

@@ -14,6 +14,27 @@ internal class LocalEventBuffer(private val byteLimit: Int = 1024 * 1024, privat
     @Synchronized
     fun offer(event: LocalRuntimeEvent): Boolean {
         if (terminal) return false
+        if (event is LocalRuntimeEvent.PhaseChanged && event.nativeProgress != null) {
+            // Progress is replaceable metadata; it cannot evict accepted text or a terminal receipt.
+            val previous = events.peekLast() as? LocalRuntimeEvent.PhaseChanged
+            if (previous?.nativeProgress?.operationId == event.nativeProgress.operationId && previous.phase == event.phase) {
+                events.removeLast()
+                controls--
+            } else if (controls >= controlLimit) {
+                val iterator = events.iterator()
+                var removed = false
+                while (iterator.hasNext()) {
+                    val queued = iterator.next()
+                    if (queued is LocalRuntimeEvent.PhaseChanged && queued.nativeProgress != null) {
+                        iterator.remove()
+                        controls--
+                        removed = true
+                        break
+                    }
+                }
+                if (!removed) return true
+            }
+        }
         val text = text(event)
         val size = text?.toByteArray(Charsets.UTF_8)?.size ?: 0
         val isTerminal = event is LocalRuntimeEvent.Done || event is LocalRuntimeEvent.Error

@@ -1,58 +1,62 @@
 package dev.chungjungsoo.gptmobile.data.research.feature
 
 import dev.chungjungsoo.gptmobile.data.agent.tool.ResolvedAgentTool
-import dev.chungjungsoo.gptmobile.data.agent.tool.looksLikeConsentOrScriptShell
 import dev.chungjungsoo.gptmobile.data.agent.tool.pageText
 import dev.chungjungsoo.gptmobile.data.agent.tool.researchPayload
+import dev.chungjungsoo.gptmobile.data.research.ResearchDocumentResult
 import dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore
+import dev.chungjungsoo.gptmobile.data.research.SourceContentValidator
 import dev.chungjungsoo.gptmobile.data.research.academic.AcademicEvidence
 import dev.chungjungsoo.gptmobile.data.research.academic.AcademicPaper
 import dev.chungjungsoo.gptmobile.data.research.researchDomainAllowed
 import dev.chungjungsoo.gptmobile.data.research.researchHash
 import dev.chungjungsoo.gptmobile.data.research.strings
 import dev.chungjungsoo.gptmobile.data.research.text
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
-/** The bounded native document reader is used only after native academic capability is unavailable. */
+/** Tries only already-authorized alternate URLs; access failure never becomes a reliability grade. */
 internal object ResearchReaderRouter {
     suspend fun fallback(paper: AcademicPaper, initial: AcademicEvidence, readers: List<ResolvedAgentTool>, sessions: ResearchSessionStore, included: List<String>, excluded: List<String>, permitted: suspend () -> Boolean): AcademicEvidence {
-        if (initial.retrievalStatus in setOf("read", "blocked", "permission_denied", "authentication_required")) return initial
-        fun retain(reason: String): AcademicEvidence {
-            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ResearchExamine", "DOCUMENT_READER_RETAINED · paperId=${paper.paperId} · initialStatus=${initial.retrievalStatus} · reason=$reason")
-            return initial
+        if (initial.retrievalStatus in setOf("read", "permission_denied", "waiting_capacity")) return initial
+        val reader = readers.firstOrNull { it.realToolName == "read_url" && it.connectionUid == null } ?: return initial
+        var retained = initial
+        val avoided = initial.redirectChain.toSet() + if (initial.retrievalStatus in setOf("blocked", "authentication_required", "redirect_failed")) setOf(initial.sourceUrl) else emptySet()
+        val candidates = listOfNotNull(paper.openAccessUrl, paper.canonicalUrl).filter { it.isNotBlank() }.distinct().filterNot { it in avoided }
+        for (url in candidates) {
+            if (!permitted()) return retained.copy(retrievalStatus = "permission_denied", failureCode = "PERMISSION_REVOKED")
+            if (!ResearchArchiveIngestor.publicUrl(url) || !researchDomainAllowed(url, included, excluded)) continue
+            val result = try {
+                reader.tool.execute("examine-document:" + researchHash(paper.paperId + url), buildJsonObject {
+                    put("url", url); put("extractDocument", true)
+                    put("includeDomains", JsonArray(included.map(::JsonPrimitive))); put("excludeDomains", JsonArray(excluded.map(::JsonPrimitive)))
+                })
+            } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled } catch (_: Exception) { continue }
+            if (!permitted()) return retained.copy(retrievalStatus = "permission_denied", failureCode = "PERMISSION_REVOKED")
+            val payload = (result.retainedContent ?: result.content).researchPayload() as? JsonObject ?: continue
+            val document = ResearchDocumentResult.fromJson(payload)
+            if (result.isError) {
+                if (document != null) retained = retained.copy(retrievalStatus = document.status, failureCode = document.failureCode ?: result.errorCode, failureReason = document.failureReason, sourceUrl = url)
+                if (document?.status == "waiting_capacity") return retained
+                continue
+            }
+            val finalUrl = payload.text("url").ifBlank { url }
+            if (!ResearchArchiveIngestor.publicUrl(finalUrl) || !researchDomainAllowed(finalUrl, included, excluded)) continue
+            val chunks = payload.strings("bodyChunks")
+            val captured = (if (chunks.isEmpty()) pageText(payload) else sessions.readFeatureBody(chunks)) ?: continue
+            val admission = SourceContentValidator.validate(captured, url = finalUrl)
+            if (!admission.usable) {
+                retained = retained.copy(retrievalStatus = "blocked", failureCode = "SOURCE_${admission.kind}", failureReason = admission.reasons.joinToString(), sourceUrl = finalUrl)
+                continue
+            }
+            if (retained.text.length > captured.length) continue
+            val text = captured.take(240000)
+            val status = if (admission.kind == SourceContentValidator.Kind.ABSTRACT) "abstract_only" else if (text.length < captured.length || payload.text("truncated") == "true") "partially_read" else "read"
+            return AcademicEvidence(paper.paperId, researchHash(text), finalUrl, System.currentTimeMillis(), researchHash(text), text, status, section = "Native document extraction; tables, figures and supplements uninspected", providerReceipts = paper.providerReceipts + "native-read-url:" + researchHash(finalUrl), canonicalUrl = paper.canonicalUrl)
         }
-        val reader = readers.firstOrNull { it.realToolName == "read_url" && it.connectionUid == null } ?: return retain("No authorized native document reader is available")
-        val url = paper.openAccessUrl?.takeIf { it.isNotBlank() } ?: paper.canonicalUrl
-        if (!ResearchArchiveIngestor.publicUrl(url) || !researchDomainAllowed(url, included, excluded) || !permitted()) return retain("URL or domain is restricted, or examination permission changed")
-        val result = try {
-            reader.tool.execute(
-                "examine-document:" + researchHash(paper.paperId),
-                buildJsonObject {
-                    put("url", url)
-                    put("extractDocument", true)
-                    put("includeDomains", kotlinx.serialization.json.JsonArray(included.map { kotlinx.serialization.json.JsonPrimitive(it) }))
-                    put("excludeDomains", kotlinx.serialization.json.JsonArray(excluded.map { kotlinx.serialization.json.JsonPrimitive(it) }))
-                }
-            )
-        } catch (cancelled: kotlinx.coroutines.CancellationException) {
-            throw cancelled
-        } catch (failure: Exception) {
-            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ResearchExamine", "DOCUMENT_READER_FAILED · paperId=${paper.paperId} · detail=${examinationFailureDetail(failure)}", "W")
-            return initial
-        }
-        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ResearchExamine", "DOCUMENT_READER_RESULT · paperId=${paper.paperId} · tool=${reader.realToolName} · error=${result.isError} · errorCode=${result.errorCode}")
-        if (result.isError || !permitted()) return retain("Reader failed or permission changed")
-        val payload = (result.retainedContent ?: result.content).researchPayload() as? JsonObject ?: return retain("Reader response is not a document object")
-        val finalUrl = payload.text("url").ifBlank { url }
-        if (!ResearchArchiveIngestor.publicUrl(finalUrl) || !researchDomainAllowed(finalUrl, included, excluded)) return retain("Redirect destination is restricted")
-        val chunks = payload.strings("bodyChunks")
-        val captured = (if (chunks.isEmpty()) pageText(payload) else sessions.readFeatureBody(chunks)) ?: return retain("Retained document body is unavailable")
-        if (captured.isBlank() || looksLikeConsentOrScriptShell(captured)) return if (initial.text.isNotBlank()) initial else initial.copy(retrievalStatus = "blocked", text = "", textHash = researchHash(""))
-        val text = captured.take(240000)
-        if (initial.text.length > text.length) return retain("Existing evidence has more readable text")
-        val status = if (text.length < captured.length || payload.text("truncated") == "true") "partially_read" else "read"
-        return AcademicEvidence(paper.paperId, researchHash(text), finalUrl, System.currentTimeMillis(), researchHash(text), text, status, section = "Bounded native document extraction; figures and supplements uninspected", providerReceipts = listOf("native-read-url:" + researchHash(finalUrl)))
+        return retained
     }
 }

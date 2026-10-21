@@ -8,11 +8,12 @@ import kotlinx.coroutines.flow.flow
 /** Withhold provider text that contains unresolved wire-level tool instructions. */
 internal fun Flow<ProviderEvent>.withAssistantTextMarkupGuard(
     initialSuccessfulSearch: Boolean = false,
-    searchToolNames: Set<String> = emptySet()
+    searchToolNames: Set<String> = emptySet(),
+    validateSearchClaims: Boolean = true
 ): Flow<ProviderEvent> = flow {
     val guard = AssistantTextMarkupGuard()
     var blocked = false
-    var successfulWebSearch = initialSuccessfulSearch
+    var successfulWebSearch = initialSuccessfulSearch || !validateSearchClaims
 
     suspend fun finishText() {
         if (blocked) return
@@ -209,7 +210,7 @@ private class NormalizedAssistantTextSession(private val source: AgentProviderSe
     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> {
         val searchNames = tools.filter { AgentToolCapability.WEB_SEARCH in it.capabilities }.map { it.name }.toSet()
         val searched = exchanges.any { exchange -> exchange.results.any { result -> !result.isError && result.dispatched && exchange.calls.any { it.callId == result.callId && it.name in searchNames } } }
-        return source.streamRound(tools, exchanges).withAssistantTextMarkupGuard(searched, searchNames)
+        return source.streamRound(tools, exchanges).withAssistantTextMarkupGuard(searched, searchNames, validateSearchClaims = false)
     }
 }
 

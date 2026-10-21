@@ -162,12 +162,14 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
         check(sessionId.isNotBlank()) { "Local conversation is not open" }
         require(images.size <= 10 && images.sumOf { it.size.toLong() } <= 8L * 1024 * 1024) { "Attached images exceed the local memory budget" }
         val packet = RuntimeWire("GENERATE", UUID.randomUUID().toString(), sessionId, generation, text = text, images = images)
-        val request = Pending(packet, LocalEventBuffer())
+        val request = Pending(packet, LocalEventBuffer(), kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.receipts?.lastOrNull()?.physicalAttemptId)
         pending[packet.requestId] = request
         val startedAtMs = SystemClock.elapsedRealtime()
         val watchdogBackend = state.value.backend
         val watchdogBudgetMs = LocalPrefillDeadline.processWatchdogBudgetMs(text.length, watchdogBackend)
         var receivedNativeToken = false
+        val progressTracker = NativeProgressTracker()
+        var lastMeaningfulAtMs = startedAtMs
         try {
             send(packet)
             // A native engine can remain in PREFILL with no callbacks indefinitely.
@@ -177,7 +179,10 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
                 val next = if (receivedNativeToken) {
                     true to request.events!!.take()
                 } else {
-                    val remaining = LocalPrefillDeadline.processWatchdogRemainingMs(startedAtMs, SystemClock.elapsedRealtime(), text.length, watchdogBackend)
+                    val now = SystemClock.elapsedRealtime()
+                    val remaining = if (watchdogBackend in setOf(dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend.LLAMA_CPP, dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend.GENIEX_LLAMA_CPP)) {
+                        minOf(600_000L - (now - startedAtMs), watchdogBudgetMs - (now - lastMeaningfulAtMs)).coerceAtLeast(0)
+                    } else LocalPrefillDeadline.processWatchdogRemainingMs(startedAtMs, now, text.length, watchdogBackend)
                     if (remaining <= 0L) null else withTimeoutOrNull(remaining) { true to request.events!!.take() }
                 }
                 if (next == null) {
@@ -191,6 +196,7 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
                     throw IllegalStateException("LOCAL_PREFILL_TIMEOUT: The native engine produced no tokens after ${elapsed / 1000}s. Generation was cancelled; check the selected backend and model compatibility, then retry manually.")
                 }
                 val event = next.second ?: break
+                if (event is LocalRuntimeEvent.PhaseChanged && progressTracker.advance(event.nativeProgress)) lastMeaningfulAtMs = SystemClock.elapsedRealtime()
                 if (!receivedNativeToken && (event is LocalRuntimeEvent.TextDelta || event is LocalRuntimeEvent.ThinkingDelta)) {
                     receivedNativeToken = true
                     val engine = state.value
@@ -212,7 +218,7 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
         pending.values.forEach { request ->
             request.cancelling = true
             request.toolJobs.values.forEach { it.cancel() }
-            scope.launch { runCatching { sendCancel(request.packet) } }
+            scope.launch { runCatching { sendCancel(request.packet, "EXPLICIT_CANCEL_ACTIVE") } }
         }
     }
 
@@ -265,7 +271,7 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
             request.cancelling = true
             request.toolJobs.values.forEach { it.cancel() }
             mutableState.value = state.value.copy(lifecycle = "CANCELLING", engineHealth = "RESTART_REQUIRED")
-            runCatching { sendCancel(request.packet) }
+            runCatching { sendCancel(request.packet, "COROUTINE_OR_DEADLINE") }
             if (withTimeoutOrNull(12_000) {
                     runCatching { request.finished.await() }
                     true
@@ -273,13 +279,15 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
             ) {
                 quarantinedBinder = remote?.binder
                 remote?.let { runCatching { RuntimeWireTransport.send(context, it, request.packet.copy(operation = "SHUTDOWN"), incoming) } }
+                recordTerminal(request, "CANCELLATION_UNACKNOWLEDGED", false)
                 disconnect("Inference worker did not acknowledge cancellation. Partial output is preserved; start a new request.")
             }
         }
         pending.remove(request.packet.requestId)
     }
 
-    private suspend fun sendCancel(packet: RuntimeWire) = withContext(Dispatchers.IO) {
+    private suspend fun sendCancel(packet: RuntimeWire, origin: String = "TOOL_PROTOCOL_REJECTED") = withContext(Dispatchers.IO) {
+        pending[packet.requestId]?.let { if (it.cancellationOrigin == null) it.cancellationOrigin = origin }
         remote?.let { RuntimeWireTransport.send(context, it, packet.copy(operation = "CANCEL", text = "", images = emptyList(), spec = null, conversation = null, settings = null), incoming) }
     }
 
@@ -346,7 +354,7 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
             "TEXT", "THINKING" -> {
                 val accepted = request.events?.offer(if (packet.operation == "TEXT") LocalRuntimeEvent.TextDelta(packet.text) else LocalRuntimeEvent.ThinkingDelta(packet.text)) == true
                 scope.launch {
-                    if (!accepted) sendCancel(request.packet)
+                    if (!accepted) sendCancel(request.packet, "OUTPUT_BUFFER_FULL")
                     remote?.let { RuntimeWireTransport.send(context, it, packet.copy(operation = "ACK", text = ""), incoming) }
                 }
             }
@@ -361,12 +369,15 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
                     AppLogRecorder.record("LocalModel", "GGUF_NATIVE_PROGRESS · request=${packet.requestId} · session=${packet.sessionId} · generation=${packet.generation} · sequence=${packet.sequence} · operation=${progress.operationId} · stage=${progress.stage} · promptTokens=${progress.promptTokens} · processedTokens=${progress.processedTokens} · sampledTokens=${progress.sampledTokens} · elapsedMs=${progress.elapsedMs} · nativeCode=${progress.nativeCode} · observationMs=${progress.observedAtMs} · workerPssBytes=${processPssBytes ?: -1} · config=${progress.configuration.orEmpty()}")
                     if (progress.stage == "TIMEOUT_CANCEL_REQUESTED") mutableState.value = state.value.copy(lifecycle = "CANCELLING", engineHealth = "RESTART_REQUIRED")
                 }
-                if (packet.nativeProgress == null || packet.nativeProgress.stage == "FIRST_BYTES") request.events?.offer(LocalRuntimeEvent.PhaseChanged(LocalInferencePhase.valueOf(packet.text), packet.nativeProgress))
+                val progress = packet.nativeProgress?.copy(runtimeRequestId = packet.requestId, physicalAttemptId = request.physicalAttemptId)
+                if (progress != null) request.lastProgress = progress
+                request.events?.offer(LocalRuntimeEvent.PhaseChanged(LocalInferencePhase.valueOf(packet.text), progress))
             }
             "METRICS" -> packet.metrics?.let { request.events?.offer(LocalRuntimeEvent.Metrics(it)) }
             "TOOL" -> runTool(request, packet)
             "TOOL_RECEIVED" -> deliveryReceipts.remove(packet.callId)?.let { receipt -> scope.launch { receipt.acknowledge() } }
             "RESULT", "DONE", "ERROR", "CANCELLED" -> {
+                recordTerminal(request, packet.operation, true)
                 if (packet.operation == "DONE") request.events?.offer(LocalRuntimeEvent.Done)
                 if (packet.operation == "ERROR" || packet.operation == "CANCELLED") {
                     request.events?.offer(LocalRuntimeEvent.Error(packet.text, packet.errorCode?.let(::LocalToolLimitException)))
@@ -438,7 +449,17 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
         previous?.let { runCatching { context.unbindService(it) } }
     }
 
-    private class Pending(val packet: RuntimeWire, val events: LocalEventBuffer? = null) {
+    private fun recordTerminal(request: Pending, terminal: String, acknowledged: Boolean) {
+        if (request.packet.operation != "GENERATE" || request.receiptRecorded) return
+        request.receiptRecorded = true
+        val progress = request.lastProgress
+        AppLogRecorder.record("LocalModel", "LOCAL_TERMINAL_RECEIPT · request=${request.packet.requestId} · physicalAttempt=${request.physicalAttemptId ?: "unknown"} · operation=${progress?.operationId ?: -1} · terminal=$terminal · cancellationOrigin=${request.cancellationOrigin ?: "none"} · acknowledged=$acknowledged · lastStage=${progress?.stage ?: "unknown"} · processed=${progress?.processedTokens ?: -1} · total=${progress?.promptTokens ?: -1} · sampled=${progress?.sampledTokens ?: -1}")
+    }
+
+    private class Pending(val packet: RuntimeWire, val events: LocalEventBuffer? = null, val physicalAttemptId: String? = null) {
+        @Volatile var lastProgress: GgufNativeProgress? = null
+        @Volatile var cancellationOrigin: String? = null
+        @Volatile var receiptRecorded = false
         val finished = CompletableDeferred<RuntimeWire>()
         var sequence = 0L
 

@@ -195,11 +195,11 @@ class ActionLedger:
                                               (principal_id, job_id, call_id_digest)).fetchone()
                         if call_row and (call_row[0] != binding_digest or call_row[1] != argument_digest):
                             raise ActionConflict("Model tool call ID was reused with different arguments or binding")
-                    row = db.execute("SELECT binding_digest,argument_digest,state,certainty,result_json FROM gateway_actions WHERE principal_id=? AND job_id=? AND action_id=?",
+                    row = db.execute("SELECT binding_digest,argument_digest,state,certainty,result_json,operation_kind FROM gateway_actions WHERE principal_id=? AND job_id=? AND action_id=?",
                                      (principal_id, job_id, action_id)).fetchone()
                     if row:
-                        old_binding, old_arguments, state, certainty, result_json = row
-                        if old_binding != binding_digest or old_arguments != argument_digest:
+                        old_binding, old_arguments, state, certainty, result_json, stored_kind = row
+                        if old_binding != binding_digest or old_arguments != argument_digest or stored_kind != operation_kind:
                             raise ActionConflict("Tool call ID was already used with different arguments or binding")
                         if state == "completed" and certainty == "known" and result_json is not None:
                             return ActionReplay(json.loads(result_json))

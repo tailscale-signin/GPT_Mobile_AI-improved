@@ -225,14 +225,20 @@ internal object ResearchArchiveIngestor {
                     !dev.chungjungsoo.gptmobile.data.research.SourceContentValidator.validate(source.passage).usable && source.passage.isNotBlank() -> ArticleCoverage.UNAVAILABLE
                     source.retrievalQuality == "METADATA" || source.status == "Metadata only" -> ArticleCoverage.METADATA_ONLY
                     source.host.equals("pubmed.ncbi.nlm.nih.gov", true) -> ArticleCoverage.ABSTRACT_ONLY
-                    source.bodyChunks.isNotEmpty() && source.status == "Partially read" -> ArticleCoverage.PARTIAL_TEXT
-                    source.bodyChunks.isNotEmpty() && source.readable -> ArticleCoverage.FULL_TEXT_CAPTURED
                     source.retrievalQuality == "ABSTRACT" || source.status == "Abstract" -> ArticleCoverage.ABSTRACT_ONLY
+                    source.bodyChunks.isNotEmpty() && source.status == "Partially read" -> ArticleCoverage.PARTIAL_TEXT
+                    source.bodyChunks.isNotEmpty() && source.readable && source.structuredFullText && source.captureTruncated == false && source.sectionNames.any { it.contains("method", true) || it.contains("experimental", true) } && source.sectionNames.any { it.contains("result", true) } -> ArticleCoverage.FULL_TEXT_CAPTURED
+                    source.bodyChunks.isNotEmpty() && source.readable -> ArticleCoverage.PARTIAL_TEXT
                     else -> ArticleCoverage.METADATA_ONLY
                 },
                 bodyChunksJson = Json.encodeToString(source.bodyChunks), authority = authority, publicSource = public, textBytes = textBytes
             )
             dao.version(captured)
+            if (captured.coverage == ArticleCoverage.FULL_TEXT_CAPTURED) {
+                val validator = dev.chungjungsoo.gptmobile.data.research.SourceContentValidator
+                val proofId = researchHash("capture-proof:${captured.versionId}:${captured.contentHash}:${validator.VERSION}")
+                dao.sourceValidation(ResearchSourceValidation(proofId, captured.versionId, captured.contentHash, validator.VERSION, "STRUCTURED_ARTICLE", Json.encodeToString(listOf("COMPLETE_STRUCTURED_BODY", "NOT_TRUNCATED") + source.sectionNames.sorted()), captured.coverage, "ARTICLE", System.currentTimeMillis()))
+            }
             dao.work(workId)?.studyFamilyId?.let { familyId ->
                 dao.allFamilies().firstOrNull { it.familyId == familyId }?.let { family -> dao.workStudy(WorkStudyRelationship(workId, familyId, family.provenance, family.revisedAt)) }
             }

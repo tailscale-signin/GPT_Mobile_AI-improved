@@ -67,6 +67,7 @@ data class ActiveAgentRun(
     val profileUid: String,
     val assistantMessageId: Int? = null,
     val phase: LocalInferencePhase? = null,
+    val nativeProgress: dev.chungjungsoo.gptmobile.data.localruntime.GgufNativeProgress? = null,
     val gatewayStage: String? = null,
     val gatewayMessage: String? = null,
     val gatewayCheckpoint: Int? = null,
@@ -508,6 +509,12 @@ class AgentRunCoordinator @Inject constructor(
                         } else {
                             runs
                         }
+                    }
+                },
+                onNativeProgress = { progress ->
+                    _activeRuns.update { runs ->
+                        val current = runs[request.runId]
+                        if (current == null) runs else runs + (request.runId to current.copy(nativeProgress = progress))
                     }
                 },
                 onGatewayProgress = { progress ->

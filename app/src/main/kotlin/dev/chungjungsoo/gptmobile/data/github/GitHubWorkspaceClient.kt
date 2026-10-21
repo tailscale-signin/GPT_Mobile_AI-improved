@@ -99,7 +99,7 @@ class GitHubWorkspaceClient(
         }
     }
 
-    private val repositoryState = if (persistentState) stateStore ?: GitHubSessionCaches.stateForCredential(token) else GitHubRepositoryStateStore()
+    private val repositoryState = if (persistentState) stateStore ?: if (client === sharedClient) GitHubSessionCaches.stateForCredential(token) else GitHubRepositoryStateStore() else GitHubRepositoryStateStore()
     private val repositorySession by lazy {
         GitHubRepositorySession(GitHubRepositoryStateStore.digest(token), connectionUid, conversationId, taskId, repositoryState, { request(it) }, { root, args -> commitFiles(root, args) })
     }
@@ -1122,6 +1122,9 @@ class GitHubWorkspaceClient(
 
     private suspend fun graphQl(query: String, variables: JsonObject): JsonObject {
         require(token.isNotBlank()) { "A GitHub credential is required for GraphQL." }
+        return scheduler.execute {
+        rateLimits.requireAvailable("graphql")
+        scheduler.recordRequest()
         val response = client.request("https://api.github.com/graphql") {
             method = HttpMethod.Post
             header(HttpHeaders.Accept, "application/vnd.github+json")
@@ -1136,7 +1139,7 @@ class GitHubWorkspaceClient(
                 }.toString()
             )
         }
-        rateLimits.record(response.headers)
+        rateLimits.record(response.headers, response.status.value)
         val text = response.bodyAsText()
         if (!response.status.isSuccess()) {
             val githubMessage = runCatching {
@@ -1154,7 +1157,9 @@ class GitHubWorkspaceClient(
                     )
             )
         }
-        return json.parseToJsonElement(text).jsonObject
+        scheduler.recordBytes(text.encodeToByteArray().size.toLong())
+        json.parseToJsonElement(text).jsonObject
+        }
     }
 
     private suspend fun request(
@@ -1186,7 +1191,7 @@ class GitHubWorkspaceClient(
                 setBody(body.toString())
             }
         }
-        rateLimits.record(response.headers)
+        rateLimits.record(response.headers, response.status.value)
         if (response.status.value == 304 && cached != null) {
             responseCache.put(cacheKey, cached.etag, cached.value)
             scheduler.recordCacheHit()
@@ -1196,10 +1201,11 @@ class GitHubWorkspaceClient(
         val text = response.bodyAsText()
         scheduler.recordBytes(text.encodeToByteArray().size.toLong())
         if (!response.status.isSuccess()) {
-            if (response.status.value in setOf(401, 403, 404)) responseCache.clear()
+            if (response.status.value in setOf(401, 403)) responseCache.clear()
             val githubMessage = runCatching {
                 json.parseToJsonElement(text).jsonObject["message"]?.jsonPrimitive?.content
             }.getOrNull()?.takeIf { it.isNotBlank() }
+            if (response.status.value == 403 && githubMessage?.contains("secondary rate", true) == true) rateLimits.cooldown(response.headers["Retry-After"]?.toLongOrNull() ?: 60)
             val details = buildList {
                 githubMessage?.let { add("message=$it") }
                 response.headers["X-RateLimit-Remaining"]?.let { add("rateLimitRemaining=$it") }

@@ -120,7 +120,7 @@ class CombinedSynthesisPlanner @Inject constructor(
         val historicalUsers = dev.chungjungsoo.gptmobile.data.agent.CombinedTaskContract.relevantHistoryIndices(userMessage.content, priorUsers.map { it.content }).map { priorUsers[it] }
         val historicalReplies = historicalUsers.map { prior -> fullHistory.filter { it.linkedMessageId == prior.id && it.platformType != null } }
         val selectedUids = acceptedUids
-        val answerContract = dev.chungjungsoo.gptmobile.data.agent.CombinedAnswerPolicy.from(userMessage.content, historicalUsers.lastOrNull()?.content)
+        val answerContract = dev.chungjungsoo.gptmobile.data.agent.CombinedAnswerPolicy.from(userMessage.content, historicalUsers.takeIf { it.isNotEmpty() }?.joinToString("\n") { it.content })
         val editorialContext = combined.forRole(dev.chungjungsoo.gptmobile.data.agent.CombinedRunRole.SYNTHESIS, leadUid)
         val targetRevisionId = UUID.randomUUID().toString()
         val deliveryProtocol = "PASSAGES_V3"

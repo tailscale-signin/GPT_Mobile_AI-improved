@@ -23,7 +23,8 @@ queue, final-writing and task-completion failures reported for build 124.
 - Compact Free prompts retain device date/timezone and project constraints. Exact
   date-only questions use the device clock and compute the weekday locally.
   OpenCode's externally rejected anonymous route is unavailable with its reason.
-- Final ordinary prose is checked before publication. Length is checked in both
+- Final ordinary prose is checked before completion. Provisional drafts keep streaming;
+  full rewrites use the existing ownership fence and archive the previous revision. Length is checked in both
   directions; detected wrong subjects, substantial repetition, corruption and
   unfinished essay endings block completion. One bounded full rewrite corrects
   writing defects; queue/access/provider failures do not become rewrite requests.

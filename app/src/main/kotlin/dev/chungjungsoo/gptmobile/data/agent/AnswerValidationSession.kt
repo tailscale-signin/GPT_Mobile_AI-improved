@@ -5,17 +5,28 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
 
-/** Final text is checked before publication; tool rounds retain their existing execution path. */
+/** Completion is gated; an optional fenced replacement preserves streaming drafts and revisions. */
 internal class AnswerValidationSession(
     private val initial: AgentProviderSession,
     private val request: String,
     private val maximumCharacters: Int = 1_048_576,
     private val save: suspend (String, Boolean) -> Unit = { _, _ -> },
+    private val replaceDraft: (suspend (String, String) -> Boolean)? = null,
     private val rewrite: suspend (String, List<String>, List<AgentToolExchange>) -> AgentProviderSession
 ) : AgentProviderSession {
+    private var publishedDraft = ""
     override val handlesToolsInternally: Boolean get() = initial.handlesToolsInternally
 
     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
+        suspend fun publish(text: String) {
+            if (text.isBlank()) return
+            if (publishedDraft.isEmpty()) {
+                emit(ProviderEvent.TextDelta(text))
+            } else if (publishedDraft != text) {
+                check(replaceDraft?.invoke(dev.chungjungsoo.gptmobile.data.research.researchHash(publishedDraft), text) == true) { "ANSWER_REVISION_OWNER_CHANGED: The existing draft was preserved." }
+            }
+            publishedDraft = text
+        }
         var active = initial
         var retained = ""
         for (attempt in 0..1) {
@@ -30,6 +41,10 @@ internal class AnswerValidationSession(
                         is ProviderEvent.TextDelta -> {
                             check(text.length.toLong() + event.text.length <= (maximumCharacters.takeIf { it > 0 }?.toLong() ?: 1_048_576L)) { "Answer exceeds the safe validation buffer." }
                             text.append(event.text)
+                            if (attempt == 0 && replaceDraft != null) {
+                                emit(event)
+                                publishedDraft += event.text
+                            }
                         }
                         ProviderEvent.Completed -> completed = true
                         is ProviderEvent.Failed -> failure = event
@@ -49,7 +64,7 @@ internal class AnswerValidationSession(
                 throw cancelled
             }
             if (toolRound && attempt == 0) {
-                if (text.isNotEmpty()) emit(ProviderEvent.TextDelta(text.toString()))
+                if (replaceDraft == null && text.isNotEmpty()) emit(ProviderEvent.TextDelta(text.toString()))
                 failure?.let { emit(it) }
                 if (completed && failure == null) emit(ProviderEvent.Completed)
                 return@flow
@@ -59,7 +74,7 @@ internal class AnswerValidationSession(
             val defects = AnswerCompletionChecks.failures(request, candidate, finish)
             if (failure == null && completed && defects.isEmpty()) {
                 save(candidate, true)
-                emit(ProviderEvent.TextDelta(candidate))
+                if (attempt > 0 || replaceDraft == null) publish(candidate)
                 emit(ProviderEvent.Notice("Response received · request checks passed. Factual accuracy remains unverified.", false))
                 emit(ProviderEvent.Completed)
                 return@flow
@@ -67,7 +82,7 @@ internal class AnswerValidationSession(
             // Provider/access/queue failures are not writing defects and must not enqueue a replacement.
             if (attempt == 1 || failure != null || !completed || candidate.isBlank()) {
                 save(retained, false)
-                if (retained.isNotBlank()) emit(ProviderEvent.TextDelta(retained))
+                if (attempt > 0 || replaceDraft == null) publish(retained)
                 emit(failure ?: ProviderEvent.Failed("ANSWER_REQUEST_UNSATISFIED: ${defects.ifEmpty { listOf("GENERATION_INCOMPLETE") }.joinToString()}. The draft is retained; completion was not validated."))
                 return@flow
             }
@@ -78,7 +93,7 @@ internal class AnswerValidationSession(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
-                emit(ProviderEvent.TextDelta(candidate))
+                if (replaceDraft == null) publish(candidate)
                 emit(ProviderEvent.Failed("ANSWER_REWRITE_UNAVAILABLE: ${error.message.orEmpty()}. The draft is retained."))
                 return@flow
             }

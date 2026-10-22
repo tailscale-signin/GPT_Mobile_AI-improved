@@ -12,6 +12,19 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CombinedTaskRegressionTest {
+    @Test fun explicitNewSubjectDoesNotInheritAConjunctionOrRewriteVerb() {
+        assertTrue(CombinedTaskContract.relevantHistoryIndices("History of Germany that covers modern developments", listOf("History of Portugal")).isEmpty())
+        assertTrue(CombinedTaskContract.relevantHistoryIndices("Rewrite the history of Germany", listOf("History of Portugal")).isEmpty())
+        assertTrue(CombinedTaskContract.from("What is 2+2?").violations("4").isEmpty())
+    }
+
+    @Test fun explicitComparisonResolvesAChainOfFollowups() {
+        val history = listOf("History of Germany", "Continue")
+        val retained = CombinedTaskContract.relevantHistoryIndices("Compare it with Portugal", history).map { history[it] }
+        val contract = CombinedTaskContract.from("Compare it with Portugal", retained.joinToString("\n"))
+        assertEquals(setOf("germany", "portugal"), contract.subjects.map { it.lowercase() }.toSet())
+    }
+
     private val germany = "Germany's early history includes Germanic societies and contact with ancient Rome. " +
         "Medieval German territories formed much of the Holy Roman Empire. " +
         "The Reformation transformed religious and political life during the early modern period. " +

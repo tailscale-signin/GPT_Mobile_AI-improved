@@ -8,7 +8,7 @@ internal object CombinedWriterObservations {
     private val observed = ConcurrentHashMap<String, Observation>()
     fun get(key: String): Observation? = observed[key]?.takeIf { System.currentTimeMillis() - it.updatedAt < 24 * 60 * 60_000L }
     fun record(key: String, reasoning: Boolean, visiblePassages: Int) {
-        if (observed.size >= 256 && key !in observed) observed.clear()
+        if (observed.size >= 256 && !observed.containsKey(key)) observed.clear()
         val previous = get(key)
         observed[key] = Observation(
             if (reasoning) {

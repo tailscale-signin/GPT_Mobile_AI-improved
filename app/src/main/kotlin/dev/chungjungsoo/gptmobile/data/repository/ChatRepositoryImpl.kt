@@ -3992,7 +3992,13 @@ class ChatRepositoryImpl(
                 continuedSession,
                 latestUser?.content.orEmpty(),
                 maximumCharacters = budgetSettings.responseCharacterLimit,
-                save = { draft, satisfied -> checkpoint?.save(draft, 0, resolvedOutputCap, if (satisfied) "COMPLETED" else "PARTIAL") }
+                save = { draft, satisfied -> checkpoint?.save(draft, 0, resolvedOutputCap, if (satisfied) "COMPLETED" else "PARTIAL") },
+                replaceDraft = { digest, text ->
+                    dispatchAuthority.validate()
+                    val handoff = ApiState.ResearchReplacement(digest, text)
+                    send(handoff)
+                    handoff.acknowledgement.await()
+                }
             ) { draft, failures, exchanges ->
                 val turns = dev.chungjungsoo.gptmobile.data.queue.appendFollowUpContext(
                     contextPlan.turns,

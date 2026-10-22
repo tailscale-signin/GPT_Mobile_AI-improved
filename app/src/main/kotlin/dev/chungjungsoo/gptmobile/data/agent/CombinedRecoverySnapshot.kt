@@ -35,7 +35,7 @@ internal object CombinedRecoverySnapshot {
             snapshot.acceptedTools?.combined?.let { toolsContext ->
                 require(toolsContext.rootBudgetId == snapshot.combined?.rootBudgetId && toolsContext.requested.requestedPolicyDigest == accepted.requestedPolicyDigest) { "The accepted tools belong to a different Combined turn." }
             }
-            val compiledContract = CombinedAnswerPolicy.from(snapshot.userMessage.content, snapshot.history.lastOrNull()?.content)
+            val compiledContract = CombinedAnswerPolicy.from(snapshot.userMessage.content, snapshot.history.takeIf { it.isNotEmpty() }?.joinToString("\n") { it.content })
             val compatibleContract = if (snapshot.answerContract?.version == 2) compiledContract.copy(version = 2, task = null) else compiledContract
             require(snapshot.answerContract != null && snapshot.answerContract == compatibleContract) { "The saved answer contract changed." }
         }

@@ -31,6 +31,25 @@ class AnswerValidationSessionTest {
         assertTrue(events.last() == ProviderEvent.Completed)
     }
 
+    @Test fun streamingDraftUsesFencedFullReplacementBeforeCompletion() = runBlocking {
+        val draft = (1..150).joinToString(" ") { "item$it" } + "."
+        val corrected = (1..100).joinToString(" ") { "point$it" } + "."
+        var replaced = ""
+        val events = AnswerValidationSession(
+            session(ProviderEvent.TextDelta(draft), ProviderEvent.Completed),
+            "Write 100 words.",
+            replaceDraft = { digest, text ->
+                assertEquals(dev.chungjungsoo.gptmobile.data.research.researchHash(draft), digest)
+                replaced = text
+                true
+            }
+        ) { _, _, _ -> session(ProviderEvent.TextDelta(corrected), ProviderEvent.Completed) }
+            .streamRound(emptyList(), emptyList()).toList()
+        assertEquals(draft, events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
+        assertEquals(corrected, replaced)
+        assertEquals(1, events.count { it == ProviderEvent.Completed })
+    }
+
     @Test fun wrongSubjectCannotCompleteEvenAfterRewrite() = runBlocking {
         val wrong = "Portugal became a republic in 1910. Portugal joined the European Communities in 1986."
         val events = AnswerValidationSession(session(ProviderEvent.TextDelta(wrong), ProviderEvent.Completed), "History of Germany") { _, _, _ ->

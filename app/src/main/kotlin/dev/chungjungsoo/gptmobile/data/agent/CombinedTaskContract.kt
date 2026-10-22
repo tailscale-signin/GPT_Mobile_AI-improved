@@ -42,13 +42,17 @@ data class CombinedTaskContract(
             "france" to listOf("France", "French"),
             "portugal" to listOf("Portugal", "Portuguese")
         )
-        private val reference = Regex("(?i)\\b(?:it|them|that|those|previous|above|continue|expand|shorten|rewrite|elaborate)\\b")
+        private val reference = Regex("(?i)\\b(?:it|them|those|previous|above)\\b|\\b(?:compare|explain|summarize|rewrite|shorten)\\s+(?:this|that)\\b")
+        private val followUpVerb = Regex("(?i)^\\s*(?:continue|expand|shorten|rewrite|elaborate|summarize)\\b")
+        private fun referencesPrior(text: String): Boolean = reference.containsMatchIn(text) ||
+            followUpVerb.containsMatchIn(text) &&
+            aliases.keys.none { Regex("(?i)\\b${Regex.escape(it)}\\b").containsMatchIn(text) }
         private val noise = setOf("a", "an", "the", "of", "on", "in", "and", "me", "my", "please", "give", "write", "tell", "explain", "describe", "history", "essay", "word", "words", "about", "what", "is", "are", "how", "why", "does", "do", "can", "you")
         internal fun tokens(text: String): Set<String> = Regex("[\\p{L}\\p{N}]+").findAll(text.lowercase()).map { it.value }.filterNot { it in noise }.toSet()
 
         fun from(request: String, previousRequest: String? = null): CombinedTaskContract {
             val text = request.trim()
-            val following = previousRequest != null && reference.containsMatchIn(text)
+            val following = previousRequest != null && referencesPrior(text)
             val action = when {
                 Regex("(?i)\\b(?:history|historical)\\b").containsMatchIn(text) -> "HISTORY"
                 Regex("(?i)\\b(?:compare|comparison|versus)\\b").containsMatchIn(text) -> "COMPARE"
@@ -62,7 +66,8 @@ data class CombinedTaskContract(
             val prior = if (following) from(requireNotNull(previousRequest)) else null
             val named = aliases.keys.filter { subject -> Regex("(?i)\\b${Regex.escape(subject)}\\b").containsMatchIn(text) }
             val subjectText = explicit?.takeUnless { reference.containsMatchIn(it) || tokens(it).size > 6 || Regex("(?i)\\b(?:why|how|whether|should|would|could)\\b").containsMatchIn(it) }
-            val subjects = (named.ifEmpty { subjectText?.let { listOf(it) }.orEmpty() } + prior?.subjects.orEmpty()).distinct()
+            val directSubjects = named.ifEmpty { subjectText?.let { listOf(it) }.orEmpty() }
+            val subjects = (directSubjects + prior?.subjects.orEmpty().takeIf { directSubjects.isEmpty() || action == "COMPARE" }.orEmpty()).distinct()
             val inferred = tokens(text).filterNot { it.toIntOrNull() != null }.take(8)
             val narrow = Regex("(?i)\\b(?:one|single|fact|event|during|between|from|until|century|centuries|ancient|medieval|modern)\\b|\\b[12][0-9]{3}\\b").containsMatchIn(text)
             return CombinedTaskContract(
@@ -78,10 +83,10 @@ data class CombinedTaskContract(
 
         /** New tasks never inherit an interrupted writer's continuation context. */
         fun relevantHistoryIndices(request: String, previousRequests: List<String>): List<Int> {
-            if (previousRequests.isEmpty() || !reference.containsMatchIn(request)) return emptyList()
+            if (previousRequests.isEmpty() || !referencesPrior(request)) return emptyList()
             val result = mutableListOf(previousRequests.lastIndex)
             var index = previousRequests.lastIndex
-            while (index > 0 && reference.containsMatchIn(previousRequests[index])) {
+            while (index > 0 && referencesPrior(previousRequests[index])) {
                 result += --index
             }
             return result.sorted()

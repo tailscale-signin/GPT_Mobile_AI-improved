@@ -27,11 +27,11 @@ data class ProviderFailure(val status: Int, val kind: ProviderFailureKind, val c
         fun parse(status: Int, body: String = "", retryAfterMillis: Long? = null): ProviderFailure {
             val root = runCatching { Json.parseToJsonElement(body) as? JsonObject }.getOrNull()
             val error = root?.get("error") as? JsonObject
-            val rawCode = ((error?.get("code") ?: root?.get("code")) as? JsonPrimitive)?.contentOrNull?.lowercase()
+            val rawCode = ((error?.get("code") ?: root?.get("code") ?: root?.get("rc")) as? JsonPrimitive)?.contentOrNull?.lowercase()
             val kind = when {
-                rawCode in setOf("insufficient_quota", "insufficient_credits", "budget_exceeded", "credit_limit_exceeded") || status == 402 -> ProviderFailureKind.BUDGET
+                rawCode in setOf("insufficient_quota", "insufficient_credits", "budget_exceeded", "credit_limit_exceeded", "kudosupfront", "sharedkeyempty") || status == 402 -> ProviderFailureKind.BUDGET
                 rawCode in setOf("invalid_api_key", "authentication_error") || status == 401 -> ProviderFailureKind.AUTHENTICATION
-                rawCode in setOf("permission_denied", "model_access_denied", "route_forbidden") -> ProviderFailureKind.PERMISSION
+                rawCode in setOf("permission_denied", "model_access_denied", "route_forbidden", "anonforbidden") -> ProviderFailureKind.PERMISSION
                 status == 403 -> ProviderFailureKind.FORBIDDEN_UNKNOWN
                 status == 429 -> ProviderFailureKind.RATE_LIMIT
                 status in 500..599 -> ProviderFailureKind.UNAVAILABLE

@@ -27,7 +27,10 @@ internal class AppSearchContext : AbstractCoroutineContextElement(Key) {
 
 /** Executes only already authorized, budget-bound tools. Search content never becomes instructions. */
 internal object AppAssistedSearch {
-    fun requested(text: String): Boolean = Regex("(?i)\\b(?:search (?:the )?(?:web|online|internet)|search online|look (?:it |this |that )?up|browse (?:the )?(?:web|internet)|verify (?:online|with sources)|find (?:current|latest) (?:sources|news|information))\\b").containsMatchIn(text)
+    private val offlineRequest = Regex("(?i)\\b(?:do not|don't|dont|without|no)\\s+(?:use\\s+)?(?:search(?:ing)?|brows(?:e|ing)|web|internet|online)\\b")
+    private val explicitSearch = Regex("(?i)\\b(?:search (?:the )?(?:web|online|internet)|look (?:it |this |that )?up|browse (?:the )?(?:web|internet)|verify (?:online|with sources)|find (?:current|latest) (?:sources|news|information))\\b")
+    private val currentInformation = Regex("(?i)\\b(?:(?:latest|current|breaking|recent|today'?s?)\\s+(?:news|headlines|updates|weather|prices?|scores?)|(?:news|headlines|weather|scores?)\\s+(?:today|right now)|what'?s happening (?:in|today))\\b")
+    fun requested(text: String): Boolean = !offlineRequest.containsMatchIn(text) && (explicitSearch.containsMatchIn(text) || currentInformation.containsMatchIn(text))
     fun inventoryRequest(text: String): Boolean = Regex("(?is)^\\s*(?:(?:please )?(?:list|show|tell me) (?:all )?(?:the |your )?(?:available )?tools(?: you (?:have|can use))?|what tools (?:do you have|you have|can you use))\\s*[?.!]*\\s*$").matches(text)
     fun question(messages: List<MessageV2>): String {
         val current = messages.lastOrNull()?.content.orEmpty().trim()

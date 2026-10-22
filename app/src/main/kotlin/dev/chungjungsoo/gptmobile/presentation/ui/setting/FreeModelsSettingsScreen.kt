@@ -108,7 +108,7 @@ internal fun FreeServiceCard(provider: FreeAiProvider, status: FreeServiceStatus
     val label = when {
         status.checking -> "Checking…"
         stale -> "Not checked recently"
-        status.reachable == true -> "Online"
+        status.reachable == true -> "Reachable"
         status.reachable == false -> "Unavailable"
         else -> "Not checked"
     }

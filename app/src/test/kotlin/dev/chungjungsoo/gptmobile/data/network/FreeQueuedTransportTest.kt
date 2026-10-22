@@ -27,6 +27,110 @@ import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class FreeQueuedTransportTest {
+    @Test fun ambiguousSubmissionTimeoutDoesNotSubmitTheJobTwice() = runBlocking {
+        var submissions = 0
+        val engine = MockEngine {
+            submissions++
+            respond("{}", io.ktor.http.HttpStatusCode.RequestTimeout)
+        }
+        val client = HttpClient(engine) { install(HttpTimeout) }
+        try {
+            val network = mockk<NetworkClient>()
+            every { network.invoke() } returns client
+            val api = OpenAIAPIImpl(network)
+            val config = ProviderRequestConfig(FreeAiProvider.AI_HORDE.apiUrl, null, freeProvider = FreeAiProvider.AI_HORDE, queueScope = java.util.UUID.randomUUID().toString())
+            repeat(2) { assertNotNull(api.streamChatCompletion(request("automatic"), 30, config).toList().last().error) }
+            assertEquals(1, submissions)
+        } finally {
+            client.close()
+        }
+    }
+
+    @Test fun gradioKeepsTheLastGeneratingSnapshotWhenCompletionContainsOnlyUpdates() = runBlocking {
+        val engine = MockEngine { wire ->
+            val response = when {
+                wire.url.encodedPath.endsWith("/info") -> """{"named_endpoints":{"/add_message":{"parameters":[{"parameter_name":"input_value"},{"parameter_name":"settings_form_value"}]}}}"""
+                wire.method == HttpMethod.Post -> """{"event_id":"gradio-job"}"""
+                else -> "event: generating\ndata: [null,null,null,null,null,{\"value\":[{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"content\":\"A final answer.\"}]}]}]\n\nevent: complete\ndata: [null,{\"__type__\":\"update\"}]\n\n"
+            }
+            respond(response, headers = headersOf(HttpHeaders.ContentType, if (response.startsWith("event:")) "text/event-stream" else "application/json"))
+        }
+        val client = HttpClient(engine) { install(HttpTimeout) }
+        try {
+            val network = mockk<NetworkClient>()
+            every { network.invoke() } returns client
+            val config = ProviderRequestConfig(FreeAiProvider.HUGGING_FACE.apiUrl, null, freeProvider = FreeAiProvider.HUGGING_FACE, queueScope = java.util.UUID.randomUUID().toString())
+            val chunks = OpenAIAPIImpl(network).streamChatCompletion(request(FreeAiProvider.HUGGING_FACE.model), 30, config).toList()
+            assertEquals("A final answer.", chunks.last().choices!!.single().effectiveDelta.content)
+            assertNull(chunks.last().error)
+        } finally {
+            client.close()
+        }
+    }
+
+    @Test fun terminalGradioFailureIsNotAdvertisedOrRetriedAsAResumableJob() = runBlocking {
+        var submissions = 0
+        var polls = 0
+        val engine = MockEngine { wire ->
+            val response = when {
+                wire.url.encodedPath.endsWith("/info") -> """{"named_endpoints":{"/add_message":{"parameters":[{"parameter_name":"input_value"},{"parameter_name":"settings_form_value"}]}}}"""
+                wire.method == HttpMethod.Post -> {
+                    submissions++
+                    """{"event_id":"failed-job"}"""
+                }
+                else -> {
+                    polls++
+                    "event: error\ndata: null\n\n"
+                }
+            }
+            respond(response, headers = headersOf(HttpHeaders.ContentType, "text/event-stream"))
+        }
+        val client = HttpClient(engine) { install(HttpTimeout) }
+        try {
+            val network = mockk<NetworkClient>()
+            every { network.invoke() } returns client
+            val config = ProviderRequestConfig(FreeAiProvider.HUGGING_FACE.apiUrl, null, freeProvider = FreeAiProvider.HUGGING_FACE, queueScope = java.util.UUID.randomUUID().toString())
+            repeat(2) {
+                val error = OpenAIAPIImpl(network).streamChatCompletion(request(FreeAiProvider.HUGGING_FACE.model), 30, config).toList().last().error
+                org.junit.Assert.assertTrue(error!!.message.contains("cannot resume") || error.message.contains("cannot be resumed"))
+            }
+            assertEquals(1, submissions)
+            assertEquals(1, polls)
+        } finally {
+            client.close()
+        }
+    }
+
+    @Test fun hordeRejectionKeepsItsSemanticCauseAndAllowsAnExplicitNewAttempt() = runBlocking {
+        var submissions = 0
+        val engine = MockEngine { wire ->
+            if (wire.method == HttpMethod.Post) {
+                submissions++
+                if (submissions == 1) {
+                    respond("""{"rc":"KudosUpfront","message":"private server detail"}""", io.ktor.http.HttpStatusCode.Forbidden)
+                } else {
+                    respond("""{"id":"accepted-job"}""")
+                }
+            } else {
+                respond("""{"done":true,"generations":[{"text":"Hello","model":"worker/model"}]}""")
+            }
+        }
+        val client = HttpClient(engine) { install(HttpTimeout) }
+        try {
+            val network = mockk<NetworkClient>()
+            every { network.invoke() } returns client
+            val api = OpenAIAPIImpl(network)
+            val config = ProviderRequestConfig(FreeAiProvider.AI_HORDE.apiUrl, null, freeProvider = FreeAiProvider.AI_HORDE, queueScope = java.util.UUID.randomUUID().toString())
+            val failure = api.streamChatCompletion(request("automatic"), 30, config).toList().last().error!!.message
+            org.junit.Assert.assertTrue(failure.contains("budget or credit restriction"))
+            org.junit.Assert.assertFalse(failure.contains("private server detail"))
+            assertEquals("Hello", api.streamChatCompletion(request("automatic"), 30, config).toList().last().choices!!.single().effectiveDelta.content)
+            assertEquals(2, submissions)
+        } finally {
+            client.close()
+        }
+    }
+
     private fun request(model: String) = ChatCompletionRequest(model, listOf(ChatMessage(Role.USER, listOf(TextContent("A short novel sentence about clouds.")))), maxTokens = 512)
 
     @Test fun interruptedHordePollResumesSavedJobWithoutDuplicateSubmission() = runBlocking {

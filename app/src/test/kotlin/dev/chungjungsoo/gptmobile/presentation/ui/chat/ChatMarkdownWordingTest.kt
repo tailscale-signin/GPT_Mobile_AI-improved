@@ -7,9 +7,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.junit4.createComposeRule
 import dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse
+import kotlinx.coroutines.test.StandardTestDispatcher
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -18,8 +20,11 @@ import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
 @Config(application = Application::class, sdk = [34])
+@OptIn(ExperimentalTestApi::class)
 class ChatMarkdownWordingTest {
-    @get:Rule val compose = createComposeRule()
+    // Queue recomposition on the test clock: asynchronous Markdown emissions must
+    // not resume Android view updates inline on the parser's worker thread.
+    @get:Rule val compose = createComposeRule(effectContext = StandardTestDispatcher())
 
     @Test fun combinedProseReceivesBothProfileFontColoursAndRecomputesWhenSourcesChange() {
         val athens = "Silver mines funded public works and naval power in ancient Athens."

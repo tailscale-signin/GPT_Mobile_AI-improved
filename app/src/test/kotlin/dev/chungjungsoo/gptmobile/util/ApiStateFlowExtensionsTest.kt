@@ -17,6 +17,25 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ApiStateFlowExtensionsTest {
+    @Test fun modelProgressIsBatchedWithoutDroppingTheFinalCheckpoint() = runBlocking {
+        var updates = 0
+        var timeline = emptyList<AssistantTimelineItem>()
+        flow {
+            repeat(100) { emit(ApiState.ProgressCheckpoint("x", modelAuthored = true)) }
+            emit(ApiState.Success("Answer"))
+            emit(ApiState.Done)
+        }.collectApiStateUpdates(
+            onUpdate = { _, _, value ->
+                updates++
+                timeline = value
+            },
+            nanoTimeProvider = { 1_000_000_000L },
+            publishIntervalMillis = 250
+        )
+        assertTrue(updates < 10)
+        assertEquals("x".repeat(100), timeline.single { it.progressCheckpoint }.content)
+    }
+
     @Test fun firstAnswerPublishesImmediatelyAfterProgressAndPendingSuffixFlushesDuringSilence() = kotlinx.coroutines.test.runTest {
         val frames = mutableListOf<Pair<Long, String>>()
         val scheduler = testScheduler

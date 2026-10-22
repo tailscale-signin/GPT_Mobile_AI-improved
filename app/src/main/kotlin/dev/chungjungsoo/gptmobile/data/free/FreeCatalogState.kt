@@ -54,7 +54,7 @@ object FreeCatalogState {
     fun requireModel(provider: FreeAiProvider, id: String): FreeModelOption = requireNotNull(model(provider, id)) { "This model is not in ${provider.displayName}'s free catalog. Refresh models in Free Models settings." }
 
     fun recordResponse(provider: FreeAiProvider, model: String?, remaining: String? = null) {
-        _status.update { current -> current + (provider to (current[provider] ?: FreeServiceStatus()).copy(reachable = true, checkedAt = System.currentTimeMillis(), message = "Inference responded", servedModel = model, remaining = remaining)) }
+        _status.update { current -> current + (provider to (current[provider] ?: FreeServiceStatus()).copy(reachable = true, checkedAt = System.currentTimeMillis(), message = "Response received · answer quality not verified", servedModel = model, remaining = remaining)) }
     }
 
     fun recordFailure(provider: FreeAiProvider, message: String) {

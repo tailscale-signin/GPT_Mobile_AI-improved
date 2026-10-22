@@ -121,6 +121,7 @@ class OpenAIAPIImpl @Inject constructor(
                 freeModel = dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.models(free).firstOrNull { it.id != "automatic" }
                 check(freeModel != null) { "PorchLM model discovery is unavailable. Retry its status check later." }
             }
+            if (free == FreeAiProvider.PORCHLM) emit(ChatCompletionChunk(applicationNotice = "PorchLM is an educational demonstration model. Responses can be incoherent or inaccurate; use another provider for factual answers."))
             var preparedRequest = if (free == null) {
                 request.withEndpointSamplingPolicy(config.apiUrl)
             } else {
@@ -159,6 +160,7 @@ class OpenAIAPIImpl @Inject constructor(
                     }
                 }
                 emit(ChatCompletionChunk(model = free.model, choices = listOf(Choice(delta = Delta(content = legacyResponse), finishReason = "stop"))))
+                dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.recordResponse(free, free.model)
                 return@flow
             }
             if (workerBudget != null) LocalServiceHealth.probe(config.apiUrl)
@@ -268,7 +270,14 @@ class OpenAIAPIImpl @Inject constructor(
                                 error.copy(message = config.readableProviderError(error.message, error.code))
                             }
                         )
-                        if (free != null) dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.recordResponse(free, chunk.model, response.headers["X-RateLimit-Remaining"] ?: response.headers["X-RateLimit-Remaining-Output"])
+                        if (free != null) {
+                            val usable = chunk.error == null && chunk.choices.orEmpty().any { !it.effectiveDelta.content.isNullOrBlank() || !it.effectiveDelta.toolCalls.isNullOrEmpty() }
+                            if (usable) {
+                                dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.recordResponse(free, chunk.model, response.headers["X-RateLimit-Remaining"] ?: response.headers["X-RateLimit-Remaining-Output"])
+                            } else {
+                                dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.recordFailure(free, chunk.error?.message ?: "No visible answer received")
+                            }
+                        }
                         if (free != null && !chunk.model.isNullOrBlank()) dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("FreeProvider", "MODEL_RESOLVED · profile=${config.profileUid} · requested=${request.model} · resolved=${chunk.model} · capabilityVerification=unverified")
                         emit(chunk)
                         if (free != null) {
@@ -329,7 +338,6 @@ class OpenAIAPIImpl @Inject constructor(
                             decoded.copy(error = error.copy(message = config.readableProviderError(providerErrorDetails(data, error.message, config.token), error.code)))
                         } ?: decoded
                         if (free != null && !chunk.model.isNullOrBlank() && resolvedFreeModel != chunk.model) {
-                            dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.recordResponse(free, chunk.model, response.headers["X-RateLimit-Remaining"] ?: response.headers["X-RateLimit-Remaining-Output"])
                             resolvedFreeModel = chunk.model
                             dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("FreeProvider", "MODEL_RESOLVED · profile=${config.profileUid} · requested=${request.model} · resolved=${chunk.model} · capabilityVerification=unverified")
                         }
@@ -355,6 +363,13 @@ class OpenAIAPIImpl @Inject constructor(
                         emit(ChatCompletionChunk(error = ErrorDetail("STREAM_PARSE_FAILURE: $parseFailures response chunks could not be decoded", "stream_parse_error")))
                     }
                     if (free != null) freeResponseOutcome(free, receivedAnswer, receivedToolCalls, receivedError, reachedOutputLimit)?.let { emit(it) }
+                    if (free != null) {
+                        if (!receivedError && (receivedAnswer || receivedToolCalls)) {
+                            dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.recordResponse(free, resolvedFreeModel, response.headers["X-RateLimit-Remaining"] ?: response.headers["X-RateLimit-Remaining-Output"])
+                        } else {
+                            dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.recordFailure(free, if (receivedError) "Provider returned an error" else "No visible answer received")
+                        }
+                    }
                     // If no chunks were emitted but metadata was present, emit a metadata chunk
                     if (firstChunk && gatewayMetadata != null) {
                         emit(ChatCompletionChunk(gatewayMetadata = gatewayMetadata))
@@ -381,7 +396,7 @@ class OpenAIAPIImpl @Inject constructor(
         } catch (e: Exception) {
             if (e is CancellationException || e is dev.chungjungsoo.gptmobile.data.agent.ToolDefinitionsRejectedException) throw e
             val errorMessage = when (e) {
-                is java.net.UnknownHostException -> "Network error: Unable to resolve host."
+                is java.net.UnknownHostException -> config.freeProvider?.let { "${it.displayName}: DNS could not resolve ${java.net.URI(it.apiUrl).host}. Check this provider's availability and your connection; no alternate host was contacted." } ?: "Network error: Unable to resolve host."
                 is java.nio.channels.UnresolvedAddressException -> "Network error: Unable to resolve address. Check your internet connection."
                 is java.net.ConnectException -> "Network error: Connection refused. Check the API URL."
                 is HttpRequestTimeoutException -> "Request timed out."
@@ -393,6 +408,7 @@ class OpenAIAPIImpl @Inject constructor(
                     e.message ?: "Unknown network error"
                 }
             }
+            config.freeProvider?.let { dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.recordFailure(it, errorMessage) }
             emit(
                 ChatCompletionChunk(
                     error = ErrorDetail(
@@ -402,7 +418,7 @@ class OpenAIAPIImpl @Inject constructor(
                 )
             )
         }
-    }.recordOpenRouterReceipts(config.openRouterReceipt, openRouterReceipts).flowOn(Dispatchers.IO)
+    }.normalizeFreeTextBlocks(config.freeProvider).recordOpenRouterReceipts(config.openRouterReceipt, openRouterReceipts).flowOn(Dispatchers.IO)
 
     override fun streamResponses(
         request: ResponsesRequest,

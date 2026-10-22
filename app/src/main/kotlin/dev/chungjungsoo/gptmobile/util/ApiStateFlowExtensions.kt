@@ -137,7 +137,7 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
 
                 is ApiState.ProgressCheckpoint -> {
                     buffer.appendProgress(chunk.text, chunk.modelAuthored)
-                    buffer.publishNow(onUpdate)
+                    if (chunk.modelAuthored) buffer.publishIfDue(onUpdate) else buffer.publishNow(onUpdate)
                 }
 
                 is ApiState.ActivitySummary -> {

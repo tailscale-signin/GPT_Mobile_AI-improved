@@ -14,7 +14,17 @@ class KnownWriterFailures(private val directory: File, private val now: () -> Lo
     @Synchronized fun blocked(profile: PlatformV2): ProviderFailure? = runCatching {
         file(profile).takeIf { it.isFile }?.let { stored ->
             val failure = Json.decodeFromString<ProviderFailure>(stored.readText())
-            if (failure.code == "model_load_failed" && now() - stored.lastModified() >= (failure.retryAfterMillis ?: 30_000L)) null else failure
+            val lifetime = when {
+                failure.code == "model_load_failed" -> failure.retryAfterMillis ?: 30_000L
+                profile.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.FREE -> 60_000L
+                else -> Long.MAX_VALUE
+            }
+            if (now() - stored.lastModified() >= lifetime) {
+                stored.delete()
+                null
+            } else {
+                failure
+            }
         }
     }.getOrNull()
 

@@ -9,6 +9,24 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class WriterLoadReadinessTest {
+    @Test fun anonymousProviderDenialExpiresAcrossRestartsWithoutChangingKeyedProviderPolicy() {
+        val directory = Files.createTempDirectory("free-denial-test").toFile()
+        try {
+            var now = 100000L
+            val profile = PlatformV2(name = "Horde", compatibleType = ClientType.FREE)
+            KnownWriterFailures(directory) { now }.observe(profile, "AI Horde: HTTP 403")
+            val restored = KnownWriterFailures(directory) { now }
+            assertNotNull(restored.blocked(profile))
+            now += 59999
+            assertNotNull(restored.blocked(profile))
+            now++
+            assertNull(restored.blocked(profile))
+            assertEquals(0, directory.listFiles()!!.size)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
     @Test fun modelLoadCooldownIsScopedExpiresAndCanBeExplicitlyRechecked() {
         val directory = Files.createTempDirectory("writer-load-test").toFile()
         try {

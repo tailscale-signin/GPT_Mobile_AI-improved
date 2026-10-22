@@ -57,8 +57,9 @@ class FreeModelsRenderTest {
                 }
             }
         }
-        compose.onNodeWithContentDescription("Online: Vireonix").assertIsDisplayed()
-        compose.onNodeWithText("Online · Catalog reachable · generation not tested").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Reachable: Vireonix").assertIsDisplayed()
+        compose.onNodeWithText("Reachable · Catalog reachable · generation not tested").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Online: Vireonix").assertDoesNotExist()
         compose.onNodeWithText("Profile options").performClick()
         compose.runOnIdle { assertEquals(profile.uid, opened) }
         compose.onNodeWithText("Models & details").performClick()
@@ -73,6 +74,7 @@ class FreeModelsRenderTest {
         val profile = PlatformV2(name = "AI Horde", compatibleType = ClientType.FREE, apiUrl = provider.apiUrl, model = provider.model)
         compose.setContent { GPTMobileTheme(themeMode = ThemeMode.LIGHT) { Surface { Column(Modifier.width(360.dp).testTag("free-card")) { FreeServiceCard(provider, FreeServiceStatus(), listOf(profile), FreeModelCatalog.defaults(provider), {}, {}) } } } }
         compose.onNodeWithContentDescription("Not checked recently: AI Horde").assertIsDisplayed()
+        compose.onNodeWithText("Reachable", substring = true).assertDoesNotExist()
         compose.onNodeWithText("Online", substring = true).assertDoesNotExist()
         val bitmap = compose.onNodeWithTag("free-card", useUnmergedTree = true).captureToImage().asAndroidBitmap()
         val file = File("build/reports/reliability-ui/free-models-light-unknown.png").apply { parentFile.mkdirs() }

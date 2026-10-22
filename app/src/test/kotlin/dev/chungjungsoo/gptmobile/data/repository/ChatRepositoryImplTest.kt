@@ -1378,7 +1378,11 @@ class ChatRepositoryImplTest {
         assertTrue(first.any { it is ApiState.Error && it.message.contains("403") })
         val afterFailure = toolResolutions
         val continued = repository.completeChat(listOf(original, original.copy(id = 3, content = "Continue")), emptyList(), customPlatform(), "continue", null).toList()
-        assertTrue(continued.any { it is ApiState.Error && it.message.contains("Final writer unavailable") })
+        val blocked = continued.filterIsInstance<ApiState.Error>().single().message
+        assertTrue(blocked, blocked.startsWith("Provider unavailable. HTTP 403:"))
+        assertTrue(blocked, blocked.contains("explicit recheck"))
+        assertTrue(blocked, blocked.contains("Any saved evidence is retained."))
+        assertFalse(blocked, blocked.contains("Final writer"))
         assertEquals(1, api.streamChatCompletionCalls)
         assertEquals(afterFailure, toolResolutions)
         val descriptor = dev.chungjungsoo.gptmobile.data.agent.TaskResumeDescriptor("0:1", 1, "retry", dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.RETRY_FAILED_STAGE)
@@ -1537,7 +1541,10 @@ class ChatRepositoryImplTest {
         assertEquals(12, saved.sources.count { it.readable })
         assertEquals(mapOf("Supported" to 5, "Insufficient" to 6, "Unreviewed" to 3), saved.claims.groupingBy { it.verdict }.eachCount())
         val continued = repository.completeChat(listOf(original, original.copy(id = 3, content = "Continue")), emptyList(), primary, "run-b", null).toList()
-        assertTrue(continued.any { it is ApiState.Error && it.message.contains("Final writer unavailable") })
+        val blocked = continued.filterIsInstance<ApiState.Error>().single().message
+        assertTrue(blocked, blocked.startsWith("Provider unavailable. HTTP 403:"))
+        assertTrue(blocked, blocked.contains("explicit recheck"))
+        assertTrue(blocked, blocked.contains("Any saved evidence is retained."))
         assertEquals(25, api.streamChatCompletionCalls)
         val retried = repository.completeChat(listOf(original, original.copy(id = 4, content = "Retry failed stage")), emptyList(), primary, "run-c", null).toList()
         assertTrue(retried.toString(), retried.any { it is ApiState.Success && it.textChunk.contains("Final answer from saved") })

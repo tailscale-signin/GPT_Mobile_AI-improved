@@ -53,7 +53,28 @@ and batched progress retention. Twenty focused JVM tests passed against producti
 Kotlin helpers and queue transport, using an isolated harness with framework stubs
 and the repository's Kotlin 2.4.20 / Ktor 3.6.0 versions. This is not a full Android
 build. Resource preflight, changed-source ktlint and Android regex validation also
-passed. Full Android integration tests/build remain pending the normal PR CI.
+passed. The first PR CI run also passed the debug APK build, Android lint,
+native-memory smoke test, acceptance checks and CodeQL. Its full 3,990-test suite
+identified three stale message assertions and one intermittent Compose test
+dispatcher failure, addressed in the follow-up below.
+
+### PR validation follow-up
+
+- Updated the repository integration tests to check the provider-neutral 403
+  message, explicit retry guidance and retained evidence. They still verify that
+  Continue cannot repeat tool preparation, an explicit retry rechecks the writer,
+  and the 24-request research replay does not reacquire saved evidence.
+- Updated provider-card rendering checks for the intentional “Reachable” wording,
+  while requiring the generation-not-tested qualification and an unknown status
+  for services that have never been checked.
+- Supplied a `StandardTestDispatcher` to the Combined Markdown Compose test. The
+  former unconfined test dispatcher could resume view updates inline on the
+  Markdown parser's background thread. Parsing remains asynchronous in production,
+  and the test still checks both profile colours and their removal when sources
+  change. This follows the [Compose test dispatch guidance](https://developer.android.com/develop/ui/compose/testing/migrate-v2).
+
+Full CI is rerun for this follow-up; no failing tests are disabled or skipped by
+the repair.
 
 A minimal public-prompt check of the Qwen Space accepted a job but its response
 stream ended incompletely. This is a live service limitation, not proof of successful

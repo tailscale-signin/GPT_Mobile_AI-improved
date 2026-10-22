@@ -76,6 +76,15 @@ dispatcher failure, addressed in the follow-up below.
 Full CI is rerun for this follow-up; no failing tests are disabled or skipped by
 the repair.
 
+At `532ff1cd`, both full unit-test runs passed. The audit report contains 3,990
+tests with zero failures/errors and two heap-specific cases skipped; PR Validation
+then passed the separate 256 MiB recovery/export tests and Android lint. CodeQL,
+the review APK, Android acceptance and native-memory smoke checks also passed.
+The audit's tests, APK build and lint each completed successfully, but its
+45-minute job deadline marked the run cancelled during final artifact upload and
+cleanup. Its job timeout is now 60 minutes to cover the observed cold-runner
+duration plus artifact delivery; all validation steps remain enabled.
+
 A minimal public-prompt check of the Qwen Space accepted a job but its response
 stream ended incompletely. This is a live service limitation, not proof of successful
 inference. Its deployed `/gradio_api/info` currently exposes two public inputs and

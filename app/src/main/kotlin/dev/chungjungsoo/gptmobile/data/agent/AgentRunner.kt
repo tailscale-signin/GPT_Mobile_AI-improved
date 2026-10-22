@@ -55,7 +55,8 @@ data class AgentRunLimits(
 }
 
 class AgentRunner(
-    val limits: AgentRunLimits = AgentRunLimits()
+    val limits: AgentRunLimits = AgentRunLimits(),
+    private val checkpoint: ToolBatchCheckpoint? = null
 ) {
     fun run(session: AgentProviderSession, tools: List<AgentTool>, dynamicTools: () -> List<AgentTool> = { emptyList() }, selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition> = { it }): Flow<AgentRunEvent> = flow {
         if (tools.groupBy { it.definition.name }.any { it.value.size > 1 }) {
@@ -68,7 +69,7 @@ class AgentRunner(
         var exposedDefinitions = tools.map { it.definition }
         val exchanges = mutableListOf<AgentToolExchange>()
         var rounds = 0
-        var toolCallCount = 0
+        var toolCallCount = checkpoint?.dispatchedCount() ?: 0
         var toolMayHaveExecuted = false
         var retriedWithoutTools = false
 
@@ -118,21 +119,15 @@ class AgentRunner(
         var batchRepairAttempted = false
         var unproductiveDiscoveryRounds = 0
         var suppressedReadRounds = 0
+        var restoredCalls = checkpoint?.pending().orEmpty()
+        var restoredDispatched = checkpoint?.pendingDispatchedCount() ?: 0
         val executionToolCallLimit = ToolBudgetPolicy.executionLimit(limits)
         val toolCallsByName = mutableMapOf<String, Int>()
         val consecutiveToolFailures = mutableMapOf<String, Int>()
         val blockedReadScopes = mutableSetOf<String>()
-        fun failureScope(call: ProviderEvent.ToolCall): String {
-            if (call.name == "read_url" || call.name.endsWith("_read_url")) {
-                val url = (call.arguments["url"] as? JsonPrimitive)?.content.orEmpty()
-                val host = runCatching { URI(url).host?.lowercase(java.util.Locale.ROOT) }.getOrNull()
-                return "${call.name}|host=${host ?: "invalid-url"}"
-            }
-            return toolRepeatKey(call).takeIf { "|operation=" in it } ?: call.name
-        }
 
         while (true) {
-            if (executionToolCallLimit < Int.MAX_VALUE && toolCallCount >= executionToolCallLimit) {
+            if (executionToolCallLimit < Int.MAX_VALUE && toolCallCount >= executionToolCallLimit && restoredCalls.isEmpty()) {
                 exposedDefinitions = emptyList()
                 executableToolByName = emptyMap()
                 if (!finalResponseRequested) {
@@ -177,7 +172,7 @@ class AgentRunner(
             val observedLimit = if (limits.combined == null) limits.maxObservedToolCalls.coerceIn(1, 1024) else limits.maxObservedToolCalls.coerceAtLeast(0)
             val roundDefinitions = fitProviderToolSchemas(selectDefinitions(exposedDefinitions), limits, initialSchemaTokens, replayTokens)
             reconcileDiscoveryExchange(exchanges, roundDefinitions)
-            val round = collectRound(session, roundDefinitions, exchanges, (observedLimit - observedToolCalls).coerceAtLeast(0), searchContext.successful, searchContext.names)
+            val round = if (restoredCalls.isNotEmpty()) RoundResult(calls = restoredCalls, completed = true, observedCalls = restoredCalls.size).also { restoredCalls = emptyList() } else collectRound(session, roundDefinitions, exchanges, (observedLimit - observedToolCalls).coerceAtLeast(0), searchContext.successful, searchContext.names)
             observedToolCalls += round.observedCalls
             if (round.batchRejected) {
                 val recovery = recoverRejectedBatch(session, round, exposedDefinitions, observedToolCalls, observedLimit, rounds, batchRepairAttempted, stormFinalizationAttempted, finalResponseRequested) ?: return
@@ -251,7 +246,10 @@ class AgentRunner(
                     emit(AgentRunEvent.Provider(ProviderEvent.Failed("The model returned no visible answer after finalization. No completed tool action was repeated. Please retry or choose another model.", transportComplete = round.completed)))
                     return
                 }
-                if (round.completed) emit(AgentRunEvent.Provider(ProviderEvent.Completed))
+                if (round.completed) {
+                    checkpoint?.finish()
+                    emit(AgentRunEvent.Provider(ProviderEvent.Completed))
+                }
                 return
             }
             val roundLimitReached = limits.maxRounds < Int.MAX_VALUE && rounds >= limits.maxRounds
@@ -259,59 +257,127 @@ class AgentRunner(
             val remainingCalls = if (executionToolCallLimit == Int.MAX_VALUE) {
                 calls.size
             } else {
-                (executionToolCallLimit - toolCallCount).coerceAtLeast(0)
+                (executionToolCallLimit - toolCallCount + restoredDispatched).coerceAtLeast(0)
             }
-            val toolsForBatch = executableToolByName
-            val plan = planToolBatch(calls, remainingCalls, toolsForBatch.keys, toolCallsByName, blockedReadScopes, MAX_SAME_TOOL_CALLS_PER_RUN, ::failureScope)
-            val executableCalls = plan.executable
-            val deferredCalls = plan.deferred
-            val perToolSuppressedIds = plan.perToolSuppressedIds
-            val hostSuppressedIds = plan.hostSuppressedIds
-            plan.acceptedByName.forEach { (name, count) -> toolCallsByName[name] = (toolCallsByName[name] ?: 0) + count }
-            if (plan.disabledNames.isNotEmpty()) {
-                executableToolByName = executableToolByName.filterKeys { it !in plan.disabledNames }
-                exposedDefinitions = exposedDefinitions.filterNot { it.name in plan.disabledNames }
-                AppLogRecorder.record("Agent", "TOOL_REPEAT_SUPPRESSED · tools=${plan.disabledNames.size} · calls=${plan.perToolSuppressedIds.size}", "W")
-            }
+            val completed = processToolCalls(
+                calls, toolByName, executableToolByName, exposedDefinitions, exchanges, dynamicTools, selectDefinitions,
+                initialSchemaTokens, replayTokens, toolCallsByName, consecutiveToolFailures, blockedReadScopes,
+                remainingCalls, toolCallCount, restoredDispatched, roundLimitReached, finalResponseRequested,
+                retriedWithoutTools, executionToolCallLimit, suppressedReadRounds, unproductiveDiscoveryRounds
+            ) ?: return
+            executableToolByName = completed.tools
+            exposedDefinitions = completed.definitions
+            toolCallCount = completed.toolCallCount
+            restoredDispatched = 0
+            toolMayHaveExecuted = toolMayHaveExecuted || completed.executedAny
+            suppressedReadRounds = completed.suppressedReadRounds
+            replayTokens = completed.batch.replayTokens
+            unproductiveDiscoveryRounds = completed.batch.discoveryRounds
+            finalResponseRequested = completed.batch.finalResponseRequested
+        }
+    }
 
-            executableCalls.forEach { emit(AgentRunEvent.ToolStarted(it)) }
-            if (executableCalls.isNotEmpty()) toolMayHaveExecuted = true
-            val executedResults = executeToolBatch(executableCalls, toolsForBatch)
-            if (!finalResponseRequested && !retriedWithoutTools) {
-                val update = admitDiscoveredTools(dynamicTools(), toolByName, executableToolByName, exposedDefinitions, initialSchemaTokens, consecutiveToolFailures, toolCallsByName, replayTokens, selectDefinitions) ?: return
-                executableToolByName = update.tools
-                exposedDefinitions = update.definitions
-            }
-            toolCallCount += executableCalls.size
+    private data class ToolRoundCompletion(
+        val tools: Map<String, AgentTool>,
+        val definitions: List<AgentToolDefinition>,
+        val toolCallCount: Int,
+        val executedAny: Boolean,
+        val suppressedReadRounds: Int,
+        val batch: BatchCompletion
+    )
 
-            val newlyBlockedTools = updateFailureCircuits(executableCalls, executedResults, consecutiveToolFailures, blockedReadScopes, ::failureScope)
-            if (newlyBlockedTools.isNotEmpty()) {
-                executableToolByName = executableToolByName.filterKeys { it !in newlyBlockedTools }
-                exposedDefinitions = exposedDefinitions.filterNot { it.name in newlyBlockedTools }
-                newlyBlockedTools.forEach { toolName ->
-                    AppLogRecorder.record("Agent", "TOOL_FAILURE_CIRCUIT_OPEN · tool=$toolName · failures=${consecutiveToolFailures[toolName]}", "W")
-                }
-            }
+    private suspend fun kotlinx.coroutines.flow.FlowCollector<AgentRunEvent>.processToolCalls(
+        calls: List<ProviderEvent.ToolCall>,
+        toolByName: Map<String, AgentTool>,
+        initialTools: Map<String, AgentTool>,
+        initialDefinitions: List<AgentToolDefinition>,
+        exchanges: MutableList<AgentToolExchange>,
+        dynamicTools: () -> List<AgentTool>,
+        selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition>,
+        initialSchemaTokens: Long,
+        replayTokens: Long,
+        toolCallsByName: MutableMap<String, Int>,
+        consecutiveToolFailures: MutableMap<String, Int>,
+        blockedReadScopes: MutableSet<String>,
+        remainingCalls: Int,
+        initialToolCallCount: Int,
+        restoredDispatched: Int,
+        roundLimitReached: Boolean,
+        initialFinalResponseRequested: Boolean,
+        retriedWithoutTools: Boolean,
+        executionToolCallLimit: Int,
+        previousSuppressedReadRounds: Int,
+        unproductiveDiscoveryRounds: Int
+    ): ToolRoundCompletion? {
+        var executableToolByName = initialTools
+        var exposedDefinitions = initialDefinitions
+        var toolCallCount = initialToolCallCount
+        var finalResponseRequested = initialFinalResponseRequested
+        var suppressedReadRounds = previousSuppressedReadRounds
+        val toolsForBatch = executableToolByName
+        val plan = planToolBatch(calls, remainingCalls, toolsForBatch.keys, toolCallsByName, blockedReadScopes, MAX_SAME_TOOL_CALLS_PER_RUN, ::failureScope)
+        val executableCalls = plan.executable
+        val deferredCalls = plan.deferred
+        val perToolSuppressedIds = plan.perToolSuppressedIds
+        val hostSuppressedIds = plan.hostSuppressedIds
+        plan.acceptedByName.forEach { (name, count) -> toolCallsByName[name] = (toolCallsByName[name] ?: 0) + count }
+        if (plan.disabledNames.isNotEmpty()) {
+            executableToolByName = executableToolByName.filterKeys { it !in plan.disabledNames }
+            exposedDefinitions = exposedDefinitions.filterNot { it.name in plan.disabledNames }
+            AppLogRecorder.record("Agent", "TOOL_REPEAT_SUPPRESSED · tools=${plan.disabledNames.size} · calls=${plan.perToolSuppressedIds.size}", "W")
+        }
 
-            val deferredResults = deferredToolResults(deferredCalls, hostSuppressedIds, perToolSuppressedIds)
-            val canReadOtherSources = hostSuppressedIds.isNotEmpty() || deferredCalls.any { it.callId in perToolSuppressedIds && it.name in executableToolByName }
-            // Give a scoped read one round to choose another source, then stop
-            // paying for provider rounds that only repeat already-suppressed work.
-            suppressedReadRounds = if (executableCalls.isEmpty() && canReadOtherSources) suppressedReadRounds + 1 else 0
-            val completedBatch = finishBatch(
-                calls, executedResults + deferredResults, exchanges, executableCalls.isEmpty(),
-                canReadOtherSources, suppressedReadRounds >= 2,
-                roundLimitReached, toolCallCount, executionToolCallLimit,
-                unproductiveDiscoveryRounds, finalResponseRequested
-            )
-            replayTokens = completedBatch.replayTokens
-            unproductiveDiscoveryRounds = completedBatch.discoveryRounds
-            finalResponseRequested = completedBatch.finalResponseRequested
-            if (finalResponseRequested) {
-                exposedDefinitions = emptyList()
-                executableToolByName = emptyMap()
+        checkpoint?.enqueue(calls)
+        executableCalls.forEach { emit(AgentRunEvent.ToolStarted(it)) }
+        val executedResults = mutableListOf<AgentToolResult>()
+        for (batch in executableCalls.chunked(limits.maxToolCallsPerRound.coerceIn(1, 32))) {
+            val results = executeToolBatch(batch, toolsForBatch)
+            executedResults += results
+            batch.zip(results).forEach { (call, result) -> emit(AgentRunEvent.ToolFinished(call, result)) }
+        }
+        if (!finalResponseRequested && !retriedWithoutTools) {
+            val update = admitDiscoveredTools(dynamicTools(), toolByName, executableToolByName, exposedDefinitions, initialSchemaTokens, consecutiveToolFailures, toolCallsByName, replayTokens, selectDefinitions) ?: return null
+            executableToolByName = update.tools
+            exposedDefinitions = update.definitions
+        }
+        toolCallCount += (executableCalls.size - restoredDispatched).coerceAtLeast(0)
+
+        val newlyBlockedTools = updateFailureCircuits(executableCalls, executedResults, consecutiveToolFailures, blockedReadScopes, ::failureScope)
+        if (newlyBlockedTools.isNotEmpty()) {
+            executableToolByName = executableToolByName.filterKeys { it !in newlyBlockedTools }
+            exposedDefinitions = exposedDefinitions.filterNot { it.name in newlyBlockedTools }
+            newlyBlockedTools.forEach { toolName ->
+                AppLogRecorder.record("Agent", "TOOL_FAILURE_CIRCUIT_OPEN · tool=$toolName · failures=${consecutiveToolFailures[toolName]}", "W")
             }
         }
+
+        val deferredResults = deferredToolResults(deferredCalls, hostSuppressedIds, perToolSuppressedIds)
+        deferredCalls.zip(deferredResults).forEach { (call, result) -> checkpoint?.complete(call, result) }
+        val canReadOtherSources = hostSuppressedIds.isNotEmpty() || deferredCalls.any { it.callId in perToolSuppressedIds && it.name in executableToolByName }
+        // Give a scoped read one round to choose another source, then stop
+        // paying for provider rounds that only repeat already-suppressed work.
+        suppressedReadRounds = if (executableCalls.isEmpty() && canReadOtherSources) suppressedReadRounds + 1 else 0
+        val completedBatch = finishBatch(
+            calls, executedResults + deferredResults, exchanges, executableCalls.isEmpty(),
+            canReadOtherSources, suppressedReadRounds >= 2,
+            roundLimitReached, toolCallCount, executionToolCallLimit,
+            unproductiveDiscoveryRounds, finalResponseRequested, executableCalls.mapTo(hashSetOf()) { it.callId }
+        )
+        finalResponseRequested = completedBatch.finalResponseRequested
+        if (finalResponseRequested) {
+            exposedDefinitions = emptyList()
+            executableToolByName = emptyMap()
+        }
+        return ToolRoundCompletion(executableToolByName, exposedDefinitions, toolCallCount, executableCalls.isNotEmpty(), suppressedReadRounds, completedBatch)
+    }
+
+    private fun failureScope(call: ProviderEvent.ToolCall): String {
+        if (call.name == "read_url" || call.name.endsWith("_read_url")) {
+            val url = (call.arguments["url"] as? JsonPrimitive)?.content.orEmpty()
+            val host = runCatching { URI(url).host?.lowercase(java.util.Locale.ROOT) }.getOrNull()
+            return "${call.name}|host=${host ?: "invalid-url"}"
+        }
+        return toolRepeatKey(call).takeIf { "|operation=" in it } ?: call.name
     }
 
     private data class SearchRoundContext(val names: Set<String>, val successful: Boolean)
@@ -438,7 +504,8 @@ class AgentRunner(
         toolCallCount: Int,
         executionToolCallLimit: Int,
         previousDiscoveryRounds: Int,
-        wasFinalResponseRequested: Boolean
+        wasFinalResponseRequested: Boolean,
+        publishedCallIds: Set<String> = emptySet()
     ): BatchCompletion {
         var finalResponseRequested = wasFinalResponseRequested
         val resultByCallId = producedResults.associateBy { it.callId }
@@ -564,7 +631,7 @@ class AgentRunner(
         }
 
         calls.zip(allResults).forEach { (call, result) ->
-            emit(AgentRunEvent.ToolFinished(call, result))
+            if (call.callId !in publishedCallIds) emit(AgentRunEvent.ToolFinished(call, result))
         }
         // Retain bounded observations on ingress, including trace/retained payloads.
         val retained = ToolExchangeCompactor.compact(
@@ -619,7 +686,7 @@ class AgentRunner(
         searchToolNames: Set<String>
     ): RoundResult {
         val calls = mutableListOf<ProviderEvent.ToolCall>()
-        val admission = ToolRoundAdmission(minOf(limits.maxToolCallsPerRound, remainingObserved))
+        val admission = ToolRoundAdmission(minOf(MAX_BUFFERED_TOOL_CALLS, remainingObserved), maxSameTool = MAX_SAME_TOOL_CALLS_PER_RUN)
         var batchRejected = false
         var batchRejection: String? = null
         var parserObservedCalls = 0
@@ -843,7 +910,10 @@ class AgentRunner(
                     ownedCalls.map { call ->
                         async {
                             perTool.getValue(call.name).withPermit {
-                                semaphore.withPermit { call to executeBounded(call, tools[call.name]) }
+                                semaphore.withPermit {
+                                    val result = checkpoint?.execute(call) { executeBounded(call, tools[call.name]) } ?: executeBounded(call, tools[call.name])
+                                    call to result
+                                }
                             }
                         }
                     }.awaitAll()

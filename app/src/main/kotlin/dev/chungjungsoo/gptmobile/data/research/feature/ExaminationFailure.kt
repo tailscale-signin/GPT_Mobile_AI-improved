@@ -12,6 +12,7 @@ internal fun examinationFailure(error: Exception, attempt: Int, now: Long = Syst
     val causes = generateSequence<Throwable>(error) { it.cause?.takeUnless { cause -> cause === it } }.take(16).toList()
     val delegated = causes.filterIsInstance<dev.chungjungsoo.gptmobile.data.agent.tool.DelegateGenerationException>().firstOrNull()
     val code = evidence?.failureCode ?: when {
+        causes.any { it.message.orEmpty().contains(ExaminationOutputBudget.INSUFFICIENT) } -> "ADMITTED_CAPACITY_EXHAUSTED"
         delegated?.kind == dev.chungjungsoo.gptmobile.data.agent.tool.DelegateFailureKind.TRANSPORT_FAILURE -> "TRANSPORT_FAILED"
         delegated?.kind == dev.chungjungsoo.gptmobile.data.agent.tool.DelegateFailureKind.OUTPUT_LIMIT -> "OUTPUT_LIMIT"
         delegated?.kind == dev.chungjungsoo.gptmobile.data.agent.tool.DelegateFailureKind.AUTH_FAILURE -> "EXAMINER_AUTH_REQUIRED"

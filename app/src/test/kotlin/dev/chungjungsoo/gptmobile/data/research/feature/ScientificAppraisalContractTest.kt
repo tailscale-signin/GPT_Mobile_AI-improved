@@ -50,6 +50,11 @@ class ScientificAppraisalContractTest {
         put("limitations", JsonArray(listOf(JsonPrimitive("Randomized and analyzed counts differ; missing data explanation requires review"))))
     }.toString()
 
+    @Test fun compactChunkingCanContinuePastTheOldThreeDigitPassageLimit() {
+        val parsed = ScientificAppraisalContract.validate(appraisal().replace("P1", "P1009"), version, source)
+        assertTrue(parsed.passages.single().passageId.endsWith(":P1009"))
+    }
+
     @Test fun extractsRequireExactVersionQuotesAndValues() {
         val parsed = ScientificAppraisalContract.validate(appraisal(), version, source)
         assertEquals("10", parsed.fields.single().value)

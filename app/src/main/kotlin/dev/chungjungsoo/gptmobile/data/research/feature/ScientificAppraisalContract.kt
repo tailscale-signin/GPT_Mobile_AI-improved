@@ -104,7 +104,7 @@ internal object ScientificAppraisalContract {
             val quote = requireNotNull(string(row, "quote"))
             val locator = requireNotNull(string(row, "locator"))
             val start = (row["start"] as? JsonPrimitive)?.intOrNull ?: error("Exact quotation offset required")
-            require(id.matches(Regex("P[0-9]{1,3}")) && quote.length in 1..2000 && locator.length in 1..240 && start >= 0 && start <= source.length - quote.length && source.substring(start, start + quote.length) == quote) { "Passage $id must have a valid ID, locator and exact source quotation at its UTF-16 offset" }
+            require(id.matches(Regex("P[0-9]{1,7}")) && quote.length in 1..2000 && locator.length in 1..240 && start >= 0 && start <= source.length - quote.length && source.substring(start, start + quote.length) == quote) { "Passage $id must have a valid ID, locator and exact source quotation at its UTF-16 offset" }
             EvidencePassage("${version.versionId}:$id", version.versionId, locator, start, start + quote.length, researchHash(quote), quote)
         }
         require(passages.map { it.passageId }.distinct().size == passages.size)

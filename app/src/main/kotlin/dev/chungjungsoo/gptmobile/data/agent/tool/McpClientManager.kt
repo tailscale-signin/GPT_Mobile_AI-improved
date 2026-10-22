@@ -67,6 +67,8 @@ class McpBackoffException(
     val retryAtMs: Long
 ) : IllegalStateException("MCP connection is backing off until $retryAtMs.")
 
+internal class McpCatalogueTimeoutException(timeout: Long) : IllegalStateException("MCP catalogue discovery exceeded $timeout ms; saved catalogue and connection settings retained. Retry discovery or check server load.")
+
 class McpEndpointConfigurationException :
     IllegalStateException(
         "MCP endpoint returned HTTP 404 during initialization. Check the server URL/path and running service in Plugins/Tools, then reconnect."
@@ -84,7 +86,8 @@ class McpClientManager internal constructor(
     private val trust: dev.chungjungsoo.gptmobile.data.permissions.ToolTrustStore? = null,
     private val statistics: dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsRepository? = null,
     private val retryJitterMs: () -> Long = { kotlin.random.Random.nextLong(0, 1001) },
-    private val catalogueScope: kotlinx.coroutines.CoroutineScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
+    private val catalogueScope: kotlinx.coroutines.CoroutineScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO),
+    private val catalogueTimeoutMs: Long = 30_000L
 ) {
     @Inject
     constructor(networkClient: NetworkClient, mediaStore: McpMediaStore, interactions: McpInteractions, tasks: dev.chungjungsoo.gptmobile.data.workspace.RemoteTaskStore, trust: dev.chungjungsoo.gptmobile.data.permissions.ToolTrustStore, statistics: dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsRepository, @dev.chungjungsoo.gptmobile.di.ReadinessScope scope: kotlinx.coroutines.CoroutineScope) : this(networkClient(), mediaStore, interactions, modern = ModernMcpTransport(networkClient(), interactions, tasks), trust = trust, statistics = statistics, catalogueScope = scope)
@@ -177,7 +180,7 @@ class McpClientManager internal constructor(
         }
         val producer = synchronized(catalogueProducers) {
             catalogueProducers[key] ?: catalogueScope.async(start = kotlinx.coroutines.CoroutineStart.LAZY) {
-                withTimeout(8_000L) {
+                withTimeout(catalogueTimeoutMs) {
                     val epoch = catalogue.epoch
                     val tools = fetchCatalogue(config, forceRefresh).toList()
                     kotlinx.coroutines.currentCoroutineContext().ensureActive()
@@ -207,7 +210,7 @@ class McpClientManager internal constructor(
         return try {
             listToolsUnchecked(config, forceRefresh, observation)
         } catch (cancelled: CancellationException) {
-            if (cancelled is kotlinx.coroutines.TimeoutCancellationException) recordFailure(config.connectionUid, IllegalStateException("MCP catalogue discovery exceeded its total 8000 ms deadline."), observation = observation)
+            if (cancelled is kotlinx.coroutines.TimeoutCancellationException) recordFailure(config.connectionUid, McpCatalogueTimeoutException(catalogueTimeoutMs), observation = observation)
             throw cancelled
         } catch (error: Exception) {
             if (error is McpBackoffException) throw error
@@ -385,8 +388,16 @@ class McpClientManager internal constructor(
     }
 
     suspend fun probe(config: McpConnectionConfig): Boolean = try {
+        dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.checkAgain(config.endpointUrl)
+        dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.probe(config.endpointUrl)
         listTools(config, forceRefresh = true)
-        true
+        val key = config.validatedKey() + ":" + dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.epoch
+        val producer = synchronized(catalogueProducers) { catalogueProducers[key] }
+        if (producer != null) withTimeout(catalogueTimeoutMs) { producer.await() }
+        catalogueAvailability(config).executionAvailable
+    } catch (deadline: kotlinx.coroutines.TimeoutCancellationException) {
+        kotlinx.coroutines.currentCoroutineContext().ensureActive()
+        false
     } catch (cancelled: CancellationException) {
         throw cancelled
     } catch (_: Exception) {
@@ -449,6 +460,7 @@ class McpClientManager internal constructor(
             updated = previous.copy(
                 state = when {
                     authenticationRequired -> McpConnectionHealthState.AUTHENTICATION_REQUIRED
+                    error is McpCatalogueTimeoutException -> McpConnectionHealthState.DEGRADED
                     error is McpEndpointConfigurationException || failures >= CIRCUIT_BREAKER_FAILURES -> McpConnectionHealthState.UNREACHABLE
                     else -> McpConnectionHealthState.DEGRADED
                 },

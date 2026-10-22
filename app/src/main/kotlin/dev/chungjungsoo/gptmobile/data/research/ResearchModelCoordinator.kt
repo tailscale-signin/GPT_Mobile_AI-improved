@@ -86,7 +86,7 @@ internal class ResearchModelCoordinator(
     private val workers: List<ResearchModelEndpoint>,
     private val reviewer: ResearchModelEndpoint? = null,
     private val stillEnabled: suspend () -> Boolean = { true },
-    private val deadlineMillis: Long = ResearchTimeouts.MODEL_MS,
+    private val deadlineMillis: Long? = null,
     private val onEvent: suspend (ResearchModelEvent) -> Unit = {},
     private val wallClock: () -> Long = System::currentTimeMillis,
     private val monotonicClock: () -> Long = { System.nanoTime() / 1_000_000 },
@@ -165,7 +165,7 @@ internal class ResearchModelCoordinator(
             var phase = "READINESS"
             var networkLease: Long? = null
             try {
-                val admission = withTimeoutOrNull(minOf(5000L, deadlineMillis)) {
+                val admission = withTimeoutOrNull(minOf(5000L, deadlineMillis ?: ResearchTimeouts.MODEL_MS)) {
                     target.admission?.invoke() ?: if (target.available()) ResearchAdmission.ADMITTED else ResearchAdmission.MODEL_NOT_ADMITTED
                 } ?: ResearchAdmission.READINESS_TIMEOUT
                 if (admission != ResearchAdmission.ADMITTED) {
@@ -181,7 +181,7 @@ internal class ResearchModelCoordinator(
                 }
                 record(event.copy(outcome = "RUNNING", providerHost = target.providerHost))
                 phase = "GENERATION"
-                val reply = withTimeoutOrNull(target.timeoutMillis ?: deadlineMillis) { target.generate(stage, prompt, cap) }
+                val reply = withTimeoutOrNull(target.timeoutMillis ?: deadlineMillis ?: stageDeadline(stage)) { target.generate(stage, prompt, cap) }
                 if (!stillEnabled()) {
                     record(event.copy(outcome = "CANCELLED", durationMs = elapsed(started), reason = "PERMISSION_REVOKED"))
                     return null
@@ -199,10 +199,13 @@ internal class ResearchModelCoordinator(
                 }
                 if (reply.transportComplete == true && target.providerHost.isNotBlank()) dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.success(target.providerHost)
                 if (!valid(stage, parseDelegationObject(reply.text))) {
+                    val checkpoint = keepPartial(stage, target, reply.text)
                     failed(shared = reply.text.isBlank() || parseDelegationObject(reply.text) == null)
                     record(
                         event.copy(
                             outcome = "INVALID_RESPONSE",
+                            partialRetained = checkpoint != null,
+                            checkpointId = checkpoint,
                             durationMs = elapsed(started),
                             invocationId = reply.invocationId,
                             reason = if (reply.text.isBlank()) {
@@ -263,6 +266,13 @@ internal class ResearchModelCoordinator(
             }
         }
         return null
+    }
+
+    private fun stageDeadline(stage: ResearchModelStage): Long = when (stage) {
+        ResearchModelStage.PLAN -> 30_000L
+        ResearchModelStage.FIND_GAPS -> 45_000L
+        ResearchModelStage.EXTRACT -> 120_000L
+        ResearchModelStage.REVIEW -> 90_000L
     }
 
     private suspend fun keepPartial(stage: ResearchModelStage, target: ResearchModelEndpoint, text: String): String? {

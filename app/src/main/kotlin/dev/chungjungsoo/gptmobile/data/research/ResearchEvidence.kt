@@ -65,7 +65,9 @@ data class ResearchSource(
     val population: String = "",
     val intervention: String = "",
     val outcomes: String = "",
-    val metadataProvenance: List<String> = emptyList()
+    val metadataProvenance: List<String> = emptyList(),
+    val discoveredByProfiles: Set<String> = emptySet(),
+    val readByProfiles: Set<String> = emptySet()
 ) {
     private val validatedContent by lazy { SourceContentValidator.validate(passage, abstractOnly = retrievalQuality == "ABSTRACT", url = url) }
     val readable: Boolean get() = originId.isBlank() && retrievalQuality in setOf("FULL_TEXT", "PARTIAL_TEXT") && status in setOf("Read", "Partially read", "Used as evidence") && passage.isNotBlank() && validatedContent.usable
@@ -77,6 +79,8 @@ data class ResearchSource(
         put("population", population)
         put("intervention", intervention)
         put("outcomes", outcomes)
+        put("discoveredByProfiles", JsonArray(discoveredByProfiles.sorted().map(::JsonPrimitive)))
+        put("readByProfiles", JsonArray(readByProfiles.sorted().map(::JsonPrimitive)))
         put("metadataProvenance", JsonArray(metadataProvenance.map(::JsonPrimitive)))
         put("publicCapture", publicCapture)
         put("retrievalReceipt", retrievalReceipt)
@@ -270,6 +274,8 @@ data class ResearchSnapshot(
                     studyDesigns = s.strings("studyDesigns").take(20).toSet(),
                     population = s.text("population").take(1000), intervention = s.text("intervention").take(1000), outcomes = s.text("outcomes").take(1000),
                     metadataProvenance = s.strings("metadataProvenance").take(30),
+                    discoveredByProfiles = s.strings("discoveredByProfiles").take(64).toSet(),
+                    readByProfiles = s.strings("readByProfiles").take(64).toSet(),
                     publicCapture = (s["publicCapture"] as? JsonPrimitive)?.booleanOrNull == true,
                     retrievalReceipt = s.text("retrievalReceipt").take(240),
                     doi = SourceIdentity.normalizeDoi(s.text("doi").ifBlank { source.doi }),

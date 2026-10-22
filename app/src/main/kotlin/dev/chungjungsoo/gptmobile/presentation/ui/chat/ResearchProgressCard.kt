@@ -41,7 +41,10 @@ internal fun ResearchProgressCard(
     onRecovery: ((String) -> Unit)? = null,
     deliveryReceipt: dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryReceipt? = null,
     cancelWriting: (() -> Unit)? = null,
-    deliveryRevisionText: String? = null
+    deliveryRevisionText: String? = null,
+    profileStatistics: List<dev.chungjungsoo.gptmobile.data.research.ResearchProfileStatistics> = emptyList(),
+    profileNames: Map<String, String> = emptyMap(),
+    deliveryComplete: Boolean? = null
 ) {
     var expanded by remember { mutableStateOf(false) }
     var filter by remember { mutableStateOf("") }
@@ -54,7 +57,13 @@ internal fun ResearchProgressCard(
     val displayedValidity = deliveryReceipt?.displayValidityFor(deliveryRevisionText)
     val readable = snapshot.sources.readableWorkCount()
     val saved = snapshot.sources.distinctBy { it.equivalenceGroup.ifBlank { it.id } }.size
-    val progress = (readable.toFloat() / snapshot.targetSources.coerceAtLeast(1)).coerceIn(0f, 1f)
+    val complete = deliveryComplete ?: (displayedValidity == dev.chungjungsoo.gptmobile.data.research.delivery.ResearchReportValidity.ACCEPTED)
+    val progress = if (complete && !active) {
+        1f
+    } else {
+        val acquisition = (readable.toFloat() / snapshot.targetSources.coerceAtLeast(1)).coerceIn(0f, 1f)
+        (acquisition * 0.7f + if (writing) 0.15f else 0f).coerceAtMost(0.95f)
+    }
     Card(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
         shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
@@ -68,7 +77,7 @@ internal fun ResearchProgressCard(
                         when {
                             collecting -> "Research · ${snapshot.phase}"
                             writing -> "Writing from saved evidence"
-                            displayedValidity == dev.chungjungsoo.gptmobile.data.research.delivery.ResearchReportValidity.ACCEPTED -> "Research report ready"
+                            complete -> "Research report ready"
                             else -> "Research evidence retained"
                         },
                         style = MaterialTheme.typography.titleMedium
@@ -78,6 +87,15 @@ internal fun ResearchProgressCard(
                 if (active) androidx.compose.material3.CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
             }
             androidx.compose.material3.LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
+            profileStatistics.forEach { stats ->
+                Column(Modifier.fillMaxWidth()) {
+                    Text(profileNames[stats.profileUid] ?: stats.profileUid, style = MaterialTheme.typography.titleSmall)
+                    Text("${stats.sources} sources · ${stats.uniqueSources} unique · ${stats.sourcesRead} read · ${stats.studiesExamined} studies examined", style = MaterialTheme.typography.bodySmall)
+                    Text("${stats.inputTokens + stats.outputTokens} ${if (stats.estimatedTokens) "estimated tokens" else "tokens"} (${stats.inputTokens} input / ${stats.outputTokens} output) · ${stats.modelRequests} model requests", style = MaterialTheme.typography.bodySmall)
+                    if (stats.examinationsPending > 0) Text("${stats.examinationsPending} examinations pending", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            if (profileStatistics.isNotEmpty()) Text("Unique sources were found by only this profile among the selected profiles. Shared evidence retains its original attribution; older records without attribution are not assigned to a profile.", style = MaterialTheme.typography.labelSmall)
             val checked = snapshot.claims.count { claim ->
                 val source = snapshot.sources.firstOrNull { it.id == claim.sourceId }
                 claim.exactQuoteVerified &&

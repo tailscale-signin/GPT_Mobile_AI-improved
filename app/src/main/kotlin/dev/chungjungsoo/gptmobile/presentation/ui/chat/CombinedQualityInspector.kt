@@ -39,7 +39,12 @@ internal fun CombinedDeliveryStatus(report: CombinedQualityReport, answer: Strin
     }
     Column(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
         Text(delivery, style = MaterialTheme.typography.labelMedium, color = if (report.correctionRequired && !stale) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
-        if (!stale) Text(evidence, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (!stale) {
+            Text(evidence, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            report.checks.filter { it.category == "RESEARCH_SCOPE" && it.result != "PASS" }.forEach { question ->
+                Text("Unresolved: ${question.message}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
     }
 }
 

@@ -110,6 +110,33 @@ class ToolRoundAdmissionTest {
         assertTrue(events.any { it == AgentRunEvent.Provider(ProviderEvent.Completed) })
     }
 
+    @Test fun thirtyThreeIndependentReadsExecuteInBoundedGroupsExactlyOnce() = runBlocking {
+        val seen = mutableListOf<String>()
+        var rounds = 0
+        val tool = object : AgentTool {
+            override val definition = AgentToolDefinition("read_url", "Read", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: kotlinx.serialization.json.JsonObject): AgentToolResult {
+                seen += callId
+                return AgentToolResult(callId, ToolResultContent.Text("Evidence $callId"), false)
+            }
+        }
+        val session = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                if (rounds++ == 0) {
+                    repeat(33) { emit(ProviderEvent.ToolCall("read-$it", "read_url", buildJsonObject { put("url", "https://example.org/$it") })) }
+                } else {
+                    assertEquals(33, exchanges.single().results.size)
+                    emit(ProviderEvent.TextDelta("Completed using saved evidence"))
+                }
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val events = AgentRunner(AgentRunLimits(maxToolCallsPerRound = 32)).run(session, listOf(tool)).toList()
+        assertEquals(33, seen.size)
+        assertEquals(33, seen.distinct().size)
+        assertTrue(events.any { it == AgentRunEvent.Provider(ProviderEvent.Completed) })
+    }
+
     @Test fun eightValidCallsFitAndDuplicatesAndHugeArgumentsDoNot() {
         val admission = ToolRoundAdmission()
         repeat(8) { assertTrue(admission.admit(ProviderEvent.ToolCall("c$it", "search", buildJsonObject {}))) }
@@ -122,7 +149,7 @@ class ToolRoundAdmissionTest {
         val admission = ToolRoundAdmission(Int.MAX_VALUE, Int.MAX_VALUE, Int.MAX_VALUE)
         var admitted = 0
         repeat(3000) { if (admission.admit(ProviderEvent.ToolCall("c$it", "tool$it", buildJsonObject {}))) admitted++ }
-        assertEquals(64, admitted)
+        assertEquals(MAX_BUFFERED_TOOL_CALLS, admitted)
     }
 
     @Test fun recoveryWrapperCannotBufferTheStormBeforeTheRunner() = runBlocking {

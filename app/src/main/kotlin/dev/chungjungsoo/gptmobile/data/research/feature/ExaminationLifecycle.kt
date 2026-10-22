@@ -18,7 +18,7 @@ internal object ExaminationLifecycle {
     fun phaseMillis(stage: ExaminationStage): Long = when (stage) {
         ExaminationStage.QUEUED, ExaminationStage.RESOLVING, ExaminationStage.READING -> 2 * 60_000L
         ExaminationStage.EXTRACTING, ExaminationStage.REVIEWING -> 3 * 60_000L
-        ExaminationStage.APPRAISING -> 60_000L
+        ExaminationStage.APPRAISING -> 180_000L
         else -> 0L
     }
 }

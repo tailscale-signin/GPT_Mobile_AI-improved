@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.research
 
 interface ResearchJournal {
     fun scoped(authority: String, sharePublicEvidence: Boolean): ResearchJournal = this
+    fun attributeSource(source: ResearchSource, discovered: Boolean = false, read: Boolean = false): ResearchSource = source
     fun sourceId(identity: String, fallback: String): String = fallback
     fun claimWork(key: String, leaseMillis: Long): Boolean = true
     fun releaseWork(key: String) = Unit

@@ -22,6 +22,7 @@ internal data class CombinedFinalAssessment(
 ) {
     val issues: List<String> get() = checks.filter { it.result in setOf("FAIL", "NEEDS_VERIFICATION") }.map { it.id }.distinct()
     val correctionRequired: Boolean get() = checks.any { it.material && it.result == "FAIL" }
+    val requiredFailures: List<String> get() = checks.filter { it.result == "FAIL" && (it.material || it.category in setOf("REQUEST", "SCOPE", "RESEARCH_SCOPE")) }.map { it.id }
     val hardFailures: List<String> get() = checks.filter { it.result == "FAIL" }.map { it.id }
 }
 
@@ -99,7 +100,7 @@ internal object CombinedFinalCheck {
                 declaration.finalQuote.isBlank() || answer.substring(span.startUtf16, span.endUtf16).contains(declaration.finalQuote)
             }
             val linksRequired = declaration.disposition in setOf("INCLUDED", "MERGED", "QUALIFIED", "DISPUTED", "CORRECTED")
-            if (claim == null || linksRequired && outputs.isEmpty()) {
+            if (claim == null || linksRequired && outputs.isEmpty() || declaration.disposition == "MERGED" && declaration.finalQuote.isBlank()) {
                 val issue = if (claim == null) "UNKNOWN_CLAIM_DECISION:${declaration.claimId}" else "UNTRUTHFUL_${declaration.disposition}_DISPOSITION:${declaration.claimId}"
                 checks += CombinedAnswerCheck(issue, "FAIRNESS", "FAIL", claimIds = setOf(declaration.claimId))
                 declaration.copy(disposition = "UNRESOLVED", semanticStatus = "UNESTABLISHED", failedChecks = listOf(issue))

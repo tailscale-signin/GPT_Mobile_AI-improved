@@ -14,7 +14,7 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
 class ResearchTaskStoreTest {
-    @Test fun progressTimestampDoesNotDuplicateEvidenceButWorkCountersSurviveRestart() {
+    @Test fun progressTimestampDoesNotDuplicateEvidenceButWorkCountersSurviveRestart() = kotlinx.coroutines.runBlocking {
         val dir = Files.createTempDirectory("research-timestamp").toFile()
         try {
             val store = ResearchTaskStore(dir)
@@ -35,7 +35,7 @@ class ResearchTaskStoreTest {
 
     private fun task(chat: Int = 1) = AcceptedResearchTask(taskId = researchHash("task:$chat:10"), rootWorkId = "$chat:10", chatId = chat, originatingUserMessageId = 10, taskText = "Compare the original evidence", intent = "REQUIRED", participantUids = listOf("a", "b"), primaryUid = "a", settingsRevision = "settings", sourceAuthorityRevision = "grants", acceptedAt = 100)
 
-    @Test fun corpusAndDeliveryRetainAcceptedTaskLineageAndRejectDifferentTasks() {
+    @Test fun corpusAndDeliveryRetainAcceptedTaskLineageAndRejectDifferentTasks() = kotlinx.coroutines.runBlocking {
         val original = ResearchSnapshot("Compare evidence", taskId = "task-one", rootWorkId = "1:10", originatingUserMessageId = 10, taskChatId = 1)
         val restored = requireNotNull(ResearchSnapshot.parse(original.json()))
         val packet = ResearchCorpus.freeze(restored).json()
@@ -66,7 +66,7 @@ class ResearchTaskStoreTest {
         }
     }
 
-    @Test fun acceptedTaskAndRecoveryAreImmutableAcrossRestart() {
+    @Test fun acceptedTaskAndRecoveryAreImmutableAcrossRestart() = kotlinx.coroutines.runBlocking {
         val dir = Files.createTempDirectory("accepted-research").toFile()
         try {
             val first = ResearchTaskStore(dir)
@@ -83,7 +83,7 @@ class ResearchTaskStoreTest {
         }
     }
 
-    @Test fun temporaryTasksNeverWriteAndDeletingOneChatPreservesTheOther() {
+    @Test fun temporaryTasksNeverWriteAndDeletingOneChatPreservesTheOther() = kotlinx.coroutines.runBlocking {
         val dir = Files.createTempDirectory("accepted-research").toFile()
         try {
             val store = ResearchTaskStore(dir)
@@ -98,7 +98,7 @@ class ResearchTaskStoreTest {
         }
     }
 
-    @Test fun checkpointCannotAdoptAnotherTaskAndRetainsExactEvidenceDependencies() {
+    @Test fun checkpointCannotAdoptAnotherTaskAndRetainsExactEvidenceDependencies() = kotlinx.coroutines.runBlocking {
         val dir = Files.createTempDirectory("accepted-research").toFile()
         try {
             val store = ResearchTaskStore(dir)

@@ -68,6 +68,7 @@ internal class ModelRequestPreparation(client: NetworkClient) {
         // those exact bytes once more; lowering a positive integer cannot add bytes.
         val finalAllowance = dev.chungjungsoo.gptmobile.data.context.EffectiveOutputAllowance.resolve(allowance.tokens, snapshot.outputTokens, snapshot.contextTokens, RequestAdmission.estimate(finalPayload))
         if (finalAllowance.tokens != allowance.tokens) finalPayload = applyOutputAllowance(bounded, config.providerType, finalAllowance.tokens).toString()
+        dev.chungjungsoo.gptmobile.data.research.feature.ExaminationOutputBudget.requireCapacity(config.requestRole, finalAllowance.tokens)
         dev.chungjungsoo.gptmobile.data.context.ProviderMessageValidator.validate(finalPayload, config.intentionalAssistantPrefill)
         val measured = RequestAdmission.estimate(finalPayload)
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(

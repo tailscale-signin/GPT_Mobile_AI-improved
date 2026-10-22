@@ -312,6 +312,7 @@ class LiteRtLmAdapter(
                         return@channelFlow
                     }
                 }
+                dev.chungjungsoo.gptmobile.data.research.feature.ExaminationOutputBudget.requireCapacity(constraints.requestRole, plan.outputReserveTokens.toLong())
                 outputLimit = plan.outputReserveTokens
                 if (usedCompactFallback) {
                     send(

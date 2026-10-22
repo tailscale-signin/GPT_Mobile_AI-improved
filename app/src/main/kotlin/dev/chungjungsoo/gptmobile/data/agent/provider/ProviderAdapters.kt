@@ -209,7 +209,8 @@ class OpenAICompatibleAdapter @Inject constructor(
     private val groqAPI: GroqAPI,
     private val attachmentEncoder: ProviderAttachmentEncoder,
     private val openRouterSettingsRepository: OpenRouterSettingsRepository? = null,
-    private val settingRepository: dev.chungjungsoo.gptmobile.data.repository.SettingRepository? = null
+    private val settingRepository: dev.chungjungsoo.gptmobile.data.repository.SettingRepository? = null,
+    private val privacyPreflight: dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterPrivacyPreflight? = null
 ) {
     private val json = Json {
         ignoreUnknownKeys = true
@@ -275,6 +276,7 @@ class OpenAICompatibleAdapter @Inject constructor(
             null to null
         }
         val parsedRouting = if (isOpenRouter) dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterPolicy.resolve(routerSettings.routing, profileRouting) else null
+        if (parsedRouting != null) privacyPreflight?.check(platform.apiUrl.orEmpty(), candidateKeys.firstOrNull(), platform.model, parsedRouting)
         val parsedOllamaOptions = if (isOllama && !platform.ollamaOptions.isNullOrBlank()) {
             runCatching { json.decodeFromString<OllamaOptions>(platform.ollamaOptions) }.getOrNull()
         } else if (isOllama) {

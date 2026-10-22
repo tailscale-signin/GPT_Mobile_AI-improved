@@ -83,13 +83,13 @@ private class AssistantTextMarkupGuard {
     private val wireMarkup = Regex("(?is)</?(?:tool_call|function_call|tool_result|invoke)\\b[^>]*>|<\\|(?:tool_call|function_call)(?:\\|)?>|<\\|im_start\\|>")
     private val assistantToolLine = Regex("(?im)^\\s*assistant\\s+to=[A-Za-z0-9_.-]+\\s+(?:\\[|\\{)")
     private val assistantToolPrefix = Regex("(?im)^\\s*assistant\\s+to=")
-    private val partialTags = listOf("<tool_call", "<function_call", "<tool_result", "<invoke", "</tool_call", "</function_call", "</tool_result", "</invoke", "<|tool_call|>", "<|tool_call>", "<|function_call|>", "<|function_call>", "<|im_start|>")
+    private val partialTags = listOf("<｜DSML｜", "</｜DSML｜", "<|DSML|", "</|DSML|", "<tool_call", "<function_call", "<tool_result", "<invoke", "</tool_call", "</function_call", "</tool_result", "</invoke", "<|tool_call|>", "<|tool_call>", "<|function_call|>", "<|function_call>", "<|im_start|>")
     private val searchClaim = Regex("(?i)\\b(?:i|we)\\s+(?:have\\s+)?(?:searched|looked up|checked)\\s+(?:the\\s+)?(?:web|internet|online|latest news|current sources)\\b|\\b(?:my|our)\\s+(?:web|internet)\\s+search\\b")
 
     fun append(text: String, successfulWebSearch: Boolean): Result {
         if (blocked) return Result(blocked = true)
         pending.append(text)
-        val rawStart = listOfNotNull(wireMarkup.find(pending)?.range?.first, patternStart(assistantToolLine, linePrefix())).minOrNull()
+        val rawStart = listOfNotNull(DSML_CONTROL_MARKUP.find(pending)?.range?.first, wireMarkup.find(pending)?.range?.first, patternStart(assistantToolLine, linePrefix())).minOrNull()
         if (rawStart != null) {
             val safe = pending.substring(0, rawStart)
             pending.clear()
@@ -118,7 +118,7 @@ private class AssistantTextMarkupGuard {
 
     fun finish(successfulWebSearch: Boolean): Result {
         if (blocked) return Result(blocked = true)
-        val rawStart = listOfNotNull(wireMarkup.find(pending)?.range?.first, patternStart(assistantToolLine, linePrefix())).minOrNull()
+        val rawStart = listOfNotNull(DSML_CONTROL_MARKUP.find(pending)?.range?.first, wireMarkup.find(pending)?.range?.first, patternStart(assistantToolLine, linePrefix())).minOrNull()
         if (rawStart != null) {
             val safe = pending.substring(0, rawStart)
             pending.clear()
@@ -219,3 +219,6 @@ internal fun sanitizeAssistantText(text: String): String {
     val first = guard.append(text, successfulWebSearch = true)
     return first.text + if (first.blocked) "" else guard.finish(successfulWebSearch = true).text
 }
+
+/** Both native full-width DeepSeek delimiters and their ASCII transport variants. */
+internal val DSML_CONTROL_MARKUP = Regex("(?is)</?[|｜]DSML[|｜](?:tool_calls|invoke|parameter|function_calls|function_results)\\b[^>]*>?")

@@ -18,26 +18,28 @@ internal class ResearchSessionIndex(private val directory: File) {
             .filter { (chatId == null || it.chatId == chatId) && (turnIds == null || it.turnId in turnIds) && (authorities == null || it.authority in authorities) }
             .sortedByDescending { it.updatedAt }.toList()
 
-    fun metadata(file: File): Entry? = runCatching {
-        require(file.extension == "json" && file.length() in 1..512 * 1024)
-        val sidecar = sidecar(file)
-        val cached = if (sidecar.isFile && sidecar.length() in 1..8192) {
-            runCatching {
-                val value = Json.parseToJsonElement(AtomicFile(sidecar).openRead().bufferedReader().use { it.readText() }).jsonObject
-                if (value.text("modified").toLongOrNull() != file.lastModified() || value.text("bytes").toLongOrNull() != file.length()) {
-                    null
-                } else {
-                    Entry(file, value.text("runId"), value.number("chatId"), value.text("turnId"), value.text("authority"), value.text("complete") == "true", value.text("updatedAt").toLong())
-                }
-            }.getOrNull()
-        } else {
-            null
-        }
-        cached ?: scan(file).also(::write)
-    }.getOrNull()
+    fun metadata(file: File): Entry? = ResearchAtomicFiles.locked(file) {
+        runCatching {
+            require(file.extension == "json" && file.length() in 1..512 * 1024)
+            val sidecar = sidecar(file)
+            val cached = if (sidecar.isFile && sidecar.length() in 1..8192) {
+                runCatching {
+                    val value = Json.parseToJsonElement(AtomicFile(sidecar).openRead().bufferedReader().use { it.readText() }).jsonObject
+                    if (value.text("modified").toLongOrNull() != file.lastModified() || value.text("bytes").toLongOrNull() != file.length()) {
+                        null
+                    } else {
+                        Entry(file, value.text("runId"), value.number("chatId"), value.text("turnId"), value.text("authority"), value.text("complete") == "true", value.text("updatedAt").toLong())
+                    }
+                }.getOrNull()
+            } else {
+                null
+            }
+            cached ?: scan(file).also(::write)
+        }.getOrNull()
+    }
 
-    fun record(session: ResearchSession, file: File) = write(Entry(file, session.runId, session.chatId, session.turnId, session.authority, session.snapshot.complete, session.snapshot.updatedAt))
-    fun remove(file: File) = AtomicFile(sidecar(file)).delete()
+    fun record(session: ResearchSession, file: File) = ResearchAtomicFiles.locked(file) { write(Entry(file, session.runId, session.chatId, session.turnId, session.authority, session.snapshot.complete, session.snapshot.updatedAt)) }
+    fun remove(file: File) = ResearchAtomicFiles.locked(file) { AtomicFile(sidecar(file)).delete() }
 
     private fun scan(file: File): Entry {
         var runId = ""

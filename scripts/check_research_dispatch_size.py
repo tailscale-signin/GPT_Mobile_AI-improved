@@ -14,6 +14,8 @@ import zipfile
 ART_CODE_UNIT_LIMIT = 65535 // 4
 AGENT_PREFIXES = (
     'Ldev/chungjungsoo/gptmobile/data/agent/AgentRunner',
+    'Ldev/chungjungsoo/gptmobile/data/research/ResearchSessionStore',
+    'Ldev/chungjungsoo/gptmobile/data/research/ResearchSourceIndexer',
     'Ldev/chungjungsoo/gptmobile/data/agent/tool/AgentToolResolver',
 )
 GUARDED_PREFIXES = ('Ldev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImpl',) + AGENT_PREFIXES
@@ -26,7 +28,7 @@ DISPATCH_STAGES = (
     'buildPrimarySystemPrompt', 'effectivePrimaryDelegationSettings',
     'acceptPrimaryResearchTask', 'prepareCombinedDeliveryWork',
     'streamPrimaryAnswer', 'openPrimarySession',
-    'prepareDelegatedEvidence', 'acquirePrimaryResearch', 'delegateToProfile',
+    'prepareDelegatedEvidence', 'prepareDelegatedTools', 'acquirePrimaryResearch', 'delegateToProfile',
 )
 
 
@@ -117,7 +119,11 @@ def main():
                 rows.extend(dispatch_methods(apk.read(entry), entry.filename))
     if not any(row['method'].endswith('executePreparedRequest') and not row['method'].startswith('access$') for row in rows):
         raise ValueError('The actual executePreparedRequest method was not found; continuation wrappers alone are not a valid size check')
-    for descriptor, method in ((AGENT_PREFIXES[0] + ';', 'executeLoop'), (AGENT_PREFIXES[1] + ';', 'resolve')):
+    for descriptor, method in (
+        ('Ldev/chungjungsoo/gptmobile/data/agent/AgentRunner;', 'executeLoop'),
+        ('Ldev/chungjungsoo/gptmobile/data/agent/tool/AgentToolResolver;', 'resolve'),
+        ('Ldev/chungjungsoo/gptmobile/data/research/ResearchSourceIndexer;', 'index'),
+    ):
         if not any(row['class'] == descriptor and row['method'] == method for row in rows):
             raise ValueError(f'The actual {descriptor}.{method} method was not found')
     rows.sort(key=lambda row: row['code_units'], reverse=True)

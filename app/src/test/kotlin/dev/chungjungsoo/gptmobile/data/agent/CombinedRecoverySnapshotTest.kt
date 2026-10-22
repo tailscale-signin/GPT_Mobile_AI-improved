@@ -38,6 +38,26 @@ class CombinedRecoverySnapshotTest {
         assertEquals(encoded, restored.encode())
     }
 
+    @Test fun newOutputRevisionCanReuseTheSameSealedCorpusButCannotChangeEvidenceOrGrants() {
+        val original = snapshot.copy(version = 6, snapshotId = "old-snapshot", revisionId = "old-revision", deliveryProtocol = "PASSAGES_V3", prompt = "{\"original_request\":\"Full task\",\"target_revision_id\":\"old-revision\"}").seal()
+        val next = original.copy(inputDigest = "", snapshotId = "new-snapshot", revisionId = "new-revision", predecessorSnapshotId = original.snapshotId, resumeFromRunId = "old-run", committedPrefix = "Retained", prompt = "{\"original_request\":\"Full task\",\"target_revision_id\":\"new-revision\"}").seal()
+        org.junit.Assert.assertTrue(sameCombinedRecoveryCorpus(original, next))
+        org.junit.Assert.assertFalse(sameCombinedRecoveryCorpus(original, next.copy(inputDigest = "", sources = emptyList()).seal()))
+        org.junit.Assert.assertFalse(sameCombinedRecoveryCorpus(original, next.copy(inputDigest = "", acceptedTools = ChatMcpToolConfig(allowAllByDefault = false)).seal()))
+        org.junit.Assert.assertFalse(sameCombinedRecoveryCorpus(original, next.copy(inputDigest = "corrupt")))
+    }
+
+    @Test fun directVerifierReadsNeedSettledReceiptsFromAcceptedProfilesAndMatchingTime() {
+        val id = "verifier-read:revision:1"
+        val key = "tool:VERIFIER:reader::CLIENT:$id"
+        val receipt = CombinedReservation(key, "verification", CombinedRunRole.VERIFIER, CombinedBudgetPool.BASELINE, CombinedResourceQuota(toolOperations = 1), null, 2000, status = CombinedReservationStatus.SETTLED)
+        val saved = mapOf(key to receipt)
+        org.junit.Assert.assertTrue(hasCommittedVerifierRead(saved, listOf("primary", "reader"), id, 1, 3))
+        org.junit.Assert.assertFalse(hasCommittedVerifierRead(saved, listOf("primary"), id, 1, 3))
+        org.junit.Assert.assertFalse(hasCommittedVerifierRead(saved, listOf("reader"), id, 3, 4))
+        org.junit.Assert.assertFalse(hasCommittedVerifierRead(mapOf(key to receipt.copy(status = CombinedReservationStatus.UNKNOWN)), listOf("reader"), id, 1, 3))
+    }
+
     @Test fun restartRestoresOriginalSourcesAndExactPrefixWithoutPromotingTheAnswerIntoEvidence() {
         val recovered = CombinedRecoverySnapshot.prepare(run, answer, "primary", platform, segments)
         assertEquals(snapshot.sources, recovered.sources)

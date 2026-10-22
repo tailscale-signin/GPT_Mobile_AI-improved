@@ -199,7 +199,7 @@ internal class ResearchDeliverySession(
             val repairedAccepted = applied != null && !repairFailed && repairCompleted && repaired.accepted
             // Long reports often overflow a provider's per-answer cap. Two isolated
             // text-only sections preserve evidence without redoing the acquisition.
-            val sectioned = if (!repairedAccepted && text.isBlank() && delivery.detail != ResearchReportDetail.BRIEF) {
+            val sectioned = if (!repairedAccepted && delivery.detail != ResearchReportDetail.BRIEF) {
                 emit(ProviderEvent.Notice("Writing the remaining research sections in smaller, source-checked segments."))
                 trySectionedRepair(delivery, context(delivery), text)
             } else {
@@ -210,7 +210,11 @@ internal class ResearchDeliverySession(
             text = when {
                 repairedAccepted -> repairText
                 sectioned != null -> sectioned
-                else -> ResearchReportRepair.evidenceFallback(text, delivery, result.issues)
+                else -> {
+                    val digest = dev.chungjungsoo.gptmobile.data.research.researchHash(delivery.json().toString() + delivery.detail.name)
+                    val saved = loadSections(digest).filter { (heading, body) -> heading in delivery.sections && reusableSection(body, delivery) }.values.filterNot { it in text }
+                    ResearchReportRepair.evidenceFallback((listOf(text) + saved).filter(String::isNotBlank).joinToString("\n\n"), delivery, result.issues)
+                }
             }
             if (!repairedAccepted && !sectionedAccepted) {
                 partialFallback = true
@@ -235,7 +239,7 @@ internal class ResearchDeliverySession(
         val digest = dev.chungjungsoo.gptmobile.data.research.researchHash(packet.json().toString() + packet.detail.name)
         val reusable = (loadSections(digest) + reportSections(previous)).filter { (heading, body) -> heading in packet.sections && reusableSection(body, packet) }.toMutableMap()
         validateAccess()
-        val sections = packet.sections.chunked(4)
+        val sections = packet.sections.chunked(1)
         val report = StringBuilder()
         for ((index, headings) in sections.withIndex()) {
             val missing = headings.filterNot(reusable::containsKey)
@@ -255,7 +259,7 @@ internal class ResearchDeliverySession(
                 "For unread sources explicitly state that only metadata was available. " +
                 "Do not call tools or write any sections assigned to another chapter."
             val finished = try {
-                withTimeoutOrNull(30_000L) {
+                withTimeoutOrNull(90_000L) {
                     create(instruction, true).streamRound(emptyList(), emptyList()).collect { event ->
                         when (event) {
                             is ProviderEvent.TextDelta -> {
@@ -305,8 +309,7 @@ internal class ResearchDeliverySession(
 
     private fun reusableSection(body: String, packet: ResearchDeliveryPacket): Boolean {
         if (body.isBlank()) return false
-        val global = listOf("MISSING_SECTION:", "OMITTED_LEADING_STUDY:", "OMITTED_UNREAD_LEAD:", "DIRECT_REFERENCE_MISSING:", "PARTIAL_COVERAGE_NOT_DISCLOSED", "REVIEW_STATUS_NOT_DISCLOSED")
-        val issues = ResearchDeliveryValidator.validate(body, packet).issues.filter { issue -> global.none(issue::startsWith) }
+        val issues = ResearchReportRepair.sectionIssues(body, packet)
         if (issues.isNotEmpty()) AppLogRecorder.record("Research", "REPORT_SECTION_REJECTED · issues=${issues.joinToString()}", "W")
         return issues.isEmpty()
     }

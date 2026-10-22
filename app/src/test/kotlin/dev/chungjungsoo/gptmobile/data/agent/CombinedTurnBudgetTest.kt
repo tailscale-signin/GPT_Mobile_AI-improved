@@ -14,6 +14,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CombinedTurnBudgetTest {
+    @Test fun appraisalAndStudyReviewHaveProtectedStageBudgetsIndependentOfVerification() = runBlocking {
+        val requested = CombinedPolicyResolver.accept(ConversationCombinedSettings(effort = 0), listOf("a"), mapOf("a" to "model"), "Examine the studies", acceptedResearch = CombinedResearchRequirement(1, 1, "WEB_AND_PAPERS", examinationRequested = true, independentReviewRequested = true))
+        val plan = CombinedPolicyResolver.resolve(requested, estimatedInputTokens = 1024)
+        val context = CombinedExecutionContext(requested, plan, "appraisal-root", profileUid = "a")
+        val budget = CombinedTurnBudgetStore.inMemory().open(context)
+        val appraisal = context.forRole(CombinedRunRole.RESEARCH, "a", CombinedResearchStages.id("a", "appraisal"))
+        assertEquals(6144, plan.outputTokens(CombinedRunRole.RESEARCH))
+        assertEquals(1024, plan.verificationOutputTokens)
+        val admitted = budget.reserve(appraisal, "full-appraisal", CombinedResourceQuota(12000, 6144))
+        assertTrue(admitted is CombinedBudgetAdmission.Granted)
+        assertEquals(CombinedBudgetPool.BASELINE, (admitted as CombinedBudgetAdmission.Granted).reservation.pool)
+        assertTrue(plan.baselineByOwner.getValue(CombinedResearchStages.id("a", "study_review")).generatedTokens >= 11 * 1024)
+    }
+
     @Test fun researchContributorReportRepairAndContinuationUseItsThreeProtectedBaselinePasses() = runBlocking {
         val requested = CombinedPolicyResolver.accept(
             ConversationCombinedSettings(effort = 0),
@@ -25,7 +39,7 @@ class CombinedTurnBudgetTest {
         val plan = CombinedPolicyResolver.resolve(requested, estimatedInputTokens = 1024)
         val contributor = CombinedExecutionContext(requested, plan, "research-funding", profileUid = "b")
         val budget = CombinedTurnBudgetStore.inMemory().open(contributor)
-        assertEquals(CombinedResourceQuota(3072, 12288), plan.baselineByOwner["contributor:b"])
+        assertEquals(CombinedResourceQuota(27072, 12288), plan.baselineByOwner["contributor:b"])
         val finalReserve = plan.finalizationReserve
         for (kind in listOf("research-contributor-brief", "research-report-repair", "research-report-repair-continuation")) {
             val context = contributor.forInvocationKind(kind, "b")

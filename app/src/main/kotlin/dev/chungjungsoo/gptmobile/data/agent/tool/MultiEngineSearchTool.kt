@@ -175,7 +175,7 @@ class MultiEngineSearchTool(
             val id = "$callId:engine:$index${if (refill) ":unique" else ""}"
             val unavailable = when {
                 (emptyPausedUntil[emptyKey(index)] ?: 0L) > clock.millis() -> failure(id, "empty_budget", "Repeated valid empty searches: use retained evidence or another selected engine. This does not establish an outage.")
-                (blockedUntil[engine.selectionId()] ?: 0L) > clock.millis() -> failure(id, "cooldown", "Engine cooling down after a provider access or quota failure.")
+                (blockedUntil[emptyKey(index)] ?: 0L) > clock.millis() -> failure(id, "cooldown", "Engine cooling down after a provider access or quota failure.")
                 !canExecute() || remainingBytes() < 1024 -> {
                     val lowBytes = remainingBytes() < 1024
                     failure(id, "budget_exhausted", "Search skipped: insufficient remaining run budget.", outputBudget = lowBytes, callBudget = !lowBytes)
@@ -229,12 +229,12 @@ class MultiEngineSearchTool(
                 result.isError && result.errorCode in setOf("DUPLICATE_ACTION", "DUPLICATE_INVOCATION") -> "duplicate"
                 result.isError && (result.errorCode == "AUTH_REQUIRED" || text.contains("permission", true)) -> "denied"
                 result.isError && result.errorCode == SearchEvidenceOutcome.RATE_LIMITED.name -> "rate_limited"
-                result.isError && result.errorCode == SearchEvidenceOutcome.CHALLENGE.name -> "challenge"
+                result.isError && (result.errorCode == SearchEvidenceOutcome.CHALLENGE.name || Regex("(?i)captcha|challenge|http[ \t]*202").containsMatchIn(text)) -> "challenge"
                 result.isError && result.errorCode == SearchEvidenceOutcome.TIMEOUT.name -> "timeout"
                 result.isError && result.errorCode == SearchEvidenceOutcome.PARSE_FAILED.name -> "malformed_response"
                 result.isError && result.errorCode == SearchEvidenceOutcome.UNAVAILABLE.name -> "unavailable"
                 result.isError && text.startsWith("Repeated valid empty searches") -> "empty_budget"
-                result.isError && Regex("(?i)cooling down").containsMatchIn(text) -> "cooldown"
+                result.isError && Regex("(?i)cooling down|cooldown").containsMatchIn(text) -> "cooldown"
                 result.isError && Regex("(?i)invalid|exceeds.*limit").containsMatchIn(text) -> "invalid_request"
                 result.isError && Regex("(?i)429|rate.?limit|quota|calls are used up").containsMatchIn(text) -> "rate_limited"
                 result.isError && Regex("(?i)401|402|403|authenticat|requires an api key|api key required").containsMatchIn(text) -> "authentication_failed"
@@ -242,8 +242,9 @@ class MultiEngineSearchTool(
                 result.isError -> "failed"
                 else -> searchEvidenceOutcome(result)
             }
-            if (outcome in setOf("authentication_failed", "rate_limited")) {
-                blockedUntil[selected[index].selectionId()] = clock.millis() + if (outcome == "rate_limited") 60_000L else 5 * 60_000L
+            if (outcome in setOf("authentication_failed", "rate_limited", "challenge", "cooldown")) {
+                val serverRetry = (providerPayload(result)?.get("cooldownUntil") as? JsonPrimitive)?.contentOrNull?.toLongOrNull()
+                blockedUntil[emptyKey(index)] = maxOf(serverRetry ?: 0L, clock.millis() + if (outcome == "authentication_failed") 5 * 60_000L else 60_000L)
             }
             if (!refill && ready.effectiveCount > 0) {
                 val key = emptyKey(index)

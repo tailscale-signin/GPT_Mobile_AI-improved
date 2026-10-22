@@ -2,6 +2,8 @@ package dev.chungjungsoo.gptmobile.data.research
 
 import android.util.AtomicFile
 import java.io.File
+import kotlin.concurrent.withLock
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -37,37 +39,74 @@ internal class ResearchTaskStore(private val directory: File) {
         encodeDefaults = true
         ignoreUnknownKeys = true
     }
-    private val temporary = mutableMapOf<String, String>()
-    private fun file(kind: String, key: String) = File(directory, researchHash("$kind:$key") + ".$kind")
-
-    @Synchronized private fun read(kind: String, key: String, persistent: Boolean): String? {
-        if (!persistent) return temporary["$kind:$key"]
-        val path = file(kind, key)
-        return if (path.isFile) AtomicFile(path).openRead().bufferedReader().use { it.readText() } else null
+    private val temporary = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private class Coordination {
+        val tasks = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.sync.Mutex>()
+        val gate = ResearchStorageGate()
+    }
+    private companion object {
+        val coordination = java.util.concurrent.ConcurrentHashMap<String, Coordination>()
+    }
+    private val shared = coordination.computeIfAbsent(directory.absolutePath) { Coordination() }
+    private val taskLocks = shared.tasks
+    private val deletedChats = java.util.concurrent.ConcurrentHashMap.newKeySet<Int>()
+    private suspend fun <T> task(root: String, action: () -> T): T = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        shared.gate.withReadLock { taskLocks.computeIfAbsent(root) { kotlinx.coroutines.sync.Mutex() }.withLock { action() } }
     }
 
-    @Synchronized private fun write(kind: String, key: String, body: String, persistent: Boolean) {
+    suspend fun accepted(root: String, persistent: Boolean) = task(root) { acceptedUnlocked(root, persistent) }
+    suspend fun accept(value: AcceptedResearchTask, persistent: Boolean) = task(value.rootWorkId) {
+        check(value.chatId !in deletedChats) { "Conversation was deleted" }
+        acceptUnlocked(value, persistent)
+    }
+    suspend fun resume(value: ResearchResumeRequest, persistent: Boolean) = task(value.rootWorkId) { resumeUnlocked(value, persistent) }
+    suspend fun checkpoint(task: AcceptedResearchTask, runId: String, authority: String, generation: Long, snapshot: ResearchSnapshot, persistent: Boolean) = task(task.rootWorkId) {
+        check(task.chatId !in deletedChats) { "Conversation was deleted" }
+        checkpointUnlocked(task, runId, authority, generation, snapshot, persistent)
+    }
+    suspend fun manifest(root: String, persistent: Boolean) = task(root) { manifestUnlocked(root, persistent) }
+    suspend fun retainedEvidence(root: String, authorities: Set<String>, persistent: Boolean) = task(root) { retainedEvidenceUnlocked(root, authorities, persistent) }
+    suspend fun retainPartial(root: String, checkpointId: String, persistent: Boolean) = task(root) { retainPartialUnlocked(root, checkpointId, persistent) }
+    suspend fun retainDelivery(root: String, runId: String, authority: String, generation: Long, receipt: dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryReceipt, persistent: Boolean) = task(root) { retainDeliveryUnlocked(root, runId, authority, generation, receipt, persistent) }
+    suspend fun plan(root: String, value: String? = null, persistent: Boolean) = task(root) { planUnlocked(root, value, persistent) }
+
+    private fun file(kind: String, key: String) = File(directory, researchHash("$kind:$key") + ".$kind")
+
+    private fun read(kind: String, key: String, persistent: Boolean): String? {
+        if (!persistent) return temporary["$kind:$key"]
+        val path = file(kind, key)
+        return readFile(path)
+    }
+
+    private fun readFile(path: File): String? = ResearchAtomicFiles.locked(path) {
+        if (path.isFile) AtomicFile(path).openRead().bufferedReader().use { it.readText() } else null
+    }
+
+    private fun write(kind: String, key: String, body: String, persistent: Boolean) {
         if (!persistent) {
             temporary["$kind:$key"] = body
             return
         }
         check(directory.mkdirs() || directory.isDirectory)
-        val atomic = AtomicFile(file(kind, key))
-        val output = atomic.startWrite()
-        try {
-            output.write(body.toByteArray())
-            atomic.finishWrite(output)
-        } catch (failure: Throwable) {
-            atomic.failWrite(output)
-            throw failure
+        val path = file(kind, key)
+        ResearchAtomicFiles.locked(path) {
+            val atomic = AtomicFile(path)
+            val output = atomic.startWrite()
+            try {
+                output.write(body.toByteArray())
+                atomic.finishWrite(output)
+            } catch (failure: Throwable) {
+                atomic.failWrite(output)
+                throw failure
+            }
         }
     }
 
-    @Synchronized fun accepted(root: String, persistent: Boolean): AcceptedResearchTask? = read("task", root, persistent)?.let { json.decodeFromString(it) }
+    private fun acceptedUnlocked(root: String, persistent: Boolean): AcceptedResearchTask? = read("task", root, persistent)?.let { json.decodeFromString(it) }
 
-    @Synchronized fun accept(value: AcceptedResearchTask, persistent: Boolean): AcceptedResearchTask {
+    private fun acceptUnlocked(value: AcceptedResearchTask, persistent: Boolean): AcceptedResearchTask {
         require(value.taskId == researchHash("task:${value.rootWorkId}") && value.taskText.isNotBlank() && value.participantUids.isNotEmpty())
-        val old = accepted(value.rootWorkId, persistent)
+        val old = acceptedUnlocked(value.rootWorkId, persistent)
         if (old != null) {
             check(old.chatId == value.chatId && old.originatingUserMessageId == value.originatingUserMessageId && old.taskText == value.taskText) { "RESEARCH_TASK_IDENTITY_CHANGED" }
             return old
@@ -76,8 +115,8 @@ internal class ResearchTaskStore(private val directory: File) {
         return value
     }
 
-    @Synchronized fun resume(value: ResearchResumeRequest, persistent: Boolean): ResearchResumeRequest {
-        val task = requireNotNull(accepted(value.rootWorkId, persistent)) { "Accepted research task is unavailable" }
+    private fun resumeUnlocked(value: ResearchResumeRequest, persistent: Boolean): ResearchResumeRequest {
+        val task = requireNotNull(acceptedUnlocked(value.rootWorkId, persistent)) { "Accepted research task is unavailable" }
         require(task.taskId == value.taskId && value.destinationProfileUid in task.participantUids)
         val key = "${value.rootWorkId}:${value.actionId}:${value.destinationProfileUid}"
         val old = read("resume", key, persistent)?.let { json.decodeFromString<ResearchResumeRequest>(it) }
@@ -89,7 +128,7 @@ internal class ResearchTaskStore(private val directory: File) {
         return value
     }
 
-    @Synchronized fun checkpoint(task: AcceptedResearchTask, runId: String, authority: String, generation: Long, snapshot: ResearchSnapshot, persistent: Boolean) {
+    private fun checkpointUnlocked(task: AcceptedResearchTask, runId: String, authority: String, generation: Long, snapshot: ResearchSnapshot, persistent: Boolean) {
         require(snapshot.task == task.taskText) { "RESEARCH_CHECKPOINT_TASK_MISMATCH" }
         val dependencies = snapshot.sources.map { source -> ResearchEvidenceDependency(source.id, source.versionId, researchHash(source.passage), authority, source.publicCapture && source.retrievalReceipt.isNotBlank(), source.engines, (source.providerReceipts + source.retrievalReceipt).filter(String::isNotBlank).distinct(), task.sourceAuthorityRevision) }
         val revision = researchHash(snapshot.sources.joinToString { "${it.id}:${it.versionId}:${researchHash(it.passage)}" } + snapshot.claims.joinToString { "${it.sourceId}:${it.quote}:${it.verdict}" })
@@ -97,16 +136,16 @@ internal class ResearchTaskStore(private val directory: File) {
         retainEvidence(task, runId, authority, generation, snapshot, persistent)
     }
 
-    @Synchronized fun manifest(root: String, persistent: Boolean): ResearchEvidenceManifest? = read("manifest", root, persistent)?.let { json.decodeFromString(it) }
+    private fun manifestUnlocked(root: String, persistent: Boolean): ResearchEvidenceManifest? = read("manifest", root, persistent)?.let { json.decodeFromString(it) }
 
-    @Synchronized private fun retainEvidence(task: AcceptedResearchTask, runId: String, authority: String, generation: Long, snapshot: ResearchSnapshot, persistent: Boolean) {
+    private fun retainEvidence(task: AcceptedResearchTask, runId: String, authority: String, generation: Long, snapshot: ResearchSnapshot, persistent: Boolean) {
         // A progress timestamp alone is not a new evidence revision. Keep counters,
         // stage, validation and source changes, without duplicating the full corpus
         // on every otherwise identical save.
         val captured = RetainedResearchEvidence(task.taskId, task.rootWorkId, task.chatId, researchHash(task.taskText), runId, authority, generation, snapshot.copy(updatedAt = 0).json())
         val encoded = json.encodeToString(captured)
         val id = researchHash(encoded)
-        val old = manifest(task.rootWorkId, persistent) ?: ResearchEvidenceManifest(taskId = task.taskId, rootWorkId = task.rootWorkId, chatId = task.chatId, originatingUserMessageId = task.originatingUserMessageId, originalRequestDigest = researchHash(task.taskText))
+        val old = manifestUnlocked(task.rootWorkId, persistent) ?: ResearchEvidenceManifest(taskId = task.taskId, rootWorkId = task.rootWorkId, chatId = task.chatId, originatingUserMessageId = task.originatingUserMessageId, originalRequestDigest = researchHash(task.taskText))
         require(old.taskId == task.taskId && old.originalRequestDigest == researchHash(task.taskText)) { "RESEARCH_MANIFEST_TASK_CHANGED" }
         if (old.revisions.any { it.id == id }) return
         // The immutable page is durable before its manifest pointer can be observed.
@@ -115,9 +154,9 @@ internal class ResearchTaskStore(private val directory: File) {
         write("manifest", task.rootWorkId, json.encodeToString(old.copy(revisions = old.revisions + entry)), persistent)
     }
 
-    @Synchronized fun retainedEvidence(root: String, authorities: Set<String>, persistent: Boolean): List<ResearchSession> {
-        val task = accepted(root, persistent) ?: return emptyList()
-        val index = manifest(root, persistent) ?: return emptyList()
+    private fun retainedEvidenceUnlocked(root: String, authorities: Set<String>, persistent: Boolean): List<ResearchSession> {
+        val task = acceptedUnlocked(root, persistent) ?: return emptyList()
+        val index = manifestUnlocked(root, persistent) ?: return emptyList()
         require(index.taskId == task.taskId && index.chatId == task.chatId && index.originalRequestDigest == researchHash(task.taskText)) { "RESEARCH_MANIFEST_TASK_CHANGED" }
         return index.revisions.filter { it.authority in authorities }.groupBy { it.authority }.values.mapNotNull { entries ->
             var retainedSession: ResearchSession? = null
@@ -135,24 +174,24 @@ internal class ResearchTaskStore(private val directory: File) {
         }
     }
 
-    @Synchronized fun retainedBodyChunks(): Set<String> {
+    suspend fun retainedBodyChunks(): Set<String> = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         val retained = linkedSetOf<String>()
         directory.listFiles().orEmpty().filter { it.extension == "evidence" }.forEach { path ->
-            val page = json.decodeFromString<RetainedResearchEvidence>(AtomicFile(path).openRead().bufferedReader().use { it.readText() })
+            val page = json.decodeFromString<RetainedResearchEvidence>(readFile(path) ?: return@forEach)
             page.snapshot.rows("sources").forEach { retained += it.strings("bodyChunks") }
         }
-        return retained
+        retained
     }
 
-    @Synchronized fun retainPartial(root: String, checkpointId: String, persistent: Boolean) {
-        val task = accepted(root, persistent) ?: return
-        val index = manifest(root, persistent) ?: ResearchEvidenceManifest(taskId = task.taskId, rootWorkId = root, chatId = task.chatId, originatingUserMessageId = task.originatingUserMessageId, originalRequestDigest = researchHash(task.taskText))
+    private fun retainPartialUnlocked(root: String, checkpointId: String, persistent: Boolean) {
+        val task = acceptedUnlocked(root, persistent) ?: return
+        val index = manifestUnlocked(root, persistent) ?: ResearchEvidenceManifest(taskId = task.taskId, rootWorkId = root, chatId = task.chatId, originatingUserMessageId = task.originatingUserMessageId, originalRequestDigest = researchHash(task.taskText))
         write("manifest", root, json.encodeToString(index.copy(partialCheckpointIds = index.partialCheckpointIds + checkpointId)), persistent)
     }
 
-    @Synchronized fun retainDelivery(root: String, runId: String, authority: String, generation: Long, receipt: dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryReceipt, persistent: Boolean): Boolean {
-        val task = accepted(root, persistent) ?: return false
-        val index = manifest(root, persistent) ?: ResearchEvidenceManifest(taskId = task.taskId, rootWorkId = root, chatId = task.chatId, originatingUserMessageId = task.originatingUserMessageId, originalRequestDigest = researchHash(task.taskText))
+    private fun retainDeliveryUnlocked(root: String, runId: String, authority: String, generation: Long, receipt: dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryReceipt, persistent: Boolean): Boolean {
+        val task = acceptedUnlocked(root, persistent) ?: return false
+        val index = manifestUnlocked(root, persistent) ?: ResearchEvidenceManifest(taskId = task.taskId, rootWorkId = root, chatId = task.chatId, originatingUserMessageId = task.originatingUserMessageId, originalRequestDigest = researchHash(task.taskText))
         val body = kotlinx.serialization.json.buildJsonObject {
             put("taskId", kotlinx.serialization.json.JsonPrimitive(task.taskId))
             put("rootWorkId", kotlinx.serialization.json.JsonPrimitive(root))
@@ -167,8 +206,8 @@ internal class ResearchTaskStore(private val directory: File) {
         return true
     }
 
-    @Synchronized fun plan(root: String, value: String? = null, persistent: Boolean): String? {
-        val task = accepted(root, persistent) ?: return null
+    private fun planUnlocked(root: String, value: String? = null, persistent: Boolean): String? {
+        val task = acceptedUnlocked(root, persistent) ?: return null
         val existing = read("plan", root, persistent)
         check(existing == null || existing.substringBefore('\n') == task.taskId) { "RESEARCH_PLAN_TASK_MISMATCH" }
         if (existing != null || value == null) return existing?.substringAfter('\n')
@@ -176,16 +215,23 @@ internal class ResearchTaskStore(private val directory: File) {
         return value
     }
 
-    @Synchronized fun exportTasks(chatIds: Set<Int>): List<AcceptedResearchTask> = directory.listFiles().orEmpty().filter { it.extension == "task" }.map { json.decodeFromString<AcceptedResearchTask>(AtomicFile(it).openRead().bufferedReader().use { input -> input.readText() }) }.filter { it.chatId in chatIds }
+    suspend fun exportTasks(chatIds: Set<Int>): List<AcceptedResearchTask> = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        directory.listFiles().orEmpty().filter { it.extension == "task" }.mapNotNull { path -> readFile(path)?.let { json.decodeFromString<AcceptedResearchTask>(it) } }.filter { it.chatId in chatIds }
+    }
 
-    @Synchronized fun clearChat(chatId: Int) {
-        val taskIds = temporary.filterKeys { it.startsWith("task:") }.values.map { json.decodeFromString<AcceptedResearchTask>(it) }.filter { it.chatId == chatId }.map { it.taskId }.toSet()
-        temporary.entries.removeAll { (_, body) -> taskIds.any { body.contains(it) } }
-        directory.listFiles().orEmpty().filter { it.extension == "task" }.forEach { path ->
-            val task = runCatching { json.decodeFromString<AcceptedResearchTask>(path.readText()) }.getOrNull() ?: return@forEach
-            if (task.chatId == chatId) {
-                directory.listFiles().orEmpty().filter { it.extension in setOf("resume", "checkpoint", "manifest", "evidence", "plan", "delivery") && runCatching { it.readText().contains(task.taskId) }.getOrDefault(false) }.forEach { it.delete() }
-                path.delete()
+    suspend fun clearChat(chatId: Int) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        shared.gate.withLock {
+            deletedChats += chatId
+            val tasks = temporary.filterKeys { it.startsWith("task:") }.values.map { json.decodeFromString<AcceptedResearchTask>(it) }.filter { it.chatId == chatId } + exportTasks(setOf(chatId))
+            tasks.distinctBy { it.rootWorkId }.forEach { accepted ->
+                taskLocks.computeIfAbsent(accepted.rootWorkId) { kotlinx.coroutines.sync.Mutex() }.withLock {
+                    temporary.entries.removeAll { (_, body) -> body.contains(accepted.taskId) }
+                    directory.listFiles().orEmpty().filter { it.extension in setOf("task", "resume", "checkpoint", "manifest", "evidence", "plan", "delivery") }.forEach { path ->
+                        ResearchAtomicFiles.locked(path) {
+                            if (readFile(path)?.contains(accepted.taskId) == true) AtomicFile(path).delete()
+                        }
+                    }
+                }
             }
         }
     }

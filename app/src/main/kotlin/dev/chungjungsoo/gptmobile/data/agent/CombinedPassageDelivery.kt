@@ -330,8 +330,7 @@ internal class CombinedPassageDecoder(
         }
         // Citations are app-resolved URLs, never model-authored source links.
         val citations = validSources.sorted().joinToString(" ") { id -> "[${evidence.records.indexOfFirst { it.id == id } + 1}](${sourceIds.getValue(id).url})" }
-        val bodyUrls = Regex("https?://[^\\s<>\\[\\]{}]+", RegexOption.IGNORE_CASE).findAll(body).map { it.value.trimEnd('.', ',', ';', ':', ')') }.toSet()
-        if (bodyUrls.any { url -> evidence.records.none { it.url == url } }) issues += "UNRESOLVED_CITATION_URL"
+        issues += CombinedResponseLinks.issues(body, evidence.records.mapTo(linkedSetOf()) { it.url })
         val rendered = body + if (citations.isBlank()) "" else "\n\n$citations"
         require(output.length.toLong() + separator.length + rendered.length <= maxCharacters) { "COMBINED_DELIVERY_LIMIT" }
         output.append(separator)

@@ -614,6 +614,32 @@ class MultiEngineSearchToolTest {
         assertEquals(3, calls)
     }
 
+    @Test fun challengeCircuitSkipsBlockedEngineAndContinuesOtherAuthorizedEngines() = runBlocking {
+        var challenged = 0
+        var fallback = 0
+        val blocked = engine("challenge") { id, _ ->
+            challenged++
+            AgentToolResult(
+                id,
+                ToolResultContent.Json(
+                    buildJsonObject {
+                        put("error", "DuckDuckGo HTTP 202 challenge; cooldown")
+                        put("outcome", "CHALLENGE")
+                    }
+                ),
+                true
+            )
+        }
+        val alternate = engine("authorized-alternative") { id, _ ->
+            fallback++
+            AgentToolResult(id, ToolResultContent.Text("Title: Captured source\nURL: https://example.org/$fallback\nDescription: Evidence"), false)
+        }
+        val tool = MultiEngineSearchTool(listOf(blocked, alternate))
+        repeat(2) { n -> assertFalse(tool.execute("wave-$n", buildJsonObject { put("query", "different question $n") }).isError) }
+        assertEquals(1, challenged)
+        assertEquals(2, fallback)
+    }
+
     private fun engine(
         name: String,
         realToolName: String = "web_search",

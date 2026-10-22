@@ -12,7 +12,7 @@ import java.util.Locale
  * paraphrases count as represented, but semantic entailment / source truth is not certified.
  * Ambiguous wording stays pending, never silently accepted as full coverage.
  */
-internal class CombinedContentCoverage(sources: List<CombinedModelResponse>) {
+internal class CombinedContentCoverage(sources: List<CombinedModelResponse>, request: String = "") {
     data class Unit(val text: String, val profileUids: Set<String>)
     data class Result(
         val total: Int,
@@ -24,11 +24,15 @@ internal class CombinedContentCoverage(sources: List<CombinedModelResponse>) {
         val accepted: Boolean get() = total > 0 && missing.isEmpty()
     }
 
-    val units: List<Unit> = sources.flatMap { source ->
-        sentences(sourceCoverageText(source.content)).filter { tokens(it).isNotEmpty() }
-            .map { Unit(it, setOf(source.platformUid)) }
-    }.groupBy { normalized(it.text) to CombinedClaimMatcher.fingerprint(it.text) }.values.map { copies ->
-        Unit(copies.first().text, copies.flatMap { it.profileUids }.toSet())
+    val units: List<Unit> = if (request.isNotBlank()) {
+        CombinedEditorialInventory.select(CombinedClaimSemantics.records(sources), request, CombinedAnswerPolicy.from(request)).map { Unit(it.proposition, it.profileUids) }
+    } else {
+        sources.flatMap { source ->
+            sentences(sourceCoverageText(source.content)).filter { tokens(it).isNotEmpty() }
+                .map { Unit(it, setOf(source.platformUid)) }
+        }.groupBy { normalized(it.text) to CombinedClaimMatcher.fingerprint(it.text) }.values.map { copies ->
+            Unit(copies.first().text, copies.flatMap { it.profileUids }.toSet())
+        }
     }
 
     fun check(answer: String): Result {

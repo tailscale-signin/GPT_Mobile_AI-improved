@@ -12,6 +12,8 @@ import kotlinx.serialization.json.put
 internal object ResearchReportRepair {
     data class Block(val id: String, val start: Int, val end: Int, val text: String, val digest: String, val issues: List<String>)
     private val globalIssues = listOf("MISSING_SECTION:", "OMITTED_LEADING_STUDY:", "OMITTED_UNREAD_LEAD:", "DIRECT_REFERENCE_MISSING:", "PARTIAL_COVERAGE_NOT_DISCLOSED", "REVIEW_STATUS_NOT_DISCLOSED", "QUESTION_EVIDENCE_NOT_CITED:", "COUNTEREVIDENCE_NOT_DISCLOSED")
+    fun sectionIssues(body: String, packet: ResearchDeliveryPacket): List<String> = ResearchDeliveryValidator.validate(body, packet).issues.filter { issue -> globalIssues.none(issue::startsWith) }
+
     fun blocks(text: String, packet: ResearchDeliveryPacket): List<Block> {
         val ranges = mutableListOf<Pair<Int, Int>>()
         var start = 0
@@ -23,7 +25,7 @@ internal object ResearchReportRepair {
         return ranges.mapIndexed { index, (from, to) ->
             val body = text.substring(from, to)
             val digest = researchHash(body)
-            val issues = ResearchDeliveryValidator.validate(body, packet).issues.filter { issue -> globalIssues.none(issue::startsWith) }
+            val issues = sectionIssues(body, packet)
             Block("B${index + 1}-${digest.take(10)}", from, to, body, digest, issues)
         }
     }

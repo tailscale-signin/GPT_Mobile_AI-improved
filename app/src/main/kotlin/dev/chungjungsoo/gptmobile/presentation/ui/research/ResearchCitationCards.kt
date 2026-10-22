@@ -106,10 +106,12 @@ fun ResearchCitationCards(message: MessageV2, displayedSegment: String, profileU
         ?: reviews.firstOrNull { it.workId == binding.workId }
     fun saveStatus(binding: MessageEvidenceBinding): String {
         val membership = memberships.firstOrNull { it.workId == binding.workId }
+        if (membership?.protectionReason == "IDENTITY_REVIEW_REQUIRED") return "Identity review required · capture retained"
         if (membership != null) return if (membership.protectionReason != null) "Saved · assessment retained until you delete" else "Saved"
         val receipt = receipts.firstOrNull { it.workId == binding.workId || it.sourceId == binding.citationKey }
         return when (receipt?.disposition) {
             "SAVE_PENDING", "DISCOVERED" -> "Saving"
+            "IDENTITY_REVIEW_REQUIRED" -> "Identity review required · capture retained"
             "SAVE_FAILED" -> "Save failed · ${receipt.reason ?: "retry pending"}"
             "SUPPRESSED_BY_EXPLICIT_DELETION" -> "Removed from archive by you"
             else -> "Not archived"

@@ -99,6 +99,14 @@ fun ResearchArticleDialog(workId: String, versionId: String? = null, authority: 
                         Text("Source capture, AI appraisal, publication review and independent review are separate.")
                         state.validations.firstOrNull()?.let { validation -> Text("Capture validation: ${validation.kind.lowercase().replace('_', ' ')} · ${validation.workKind.lowercase().replace('_', ' ')}", style = MaterialTheme.typography.bodySmall) }
                         if (state.relationships.any { it.disposition == "PROVEN_PUBLIC_IDENTITY_LINKED" }) Text("Related public captures share a verified identifier; their versions and assessment histories remain available.", style = MaterialTheme.typography.bodySmall)
+                        val conflicts = state.relationships.filter { it.disposition == "IDENTITY_REVIEW_REQUIRED" }
+                        if (conflicts.isNotEmpty()) {
+                            Text("Identity review required", style = MaterialTheme.typography.titleMedium)
+                            Text("These DOI, PMID or URL identifiers point to different saved studies. This capture and the existing studies have been preserved separately; conflicting aliases are quarantined.")
+                            conflicts.map { it.evidence }.distinct().forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
+                            androidx.compose.material3.OutlinedButton(onClick = { viewModel.keepWorksSeparate() }) { Text("Keep studies separate") }
+                        }
+                        if (state.relationships.any { it.disposition == "REVIEWED_KEEP_SEPARATE" }) Text("Identity reviewed: studies kept separate; original identifier mappings preserved.", style = MaterialTheme.typography.bodySmall)
                         if (state.relationships.any { it.disposition == "AUTHORITY_ISOLATED_NO_MERGE" }) Text("Other records share an identifier but use separate permissions. Their evidence remains isolated.", style = MaterialTheme.typography.bodySmall)
                     }
                     item {

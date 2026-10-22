@@ -101,7 +101,7 @@ class McpCatalogueDeadlineTest {
                 }
             }
         )
-        val manager = McpClientManager(client, modern = ModernMcpTransport(client))
+        val manager = McpClientManager(client, modern = ModernMcpTransport(client), catalogueTimeoutMs = 8000L)
         val config = McpConnectionConfig("deadline", "https://deadline.example/mcp", false)
         try {
             assertTrue(manager.listTools(config).isEmpty())

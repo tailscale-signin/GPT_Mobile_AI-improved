@@ -99,6 +99,11 @@ class ResearchArticleViewModel @Inject constructor(private val archive: Research
             }
         }
     }
+    fun keepWorksSeparate() = action {
+        val selection = requireNotNull(openedSelection)
+        archive.keepConflictingWorksSeparate(selection.workId, selection.authority)
+        open(selection.workId, selection.versionId, selection.authority)
+    }
     fun pause(id: String) = action { coordinator.pause(id) }
     fun cancel(id: String) = action { coordinator.cancel(id) }
     private fun action(block: suspend () -> Unit) {

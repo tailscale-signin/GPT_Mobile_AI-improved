@@ -12,6 +12,8 @@ import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -29,6 +31,7 @@ class CombinedTurnBudgetStore private constructor(private val directory: File?) 
     private val shared = states.computeIfAbsent(directory?.absolutePath ?: "memory:${UUID.randomUUID()}") { StoreState() }
     private val mutex = shared.mutex
     private val budgets = shared.budgets
+    val progress = shared.progress.asStateFlow()
     private val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true
@@ -59,15 +62,33 @@ class CombinedTurnBudgetStore private constructor(private val directory: File?) 
         require(snapshot.version == 1 && snapshot.rootBudgetId == context.rootBudgetId && snapshot.requestedPolicyDigest == context.requested.requestedPolicyDigest && snapshot.effectivePlanDigest == plan.effectivePlanDigest) {
             "Combined budget journal is incompatible; no new dispatch is authorized."
         }
-        val budget = CombinedTurnBudget(snapshot, persist = { next -> if (file != null && context.rootBudgetId !in shared.deletedRoots) write(file, next) })
+        val budget = CombinedTurnBudget(snapshot, persist = { next ->
+            if (context.rootBudgetId !in shared.deletedRoots) {
+                if (file != null) write(file, next)
+                shared.progress.update { it + (context.rootBudgetId to next.progressSnapshot()) }
+            }
+        })
         if (loaded == null && file != null) write(file, snapshot)
         budget.rebindConversation(context.chatId)
         budgets[context.rootBudgetId] = budget
+        shared.progress.update { it + (context.rootBudgetId to snapshot.progressSnapshot()) }
         budget
     }
 
     suspend fun snapshot(rootBudgetId: String): CombinedBudgetSnapshot? = mutex.withLock {
         budgets[rootBudgetId]?.snapshot() ?: withContext(Dispatchers.IO) { directory?.let { File(it, "${combinedDigest(rootBudgetId)}.json") }?.takeIf(File::exists)?.let { read(it) } }
+    }
+
+    /** Restore UI milestones without opening a budget or granting new dispatch authority. */
+    suspend fun loadProgress(chatIds: Set<Int>) = mutex.withLock {
+        withContext(Dispatchers.IO) {
+            directory?.listFiles { file -> file.extension == "json" }?.forEach { file ->
+                val saved = runCatching { read(file) }.getOrNull() ?: return@forEach
+                if (saved.chatId in chatIds && saved.rootBudgetId !in shared.deletedRoots && saved.rootBudgetId !in budgets) {
+                    shared.progress.update { it + (saved.rootBudgetId to saved.progressSnapshot()) }
+                }
+            }
+        }
     }
 
     suspend fun cancel(rootBudgetId: String) {
@@ -81,6 +102,7 @@ class CombinedTurnBudgetStore private constructor(private val directory: File?) 
         active.values.forEach { it.cancel() }
         shared.deletedRoots.addAll(active.keys)
         active.keys.forEach(budgets::remove)
+        shared.progress.update { rows -> rows.filterValues { it.chatId != chatId } }
         withContext(Dispatchers.IO) {
             directory?.listFiles { file -> file.extension == "json" }?.forEach { file ->
                 if (read(file).chatId == chatId) check(file.delete()) { "Could not remove Combined budget journal." }
@@ -114,6 +136,7 @@ class CombinedTurnBudgetStore private constructor(private val directory: File?) 
         private class StoreState {
             val mutex = Mutex()
             val budgets = linkedMapOf<String, CombinedTurnBudget>()
+            val progress = kotlinx.coroutines.flow.MutableStateFlow<Map<String, CombinedProgressSnapshot>>(emptyMap())
             val deletedRoots = ConcurrentHashMap.newKeySet<String>()
         }
         private val states = ConcurrentHashMap<String, StoreState>()

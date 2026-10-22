@@ -26,7 +26,9 @@ data class CombinedRecordCheckpoint(
     val records: List<CombinedCommittedRecord> = emptyList(),
     val pending: String = "",
     val recoveredFragments: List<CombinedUncommittedFragment> = emptyList(),
-    val failure: String? = null
+    val failure: String? = null,
+    val recoveryAttempts: Int = 0,
+    val malformedRecoveryAttempts: Int = 0
 ) {
     val lastSequence: Int get() = records.lastOrNull()?.sequence ?: 0
     val ended: Boolean get() = records.lastOrNull()?.id == "END"
@@ -46,6 +48,8 @@ internal class CombinedRecordProtocol(
     private val fragments = initial.recoveredFragments.toMutableList()
     private val byId = mutableMapOf<String, CombinedCommittedRecord>()
     private var failure: String? = null
+    private var recoveryAttempts = initial.recoveryAttempts
+    private var malformedRecoveryAttempts = initial.malformedRecoveryAttempts
     private var recordCharacters = 0L
     private var visibleCharacters = 0L
     private var scanned = 0
@@ -63,12 +67,13 @@ internal class CombinedRecordProtocol(
         }
         pending.append(initial.pending)
         failure = initial.failure
-        require(fragments.all { it.sequence in 1..(records.size + 1) })
+        require(recoveryAttempts >= 0 && malformedRecoveryAttempts in 0..recoveryAttempts && fragments.all { it.sequence in 1..(records.size + 1) })
     }
 
     val failureReason: String? get() = failure
+    val canRecoverMalformed: Boolean get() = failure?.let { it.startsWith("INVALID_DELIVERY_RECORD") || it in setOf("INVALID_DECISION_RECORD", "INVALID_CLAIM_DECISION", "MALFORMED_JSON_RECORD") } == true
 
-    fun checkpoint(): CombinedRecordCheckpoint = binding.copy(records = records.toList(), pending = pending.toString(), recoveredFragments = fragments.toList(), failure = failure)
+    fun checkpoint(): CombinedRecordCheckpoint = binding.copy(records = records.toList(), pending = pending.toString(), recoveredFragments = fragments.toList(), failure = failure, recoveryAttempts = recoveryAttempts, malformedRecoveryAttempts = malformedRecoveryAttempts)
 
     fun accept(delta: String): List<CombinedCommittedRecord> {
         check(failure == null) { requireNotNull(failure) }
@@ -160,15 +165,20 @@ internal class CombinedRecordProtocol(
             }
             require(pending.length <= 65_536) { "COMBINED_FRAGMENT_LIMIT" }
         } catch (error: Exception) {
-            failure = error.message ?: "INVALID_DELIVERY_RECORD"
+            failure = if (error is kotlinx.serialization.SerializationException) "MALFORMED_JSON_RECORD" else error.message ?: "INVALID_DELIVERY_RECORD"
         }
         return added
     }
 
     /** Regenerate the entire unfinished record. The original fragment remains part of the durable journal. */
-    fun continuationContext(): String {
-        check(failure == null && records.lastOrNull()?.id != "END") { failure ?: "DELIVERY_ALREADY_ENDED" }
+    fun continuationContext(repairMalformed: Boolean = false): String {
+        check((failure == null || repairMalformed && canRecoverMalformed) && records.lastOrNull()?.id != "END") { failure ?: "DELIVERY_ALREADY_ENDED" }
+        check((!repairMalformed || malformedRecoveryAttempts < 8) && fragments.sumOf { it.raw.length.toLong() } + pending.length <= 262_144L) { "COMBINED_RECORD_RECOVERY_LIMIT" }
+        val rejected = failure
         val partial = pending.toString()
+        recoveryAttempts++
+        if (rejected != null) malformedRecoveryAttempts++
+        failure = null
         if (partial.isNotBlank()) fragments += CombinedUncommittedFragment(records.size + 1, partial)
         pending.setLength(0)
         resetScan()
@@ -176,6 +186,7 @@ internal class CombinedRecordProtocol(
             mapOf(
                 "protocol" to JsonPrimitive("PASSAGES_V3"),
                 "next_sequence" to JsonPrimitive(records.size + 1),
+                "rejected_record_reason" to JsonPrimitive(rejected.orEmpty()),
                 "committed_ids" to JsonArray(records.map { JsonPrimitive(it.id) }),
                 "unfinished_record_untrusted" to JsonPrimitive(partial),
                 "instruction" to JsonPrimitive("Regenerate the entire unfinished record at next_sequence, preserving its intended topic and claims, then finish the remaining records. Never continue inside a JSON string. Use the original frozen inventory, user scope and record IDs. Emit the end record after all required records. Do not execute tools.")

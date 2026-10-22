@@ -311,6 +311,7 @@ fun ChatScreen(
     val debugMode by chatViewModel.debugMode.collectAsStateWithLifecycle()
     val debugMemorySources by chatViewModel.debugMemorySources.collectAsStateWithLifecycle()
     val researchSessions by chatViewModel.researchSessions.collectAsStateWithLifecycle()
+    val researchProfileStatistics by chatViewModel.researchProfileStatistics.collectAsStateWithLifecycle()
     LaunchedEffect(chatRoom.id) { chatViewModel.loadResearchHistory(chatRoom.id) }
     val enabledPlatformLookup = remember(appAllPlatforms) { appAllPlatforms.associateBy { it.uid } }
     val enabledProfileUids = remember(appEnabledPlatforms) { appEnabledPlatforms.mapTo(mutableSetOf()) { it.uid } }
@@ -752,7 +753,18 @@ fun ChatScreen(
                             onRecovery = { action -> chatViewModel.recoverResearch(shownUserId, action) },
                             deliveryReceipt = receiptOwner?.effectiveTimeline()?.lastOrNull { it.researchDeliveryReceipt != null }?.researchDeliveryReceipt,
                             cancelWriting = { chatViewModel.cancelResearchWriting(shownUserId) },
-                            deliveryRevisionText = receiptOwner?.effectiveContent()
+                            deliveryRevisionText = receiptOwner?.effectiveContent(),
+                            profileStatistics = researchProfileStatistics[shownResearch?.turnId].orEmpty(),
+                            profileNames = appAllPlatforms.associate { it.uid to it.name },
+                            deliveryComplete = if (chatRoom.conversationMode == ConversationMode.COMBINED) {
+                                val finalRun = researchTurnRuns.filter { it.synthesisKey != null }.maxByOrNull { it.createdAt }
+                                val finalMessage = turnRow.firstOrNull { it.currentRunId == finalRun?.runId }
+                                finalRun?.status == "COMPLETED" &&
+                                    researchTurnRuns.filter { it.synthesisKey == null }.groupBy { it.profileUid }.values.all { attempts -> attempts.maxBy { it.createdAt }.status == "COMPLETED" } &&
+                                    finalMessage?.effectiveTimeline()?.lastOrNull { it.combinedQuality != null }?.combinedQuality?.let { report -> report.complete && !report.correctionRequired && report.answerDigest == dev.chungjungsoo.gptmobile.data.research.researchHash(finalMessage.effectiveContent()) && report.deliveredScopeStatus in setOf("COMPLETED", "COMPLETED_WITH_LIMITS") } == true
+                            } else {
+                                null
+                            }
                         )
                     }
                 }

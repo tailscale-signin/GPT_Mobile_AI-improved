@@ -32,6 +32,8 @@ internal fun combinedSynthesisInputs(
         val uid = message.platformType ?: return@mapNotNull null
         val original = message.combinedSources.firstOrNull { it.platformUid == uid }
         val originalContent = original?.content ?: message.content
+        // Validate control markup before sanitizing, which may retain an innocent preamble.
+        if (dev.chungjungsoo.gptmobile.data.agent.DSML_CONTROL_MARKUP.containsMatchIn(originalContent)) return@mapNotNull null
         val content = currentRequest?.let { CombinedContributionQuality.currentRequestContribution(it, originalContent) } ?: CombinedContributionQuality.sanitizeContribution(originalContent)
         if (isAssistantErrorMessage(content)) return@mapNotNull null
         // The synthesis run's status describes the editor, not the preserved contributor.

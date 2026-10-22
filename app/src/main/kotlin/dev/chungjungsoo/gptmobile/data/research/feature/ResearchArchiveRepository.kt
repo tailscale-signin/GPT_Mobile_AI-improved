@@ -47,6 +47,17 @@ class ResearchArchiveRepository @Inject constructor(val database: ResearchDataba
         }
         reconcileOutbox()
     }
+
+    /** Explicit review preserves separate works and all original authoritative mappings. */
+    suspend fun keepConflictingWorksSeparate(workId: String, authority: String) = database.withTransaction {
+        val version = requireNotNull(dao.latestVersion(workId))
+        require(version.publicSource || version.authority == authority) { "Evidence authority changed" }
+        dao.identityResolutions(workId).filter { it.disposition == "IDENTITY_REVIEW_REQUIRED" }.forEach {
+            dao.identityResolution(it.copy(disposition = "REVIEWED_KEEP_SEPARATE", recordedAt = System.currentTimeMillis()))
+        }
+        dao.membership(workId)?.let { dao.membership(it.copy(protectionReason = "IDENTITY_REVIEWED_KEEP_SEPARATE")) }
+    }
+
     suspend fun repairBatch(): Boolean = ResearchSourceRepair(database, bodies).batch()
 
     suspend fun reconcileOutbox() {
@@ -207,8 +218,9 @@ internal object ResearchArchiveIngestor {
                 add("url:${source.canonicalUrl}")
             }.map { "$scope|$it" }
             val resolved = identities.mapNotNull { dao.aliasWork(it) }.distinct()
-            require(resolved.size <= 1) { "Conflicting strong research identifiers require review" }
-            val workId = resolved.singleOrNull() ?: researchHash(identities.first())
+            val conflict = resolved.size > 1
+            // A conflicting capture owns its own version and body. No alias is moved or added.
+            val workId = if (conflict) researchHash("identity-quarantine|" + identities.sorted().joinToString("|")) else resolved.singleOrNull() ?: researchHash(identities.first())
             if (ownerKind == "import") check(dao.deleted("archive:$workId") == null) { "This work was removed from the archive" }
             val previous = dao.work(workId)
             val review = when (source.reviewStatus.lowercase()) {
@@ -217,7 +229,15 @@ internal object ResearchArchiveIngestor {
                 else -> previous?.peerReview ?: PublicationReview.UNKNOWN
             }
             dao.work(ResearchWork(workId, source.title.take(2000), source.canonicalUrl, source.publicationYear ?: previous?.publicationYear, source.publicationType.takeUnless { it == "unknown" } ?: previous?.publicationType ?: "unknown", review, if (source.isRetracted == true || previous?.retracted == true) true else source.isRetracted ?: previous?.retracted, source.isPreprint ?: previous?.preprint, previous?.studyFamilyId, source.retrievedAt.takeIf { it > 0 }))
-            identities.forEach { if (dao.aliasWork(it) == null) dao.alias(ResearchAlias(it, workId)) }
+            if (conflict) {
+                resolved.forEach { related ->
+                    val id = researchHash("identity-review:$workId:$related")
+                    val existing = dao.identityResolutions(workId).firstOrNull { it.resolutionId == id }
+                    if (existing == null) dao.identityResolution(ResearchIdentityResolution(id, workId, related, "", scope, "CONFLICTING_IDENTIFIERS", identities.map { alias -> "$alias -> ${dao.aliasWork(alias) ?: "unassigned"}" }.joinToString("\n"), "IDENTITY_REVIEW_REQUIRED", System.currentTimeMillis()))
+                }
+            } else {
+                identities.forEach { if (dao.aliasWork(it) == null) dao.alias(ResearchAlias(it, workId)) }
+            }
             val versionId = researchHash("$workId|$contentHash|1|${source.versionId}")
             val captured = ResearchWorkVersion(
                 versionId, workId, contentHash, sourceVersion = source.versionId, sourceUrl = source.accessUrl.ifBlank { source.canonicalUrl }, retrievedAt = source.retrievedAt, validatedAt = source.retrievedAt.takeIf { it > 0 },
@@ -244,6 +264,7 @@ internal object ResearchArchiveIngestor {
             }
             dao.root(BodyReference(ownerKind, ownerId, versionId))
             if (archive) dao.archive(workId, versionId, dao.membership(workId)?.primaryTopicId ?: DEFAULT_TOPIC, System.currentTimeMillis(), epoch, unexaminedLimit)
+            if (conflict && dao.identityResolutions(workId).any { it.disposition == "IDENTITY_REVIEW_REQUIRED" }) dao.membership(workId)?.let { dao.membership(it.copy(protectionReason = "IDENTITY_REVIEW_REQUIRED")) }
             val membership = dao.membership(workId)
             if (automaticOrganization && membership?.primaryTopicId == DEFAULT_TOPIC && !dao.manuallyOrganized(workId)) {
                 val subjects = runCatching { Json.decodeFromString<dev.chungjungsoo.gptmobile.data.research.academic.AcademicPaper>(source.bibliographyJson).subjects }.getOrDefault(emptyList())

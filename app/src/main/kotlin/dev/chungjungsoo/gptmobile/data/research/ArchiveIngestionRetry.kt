@@ -8,7 +8,10 @@ import kotlinx.serialization.json.jsonObject
 
 /** The outbox retains the source while failed indexing backs off across progress saves and restarts. */
 internal fun ResearchOutbox.retryDue(now: Long): Boolean =
-    Json.parseToJsonElement(operation).jsonObject.text("retryAfterMs").toLongOrNull()?.let { now >= it } ?: true
+    Json.parseToJsonElement(operation).jsonObject.let { payload ->
+        payload.text("state") != "IDENTITY_REVIEW_REQUIRED" &&
+            (payload.text("retryAfterMs").toLongOrNull()?.let { now >= it } ?: true)
+    }
 
 internal fun ResearchOutbox.failedIngestion(now: Long, reason: String): ResearchOutbox {
     val payload = Json.parseToJsonElement(operation).jsonObject
@@ -19,7 +22,8 @@ internal fun ResearchOutbox.failedIngestion(now: Long, reason: String): Research
             payload + mapOf(
                 "retryAttempt" to JsonPrimitive(attempt),
                 "retryAfterMs" to JsonPrimitive(now + delay),
-                "lastFailure" to JsonPrimitive(reason)
+                "lastFailure" to JsonPrimitive(reason),
+                "state" to JsonPrimitive(if (reason == "IDENTITY_CONFLICT_REQUIRES_REVIEW") "IDENTITY_REVIEW_REQUIRED" else "RETRY_PENDING")
             )
         ).toString()
     )

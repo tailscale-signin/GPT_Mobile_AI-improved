@@ -136,6 +136,12 @@ class InvocationLedger @Inject constructor(
         if (enabled) (live.values + saved.filterNot { it.id in live || it.status == "RUNNING" }).distinctBy { it.id }.sortedByDescending { it.startedAt }.take(100) else emptyList()
     }
 
+    /** Product statistics are available independently of diagnostic logging. */
+    fun usageForChat(chatId: Int): Flow<List<ModelInvocation>> = combine(dao.observeForChat(chatId), active) { saved, live ->
+        val scoped = live.values.filter { it.turnKey.substringBefore(':') == chatId.toString() || saved.any { row -> row.id == it.id } }
+        (saved.associateBy { it.id } + scoped.associateBy { it.id }).values.toList()
+    }
+
     fun diagnosticsForChat(chatId: Int): Flow<List<ModelInvocation>> = combine(dao.observeForChat(chatId), active, LocalDiagnosticsPolicy.state) { saved, live, enabled ->
         if (!enabled) {
             emptyList()

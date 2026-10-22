@@ -71,6 +71,8 @@ internal fun mergeResearchSnapshots(previous: List<ResearchSnapshot>, incoming: 
         best.copy(
             id = if (identitiesPerId.getValue(best.id) > 1) "S" + researchHash(key).take(16) else best.id,
             engines = versions.flatMap { it.engines }.distinct().take(20),
+            discoveredByProfiles = versions.flatMap { it.discoveredByProfiles }.toSet(),
+            readByProfiles = versions.flatMap { it.readByProfiles }.toSet(),
             providerReceipts = versions.flatMap { it.providerReceipts }.distinct(),
             failureReason = versions.lastOrNull { !it.readable && it.failureReason.isNotBlank() }?.failureReason ?: best.failureReason
         )

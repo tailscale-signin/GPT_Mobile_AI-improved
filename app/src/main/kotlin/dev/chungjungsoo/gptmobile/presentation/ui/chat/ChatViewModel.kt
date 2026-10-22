@@ -45,6 +45,7 @@ import dev.chungjungsoo.gptmobile.data.model.ChatAttachment
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.ConversationDelegationSettings
+import dev.chungjungsoo.gptmobile.data.model.delegationFor
 import dev.chungjungsoo.gptmobile.data.model.excludesMemory
 import dev.chungjungsoo.gptmobile.data.model.isPrivateDestination
 import dev.chungjungsoo.gptmobile.data.repository.AttachmentUploadCoordinator
@@ -80,7 +81,9 @@ import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -113,7 +116,8 @@ class ChatViewModel @Inject constructor(
     private val researchSessionStore: dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore? = null,
     private val conversationExitWork: dev.chungjungsoo.gptmobile.data.chat.ConversationExitWork,
     @dev.chungjungsoo.gptmobile.di.DefaultDispatcher private val messageGroupingDispatcher: kotlinx.coroutines.CoroutineDispatcher,
-    private val memoryPreview: dev.chungjungsoo.gptmobile.data.readiness.MemoryPreviewCoordinator? = null
+    private val memoryPreview: dev.chungjungsoo.gptmobile.data.readiness.MemoryPreviewCoordinator? = null,
+    private val researchDatabase: dev.chungjungsoo.gptmobile.data.research.feature.ResearchDatabase? = null
 ) : ViewModel() {
     private val diagnosticPrivacyOwner = java.util.UUID.randomUUID().toString()
     private val visibleHistoryTurns = MutableStateFlow(if (savedStateHandle.get<Int>("targetMessageId") != null) Int.MAX_VALUE else 40)
@@ -313,6 +317,18 @@ class ChatViewModel @Inject constructor(
             )
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val researchProfileStatistics = combine(
+        researchSessions,
+        (invocationLedger?.usageForChat(chatRoomId) ?: flowOf(emptyList())).sample(250),
+        researchDatabase?.research()?.jobs()?.map { rows -> rows.filter { it.chatId == chatRoomId } }?.distinctUntilChanged() ?: flowOf(emptyList())
+    ) { sessions, requests, jobs ->
+        sessions.values.filter { it.chatId == chatRoomId }.groupBy { it.turnId }.mapValues { (root, rows) ->
+            val accepted = researchSessionStore?.acceptedTask(root)
+            val participants = accepted?.participantUids?.toSet() ?: requests.filter { it.turnKey == root }.mapNotNull { it.profileUid }.toSet()
+            dev.chungjungsoo.gptmobile.data.research.researchProfileStatistics(root, participants, rows, requests, jobs)
+        }
+    }.flowOn(Dispatchers.Default).distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     val invocationDiagnostics = (invocationLedger?.diagnosticsForChat(chatRoomId) ?: flowOf(emptyList()))
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -588,7 +604,9 @@ class ChatViewModel @Inject constructor(
                         }.coerceAtLeast(1),
                         contentScope = research.scope.name,
                         gatewayConnectionUid = research.gatewayConnectionUid,
-                        allowNativeFallback = research.allowNativeFallback
+                        allowNativeFallback = research.allowNativeFallback,
+                        examinationRequested = featureSettings.value.researchFeature.enabled && featureSettings.value.researchFeature.autoExamination != dev.chungjungsoo.gptmobile.data.research.feature.AutoExamination.OFF && research.academicEligibleByUi,
+                        independentReviewRequested = selected.any { featureSettings.value.delegationFor(it).reviewerEnabled }
                     )
                 }
         )

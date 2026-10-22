@@ -183,7 +183,7 @@ internal class AndroidResearchWorkflow(
         val retainedKey = sources.entries.firstOrNull { it.key == key || it.value.equivalenceGroup == key }?.key
         retainedKey?.let { existingKey ->
             val existing = sources.getValue(existingKey)
-            sources[existingKey] = existing.copy(engines = (existing.engines + engines).distinct().take(20))
+            sources[existingKey] = (journal?.attributeSource(existing, discovered = true) ?: existing).copy(engines = (existing.engines + engines).distinct().take(20))
             return existing.id
         }
 
@@ -197,6 +197,7 @@ internal class AndroidResearchWorkflow(
             titleFingerprint = identity.titleFingerprint, contentFingerprint = identity.contentFingerprint,
             equivalenceGroup = identity.equivalenceKey
         )
+        sources[key] = journal?.attributeSource(sources.getValue(key), discovered = true) ?: sources.getValue(key)
         return sourceId
     }
 
@@ -767,6 +768,7 @@ internal class AndroidResearchWorkflow(
                     location = payload?.text("section").orEmpty().ifBlank { "Captured academic excerpt" },
                     retrievedAt = now()
                 )
+                sources[key]?.takeIf { it.readable }?.let { sources[key] = journal?.attributeSource(it, read = true) ?: it }
                 withContext(NonCancellable) { checkpoint() }
             }
         } finally {
@@ -839,6 +841,7 @@ internal class AndroidResearchWorkflow(
                 links.filter { options.allowExternalLinks || runCatching { URI(it).host.equals(URI(finalUrl).host, true) }.getOrDefault(false) }
                     .filter { researchTerms(it).any(questionTerms::contains) }.take(6).forEach { add(it, it, source.depth + 1) }
             }
+            sources[key]?.takeIf { it.readable }?.let { sources[key] = journal?.attributeSource(it, read = true) ?: it }
             withContext(NonCancellable) { checkpoint() }
         }
     }

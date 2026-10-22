@@ -9,6 +9,19 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LiveToolContextTest {
+    @Test fun deferredCompactPolicyActuallyShrinksAndPreservesUserInstructions() {
+        val original = "Keep my exact profile instructions."
+        val full = liveToolSystemPrompt(original, emptyList(), deferCapabilities = true)
+        val compact = liveToolSystemPrompt(original, emptyList(), compact = true, deferCapabilities = true)
+        assertTrue(compact.startsWith(original + "\n\n"))
+        assertTrue(compact.length < full.length * 0.6)
+        assertTrue(compact.contains("Only this request's registered tools"))
+        assertTrue(compact.contains("never memory or timezone"))
+        val research = liveToolSystemPrompt(original, emptyList(), compact = true, deferCapabilities = true, researchReport = true)
+        assertTrue(research.contains("Research delivery contract"))
+        assertFalse(research.contains("omit citation"))
+    }
+
     @Test fun researchCitationContractDoesNotCarryOrdinaryChatCitationBan() {
         val research = liveToolSystemPrompt(null, listOf("web_search"), researchReport = true)
         assertTrue(research.contains("Research delivery contract"))

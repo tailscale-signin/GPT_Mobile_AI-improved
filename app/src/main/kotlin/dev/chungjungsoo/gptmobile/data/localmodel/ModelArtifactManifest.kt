@@ -93,7 +93,10 @@ data class ModelArtifactManifest(
         }
         if (runtime == ArtifactRuntime.LLAMA_CPP) {
             require(schemaVersion == 3 && supportedBackends in setOf(setOf("cpu"), setOf("cpu", "gpu")) && !vision && projectorFile == null) { "Standalone GGUF requires a schema-3 CPU/GPU text manifest" }
-            require(runtimeVersion == dev.chungjungsoo.gptmobile.data.localruntime.RuntimeCapabilityRegistry.GGUF_REVISION) { "Unsupported GGUF engine revision" }
+            // GGUF is portable model data, not a binary linked to the importing engine.
+            // Keep the import revision as provenance; qualify the actual architecture,
+            // template and tensors against the currently packaged engine at load time.
+            require(runtimeVersion.matches(Regex("[a-fA-F0-9]{40}"))) { "Missing GGUF import runtime revision" }
         }
         if (runtime == ArtifactRuntime.GENIEX_QAIRT) validateQairtConfiguration(root)
     }

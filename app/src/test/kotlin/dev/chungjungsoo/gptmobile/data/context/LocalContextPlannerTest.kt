@@ -10,6 +10,24 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LocalContextPlannerTest {
+    @Test fun greetingWithRealPromptBridgeFitsSmallContextAndLargeCatalog() {
+        val tools = (1..15).map { AgentToolDefinition("tool$it", "Optional capability ".repeat(35), buildJsonObject {}) }
+        val system = dev.chungjungsoo.gptmobile.data.agent.liveToolSystemPrompt(null, emptyList(), compact = true, deferCapabilities = true)
+        val plan = LocalContextPlanner.plan(
+            emptyList(),
+            "hi",
+            system,
+            tools,
+            2048,
+            4096,
+            renderToolPrompt = { dev.chungjungsoo.gptmobile.data.agent.provider.LocalPromptToolBridge.instruction(it) },
+            renderCapabilityPrompt = { dev.chungjungsoo.gptmobile.data.agent.localToolCapabilityPrompt(it.map { tool -> tool.name }) }
+        )
+        assertTrue(plan.outputReserveTokens > 0)
+        assertTrue(plan.omittedTools > 0)
+        assertTrue(plan.estimatedPromptTokens + plan.outputReserveTokens + plan.toolResultBytes / 2 + 256 < 2048)
+    }
+
     @Test fun relatedFollowUpsRetainSearchAndItsTaskUnderContextPressure() {
         val search = AgentToolDefinition("web_search", "Search", buildJsonObject {})
         val others = (1..20).map { AgentToolDefinition("a$it", "Unrelated ".repeat(80), buildJsonObject {}) }

@@ -13,6 +13,19 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 class ModelArtifactManifestTest {
+    @Test fun standaloneGgufImportedWithOlderEngineRemainsPortable() {
+        val root = temporary.newFolder()
+        val manifest = artifact(root).copy(
+            runtime = ArtifactRuntime.LLAMA_CPP,
+            schemaVersion = 3,
+            runtimeVersion = "4413a192410fad1f054e9216114087a3e01527a0"
+        )
+        manifest.validate(root, "cpu")
+        assertFalse(manifest.verifiedOnDevice("digest", dev.chungjungsoo.gptmobile.data.localruntime.RuntimeCapabilityRegistry.GGUF_REVISION, "firmware", "cpu", "1"))
+        assertTrue(runCatching { manifest.copy(runtimeVersion = "").validate(root) }.isFailure)
+        assertTrue(runCatching { manifest.copy(evidence = ArtifactEvidence.QUARANTINED).validate(root) }.isFailure)
+    }
+
     @get:Rule val temporary = TemporaryFolder()
 
     private fun artifact(root: File): ModelArtifactManifest {

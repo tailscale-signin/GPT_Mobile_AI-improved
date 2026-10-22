@@ -113,7 +113,7 @@ internal class GgufRuntimeAdapter(private val context: Context) : LocalRuntime {
         val accelerator = LocalAccelerators.normalize(effectiveSpec.accelerator)
         check(accelerator in setOf(LocalAccelerators.CPU, LocalAccelerators.GPU)) { "Standalone GGUF supports CPU or Vulkan GPU only" }
         if (accelerator == LocalAccelerators.GPU) check(RuntimeCapabilityRegistry.gguf(android.os.Build.SUPPORTED_ABIS?.toList().orEmpty()).backends.contains("gpu")) { "This build does not include GGUF Vulkan GPU offload; rebuild with ggufVulkan=true" }
-        if (manifest.runtime == ArtifactRuntime.LLAMA_CPP) check(manifest.runtimeVersion == GgufNative.REVISION) { "This artifact requires another GGUF engine revision" }
+        AppLogRecorder.record("LocalModel", "GGUF_RUNTIME_COMPATIBILITY · importRevision=${manifest.runtimeVersion} · executionRevision=${GgufNative.REVISION} · qualification=pending_native_load")
         val identity = "$modelHash|${GgufNative.REVISION}|${android.os.Build.FINGERPRINT}|$accelerator|${effectiveSpec.maxTokens}"
         unloadEngine()
         journal.before(identity, "LOAD")
@@ -126,7 +126,7 @@ internal class GgufRuntimeAdapter(private val context: Context) : LocalRuntime {
             modelFallbackKey = fallbackKey
         } catch (failure: Throwable) {
             withContext(NonCancellable) { unloadEngine() }
-            if (failure !is CancellationException && accelerator == LocalAccelerators.GPU && failure.isVulkanComputePipelineFailure()) {
+            if (failure !is CancellationException && accelerator == LocalAccelerators.GPU && failure.isRecoverableGgufGpuLoadFailure()) {
                 gpuFallbackModelKeys += fallbackKey
                 AppLogRecorder.record(
                     "LocalModel",
@@ -136,6 +136,10 @@ internal class GgufRuntimeAdapter(private val context: Context) : LocalRuntime {
                 val cpuSpec = effectiveSpec.copy(accelerator = LocalAccelerators.CPU)
                 val cpuIdentity = "$modelHash|${GgufNative.REVISION}|${android.os.Build.FINGERPRINT}|${LocalAccelerators.CPU}|${cpuSpec.maxTokens}"
                 try {
+                    // The failed GPU call returned and was fully unloaded. Finish its
+                    // journal before starting CPU; otherwise before() interprets our
+                    // own completed attempt as a native process interruption.
+                    journal.finished()
                     journal.before(cpuIdentity, "LOAD")
                     cancellableNative(null) {
                         loadNative(model, cpuSpec, LocalAccelerators.CPU, templateName).also { handle = it }
@@ -343,6 +347,7 @@ internal class GgufRuntimeAdapter(private val context: Context) : LocalRuntime {
                     "W"
                 )
                 unloadEngine()
+                journal.finished()
                 loadEngine(failedSpec.copy(accelerator = LocalAccelerators.CPU))
                 createConversation(config)
                 output = StringBuilder()
@@ -350,6 +355,7 @@ internal class GgufRuntimeAdapter(private val context: Context) : LocalRuntime {
                 first = null
                 saturated = false
                 send(LocalRuntimeEvent.PhaseChanged(LocalInferencePhase.PREFILL))
+                journal.before(checkNotNull(tuple), "GENERATE", segment)
                 runAttempt(handle)
             }
             val counts = outcome.receipt

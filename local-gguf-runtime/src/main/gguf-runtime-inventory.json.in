@@ -1,1 +1,1 @@
-{"schemaVersion":1,"runtime":"llama.cpp","revision":"4413a192410fad1f054e9216114087a3e01527a0","sourceSha256":"4d0cb840af6e67de6afc72cd85aaa5d1419a9c6071a403d7a2069086f0bfe21b","library":"libgptmobile_gguf.so","abis":@GGUF_ABIS@,"backends":@GGUF_BACKENDS@,"qualification":"packaged_only"}
+{"schemaVersion":1,"runtime":"llama.cpp","revision":"620d2225cc436ab0b001e3200e590e3b286ef9ab","sourceSha256":"1d4a987d9bd048f6e93107e838026438df70fbde237fc0c69c63d600512b4bd9","library":"libgptmobile_gguf.so","abis":@GGUF_ABIS@,"backends":@GGUF_BACKENDS@,"qualification":"packaged_only"}

@@ -288,6 +288,7 @@ class LiteRtLmAdapter(
                         renderCapabilityPrompt = capabilityPromptRenderer
                     )
                 } catch (error: IllegalArgumentException) {
+                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("LocalModel", "LOCAL_CONTEXT_PLAN_REJECTED · context=$effectiveContextTokens · systemChars=${evidencePrompt.orEmpty().length} · userChars=${latestUserText.length} · availableTools=${availableTools.size} · requestedOutput=$outputLimit · reason=${error.message}", "W")
                     val compactPrompt = fallbackSystemPrompt?.takeIf { it != platform.systemPrompt }
                     if (compactPrompt == null) {
                         send(ProviderEvent.Failed(error.message ?: "Local context is too small for this request."))

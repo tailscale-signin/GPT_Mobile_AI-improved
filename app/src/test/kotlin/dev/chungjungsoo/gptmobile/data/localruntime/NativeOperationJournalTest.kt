@@ -8,6 +8,20 @@ import org.junit.rules.TemporaryFolder
 class NativeOperationJournalTest {
     @get:Rule val temporary = TemporaryFolder()
 
+    @Test fun completedGpuFailureDoesNotQuarantineCpuFallbackButCpuCrashStillDoes() {
+        val root = temporary.newFolder()
+        val journal = NativeOperationJournal(root)
+        journal.before("artifact|runtime|gpu", "LOAD")
+        journal.finished() // A caught GPU failure returned and its resources were released.
+        journal.before("artifact|runtime|cpu", "LOAD")
+        journal.finished()
+        journal.before("artifact|runtime|cpu", "GENERATE")
+        val restarted = NativeOperationJournal(root, exitCause = { _, _ -> "NATIVE_CRASH" })
+        restarted.before("artifact|runtime|gpu", "LOAD")
+        restarted.finished()
+        assertTrue(runCatching { restarted.before("artifact|runtime|cpu", "GENERATE") }.isFailure)
+    }
+
     @Test fun interruptedTupleStaysBlockedAfterAnotherModelRuns() {
         val root = temporary.newFolder()
         NativeOperationJournal(root).before("artifact-A|runtime-1|firmware|npu")

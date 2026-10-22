@@ -28,8 +28,8 @@ jobs:
           java-version: '21'
       - name: Fetch immutable source and fixture
         run: |
-          curl --fail --location --retry 3 https://codeload.github.com/ggml-org/llama.cpp/tar.gz/4413a192410fad1f054e9216114087a3e01527a0 -o /tmp/llama.tar.gz
-          echo '4d0cb840af6e67de6afc72cd85aaa5d1419a9c6071a403d7a2069086f0bfe21b  /tmp/llama.tar.gz' | sha256sum --check
+          curl --fail --location --retry 3 https://codeload.github.com/ggml-org/llama.cpp/tar.gz/620d2225cc436ab0b001e3200e590e3b286ef9ab -o /tmp/llama.tar.gz
+          echo '1d4a987d9bd048f6e93107e838026438df70fbde237fc0c69c63d600512b4bd9  /tmp/llama.tar.gz' | sha256sum --check
           mkdir -p /tmp/llama
           tar -xf /tmp/llama.tar.gz --strip-components=1 -C /tmp/llama
           python3 -m pip install numpy tqdm pyyaml

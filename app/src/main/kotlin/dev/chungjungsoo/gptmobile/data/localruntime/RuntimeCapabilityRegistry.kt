@@ -8,7 +8,7 @@ internal data class RuntimeCapability(val state: RuntimeAvailability, val backen
 
 /** Build inventory, not proof of a successful model load or hardware qualification. */
 internal object RuntimeCapabilityRegistry {
-    const val GGUF_REVISION = "4413a192410fad1f054e9216114087a3e01527a0"
+    const val GGUF_REVISION = "620d2225cc436ab0b001e3200e590e3b286ef9ab"
     fun gguf(
         abis: List<String>,
         enabled: Boolean = BuildConfig.GGUF_ENABLED,

@@ -8,6 +8,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LocalAcceleratorsTest {
+    @Test fun standaloneGgufDefaultsToCpuWhileGpuRemainsSelectable() {
+        val gguf = dev.chungjungsoo.gptmobile.data.catalog.CatalogEntry(id = "test", displayName = "Test GGUF", variantLabel = "LLAMA_CPP", supportedAccelerators = listOf("cpu", "gpu"))
+        assertEquals("cpu", LocalAccelerators.defaultFor(gguf, "SM8750"))
+        assertEquals("cpu", localSamplingDefaults(gguf, "SM8750", 16).accelerator)
+        assertTrue(LocalAccelerators.choices(gguf, "SM8750").any { it.accelerator == "gpu" && it.enabled })
+        assertEquals("gpu", LocalAccelerators.defaultFor(gguf.copy(variantLabel = "LITERT_LM"), "SM8750"))
+    }
 
     @Test
     fun `NPU is eligible when the model lists it and the device has a SOC variant`() {

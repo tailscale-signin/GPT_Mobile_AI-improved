@@ -2328,12 +2328,6 @@ class ChatRepositoryImpl(
         val platform = input.platform
         val runId = input.runId
         val chatToolConfig = input.chatToolConfig
-        if (chatToolConfig?.combined != null) {
-            dev.chungjungsoo.gptmobile.data.agent.CombinedProviderEligibility.unavailableReason(platform, chatToolConfig.combined.requested.userPrompt, chatToolConfig.combined.role.finalization)?.let { reason ->
-                emit(ApiState.Error("COMBINED_PROVIDER_UNAVAILABLE: $reason"))
-                return null
-            }
-        }
         val runFeatures = admission.runFeatures
         val admittedProfiles = admission.admittedProfiles
         val turnKey = admission.turnKey
@@ -3139,6 +3133,12 @@ class ChatRepositoryImpl(
         val resumeDescriptor = input.resumeDescriptor
         val stage = input.stage
         val chatToolConfig = input.chatToolConfig
+        if (chatToolConfig?.combined != null) {
+            dev.chungjungsoo.gptmobile.data.agent.CombinedProviderEligibility.unavailableReason(platform, chatToolConfig.combined.requested.userPrompt, chatToolConfig.combined.role.finalization)?.let { reason ->
+                emit(ApiState.Error("COMBINED_PROVIDER_UNAVAILABLE: $reason"))
+                return null
+            }
+        }
         if (platform.compatibleType == ClientType.FREE) {
             validateFreeRequest(platform, effectiveUserMessages, assistantMessages)
             emit(ApiState.Notice("Free provider · Memory off. Use public prompts only.", persistent = true))

@@ -100,7 +100,10 @@ internal class ResearchTaskStore(private val directory: File) {
     @Synchronized fun manifest(root: String, persistent: Boolean): ResearchEvidenceManifest? = read("manifest", root, persistent)?.let { json.decodeFromString(it) }
 
     @Synchronized private fun retainEvidence(task: AcceptedResearchTask, runId: String, authority: String, generation: Long, snapshot: ResearchSnapshot, persistent: Boolean) {
-        val captured = RetainedResearchEvidence(task.taskId, task.rootWorkId, task.chatId, researchHash(task.taskText), runId, authority, generation, snapshot.json())
+        // A progress timestamp alone is not a new evidence revision. Keep counters,
+        // stage, validation and source changes, without duplicating the full corpus
+        // on every otherwise identical save.
+        val captured = RetainedResearchEvidence(task.taskId, task.rootWorkId, task.chatId, researchHash(task.taskText), runId, authority, generation, snapshot.copy(updatedAt = 0).json())
         val encoded = json.encodeToString(captured)
         val id = researchHash(encoded)
         val old = manifest(task.rootWorkId, persistent) ?: ResearchEvidenceManifest(taskId = task.taskId, rootWorkId = task.rootWorkId, chatId = task.chatId, originatingUserMessageId = task.originatingUserMessageId, originalRequestDigest = researchHash(task.taskText))
@@ -123,7 +126,7 @@ internal class ResearchTaskStore(private val directory: File) {
                 require(researchHash(encoded) == entry.id) { "RESEARCH_MANIFEST_INTEGRITY_FAILED" }
                 val retained = json.decodeFromString<RetainedResearchEvidence>(encoded)
                 require(retained.taskId == task.taskId && retained.rootWorkId == root && retained.chatId == task.chatId && retained.authority == entry.authority && retained.originalRequestDigest == researchHash(task.taskText)) { "RESEARCH_MANIFEST_SCOPE_CHANGED" }
-                val snapshot = ResearchSnapshot.parse(retained.snapshot) ?: return@forEach
+                val snapshot = ResearchSnapshot.parse(retained.snapshot)?.copy(updatedAt = entry.updatedAt) ?: return@forEach
                 require(snapshot.task == task.taskText) { "RESEARCH_MANIFEST_EVIDENCE_CHANGED" }
                 val strongest = richestResearchSnapshot(listOfNotNull(retainedSession?.snapshot, snapshot)) ?: return@forEach
                 retainedSession = ResearchSession(if (strongest === snapshot) retained.runId else retainedSession?.runId ?: retained.runId, retained.chatId, strongest, root, retained.authority)

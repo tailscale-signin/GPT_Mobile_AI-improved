@@ -68,7 +68,7 @@ internal class ResearchRecoveryLoader(private val agentPersistenceDao: AgentPers
                             rejected.isNotEmpty() -> "SOURCE_PERMISSION_REVOKED"
                             else -> "AUTHORIZED"
                         }
-                        if (reason != "AUTHORIZED") AppLogRecorder.record("Recovery", "RECOVERY_BLOCKED · runId=$runId · reason=$reason · dependencies=${rejected.size} · dispatched=false", "W")
+                        if (reason != "AUTHORIZED") AppLogRecorder.record("Recovery", "RECOVERY_BLOCKED · runId=$runId · reason=$reason · dependencies=${rejected.size} · tools=${rejected.map { it.modelToolName }.distinct().take(16).joinToString()} · dispatched=false", "W")
                         dev.chungjungsoo.gptmobile.data.agent.RecoveryAccessDecision(reason == "AUTHORIZED", reason, rejected.map { "tool:${it.selectionId()}" })
                     }
                 )

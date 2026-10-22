@@ -14,6 +14,25 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
 class ResearchTaskStoreTest {
+    @Test fun progressTimestampDoesNotDuplicateEvidenceButWorkCountersSurviveRestart() {
+        val dir = Files.createTempDirectory("research-timestamp").toFile()
+        try {
+            val store = ResearchTaskStore(dir)
+            val accepted = store.accept(task(), true)
+            val snapshot = ResearchSnapshot(accepted.taskText, sources = listOf(ResearchSource("S1", "https://example.org/study", "Study", "Read", "Retained evidence")), updatedAt = 10)
+            repeat(20) { store.checkpoint(accepted, "run", "public", 0, snapshot.copy(updatedAt = 10L + it), true) }
+            assertEquals(1, store.manifest(accepted.rootWorkId, true)!!.revisions.size)
+            assertEquals(1, dir.listFiles().orEmpty().count { it.extension == "evidence" })
+            store.checkpoint(accepted, "run", "public", 0, snapshot.copy(attempts = 2, updatedAt = 50), true)
+            val restored = ResearchTaskStore(dir).retainedEvidence(accepted.rootWorkId, setOf("public"), true).single().snapshot
+            assertEquals(2, restored.attempts)
+            assertEquals(snapshot.sources, restored.sources)
+            assertEquals(50L, restored.updatedAt)
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
     private fun task(chat: Int = 1) = AcceptedResearchTask(taskId = researchHash("task:$chat:10"), rootWorkId = "$chat:10", chatId = chat, originatingUserMessageId = 10, taskText = "Compare the original evidence", intent = "REQUIRED", participantUids = listOf("a", "b"), primaryUid = "a", settingsRevision = "settings", sourceAuthorityRevision = "grants", acceptedAt = 100)
 
     @Test fun corpusAndDeliveryRetainAcceptedTaskLineageAndRejectDifferentTasks() {

@@ -105,6 +105,7 @@ class ResearchExaminationWorker @AssistedInject constructor(
         }
         var cursor = ""
         var admitted = 0
+        val configurationWaits = mutableMapOf<String, Int>()
         while (admitted < 100) {
             val batch = archive.dao.pendingExaminations(cursor)
             if (batch.isEmpty()) break
@@ -117,6 +118,13 @@ class ResearchExaminationWorker @AssistedInject constructor(
                     if (!policy.enabled || policy.autoExamination == AutoExamination.OFF || policy.autoExamination == AutoExamination.WHEN_NEEDED && !scheduled.needed) continue
                     if (archive.dao.deleted("archive:${scheduled.request.workId}") != null || archive.dao.deleted("chat:${scheduled.request.chatId}") != null) {
                         archive.dao.acknowledge(row.id, row.createdAt)
+                        continue
+                    }
+                    val examiner = dev.chungjungsoo.gptmobile.data.research.feature.ResearchProfileResolver.examinerSelection(features, profiles, scheduled.request.chatId, scheduled.tools, scheduled.request.profileUid)
+                    if (examiner.profile == null) {
+                        archive.dao.outbox(row.copy(operation = Json.encodeToString(scheduled.copy(waitingReason = "WAITING_FOR_CONFIGURATION", waitingRevision = rowRevision))))
+                        val reason = "EXAMINER_${examiner.status.name}"
+                        configurationWaits[reason] = (configurationWaits[reason] ?: 0) + 1
                         continue
                     }
                     val waiting = archive.dao.jobsForWork(scheduled.request.workId).firstOrNull { job -> job.chatId == scheduled.request.chatId && job.origin == scheduled.request.origin && job.authority == scheduled.request.authority && job.stage in dev.chungjungsoo.gptmobile.data.research.feature.ExaminationLifecycle.waiting }
@@ -159,6 +167,9 @@ class ResearchExaminationWorker @AssistedInject constructor(
             }
             cursor = batch.last().id
             if (admitted >= 100) pending = true
+        }
+        configurationWaits.forEach { (reason, count) ->
+            AppLogRecorder.record("ResearchExamine", "AUTO_WAITING_CONFIGURATION · reason=$reason · queuedStudies=$count · action=choose_examiner · dispatched=false")
         }
         archive.dao.trimUnexamined(settings.getFeatureSettings().researchFeature.unexaminedStudyLimit, System.currentTimeMillis())
         return if (pending) Result.retry() else Result.success()

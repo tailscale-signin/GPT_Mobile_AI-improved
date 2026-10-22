@@ -12,6 +12,11 @@ import struct
 import zipfile
 
 ART_CODE_UNIT_LIMIT = 65535 // 4
+AGENT_PREFIXES = (
+    'Ldev/chungjungsoo/gptmobile/data/agent/AgentRunner',
+    'Ldev/chungjungsoo/gptmobile/data/agent/tool/AgentToolResolver',
+)
+GUARDED_PREFIXES = ('Ldev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImpl',) + AGENT_PREFIXES
 DISPATCH_STAGES = (
     'executePreparedRequest', 'dispatchWithPreparedContext',
     'preparePrimaryAdmission', 'preparePrimaryToolContext',
@@ -26,6 +31,8 @@ DISPATCH_STAGES = (
 
 
 def is_dispatch_method(descriptor, name):
+    if descriptor.startswith(AGENT_PREFIXES):
+        return True
     if not descriptor.startswith('Ldev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImpl'):
         return False
     # Kotlin local suspend functions are static methods on their enclosing lambda;
@@ -66,7 +73,7 @@ def dispatch_methods(data, dex_name):
     for index in range(classes_size):
         entry = classes_offset + index * 32
         descriptor = string(word(types_offset + word(entry) * 4))
-        if not descriptor.startswith('Ldev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImpl'):
+        if not descriptor.startswith(GUARDED_PREFIXES):
             continue
         cursor = word(entry + 24)
         if not cursor:
@@ -110,6 +117,9 @@ def main():
                 rows.extend(dispatch_methods(apk.read(entry), entry.filename))
     if not any(row['method'].endswith('executePreparedRequest') and not row['method'].startswith('access$') for row in rows):
         raise ValueError('The actual executePreparedRequest method was not found; continuation wrappers alone are not a valid size check')
+    for descriptor, method in ((AGENT_PREFIXES[0] + ';', 'executeLoop'), (AGENT_PREFIXES[1] + ';', 'resolve')):
+        if not any(row['class'] == descriptor and row['method'] == method for row in rows):
+            raise ValueError(f'The actual {descriptor}.{method} method was not found')
     rows.sort(key=lambda row: row['code_units'], reverse=True)
     print(json.dumps({'apk': args.apk, 'max_code_units': args.max_code_units, 'methods': rows}, indent=2))
     if rows[0]['code_units'] >= args.max_code_units:

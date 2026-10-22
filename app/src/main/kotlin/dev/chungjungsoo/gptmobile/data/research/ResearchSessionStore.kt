@@ -435,6 +435,15 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                         val needed = snapshot.claims.any { it.sourceId == source.id } || Regex("(?i)sample|participant|randomi[sz]|causal|efficacy|confidence interval|trial|systematic review").containsMatchIn(source.title + " " + source.publicationType + " " + source.passage)
                         val revision = researchHash(source.json().toString() + "|needed=$needed")
                         if (archivedRevisions[source.id] != revision) {
+                            val pending = dao.outboxById("ingest:$receiptId")
+                            // Saving progress must not turn a durable indexing failure into
+                            // dozens of immediate retries of the same source.
+                            if (pending != null &&
+                                !pending.retryDue(System.currentTimeMillis()) &&
+                                Json.parseToJsonElement(pending.operation).jsonObject["source"] == source.json()
+                            ) {
+                                return@forEach
+                            }
                             val outbox = dev.chungjungsoo.gptmobile.data.research.feature.ResearchOutbox(
                                 "ingest:$receiptId",
                                 buildJsonObject {
@@ -444,6 +453,11 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                                     put("authority", authority)
                                     put("publicEvidence", publicEvidence)
                                     put("epoch", epoch)
+                                    put("archiveEligible", eligible)
+                                    pending?.let { retained ->
+                                        val payload = Json.parseToJsonElement(retained.operation).jsonObject
+                                        if (payload["source"] == source.json()) payload["retryAttempt"]?.let { put("retryAttempt", it) }
+                                    }
                                     put("source", source.json())
                                 }.toString(),
                                 System.currentTimeMillis()
@@ -507,8 +521,11 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                             } catch (cancel: kotlinx.coroutines.CancellationException) {
                                 throw cancel
                             } catch (error: Exception) {
-                                dao.saveReceipt(dev.chungjungsoo.gptmobile.data.research.feature.ResearchSaveReceipt(receiptId, runId, source.id, chatId, disposition = "SAVE_FAILED", reason = "ARCHIVE_WRITE_FAILED:${error.javaClass.simpleName}", updatedAt = System.currentTimeMillis()))
-                                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ResearchArchive", "SAVE_FAILED · receiptId=$receiptId · runId=$runId · sourceId=${source.id} · reason=ARCHIVE_WRITE_FAILED", "W")
+                                val reason = archiveIngestionFailure(error)
+                                val now = System.currentTimeMillis()
+                                dao.outbox(outbox.failedIngestion(now, reason))
+                                dao.saveReceipt(dev.chungjungsoo.gptmobile.data.research.feature.ResearchSaveReceipt(receiptId, runId, source.id, chatId, disposition = "SAVE_FAILED", reason = "$reason:${error.javaClass.simpleName}", updatedAt = now))
+                                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ResearchArchive", "SAVE_FAILED · receiptId=$receiptId · runId=$runId · sourceId=${source.id} · reason=$reason · exception=${error.javaClass.simpleName} · retry=durable_backoff", "W")
                             }
                         }
                     }
@@ -951,6 +968,10 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
         var complete = true
         for (row in database.research().pendingIngestions()) {
             try {
+                if (!row.retryDue(System.currentTimeMillis())) {
+                    complete = false
+                    continue
+                }
                 val payload = Json.parseToJsonElement(row.operation).jsonObject
                 val source = ResearchSnapshot.parse(ResearchSnapshot("retry").json().let { JsonObject(it + ("sources" to JsonArray(listOf(requireNotNull(payload["source"]))))) })?.sources?.singleOrNull() ?: error("Invalid discovery outbox record")
                 val dao = database.research()
@@ -962,13 +983,47 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                 }
                 val body = if (source.bodyChunks.isEmpty()) source.passage else readFeatureBody(source.bodyChunks) ?: error("Missing retained source body")
                 val epoch = payload.text("epoch").toLongOrNull() ?: error("Missing archive generation")
-                val policy = featureSettings?.getFeatureSettings()?.researchFeature
-                val version = dev.chungjungsoo.gptmobile.data.research.feature.ResearchArchiveIngestor.capture(database, source, payload.text("authority"), payload.text("publicEvidence") == "true" || source.publicCapture && source.retrievalReceipt.isNotBlank(), chatId, payload.text("turnId"), true, epoch, researchHash(body), body.toByteArray().size.toLong(), unexaminedLimit = policy?.unexaminedStudyLimit ?: 1000)
-                dao.saveReceipt(dev.chungjungsoo.gptmobile.data.research.feature.ResearchSaveReceipt(receiptId, payload.text("runId"), source.id, chatId, version.workId, version.versionId, if (dao.membership(version.workId) != null) "ARCHIVED" else "SUPPRESSED_BY_EXPLICIT_DELETION", updatedAt = System.currentTimeMillis()))
+                val features = featureSettings?.getFeatureSettings()
+                val policy = features?.researchFeature
+                val eligible = payload.text("archiveEligible") != "false" &&
+                    policy?.enabled == true &&
+                    features.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH)
+                val version = dev.chungjungsoo.gptmobile.data.research.feature.ResearchArchiveIngestor.capture(database, source, payload.text("authority"), payload.text("publicEvidence") == "true" || source.publicCapture && source.retrievalReceipt.isNotBlank(), chatId, payload.text("turnId"), eligible, epoch, researchHash(body), body.toByteArray().size.toLong(), automaticOrganization = policy?.automaticOrganization == true, unexaminedLimit = policy?.unexaminedStudyLimit ?: 1000)
+                dao.saveReceipt(
+                    dev.chungjungsoo.gptmobile.data.research.feature.ResearchSaveReceipt(
+                        receiptId,
+                        payload.text("runId"),
+                        source.id,
+                        chatId,
+                        version.workId,
+                        version.versionId,
+                        if (dao.membership(version.workId) != null) {
+                            "ARCHIVED"
+                        } else if (!eligible) {
+                            "NOT_ELIGIBLE"
+                        } else {
+                            "SUPPRESSED_BY_EXPLICIT_DELETION"
+                        },
+                        updatedAt = System.currentTimeMillis()
+                    )
+                )
                 dao.acknowledge(row.id, row.createdAt)
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
-            } catch (_: Exception) {
+            } catch (error: Exception) {
+                val reason = archiveIngestionFailure(error)
+                val now = System.currentTimeMillis()
+                val payload = runCatching { Json.parseToJsonElement(row.operation).jsonObject }.getOrNull()
+                if (payload != null) {
+                    database.withTransaction {
+                        if (database.research().outboxById(row.id) == row) {
+                            database.research().outbox(row.failedIngestion(now, reason))
+                            val sourceId = (payload["source"] as? JsonObject)?.text("id").orEmpty()
+                            database.research().saveReceipt(dev.chungjungsoo.gptmobile.data.research.feature.ResearchSaveReceipt(row.id.removePrefix("ingest:"), payload.text("runId"), sourceId, payload.number("chatId"), disposition = "SAVE_FAILED", reason = "$reason:${error.javaClass.simpleName}", updatedAt = now))
+                        }
+                    }
+                }
+                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ResearchArchive", "RETRY_FAILED · reason=$reason · exception=${error.javaClass.simpleName} · retry=durable_backoff", "W")
                 complete = false
             }
         }

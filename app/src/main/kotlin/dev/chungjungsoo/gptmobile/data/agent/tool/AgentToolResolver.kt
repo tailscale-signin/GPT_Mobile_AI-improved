@@ -53,7 +53,8 @@ data class ResolvedAgentTool(
     val dynamicTools: (() -> List<ResolvedAgentTool>)? = null,
     val progressiveCatalog: dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog? = null,
     val nativeGitHub: Boolean = false,
-    val nativeGitHubAuthenticated: Boolean = false
+    val nativeGitHubAuthenticated: Boolean = false,
+    val nativeMarketplace: Boolean = false
 )
 
 class AgentToolResolver @Inject constructor(
@@ -270,26 +271,7 @@ class AgentToolResolver @Inject constructor(
                 .resolved(null, "Amazon Research Free", "amazon_get_price_history").copy(shareableReadOnly = false)
         }
 
-        if (!disableLocal && nativeMarketplaceRegistry != null) {
-            val entry = requireNotNull(dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog.find("optional-universal-marketplace"))
-            val service = ToolServiceCatalog.forPackage(entry).id
-            val operation = ToolPluginId.nativeOperation(entry.id, "search")
-            val ids = listOf(entry.id, "${entry.id}:search", "universal_marketplace__search", "search")
-            val allowed: suspend () -> Boolean = {
-                val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
-                val live = settingRepository.getFeatureSettings()
-                current?.enabled == true &&
-                    !current.disableAllTools &&
-                    !current.disableLocalTools &&
-                    listOf(entry.id, service, operation).all { live.isToolPluginEnabledForProfile(profileUid, it) } &&
-                    chatToolConfig?.isToolEnabled(ids) != false &&
-                    nativeMarketplaceRegistry.load()[entry.id]?.enabled == true
-            }
-            if (allowed()) {
-                val tool = UniversalMarketplaceTool({ nativeMarketplaceRegistry.configuration(entry).installation.universalMarketplace }, allowed)
-                resolved += ResolvedAgentTool(tool, entry.id, entry.preset.name, "search", tool.definition.name, shareableReadOnly = false, canReuseResult = allowed)
-            }
-        }
+        resolved += resolveNativeMarketplace(profileUid, platform, featureSettings, chatToolConfig, disableLocal, disableRemote)
 
         if (!disableRemote) {
             if (publicAirbnb != null && featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.AIRBNB)) {
@@ -303,37 +285,6 @@ class AgentToolResolver @Inject constructor(
             }
             if (amazonFreeProvider != null && platform?.enabled == true && featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.AMAZON_FREE)) {
                 resolved += resolveAmazonFree(profileUid, userMessage?.chatId, (featureSettings.pluginExecution[ToolPluginId.AMAZON_FREE] ?: PluginExecutionSettings()).normalized().amazonMarketplace)
-            }
-            if (nativeMarketplaceRegistry != null && nativeMarketplaceClient != null) {
-                val nativeInstallations = try {
-                    nativeMarketplaceRegistry.load()
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (_: Exception) {
-                    emptyMap()
-                }
-                nativeInstallations.filterValues { it.enabled }.forEach { (id, installation) ->
-                    val entry = dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog.find(id) ?: return@forEach
-                    if (entry.provider != "universal-marketplace" &&
-                        installation.ready(entry) &&
-                        featureSettings.isToolPluginEnabledForProfile(profileUid, id) &&
-                        featureSettings.isToolPluginEnabledForProfile(profileUid, ToolServiceCatalog.forPackage(entry).id)
-                    ) {
-                        dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceCatalog.definitions(entry).filter { definition ->
-                            featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.nativeOperation(id, definition.name.substringAfterLast("__"))) &&
-                                (entry.provider != "openstreetmap" || (definition.name.substringAfterLast("__") !in installation.disabledOperations && dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceCatalog.validEndpoint(installation.endpoints[definition.name.substringAfterLast("__")].orEmpty())))
-                        }.forEach { definition ->
-                            resolved += ResolvedAgentTool(
-                                tool = NativeMarketplaceTool(entry, definition, nativeMarketplaceRegistry, nativeMarketplaceClient::fetch),
-                                connectionUid = id,
-                                connectionName = entry.preset.name,
-                                realToolName = definition.name.substringAfterLast("__"),
-                                modelToolName = definition.name,
-                                shareableReadOnly = true
-                            )
-                        }
-                    }
-                }
             }
             if (featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.AMAZON_SEARCH)) {
                 connections.filter { it.type == ToolConnectionType.AMAZON_SERPAPI && featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.connection(it.connectionUid)) }
@@ -581,6 +532,75 @@ class AgentToolResolver @Inject constructor(
         return finalized + ResolvedAgentTool(directory, null, "Authorized tool directory", directory.definition.name, directory.definition.name, dynamicTools = { discovered.values.toList() }, progressiveCatalog = directory)
     }
 
+    /** Keep registry I/O and native adapter construction out of the main resolver coroutine. */
+    private suspend fun resolveNativeMarketplace(
+        profileUid: String,
+        platform: PlatformV2?,
+        featureSettings: AppFeatureSettings,
+        chatToolConfig: ChatMcpToolConfig?,
+        disableLocal: Boolean,
+        disableRemote: Boolean
+    ): List<ResolvedAgentTool> {
+        val resolved = mutableListOf<ResolvedAgentTool>()
+        if (!disableLocal && nativeMarketplaceRegistry != null) {
+            val entry = requireNotNull(dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog.find("optional-universal-marketplace"))
+            val service = ToolServiceCatalog.forPackage(entry).id
+            val operation = ToolPluginId.nativeOperation(entry.id, "search")
+            val ids = listOf(entry.id, "${entry.id}:search", "universal_marketplace__search", "search")
+            val allowed: suspend () -> Boolean = {
+                val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
+                val live = settingRepository.getFeatureSettings()
+                current?.enabled == true &&
+                    !current.disableAllTools &&
+                    !current.disableLocalTools &&
+                    listOf(entry.id, service, operation).all { live.isToolPluginEnabledForProfile(profileUid, it) } &&
+                    chatToolConfig?.isToolEnabled(ids) != false &&
+                    nativeMarketplaceRegistry.load()[entry.id]?.enabled == true
+            }
+            if (allowed()) {
+                val tool = UniversalMarketplaceTool({ nativeMarketplaceRegistry.configuration(entry).installation.universalMarketplace }, allowed)
+                resolved += ResolvedAgentTool(tool, entry.id, entry.preset.name, "search", tool.definition.name, shareableReadOnly = false, canReuseResult = allowed)
+            }
+        }
+
+        if (!disableRemote) {
+            if (nativeMarketplaceRegistry != null && nativeMarketplaceClient != null) {
+                val nativeInstallations = try {
+                    nativeMarketplaceRegistry.load()
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    emptyMap()
+                }
+                nativeInstallations.filterValues { it.enabled }.forEach { (id, installation) ->
+                    val entry = dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog.find(id) ?: return@forEach
+                    if (entry.provider != "universal-marketplace" &&
+                        installation.ready(entry) &&
+                        featureSettings.isToolPluginEnabledForProfile(profileUid, id) &&
+                        featureSettings.isToolPluginEnabledForProfile(profileUid, ToolServiceCatalog.forPackage(entry).id)
+                    ) {
+                        dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceCatalog.definitions(entry).filter { definition ->
+                            featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.nativeOperation(id, definition.name.substringAfterLast("__"))) &&
+                                (entry.provider != "openstreetmap" || (definition.name.substringAfterLast("__") !in installation.disabledOperations && dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceCatalog.validEndpoint(installation.endpoints[definition.name.substringAfterLast("__")].orEmpty())))
+                        }.forEach { definition ->
+                            resolved += ResolvedAgentTool(
+                                tool = NativeMarketplaceTool(entry, definition, nativeMarketplaceRegistry, nativeMarketplaceClient::fetch),
+                                connectionUid = id,
+                                connectionName = entry.preset.name,
+                                realToolName = definition.name.substringAfterLast("__"),
+                                modelToolName = definition.name,
+                                shareableReadOnly = true,
+                                nativeMarketplace = true,
+                                canReuseResult = nativeMarketplaceRecoveryAccess(profileUid, platform, entry, definition.name.substringAfterLast("__"), installation, nativeMarketplaceRegistry, settingRepository)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        return resolved
+    }
+
     /** Catalog normalization has its own method instead of inflating the resolution coroutine. */
     private fun finalizeResolvedTools(
         resolved: List<ResolvedAgentTool>,
@@ -679,8 +699,10 @@ class AgentToolResolver @Inject constructor(
                 (featureSettings.pluginExecution[id] ?: featureSettings.pluginExecution[fallback])?.let { config -> resolved.copy(tool = ConfiguredPluginTool(resolved.tool, config)) } ?: resolved
             }
             .map { resolved ->
+                if (resolved.nativeMarketplace) return@map resolved
                 if (resolved.isWebSearchEngine()) {
                     val snapshot = bindings.filter { it.binding.connectionUid == resolved.connectionUid && it.binding.toolName == resolved.realToolName }
+                    val previousCheck = resolved.canReuseResult
                     return@map resolved.copy(canReuseResult = {
                         val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
                         val features = settingRepository.getFeatureSettings()
@@ -690,11 +712,13 @@ class AgentToolResolver @Inject constructor(
                             current.enabled &&
                             !current.disableAllTools &&
                             !current.disableRemoteTools &&
-                            features.isToolPluginEnabledForProfile(profileUid, ToolPluginId.WEB_SEARCH) &&
+                            previousCheck?.invoke() != false &&
                             (
-                                resolved.connectionUid == null ||
+                                resolved.connectionUid == null &&
+                                    features.isToolPluginEnabledForProfile(profileUid, ToolPluginId.WEB_SEARCH) ||
                                     (
                                         snapshot.isNotEmpty() &&
+                                            snapshot.all { pluginEnabledForBinding(features, profileUid, it) } &&
                                             recoveryBindingGrants(toolConnectionRepository.listBindingsWithConnections(profileUid).filter { it.binding.connectionUid == resolved.connectionUid && it.binding.toolName == resolved.realToolName }) == recoveryBindingGrants(snapshot) &&
                                             snapshot.all { it.connection?.type != ToolConnectionType.MCP || resolved.realToolName in it.connection?.approvedReadTools.orEmpty().lines().map(String::trim) }
                                         )
@@ -715,7 +739,7 @@ class AgentToolResolver @Inject constructor(
             }
             .map { resolved ->
                 val connection = resolved.connectionUid ?: return@map resolved
-                if (connection == "optional-universal-marketplace" || resolved.nativeGitHub) return@map resolved
+                if (connection == "optional-universal-marketplace" || resolved.nativeGitHub || resolved.nativeMarketplace) return@map resolved
                 val admittedBindings = bindings.filter { it.binding.connectionUid == connection }.let { rows -> rows.filter { it.binding.toolName in setOf(resolved.realToolName, "*") }.ifEmpty { rows } }
                 val admittedNames = admittedBindings.map { it.binding.toolName }.toSet()
                 val previousCheck = resolved.canReuseResult

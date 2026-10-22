@@ -59,6 +59,10 @@ class AgentToolResolverTest {
         settings.features = settings.features.copy(debugShowRuntime = false, smoothStreaming = false)
         assertTrue(requireNotNull(search.canReuseResult).invoke())
         settings.features = settings.features.withToolPluginEnabled(ToolPluginId.WEB_SEARCH, false)
+        assertTrue(requireNotNull(search.canReuseResult).invoke())
+        val builtIn = resolved.first { it.connectionUid == null && it.realToolName == "web_search" }
+        assertFalse(requireNotNull(builtIn.canReuseResult).invoke())
+        settings.features = settings.features.withToolPluginEnabled("service:exa", false)
         assertFalse(requireNotNull(search.canReuseResult).invoke())
     }
 
@@ -992,6 +996,54 @@ class AgentToolResolverTest {
 
     private fun withGitHubFacades(names: List<String>): List<String> =
         if ("github" !in names) names else (names + GitHubOperationTool.names).distinct().sorted() + dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.NAME
+
+    @Test fun nativeRecoveryUsesRegistryGrantsAndIgnoresUsageCounters() = runBlocking {
+        val registry = mockk<NativeMarketplaceRegistry>()
+        val client = mockk<NativeMarketplaceClient>()
+        val profile = PlatformV2(uid = "profile", name = "Researcher")
+        val settings = ResolverFakeSettingRepository(listOf(profile))
+        var installation = NativePluginInstallation(enabled = true, endpoints = mapOf("geocode" to "https://maps.example/search", "restrooms" to "https://maps.example/interpreter"))
+        coEvery { registry.load() } answers { mapOf("optional-openstreetmap" to installation) }
+        val held = resolver(settings = settings, nativeRegistry = registry, nativeClient = client).resolve(profile.uid).single { it.realToolName == "geocode" }
+        assertTrue(requireNotNull(held.canReuseResult).invoke())
+        installation = installation.copy(usageCount = 8, nextRequestAt = 3000, usageDay = "2026-10-21")
+        assertTrue(requireNotNull(held.canReuseResult).invoke())
+        val accepted = installation
+        installation = accepted.copy(endpoints = accepted.endpoints + ("geocode" to "https://another.example/search"))
+        assertFalse(requireNotNull(held.canReuseResult).invoke())
+        installation = accepted.copy(enabled = false)
+        assertFalse(requireNotNull(held.canReuseResult).invoke())
+        installation = accepted
+        settings.features = settings.features.withProfileToolPluginEnabled(profile.uid, "service:openstreetmap", false)
+        assertFalse(requireNotNull(held.canReuseResult).invoke())
+    }
+
+    @Test fun connectedSearchRecoveryRespectsItsProviderGrantIndependentlyOfBuiltInSearch() = runBlocking {
+        val profile = PlatformV2(uid = "profile", name = "Researcher")
+        val settings = ResolverFakeSettingRepository(listOf(profile), dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings().withToolPluginEnabled(ToolPluginId.WEB_SEARCH, false))
+        val dao = ResolverFakeToolConnectionDao()
+        dao.bind(connection("search", ToolConnectionType.EXA), binding(profile.uid, "search", "web_search"))
+        val held = resolver(dao = dao, settings = settings).resolve(profile.uid).single { it.connectionUid == "search" }
+        assertTrue(requireNotNull(held.canReuseResult).invoke())
+        settings.features = settings.features.withProfileToolPluginEnabled(profile.uid, "service:exa", false)
+        assertFalse(requireNotNull(held.canReuseResult).invoke())
+    }
+
+    @Test fun mcpSearchRecoveryStillRequiresApprovedReadAndUnchangedConnection() = runBlocking {
+        val schema = """{"tools":[{"name":"web_search","description":"Search","inputSchema":{"type":"object","properties":{}}}]}"""
+        McpClientManagerTest.McpFixtureServer(toolsResponse = schema).use { server ->
+            val profile = PlatformV2(uid = "profile", name = "Researcher")
+            val settings = ResolverFakeSettingRepository(listOf(profile))
+            val dao = ResolverFakeToolConnectionDao()
+            val connection = connection("mcp-search", ToolConnectionType.MCP, server.url, authType = ToolConnectionAuthType.NONE, allowCleartext = true).copy(approvedReadTools = "web_search")
+            val binding = binding(profile.uid, connection.connectionUid, "web_search")
+            dao.bind(connection, binding)
+            val held = resolver(dao = dao, settings = settings).resolve(profile.uid).single { it.connectionUid == connection.connectionUid }
+            assertTrue(requireNotNull(held.canReuseResult).invoke())
+            dao.bind(connection.copy(approvedReadTools = ""), binding)
+            assertFalse(requireNotNull(held.canReuseResult).invoke())
+        }
+    }
 
     @Test fun smallGithubSchemasFollowAcceptedRepositoryIntentAcrossShortCommandsOnlyWithinTheConversation() = runBlocking {
         val profile = PlatformV2(uid = "profile", name = "Writer")

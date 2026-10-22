@@ -14,7 +14,11 @@ data class ProviderFailure(val status: Int, val kind: ProviderFailureKind, val c
     val retryable: Boolean get() = kind in setOf(ProviderFailureKind.RATE_LIMIT, ProviderFailureKind.UNAVAILABLE)
     fun message(): String = when (kind) {
         ProviderFailureKind.AUTHENTICATION -> "HTTP $status: the provider could not authenticate this request. Check the platform connection in Settings → Platforms."
-        ProviderFailureKind.BUDGET -> "HTTP $status: the provider reported a budget or credit restriction. Check this account's allowance."
+        ProviderFailureKind.BUDGET -> when (code) {
+            "kudosupfront" -> "HTTP $status: this generation exceeds the current anonymous allowance. Reduce the output allowance or allow a shorter generation."
+            "sharedkeyempty" -> "HTTP $status: the provider reported that the shared key allowance is exhausted."
+            else -> "HTTP $status: the provider reported a budget or credit restriction. Check this account's allowance."
+        }
         ProviderFailureKind.PERMISSION -> "HTTP $status: the provider reported an explicit permission restriction for this route."
         ProviderFailureKind.FORBIDDEN_UNKNOWN -> "HTTP 403: access forbidden. The provider's specific cause is unavailable."
         ProviderFailureKind.RATE_LIMIT -> "HTTP $status: provider rate limit reached. Resume after the provider cooldown."
@@ -37,7 +41,7 @@ data class ProviderFailure(val status: Int, val kind: ProviderFailureKind, val c
                 status in 500..599 -> ProviderFailureKind.UNAVAILABLE
                 else -> ProviderFailureKind.UNKNOWN
             }
-            val safeCode = rawCode?.takeIf { it in setOf("insufficient_quota", "insufficient_credits", "budget_exceeded", "credit_limit_exceeded", "invalid_api_key", "authentication_error", "permission_denied", "model_access_denied", "route_forbidden") }
+            val safeCode = rawCode?.takeIf { it in setOf("insufficient_quota", "insufficient_credits", "budget_exceeded", "credit_limit_exceeded", "invalid_api_key", "authentication_error", "permission_denied", "model_access_denied", "route_forbidden", "kudosupfront", "sharedkeyempty", "anonforbidden", "noworkers", "no_valid_workers", "context_window_exceeded", "context_length_exceeded", "rate_limit_exceeded", "tokens_limit_exceeded") }
             return ProviderFailure(status, kind, safeCode, retryAfterMillis)
         }
     }

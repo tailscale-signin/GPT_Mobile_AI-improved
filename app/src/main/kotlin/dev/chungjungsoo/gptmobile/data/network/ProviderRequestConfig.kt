@@ -21,7 +21,8 @@ data class ProviderRequestConfig(
     val requireKnownCapacity: Boolean = false,
     val reasoningMode: dev.chungjungsoo.gptmobile.data.context.ReasoningMode = dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO,
     val allowReasoning: Boolean = true,
-    val intentionalAssistantPrefill: Boolean = false
+    val intentionalAssistantPrefill: Boolean = false,
+    internal val freeDiagnostics: dev.chungjungsoo.gptmobile.data.free.FreeRequestDiagnostics? = null
 ) {
     /**
      * Resolves an API endpoint path against the base apiUrl, normalizing any

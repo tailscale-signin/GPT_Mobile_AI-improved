@@ -103,11 +103,13 @@ class OpenAIAPIImpl @Inject constructor(
         timeoutSeconds: Int,
         config: ProviderRequestConfig
     ): Flow<ChatCompletionChunk> = flow {
+        val config = if (config.freeProvider != null) config.copy(freeDiagnostics = dev.chungjungsoo.gptmobile.data.free.FreeRequestDiagnostics()) else config
         val workerBudget = kotlinx.coroutines.currentCoroutineContext()[WorkerRequestBudget]
         var receivedAssistantPayload = false
         var receivedGatewayToolActivity = false
         var receivedTerminal = false
         var resolvedFreeModel: String? = null
+        var contextCorrected = false
         var transportRetries = 0
         val transportStartedNs = System.nanoTime()
         try {
@@ -115,6 +117,7 @@ class OpenAIAPIImpl @Inject constructor(
             if (free != null) {
                 check(free.isAvailable) { "LLM7 is awaiting provider approval for use in this app. Choose another Free provider." }
             }
+            free?.let { dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.requireGenerationReady(it, request.model) }
             var freeModel = free?.let { dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.requireModel(it, request.model) }
             if (free == FreeAiProvider.PORCHLM && request.model == "automatic") {
                 dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.refresh(free)
@@ -169,7 +172,9 @@ class OpenAIAPIImpl @Inject constructor(
             val executeRequest: suspend () -> Unit = {
                 if (transportRetries > 0) emit(ChatCompletionChunk(retryDurationMs = (System.nanoTime() - transportStartedNs) / 1_000_000, retryAttempts = transportRetries))
                 ProviderCooldown.await(config)
+                config.freeDiagnostics?.stage = "preparation"
                 val admittedPayload = requestPreparation.prepare(NetworkClient.openAIJson.encodeToString(preparedRequest), config, preparedRequest.model, null)
+                config.freeDiagnostics?.stage = "dispatch"
                 networkClient().preparePost(endpoint) {
                     applyPlatformStreamingTimeout(timeoutSeconds, workerBudget)
                     contentType(ContentType.Application.Json)
@@ -179,13 +184,23 @@ class OpenAIAPIImpl @Inject constructor(
                     config.extraHeaders.forEach { (key, value) -> header(key, value) }
                     if (LocalEndpointConnectionPolicy.freshConnection(endpoint)) header(HttpHeaders.Connection, "close")
                 }.execute { response ->
-                    if (free != null && !response.status.isSuccess()) dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.recordFailure(free, "HTTP ${response.status.value}")
-                    if (free != null && response.status.value == 402) throw IllegalStateException("${free.displayName} requires payment for this route. The free request has stopped; no payment or fallback was attempted.")
-                    if (free != null && response.status.value == 429) {
-                        throw FreeAiRateLimitException(free, FreeAiRequestLimiter.shared.defer(free, response.headers[HttpHeaders.RetryAfter], preparedRequest.model))
-                    }
                     if (!response.status.isSuccess()) {
-                        val errorBody = response.body<String>()
+                        val errorBody = if (free != null) readFreeErrorBody(response) else response.body<String>()
+                        if (free != null) {
+                            val retrySeconds = if (response.status.value == 429) FreeAiRequestLimiter.shared.defer(free, response.headers[HttpHeaders.RetryAfter], preparedRequest.model) else null
+                            val retryAt = retrySeconds?.let { FreeAiRequestLimiter.shared.cooldownUntilMillis(free, preparedRequest.model) }
+                            val detail = dev.chungjungsoo.gptmobile.data.network.error.ProviderFailure.parse(response.status.value, errorBody).message()
+                            dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.recordHttpFailure(free, response.status.value, detail, retryAt, preparedRequest.model, errorBody)
+                            dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.record(config, preparedRequest.model, detail, response.status.value, errorBody, { response.headers[it] }, retryAt)
+                            if (retrySeconds != null) throw FreeAiRateLimitException(free, retrySeconds, providerErrorDetails(errorBody, detail))
+                            val contextLimit = rejectedFreeContextLimit(response.status.value, errorBody)
+                            if (contextLimit != null && !contextCorrected && !receivedAssistantPayload && !receivedGatewayToolActivity) {
+                                dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.learnContextLimit(free, preparedRequest.model, contextLimit)
+                                contextCorrected = true
+                                preparedRequest = preparedRequest.copy(maxTokens = minOf(preparedRequest.maxTokens ?: 1024, 1024, contextLimit / 2).coerceAtLeast(1))
+                                throw FreeContextRetry()
+                            }
+                        }
                         val parameter = rejectedSamplingParameter(errorBody)
                         if (response.status.value == 400 && parameter != null) {
                             val sanitized = when (parameter) {
@@ -203,7 +218,13 @@ class OpenAIAPIImpl @Inject constructor(
                         }
                         throwIfToolDefinitionsRejected(response.status.value, !request.tools.isNullOrEmpty(), errorBody)
 
-                        val errorMessage = if (response.status.value in setOf(401, 402, 403)) dev.chungjungsoo.gptmobile.data.network.error.ProviderFailure.parse(response.status.value, errorBody).message() else providerErrorDetails(errorBody, "HTTP ${response.status.value}", config.token)
+                        val errorMessage = if (free != null) {
+                            freeHttpErrorMessage(response.status.value, errorBody)
+                        } else if (response.status.value in setOf(401, 402, 403)) {
+                            dev.chungjungsoo.gptmobile.data.network.error.ProviderFailure.parse(response.status.value, errorBody).message()
+                        } else {
+                            providerErrorDetails(errorBody, "HTTP ${response.status.value}", config.token)
+                        }
                         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
                             "Provider",
                             "HTTP_ERROR · status=${response.status.value} · model=${request.model} · detail=$errorMessage",
@@ -222,6 +243,8 @@ class OpenAIAPIImpl @Inject constructor(
                         return@execute
                     }
 
+                    free?.let { dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.recordAccepted(it) }
+                    config.freeDiagnostics?.stage = "generation"
                     dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
                         "Provider",
                         "REQUEST_ACCEPTED · model=${request.model} · server=${response.headers["Server"].orEmpty().take(120)} · requestId=${providerRequestIdentity { response.headers[it] }} · requestedOutputCap=${preparedRequest.maxTokens} · requestedReasoning=${preparedRequest.reasoningEffort ?: preparedRequest.reasoning?.toString() ?: "provider-default"} · reasoningCapabilityVerified=false · templateThinking=${preparedRequest.chatTemplateKwargs?.get("enable_thinking")} · serverEffectiveSettings=unverified"
@@ -276,6 +299,7 @@ class OpenAIAPIImpl @Inject constructor(
                                 dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.recordResponse(free, chunk.model, response.headers["X-RateLimit-Remaining"] ?: response.headers["X-RateLimit-Remaining-Output"])
                             } else {
                                 dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.recordFailure(free, chunk.error?.message ?: "No visible answer received")
+                                dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.record(config, preparedRequest.model, chunk.error?.message ?: "No visible answer received", status = 200, terminal = true)
                             }
                         }
                         if (free != null && !chunk.model.isNullOrBlank()) dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("FreeProvider", "MODEL_RESOLVED · profile=${config.profileUid} · requested=${request.model} · resolved=${chunk.model} · capabilityVerification=unverified")
@@ -345,6 +369,7 @@ class OpenAIAPIImpl @Inject constructor(
                         if (receivedTerminal) terminalDrain.markTerminal()
                         receivedAnswer = receivedAnswer || chunk.choices.orEmpty().any { !it.effectiveDelta.content.isNullOrBlank() }
                         receivedError = receivedError || chunk.error != null
+                        if (free != null && chunk.error != null) dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.record(config, preparedRequest.model, chunk.error.message, status = 200, body = data, event = "error", terminal = true)
                         reachedOutputLimit = reachedOutputLimit || chunk.choices.orEmpty().any { it.finishReason == "length" }
                         receivedAssistantPayload = receivedAssistantPayload || chunk.hasAssistantStreamPayload()
                         receivedToolCalls = receivedToolCalls || chunk.choices.orEmpty().any { !it.effectiveDelta.toolCalls.isNullOrEmpty() }
@@ -368,6 +393,7 @@ class OpenAIAPIImpl @Inject constructor(
                             dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.recordResponse(free, resolvedFreeModel, response.headers["X-RateLimit-Remaining"] ?: response.headers["X-RateLimit-Remaining-Output"])
                         } else {
                             dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.recordFailure(free, if (receivedError) "Provider returned an error" else "No visible answer received")
+                            if (config.freeDiagnostics?.recorded != true) dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.record(config, preparedRequest.model, if (receivedError) "Provider returned an error" else "No visible answer received", status = 200, terminal = true)
                         }
                     }
                     // If no chunks were emitted but metadata was present, emit a metadata chunk
@@ -377,7 +403,13 @@ class OpenAIAPIImpl @Inject constructor(
                 }
             }
             if (free != null) {
-                FreeAiRequestLimiter.shared.withRequest(free, preparedRequest.model, executeRequest)
+                try {
+                    FreeAiRequestLimiter.shared.withRequest(free, preparedRequest.model, executeRequest)
+                } catch (_: FreeContextRetry) {
+                    config.freeDiagnostics?.recorded = false
+                    emit(ChatCompletionChunk(applicationNotice = "${free.displayName}: adjusting output to the model's context window and retrying once."))
+                    FreeAiRequestLimiter.shared.withRequest(free, preparedRequest.model, executeRequest)
+                }
             } else {
                 ResilientStreamingClient.executeWithRetry(
                     config = ResilientStreamingClient.RetryConfig(maxAttempts = 3, initialDelayMs = 250, maxDelayMs = 1000),
@@ -408,7 +440,20 @@ class OpenAIAPIImpl @Inject constructor(
                     e.message ?: "Unknown network error"
                 }
             }
-            config.freeProvider?.let { dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.recordFailure(it, errorMessage) }
+            config.freeProvider?.let { provider ->
+                if (config.freeDiagnostics?.recorded != true) {
+                    val networkFailure = e is java.io.IOException || e is java.nio.channels.UnresolvedAddressException
+                    val cooldown = FreeAiRequestLimiter.shared.cooldownUntilMillis(provider, request.model)
+                    val readiness = when {
+                        e is FreeAiRateLimitException -> dev.chungjungsoo.gptmobile.data.free.FreeGenerationReadiness.RATE_LIMITED
+                        networkFailure -> dev.chungjungsoo.gptmobile.data.free.FreeGenerationReadiness.UNREACHABLE
+                        config.freeDiagnostics?.stage == "preparation" -> dev.chungjungsoo.gptmobile.data.free.FreeGenerationReadiness.INVALID_REQUEST
+                        else -> dev.chungjungsoo.gptmobile.data.free.FreeGenerationReadiness.GENERATION_FAILED
+                    }
+                    if (e !is dev.chungjungsoo.gptmobile.data.free.FreeGenerationUnavailableException) dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.recordFailure(provider, errorMessage, readiness, if (networkFailure) false else null, cooldown, request.model)
+                    dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.record(config, request.model, errorMessage, retryAt = cooldown, terminal = config.freeDiagnostics?.terminal ?: false.takeIf { config.freeDiagnostics?.jobId != null })
+                }
+            }
             emit(
                 ChatCompletionChunk(
                     error = ErrorDetail(
@@ -446,7 +491,9 @@ class OpenAIAPIImpl @Inject constructor(
                 }
             ) {
                 ProviderCooldown.await(config)
+                config.freeDiagnostics?.stage = "preparation"
                 val admittedPayload = requestPreparation.prepare(NetworkClient.openAIJson.encodeToString(preparedRequest), config, preparedRequest.model, null)
+                config.freeDiagnostics?.stage = "dispatch"
                 networkClient().preparePost(endpoint) {
                     applyPlatformStreamingTimeout(timeoutSeconds, workerBudget)
                     contentType(ContentType.Application.Json)
@@ -485,6 +532,7 @@ class OpenAIAPIImpl @Inject constructor(
                         return@execute
                     }
 
+                    config.freeDiagnostics?.stage = "generation"
                     dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
                         "Provider",
                         "REQUEST_ACCEPTED · model=${request.model} · server=${response.headers["Server"].orEmpty().take(120)} · requestId=${providerRequestIdentity { response.headers[it] }} · requestedOutputCap=${preparedRequest.maxOutputTokens} · serverEffectiveSettings=unverified"

@@ -122,12 +122,49 @@ class FreeQueuedTransportTest {
             val api = OpenAIAPIImpl(network)
             val config = ProviderRequestConfig(FreeAiProvider.AI_HORDE.apiUrl, null, freeProvider = FreeAiProvider.AI_HORDE, queueScope = java.util.UUID.randomUUID().toString())
             val failure = api.streamChatCompletion(request("automatic"), 30, config).toList().last().error!!.message
-            org.junit.Assert.assertTrue(failure.contains("budget or credit restriction"))
-            org.junit.Assert.assertFalse(failure.contains("private server detail"))
+            org.junit.Assert.assertTrue(failure.contains("anonymous allowance"))
+            org.junit.Assert.assertTrue(failure.contains("private server detail"))
             assertEquals("Hello", api.streamChatCompletion(request("automatic"), 30, config).toList().last().choices!!.single().effectiveDelta.content)
             assertEquals(2, submissions)
         } finally {
             client.close()
+        }
+    }
+
+    @Test fun gradioRetainsTerminalDetailsForStructuredEmptyAndUnterminatedEvents() = runBlocking {
+        val cases = listOf(
+            "event: error\ndata: {\"error\":{\"code\":\"QuotaExceeded\",\"message\":\"Downstream quota reached\"}}" to "Downstream quota reached",
+            "event: error\n\n" to "No more specific reason",
+            "event: error\ndata: null\n\n" to "No more specific reason"
+        )
+        for ((event, expected) in cases) {
+            var posts = 0
+            val engine = MockEngine { wire ->
+                val body = when {
+                    wire.url.encodedPath.endsWith("/info") -> """{"named_endpoints":{"/add_message":{"parameters":[{"parameter_name":"input_value"},{"parameter_name":"settings_form_value"}]}}}"""
+                    wire.method == HttpMethod.Post -> {
+                        posts++
+                        """{"event_id":"terminal-details-job"}"""
+                    }
+                    else -> event
+                }
+                respond(body, headers = headersOf(HttpHeaders.ContentType, "text/event-stream"))
+            }
+            val client = HttpClient(engine) { install(HttpTimeout) }
+            try {
+                val network = mockk<NetworkClient>()
+                every { network.invoke() } returns client
+                val api = OpenAIAPIImpl(network)
+                val provider = FreeAiProvider.HUGGING_FACE
+                val config = ProviderRequestConfig(provider.apiUrl, null, freeProvider = provider, queueScope = java.util.UUID.randomUUID().toString())
+                val error = api.streamChatCompletion(request(provider.model), 30, config).toList().last().error!!
+                org.junit.Assert.assertTrue(error.message, error.message.contains(expected))
+                org.junit.Assert.assertTrue(error.message.contains("cannot resume"))
+                api.streamChatCompletion(request(provider.model), 30, config).toList()
+                assertEquals(1, posts)
+            } finally {
+                client.close()
+            }
         }
     }
 
@@ -142,7 +179,8 @@ class FreeQueuedTransportTest {
                 posts++
                 assertEquals("0000000000", wire.headers["apikey"])
                 val body = Json.parseToJsonElement((wire.body as HttpTextContent).text).jsonObject
-                assertEquals("512", body.getValue("params").jsonObject.getValue("max_length").jsonPrimitive.content)
+                assertEquals("true", body.getValue("allow_downgrade").jsonPrimitive.content)
+                assertEquals("256", body.getValue("params").jsonObject.getValue("max_length").jsonPrimitive.content)
                 respond("""{"id":"job-1"}""", headers = headersOf(HttpHeaders.ContentType, "application/json"))
             } else {
                 polls++

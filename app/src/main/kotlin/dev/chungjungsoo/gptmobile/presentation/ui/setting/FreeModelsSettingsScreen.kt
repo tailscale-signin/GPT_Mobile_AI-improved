@@ -80,6 +80,7 @@ fun FreeModelsSettingsScreen(viewModel: SettingViewModelV2, onBack: () -> Unit, 
                 // Read catalog state to recompose model options after a refresh.
                 val models = remember(provider, catalog) { FreeCatalogState.models(provider) }
                 val children = profiles.filter { it.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.FREE && FreeAiProvider.fromApiUrl(it.apiUrl) == provider }
+                if (provider.isDemo) Text("Demo / Experimental", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(bottom = 12.dp))
                 FreeServiceCard(provider, states[provider] ?: FreeServiceStatus(), children, models, onOpenProfile, viewModel::updatePlatform)
             }
             item { Text("Your own hardware", style = MaterialTheme.typography.titleLarge) }
@@ -104,15 +105,19 @@ internal fun FreeServiceCard(provider: FreeAiProvider, status: FreeServiceStatus
     var expanded by remember(provider) { mutableStateOf(false) }
     val details = remember(provider) { FreeModelCatalog.details(provider) }
     val uri = LocalUriHandler.current
+    val now by dev.chungjungsoo.gptmobile.presentation.common.freeProviderClock()
+    val availability = dev.chungjungsoo.gptmobile.presentation.common.freeProviderAvailability(provider, profiles.firstOrNull()?.model ?: provider.model, status, now)
     val stale = status.checkedAt == 0L || System.currentTimeMillis() - status.checkedAt > 600_000
     val label = when {
         status.checking -> "Checking…"
+        availability != null -> availability
         stale -> "Not checked recently"
         status.reachable == true -> "Reachable"
         status.reachable == false -> "Unavailable"
         else -> "Not checked"
     }
     val color = when {
+        status.readiness !in setOf(dev.chungjungsoo.gptmobile.data.free.FreeGenerationReadiness.UNTESTED, dev.chungjungsoo.gptmobile.data.free.FreeGenerationReadiness.RESPONSE_RECEIVED) -> MaterialTheme.colorScheme.error
         status.checking || stale -> MaterialTheme.colorScheme.outline
         status.reachable == true -> Color(0xFF218A53)
         status.reachable == false -> MaterialTheme.colorScheme.error
@@ -132,12 +137,14 @@ internal fun FreeServiceCard(provider: FreeAiProvider, status: FreeServiceStatus
             if (status.checkedAt > 0) Text("Checked ${java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date(status.checkedAt))}", style = MaterialTheme.typography.labelSmall)
             Text(details.authentication, style = MaterialTheme.typography.labelLarge)
             Text(details.limits, style = MaterialTheme.typography.bodyMedium)
+            if (provider.isDemo) Text("Opt-in educational demo. Connection success and answer quality are separate; use Benchmarks for evaluated tasks.", style = MaterialTheme.typography.bodySmall)
             profiles.forEach { profile ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text(profile.name, style = MaterialTheme.typography.titleSmall)
                         if (dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.model(provider, profile.model)?.tools != true) Text("Native tools unavailable · app-assisted search when authorized", style = MaterialTheme.typography.labelSmall)
                         Text(profile.model, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                        dev.chungjungsoo.gptmobile.presentation.common.freeProviderAvailability(provider, profile.model, status, now)?.let { Text(it, style = MaterialTheme.typography.labelSmall) }
                     }
                     Switch(checked = profile.enabled, onCheckedChange = { update(profile.copy(enabled = it)) }, modifier = Modifier.semantics { contentDescription = "Enable ${profile.name}" })
                 }
@@ -160,6 +167,7 @@ internal fun FreeServiceCard(provider: FreeAiProvider, status: FreeServiceStatus
                         Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text(model.label, style = MaterialTheme.typography.titleSmall)
                             Text("Client tools: ${if (model.tools) "advertised" else "off / unverified"} · Streaming: ${if (model.streaming) "supported by transport" else "queued or buffered"}", style = MaterialTheme.typography.bodySmall)
+                            Text("Context: ${model.contextTokens?.toString() ?: "unverified"} · Output capacity: ${model.outputTokens?.toString() ?: "unverified"}", style = MaterialTheme.typography.labelSmall)
                             model.privacy?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                             profiles.firstOrNull()?.let { profile -> TextButton(onClick = { update(profile.copy(model = model.id)) }, enabled = profile.model != model.id) { Text(if (profile.model == model.id) "Selected" else "Use this model") } }
                         }

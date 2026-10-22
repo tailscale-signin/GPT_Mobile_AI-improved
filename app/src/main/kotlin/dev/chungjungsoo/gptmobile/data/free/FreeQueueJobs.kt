@@ -25,6 +25,7 @@ internal object FreeQueueJobs {
     }
     suspend fun forgetChat(chatId: Int) = withContext(Dispatchers.IO) {
         revokedChats[chatId] = System.currentTimeMillis()
+        FreeProviderDiagnostics.forgetChat(chatId)
         memory.entries.removeIf { it.value.chatId == chatId }
         directory?.listFiles()?.filter { it.extension == "json" }?.forEach { file ->
             val job = runCatching { Json.decodeFromString<FreeQueueJob>(AtomicFile(file).readFully().decodeToString()) }.getOrNull()

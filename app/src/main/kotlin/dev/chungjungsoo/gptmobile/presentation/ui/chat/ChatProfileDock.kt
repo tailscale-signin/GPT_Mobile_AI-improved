@@ -41,7 +41,9 @@ internal fun ChatProfileDock(
     onPause: (String) -> Unit,
     failedUids: Set<String> = emptySet(),
     combinedFailed: Boolean = false,
-    profileColorIdentities: Map<String, ProfileColorIdentity> = emptyMap()
+    profileColorIdentities: Map<String, ProfileColorIdentity> = emptyMap(),
+    responseLabels: Map<String, String> = emptyMap(),
+    combinedLabel: String? = null
 ) {
     val colors = MaterialTheme.colorScheme
     Surface(
@@ -85,7 +87,7 @@ internal fun ChatProfileDock(
                 } else if (failed) {
                     "Needs attention"
                 } else {
-                    "Ready"
+                    (if (uid == null) combinedLabel else responseLabels[uid]) ?: "Ready"
                 }
                 Surface(
                     color = itemColor,

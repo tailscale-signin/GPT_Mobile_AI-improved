@@ -12,7 +12,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 @Serializable
-internal data class FreeQueueJob(val key: String, val id: String? = null, val state: String = "SUBMITTING", val createdAt: Long = System.currentTimeMillis(), val answer: String? = null, val servedModel: String? = null, val chatId: Int? = null)
+internal data class FreeQueueJob(val key: String, val id: String? = null, val state: String = "SUBMITTING", val createdAt: Long = System.currentTimeMillis(), val answer: String? = null, val servedModel: String? = null, val chatId: Int? = null, val protocol: String = "LEGACY")
 
 /** No prompt storage. An unknown submission is never blindly repeated. Locks cover only one request. */
 internal object FreeQueueJobs {

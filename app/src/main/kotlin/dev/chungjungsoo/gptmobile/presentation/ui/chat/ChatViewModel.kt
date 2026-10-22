@@ -2665,15 +2665,8 @@ class ChatViewModel @Inject constructor(
                 }
             }
         }
-        val leadPlatform = candidates.filter { sources.none { it.localOnly } || it.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.LITERT_LM }.firstOrNull { platform ->
-            if (platform.compatibleType != dev.chungjungsoo.gptmobile.data.model.ClientType.FREE) {
-                true
-            } else {
-                val freeProvider = dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.fromApiUrl(platform.apiUrl)
-                    ?: return@firstOrNull false
-                dev.chungjungsoo.gptmobile.data.network.FreeAiRequestLimiter.shared.cooldownUntilMillis(freeProvider) == null
-            }
-        }
+        val leadPlatform = candidates.filter { sources.none { it.localOnly } || it.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.LITERT_LM }
+            .firstOrNull { dev.chungjungsoo.gptmobile.data.agent.CombinedProviderEligibility.unavailableReason(it, userMessage.content, writer = true) == null }
         if (leadPlatform == null) {
             combined?.let { chatRepository.markCombinedMergeUnavailable(userMessage.chatId, userMessage.id, it.rootBudgetId) }
             if (sources.any { it.localOnly }) {
@@ -2683,7 +2676,7 @@ class ChatViewModel @Inject constructor(
             val coolingProvider = candidates.firstNotNullOfOrNull { platform ->
                 if (platform.compatibleType != dev.chungjungsoo.gptmobile.data.model.ClientType.FREE) return@firstNotNullOfOrNull null
                 val provider = dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.fromApiUrl(platform.apiUrl) ?: return@firstNotNullOfOrNull null
-                val retryAt = dev.chungjungsoo.gptmobile.data.network.FreeAiRequestLimiter.shared.cooldownUntilMillis(provider)
+                val retryAt = dev.chungjungsoo.gptmobile.data.network.FreeAiRequestLimiter.shared.cooldownUntilMillis(provider, platform.model)
                     ?: return@firstNotNullOfOrNull null
                 provider to retryAt
             }
@@ -2730,10 +2723,11 @@ class ChatViewModel @Inject constructor(
         }
         val fullHistory = chatRepository.fetchMessagesV2(userMessage.chatId)
         require(fullHistory.any { it.id == userMessage.id && it.platformType == null }) { "The Combined user turn is no longer available." }
-        val historicalUsers = fullHistory.filter { it.platformType == null }.takeWhile { it.id != userMessage.id }
+        val priorUsers = fullHistory.filter { it.platformType == null }.takeWhile { it.id != userMessage.id }
+        val historicalUsers = dev.chungjungsoo.gptmobile.data.agent.CombinedTaskContract.relevantHistoryIndices(userMessage.content, priorUsers.map { it.content }).map { priorUsers[it] }
         val historicalReplies = historicalUsers.map { prior -> fullHistory.filter { it.linkedMessageId == prior.id && it.platformType != null } }
         val selectedUids = acceptedUids
-        val answerContract = dev.chungjungsoo.gptmobile.data.agent.CombinedAnswerPolicy.from(userMessage.content)
+        val answerContract = dev.chungjungsoo.gptmobile.data.agent.CombinedAnswerPolicy.from(userMessage.content, historicalUsers.lastOrNull()?.content)
         val editorialContext = combined?.forRole(dev.chungjungsoo.gptmobile.data.agent.CombinedRunRole.SYNTHESIS, leadUid)
         val (synthesisPrompt, synthesisSnapshot) = withContext(Dispatchers.Default) {
             val prompt = combinedSynthesisPrompt(userMessage.content, attributedSources, sharedEvidence, evidenceLedger, turnContext, combined = editorialContext, answerContract = answerContract)

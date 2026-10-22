@@ -20,6 +20,7 @@ internal fun freeProviderClock(): State<Long> = produceState(System.currentTimeM
 }
 
 internal fun freeProviderAvailability(provider: FreeAiProvider, model: String, status: FreeServiceStatus?, now: Long): String? {
+    provider.unavailableReason?.let { return it }
     val cooldown = FreeAiRequestLimiter.shared.cooldownUntilMillis(provider, model)
     if (cooldown != null && cooldown > now) {
         val seconds = (cooldown - now + 999) / 1000

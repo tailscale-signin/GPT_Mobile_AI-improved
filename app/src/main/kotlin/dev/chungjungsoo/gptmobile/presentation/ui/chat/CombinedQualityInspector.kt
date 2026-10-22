@@ -25,7 +25,7 @@ internal fun CombinedDeliveryStatus(report: CombinedQualityReport, answer: Strin
         stale -> "Checks for this revision are unavailable"
         report.correctionRequired -> "Correction required"
         report.deliveredScopeStatus == "COMPLETED_WITH_LIMITS" -> "Delivered with limits"
-        report.deliveredScopeStatus == "COMPLETED" -> "Combined answer delivered"
+        report.deliveredScopeStatus == "COMPLETED" -> "Completion checks passed"
         report.deliveredScopeStatus == "FAILED" -> "Combined answer unavailable"
         report.deliveredScopeStatus == "PARTIAL" -> "Partial Combined answer"
         else -> "Checking the Combined answer"
@@ -41,8 +41,8 @@ internal fun CombinedDeliveryStatus(report: CombinedQualityReport, answer: Strin
         Text(delivery, style = MaterialTheme.typography.labelMedium, color = if (report.correctionRequired && !stale) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
         if (!stale) {
             Text(evidence, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            report.checks.filter { it.category == "RESEARCH_SCOPE" && it.result != "PASS" }.forEach { question ->
-                Text("Unresolved: ${question.message}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            report.checks.filter { it.category in setOf("RESEARCH_SCOPE", "REQUEST", "SCOPE") && it.result == "FAIL" && it.id != "ANSWER_CONTRACT" }.forEach { question ->
+                Text("Unresolved: ${question.message.ifBlank { question.id }}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }

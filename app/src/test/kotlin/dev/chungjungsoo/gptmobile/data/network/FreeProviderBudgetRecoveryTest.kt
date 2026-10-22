@@ -118,7 +118,7 @@ class FreeProviderBudgetRecoveryTest {
     }
 
     @Test fun unknownAccessDenialsKeepEvidenceAndBlockedAttemptsCannotClearPause() = runBlocking {
-        val provider = FreeAiProvider.OPENCODE
+        val provider = FreeAiProvider.VIREONIX
         FreeCatalogState.recordResponse(provider, null)
         var calls = 0
         val client = HttpClient(

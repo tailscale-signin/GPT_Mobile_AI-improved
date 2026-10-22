@@ -734,6 +734,10 @@ class OpenAICompatibleAdapter @Inject constructor(
                         val llamaReasoningParser = if (isLlama || isNvidia) GroqReasoningParser() else null
                         var deliveredPayload = false
                         var protocolErrorCode: String? = null
+                        var observedModel: String? = null
+                        var observedBackend: String? = null
+                        var observedReasoning = false
+                        var observedVisible = false
                         suspend fun publishAssembly(event: ProviderEvent) {
                             if (event is ProviderEvent.Failed) {
                                 roundFailed = true
@@ -755,6 +759,10 @@ class OpenAICompatibleAdapter @Inject constructor(
                                 canRotate = ApiCredentialRotator.isRotatableError(error)
                             }
                             .collect { chunk ->
+                                observedModel = chunk.model?.takeIf(String::isNotBlank) ?: observedModel
+                                observedBackend = chunk.provider?.takeIf(String::isNotBlank) ?: observedBackend
+                                observedReasoning = observedReasoning || chunk.choices.orEmpty().any { !it.effectiveDelta.effectiveReasoning.isNullOrBlank() } || ((chunk.usage?.completionTokensDetails?.get("reasoning_tokens") as? JsonPrimitive)?.intOrNull ?: 0) > 0
+                                observedVisible = observedVisible || chunk.choices.orEmpty().any { !it.effectiveDelta.content.isNullOrBlank() }
                                 chunk.applicationNotice?.let { emit(ProviderEvent.Notice(it, persistent = true)) }
                                 chunk.retryDurationMs?.let { emit(ProviderEvent.Usage(retryDurationMs = it, retryAttempts = chunk.retryAttempts)) }
                                 if (chunk.streamFinished) {
@@ -839,6 +847,11 @@ class OpenAICompatibleAdapter @Inject constructor(
                             state.toProviderEvent()?.let { emit(it) }
                         }
 
+                        if (constraints.combined?.role?.finalization == true && !constraints.allowReasoning) {
+                            val actualKey = "$outputLimitKey|served=${observedModel ?: "unreported"}|backend=${observedBackend ?: "unreported"}"
+                            dev.chungjungsoo.gptmobile.data.agent.CombinedWriterObservations.record(actualKey, observedReasoning, if (observedVisible) 1 else 0)
+                            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("CombinedWriter", "REASONING_CONTROL_OBSERVED · model=${observedModel ?: "unreported"} · backend=${observedBackend ?: "unreported"} · disabledRequested=true · reasoningReceived=$observedReasoning · answerBytesReceived=$observedVisible")
+                        }
                         val learnedCeiling = if (roundFailed && !deliveredPayload && !ceilingRetryUsed) {
                             ProviderOutputLimits.learn(outputLimitKey, lastFailedMessage.orEmpty(), effectiveOutputTokens)
                         } else {

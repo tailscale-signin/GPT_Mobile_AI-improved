@@ -894,6 +894,15 @@ fun ChatScreen(
                             },
                             onPause = chatViewModel::togglePlatformDisabled,
                             failedUids = if (combined) frozenProfiles.filter { it.status == CombinedResponseStatus.FAILED }.mapTo(hashSetOf()) { it.uid } else replies.filter { response -> response.currentRunId?.let(agentRunsById::get)?.status in setOf(AgentRunStatus.FAILED, AgentRunStatus.CANCELED, AgentRunStatus.INTERRUPTED) }.mapNotNull { it.platformType }.toSet(),
+                            responseLabels = frozenProfiles.associate { profile ->
+                                profile.uid to when {
+                                    profile.message?.content.isNullOrBlank() -> "No response"
+                                    profile.status == CombinedResponseStatus.FAILED -> "Partial answer"
+                                    replies.firstOrNull { it.isCombinedSynthesis() }?.effectiveCombinedSources()?.any { it.platformUid == profile.uid } == true -> "Usable contribution"
+                                    else -> "Response received"
+                                }
+                            },
+                            combinedLabel = replies.firstOrNull { it.isCombinedSynthesis() }?.effectiveTimeline()?.lastOrNull { it.combinedQuality != null }?.combinedQuality?.let { if (it.complete) "Completion checks passed" else "Partial answer" },
                             combinedFailed = combined && dockTurn >= 0 && combinedAnswerStatus(replies.firstOrNull { it.isCombinedSynthesis() }, frozenProfiles, agentRunsById) == CombinedResponseStatus.FAILED,
                             profileColorIdentities = if (combined) {
                                 ProfileAttributionPalette.forSelection(
@@ -1320,7 +1329,14 @@ private fun ChatMessagePair(
                                 Text("$retained replies retained for this request", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 androidx.compose.foundation.layout.Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
                                     if (combinedSynthesisIndex >= 0 && combinedStatus == CombinedResponseStatus.FAILED) TextButton(onClick = { onRetryCombinedMerge(messageIndex) }, enabled = isIdle && canUseChat) { Text("Retry merge") }
-                                    if (!isSourceResponse) TextButton(onClick = { combinedProfiles.firstOrNull()?.let { onCombinedProfileClick(it.uid) } }) { Text("View replies") }
+                                    if (!isSourceResponse) {
+                                        androidx.compose.material3.FilledTonalButton(onClick = {
+                                            val useful = combinedProfiles.firstOrNull { profile ->
+                                                CombinedContributionUsability.assess(null, profile.message?.effectiveContent().orEmpty(), allowPartial = true, request = message.content, demo = profile.name.contains("PorchLM", true)).admitted
+                                            } ?: combinedProfiles.firstOrNull()
+                                            useful?.let { onCombinedProfileClick(it.uid) }
+                                        }) { Text("View retained draft") }
+                                    }
                                     if (isSourceResponse && combinedSynthesisIndex >= 0 && assistantContent.isNotBlank()) TextButton(onClick = { onUseCombinedReply(messageIndex, selectedProfile!!.uid) }, enabled = isIdle && canUseChat) { Text("Use reply") }
                                 }
                             }

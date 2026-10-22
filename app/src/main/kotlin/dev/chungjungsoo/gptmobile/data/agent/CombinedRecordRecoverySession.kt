@@ -15,6 +15,7 @@ internal class CombinedRecordRecoverySession(
     private val restored: Boolean = false,
     private val validateAccess: suspend () -> Unit,
     private val save: suspend (CombinedRecordCheckpoint) -> Unit,
+    private val observeAttempt: (Boolean, Int) -> Unit = { _, _ -> },
     private val continuation: suspend (CombinedRecordCheckpoint, String) -> AgentProviderSession
 ) : AgentProviderSession {
     override val handlesToolsInternally = false
@@ -48,6 +49,7 @@ internal class CombinedRecordRecoverySession(
             var failure: ProviderEvent.Failed? = null
             var finishReason: String? = null
             var rejectedRecord: CombinedRecordFailure? = null
+            var reasoningObserved = false
             try {
                 active.streamRound(emptyList(), emptyList()).withSummedRequestUsage().collect { event ->
                     when (event) {
@@ -68,7 +70,12 @@ internal class CombinedRecordRecoverySession(
                             }
                         }
                         is ProviderEvent.ToolCall, is ProviderEvent.ToolResult -> throw CombinedRecordFailure("COMBINED_TOOL_REQUEST_REJECTED")
+                        is ProviderEvent.ThinkingDelta -> {
+                            reasoningObserved = reasoningObserved || event.text.isNotBlank()
+                            emit(event)
+                        }
                         is ProviderEvent.Usage -> {
+                            reasoningObserved = reasoningObserved || (event.reasoningTokens ?: 0) > 0
                             finishReason = event.finishReason ?: finishReason
                             emit(event)
                         }
@@ -92,6 +99,11 @@ internal class CombinedRecordRecoverySession(
                 failure = ProviderEvent.Failed(error.message.orEmpty())
             }
             val after = protocol.checkpoint()
+            val passagesAdded = after.records.drop(before.records.size).count { record ->
+                val parsed = kotlinx.serialization.json.Json.parseToJsonElement(record.wire) as? kotlinx.serialization.json.JsonObject
+                (parsed?.get("type") as? kotlinx.serialization.json.JsonPrimitive)?.content == "passage"
+            }
+            observeAttempt(reasoningObserved, passagesAdded)
             save(after)
             if (failure == null && complete && after.ended && after.pending.isBlank()) {
                 emit(ProviderEvent.Completed)
@@ -99,13 +111,13 @@ internal class CombinedRecordRecoverySession(
             }
             val outputLimit = finishReason in setOf("length", "max_tokens", "MAX_TOKENS", "output_limit") || failure?.let { dev.chungjungsoo.gptmobile.data.agent.tool.isProviderOutputLimitFailure(it.message) } == true
             val recoverable = protocol.canRecoverMalformed || outputLimit || (failure == null && complete && !after.ended)
-            noProgress = if (after.lastSequence == before.lastSequence) noProgress + 1 else 0
+            noProgress = if (passagesAdded == 0) noProgress + 1 else 0
             if (!recoverable || continuations >= maxContinuations || noProgress >= 2 || after.failure != null && !protocol.canRecoverMalformed) {
-                emit(failure ?: ProviderEvent.Failed("COMBINED_PARTIAL: Structured delivery paused at record ${after.lastSequence + 1}. Committed passages and the unfinished record are saved."))
+                emit(if (reasoningObserved && passagesAdded == 0 && (noProgress >= 2 || continuations >= maxContinuations)) ProviderEvent.Failed("COMBINED_WRITER_STALLED: Reasoning consumed the allowance without completed answer passages. Retained contributions remain available; use another authorized writer.") else failure ?: ProviderEvent.Failed("COMBINED_PARTIAL: Structured delivery paused at record ${after.lastSequence + 1}. Committed passages and the unfinished record are saved."))
                 return@flow
             }
             validateAccess()
-            val context = protocol.continuationContext(repairMalformed = protocol.canRecoverMalformed)
+            val context = (if (reasoningObserved && passagesAdded == 0) "WRITER_RECOVERY_DIRECT: The previous attempt produced reasoning without an answer passage. Do not repeat analysis or inventory accounting. Write the next complete, short answer paragraph immediately, following the current task and outline. Emit decisions only for material disagreements. " else "") + protocol.continuationContext(repairMalformed = protocol.canRecoverMalformed)
             save(protocol.checkpoint())
             continuations++
             emit(ProviderEvent.Notice("Continuing the unfinished answer from saved record ${after.lastSequence + 1}."))

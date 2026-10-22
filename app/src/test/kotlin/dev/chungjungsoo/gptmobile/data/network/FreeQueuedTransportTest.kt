@@ -27,9 +27,13 @@ import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class FreeQueuedTransportTest {
+    private val workerCatalog = """[{"name":"koboldcpp/Qwen2.5-7B-Instruct","count":1}]"""
+
     @Test fun ambiguousSubmissionTimeoutDoesNotSubmitTheJobTwice() = runBlocking {
         var submissions = 0
-        val engine = MockEngine {
+        val engine = MockEngine { wire ->
+            if (wire.url.encodedPath.endsWith("/status/models")) return@MockEngine respond(workerCatalog)
+            if (wire.url.encodedPath.endsWith("/status/models")) return@MockEngine respond(workerCatalog)
             submissions++
             respond("{}", io.ktor.http.HttpStatusCode.RequestTimeout)
         }
@@ -48,9 +52,13 @@ class FreeQueuedTransportTest {
 
     @Test fun gradioKeepsTheLastGeneratingSnapshotWhenCompletionContainsOnlyUpdates() = runBlocking {
         val engine = MockEngine { wire ->
+            if (wire.url.encodedPath.endsWith("/status/models")) return@MockEngine respond(workerCatalog)
             val response = when {
                 wire.url.encodedPath.endsWith("/info") -> """{"named_endpoints":{"/add_message":{"parameters":[{"parameter_name":"input_value"},{"parameter_name":"settings_form_value"}]}}}"""
-                wire.method == HttpMethod.Post -> """{"event_id":"gradio-job"}"""
+                wire.method == HttpMethod.Post -> {
+                    assertNull(Json.parseToJsonElement((wire.body as HttpTextContent).text).jsonObject["session_hash"])
+                    """{"event_id":"gradio-job"}"""
+                }
                 else -> "event: generating\ndata: [null,null,null,null,null,{\"value\":[{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"content\":\"A final answer.\"}]}]}]\n\nevent: complete\ndata: [null,{\"__type__\":\"update\"}]\n\n"
             }
             respond(response, headers = headersOf(HttpHeaders.ContentType, if (response.startsWith("event:")) "text/event-stream" else "application/json"))
@@ -72,6 +80,7 @@ class FreeQueuedTransportTest {
         var submissions = 0
         var polls = 0
         val engine = MockEngine { wire ->
+            if (wire.url.encodedPath.endsWith("/status/models")) return@MockEngine respond(workerCatalog)
             val response = when {
                 wire.url.encodedPath.endsWith("/info") -> """{"named_endpoints":{"/add_message":{"parameters":[{"parameter_name":"input_value"},{"parameter_name":"settings_form_value"}]}}}"""
                 wire.method == HttpMethod.Post -> {
@@ -104,6 +113,7 @@ class FreeQueuedTransportTest {
     @Test fun hordeRejectionKeepsItsSemanticCauseAndAllowsAnExplicitNewAttempt() = runBlocking {
         var submissions = 0
         val engine = MockEngine { wire ->
+            if (wire.url.encodedPath.endsWith("/status/models")) return@MockEngine respond(workerCatalog)
             if (wire.method == HttpMethod.Post) {
                 submissions++
                 if (submissions == 1) {
@@ -140,6 +150,7 @@ class FreeQueuedTransportTest {
         for ((event, expected) in cases) {
             var posts = 0
             val engine = MockEngine { wire ->
+                if (wire.url.encodedPath.endsWith("/status/models")) return@MockEngine respond(workerCatalog)
                 val body = when {
                     wire.url.encodedPath.endsWith("/info") -> """{"named_endpoints":{"/add_message":{"parameters":[{"parameter_name":"input_value"},{"parameter_name":"settings_form_value"}]}}}"""
                     wire.method == HttpMethod.Post -> {
@@ -168,12 +179,69 @@ class FreeQueuedTransportTest {
         }
     }
 
+    @Test fun gradioDisconnectRetainsReceiptAndNeverSubmitsAContinuation() = runBlocking {
+        var posts = 0
+        var reads = 0
+        val client = HttpClient(
+            MockEngine { wire ->
+                val response = when {
+                    wire.url.encodedPath.endsWith("/info") -> """{"named_endpoints":{"/add_message":{"parameters":[{"parameter_name":"input_value"},{"parameter_name":"settings_form_value"}]}}}"""
+                    wire.method == HttpMethod.Post -> {
+                        posts++
+                        """{"event_id":"disconnected-job"}"""
+                    }
+                    else -> {
+                        reads++
+                        "event: generating\ndata: [[{\"role\":\"assistant\",\"content\":\"A saved partial answer\"}]]\n\n"
+                    }
+                }
+                respond(response, headers = headersOf(HttpHeaders.ContentType, "text/event-stream"))
+            }
+        ) { install(HttpTimeout) }
+        try {
+            val network = mockk<NetworkClient>()
+            every { network.invoke() } returns client
+            val provider = FreeAiProvider.HUGGING_FACE
+            val config = ProviderRequestConfig(provider.apiUrl, null, freeProvider = provider, queueScope = java.util.UUID.randomUUID().toString())
+            val api = OpenAIAPIImpl(network)
+            val first = api.streamChatCompletion(request(provider.model), 30, config).toList()
+            org.junit.Assert.assertTrue(first.any { it.choices?.any { choice -> choice.effectiveDelta.content == "A saved partial answer" } == true })
+            org.junit.Assert.assertTrue(first.last().error!!.message.contains("QUEUE_"))
+            api.streamChatCompletion(request(provider.model), 30, config).toList()
+            assertEquals(1, posts)
+            assertEquals(1, reads)
+        } finally {
+            client.close()
+        }
+    }
+
+    @Test fun externalOpenCodeRouteIsRejectedBeforeAnyNetworkRequest() = runBlocking {
+        var calls = 0
+        val client = HttpClient(
+            MockEngine {
+                calls++
+                respond("{}")
+            }
+        )
+        try {
+            val network = mockk<NetworkClient>()
+            every { network.invoke() } returns client
+            val provider = FreeAiProvider.OPENCODE
+            val chunks = OpenAIAPIImpl(network).streamChatCompletion(request(provider.model), 30, ProviderRequestConfig(provider.apiUrl, null, freeProvider = provider)).toList()
+            org.junit.Assert.assertTrue(chunks.last().error!!.message.contains("restricted to use within OpenCode"))
+            assertEquals(0, calls)
+        } finally {
+            client.close()
+        }
+    }
+
     private fun request(model: String) = ChatCompletionRequest(model, listOf(ChatMessage(Role.USER, listOf(TextContent("A short novel sentence about clouds.")))), maxTokens = 512)
 
     @Test fun interruptedHordePollResumesSavedJobWithoutDuplicateSubmission() = runBlocking {
         var posts = 0
         var polls = 0
         val engine = MockEngine { wire ->
+            if (wire.url.encodedPath.endsWith("/status/models")) return@MockEngine respond(workerCatalog)
             assertNull(wire.headers[HttpHeaders.Authorization])
             if (wire.method == HttpMethod.Post) {
                 posts++
@@ -181,6 +249,8 @@ class FreeQueuedTransportTest {
                 val body = Json.parseToJsonElement((wire.body as HttpTextContent).text).jsonObject
                 assertEquals("true", body.getValue("allow_downgrade").jsonPrimitive.content)
                 assertEquals("256", body.getValue("params").jsonObject.getValue("max_length").jsonPrimitive.content)
+                org.junit.Assert.assertTrue(body.getValue("prompt").jsonPrimitive.content.startsWith("<|im_start|>user"))
+                org.junit.Assert.assertTrue(body.getValue("models").toString().contains("Qwen2.5-7B-Instruct"))
                 respond("""{"id":"job-1"}""", headers = headersOf(HttpHeaders.ContentType, "application/json"))
             } else {
                 polls++
@@ -208,6 +278,7 @@ class FreeQueuedTransportTest {
     @Test fun strictFreeRouteDoesNotDispatchPaidModelAndPreservesNamedFreeModel() = runBlocking {
         var calls = 0
         val engine = MockEngine { wire ->
+            if (wire.url.encodedPath.endsWith("/status/models")) return@MockEngine respond(workerCatalog)
             calls++
             assertNull(wire.headers[HttpHeaders.Authorization])
             val body = Json.parseToJsonElement((wire.body as HttpTextContent).text).jsonObject

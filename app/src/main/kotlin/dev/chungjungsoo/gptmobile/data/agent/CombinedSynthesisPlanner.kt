@@ -72,15 +72,10 @@ class CombinedSynthesisPlanner @Inject constructor(
                 }
             }
         }
-        val authorizedLead = candidates.filter { sources.none { it.localOnly } || it.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.LITERT_LM }.firstOrNull { platform ->
-            if (platform.compatibleType != dev.chungjungsoo.gptmobile.data.model.ClientType.FREE) {
-                true
-            } else {
-                val freeProvider = dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.fromApiUrl(platform.apiUrl)
-                    ?: return@firstOrNull false
-                dev.chungjungsoo.gptmobile.data.network.FreeAiRequestLimiter.shared.cooldownUntilMillis(freeProvider, platform.model) == null
-            }
-        }
+        val authorizedLead = candidates.filter { sources.none { it.localOnly } || it.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.LITERT_LM }
+            .filter { CombinedProviderEligibility.unavailableReason(it, userMessage.content, writer = true) == null }
+            .sortedBy { CombinedWriterObservations.get(CombinedWriterObservations.key(it))?.reasoningOnlyAttempts ?: 0 }
+            .firstOrNull()
         val leadPlatform = authorizedLead ?: profiles.firstOrNull { it.uid in acceptedUids && it.uid == pinnedPrimary } ?: profiles.firstOrNull { it.uid in acceptedUids }
         if (leadPlatform == null) {
             chatRepository.markCombinedMergeUnavailable(userMessage.chatId, userMessage.id, combined.rootBudgetId)
@@ -121,10 +116,11 @@ class CombinedSynthesisPlanner @Inject constructor(
         }
         val fullHistory = messages
         require(fullHistory.any { it.id == userMessage.id && it.platformType == null }) { "The Combined user turn is no longer available." }
-        val historicalUsers = fullHistory.filter { it.platformType == null }.takeWhile { it.id != userMessage.id }
+        val priorUsers = fullHistory.filter { it.platformType == null }.takeWhile { it.id != userMessage.id }
+        val historicalUsers = dev.chungjungsoo.gptmobile.data.agent.CombinedTaskContract.relevantHistoryIndices(userMessage.content, priorUsers.map { it.content }).map { priorUsers[it] }
         val historicalReplies = historicalUsers.map { prior -> fullHistory.filter { it.linkedMessageId == prior.id && it.platformType != null } }
         val selectedUids = acceptedUids
-        val answerContract = dev.chungjungsoo.gptmobile.data.agent.CombinedAnswerPolicy.from(userMessage.content)
+        val answerContract = dev.chungjungsoo.gptmobile.data.agent.CombinedAnswerPolicy.from(userMessage.content, historicalUsers.lastOrNull()?.content)
         val editorialContext = combined.forRole(dev.chungjungsoo.gptmobile.data.agent.CombinedRunRole.SYNTHESIS, leadUid)
         val targetRevisionId = UUID.randomUUID().toString()
         val deliveryProtocol = "PASSAGES_V3"
@@ -233,7 +229,7 @@ class CombinedSynthesisPlanner @Inject constructor(
         val attempted = runs.filter { it.userMessageId == prior.userMessageId && it.synthesisKey != null }.mapTo(hashSetOf()) { it.profileUid }
         val profiles = settingRepository.fetchPlatformV2s()
         val next = policy.requested.participantUids.filterNot(attempted::contains).sorted().firstNotNullOfOrNull { uid ->
-            profiles.singleOrNull { it.uid == uid && it.enabled }?.let { writer ->
+            profiles.singleOrNull { it.uid == uid && it.enabled && CombinedProviderEligibility.unavailableReason(it, original.userMessage.content, writer = true) == null }?.let { writer ->
                 runCatching { writer to CombinedSuccessorSnapshot.prepare(original, failedRunId, writer) }.getOrNull()
             }
         } ?: return null

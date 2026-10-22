@@ -39,7 +39,7 @@ class CompactCombinedInputTest {
         assertTrue(prompt.toString().contains("INHALATION"))
         assertTrue(prompt.toString().contains("25"))
         assertTrue(full.all { it.occurrences.all { occurrence -> occurrence.bodyDigest.length == 64 } })
-        assertFalse(claims.any { it.getValue("source_spans").toString().contains("bodyDigest") })
+        assertFalse(claims.any { it.containsKey("source_spans") })
         assertTrue(prompt.getValue("audit_provenance").jsonPrimitive.content.contains("immutable input snapshot"))
     }
 }

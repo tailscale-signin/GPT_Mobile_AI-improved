@@ -36,7 +36,7 @@ class FreeAiTransportTest {
             assertNull(request.headers[HttpHeaders.Authorization])
             val body = NetworkClient.openAIJson.parseToJsonElement((request.body as HttpTextContent).text).jsonObject
             assertEquals("kilo-auto/free", body.getValue("model").jsonPrimitive.content)
-            assertEquals("2048", body.getValue("max_tokens").jsonPrimitive.content)
+            assertEquals("9000", body.getValue("max_tokens").jsonPrimitive.content)
             assertFalse(body.containsKey("models"))
             respond("data: {\"choices\":[{\"delta\":{\"content\":\"Hello\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n", headers = headersOf(HttpHeaders.ContentType, "text/event-stream"))
         }

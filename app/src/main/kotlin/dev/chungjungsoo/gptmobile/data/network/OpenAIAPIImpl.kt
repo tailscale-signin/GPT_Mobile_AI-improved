@@ -115,7 +115,7 @@ class OpenAIAPIImpl @Inject constructor(
         try {
             val free = config.freeProvider
             if (free != null) {
-                check(free.isAvailable) { "LLM7 is awaiting provider approval for use in this app. Choose another Free provider." }
+                check(free.isAvailable) { free.unavailableReason.orEmpty() }
             }
             free?.let { dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.requireGenerationReady(it, request.model) }
             var freeModel = free?.let { dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.requireModel(it, request.model) }
@@ -130,7 +130,7 @@ class OpenAIAPIImpl @Inject constructor(
             } else {
                 request.copy(
                     model = requireNotNull(freeModel).id,
-                    maxTokens = (request.maxTokens ?: free.maxOutputTokens).coerceIn(1, free.maxOutputTokens),
+                    maxTokens = free.outputAllowance(request.maxTokens),
                     maxCompletionTokens = null,
                     tools = request.tools.takeIf { freeModel?.tools == true },
                     toolChoice = request.toolChoice.takeIf { freeModel?.tools == true },

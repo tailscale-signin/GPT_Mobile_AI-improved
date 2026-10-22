@@ -4,6 +4,7 @@ import dev.chungjungsoo.gptmobile.data.model.FreeAiProvider
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.util.ArrayDeque
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -61,15 +62,22 @@ class FreeAiRequestLimiter(
         bucket(provider, model).permit.withPermit {
             // Short local spacing is scheduling, not an exhausted provider quota.
             // Keep the permit while waiting so parallel profiles cannot race the next slot.
-            delay(spacingDelayMillis(provider))
+            val wait = schedulingDelayMillis(provider, model)
+            if (wait > 0) {
+                currentCoroutineContext()[ProviderWaitContext]?.notifyRemaining?.invoke(wait)
+                delay(wait)
+            }
             reserve(provider, model)
             request()
         }
 
     @Synchronized
-    private fun spacingDelayMillis(provider: FreeAiProvider): Long {
-        val previous = bucket(provider).requests.peekLast() ?: return 0L
-        return if (provider == FreeAiProvider.LLM7) (previous + 1000 - nowMillis()).coerceIn(0, 1000) else 0L
+    private fun schedulingDelayMillis(provider: FreeAiProvider, model: String): Long {
+        restore()
+        val now = nowMillis()
+        // A server Retry-After is never converted into an automatic local wait.
+        if (bucket(provider, model).retryAt > now) return 0L
+        return ((cooldownUntilMillis(provider, model) ?: now) - now).takeIf { it in 1..60_000 } ?: 0L
     }
 
     @Synchronized
@@ -90,8 +98,7 @@ class FreeAiRequestLimiter(
             retryAt = maxOf(retryAt, bucket.requests.first + HOUR_MS)
         }
         if (retryAt > now) {
-            bucket.retryAt = retryAt
-            persist()
+            // Local windows are scheduling state, not a persisted provider quota.
             throw FreeAiRateLimitException(provider, (retryAt - now + 999) / 1000)
         }
         bucket.requests.addLast(now)

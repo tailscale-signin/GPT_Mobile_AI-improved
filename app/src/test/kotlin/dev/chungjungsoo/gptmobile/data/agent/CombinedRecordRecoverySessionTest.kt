@@ -110,4 +110,33 @@ class CombinedRecordRecoverySessionTest {
         assertEquals(fragment, saved!!.pending)
         assertTrue(writes < fragment.length / 2)
     }
+
+    @Test fun reasoningOnlyChangesStrategyThenStopsForAuthorizedWriterFallback() = runTest {
+        var attempts = 0
+        val observed = mutableListOf<Pair<Boolean, Int>>()
+        val stalled = session(ProviderEvent.ThinkingDelta("Plan the entire answer again"), ProviderEvent.Usage(outputTokens = 2048, reasoningTokens = 2048, finishReason = "length"), ProviderEvent.Completed)
+        val recovery = CombinedRecordRecoverySession(stalled, protocol(), 5, validateAccess = {}, save = {}, observeAttempt = { reasoning, passages -> observed += reasoning to passages }) { _, context ->
+            attempts++
+            assertTrue(context.startsWith("WRITER_RECOVERY_DIRECT:"))
+            session(ProviderEvent.ThinkingDelta("More reasoning"), ProviderEvent.Usage(finishReason = "length"), ProviderEvent.Completed)
+        }
+        val events = recovery.streamRound(emptyList(), emptyList()).toList()
+        val failure = events.last() as ProviderEvent.Failed
+        assertTrue(failure.message.startsWith("COMBINED_WRITER_STALLED:"))
+        assertTrue(permitsCombinedWriterFallback("FAILED", failure.message))
+        assertFalse(permitsCombinedWriterFallback("CANCELED", failure.message))
+        assertEquals(1, attempts)
+        assertEquals(listOf(true to 0, true to 0), observed)
+    }
+
+    @Test fun directWritingRecoveryCanFinishAfterReasoningOnlyAttempt() = runTest {
+        val stalled = session(ProviderEvent.ThinkingDelta("No answer yet"), ProviderEvent.Usage(finishReason = "length"), ProviderEvent.Completed)
+        val recovery = CombinedRecordRecoverySession(stalled, protocol(), 2, validateAccess = {}, save = {}) { _, context ->
+            assertTrue(context.contains("Write the next complete"))
+            session(ProviderEvent.TextDelta(first + second + end), ProviderEvent.Completed)
+        }
+        val events = recovery.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(ProviderEvent.Completed, events.last())
+        assertEquals(3, events.filterIsInstance<ProviderEvent.TextDelta>().size)
+    }
 }

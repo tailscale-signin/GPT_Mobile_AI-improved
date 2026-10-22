@@ -12,6 +12,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AppAssistedSearchTest {
+    @Test fun currentNewsTriggersSearchWithoutRequiringAMagicPhrase() {
+        listOf("Latest news in Toronto", "What's happening in Toronto?", "Current weather in Toronto", "News today").forEach {
+            assertTrue(it, AppAssistedSearch.requested(it))
+        }
+        listOf("Test", "History of France", "Explain how a search engine works", "Latest news in Toronto, without browsing", "Don't search online").forEach {
+            assertFalse(it, AppAssistedSearch.requested(it))
+        }
+    }
+
+    @Test fun freeTextInstructionsDoNotDemandVerificationForEveryQuestion() {
+        val prompt = freeTextSystemPrompt("Keep answers short.")
+        assertTrue(prompt.startsWith("Keep answers short."))
+        assertTrue(prompt.contains("For general knowledge, answer normally"))
+        assertFalse(prompt.contains("Native tools"))
+        assertFalse(prompt.contains("If evidence is absent, state what could not be verified"))
+    }
+
     @Test fun ellipticalFollowupKeepsTheTaskBearingQuestion() {
         val question = AppAssistedSearch.question(listOf(MessageV2(content = "What is the current status of the Orion launch?", platformType = null), MessageV2(content = "Search online and find out", platformType = null)))
         assertTrue(question.contains("Orion launch"))

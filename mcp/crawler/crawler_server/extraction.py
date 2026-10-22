@@ -5,6 +5,7 @@ import importlib.metadata
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -53,15 +54,25 @@ class MetadataParser(HTMLParser):
 
 
 class Extractor:
-    def __init__(self, max_output_bytes=8 * 1024 * 1024, timeout=25):
-        self.max_output_bytes, self.timeout = max_output_bytes, timeout
+    def __init__(self, max_output_bytes=8 * 1024 * 1024, timeout=25, enable_ocr=False):
+        self.max_output_bytes, self.timeout, self.enable_ocr = max_output_bytes, timeout, enable_ocr
+
+    def ocr_ready(self):
+        if not self.enable_ocr or not shutil.which("pdftoppm") or not shutil.which("tesseract"):
+            return False
+        try:
+            languages = subprocess.run(["tesseract", "--list-langs"], capture_output=True, timeout=3, check=True).stdout.decode()
+            return "eng" in languages.splitlines()
+        except (OSError, subprocess.SubprocessError):
+            return False
 
     def health(self):
         versions = {name: installed_version(name) for name in PINS}
         return {"versions": versions, "requiredVersions": PINS, "htmlReady": versions["trafilatura"] == PINS["trafilatura"],
                 "pdfTextReady": shutil.which("pdftotext") is not None,
                 "browserReady": False, "browserReason": "Metered browser egress qualification pending",
-                "ocrReady": False, "ocrReason": "Offline document models and their licenses must be configured and qualified"}
+                "ocrReady": self.ocr_ready(), "ocrReason": "Opt-in English OCR; requires local pdftoppm, Tesseract and eng traineddata; at most three pages",
+                "ocrPageLimit": 3, "ocrLanguage": "eng"}
 
     def extract(self, response, scope, cancelled):
         if response.status in (401, 403):
@@ -71,10 +82,15 @@ class Extractor:
         require(200 <= response.status < 300, "The source returned an unsuccessful HTTP status.", "HTTP_ERROR")
         mime = response.headers.get("content-type", "").split(";", 1)[0].strip().lower()
         metadata = MetadataParser()
+        ocr_used = False
         if response.body.startswith(b"%PDF-"):
             method, engine, version = "pdf_text", "pdftotext", "system"
             text = self._process(response.body, "pdf", cancelled)
-            limitations = ["PDF text is limited to the first 200 pages; total page count, layout, tables, figures and supplements have not been verified."]
+            if not text.strip() and self.enable_ocr:
+                require(self.ocr_ready(), "Install pdftoppm, Tesseract and its local English language data.", "ENGINE_UNAVAILABLE")
+                text = self._process(response.body, "ocr", cancelled)
+                method, engine, version, ocr_used = "pdf_ocr", "tesseract", "system", True
+            limitations = ["OCR covers at most the first three pages and may misread characters, numbers and tables."] if ocr_used else ["PDF text is limited to the first 200 pages; total page count, layout, tables, figures and supplements have not been verified."]
         elif mime in ("text/html", "application/xhtml+xml") or response.body.lstrip().lower().startswith((b"<!doctype html", b"<html")):
             html = response.body.decode("utf-8", errors="replace")
             metadata.feed(html)
@@ -111,14 +127,16 @@ class Extractor:
                 "resolvedUrl": response.resolved_url, "canonicalUrl": response.resolved_url,
                 "fetchedAt": response.fetched_at, "httpStatus": response.status, "mimeType": mime, "language": None,
                 "engine": engine, "engineVersion": version, "extractor": engine, "extractorVersion": version,
-                "attemptIds": list(response.attempts), "method": method, "retrievalStatus": "partial" if response.truncated else "readable",
-                "coverage": {"fullText": None, "abstractOnly": None, "sections": [], "pages": [], "missingSections": [], "ocrUsed": False, "limitations": limitations},
+                "attemptIds": list(response.attempts), "method": method, "retrievalStatus": "partial" if response.truncated or ocr_used else "readable",
+                "coverage": {"fullText": None, "abstractOnly": None, "sections": [], "pages": [], "missingSections": [], "ocrUsed": ocr_used, "limitations": limitations},
                 "contentRef": f"crawler:revision:{revision}", "contentHash": content_hash, "title": " ".join(metadata.title).strip(),
                 "text": text, "storedCharacters": len(text), "characterUnit": "UNICODE_CODE_POINT_V1",
                 "storedUtf16Length": len(text.encode("utf-16-le")) // 2, "storedUtf8Bytes": len(text.encode("utf-8")), "artifactHash": digest(response.body), "artifactBytes": len(response.body)}, list(dict.fromkeys(links))
 
     def _process(self, artifact, engine, cancelled):
-        if engine == "pdf":
+        if engine == "ocr":
+            require(self.ocr_ready(), "Optional offline OCR is unavailable.", "ENGINE_UNAVAILABLE")
+        elif engine == "pdf":
             require(shutil.which("pdftotext") is not None, "Install the optional PDF text component.", "ENGINE_UNAVAILABLE")
         else:
             require(installed_version(engine) == PINS[engine], f"Install the pinned {engine} component.", "ENGINE_UNAVAILABLE")
@@ -128,7 +146,7 @@ class Extractor:
             source.chmod(0o600)
             command = [sys.executable, "-m", "crawler_server.extraction", engine, str(source), str(target)]
             # A dedicated process permits cancellation during CPU-bound extraction.
-            process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=(os.name == "posix"))
             deadline = time.monotonic() + self.timeout
             try:
                 while process.poll() is None:
@@ -140,7 +158,13 @@ class Extractor:
                 return target.read_text(encoding="utf-8")
             finally:
                 if process.poll() is None:
-                    process.kill()
+                    if os.name == "posix":
+                        try:
+                            os.killpg(process.pid, signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
+                    else:
+                        process.kill()
                 process.wait()
 
 
@@ -155,6 +179,18 @@ def _worker(engine, source, target):
         if not reader:
             raise ValueError("PDF text worker unavailable")
         os.execv(reader, [reader, "-f", "1", "-l", "200", "-enc", "UTF-8", source, target])
+    if engine == "ocr":
+        # Local-only pipeline; no model downloads and no network-enabled document runtime.
+        prefix = str(Path(target).parent / "page")
+        subprocess.run(["pdftoppm", "-f", "1", "-l", "3", "-r", "120", "-scale-to", "1800", "-gray", "-png", source, prefix], check=True, timeout=12, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        with open(target, "w", encoding="utf-8") as output:
+            for page in sorted(Path(target).parent.glob("page-*.png"))[:3]:
+                result = subprocess.run(["tesseract", str(page), "stdout", "-l", "eng", "--psm", "3"], check=True, timeout=8, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                if len(result.stdout) > 2 * 1024 * 1024:
+                    raise ValueError("OCR output limit reached")
+                output.write(result.stdout.decode("utf-8", errors="replace"))
+                output.write("\n")
+        return
     artifact = Path(source).read_bytes()
     if engine == "trafilatura":
         from trafilatura import extract

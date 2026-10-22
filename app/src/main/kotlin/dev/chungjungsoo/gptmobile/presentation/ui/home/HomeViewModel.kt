@@ -23,9 +23,12 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -61,7 +64,9 @@ class HomeViewModel @Inject constructor(
     private val conversationReadStateStore: dev.chungjungsoo.gptmobile.data.chat.ConversationReadStateStore,
     private val completionStore: GenerationCompletionStore,
     private val foldersRepository: dev.chungjungsoo.gptmobile.data.chat.ConversationFolderRepository,
-    private val pinnedOrderStore: dev.chungjungsoo.gptmobile.data.chat.PinnedConversationOrderStore
+    private val pinnedOrderStore: dev.chungjungsoo.gptmobile.data.chat.PinnedConversationOrderStore,
+    private val researchSessions: dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore? = null,
+    private val combinedBudgets: dev.chungjungsoo.gptmobile.data.agent.CombinedTurnBudgetStore? = null
 ) : ViewModel() {
 
     companion object {
@@ -216,6 +221,37 @@ class HomeViewModel @Inject constructor(
     val unreadChatIds = completedGenerations.map { rows -> rows.mapTo(mutableSetOf()) { it.visibleChatId } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
     private var pinnedOrder = pinnedOrderStore.read()
+
+    private data class ProgressRows(val chatId: Int, val runs: List<dev.chungjungsoo.gptmobile.data.database.entity.AgentRun>, val messages: List<dev.chungjungsoo.gptmobile.data.database.entity.MessageV2>)
+    private val progressRows = chatListState.map { it.chats.map { row -> row.id }.sorted() }.distinctUntilChanged().flatMapLatest { ids ->
+        if (ids.isEmpty()) {
+            flowOf(emptyList())
+        } else {
+            combinedBudgets?.loadProgress(ids.toSet())
+            ids.forEach { researchSessions?.loadChat(it) }
+            combine(
+                ids.map { id ->
+                    combine(chatRepository.observeAgentRuns(id), chatRepository.observeMessageWindow(id, 1)) { runs, messages -> ProgressRows(id, runs, messages) }
+                }
+            ) { it.toList() }
+        }
+    }
+    val conversationProgress = combine(progressRows, researchSessions?.sessions ?: flowOf(emptyMap()), combinedBudgets?.progress ?: flowOf(emptyMap()), agentRunCoordinator.activeRuns, featureSettings) { rows, sessions, budgets, active, features ->
+        rows.mapNotNull { row ->
+            val room = chatListState.value.chats.firstOrNull { it.id == row.chatId } ?: return@mapNotNull null
+            val latestUser = row.messages.filter { it.platformType == null }.maxByOrNull { it.id } ?: return@mapNotNull null
+            val runs = row.runs.filter { it.userMessageId == latestUser.id }
+            val root = "${row.chatId}:${latestUser.id}"
+            val evidence = sessions.values.filter { it.chatId == row.chatId && (it.turnId == root || it.snapshot.originatingUserMessageId == latestUser.id) }
+            val budget = budgets.values.filter { it.chatId == row.chatId && it.acceptedAtMillis >= latestUser.createdAt * 1000 - 1000 }.maxByOrNull { it.acceptedAtMillis }
+            val accepted = row.messages.filter { it.linkedMessageId == latestUser.id }.any { message ->
+                message.timeline.lastOrNull { it.researchDeliveryReceipt != null }?.researchDeliveryReceipt?.let { it.accepted && it.matchesRevision(message.content) } == true ||
+                    message.timeline.lastOrNull { it.combinedQuality != null }?.combinedQuality?.let { it.complete && !it.correctionRequired && it.answerDigest == dev.chungjungsoo.gptmobile.data.research.researchHash(message.content) && it.deliveredScopeStatus in setOf("COMPLETED", "COMPLETED_WITH_LIMITS") } == true
+            }
+            val participants = runs.filter { it.synthesisKey == null && !it.runId.startsWith("combined-synthesis:") }.mapTo(linkedSetOf()) { it.profileUid }.ifEmpty { room.activePlatform.toSet() }
+            conversationWorkProgress(features.conversationResearch[row.chatId]?.researchToggle == true || evidence.isNotEmpty(), room.conversationMode == dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode.COMBINED, participants, runs, evidence, budget, active.values.any { it.chatId == row.chatId }, accepted)?.let { row.chatId to it }
+        }.toMap()
+    }.flowOn(kotlinx.coroutines.Dispatchers.Default).distinctUntilChanged().sample(150).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     private fun sortChats(chats: List<ChatRoomV2>, activeIds: Set<Int> = _activeChatIds.value): List<ChatRoomV2> =
         chats.sortedWith(

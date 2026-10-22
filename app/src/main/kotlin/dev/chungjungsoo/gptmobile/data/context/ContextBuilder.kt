@@ -47,7 +47,8 @@ class ContextBuilder @Inject constructor() {
             )
 
             // Filter out history turns that have assistant errors directly
-            if (turn.isCurrentTurn || !turn.hasAssistantError) {
+            val undeliveredCombined = candidates?.hasCombinedHistory() == true && assistantMessage == null
+            if (turn.isCurrentTurn || (!turn.hasAssistantError && !undeliveredCombined)) {
                 rawTurns.add(turn)
             }
         }

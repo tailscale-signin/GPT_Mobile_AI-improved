@@ -34,7 +34,8 @@ data class GitHubBuildListState(
     val loading: Boolean = false,
     val page: Int = 0,
     val hasMore: Boolean = false,
-    val error: String? = null
+    val error: String? = null,
+    val refreshedAt: Long? = null
 )
 
 data class GitHubBuildsState(
@@ -161,7 +162,8 @@ constructor(
                                         ).distinctBy { it.id }.sortedWith(compareByDescending<GitHubApkBuild> { it.createdAt }.thenBy { it.fileName }),
                                     loaded = true,
                                     page = page,
-                                    hasMore = result.hasMore
+                                    hasMore = result.hasMore,
+                                    refreshedAt = System.currentTimeMillis()
                                 )
                             )
                         }

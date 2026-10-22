@@ -5,8 +5,10 @@ import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantRevision
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
+import dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveContent
+import dev.chungjungsoo.gptmobile.data.database.entity.effectiveRunId
 import dev.chungjungsoo.gptmobile.data.research.researchHash
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
@@ -51,5 +53,85 @@ class CombinedRetrySelectionTest {
 
     @Test fun staleReportCannotSelectChangedCandidate() {
         assertEquals(old.content, preserveCombinedRetrySelection(current, candidate().copy(content = "Changed after validation"), run, "COMPLETED").effectiveContent())
+    }
+
+    @Test fun committedV3PassageRemainsVisibleAfterFailureWithoutClaimingCompletion() {
+        val partial = candidate(complete = false).let { candidate ->
+            val report = requireNotNull(candidate.timeline.single().combinedQuality).copy(
+                passages = listOf(CombinedPassageRecord(0, candidate.content.length, researchHash(candidate.content), setOf("p")))
+            )
+            candidate.copy(timeline = listOf(candidate.timeline.single().copy(combinedQuality = report)))
+        }
+        val staged = run.copy(synthesisSnapshot = Json.encodeToString(CombinedInputSnapshot.serializer(), snapshot.copy(deliveryProtocol = "PASSAGES_V3")))
+        val retained = preserveCombinedRetrySelection(current, partial, staged, "FAILED")
+        assertEquals(partial.content, retained.effectiveContent())
+        assertEquals(false, retained.timeline.single().combinedQuality?.complete)
+        assertEquals("PARTIAL", retained.timeline.single().combinedQuality?.deliveredScopeStatus)
+        assertEquals(old, retained.revisions.single())
+    }
+
+    @Test fun uncommittedOrChangedV3PassageCannotReplaceTheSelectedAnswer() {
+        val staged = run.copy(synthesisSnapshot = Json.encodeToString(CombinedInputSnapshot.serializer(), snapshot.copy(deliveryProtocol = "PASSAGES_V3")))
+        val partial = candidate(complete = false)
+        assertEquals(old.content, preserveCombinedRetrySelection(current, partial, staged, "FAILED").effectiveContent())
+        val invalid = partial.copy(
+            timeline = listOf(
+                partial.timeline.single().copy(
+                    combinedQuality = requireNotNull(partial.timeline.single().combinedQuality).copy(
+                        passages = listOf(CombinedPassageRecord(0, partial.content.length, researchHash("Different passage"), setOf("p")))
+                    )
+                )
+            )
+        )
+        assertEquals(old.content, preserveCombinedRetrySelection(current, invalid, staged, "FAILED").effectiveContent())
+    }
+
+    @Test fun aPromotedV3PassageStaysSelectedWhenLaterCallbacksCarryTheOldSelection() {
+        val staged = run.copy(synthesisSnapshot = Json.encodeToString(CombinedInputSnapshot.serializer(), snapshot.copy(deliveryProtocol = "PASSAGES_V3")))
+        val stale = candidate(complete = false).let { candidate ->
+            candidate.copy(
+                activeRevisionIndex = current.activeRevisionIndex,
+                timeline = listOf(
+                    candidate.timeline.single().copy(
+                        combinedQuality = requireNotNull(candidate.timeline.single().combinedQuality).copy(
+                            passages = listOf(CombinedPassageRecord(0, candidate.content.length, researchHash(candidate.content), setOf("p")))
+                        )
+                    )
+                )
+            )
+        }
+        val promoted = preserveCombinedRetrySelection(current, stale, staged, null)
+        assertEquals(ACTIVE_REVISION_LATEST, promoted.activeRevisionIndex)
+        for (status in listOf(null, "COMPLETED", "FAILED", "CANCELED", "INTERRUPTED")) {
+            val retained = preserveCombinedRetrySelection(promoted, stale, staged, status)
+            assertEquals("Callback status=$status", ACTIVE_REVISION_LATEST, retained.activeRevisionIndex)
+            assertEquals(stale.content, retained.effectiveContent())
+            assertEquals(run.runId, retained.effectiveRunId())
+            assertEquals(listOf(old), retained.revisions)
+        }
+    }
+
+    @Test fun explicitFrozenReplySelectsOnlyTheRequestedExactSource() {
+        val source = CombinedModelResponse("peer", "Peer", "model", "Selected peer reply", completionStatus = "FAILED", attemptId = "peer-attempt")
+        val frozen = snapshot.copy(snapshotId = "frozen-input", sources = listOf(source))
+        val staged = run.copy(synthesisSnapshot = Json.encodeToString(CombinedInputSnapshot.serializer(), frozen))
+        val receipt = CombinedFallbackReceipt("USE_REPLY", source.platformUid, source.attemptId, source.completionStatus, researchHash(source.content), frozen.snapshotId, old.runId!!)
+        val candidate = current.copy(
+            content = source.content,
+            activeRevisionIndex = ACTIVE_REVISION_LATEST,
+            timeline = listOf(AssistantTimelineItem(AssistantTimelineItemType.NOTICE, combinedFallback = receipt))
+        )
+        assertEquals(source.content, preserveCombinedRetrySelection(current, candidate, staged, "FAILED").effectiveContent())
+        assertEquals(old.content, preserveCombinedRetrySelection(current, candidate, staged, null).effectiveContent())
+        for (invalid in listOf(
+            receipt.copy(snapshotId = "another-input"),
+            receipt.copy(predecessorRunId = "another-run"),
+            receipt.copy(sourceProfileUid = "another-profile"),
+            receipt.copy(sourceDigest = researchHash("Changed reply"))
+        )) {
+            val changed = candidate.copy(timeline = listOf(candidate.timeline.single().copy(combinedFallback = invalid)))
+            assertEquals(old.content, preserveCombinedRetrySelection(current, changed, staged, "FAILED").effectiveContent())
+        }
+        assertEquals(old.content, preserveCombinedRetrySelection(current, candidate.copy(content = "Changed reply"), staged, "FAILED").effectiveContent())
     }
 }

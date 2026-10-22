@@ -52,11 +52,32 @@ class GitHubTool(
     private val modelToolName: String = BuiltInAgentTool.GITHUB,
     private val accountName: String? = null,
     private val repositoryContext: GitHubRepositoryContext? = null,
-    private val featureSettings: dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings = dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings()
+    private val featureSettings: dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings = dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings(),
+    private val connectionUid: String = "",
+    private val conversationId: String = "",
+    private val taskId: String = "",
+    private val persistentState: Boolean = true,
+    private val stateStore: dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore? = null
 ) : AgentTool {
 
     private val rateLimits = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.rateLimitsForCredential(apiToken) else dev.chungjungsoo.gptmobile.data.github.GitHubRateLimitManager()
-    private val workspaceClient by lazy { GitHubWorkspaceClient(apiToken, httpClient, rateLimits = rateLimits, responseCache = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.forCredential(apiToken) else dev.chungjungsoo.gptmobile.data.github.GitHubResponseCache(), conditionalReads = featureSettings.githubConditionalReads, blobCache = featureSettings.githubBlobCache, freshnessSeconds = featureSettings.pluginExecution[dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB]?.githubCacheSeconds ?: 15) }
+    internal val hasCredential get() = apiToken.isNotBlank()
+    internal val hasRepositoryContext get() = repositoryContext != null
+    private val scheduler = dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.schedulerForCredential(apiToken)
+    private val workspaceClient by lazy {
+        GitHubWorkspaceClient(
+            apiToken, httpClient, rateLimits = rateLimits,
+            responseCache = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.forCredential(apiToken) else dev.chungjungsoo.gptmobile.data.github.GitHubResponseCache(),
+            conditionalReads = featureSettings.githubConditionalReads, blobCache = featureSettings.githubBlobCache,
+            freshnessSeconds = featureSettings.pluginExecution[dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB]?.githubCacheSeconds ?: 15,
+            connectionUid = connectionUid, conversationId = conversationId, taskId = taskId, persistentState = persistentState, stateStore = stateStore, scheduler = scheduler
+        )
+    }
+    internal fun operations(): List<GitHubOperationTool> {
+        val suffix = modelToolName.removePrefix("github").takeIf { it.startsWith("__") }.orEmpty()
+        val scope = dev.chungjungsoo.gptmobile.data.research.researchHash("$apiToken|$connectionUid|$conversationId|$taskId")
+        return GitHubOperationTool.names.map { GitHubOperationTool(it, this, scope, it + suffix) }
+    }
 
     companion object {
         private const val BASE_URL = "https://api.github.com"
@@ -65,6 +86,7 @@ class GitHubTool(
             "create_branch",
             "update_file",
             "create_pull_request",
+            "create_issue_comment",
             "dispatch_workflow",
             "rerun_workflow",
             "rerun_failed_jobs",
@@ -91,6 +113,7 @@ class GitHubTool(
     override val definition: AgentToolDefinition = AgentToolDefinition(
         name = modelToolName,
         description = "Work with GitHub repositories through one native integration. Prefer compact high-level actions: repo_status for an overview, repo_docs to discover llms.txt, README and docs at a pinned commit, repo_map before code reads, find_symbol/find_references/find_tests for discovery, pr_context for PR inspection, changed_since for compact diffs, release_status before releases, publish_release for end-to-end publication, and plan_change before multi-step writes. publish_release prefers an active repository release workflow and falls back to the GitHub Releases API when appropriate. Use write_capabilities to inspect repository write access when a write is denied. HTTP 403 alone does not prove a read-only token. Do not tell the user to use local gh or the GitHub Web UI while this action is available. Never fall back to shell, terminal, git CLI, gh CLI, or POSIX execution for a GitHub task while this integration is available. Use read_code line ranges instead of full files. Optional GitMCP tools provide public documentation/code search only; their results are not evidence of the selected branch. Verify relevant paths with repo_docs and read_code at its commit_sha. Private repositories, issues, PRs and writes stay in this native integration." + (accountName?.let { " Authenticated connection: $it. Use this tool for repositories available to this account." } ?: " Public read access; configure a GitHub API connection for private repositories and writes.") + (repositoryContext?.let { " Selected repository: ${it.fullName}, branch: ${it.ref}. Omitted owner/repo/ref use this selection. Read code in line ranges and include source paths. Read get_branch_head before commit_files; supply expected_head_sha. Commit only to a working branch and create a draft PR for review." } ?: ""),
+        modelVisible = false,
         inputSchema = buildJsonObject {
             put("type", "object")
             put(
@@ -424,9 +447,10 @@ class GitHubTool(
             repository.first?.let { put("owner", it) }
             repository.second?.let { put("repo", it) }
         }
+        val selectedContext = workspaceClient.taskContext() ?: repositoryContext
         val effectiveArguments = buildJsonObject {
             normalizedArguments.forEach { (key, value) -> put(key, value) }
-            repositoryContext?.let { selected ->
+            selectedContext?.let { selected ->
                 // Fill repository context field-by-field. A model may provide only owner or only repo;
                 // requiring both to be absent left the complementary field missing and caused fast
                 // validation failures even though a selected repository was available.
@@ -468,6 +492,7 @@ class GitHubTool(
                 "list_workflow_runs" -> handleListWorkflowRuns(callId, arguments)
                 "list_workflows", "get_workflow_run", "list_workflow_jobs", "list_workflow_artifacts", "get_job_logs", "dispatch_workflow", "rerun_workflow", "rerun_failed_jobs", "cancel_workflow" -> handleWorkflowAction(callId, action, arguments)
                 "create_branch" -> handleCreateBranch(callId, arguments)
+                "create_issue_comment" -> handleIssueComment(callId, arguments)
                 "update_file" -> handleUpdateFile(callId, arguments)
                 "create_pull_request" -> handleCreatePullRequest(callId, arguments)
                 else -> errorResult(callId, "Unknown GitHub action: '$action'.")
@@ -906,6 +931,7 @@ class GitHubTool(
         }
         val sha = jsonParser.parseToJsonElement(baseText).jsonObject["object"]?.jsonObject?.get("sha")?.jsonPrimitive?.content
             ?: return errorResult(callId, "Base branch did not return a commit SHA.")
+        require(arguments["expected_head_sha"]?.jsonPrimitive?.content.let { it.isNullOrBlank() || it == sha }) { "The base branch changed; resolve its current head before creating a branch." }
         val response = writeGitHubApi(
             "$BASE_URL/repos/$owner/$repo/git/refs",
             HttpMethod.Post,
@@ -916,10 +942,46 @@ class GitHubTool(
         )
         val text = response.bodyAsText()
         return if (response.status.isSuccess()) {
-            successResult(callId, truncate(text, MAX_OUTPUT_CHARS))
+            val receipt = jsonParser.parseToJsonElement(text).jsonObject
+            val selection = try {
+                workspaceClient.execute(
+                    "resolve_context",
+                    buildJsonObject {
+                        put("owner", owner)
+                        put("repo", repo)
+                        put("ref", branch)
+                        put("refresh", true)
+                    }
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            }
+            successResult(
+                callId,
+                buildJsonObject {
+                    put("branch", branch)
+                    put("receipt", receipt)
+                    put("upstream_completed", true)
+                    selection?.let { put("context", it) } ?: put("context_refresh_required", true)
+                }.toString()
+            )
         } else {
             classifyGitHubHttpFailure(callId, "create_branch", arguments, response, text)
         }
+    }
+
+    private suspend fun handleIssueComment(callId: String, arguments: JsonObject): AgentToolResult {
+        requireToken()
+        val owner = arguments["owner"]?.jsonPrimitive?.content.orEmpty()
+        val repo = arguments["repo"]?.jsonPrimitive?.content.orEmpty()
+        val number = arguments["pull_number"]?.jsonPrimitive?.intOrNull ?: return errorResult(callId, "pull_number is required.")
+        val body = arguments["body"]?.jsonPrimitive?.content.orEmpty()
+        require(owner.isNotBlank() && repo.isNotBlank() && number > 0 && body.isNotBlank()) { "Repository, pull request and comment are required." }
+        val response = writeGitHubApi("$BASE_URL/repos/${GitHubWorkspaceClient.segment(owner)}/${GitHubWorkspaceClient.segment(repo)}/issues/$number/comments", HttpMethod.Post, buildJsonObject { put("body", body) })
+        val text = response.bodyAsText()
+        return if (response.status.isSuccess()) successResult(callId, text) else classifyGitHubHttpFailure(callId, "create_issue_comment", arguments, response, text)
     }
 
     private suspend fun handleUpdateFile(callId: String, arguments: JsonObject): AgentToolResult {
@@ -1120,9 +1182,10 @@ class GitHubTool(
         require(apiToken.isNotBlank()) { "A GitHub token is required for repository write actions." }
     }
 
-    private suspend fun writeGitHubApi(url: String, method: HttpMethod, body: JsonObject): HttpResponse {
+    private suspend fun writeGitHubApi(url: String, method: HttpMethod, body: JsonObject): HttpResponse = scheduler.execute(null) {
         rateLimits.requireAvailable("core")
-        return httpClient.request(url) {
+        scheduler.recordRequest()
+        httpClient.request(url) {
             this.method = method
             contentType(ContentType.Application.Json)
             header(HttpHeaders.Accept, "application/vnd.github+json")
@@ -1133,9 +1196,10 @@ class GitHubTool(
         }.also { rateLimits.record(it.headers) }
     }
 
-    private suspend fun getGitHubApi(url: String): HttpResponse {
+    private suspend fun getGitHubApi(url: String): HttpResponse = scheduler.execute(null) {
         rateLimits.requireAvailable(if (url.contains("/search/")) "search" else "core")
-        return httpClient.get(url) {
+        scheduler.recordRequest()
+        httpClient.get(url) {
             header(HttpHeaders.Accept, "application/vnd.github+json")
             header(HttpHeaders.UserAgent, "GPT-Mobile-App")
             header("X-GitHub-Api-Version", GitHubWorkspaceClient.API_VERSION)

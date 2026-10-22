@@ -51,7 +51,10 @@ data class ResolvedAgentTool(
     val shareableReadOnly: Boolean = false,
     val canReuseResult: (suspend () -> Boolean)? = null,
     val dynamicTools: (() -> List<ResolvedAgentTool>)? = null,
-    val progressiveCatalog: dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog? = null
+    val progressiveCatalog: dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog? = null,
+    val nativeGitHub: Boolean = false,
+    val nativeGitHubAuthenticated: Boolean = false,
+    val nativeMarketplace: Boolean = false
 )
 
 class AgentToolResolver @Inject constructor(
@@ -82,28 +85,35 @@ class AgentToolResolver @Inject constructor(
     private val researchSessions: dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore? = null,
     private val statistics: dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsRepository? = null,
     private val researchArchive: dev.chungjungsoo.gptmobile.data.research.feature.ResearchArchiveRepository? = null,
-    private val articleExaminations: javax.inject.Provider<dev.chungjungsoo.gptmobile.data.research.feature.ArticleExaminationCoordinator>? = null
+    private val articleExaminations: javax.inject.Provider<dev.chungjungsoo.gptmobile.data.research.feature.ArticleExaminationCoordinator>? = null,
+    private val gitHubRepositoryState: dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore? = null
 ) {
     suspend fun warmSelectedCatalogues(profileUid: String, limit: Int = 4) {
         val features = settingRepository.getFeatureSettings()
         val profile = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid } ?: return
         if (!features.remoteMcpConnections || !profile.enabled || profile.disableAllTools || profile.disableRemoteTools) return
-        toolConnectionRepository.listBindingsWithConnections(profileUid)
+        val connections = toolConnectionRepository.listBindingsWithConnections(profileUid)
             .filter { it.connection?.type == ToolConnectionType.MCP && pluginEnabledForBinding(features, profileUid, it) }
-            .mapNotNull { it.connection }.distinctBy { it.connectionUid }.take(limit).forEach { connection ->
-                // This coordinator path only reads or silently refreshes an already installed grant;
-                // missing/revoked OAuth raises a capability error and never opens an authorization UI.
-                if (connection.authType != ToolConnectionAuthType.OAUTH || connection.secretRef != null) {
-                    try {
-                        discoverMcpTools(connection)
-                    } catch (cancelled: CancellationException) {
-                        throw cancelled
-                    } catch (_: Exception) { }
+            .mapNotNull { it.connection }.distinctBy { it.connectionUid }.take(limit.coerceIn(0, 64))
+        coroutineScope {
+            connections.map { connection ->
+                async {
+                    // This coordinator path only reads or silently refreshes an already installed grant;
+                    // missing/revoked OAuth raises a capability error and never opens an authorization UI.
+                    if (connection.authType != ToolConnectionAuthType.OAUTH || connection.secretRef != null) {
+                        try {
+                            discoverMcpTools(connection)
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) { }
+                    }
                 }
-            }
+            }.awaitAll()
+        }
     }
 
     suspend fun discoverMcpTools(connection: ToolConnection, forceRefresh: Boolean = false): List<Tool> {
+        if (!forceRefresh) mcpClientManager.peekToolsForConnection(connection.connectionUid, connection.endpointUrl, connection.allowCleartext)?.let { return it }
         val config = mcpConfig(connection)
         return try {
             mcpClientManager.listTools(config, forceRefresh)
@@ -261,26 +271,7 @@ class AgentToolResolver @Inject constructor(
                 .resolved(null, "Amazon Research Free", "amazon_get_price_history").copy(shareableReadOnly = false)
         }
 
-        if (!disableLocal && nativeMarketplaceRegistry != null) {
-            val entry = requireNotNull(dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog.find("optional-universal-marketplace"))
-            val service = ToolServiceCatalog.forPackage(entry).id
-            val operation = ToolPluginId.nativeOperation(entry.id, "search")
-            val ids = listOf(entry.id, "${entry.id}:search", "universal_marketplace__search", "search")
-            val allowed: suspend () -> Boolean = {
-                val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
-                val live = settingRepository.getFeatureSettings()
-                current?.enabled == true &&
-                    !current.disableAllTools &&
-                    !current.disableLocalTools &&
-                    listOf(entry.id, service, operation).all { live.isToolPluginEnabledForProfile(profileUid, it) } &&
-                    chatToolConfig?.isToolEnabled(ids) != false &&
-                    nativeMarketplaceRegistry.load()[entry.id]?.enabled == true
-            }
-            if (allowed()) {
-                val tool = UniversalMarketplaceTool({ nativeMarketplaceRegistry.configuration(entry).installation.universalMarketplace }, allowed)
-                resolved += ResolvedAgentTool(tool, entry.id, entry.preset.name, "search", tool.definition.name, shareableReadOnly = false, canReuseResult = allowed)
-            }
-        }
+        resolved += resolveNativeMarketplace(profileUid, platform, featureSettings, chatToolConfig, disableLocal, disableRemote)
 
         if (!disableRemote) {
             if (publicAirbnb != null && featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.AIRBNB)) {
@@ -295,37 +286,6 @@ class AgentToolResolver @Inject constructor(
             if (amazonFreeProvider != null && platform?.enabled == true && featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.AMAZON_FREE)) {
                 resolved += resolveAmazonFree(profileUid, userMessage?.chatId, (featureSettings.pluginExecution[ToolPluginId.AMAZON_FREE] ?: PluginExecutionSettings()).normalized().amazonMarketplace)
             }
-            if (nativeMarketplaceRegistry != null && nativeMarketplaceClient != null) {
-                val nativeInstallations = try {
-                    nativeMarketplaceRegistry.load()
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (_: Exception) {
-                    emptyMap()
-                }
-                nativeInstallations.filterValues { it.enabled }.forEach { (id, installation) ->
-                    val entry = dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog.find(id) ?: return@forEach
-                    if (entry.provider != "universal-marketplace" &&
-                        installation.ready(entry) &&
-                        featureSettings.isToolPluginEnabledForProfile(profileUid, id) &&
-                        featureSettings.isToolPluginEnabledForProfile(profileUid, ToolServiceCatalog.forPackage(entry).id)
-                    ) {
-                        dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceCatalog.definitions(entry).filter { definition ->
-                            featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.nativeOperation(id, definition.name.substringAfterLast("__"))) &&
-                                (entry.provider != "openstreetmap" || (definition.name.substringAfterLast("__") !in installation.disabledOperations && dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceCatalog.validEndpoint(installation.endpoints[definition.name.substringAfterLast("__")].orEmpty())))
-                        }.forEach { definition ->
-                            resolved += ResolvedAgentTool(
-                                tool = NativeMarketplaceTool(entry, definition, nativeMarketplaceRegistry, nativeMarketplaceClient::fetch),
-                                connectionUid = id,
-                                connectionName = entry.preset.name,
-                                realToolName = definition.name.substringAfterLast("__"),
-                                modelToolName = definition.name,
-                                shareableReadOnly = true
-                            )
-                        }
-                    }
-                }
-            }
             if (featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.AMAZON_SEARCH)) {
                 connections.filter { it.type == ToolConnectionType.AMAZON_SERPAPI && featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.connection(it.connectionUid)) }
                     .forEach { connection -> resolved += resolveAmazon(connection, featureSettings) }
@@ -338,9 +298,9 @@ class AgentToolResolver @Inject constructor(
             // anonymous GitHub access because that would bypass the plugin toggle.
             if (featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.GITHUB)) {
                 if (configuredNativeGitHubConnections.isEmpty()) {
-                    resolved += GitHubTool(featureSettings = featureSettings).resolved(null, null, BuiltInAgentTool.GITHUB)
+                    resolved += resolveGitHub(null, profileUid, userMessage)
                 }
-                nativeGitHubConnections.forEach { connection -> resolved += resolveGitHub(connection) }
+                nativeGitHubConnections.forEach { connection -> resolved += resolveGitHub(connection, profileUid, userMessage) }
             }
             if (featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.WEB_SEARCH)) {
                 resolved += defaultWebSearch.resolved(null, null, WEB_SEARCH_TOOL)
@@ -360,7 +320,7 @@ class AgentToolResolver @Inject constructor(
                     if (binding.binding.toolName == BuiltInAgentTool.DEVICE_LOCATION && !allowDeviceLocation) {
                         return@forEach
                     }
-                    resolveBinding(binding, featureSettings)?.let { customResolvedTool ->
+                    resolveBinding(binding, featureSettings, profileUid, userMessage)?.let { customResolvedTool ->
                         resolved.removeAll { it.modelToolName == customResolvedTool.modelToolName }
                         resolved += customResolvedTool
                     }
@@ -373,12 +333,6 @@ class AgentToolResolver @Inject constructor(
                 .filter { examinationRunKey == null || it.connection?.connectionUid == researchSelection.gatewayConnectionUid }
                 .filter { pluginEnabledForBinding(featureSettings, profileUid, it) }
                 .filter { it.connection?.alias != "deep_research" || academicAllowed && it.connection?.connectionUid == researchSelection.gatewayConnectionUid }
-                .filterNot { binding ->
-                    // Prefer the native GitHub API surface when it is connected.
-                    // Keeping GitHub Official MCP visible at the same time causes
-                    // agents to repeat searches/PR reads through both providers.
-                    nativeGitHubConnections.isNotEmpty() && binding.connection?.isGitHubMcpEndpoint() == true
-                }
                 .groupBy { requireNotNull(it.connection).connectionUid }
                 .toSortedMap()
                 .values
@@ -388,10 +342,11 @@ class AgentToolResolver @Inject constructor(
                     async {
                         val connection = requireNotNull(mcpBindings.first().connection)
                         try {
-                            resolveMcpTools(connection, mcpBindings, featureSettings, profileUid, cachedCataloguesOnly) to null
+                            resolveMcpTools(connection, mcpBindings, featureSettings, profileUid, cachedCataloguesOnly, userMessage) to null
                         } catch (error: CancellationException) {
                             throw error
-                        } catch (_: Exception) {
+                        } catch (error: Exception) {
+                            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ToolCatalog", "TOOL_RESOLUTION_FAILED · connection=${connection.connectionUid} · reason=${error.javaClass.simpleName} · cachedOnly=$cachedCataloguesOnly", "W")
                             emptyList<ResolvedAgentTool>() to "${connection.name}: tools unavailable. Check authentication and connection diagnostics."
                         }
                     }
@@ -403,6 +358,12 @@ class AgentToolResolver @Inject constructor(
             }
         }
 
+        // Expand native contracts before telemetry replaces the concrete backend
+        // with ObservedTool. Otherwise the model only gets the hidden legacy tool.
+        val hasGitHubRepositoryContext = resolved.any { (it.tool as? GitHubTool)?.hasRepositoryContext == true }
+        val expandedGitHub = expandNativeGitHubTools(resolved)
+        resolved.clear()
+        resolved.addAll(expandedGitHub)
         if (statistics != null) {
             for (index in resolved.indices) {
                 val item = resolved[index]
@@ -506,6 +467,7 @@ class AgentToolResolver @Inject constructor(
         }
 
         val finalized = finalizeResolvedTools(resolved, profileUid, platform, featureSettings, bindings, chatToolConfig, freeProfile, disableRemote, disableLocal, onConnectionError)
+        val catalogTask = githubCatalogTask(profileUid, userMessage, hasGitHubRepositoryContext)
         val coldBindings = if (cachedCataloguesOnly && allowRemoteMcp && userMessage != null) {
             bindings.filter { binding ->
                 binding.connection?.type == ToolConnectionType.MCP &&
@@ -516,16 +478,20 @@ class AgentToolResolver @Inject constructor(
         } else {
             emptyList()
         }
-        if (coldBindings.isEmpty()) return finalized
+        if (coldBindings.isEmpty()) {
+            if (finalized.none { it.nativeGitHub }) return attachCrawlers(finalized, profileUid, platform, featureSettings, userMessage, chatToolConfig)
+            val directory = dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog(finalized.map { it.tool.definition }, catalogTask)
+            return attachCrawlers(finalized, profileUid, platform, featureSettings, userMessage, chatToolConfig) + ResolvedAgentTool(directory, null, "Authorized tool directory", directory.definition.name, directory.definition.name, progressiveCatalog = directory)
+        }
         val discovered = java.util.concurrent.ConcurrentHashMap<String, ResolvedAgentTool>()
         val attemptedConnections = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
-        val directory = dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog(finalized.map { it.tool.definition }, userMessage?.content.orEmpty(), acquireCold = { query, names ->
+        val directory = dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog(finalized.map { it.tool.definition }, catalogTask, acquireCold = { query, names ->
             val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
             check(current == platform && current?.enabled == true) { "Selected profile changed; retry discovery." }
             val live = settingRepository.getFeatureSettings()
             check(live.remoteMcpConnections && !current.disableAllTools && !current.disableRemoteTools) { "Remote tools are disabled." }
             val currentBindings = toolConnectionRepository.listBindingsWithConnections(profileUid)
-            val words = Regex("[\\p{L}\\p{N}]+").findAll(query.lowercase(java.util.Locale.ROOT)).map { it.value }.filter { it.length > 2 }.toSet()
+            val words = Regex("[\\p{L}\\p{N}]+").findAll(query.lowercase(java.util.Locale.ROOT)).map { it.value }.filter { it.length > 2 }.toSet() + if (isGitHubTask(query)) setOf("github", "git") else emptySet()
             val targets = coldBindings.filter { it in currentBindings && pluginEnabledForBinding(live, profileUid, it) }
                 .groupBy { it.binding.connectionUid }
                 .values.filter { group -> group.first().binding.connectionUid !in attemptedConnections || group.any { it.binding.toolName in names || names.any { name -> name.endsWith("__" + it.binding.toolName) } } }
@@ -533,30 +499,112 @@ class AgentToolResolver @Inject constructor(
                     group.count { item -> item.binding.toolName in names || names.any { it.endsWith("__" + item.binding.toolName) } } * 100 +
                         words.count { word -> group.any { word in (it.binding.toolName + " " + it.connection?.name).lowercase(java.util.Locale.ROOT) } }
                 }.take(4)
-            val loaded = targets.flatMap { group ->
-                val connection = requireNotNull(group.first().connection)
-                try {
-                    resolveMcpTools(connection, group, live, profileUid)
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (_: Exception) {
-                    onConnectionError("${connection.name}: discovery unavailable; other authorized tools remain available.")
-                    emptyList()
-                } finally {
-                    attemptedConnections.add(connection.connectionUid)
-                }
+            val loaded = coroutineScope {
+                targets.map { group ->
+                    async {
+                        val connection = requireNotNull(group.first().connection)
+                        try {
+                            resolveMcpTools(connection, group, live, profileUid, userMessage = userMessage)
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            onConnectionError("${connection.name}: discovery unavailable; other authorized tools remain available.")
+                            emptyList()
+                        } finally {
+                            attemptedConnections.add(connection.connectionUid)
+                        }
+                    }
+                }.awaitAll().flatten()
             }
             // Recheck after I/O. Old grants/credentials cannot publish tools to a newer turn authority.
             check(settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid } == platform && settingRepository.getFeatureSettings() == live && toolConnectionRepository.listBindingsWithConnections(profileUid) == currentBindings) { "Tool permissions changed during discovery." }
-            val admitted = finalizeResolvedTools(loaded, profileUid, platform, live, currentBindings, chatToolConfig, freeProfile, disableRemote, disableLocal, onConnectionError)
+            val admitted = finalizeResolvedTools(loaded, profileUid, platform, live, currentBindings, chatToolConfig, freeProfile, disableRemote, disableLocal, onConnectionError, finalized.filter { it.nativeGitHub })
             admitted.forEach { next ->
                 val previous = finalized.firstOrNull { it.modelToolName == next.modelToolName } ?: discovered[next.modelToolName]
                 check(previous == null || previous.connectionUid == next.connectionUid && previous.realToolName == next.realToolName) { "Ambiguous discovered tool alias; no action dispatched." }
                 discovered[next.modelToolName] = next
             }
-            admitted.map { it.tool.definition }
+            aggregateWebSearch(finalized + discovered.values).map { it.tool.definition }
         })
-        return finalized + ResolvedAgentTool(directory, null, "Authorized tool directory", directory.definition.name, directory.definition.name, dynamicTools = { discovered.values.toList() }, progressiveCatalog = directory)
+        return attachCrawlers(finalized, profileUid, platform, featureSettings, userMessage, chatToolConfig) + ResolvedAgentTool(directory, null, "Authorized tool directory", directory.definition.name, directory.definition.name, dynamicTools = { finalized + discovered.values }, progressiveCatalog = directory)
+    }
+
+    private suspend fun attachCrawlers(tools: List<ResolvedAgentTool>, profileUid: String, platform: PlatformV2?, features: AppFeatureSettings, message: MessageV2?, chat: ChatMcpToolConfig?): List<ResolvedAgentTool> {
+        val context = documentContext ?: return tools
+        if (message == null || platform == null || platform.disableAllTools || platform.disableRemoteTools || chat?.allToolsDisabled == true || chat?.isToolEnabled(listOf("crawler", ToolPluginId.CRAWLERS)) == false || !features.isToolPluginEnabledForProfile(profileUid, ToolPluginId.CRAWLERS)) return tools
+        val scope = dev.chungjungsoo.gptmobile.data.crawl.CrawlScope(profileUid, message.chatId, "${message.chatId}:${message.id}:${message.createdAt}", dev.chungjungsoo.gptmobile.data.crawl.crawlHash(features.toString() + platform.toString()), factVault?.scopeForChat(message.chatId)?.isTemporary == false)
+        return dev.chungjungsoo.gptmobile.data.crawl.CrawlerIntegration.attach(context, scope, features, tools) {
+            settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid } == platform && settingRepository.getFeatureSettings() == features
+        }
+    }
+
+    /** Keep registry I/O and native adapter construction out of the main resolver coroutine. */
+    private suspend fun resolveNativeMarketplace(
+        profileUid: String,
+        platform: PlatformV2?,
+        featureSettings: AppFeatureSettings,
+        chatToolConfig: ChatMcpToolConfig?,
+        disableLocal: Boolean,
+        disableRemote: Boolean
+    ): List<ResolvedAgentTool> {
+        val resolved = mutableListOf<ResolvedAgentTool>()
+        if (!disableLocal && nativeMarketplaceRegistry != null) {
+            val entry = requireNotNull(dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog.find("optional-universal-marketplace"))
+            val service = ToolServiceCatalog.forPackage(entry).id
+            val operation = ToolPluginId.nativeOperation(entry.id, "search")
+            val ids = listOf(entry.id, "${entry.id}:search", "universal_marketplace__search", "search")
+            val allowed: suspend () -> Boolean = {
+                val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
+                val live = settingRepository.getFeatureSettings()
+                current?.enabled == true &&
+                    !current.disableAllTools &&
+                    !current.disableLocalTools &&
+                    listOf(entry.id, service, operation).all { live.isToolPluginEnabledForProfile(profileUid, it) } &&
+                    chatToolConfig?.isToolEnabled(ids) != false &&
+                    nativeMarketplaceRegistry.load()[entry.id]?.enabled == true
+            }
+            if (allowed()) {
+                val tool = UniversalMarketplaceTool({ nativeMarketplaceRegistry.configuration(entry).installation.universalMarketplace }, allowed)
+                resolved += ResolvedAgentTool(tool, entry.id, entry.preset.name, "search", tool.definition.name, shareableReadOnly = false, canReuseResult = allowed)
+            }
+        }
+
+        if (!disableRemote) {
+            if (nativeMarketplaceRegistry != null && nativeMarketplaceClient != null) {
+                val nativeInstallations = try {
+                    nativeMarketplaceRegistry.load()
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    emptyMap()
+                }
+                nativeInstallations.filterValues { it.enabled }.forEach { (id, installation) ->
+                    val entry = dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog.find(id) ?: return@forEach
+                    if (entry.provider != "universal-marketplace" &&
+                        installation.ready(entry) &&
+                        featureSettings.isToolPluginEnabledForProfile(profileUid, id) &&
+                        featureSettings.isToolPluginEnabledForProfile(profileUid, ToolServiceCatalog.forPackage(entry).id)
+                    ) {
+                        dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceCatalog.definitions(entry).filter { definition ->
+                            featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.nativeOperation(id, definition.name.substringAfterLast("__"))) &&
+                                (entry.provider != "openstreetmap" || (definition.name.substringAfterLast("__") !in installation.disabledOperations && dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceCatalog.validEndpoint(installation.endpoints[definition.name.substringAfterLast("__")].orEmpty())))
+                        }.forEach { definition ->
+                            resolved += ResolvedAgentTool(
+                                tool = NativeMarketplaceTool(entry, definition, nativeMarketplaceRegistry, nativeMarketplaceClient::fetch),
+                                connectionUid = id,
+                                connectionName = entry.preset.name,
+                                realToolName = definition.name.substringAfterLast("__"),
+                                modelToolName = definition.name,
+                                shareableReadOnly = true,
+                                nativeMarketplace = true,
+                                canReuseResult = nativeMarketplaceRecoveryAccess(profileUid, platform, entry, definition.name.substringAfterLast("__"), installation, nativeMarketplaceRegistry, settingRepository)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        return resolved
     }
 
     /** Catalog normalization has its own method instead of inflating the resolution coroutine. */
@@ -570,11 +618,12 @@ class AgentToolResolver @Inject constructor(
         freeProfile: Boolean,
         disableRemote: Boolean,
         disableLocal: Boolean,
-        onConnectionError: (String) -> Unit
+        onConnectionError: (String) -> Unit,
+        nativeGitHubAlternatives: List<ResolvedAgentTool> = emptyList()
     ): List<ResolvedAgentTool> {
         val collisions = resolved.groupBy { it.modelToolName }.filterValues { group -> group.map { it.connectionUid to it.realToolName }.distinct().size > 1 }.keys
         if (collisions.isNotEmpty()) onConnectionError("Ambiguous tool aliases excluded: " + collisions.sorted().joinToString(", "))
-        val callable = resolved.filterNot { it.modelToolName in collisions }.distinctBy { it.modelToolName }
+        val callable = resolved.filterForToolPolicy("AMBIGUOUS_MODEL_ALIAS") { it.modelToolName !in collisions }.distinctBy { it.modelToolName }
         if (callable.isEmpty()) {
             val reason = when {
                 platform == null -> "profile_missing"
@@ -590,15 +639,15 @@ class AgentToolResolver @Inject constructor(
                 "TOOL_RESOLUTION_EMPTY · profileType=${platform?.compatibleType?.name ?: "UNKNOWN"} · reason=$reason · authorizedTools=0"
             )
         }
-        return callable
-            .filter { tool ->
+        val authorized = callable
+            .filterForToolPolicy("PLUGIN_DISABLED") { tool ->
                 if (tool.modelToolName in AmazonNativeTool.names + AmazonLocalTool.names) {
                     featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.AMAZON_FREE)
                 } else {
                     !tool.isAmazonProductTool() || featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.AMAZON_SEARCH)
                 }
             }
-            .filter { tool ->
+            .filterForToolPolicy("FREE_PROFILE_CONSENT_REQUIRED") { tool ->
                 // Discovery stays visible, but runtime consent cannot be bypassed by
                 // Select all, imported chat options or a restored pending prompt.
                 !freeProfile ||
@@ -607,7 +656,7 @@ class AgentToolResolver @Inject constructor(
                     bindings.none { it.connection?.type == ToolConnectionType.MCP && it.connection?.connectionUid == tool.connectionUid } ||
                     freeModelToolConsentStore?.isGranted(profileUid, "${tool.connectionUid}:${tool.realToolName}") == true
             }
-            .filter { tool ->
+            .filterForToolPolicy("CHAT_TOOL_SELECTION") { tool ->
                 if (chatToolConfig == null) {
                     true
                 } else {
@@ -616,7 +665,9 @@ class AgentToolResolver @Inject constructor(
                         tool.modelToolName,
                         tool.realToolName,
                         tool.connectionUid,
-                        "web_search".takeIf { tool.isWebSearchEngine() }
+                        "web_search".takeIf { tool.isWebSearchEngine() },
+                        "github".takeIf { tool.nativeGitHub },
+                        tool.connectionUid?.let { "$it:github" }.takeIf { tool.nativeGitHub }
                     )
                     val legacyIds = if (tool.connectionUid == "optional-openstreetmap") {
                         when (tool.realToolName) {
@@ -648,14 +699,16 @@ class AgentToolResolver @Inject constructor(
                 val fallback = when {
                     resolved.isWebSearchEngine() -> ToolPluginId.WEB_SEARCH
                     resolved.isAmazonProductTool() -> ToolPluginId.AMAZON_SEARCH
-                    resolved.realToolName == "github" -> ToolPluginId.GITHUB
+                    resolved.nativeGitHub -> ToolPluginId.GITHUB
                     else -> id
                 }
                 (featureSettings.pluginExecution[id] ?: featureSettings.pluginExecution[fallback])?.let { config -> resolved.copy(tool = ConfiguredPluginTool(resolved.tool, config)) } ?: resolved
             }
             .map { resolved ->
+                if (resolved.nativeMarketplace) return@map resolved
                 if (resolved.isWebSearchEngine()) {
                     val snapshot = bindings.filter { it.binding.connectionUid == resolved.connectionUid && it.binding.toolName == resolved.realToolName }
+                    val previousCheck = resolved.canReuseResult
                     return@map resolved.copy(canReuseResult = {
                         val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
                         val features = settingRepository.getFeatureSettings()
@@ -665,11 +718,13 @@ class AgentToolResolver @Inject constructor(
                             current.enabled &&
                             !current.disableAllTools &&
                             !current.disableRemoteTools &&
-                            features.isToolPluginEnabledForProfile(profileUid, ToolPluginId.WEB_SEARCH) &&
+                            previousCheck?.invoke() != false &&
                             (
-                                resolved.connectionUid == null ||
+                                resolved.connectionUid == null &&
+                                    features.isToolPluginEnabledForProfile(profileUid, ToolPluginId.WEB_SEARCH) ||
                                     (
                                         snapshot.isNotEmpty() &&
+                                            snapshot.all { pluginEnabledForBinding(features, profileUid, it) } &&
                                             recoveryBindingGrants(toolConnectionRepository.listBindingsWithConnections(profileUid).filter { it.binding.connectionUid == resolved.connectionUid && it.binding.toolName == resolved.realToolName }) == recoveryBindingGrants(snapshot) &&
                                             snapshot.all { it.connection?.type != ToolConnectionType.MCP || resolved.realToolName in it.connection?.approvedReadTools.orEmpty().lines().map(String::trim) }
                                         )
@@ -690,7 +745,7 @@ class AgentToolResolver @Inject constructor(
             }
             .map { resolved ->
                 val connection = resolved.connectionUid ?: return@map resolved
-                if (connection == "optional-universal-marketplace") return@map resolved
+                if (connection == "optional-universal-marketplace" || resolved.nativeGitHub || resolved.nativeMarketplace) return@map resolved
                 val admittedBindings = bindings.filter { it.binding.connectionUid == connection }.let { rows -> rows.filter { it.binding.toolName in setOf(resolved.realToolName, "*") }.ifEmpty { rows } }
                 val admittedNames = admittedBindings.map { it.binding.toolName }.toSet()
                 val previousCheck = resolved.canReuseResult
@@ -708,6 +763,7 @@ class AgentToolResolver @Inject constructor(
             }
             .map { resolved -> if (statistics == null) resolved else resolved.copy(tool = observedChild(resolved.tool, resolved.realToolName, resolved.connectionUid)) }
             .sortedBy { it.modelToolName }
+        return GitHubProviderPolicy.select(authorized, nativeGitHubAlternatives, bindings.mapNotNull { it.connection }.distinctBy { it.connectionUid })
     }
 
     private fun observedChild(tool: AgentTool, name: String = tool.definition.name, connection: String? = null): AgentTool =
@@ -752,7 +808,7 @@ class AgentToolResolver @Inject constructor(
         }
     }
 
-    private suspend fun resolveBinding(binding: AgentToolBindingWithConnection, featureSettings: AppFeatureSettings): ResolvedAgentTool? = when (binding.binding.toolName) {
+    private suspend fun resolveBinding(binding: AgentToolBindingWithConnection, featureSettings: AppFeatureSettings, profileUid: String, userMessage: MessageV2?): ResolvedAgentTool? = when (binding.binding.toolName) {
         WEB_SEARCH_TOOL -> resolveWebSearch(binding.connection)
 
         BuiltInAgentTool.READ_URL -> if (binding.binding.connectionUid == null) {
@@ -779,7 +835,7 @@ class AgentToolResolver @Inject constructor(
             null
         }
 
-        BuiltInAgentTool.GITHUB -> resolveGitHub(binding.connection)
+        BuiltInAgentTool.GITHUB -> resolveGitHub(binding.connection, profileUid, userMessage)
 
         else -> null
     }
@@ -974,7 +1030,18 @@ class AgentToolResolver @Inject constructor(
         )
     }
 
-    private suspend fun resolveGitHub(connection: ToolConnection?): ResolvedAgentTool {
+    private fun expandNativeGitHubTools(tools: List<ResolvedAgentTool>): List<ResolvedAgentTool> = tools.flatMap { base ->
+        val github = base.tool as? GitHubTool
+        if (github == null) {
+            listOf(base)
+        } else {
+            listOf(base) + github.operations().map { operation ->
+                base.copy(tool = operation, realToolName = operation.operation, modelToolName = operation.definition.name, shareableReadOnly = operation.operation in setOf("github_read", "github_search"))
+            }
+        }
+    }
+
+    private suspend fun resolveGitHub(connection: ToolConnection?, profileUid: String, userMessage: MessageV2?): ResolvedAgentTool {
         val actualConnection = connection
         val token = actualConnection?.secretRef?.let { secretRef ->
             secretVault.read(secretRef)?.let { bytes ->
@@ -992,12 +1059,82 @@ class AgentToolResolver @Inject constructor(
             featureSettings = features,
             modelToolName = actualConnection?.let { "github__${it.alias}" } ?: BuiltInAgentTool.GITHUB,
             accountName = actualConnection?.name,
-            repositoryContext = actualConnection?.let { gitHubWorkspaceStore?.get(it.connectionUid) }
+            repositoryContext = actualConnection?.let { gitHubWorkspaceStore?.get(it.connectionUid) },
+            connectionUid = actualConnection?.connectionUid.orEmpty(), conversationId = userMessage?.chatId?.toString().orEmpty(), taskId = userMessage?.let { "${it.chatId}:${it.id}" }.orEmpty(),
+            persistentState = userMessage?.chatId?.let { factVault?.scopeForChat(it)?.isTemporary != true } ?: true,
+            stateStore = gitHubRepositoryState
         )
-        return tool.resolved(actualConnection?.connectionUid, actualConnection?.name, BuiltInAgentTool.GITHUB)
+        val admittedProfile = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
+        // resolved() normally wraps telemetry immediately; this backend must stay
+        // concrete until its compact operations have been expanded above.
+        return tool.resolved(actualConnection?.connectionUid, actualConnection?.name, BuiltInAgentTool.GITHUB).copy(tool = tool, nativeGitHub = true, nativeGitHubAuthenticated = tool.hasCredential, canReuseResult = {
+            val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
+            val live = settingRepository.getFeatureSettings()
+            current != null &&
+                admittedProfile != null &&
+                dev.chungjungsoo.gptmobile.data.agent.sameRecoveryDestination(admittedProfile, current) &&
+                current.enabled &&
+                !current.disableAllTools &&
+                !current.disableRemoteTools &&
+                live.isToolPluginEnabledForProfile(profileUid, ToolPluginId.GITHUB) &&
+                (actualConnection == null || (toolConnectionRepository.getConnection(actualConnection.connectionUid) == actualConnection && live.isToolPluginEnabledForProfile(profileUid, ToolPluginId.connection(actualConnection.connectionUid))))
+        })
     }
 
-    private suspend fun resolveWebSearch(connection: ToolConnection?): ResolvedAgentTool? {
+    private suspend fun githubCatalogTask(profileUid: String, userMessage: MessageV2?, selectedRepository: Boolean): String {
+        val task = userMessage?.content.orEmpty()
+        if (dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(task).intent != "SUBSTANTIVE") return task
+        val store = gitHubRepositoryState
+        val scope = "intent:$profileUid:${userMessage?.chatId ?: 0}"
+        val temporary = userMessage?.chatId?.let { factVault?.scopeForChat(it)?.isTemporary == true } == true
+        val previous = if (temporary) null else store?.read(scope, "github")?.get("task")?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
+        val explicit = GitHubOperationTool.taskTools(task).isNotEmpty()
+        val followup = Regex("(?i)\\b(continue|resume|fix|patch|push|commit|branch|release|review|test|build)\\b").containsMatchIn(task)
+        val selected = when {
+            explicit -> task
+            followup && (selectedRepository || previous != null) -> "repository " + task + " " + previous.orEmpty()
+            else -> task
+        }.take(4096)
+        if (!temporary && GitHubOperationTool.taskTools(selected).isNotEmpty()) store?.write(scope, "github", kotlinx.serialization.json.buildJsonObject { put("task", kotlinx.serialization.json.JsonPrimitive(selected)) })
+        return selected
+    }
+
+    suspend fun testSearchConnection(connection: ToolConnection): dev.chungjungsoo.gptmobile.data.agent.AgentToolResult {
+        val tool = requireNotNull(resolveWebSearch(connection, resetAccess = true)) { "Not a search connection" }
+        return tool.tool.execute(
+            "connection-test-${java.util.UUID.randomUUID()}",
+            kotlinx.serialization.json.buildJsonObject {
+                put("query", kotlinx.serialization.json.JsonPrimitive("search connection test"))
+                put("maxResults", kotlinx.serialization.json.JsonPrimitive(1))
+            }
+        )
+    }
+
+    suspend fun effectiveSearchInventory(profileUid: String): List<EffectiveSearchEngine> {
+        val profile = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
+        val features = settingRepository.getFeatureSettings()
+        val connections = toolConnectionRepository.listConnections()
+        val bindings = toolConnectionRepository.listBindingsByProfile(profileUid)
+        val resolved = resolve(profileUid, cachedCataloguesOnly = true).filter { it.isWebSearchEngine() }
+        fun reason(connection: ToolConnection?, authorized: Boolean): String = when {
+            profile?.disableAllTools == true -> "Excluded: all tools disabled for this profile"
+            profile?.disableRemoteTools == true -> "Excluded: remote tools disabled for this profile"
+            connection != null && (!features.isToolPluginEnabledForProfile(profileUid, ToolServiceCatalog.forConnection(connection).id) || !features.isToolPluginEnabledForProfile(profileUid, ToolPluginId.connection(connection.connectionUid))) -> "Excluded: service or connection disabled for this profile"
+            connection != null && bindings.none { it.connectionUid == connection.connectionUid } -> "Excluded: connection not assigned to this profile"
+            connection != null && connection.type in SEARCH_PROVIDERS && connection.secretRef == null -> "Requires connection repair: missing credential"
+            authorized -> "Authorized · operational status shown below"
+            connection?.type == ToolConnectionType.MCP -> "Excluded: cached discovery or profile sharing consent unavailable"
+            else -> "Excluded: search service is not enabled for this profile"
+        }
+        val builtIn = resolved.any { it.connectionUid == null }
+        return listOf(EffectiveSearchEngine("builtin-duckduckgo", "Built-in DuckDuckGo", builtIn, reason(null, builtIn))) +
+            connections.filter { connection -> connection.type in SEARCH_PROVIDERS || resolved.any { it.connectionUid == connection.connectionUid } || connection.type == ToolConnectionType.MCP && bindings.any { it.connectionUid == connection.connectionUid && it.toolName.contains("search", true) } }.map { connection ->
+                val authorized = resolved.any { it.connectionUid == connection.connectionUid } && (connection.type !in SEARCH_PROVIDERS || connection.secretRef != null)
+                EffectiveSearchEngine(connection.connectionUid, connection.name, authorized, reason(connection, authorized))
+            }
+    }
+
+    private suspend fun resolveWebSearch(connection: ToolConnection?, resetAccess: Boolean = false): ResolvedAgentTool? {
         val actualConnection = connection ?: return null
         val provider = SEARCH_PROVIDERS[actualConnection.type] ?: return null
         val endpointUrl = provider.defaultEndpointUrl
@@ -1020,7 +1157,8 @@ class AgentToolResolver @Inject constructor(
                         config = WebSearchProviderConfig(
                             provider = provider.provider,
                             bearerToken = token,
-                            endpointUrl = endpointUrl
+                            endpointUrl = endpointUrl,
+                            connectionUid = actualConnection.connectionUid
                         ),
                         modelToolName = modelToolName,
                         networkClient = networkClient
@@ -1030,6 +1168,7 @@ class AgentToolResolver @Inject constructor(
                 bytes.fill(0)
             }
         } ?: MissingCredentialTool(definition)
+        if (resetAccess) (tool as? WebSearchTool)?.resetAccessFailureAfterRepair()
         return tool.resolved(actualConnection.connectionUid, actualConnection.name, WEB_SEARCH_TOOL)
     }
 
@@ -1038,10 +1177,14 @@ class AgentToolResolver @Inject constructor(
         bindings: List<AgentToolBindingWithConnection>,
         features: AppFeatureSettings,
         profileUid: String,
-        cachedOnly: Boolean = false
+        cachedOnly: Boolean = false,
+        userMessage: MessageV2? = null
     ): List<ResolvedAgentTool> {
         val selectedNames = bindings.map { it.binding.toolName }.toSet()
-        val remoteTools = if (cachedOnly) mcpClientManager.peekToolsForConnection(connection.connectionUid).orEmpty() else discoverMcpTools(connection)
+        val remoteTools = if (cachedOnly) mcpClientManager.peekToolsForConnection(connection.connectionUid, connection.endpointUrl, connection.allowCleartext).orEmpty() else discoverMcpTools(connection)
+        (selectedNames - remoteTools.map { it.name }.toSet()).forEach { name ->
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ToolCatalog", "TOOL_OMITTED · stage=resolution · connection=${connection.connectionUid} · name=$name · reason=${if (cachedOnly) "CACHED_CATALOG_MISS_DISCOVERY_REQUIRED" else "REMOTE_TOOL_NOT_LISTED"}")
+        }
         val janNafta = AmazonJanNaftaTool.recognizes(connection, remoteTools.map { it.name }.toSet())
         return remoteTools
             .filter { it.name in selectedNames }
@@ -1069,7 +1212,18 @@ class AgentToolResolver @Inject constructor(
                     },
                     remoteToolName = remoteTool.name,
                     outputSchema = remoteTool.outputSchema,
-                    clientManager = mcpClientManager
+                    clientManager = mcpClientManager,
+                    metadata = if (dev.chungjungsoo.gptmobile.data.crawl.CrawlerCompanionGrant.recognizes(connection)) {
+                        (
+                            {
+                                check(settingRepository.getFeatureSettings() == features && toolConnectionRepository.getConnection(connection.connectionUid) == connection) { "Crawler authority changed" }
+                                val limit = (features.pluginExecution[ToolPluginId.CRAWLERS] ?: PluginExecutionSettings()).normalized().crawlerMaxPages * 6
+                                dev.chungjungsoo.gptmobile.data.crawl.CrawlerCompanionGrant.metadata(secretVault, connection, profileUid, userMessage, dev.chungjungsoo.gptmobile.data.crawl.crawlHash(features.toString()), userMessage?.let { factVault?.scopeForChat(it.chatId)?.isTemporary == false } == true, limit)
+                            }
+                            )
+                    } else {
+                        null
+                    }
                 )
                 ResolvedAgentTool(
                     tool = if (ToolServiceCatalog.forConnection(connection).id == ToolPluginId.AIRBNB && remoteTool.name.contains(Regex("(?i)search|listing|details"))) {
@@ -1083,7 +1237,22 @@ class AgentToolResolver @Inject constructor(
                     connectionName = connection.name,
                     realToolName = remoteTool.name,
                     modelToolName = tool.definition.name,
-                    shareableReadOnly = remoteTool.name in connection.approvedReadTools.lines().map(String::trim)
+                    shareableReadOnly = remoteTool.name in connection.approvedReadTools.lines().map(String::trim),
+                    canReuseResult = if (remoteTool.name in connection.approvedReadTools.lines().map(String::trim)) {
+                        (
+                            {
+                                val currentProfile = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
+                                currentProfile?.enabled == true &&
+                                    !currentProfile.disableAllTools &&
+                                    !currentProfile.disableRemoteTools &&
+                                    settingRepository.getFeatureSettings() == features &&
+                                    toolConnectionRepository.getConnection(connection.connectionUid) == connection &&
+                                    recoveryBindingGrants(toolConnectionRepository.listBindingsWithConnections(profileUid).filter { it.binding.connectionUid == connection.connectionUid && it.binding.toolName == remoteTool.name }) == recoveryBindingGrants(bindings.filter { it.binding.toolName == remoteTool.name })
+                            }
+                            )
+                    } else {
+                        null
+                    }
                 )
             }
     }
@@ -1169,7 +1338,8 @@ private class McpAgentTool(
     private val config: suspend (Boolean, String?) -> McpConnectionConfig,
     private val remoteToolName: String,
     private val clientManager: McpClientManager,
-    private val outputSchema: io.modelcontextprotocol.kotlin.sdk.types.ToolSchema? = null
+    private val outputSchema: io.modelcontextprotocol.kotlin.sdk.types.ToolSchema? = null,
+    private val metadata: (suspend () -> JsonObject)? = null
 ) : AgentTool {
     private val unknownCatalogRefreshed = java.util.concurrent.atomic.AtomicBoolean()
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
@@ -1198,8 +1368,9 @@ private class McpAgentTool(
         } catch (_: Exception) {
             return AgentToolResult(callId, ToolResultContent.Text("MCP connection unavailable. Check installation, enable state and credentials in Tool connections."), true)
         }
+        val trustedMetadata = metadata?.invoke()
         val result = try {
-            clientManager.callTool(initialConfig, remoteToolName, remoteArguments, callId)
+            clientManager.callTool(initialConfig, remoteToolName, remoteArguments, callId, trustedMetadata)
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
@@ -1208,7 +1379,8 @@ private class McpAgentTool(
                 config(true, initialConfig.authorizationHeader),
                 remoteToolName,
                 remoteArguments,
-                callId
+                callId,
+                trustedMetadata
             )
         }
         if (result.isError == true && result.content.toString().let { it.contains("unknown tool", true) || it.contains("tool not found", true) }) {

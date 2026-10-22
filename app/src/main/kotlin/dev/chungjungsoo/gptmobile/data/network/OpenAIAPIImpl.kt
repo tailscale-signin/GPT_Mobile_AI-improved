@@ -115,15 +115,21 @@ class OpenAIAPIImpl @Inject constructor(
             if (free != null) {
                 check(free.isAvailable) { "LLM7 is awaiting provider approval for use in this app. Choose another Free provider." }
             }
+            var freeModel = free?.let { dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.requireModel(it, request.model) }
+            if (free == FreeAiProvider.PORCHLM && request.model == "automatic") {
+                dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.refresh(free)
+                freeModel = dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.models(free).firstOrNull { it.id != "automatic" }
+                check(freeModel != null) { "PorchLM model discovery is unavailable. Retry its status check later." }
+            }
             var preparedRequest = if (free == null) {
                 request.withEndpointSamplingPolicy(config.apiUrl)
             } else {
                 request.copy(
-                    model = free.model,
+                    model = requireNotNull(freeModel).id,
                     maxTokens = (request.maxTokens ?: free.maxOutputTokens).coerceIn(1, free.maxOutputTokens),
                     maxCompletionTokens = null,
-                    tools = request.tools.takeIf { free.supportsTools },
-                    toolChoice = request.toolChoice.takeIf { free.supportsTools },
+                    tools = request.tools.takeIf { freeModel?.tools == true },
+                    toolChoice = request.toolChoice.takeIf { freeModel?.tools == true },
                     models = null,
                     provider = null,
                     plugins = null,
@@ -134,6 +140,10 @@ class OpenAIAPIImpl @Inject constructor(
                     transforms = null,
                     sessionId = null
                 )
+            }
+            if (free == FreeAiProvider.AI_HORDE || free == FreeAiProvider.HUGGING_FACE) {
+                FreeQueuedTransport(networkClient(), requestPreparation).generate(preparedRequest, config, timeoutSeconds) { emit(it) }
+                return@flow
             }
             if (free == FreeAiProvider.POLLINATIONS) {
                 val prompt = legacyPollinationsPrompt(preparedRequest)
@@ -167,8 +177,10 @@ class OpenAIAPIImpl @Inject constructor(
                     config.extraHeaders.forEach { (key, value) -> header(key, value) }
                     if (LocalEndpointConnectionPolicy.freshConnection(endpoint)) header(HttpHeaders.Connection, "close")
                 }.execute { response ->
+                    if (free != null && !response.status.isSuccess()) dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.recordFailure(free, "HTTP ${response.status.value}")
+                    if (free != null && response.status.value == 402) throw IllegalStateException("${free.displayName} requires payment for this route. The free request has stopped; no payment or fallback was attempted.")
                     if (free != null && response.status.value == 429) {
-                        throw FreeAiRateLimitException(free, FreeAiRequestLimiter.shared.defer(free, response.headers[HttpHeaders.RetryAfter]))
+                        throw FreeAiRateLimitException(free, FreeAiRequestLimiter.shared.defer(free, response.headers[HttpHeaders.RetryAfter], preparedRequest.model))
                     }
                     if (!response.status.isSuccess()) {
                         val errorBody = response.body<String>()
@@ -256,7 +268,8 @@ class OpenAIAPIImpl @Inject constructor(
                                 error.copy(message = config.readableProviderError(error.message, error.code))
                             }
                         )
-                        if (free != null && !chunk.model.isNullOrBlank()) dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("FreeProvider", "MODEL_RESOLVED · profile=${config.profileUid} · requested=${free.model} · resolved=${chunk.model} · capabilityVerification=unverified")
+                        if (free != null) dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.recordResponse(free, chunk.model, response.headers["X-RateLimit-Remaining"] ?: response.headers["X-RateLimit-Remaining-Output"])
+                        if (free != null && !chunk.model.isNullOrBlank()) dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("FreeProvider", "MODEL_RESOLVED · profile=${config.profileUid} · requested=${request.model} · resolved=${chunk.model} · capabilityVerification=unverified")
                         emit(chunk)
                         if (free != null) {
                             freeResponseOutcome(
@@ -316,8 +329,9 @@ class OpenAIAPIImpl @Inject constructor(
                             decoded.copy(error = error.copy(message = config.readableProviderError(providerErrorDetails(data, error.message, config.token), error.code)))
                         } ?: decoded
                         if (free != null && !chunk.model.isNullOrBlank() && resolvedFreeModel != chunk.model) {
+                            dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.recordResponse(free, chunk.model, response.headers["X-RateLimit-Remaining"] ?: response.headers["X-RateLimit-Remaining-Output"])
                             resolvedFreeModel = chunk.model
-                            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("FreeProvider", "MODEL_RESOLVED · profile=${config.profileUid} · requested=${free.model} · resolved=${chunk.model} · capabilityVerification=unverified")
+                            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("FreeProvider", "MODEL_RESOLVED · profile=${config.profileUid} · requested=${request.model} · resolved=${chunk.model} · capabilityVerification=unverified")
                         }
                         receivedTerminal = receivedTerminal || chunk.error != null || chunk.choices.orEmpty().any { it.finishReason != null }
                         if (receivedTerminal) terminalDrain.markTerminal()
@@ -348,7 +362,7 @@ class OpenAIAPIImpl @Inject constructor(
                 }
             }
             if (free != null) {
-                FreeAiRequestLimiter.shared.withRequest(free, executeRequest)
+                FreeAiRequestLimiter.shared.withRequest(free, preparedRequest.model, executeRequest)
             } else {
                 ResilientStreamingClient.executeWithRetry(
                     config = ResilientStreamingClient.RetryConfig(maxAttempts = 3, initialDelayMs = 250, maxDelayMs = 1000),

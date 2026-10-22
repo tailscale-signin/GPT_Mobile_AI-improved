@@ -55,7 +55,8 @@ data class WebSearchProviderConfig(
     val provider: WebSearchProvider,
     val bearerToken: String,
     val endpointUrl: String,
-    val allowLocalSearch: Boolean = false
+    val allowLocalSearch: Boolean = false,
+    val connectionUid: String? = null
 )
 
 class WebSearchTool(
@@ -114,7 +115,35 @@ class WebSearchTool(
         val cooldownUntil: Long = 0
     ) : IllegalStateException("Search outcome ${outcome.name}; HTTP ${status ?: "unknown"}; cached=$cached; cooldownUntil=$cooldownUntil")
     private data class AutoAttempt(val results: List<JsonObject>? = null, val failure: RouteFailure? = null)
-    private val lastAutoFailure = java.util.concurrent.atomic.AtomicReference<RouteFailure?>()
+    private val lastAutoFailure = autoFailureRecords.computeIfAbsent(autoSearchBlockedUntilMs) { java.util.concurrent.atomic.AtomicReference<RouteFailure?>() }
+    fun resetAccessFailureAfterRepair() {
+        authenticationBlockedUntilMs.set(0)
+        accessFailureRecords.remove(authenticationBlockKey())
+    }
+
+    private fun structuredFailure(callId: String, outcome: SearchEvidenceOutcome, message: String, status: Int? = null, requestSent: Boolean? = false, bodyReceived: Boolean = false, retryAt: Long = 0, cached: Boolean = false): AgentToolResult {
+        val observation = SearchServiceObservation(config.provider.name, config.endpointUrl, outcome.name, status, requestSent, bodyReceived, clock.millis(), retryAt, message.take(240))
+        if (!cached) SearchServiceHealth.record(config.connectionUid ?: "builtin-duckduckgo", observation)
+        return AgentToolResult(
+            callId,
+            ToolResultContent.Json(
+                buildJsonObject {
+                    put("evidenceOutcome", outcome.name)
+                    put("error", message.take(240))
+                    put("engine", config.provider.name)
+                    status?.let { put("httpStatus", it) }
+                    put("requestSent", requestSent)
+                    put("bodyReceived", bodyReceived)
+                    put("cachedFailure", cached)
+                    put("cooldownUntil", retryAt)
+                    put("results", JsonArray(emptyList()))
+                }
+            ),
+            true,
+            errorCode = outcome.name,
+            dispatched = requestSent != false
+        )
+    }
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
         val request = parseRequest(arguments) ?: return error(callId, "Invalid web search request: ${validationErrors(arguments).joinToString("; ")}.")
@@ -136,6 +165,9 @@ class WebSearchTool(
     }
 
     private suspend fun executeConfiguredProvider(callId: String, request: WebSearchRequest): AgentToolResult {
+        var requestSent: Boolean? = false
+        var bodyReceived = false
+        var httpStatus: Int? = null
         return try {
             if (config.bearerToken.isBlank()) {
                 val provider = when (config.provider) {
@@ -148,9 +180,11 @@ class WebSearchTool(
                 return error(callId, "Add a $provider API key in Settings → Plugins/Tools before using this search provider.")
             }
             if (clock.millis() < authenticationBlockedUntilMs.get()) {
-                return error(callId, "${config.provider} web search is disabled after an authentication, billing, or access failure. Check this search connection and provider account.")
+                val previous = accessFailureRecords[authenticationBlockKey()]
+                return structuredFailure(callId, SearchEvidenceOutcome.AUTH_REQUIRED, previous?.message ?: "Search access is blocked. Use Test connection / Retry after repair.", previous?.httpStatus, retryAt = authenticationBlockedUntilMs.get(), cached = true)
             }
             chargeResearchRequest()
+            requestSent = null // Dispatch started; transmission is unknown until an HTTP response arrives.
             val response = if (config.provider == WebSearchProvider.BRAVE) {
                 networkClient().get(config.endpointUrl) {
                     timeout { requestTimeoutMillis = 30_000 }
@@ -172,20 +206,40 @@ class WebSearchTool(
                     setBody(payload(request))
                 }
             }
+            requestSent = true
+            httpStatus = response.status.value
             if (response.status.value !in 200..299) {
                 if (response.status.value in setOf(401, 402, 403)) {
                     authenticationBlockedUntilMs.set(if (response.status.value == 402) clock.millis() + 5 * 60_000L else Long.MAX_VALUE)
+                    accessFailureRecords[authenticationBlockKey()] = SearchServiceObservation(config.provider.name, config.endpointUrl, "AUTH_REQUIRED", response.status.value, true, false, clock.millis(), authenticationBlockedUntilMs.get(), providerFailureMessage(response.status.value))
                 }
-                return error(callId, providerFailureMessage(response.status.value))
+                return structuredFailure(
+                    callId,
+                    if (response.status.value == 429) {
+                        SearchEvidenceOutcome.RATE_LIMITED
+                    } else if (response.status.value in setOf(401, 402, 403)) {
+                        SearchEvidenceOutcome.AUTH_REQUIRED
+                    } else {
+                        SearchEvidenceOutcome.UNAVAILABLE
+                    },
+                    providerFailureMessage(response.status.value),
+                    response.status.value,
+                    true,
+                    false,
+                    authenticationBlockedUntilMs.get()
+                )
             }
-            val content = runCatching { normalized(config.provider, researchBody(response.bodyAsText()), request) }.getOrElse { exception ->
+            val body = researchBody(response.bodyAsText())
+            bodyReceived = true
+            val content = runCatching { normalized(config.provider, body, request) }.getOrElse { exception ->
                 if (exception is CancellationException) throw exception
                 return if (exception is MissingRequiredResultFieldException) {
-                    error(callId, "Web search failed: missing required result fields.")
+                    structuredFailure(callId, SearchEvidenceOutcome.PARSE_FAILED, "Provider response is missing required source fields.", httpStatus, true, true)
                 } else {
-                    error(callId, "Web search failed: malformed or unsupported provider response.")
+                    structuredFailure(callId, SearchEvidenceOutcome.PARSE_FAILED, "Provider response could not be decoded or normalized.", httpStatus, true, true)
                 }
             }
+            SearchServiceHealth.record(config.connectionUid ?: config.provider.name, SearchServiceObservation(config.provider.name, config.endpointUrl, "SUCCESS", response.status.value, true, true, clock.millis(), message = "Search connection responded"))
             AgentToolResult(
                 callId = callId,
                 content = ToolResultContent.Json(content),
@@ -194,13 +248,18 @@ class WebSearchTool(
         } catch (exception: CancellationException) {
             throw exception
         } catch (failure: Exception) {
-            error(
+            if (generateSequence(failure as Throwable?) { it.cause }.any { it is java.net.UnknownHostException || it is java.net.ConnectException }) requestSent = false
+            structuredFailure(
                 callId,
+                if (failure is java.net.SocketTimeoutException || failure is io.ktor.client.plugins.HttpRequestTimeoutException) SearchEvidenceOutcome.TIMEOUT else SearchEvidenceOutcome.UNAVAILABLE,
                 when {
                     generateSequence(failure as Throwable?) { it.cause }.any { it is java.net.UnknownHostException } -> "DNS_FAILURE: search host could not be resolved."
-                    failure is java.net.SocketTimeoutException || failure is io.ktor.client.plugins.HttpRequestTimeoutException -> "CONNECT_TIMEOUT: search request timed out."
-                    else -> "PARSE_OR_TRANSPORT_FAILURE: web search returned no usable response."
-                }
+                    failure is java.net.SocketTimeoutException || failure is io.ktor.client.plugins.HttpRequestTimeoutException -> "TRANSPORT_TIMEOUT: search request timed out."
+                    else -> "TRANSPORT_FAILURE: no usable response was received."
+                },
+                httpStatus,
+                requestSent,
+                bodyReceived
             )
         }
     }
@@ -215,6 +274,7 @@ class WebSearchTool(
         }
         return when (status) {
             401 -> "$provider web search authentication failed (HTTP 401). Update this connection's $provider API key in Settings → Plugins/Tools. AI platform keys are configured separately."
+            402 -> "$provider search billing or quota requires repair (HTTP 402). Use Test connection after repairing the account."
             403 -> "$provider web search access was denied (HTTP 403). Check this search connection's API key permissions and provider account."
             429 -> "$provider web search rate limit reached (HTTP 429). Wait before retrying or check your search plan allowance."
             else -> "Web search failed: HTTP $status."
@@ -255,6 +315,7 @@ class WebSearchTool(
         val webResults = webAttempt.results
         if (localResults.isEmpty() && webResults == null) {
             val failure = requireNotNull(webAttempt.failure)
+            if (!failure.cached) SearchServiceHealth.record("builtin-duckduckgo", SearchServiceObservation("DuckDuckGo", "DuckDuckGo public frontends", failure.outcome.name, failure.status, true, failure.status != null, clock.millis(), failure.cooldownUntil, failure.message.orEmpty()))
             return@coroutineScope AgentToolResult(
                 callId,
                 ToolResultContent.Json(
@@ -266,6 +327,11 @@ class WebSearchTool(
                         put("cachedFailure", failure.cached)
                         put("cooldownUntil", failure.cooldownUntil)
                         put("requestSent", !failure.cached)
+                        put("bodyReceived", !failure.cached && failure.status != null)
+                        SearchServiceHealth.observations.value["builtin-duckduckgo"]?.let {
+                            put("observedAt", it.observedAt)
+                            put("route", it.route)
+                        }
                         put("results", JsonArray(emptyList()))
                     }
                 ),
@@ -352,6 +418,7 @@ class WebSearchTool(
                     val body = researchBody(response.bodyAsText())
                     val outcome = when {
                         response.status.value == 429 -> SearchEvidenceOutcome.RATE_LIMITED
+                        response.status.value == 202 -> SearchEvidenceOutcome.CHALLENGE
                         Regex("(?i)captcha|challenge-form|anomaly-modal").containsMatchIn(body) -> SearchEvidenceOutcome.CHALLENGE
                         else -> SearchEvidenceOutcome.UNAVAILABLE
                     }
@@ -386,6 +453,7 @@ class WebSearchTool(
                 throw e
             } catch (failure: Exception) {
                 lastFailure = failure as? RouteFailure ?: RouteFailure(if (failure is java.net.SocketTimeoutException || failure is io.ktor.client.plugins.HttpRequestTimeoutException) SearchEvidenceOutcome.TIMEOUT else SearchEvidenceOutcome.UNAVAILABLE)
+                if (lastFailure.outcome in setOf(SearchEvidenceOutcome.CHALLENGE, SearchEvidenceOutcome.RATE_LIMITED)) break
             }
         }
         autoSearchBlockedUntilMs.set(clock.millis() + AUTO_SEARCH_BACKOFF_MS)
@@ -661,7 +729,7 @@ class WebSearchTool(
             "HTTP 429" in message -> SearchEvidenceOutcome.RATE_LIMITED.name
             "HTTP 401" in message || "HTTP 403" in message || "API key" in message -> SearchEvidenceOutcome.AUTH_REQUIRED.name
             "TIMEOUT" in message -> SearchEvidenceOutcome.TIMEOUT.name
-            "PARSE_" in message -> SearchEvidenceOutcome.PARSE_FAILED.name
+            message.startsWith("PARSE_FAILED:") -> SearchEvidenceOutcome.PARSE_FAILED.name
             else -> SearchEvidenceOutcome.UNAVAILABLE.name
         }
     )
@@ -676,6 +744,8 @@ class WebSearchTool(
 
     private companion object {
         val perplexityAuthBlocks = ConcurrentHashMap<String, AtomicLong>()
+        val accessFailureRecords = ConcurrentHashMap<String, SearchServiceObservation>()
+        val autoFailureRecords = ConcurrentHashMap<AtomicLong, java.util.concurrent.atomic.AtomicReference<RouteFailure?>>()
         const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
         const val AUTO_SEARCH_BACKOFF_MS = 5 * 60 * 1000L
         val AUTO_SEARCH_BACKOFF_STATUSES = setOf(202, 403, 429)

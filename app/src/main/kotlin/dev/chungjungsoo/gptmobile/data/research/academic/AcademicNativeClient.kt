@@ -71,8 +71,6 @@ internal data class AcademicAccessPolicy(val included: List<String> = emptyList(
     fun allows(provider: String) = providers.isEmpty() || provider in providers
 }
 
-private class AcademicHttpFailure(val status: Int, val retryAtMs: Long? = null) : Exception("Academic HTTP $status")
-
 /** Fixed public origins, DNS-pinned connections, bounded bodies, durable quotas and no credentials. */
 @Singleton
 class AcademicNativeClient @Inject constructor(@param:ApplicationContext context: Context) {
@@ -88,11 +86,11 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
     private val statuses = ConcurrentHashMap<String, AcademicProviderStatus>()
     private val telemetry = dev.chungjungsoo.gptmobile.data.research.telemetry.ResearchTelemetryStore(File(context.filesDir, "research-telemetry"))
     private val totals = dev.chungjungsoo.gptmobile.data.research.ResearchResultCache<String, Long>(30 * 60_000L, 64)
-    private val cache = dev.chungjungsoo.gptmobile.data.research.ResearchResultCache<String, List<AcademicPaper>>(30 * 60_000L, 64)
+    private val cache = dev.chungjungsoo.gptmobile.data.research.ResearchResultCache<String, List<AcademicPaper>>(30 * 60_000L, 64, maxWeight = 8L * 1024 * 1024, weigh = { Json.encodeToString(it).toByteArray().size })
     private val connectivity = ResearchConnectivityGate.shared
     private val searchRotation = java.util.concurrent.atomic.AtomicInteger()
-    private val papers = ConcurrentHashMap<String, AcademicPaper>()
-    private val transientEvidence = ConcurrentHashMap<String, AcademicEvidence>()
+    private val papers = dev.chungjungsoo.gptmobile.data.research.ResearchResultCache<String, AcademicPaper>(30 * 60_000L, 1200, maxWeight = 4L * 1024 * 1024, weigh = { Json.encodeToString(it).toByteArray().size })
+    private val transientEvidence = dev.chungjungsoo.gptmobile.data.research.ResearchResultCache<String, AcademicEvidence>(10 * 60_000L, 32, maxWeight = 4L * 1024 * 1024, weigh = { it.text.toByteArray().size + 2048 })
     private val cursors = ConcurrentHashMap<String, String>()
     private fun remember(paper: AcademicPaper): AcademicPaper {
         if (papers.size >= 1200) papers.keys.firstOrNull()?.let(papers::remove)
@@ -368,14 +366,15 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
                     }
                 }
             }
-            val document = Jsoup.parse(body.first, "", if (pmc.isNotBlank()) Parser.xmlParser() else Parser.htmlParser())
+            val document = dev.chungjungsoo.gptmobile.data.diagnostics.JavaHeapWorkGate.run("academic_parse") { Jsoup.parse(body.first, "", if (pmc.isNotBlank()) Parser.xmlParser() else Parser.htmlParser()) }
             document.select("script,style,nav,form,header,footer").remove()
             val fullText = (if (pmc.isNotBlank()) document.selectFirst("body")?.text() else (document.selectFirst("article") ?: document.selectFirst("main") ?: document.selectFirst(".ltx_document"))?.text()).orEmpty()
             val challenge = Regex("(?i)verify you are human|enable javascript and cookies|access denied|captcha").containsMatchIn(fullText.take(1000))
             val text = fullText.take(maxTextCharacters.coerceIn(24000, 240000))
+            val admission = dev.chungjungsoo.gptmobile.data.research.SourceContentValidator.validate(text, url = sourceUrl)
             val evidence = AcademicEvidence(
                 paper.paperId, paper.versionId + ":" + researchHash(body.first), sourceUrl, System.currentTimeMillis(), researchHash(text), text,
-                if (challenge || text.length < 500) {
+                if (challenge || !admission.usable) {
                     "unavailable"
                 } else if (fullText.length > text.length) {
                     "partially_read"
@@ -386,14 +385,15 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
                 structuredFullText = pmc.isNotBlank() && document.selectFirst("article > body") != null && fullText.length == text.length && !challenge,
                 sectionNames = if (pmc.isNotBlank() && fullText.length == text.length) document.select("body sec > title").map { it.text().lowercase() }.toSet() else emptySet(),
                 declaredFigures = if (pmc.isNotBlank()) document.select("body fig").size else null,
-                declaredSupplements = if (pmc.isNotBlank()) document.select("supplementary-material").size else null
+                declaredSupplements = if (pmc.isNotBlank()) document.select("supplementary-material").size else null,
+                declaredTables = if (pmc.isNotBlank()) document.select("body table-wrap").size else null
             )
             if (evidence.retrievalStatus in setOf("read", "partially_read")) {
                 if (persistent) {
                     save(evidence)
                 } else {
                     val runtime = Runtime.getRuntime()
-                    check(runtime.maxMemory() - runtime.totalMemory() + runtime.freeMemory() >= 16L * 1024 * 1024) { "Paused for device resources: temporary memory pressure" }
+                    if (runtime.maxMemory() - runtime.totalMemory() + runtime.freeMemory() < 16L * 1024 * 1024) throw dev.chungjungsoo.gptmobile.data.diagnostics.JavaHeapWorkDeferred("JAVA_HEAP_PRESSURE: academic_read")
                     transientEvidence[researchHash("${evidence.paperId}|${evidence.versionId}")] = evidence
                 }
             }
@@ -427,22 +427,59 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
     internal suspend fun evidence(paperId: String, versionId: String): AcademicEvidence? = withContext(Dispatchers.IO) {
         val identity = researchHash("$paperId|$versionId")
         transientEvidence[identity]?.let { return@withContext it }
-        val file = File(evidenceDirectory, identity + ".json")
-        if (!file.isFile || file.length() > 256 * 1024) null else runCatching { json.decodeFromString<AcademicEvidence>(file.readText()) }.getOrNull()
+        val file = File(evidenceDirectory, "$identity.json")
+        if (!file.isFile || file.length() > 1024 * 1024) return@withContext null
+        dev.chungjungsoo.gptmobile.data.diagnostics.JavaHeapWorkGate.run("academic_evidence") {
+            runCatching {
+                val metadata = json.decodeFromString<AcademicEvidence>(file.readText())
+                require(metadata.paperId == paperId && metadata.versionId == versionId)
+                val text = metadata.bodyReference?.let { name ->
+                    require(name.matches(Regex("[a-f0-9]{64}\\.body")))
+                    val body = File(evidenceDirectory, name)
+                    require(body.length() <= 1024 * 1024)
+                    body.readText()
+                } ?: metadata.text
+                require(researchHash(text) == metadata.textHash)
+                metadata.copy(text = text).also { transientEvidence[identity] = it }
+            }.getOrNull()
+        }
     }
     private suspend fun save(evidence: AcademicEvidence) = snapshotMutex.withLock {
         withContext(Dispatchers.IO) {
+            require(evidence.textHash == researchHash(evidence.text))
             evidenceDirectory.mkdirs()
-            check(evidenceDirectory.usableSpace >= evidence.text.toByteArray().size + 8L * 1024 * 1024) { "Paused for device resources: insufficient storage" }
-            val file = android.util.AtomicFile(File(evidenceDirectory, researchHash("${evidence.paperId}|${evidence.versionId}") + ".json"))
-            val output = file.startWrite()
-            try {
-                output.write(json.encodeToString(evidence).toByteArray())
-                file.finishWrite(output)
-            } catch (error: Exception) {
-                file.failWrite(output)
-                throw error
+            val bytes = evidence.text.toByteArray()
+            require(bytes.size <= 1024 * 1024)
+            check(evidenceDirectory.usableSpace >= bytes.size + 8L * 1024 * 1024) { "Paused for device resources: insufficient storage" }
+            fun atomic(file: File, content: ByteArray) {
+                val target = android.util.AtomicFile(file)
+                val output = target.startWrite()
+                try {
+                    output.write(content)
+                    target.finishWrite(output)
+                } catch (failure: Throwable) {
+                    target.failWrite(output)
+                    throw failure
+                }
             }
+            val body = evidence.textHash + ".body"
+            atomic(File(evidenceDirectory, body), bytes)
+            val identity = researchHash("${evidence.paperId}|${evidence.versionId}")
+            atomic(File(evidenceDirectory, "$identity.json"), json.encodeToString(evidence.copy(text = "", bodyReference = body)).toByteArray())
+            val records = evidenceDirectory.listFiles { entry -> entry.extension == "json" }.orEmpty().sortedBy { it.lastModified() }
+            var total = evidenceDirectory.listFiles().orEmpty().sumOf { it.length() }
+            var count = records.size
+            for (record in records) {
+                if (total <= 64L * 1024 * 1024 && count <= 256) break
+                if (record.name == "$identity.json") continue
+                val size = record.length()
+                if (record.delete()) {
+                    total -= size
+                    count--
+                }
+            }
+            val liveBodies = evidenceDirectory.listFiles { entry -> entry.extension == "json" }.orEmpty().mapNotNull { entry -> runCatching { json.decodeFromString<AcademicEvidence>(entry.readText()).bodyReference }.getOrNull() }.toSet()
+            evidenceDirectory.listFiles { entry -> entry.extension == "body" && entry.name !in liveBodies }.orEmpty().forEach { it.delete() }
         }
     }
 
@@ -475,14 +512,14 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
         var last: Exception? = null
         repeat(3) { attempt ->
             try {
-                check(connectivity.available()) { "network_recovery" }
+                if (!connectivity.available(URI(url).host)) throw AcademicNetworkRecovery()
                 if (attempt > 0) reserve(provider, allowed)
                 return fetchOnce(url, included, excluded, allowed, provider, sourceDocument)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
-                connectivity.failed(URI(url).host.orEmpty(), failure)
-                if (!connectivity.available()) throw IllegalStateException("network_recovery", failure)
+                if (failure is AcademicNetworkRecovery) throw failure
+                if (!connectivity.available(URI(url).host)) throw AcademicNetworkRecovery(failure)
                 val retryable = (failure is AcademicHttpFailure && failure.status in 500..599) || failure is java.io.IOException || failure is io.ktor.client.plugins.HttpRequestTimeoutException
                 if (!retryable || attempt == 2) throw failure
                 last = failure
@@ -494,7 +531,10 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
 
     private suspend fun fetchOnce(url: String, included: List<String> = emptyList(), excluded: List<String> = emptyList(), allowed: suspend () -> Boolean, provider: String, sourceDocument: Boolean = false): Pair<String, String> = global.withPermit {
         var target = url
+        val visited = mutableListOf<String>()
         repeat(4) {
+            if (target in visited) throw AcademicRedirectFailure(visited + target)
+            visited += target
             check(allowed()) { "permission_denied" }
             currentCoroutineContext().ensureActive()
             val uri = URI(target)
@@ -512,7 +552,13 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
             val eventId = UUID.randomUUID().toString()
             var responseCode: Int? = null
             var successful = false
-            val combinedAttempt = dev.chungjungsoo.gptmobile.data.agent.CombinedAcquisitionBoundary.reserve("academic-http:$eventId", 1, freePublicEndpoint = true)
+            val lease = connectivity.acquire(uri.host) ?: throw AcademicNetworkRecovery()
+            val combinedAttempt = try {
+                dev.chungjungsoo.gptmobile.data.agent.CombinedAcquisitionBoundary.reserve("academic-http:$eventId", 1, freePublicEndpoint = true)
+            } catch (failure: Throwable) {
+                connectivity.release(lease)
+                throw failure
+            }
             var networkStarted = false
             val result = try {
                 boundBudget?.reserve("http_request", lane = lane)
@@ -522,6 +568,7 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
                     timeout { requestTimeoutMillis = if (sourceDocument || uri.path.endsWith("fullTextXML")) 30_000 else 20_000 }
                 }.execute { response ->
                     responseCode = response.status.value
+                    connectivity.success(uri.host)
                     if (response.status.value in 300..399) {
                         redirect = uri.resolve(response.headers["Location"] ?: error("Missing redirect target")).toString()
                         return@execute null
@@ -532,12 +579,12 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
                             ?: runCatching { java.time.ZonedDateTime.parse(retry, java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME).toInstant().toEpochMilli() - System.currentTimeMillis() }.getOrNull()?.coerceIn(1000, 86_400_000) ?: 60_000
                         val until = System.currentTimeMillis() + duration
                         withContext(Dispatchers.IO) { preferences.edit().putLong("$provider:cooldown", until).commit() }
-                        throw AcademicHttpFailure(429, until)
+                        throw AcademicHttpFailure(429, until, target)
                     }
                     if (response.status.value == 401) {
                         withContext(Dispatchers.IO) { preferences.edit().putBoolean("$provider:authBlocked", true).commit() }
                     }
-                    if (response.status.value !in 200..299) throw AcademicHttpFailure(response.status.value)
+                    if (response.status.value !in 200..299) throw AcademicHttpFailure(response.status.value, sourceUrl = target)
                     val stream = response.bodyAsChannel()
                     check(downloadDirectory.mkdirs() || downloadDirectory.isDirectory)
                     check(downloadDirectory.usableSpace >= 8L * 1024 * 1024) { "Insufficient space for academic reading" }
@@ -557,13 +604,17 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
                             }
                         }
                         successful = true
-                        connectivity.success()
-                        download.readText(Charsets.UTF_8) to response.headers["Content-Type"].orEmpty()
+                        dev.chungjungsoo.gptmobile.data.diagnostics.JavaHeapWorkGate.run("academic_body") { download.readText(Charsets.UTF_8) } to response.headers["Content-Type"].orEmpty()
                     } finally {
+                        stream.cancel(null)
                         download.delete()
                     }
                 }
+            } catch (failure: Exception) {
+                connectivity.failed(uri.host, failure)
+                throw failure
             } finally {
+                connectivity.release(lease)
                 combinedAttempt?.finish(
                     if (!networkStarted) {
                         0
@@ -597,11 +648,12 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
             if (result != null) return@withPermit result
             target = checkNotNull(redirect)
         }
-        error("Too many academic redirects")
+        throw AcademicRedirectFailure(visited)
     }
 
     private suspend fun saveCursor(provider: String, request: AcademicSearchRequest, page: Int, token: String) {
         val key = cursorKey(provider, request, page)
+        if (cursors.size >= 256) cursors.keys.firstOrNull()?.let(cursors::remove)
         cursors[key] = token
         val scope = currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.tool.AcademicRequestBudgetContext] ?: return
         if (!scope.persistent || scope.runKey.isBlank()) return

@@ -27,6 +27,10 @@ interface ChatRepository {
     suspend fun cancelCombinedTurn(rootBudgetId: String) = Unit
     suspend fun isCombinedTurnCancelled(rootBudgetId: String): Boolean = false
     suspend fun markCombinedMergeUnavailable(chatId: Int, userMessageId: Int, rootBudgetId: String) = Unit
+    suspend fun canRetryCombined(rootBudgetId: String): Boolean = !isCombinedTurnCancelled(rootBudgetId)
+    suspend fun publishCombinedEvidenceFallback(runId: String): Boolean = false
+    suspend fun useCombinedReply(runId: String, expectedFence: Long, sourceProfileUid: String): MessageV2? = null
+    suspend fun reconcileCombinedLifecycle() = Unit
     suspend fun regenerateCombinedTurn(
         userMessage: MessageV2,
         expectedOwner: MessageV2,
@@ -82,7 +86,8 @@ interface ChatRepository {
         assistantMessages: List<List<MessageV2>>,
         platform: PlatformV2,
         runId: String,
-        chatToolConfig: ChatMcpToolConfig? = null
+        chatToolConfig: ChatMcpToolConfig? = null,
+        stage: dev.chungjungsoo.gptmobile.data.agent.AgentStageRequest? = null
     ): Flow<ApiState>
     fun observeMessagesV2(chatId: Int): Flow<List<MessageV2>>
     fun observeMessageWindow(chatId: Int, turns: Int): Flow<List<MessageV2>> = observeMessagesV2(chatId)

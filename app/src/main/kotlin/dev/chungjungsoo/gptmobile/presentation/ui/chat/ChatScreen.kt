@@ -311,11 +311,16 @@ fun ChatScreen(
     val debugMode by chatViewModel.debugMode.collectAsStateWithLifecycle()
     val debugMemorySources by chatViewModel.debugMemorySources.collectAsStateWithLifecycle()
     val researchSessions by chatViewModel.researchSessions.collectAsStateWithLifecycle()
+    val researchProfileStatistics by chatViewModel.researchProfileStatistics.collectAsStateWithLifecycle()
     LaunchedEffect(chatRoom.id) { chatViewModel.loadResearchHistory(chatRoom.id) }
     val enabledPlatformLookup = remember(appAllPlatforms) { appAllPlatforms.associateBy { it.uid } }
     val enabledProfileUids = remember(appEnabledPlatforms) { appEnabledPlatforms.mapTo(mutableSetOf()) { it.uid } }
     val canUseChat = activePlatformUids.isNotEmpty() && activePlatformUids.all { it in enabledProfileUids }
     val isIdle = loadingStates.all { it == ChatViewModel.LoadingState.Idle }
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        val release = dev.chungjungsoo.gptmobile.data.diagnostics.FrameTimingRecorder.screen("Chat")
+        onDispose { release() }
+    }
     val context = LocalContext.current
     val lastMessageIndex = groupedMessages.userMessages.lastIndex
     var inspectedCombinedTurn by rememberSaveable(chatRoom.id) { mutableStateOf<String?>(null) }
@@ -702,6 +707,8 @@ fun ChatScreen(
                         onPlatformLongPress = chatViewModel::togglePlatformDisabled,
                         onSelectText = chatViewModel::openSelectTextSheet,
                         onRetry = chatViewModel::retryChat,
+                        onRetryCombinedMerge = chatViewModel::retryCombinedMerge,
+                        onUseCombinedReply = chatViewModel::useCombinedReply,
                         onInspectContext = onInspectContext?.let { inspect ->
                             { run -> inspect(chatRoom.id, run) }
                         },
@@ -729,15 +736,35 @@ fun ChatScreen(
                         }
                     }
                 }
-                val chatResearch = researchSessions.values.filter { it.chatId == chatRoom.id && (it.runId in agentRunsById || it.runId in activeAgentRuns) }
-                if (chatResearch.isNotEmpty()) {
+                val allChatResearch = researchSessions.values.filter { it.chatId == chatRoom.id && (it.runId in agentRunsById || it.runId in activeAgentRuns) }
+                val shownResearch = allChatResearch.maxWithOrNull(compareBy<dev.chungjungsoo.gptmobile.data.research.ResearchSession> { it.turnId.substringAfterLast(':').toIntOrNull() ?: agentRunsById[it.runId]?.userMessageId ?: 0 }.thenBy { it.snapshot.updatedAt })
+                val shownUserId = shownResearch?.turnId?.substringAfterLast(':')?.toIntOrNull() ?: shownResearch?.runId?.let { agentRunsById[it]?.userMessageId }
+                val chatResearch = allChatResearch.filter { it.turnId == shownResearch?.turnId }
+                val researchTurnRuns = agentRunsById.values.filter { it.chatId == chatRoom.id && it.userMessageId == shownUserId }
+                if (chatResearch.isNotEmpty() && shownUserId != null) {
                     item(key = "research-progress") {
+                        val turnRow = groupedMessages.assistantMessages.getOrNull(groupedMessages.userMessages.indexOfFirst { it.id == shownUserId }).orEmpty()
+                        val receiptOwner = turnRow.sortedByDescending { message -> message.currentRunId?.let { agentRunsById[it]?.synthesisKey != null } == true }.firstOrNull { message -> message.effectiveTimeline().any { it.researchDeliveryReceipt != null } }
                         ResearchProgressCard(
                             chatResearch,
-                            activeAgentRuns.keys,
+                            researchTurnRuns.filter { it.runId in activeAgentRuns }.mapTo(mutableSetOf()) { it.runId },
                             chatViewModel::stopResearch,
-                            writerFailure = chatResearch.maxByOrNull { it.snapshot.updatedAt }?.runId?.let { agentRunsById[it] }?.takeIf { it.status == "FAILED" }?.terminalError,
-                            onRecovery = chatViewModel::sendPromptResponse
+                            writerFailure = researchTurnRuns.filter { it.status == "FAILED" }.maxByOrNull { it.createdAt }?.terminalError,
+                            onRecovery = { action -> chatViewModel.recoverResearch(shownUserId, action) },
+                            deliveryReceipt = receiptOwner?.effectiveTimeline()?.lastOrNull { it.researchDeliveryReceipt != null }?.researchDeliveryReceipt,
+                            cancelWriting = { chatViewModel.cancelResearchWriting(shownUserId) },
+                            deliveryRevisionText = receiptOwner?.effectiveContent(),
+                            profileStatistics = researchProfileStatistics[shownResearch?.turnId].orEmpty(),
+                            profileNames = appAllPlatforms.associate { it.uid to it.name },
+                            deliveryComplete = if (chatRoom.conversationMode == ConversationMode.COMBINED) {
+                                val finalRun = researchTurnRuns.filter { it.synthesisKey != null }.maxByOrNull { it.createdAt }
+                                val finalMessage = turnRow.firstOrNull { it.currentRunId == finalRun?.runId }
+                                finalRun?.status == "COMPLETED" &&
+                                    researchTurnRuns.filter { it.synthesisKey == null }.groupBy { it.profileUid }.values.all { attempts -> attempts.maxBy { it.createdAt }.status == "COMPLETED" } &&
+                                    finalMessage?.effectiveTimeline()?.lastOrNull { it.combinedQuality != null }?.combinedQuality?.let { report -> report.complete && !report.correctionRequired && report.answerDigest == dev.chungjungsoo.gptmobile.data.research.researchHash(finalMessage.effectiveContent()) && report.deliveredScopeStatus in setOf("COMPLETED", "COMPLETED_WITH_LIMITS") } == true
+                            } else {
+                                null
+                            }
                         )
                     }
                 }
@@ -1122,6 +1149,8 @@ private fun ChatMessagePair(
     onPlatformLongPress: (String) -> Unit,
     onSelectText: (String) -> Unit,
     onRetry: (Int, Int) -> Unit,
+    onRetryCombinedMerge: (Int) -> Unit = {},
+    onUseCombinedReply: (Int, String) -> Unit = { _, _ -> },
     onInspectContext: ((String) -> Unit)? = null,
     onFavoriteClick: (Int, Int) -> Unit,
     onFavoriteLongPress: () -> Unit,
@@ -1281,6 +1310,22 @@ private fun ChatMessagePair(
             ) {
                 if (!hasCombinedTabs) {
                     GPTMobileIcon(loading = shouldShowReplyLoadingIndicator(isActiveMessage, loadingStates))
+                }
+                if (hasCombinedTabs && combinedStatus != CombinedResponseStatus.GENERATING) {
+                    val retained = combinedProfiles.count { it.message?.effectiveContent()?.isNotBlank() == true }
+                    if (combinedStatus == CombinedResponseStatus.FAILED || isSourceResponse) {
+                        androidx.compose.material3.Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+                            Column(Modifier.padding(12.dp)) {
+                                Text(if (isSourceResponse) "Saved model reply" else "Combined writing needs attention", style = MaterialTheme.typography.titleSmall)
+                                Text("$retained replies retained for this request", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                androidx.compose.foundation.layout.Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
+                                    if (combinedSynthesisIndex >= 0 && combinedStatus == CombinedResponseStatus.FAILED) TextButton(onClick = { onRetryCombinedMerge(messageIndex) }, enabled = isIdle && canUseChat) { Text("Retry merge") }
+                                    if (!isSourceResponse) TextButton(onClick = { combinedProfiles.firstOrNull()?.let { onCombinedProfileClick(it.uid) } }) { Text("View replies") }
+                                    if (isSourceResponse && combinedSynthesisIndex >= 0 && assistantContent.isNotBlank()) TextButton(onClick = { onUseCombinedReply(messageIndex, selectedProfile!!.uid) }, enabled = isIdle && canUseChat) { Text("Use reply") }
+                                }
+                            }
+                        }
+                    }
                 }
                 if (hasCombinedTabs && selectedProfile == null) {
                     if (selectedAssistantMessage?.hasHistoricalRevisionSelected() == true && selectedAssistantMessage.effectiveCombinedSources().isEmpty()) {
@@ -1672,25 +1717,24 @@ fun ChatDropdownMenu(
 
 private suspend fun exportChat(context: Context, chatViewModel: ChatViewModel, format: ChatExportFormat) {
     try {
-        val (fileName, fileContent) = chatViewModel.exportChat(format)
-        if (fileContent.isBlank()) {
-            Toast.makeText(context, "No AI responses to export yet.", Toast.LENGTH_SHORT).show()
-            return
-        }
-        val file = withContext(Dispatchers.IO) {
-            val destination = File(context.getExternalFilesDir(null), fileName)
-            val staging = File(destination.parentFile, ".${destination.name}.partial")
-            try {
-                if (format == ChatExportFormat.DEBUG) {
-                    staging.outputStream().use { DebugExportBundle.write(fileContent, it) }
-                    staging.inputStream().use(DebugExportBundle::read)
-                } else {
+        val file = if (format == ChatExportFormat.DEBUG) {
+            chatViewModel.exportDebugFile(context.getExternalFilesDir(null) ?: context.filesDir)
+        } else {
+            val (fileName, fileContent) = chatViewModel.exportChat(format)
+            if (fileContent.isBlank()) {
+                Toast.makeText(context, "No AI responses to export yet.", Toast.LENGTH_SHORT).show()
+                return
+            }
+            withContext(Dispatchers.IO) {
+                val destination = File(context.getExternalFilesDir(null), fileName)
+                val staging = File(destination.parentFile, ".${destination.name}.partial")
+                try {
                     staging.writeText(fileContent)
+                    check(staging.renameTo(destination)) { "Unable to publish the completed export" }
+                    destination
+                } finally {
+                    staging.delete()
                 }
-                check(staging.renameTo(destination)) { "Unable to publish the completed export" }
-                destination
-            } finally {
-                staging.delete()
             }
         }
         val uri = getUriForFile(context, "${context.packageName}.fileprovider", file)

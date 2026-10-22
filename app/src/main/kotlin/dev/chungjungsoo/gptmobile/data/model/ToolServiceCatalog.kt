@@ -43,6 +43,7 @@ object ToolServiceCatalog {
         ToolServiceDefinition(ToolPluginId.CURRENT_DATE, "Date & Time", "Current date and time, calculated on your device.", "schedule", supportsGenericSettings = true),
         ToolServiceDefinition(ToolPluginId.CALCULATOR, "Calculator", "Evaluate arithmetic expressions on your device.", "calculator", supportsGenericSettings = true),
         ToolServiceDefinition(ToolPluginId.READ_FILES, "Files", "Read files shared with the app.", "folder", supportsGenericSettings = true),
+        ToolServiceDefinition(ToolPluginId.CRAWLERS, "Crawlers", "Managed multi-page research, selected readers, shared evidence and resumable jobs. Native reading is free; optional public and self-hosted engines.", "web", true, supportsGenericSettings = true),
         ToolServiceDefinition(ToolPluginId.READ_URL, "Web Pages", "Read web pages using the app's built-in plugin.", "web", true, supportsGenericSettings = true),
         ToolServiceDefinition(ToolPluginId.GITHUB, "GitHub", "Repository tools and workspace access in one service.", "github", true, supportsGenericSettings = true),
         ToolServiceDefinition(ToolPluginId.AMAZON_SEARCH, "Amazon Search", "Product search, deals and price tracking. Connect a search key or an Amazon MCP server.", "amazon", true, supportsGenericSettings = true),
@@ -67,6 +68,7 @@ object ToolServiceCatalog {
     }
 
     fun forConnection(connection: ToolConnection): ToolServiceDefinition {
+        if (connection.alias == "crawler" || connection.alias.startsWith("crawler_")) return integrated.first { it.id == ToolPluginId.CRAWLERS }
         if (connection.alias == "deep_research") return integrated.first { it.id == ToolPluginId.DEEP_RESEARCH }
         val marketplaceDefinition = connection.marketplaceProviderId?.let { providerId ->
             dev.chungjungsoo.gptmobile.data.catalog.McpPresetCatalog.findById(providerId)

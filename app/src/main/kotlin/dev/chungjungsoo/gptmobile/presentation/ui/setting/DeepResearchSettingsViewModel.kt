@@ -304,6 +304,14 @@ class DeepResearchSettingsViewModel @Inject constructor(private val repository: 
         viewModelScope.launch {
             try {
                 val feature = mutable.value.featureDraft.validated()
+                if (feature.autoExamination != dev.chungjungsoo.gptmobile.data.research.feature.AutoExamination.OFF || feature.ordinaryChatAutoExamination) {
+                    val selection = dev.chungjungsoo.gptmobile.data.research.feature.ResearchProfileResolver.selection(feature.crawlerProfileUid.orEmpty(), repository.fetchPlatformV2s())
+                    val issue = dev.chungjungsoo.gptmobile.data.research.feature.examinerSelectionIssue(selection)
+                    if (issue != null) {
+                        mutable.update { it.copy(error = issue + " Automatic examination requires an enabled Examiner.") }
+                        return@launch
+                    }
+                }
                 repository.mutateFeatureSettings { current -> current.copy(delegation = current.delegation.copy(deepResearch = value.migrated()), researchFeature = feature) }
                 archive.dao.trimUnexamined(feature.unexaminedStudyLimit, System.currentTimeMillis())
                 discard()

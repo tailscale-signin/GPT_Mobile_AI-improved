@@ -2,7 +2,7 @@ package dev.chungjungsoo.gptmobile.data.agent.tool
 
 /** Repository tasks need the tool-capable worker, rather than the public-web planner. */
 internal fun isGitHubTask(task: String): Boolean =
-    Regex("\\b(github|git|repository|repositories|repo|pull[ -]request|draft[ -]pr|commit|branch)\\b", RegexOption.IGNORE_CASE)
+    Regex("\\b(github|git|repository|repositories|repos?|pull[ -]requests?|draft[ -]pr|commits?|branch(?:es)?|push|releases?|workflows?)\\b", RegexOption.IGNORE_CASE)
         .containsMatchIn(task)
 
 /** Short follow-ups inherit repository intent without contaminating a new web question. */
@@ -45,7 +45,7 @@ internal fun preferNativeGitHubForTask(
 ): List<ResolvedAgentTool> {
     // Repository catalogs are large and misleading to small llama models during
     // ordinary web questions. Keep them out of both the schema and executor maps.
-    if (!isGitHubTask(task)) return tools.filterNot { it.isGitHubTool() }
+    if (!isGitHubTask(task)) return tools // Task relevance is schema selection, not a new authorization boundary.
     if (tools.none { it.isGitHubTool() }) return tools
     return tools.filterNot { it.isShellExecutionTool() }
 }

@@ -4,6 +4,20 @@ package dev.chungjungsoo.gptmobile.data.catalog
 object LocalMcpPresets {
     val presets = listOf(
         McpPreset(
+            id = "builtin-crawlers", name = "Crawlers", description = "Managed multi-page acquisition with native document reading, optional Jina Reader and selected connected readers.",
+            category = McpCategory.SEARCH, commandOrUrl = "builtin://crawlers", transportType = McpTransportType.STDIO,
+            author = "GPT Mobile", integratedTool = "crawlers", isPreinstalled = true,
+            toolCapabilities = listOf("Multiple seeds and bounded same-host deep crawl", "Saved jobs, explicit resume and cancellation", "Shared captured evidence and Research archive import"),
+            setupInstructions = "Enable Crawlers in Tool connections and for each profile. Choose readers, page and depth limits. Jina receives selected public URLs only when enabled. Browser rendering and OCR depend on the selected reader."
+        ),
+        McpPreset(
+            id = "crawler-companion", name = "Crawler Companion", description = "Optional self-hosted crawler with SQLite evidence, Trafilatura, Scrapling and PDF extraction.",
+            category = McpCategory.SEARCH, commandOrUrl = "", alias = "crawler_companion", suggestedAuthType = "BEARER", author = "GPT Mobile",
+            requiredFields = listOf("Reachable HTTPS /mcp endpoint", "HTTP bearer token", "Separate 32-byte grant key in Crawlers settings"),
+            toolCapabilities = listOf("Persistent deep crawling", "Robots-aware bounded acquisition", "Authenticated work grants"),
+            setupInstructions = "Run mcp/crawler on your computer. Configure TLS, an HTTP token and a separate private grant-key file. Install its reachable /mcp endpoint, retain the crawler_companion alias, then add the grant key as hexadecimal in Crawlers settings. Select its fetch tool as a reader or enable its start/status/results/cancel operations."
+        ),
+        McpPreset(
             id = "builtin-memory", name = "Local Memory Capture & Recall",
             description = "Encrypted on-device memory. Capture supported facts from your messages and recall relevant facts across conversations.",
             category = McpCategory.MEMORY, commandOrUrl = "builtin://memory",

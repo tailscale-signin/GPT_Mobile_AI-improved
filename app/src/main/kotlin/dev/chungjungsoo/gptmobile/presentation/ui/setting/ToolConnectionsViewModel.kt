@@ -357,8 +357,26 @@ class ToolConnectionsViewModel @Inject constructor(
         }
     }
 
+    fun testSearchConnection(connection: ToolConnection) {
+        val resolver = agentToolResolver ?: return
+        if (_uiState.value.connectionHealth[connection.connectionUid]?.status == ToolConnectionHealthStatus.CHECKING) return
+        _uiState.update { it.copy(connectionHealth = it.connectionHealth + (connection.connectionUid to ToolConnectionHealth(ToolConnectionHealthStatus.CHECKING, message = "Testing search; one request…"))) }
+        viewModelScope.launch {
+            try {
+                val result = resolver.testSearchConnection(connection)
+                val observation = dev.chungjungsoo.gptmobile.data.agent.tool.SearchServiceHealth.observations.value[connection.connectionUid]
+                _uiState.update { it.copy(connectionHealth = it.connectionHealth + (connection.connectionUid to ToolConnectionHealth(if (result.isError) ToolConnectionHealthStatus.OFFLINE else ToolConnectionHealthStatus.ONLINE, message = observation?.message ?: if (result.isError) "Search test failed. Check credentials and access." else "Search connected. One request used.", checkedAt = System.currentTimeMillis()))) }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                _uiState.update { it.copy(connectionHealth = it.connectionHealth + (connection.connectionUid to ToolConnectionHealth(ToolConnectionHealthStatus.OFFLINE, message = "Search test failed. Check the connection."))) }
+            }
+        }
+    }
+
     fun probeConnections(connections: List<ToolConnection> = _uiState.value.connections, force: Boolean = false) {
         val resolver = agentToolResolver ?: return
+        if (force) connections.filter { it.type in setOf(ToolConnectionType.BRAVE, ToolConnectionType.EXA, ToolConnectionType.FIRECRAWL, ToolConnectionType.PERPLEXITY) }.forEach(::testSearchConnection)
         connections
             .filter { it.type == ToolConnectionType.MCP }
             .filter { force || (features.value.remoteMcpConnections && features.value.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolServiceCatalog.forConnection(it).id) && features.value.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.connection(it.connectionUid))) }

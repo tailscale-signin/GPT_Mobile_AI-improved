@@ -14,6 +14,7 @@ import kotlinx.serialization.json.intOrNull
 
 internal class ConfiguredPluginTool(private val delegate: AgentTool, settings: PluginExecutionSettings) : OwnedAgentTool {
     private val settings = settings.normalized()
+    override fun withChildBudget(bind: (AgentTool) -> AgentTool): AgentTool = ConfiguredPluginTool(delegate.withChildBudget(bind), settings)
     override val definition = delegate.definition.let { original ->
         val properties = original.inputSchema["properties"] as? JsonObject
         if (properties == null || !isNamedWebSearch(original.name, original.description)) {
@@ -63,6 +64,7 @@ internal class ConfiguredPluginTool(private val delegate: AgentTool, settings: P
         val result = withTimeoutOrNull(settings.timeoutSeconds * 1000L) { delegate.execute(callId, bounded) }
             ?: return AgentToolResult(callId, ToolResultContent.Text("Plugin timed out after ${settings.timeoutSeconds} seconds. Dispatch outcome is unknown; reconcile before repeating this action."), true, errorCode = "TIMEOUT_OUTCOME_UNKNOWN")
         val retail = (result.content as? ToolResultContent.Json)?.value as? JsonObject
+        if ((retail?.get("schema") as? JsonPrimitive)?.content == GitHubResultViews.SCHEMA) return result
         if (retail != null && AmazonProducts.text(retail, "schema") == AmazonProducts.SCHEMA) {
             val content = ToolResultContent.Json(AmazonProducts.limitResult(retail, settings.maxOutputCharacters))
             return result.copy(content = content, traceContent = content, retainedContent = result.retainedContent ?: result.content.takeIf { content.value != retail })

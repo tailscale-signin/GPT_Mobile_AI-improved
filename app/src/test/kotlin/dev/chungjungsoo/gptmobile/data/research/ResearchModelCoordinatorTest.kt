@@ -33,6 +33,34 @@ class ResearchModelCoordinatorTest {
         assertTrue(coordinator.events.size <= 200)
     }
 
+    @Test fun groundingRejectionRevokesStageAcceptanceWithoutRewritingSuccessfulTransport() = runTest {
+        val worker = ResearchModelCoordinator(listOf(endpoint("primary") { """{"claims":[]}""" }))
+        val reply = requireNotNull(worker.generate(ResearchModelStage.EXTRACT, "source", 128))
+        assertTrue(worker.events.single().stageAccepted)
+        worker.rejectGrounding(reply.invocationId)
+        val rejected = worker.events.single()
+        assertEquals("VALIDATION_FAILED", rejected.outcome)
+        assertEquals("EVIDENCE_VALIDATION", rejected.failureCategory)
+        assertTrue(rejected.transportComplete)
+        assertTrue(rejected.schemaValid)
+        assertFalse(rejected.stageAccepted)
+        assertFalse(worker.completedStage("EXTRACT"))
+    }
+
+    @Test fun completedOutputLimitTransportCannotBecomeAcceptedStructuredStage() = runTest {
+        val endpoint = ResearchModelEndpoint("primary", "model", "identity", false, { true }) { _, _, _ ->
+            ResearchModelReply("{\"claims\":[", "identity", transportComplete = true, finishReason = "length", outputLimitReached = true)
+        }
+        val worker = ResearchModelCoordinator(listOf(endpoint))
+        assertNull(worker.generate(ResearchModelStage.EXTRACT, "source", 128))
+        val rejected = worker.events.single()
+        assertEquals("OUTPUT_LIMIT", rejected.failureCategory)
+        assertTrue(rejected.transportComplete)
+        assertFalse(rejected.schemaValid)
+        assertFalse(rejected.stageAccepted)
+        assertFalse(worker.completedStage("EXTRACT"))
+    }
+
     @Test fun localFailureDoesNotCancelPrimaryOrDiscardSuccessfulOutput() = runTest {
         var fallback = 0
         val worker = ResearchModelCoordinator(

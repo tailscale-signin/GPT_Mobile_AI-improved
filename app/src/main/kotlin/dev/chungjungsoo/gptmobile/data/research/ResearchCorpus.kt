@@ -1,8 +1,5 @@
 package dev.chungjungsoo.gptmobile.data.research
 
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
-
 /** Frozen, bounded evidence passed to every Combined analyst in a single logical turn. */
 data class ResearchCorpus(
     val snapshotVersion: Int,
@@ -19,10 +16,11 @@ data class ResearchCorpus(
     val taskId: String = "",
     val rootWorkId: String = "",
     val originatingUserMessageId: Int = 0,
-    val taskChatId: Int = 0
+    val taskChatId: Int = 0,
+    val numericalFactBindingRequired: Boolean = false
 ) {
     fun json() = dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryPacket.build(
-        ResearchSnapshot(task = task, sources = sources, claims = claims, toolEvents = toolEvents, complete = complete, updatedAt = updatedAt, phase = phase, cancellationOrigin = cancellationOrigin, notes = notes, questionPlan = questions, taskId = taskId, rootWorkId = rootWorkId, originatingUserMessageId = originatingUserMessageId, taskChatId = taskChatId)
+        ResearchSnapshot(task = task, sources = sources, claims = claims, toolEvents = toolEvents, complete = complete, updatedAt = updatedAt, phase = phase, cancellationOrigin = cancellationOrigin, notes = notes, questionPlan = questions, taskId = taskId, rootWorkId = rootWorkId, originatingUserMessageId = originatingUserMessageId, taskChatId = taskChatId, numericalFactBindingRequired = numericalFactBindingRequired)
     ).json()
 
     /** Resolve only URLs explicitly present in a contribution; never guess from local S1 labels. */
@@ -51,21 +49,11 @@ data class ResearchCorpus(
 
         fun freeze(snapshot: ResearchSnapshot): ResearchCorpus {
             val sources = snapshot.sources
-            val validClaims = validatedResearchClaims(
-                snapshot.claims.map { claim ->
-                    buildJsonObject {
-                        put("text", claim.text)
-                        put("sourceId", claim.sourceId)
-                        put("quote", claim.quote)
-                    }
-                },
-                sources
-            ).map { valid ->
-                snapshot.claims.firstOrNull { it.sourceId == valid.sourceId && it.text == valid.text && it.quote == valid.quote }
-                    ?.takeIf { it.verdict in setOf("Supported", "Contradicted", "Insufficient") }
-                    ?: valid
+            val validClaims = snapshot.claims.mapNotNull { claim ->
+                val valid = validatedResearchClaims(listOf(claim.json()), sources, bindNewCapture = false).singleOrNull() ?: return@mapNotNull null
+                claim.takeIf { it.verdict in setOf("Supported", "Contradicted", "Insufficient", "Unreviewed") } ?: valid
             }
-            return ResearchCorpus(2, sources.toList(), validClaims.toList(), snapshot.toolEvents.takeLast(MAX_EVENTS).toList(), snapshot.task, snapshot.complete, snapshot.updatedAt, snapshot.phase, snapshot.cancellationOrigin, snapshot.notes.toList(), snapshot.questionPlan.toList(), snapshot.taskId, snapshot.rootWorkId, snapshot.originatingUserMessageId, snapshot.taskChatId)
+            return ResearchCorpus(2, sources.toList(), validClaims.toList(), snapshot.toolEvents.takeLast(MAX_EVENTS).toList(), snapshot.task, snapshot.complete, snapshot.updatedAt, snapshot.phase, snapshot.cancellationOrigin, snapshot.notes.toList(), snapshot.questionPlan.toList(), snapshot.taskId, snapshot.rootWorkId, snapshot.originatingUserMessageId, snapshot.taskChatId, snapshot.numericalFactBindingRequired)
         }
     }
 }

@@ -9,11 +9,16 @@ import kotlinx.serialization.json.Json
 /** The selected old answer remains visible until the replacement is validated and committed. */
 internal fun preserveCombinedRetrySelection(current: MessageV2, candidate: MessageV2, run: AgentRun, terminalStatus: String?): MessageV2 {
     if (!run.runId.startsWith("combined-synthesis:")) return candidate
-    val selected = current.revisions.getOrNull(current.activeRevisionIndex) ?: return candidate
+    // Streaming callbacks retain the selection captured when the run started.
+    // Once a validated checkpoint selects this revision, later stale callbacks
+    // must not select the archived contributor or predecessor again.
+    val selected = current.revisions.getOrNull(current.activeRevisionIndex)
+        ?: return candidate.copy(activeRevisionIndex = ACTIVE_REVISION_LATEST)
     val snapshot = runCatching {
         Json { ignoreUnknownKeys = true }.decodeFromString<CombinedInputSnapshot>(run.synthesisSnapshot.orEmpty())
     }.getOrNull() ?: return candidate
-    if (snapshot.resumeFromRunId == null || selected.content.isBlank()) return candidate
+    if (selected.content.isBlank()) return candidate
+    if (snapshot.resumeFromRunId == null && snapshot.sources.isEmpty() && snapshot.evidence.records.isEmpty()) return candidate
     val report = candidate.timeline.lastOrNull { it.combinedQuality != null }?.combinedQuality
     val accepted = terminalStatus == "COMPLETED" &&
         candidate.content.isNotBlank() &&
@@ -23,7 +28,26 @@ internal fun preserveCombinedRetrySelection(current: MessageV2, candidate: Messa
         report.answerDigest == researchHash(candidate.content) &&
         report.deliveredScopeStatus in setOf("COMPLETED", "COMPLETED_WITH_LIMITS") &&
         report.issues.none { it in COMBINED_FRAMING_FAILURES }
-    return candidate.copy(activeRevisionIndex = if (accepted) ACTIVE_REVISION_LATEST else current.activeRevisionIndex)
+    val committedPartial = snapshot.deliveryProtocol == "PASSAGES_V3" &&
+        candidate.content.isNotBlank() &&
+        report != null &&
+        report.answerDigest == researchHash(candidate.content) &&
+        report.passages.isNotEmpty() &&
+        report.passages.all { it.matches(candidate.content) } &&
+        report.issues.none { it in COMBINED_FRAMING_FAILURES }
+    val fallback = candidate.timeline.lastOrNull { it.combinedFallback != null }?.combinedFallback
+    val explicitReply = terminalStatus == "FAILED" &&
+        fallback?.kind == "USE_REPLY" &&
+        fallback.snapshotId == snapshot.snapshotId &&
+        fallback.predecessorRunId == snapshot.resumeFromRunId &&
+        fallback.sourceDigest == researchHash(candidate.content) &&
+        snapshot.sources.any { source ->
+            source.platformUid == fallback.sourceProfileUid &&
+                source.attemptId == fallback.sourceRunId &&
+                source.completionStatus == fallback.sourceCompletionStatus &&
+                source.content == candidate.content
+        }
+    return candidate.copy(activeRevisionIndex = if (accepted || committedPartial || explicitReply) ACTIVE_REVISION_LATEST else current.activeRevisionIndex)
 }
 
 internal val COMBINED_FRAMING_FAILURES = setOf(

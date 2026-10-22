@@ -38,6 +38,7 @@ internal fun structuredDiagnosticLine(line: String, captureSource: String = "unk
         put("retainedLength", safe.length)
         put("kind", if (match == null) "continuation" else "event")
         put("message", message)
+        put("eventName", diagnosticEventMessage(message).substringBefore(" · ").trim())
         if (match != null) {
             put("timestamp", match.groupValues[1])
             put("level", match.groupValues[2])
@@ -49,10 +50,10 @@ internal fun structuredDiagnosticLine(line: String, captureSource: String = "unk
                         val key = field.groupValues[1]
                         val end = fields.getOrNull(index + 1)?.range?.first ?: message.length
                         val formattedValue = message.substring(field.range.last + 1, end).trim().trimEnd('·').trim()
-                        val value = if (key in setOf("eventId", "parentEventId")) formattedValue.takeWhile { it.isLetterOrDigit() || it == '-' } else formattedValue
+                        val value = if (key in setOf("eventId", "parentEventId", "monoNs", "bootMs", "processId")) formattedValue.takeWhile { !it.isWhitespace() && it != '·' } else formattedValue
                         when {
                             value == "true" || value == "false" -> put(key, value.toBooleanStrict())
-                            !key.endsWith("Id", ignoreCase = true) && value.toLongOrNull() != null -> put(key, value.toLong())
+                            (key == "processId" || !key.endsWith("Id", ignoreCase = true)) && value.toLongOrNull() != null -> put(key, value.toLong())
                             else -> put(key, JsonPrimitive(value))
                         }
                     }

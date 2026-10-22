@@ -7,11 +7,13 @@ import java.util.Locale
 enum class TaskRecoveryAction {
     CONTINUE_RUN,
     RETRY_FAILED_STAGE,
+    RETRY_WRITING,
     CONTINUE_PRIMARY_ONLY;
 
     companion object {
         fun fromText(text: String): TaskRecoveryAction? = when (text.trim().lowercase(Locale.ROOT).trimEnd('.', '!', '?').trim().replace(Regex("\\s+"), " ")) {
-            "continue", "continue run", "continue response", "resume", "proceed" -> CONTINUE_RUN
+            "continue", "continue research", "continue run", "continue response", "resume", "proceed" -> CONTINUE_RUN
+            "retry writing", "resume writing" -> RETRY_WRITING
             "retry", "retry full", "retry failed stage", "try again" -> RETRY_FAILED_STAGE
             "proceed primary-only", "proceed primary only", "continue primary-only", "continue primary only", "primary-only" -> CONTINUE_PRIMARY_ONLY
             else -> null

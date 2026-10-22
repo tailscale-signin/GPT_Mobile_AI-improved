@@ -11,6 +11,59 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ToolRoundAdmissionTest {
+    @Test fun parserSlotOverflowRetriesOneSmallBatchWithoutExecutingRejectedCalls() = runBlocking {
+        var rounds = 0
+        var executions = 0
+        val tool = object : AgentTool {
+            override val definition = AgentToolDefinition("lookup", "Lookup", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: kotlinx.serialization.json.JsonObject): AgentToolResult {
+                executions++
+                return AgentToolResult(callId, ToolResultContent.Text("Retained source"), false)
+            }
+        }
+        val session = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                when (rounds++) {
+                    0 -> throw ToolBatchOversizeException("STREAM_TOOL_SLOTS", 33, 32)
+                    1 -> {
+                        assertTrue(tools.single().description.contains("at most 4 total calls"))
+                        assertTrue(exchanges.isEmpty())
+                        emit(ProviderEvent.ToolCall("retry", "lookup", buildJsonObject {}))
+                    }
+                    else -> {
+                        assertEquals("retry", exchanges.single().calls.single().callId)
+                        emit(ProviderEvent.TextDelta("Evidence answer"))
+                    }
+                }
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val events = AgentRunner().run(session, listOf(tool)).toList()
+        assertEquals(3, rounds)
+        assertEquals(1, executions)
+        assertTrue(events.any { it == AgentRunEvent.Provider(ProviderEvent.Completed) })
+    }
+
+    @Test fun repeatedParserOverflowFallsBackOnceAndNeverDispatchesPartialBatches() = runBlocking {
+        var rounds = 0
+        val tool = object : AgentTool {
+            override val definition = AgentToolDefinition("lookup", "Lookup", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: kotlinx.serialization.json.JsonObject): AgentToolResult = error("Rejected calls must not execute")
+        }
+        val session = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                if (rounds++ < 2) throw ToolBatchOversizeException("STREAM_TOOL_SLOTS", 33, 32)
+                assertTrue(tools.isEmpty())
+                emit(ProviderEvent.TextDelta("Unable to obtain new evidence"))
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val events = AgentRunner().run(session, listOf(tool)).toList()
+        assertEquals(3, rounds)
+        assertTrue(events.none { it is AgentRunEvent.ToolFinished })
+        assertEquals(1, events.filterIsInstance<AgentRunEvent.Notice>().count { "smaller batch" in it.message })
+    }
+
     @org.junit.Test fun excerptFooterKeepsOnlyCompleteSourceReferences() {
         val url = "https://example.com/" + "a".repeat(500)
         val input = "x".repeat(1000) + "\n$url\nhttps://example.com/complete"
@@ -57,6 +110,33 @@ class ToolRoundAdmissionTest {
         assertTrue(events.any { it == AgentRunEvent.Provider(ProviderEvent.Completed) })
     }
 
+    @Test fun thirtyThreeIndependentReadsExecuteInBoundedGroupsExactlyOnce() = runBlocking {
+        val seen = mutableListOf<String>()
+        var rounds = 0
+        val tool = object : AgentTool {
+            override val definition = AgentToolDefinition("read_url", "Read", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: kotlinx.serialization.json.JsonObject): AgentToolResult {
+                seen += callId
+                return AgentToolResult(callId, ToolResultContent.Text("Evidence $callId"), false)
+            }
+        }
+        val session = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                if (rounds++ == 0) {
+                    repeat(33) { emit(ProviderEvent.ToolCall("read-$it", "read_url", buildJsonObject { put("url", "https://example.org/$it") })) }
+                } else {
+                    assertEquals(33, exchanges.single().results.size)
+                    emit(ProviderEvent.TextDelta("Completed using saved evidence"))
+                }
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val events = AgentRunner(AgentRunLimits(maxToolCallsPerRound = 32)).run(session, listOf(tool)).toList()
+        assertEquals(33, seen.size)
+        assertEquals(33, seen.distinct().size)
+        assertTrue(events.any { it == AgentRunEvent.Provider(ProviderEvent.Completed) })
+    }
+
     @Test fun eightValidCallsFitAndDuplicatesAndHugeArgumentsDoNot() {
         val admission = ToolRoundAdmission()
         repeat(8) { assertTrue(admission.admit(ProviderEvent.ToolCall("c$it", "search", buildJsonObject {}))) }
@@ -69,7 +149,7 @@ class ToolRoundAdmissionTest {
         val admission = ToolRoundAdmission(Int.MAX_VALUE, Int.MAX_VALUE, Int.MAX_VALUE)
         var admitted = 0
         repeat(3000) { if (admission.admit(ProviderEvent.ToolCall("c$it", "tool$it", buildJsonObject {}))) admitted++ }
-        assertEquals(64, admitted)
+        assertEquals(MAX_BUFFERED_TOOL_CALLS, admitted)
     }
 
     @Test fun recoveryWrapperCannotBufferTheStormBeforeTheRunner() = runBlocking {

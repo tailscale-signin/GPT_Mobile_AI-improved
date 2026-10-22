@@ -35,7 +35,19 @@ data class CombinedInputSnapshot(
     val inputDigest: String = "",
     val predecessorSnapshotId: String? = null,
     val selectedHistoryRevisionIds: List<String> = emptyList(),
-    val deliveryResumeFromRevisionId: String? = null
+    val deliveryResumeFromRevisionId: String? = null,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val acceptedTask: AcceptedTaskRef? = null,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val undeliveredHistoryTurnIds: List<Int> = emptyList(),
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val writerAuthorityRevisions: Map<String, String> = emptyMap(),
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val transferableEvidenceIds: List<String> = emptyList(),
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val contributionsTransferable: Boolean = false,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val predecessorRunId: String? = null
 ) {
     fun contentDigest(): String = dev.chungjungsoo.gptmobile.data.research.researchHash(
         SNAPSHOT_JSON.encodeToString(serializer(), copy(inputDigest = "", resumeFromRunId = null, committedPrefix = "", deliveryResumeFromRevisionId = null))

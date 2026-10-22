@@ -17,14 +17,17 @@ object GitHubOperationPlanner {
         val wantsWrite = listOf("fix", "change", "implement", "update", "refactor", "merge", "release", "publish").any(normalized::contains)
 
         return buildJsonArray {
-            add(step("repo_status", "Resolve repository, default branch, recent PR state and checks."))
-            add(step("search", "Search the repository index/code for the smallest relevant file set."))
-            add(step("read", "Read only required line ranges and keep source paths and SHAs."))
+            add(step("resolve_context", "Pin this task to repository, connection, ref, commit and tree; reuse the saved snapshot."))
+            add(step("search_repository", "Use the persistent lexical index and explicit continuation until relevant paths are covered."))
+            add(step("read_ranges", "Read required ranges and retain evidence handles, paths and immutable blob SHAs."))
+            if (listOf("review", "pull request", "pr ").any(normalized::contains)) add(step("pr_context", "Page PR files and checks with expected_head so a moving PR cannot mix revisions."))
+            if (listOf("debug", "failure", "ci", "build").any(normalized::contains)) add(step("ci_failure_digest", "Read the latest failed job at the selected branch and inspect failure context throughout the bounded log."))
             if (wantsWrite) {
                 add(step("branch_head", "Read the working-branch head immediately before preparing writes."))
-                add(step("commit", "Commit an atomic reviewed change set with expected_head_sha; never force-update."))
+                add(step("stage_patch", "Stage exact anchored edits against the original blob SHA and inspect the bounded preview."))
+                add(step("commit_staged_patch", "Commit the reviewed stage with its original expected_head_sha; never force-update."))
                 add(step("diff", "Inspect the resulting compare data and changed-file statistics."))
-                add(step("checks", "Inspect CI/check results for the new commit."))
+                add(step("ci_failure_digest", "Inspect bounded full CI logs for late failures at the new commit, expanding relevant line ranges."))
                 add(step("draft_pr", "Create or update a draft pull request for review."))
             }
             if (wantsMerge) add(step("merge_gate", "Merge only after explicit user intent and required checks/reviews pass."))

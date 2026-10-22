@@ -7,6 +7,7 @@ import androidx.room.Query
 import androidx.room.Transaction
 import androidx.room.Update
 import androidx.room.Upsert
+import dev.chungjungsoo.gptmobile.data.agent.liveRevisionId
 import dev.chungjungsoo.gptmobile.data.chat.decodedArchiveText
 import dev.chungjungsoo.gptmobile.data.database.entity.ACTIVE_REVISION_LATEST
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
@@ -174,7 +175,7 @@ interface AgentPersistenceDao {
     @Transaction
     suspend fun commitCombinedDeliveryCheckpoint(row: dev.chungjungsoo.gptmobile.data.database.entity.CombinedDeliveryCheckpoint, expectedGeneration: Long, synthesisKey: String): Boolean {
         val run = recoveryRun(row.runId) ?: return false
-        if (run.status != "RUNNING" || run.ownershipFence != row.fence || run.synthesisKey != synthesisKey) return false
+        if (run.status != "RUNNING" || run.ownershipFence != row.fence || run.synthesisKey != synthesisKey || !validCombinedPublication(run)) return false
         val message = rawRecoveryMessage(run.assistantMessageId) ?: return false
         if (message.currentRunId != row.runId || message.ownershipFence != row.fence) return false
         val old = combinedDeliveryCheckpoint(row.runId, row.revisionId)
@@ -296,6 +297,86 @@ interface AgentPersistenceDao {
     @Query("SELECT * FROM messages_v2 WHERE message_id = :messageId")
     suspend fun rawRecoveryMessage(messageId: Int): MessageV2?
 
+    @Transaction
+    suspend fun restoreCombinedCandidate(runId: String): MessageV2? {
+        val run = recoveryRun(runId) ?: return null
+        if (run.status !in setOf("FAILED", "INTERRUPTED", "CANCELED")) return null
+        val current = recoveryMessage(run.assistantMessageId) ?: return null
+        if (current.currentRunId != runId || current.ownershipFence != run.ownershipFence || current.content.isNotBlank() || current.revisions.getOrNull(current.activeRevisionIndex)?.content?.isNotBlank() == true) return current
+        val raw = run.synthesisSnapshot ?: return current
+        if (run.synthesisKey != dev.chungjungsoo.gptmobile.data.research.researchHash(raw)) return current
+        val snapshot = runCatching { kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromString<dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot>(raw) }.getOrNull() ?: return current
+        val source = snapshot.sources.firstOrNull { it.platformUid == current.platformType && it.content.isNotBlank() } ?: return current
+        val existing = current.revisions.indexOfFirst { revision ->
+            revision.runId == source.attemptId && (source.rawContentDigest.ifBlank { source.sourceDigest } == dev.chungjungsoo.gptmobile.data.research.researchHash(revision.content) || source.content == revision.content)
+        }
+        val restored = if (existing >= 0) {
+            current.copy(activeRevisionIndex = existing)
+        } else {
+            current.copy(
+                revisions = current.revisions + dev.chungjungsoo.gptmobile.data.database.entity.AssistantRevision(source.content, createdAt = source.createdAt ?: run.createdAt, runId = source.attemptId),
+                activeRevisionIndex = current.revisions.size
+            )
+        }
+        updateMessage(restored)
+        return restored
+    }
+
+    @Transaction
+    suspend fun publishCombinedFallback(runId: String, expectedFence: Long, sourceProfileUid: String? = null): MessageV2? {
+        val prior = recoveryRun(runId) ?: return null
+        val current = recoveryMessage(prior.assistantMessageId) ?: return null
+        if (current.currentRunId != runId || current.ownershipFence != expectedFence || prior.ownershipFence != expectedFence) return null
+        if (sourceProfileUid != null && prior.status !in setOf("COMPLETED", "FAILED", "INTERRUPTED")) return null
+        if (sourceProfileUid == null && prior.status != "QUEUED") return null
+        val raw = prior.synthesisSnapshot ?: return null
+        if (prior.synthesisKey != dev.chungjungsoo.gptmobile.data.research.researchHash(raw)) return null
+        val snapshot = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromString<dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot>(raw)
+        if (snapshot.version >= 6 && snapshot.inputDigest != snapshot.contentDigest()) return null
+        val original = recoveryMessage(prior.userMessageId) ?: return null
+        if (original != snapshot.userMessage) return null
+        val source = sourceProfileUid?.let { uid -> snapshot.sources.singleOrNull { it.platformUid == uid && it.content.isNotBlank() } ?: return null }
+        val text = source?.content ?: snapshot.evidence.records.filter { it.readable }.joinToString("\n\n") { record ->
+            "### ${record.title.ifBlank { record.id }}\n${record.url}\n\n${record.passage}"
+        }.let { passages -> if (passages.isBlank()) "" else "Saved source excerpts\n\nA final report is unavailable. These retained excerpts are evidence for retrying the writer; they have not been assembled into a checked report.\n\n$passages" }
+        val at = System.currentTimeMillis() / 1000
+        val target = if (source != null) {
+            val resumed = snapshot.copy(resumeFromRunId = runId, committedPrefix = "", deliveryResumeFromRevisionId = if (snapshot.deliveryProtocol == "PASSAGES_V3") snapshot.liveRevisionId(runId) else null)
+            val resumedRaw = resumed.encode()
+            persistAgentRetry(PersistAgentRetryRequest(original, current, dev.chungjungsoo.gptmobile.data.database.entity.AgentRunDraft("combined-synthesis:" + UUID.randomUUID(), prior.profileUid, prior.providerSnapshot, prior.modelSnapshot, at, dev.chungjungsoo.gptmobile.data.research.researchHash(resumedRaw), resumedRaw), resumeCombinedFrom = runId)).assistantMessage
+        } else {
+            current
+        }
+        val receipt = dev.chungjungsoo.gptmobile.data.agent.CombinedFallbackReceipt(if (source != null) "USE_REPLY" else "EVIDENCE_ONLY", source?.platformUid, source?.attemptId, source?.completionStatus, dev.chungjungsoo.gptmobile.data.research.researchHash(text), snapshot.snapshotId, runId)
+        val report = dev.chungjungsoo.gptmobile.data.agent.CombinedQualityReport(answerDigest = dev.chungjungsoo.gptmobile.data.research.researchHash(text), status = "PARTIAL", deliveredScopeStatus = "PARTIAL", revisionId = UUID.randomUUID().toString(), issues = listOf(if (source != null) "EXPLICIT_CONTRIBUTOR_FALLBACK" else "NO_AUTHORIZED_WRITER"))
+        val published = target.copy(
+            content = text,
+            activeRevisionIndex = ACTIVE_REVISION_LATEST,
+            timeline = listOf(
+                dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.TEXT, content = text),
+                dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(
+                    dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE,
+                    combinedQuality = report,
+                    combinedFallback = receipt,
+                    researchDeliveryReceipt = if (source == null) {
+                        dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryReceipt(
+                            reportValidity = if (text.isNotBlank()) dev.chungjungsoo.gptmobile.data.research.delivery.ResearchReportValidity.EVIDENCE_ONLY else dev.chungjungsoo.gptmobile.data.research.delivery.ResearchReportValidity.INCOMPLETE,
+                            evidenceAvailable = snapshot.evidence.records.any { it.readable },
+                            packetDigest = snapshot.inputDigest,
+                            revisionId = dev.chungjungsoo.gptmobile.data.research.researchHash(text),
+                            issueCodes = listOf("NO_AUTHORIZED_WRITER"),
+                            sourceIds = snapshot.evidence.records.filter { it.readable }.map { it.id },
+                            retryEligible = true
+                        )
+                    } else {
+                        null
+                    }
+                )
+            )
+        )
+        return if (finishRunningWithMessage(published, requireNotNull(target.currentRunId), "FAILED", at, if (source != null) "EXPLICIT_CONTRIBUTOR_FALLBACK" else "NO_AUTHORIZED_WRITER")) published else null
+    }
+
     /** A canceled job or superseded assistant revision must never be resurrected. */
     @Transaction
     suspend fun restoreGatewayAnswer(runId: String, jobId: String, content: String, completedAt: Long): Boolean {
@@ -335,11 +416,12 @@ interface AgentPersistenceDao {
         val quality = message.timeline.lastOrNull { it.combinedQuality != null }?.combinedQuality
         val limitedCombinedDelivery = run.displayRole == dev.chungjungsoo.gptmobile.data.chat.ReplyDisplayRole.COMBINED &&
             quality?.let {
-                it.correctionRequired ||
-                    !it.complete ||
-                    it.deliveredScopeStatus !in setOf("COMPLETED", "COMPLETED_WITH_LIMITS") ||
-                    it.answerDigest != dev.chungjungsoo.gptmobile.data.research.researchHash(message.content)
-            } == true
+                !it.correctionRequired &&
+                    it.complete &&
+                    it.deliveredScopeStatus in setOf("COMPLETED", "COMPLETED_WITH_LIMITS") &&
+                    it.answerDigest == dev.chungjungsoo.gptmobile.data.research.researchHash(message.content) &&
+                    it.issues.none { issue -> issue in dev.chungjungsoo.gptmobile.data.agent.COMBINED_FRAMING_FAILURES }
+            } != true
         val kind = if (status == "COMPLETED" && !limitedCombinedDelivery) "FINAL" else "PARTIAL"
         val digest = dev.chungjungsoo.gptmobile.data.research.researchHash(content)
         if (previous?.contentDigest == digest && previous.deliveryKind == kind && previous.ownerFence == run.ownershipFence) return
@@ -513,8 +595,9 @@ interface AgentPersistenceDao {
                 createdAt = draft.createdAt,
                 synthesisKey = draft.synthesisKey,
                 synthesisSnapshot = dev.chungjungsoo.gptmobile.data.agent.CombinedAcceptedTurn.decode(draft.synthesisSnapshot)?.let { accepted ->
-                    val rebound = accepted.context.copy(chatId = chatRoom.id)
-                    accepted.copy(context = rebound, tools = accepted.tools.copy(combined = rebound)).encode()
+                    val task = dev.chungjungsoo.gptmobile.data.agent.AcceptedTaskRef.from(userMessage)
+                    val rebound = accepted.context.copy(chatId = chatRoom.id, acceptedTask = task)
+                    accepted.copy(context = rebound, tools = accepted.tools.copy(combined = rebound), acceptedTask = task).encode()
                 } ?: draft.synthesisSnapshot,
                 displayRole = draft.displayRole ?: when {
                     chatRoom.conversationMode == dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode.COMBINED -> "COMBINED_CONTRIBUTOR"
@@ -623,8 +706,16 @@ interface AgentPersistenceDao {
         }
         require(current.currentRunId == request.assistantMessage.currentRunId && current.ownershipFence == request.assistantMessage.ownershipFence) { "The answer slot changed; reload before retrying." }
         require(request.run.synthesisKey == null || previousRun?.status !in setOf("QUEUED", "RUNNING")) { "A Combined writer still owns this answer. Stop it before replacing the corpus." }
-        require(request.run.synthesisKey == null || previousRun?.synthesisKey == null || request.resumeCombinedFrom != null || request.replaceCombinedCorpus) {
+        require(request.run.synthesisKey == null || previousRun?.synthesisKey == null || request.resumeCombinedFrom != null || request.replaceCombinedCorpus || request.successorOfRunId != null) {
             "The Combined answer already owns a frozen corpus. Late source updates cannot replace it automatically."
+        }
+        request.successorOfRunId?.let { predecessorId ->
+            require(previousRun != null && previousRun.runId == predecessorId && previousRun.status == "FAILED") { "COMBINED_SUCCESSOR_OWNER_CHANGED" }
+            val decoder = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+            val previousRaw = requireNotNull(previousRun.synthesisSnapshot)
+            val successorRaw = requireNotNull(request.run.synthesisSnapshot)
+            require(previousRun.synthesisKey == dev.chungjungsoo.gptmobile.data.research.researchHash(previousRaw) && request.run.synthesisKey == dev.chungjungsoo.gptmobile.data.research.researchHash(successorRaw)) { "COMBINED_SUCCESSOR_INTEGRITY_FAILED" }
+            dev.chungjungsoo.gptmobile.data.agent.CombinedSuccessorSnapshot.validate(decoder.decodeFromString(previousRaw), decoder.decodeFromString(successorRaw), predecessorId)
         }
         if (request.freezeCombinedSources) {
             val rows = rawGetMessages(current.chatId).filter { it.linkedMessageId == request.userMessage.id && it.platformType != null }
@@ -637,7 +728,7 @@ interface AgentPersistenceDao {
                         (row.currentRunId == null || sourceRun?.status in setOf("COMPLETED", "FAILED", "INTERRUPTED")) &&
                         source.completionStatus == (sourceRun?.status ?: source.completionStatus) &&
                         source.content.isNotBlank() &&
-                        dev.chungjungsoo.gptmobile.util.stripAssistantErrorNote(row.content).trim() == dev.chungjungsoo.gptmobile.util.stripAssistantErrorNote(source.content).trim()
+                        (if (source.rawContentDigest.isNotBlank()) source.rawContentDigest == dev.chungjungsoo.gptmobile.data.research.researchHash(row.content) else dev.chungjungsoo.gptmobile.util.stripAssistantErrorNote(row.content).trim() == dev.chungjungsoo.gptmobile.util.stripAssistantErrorNote(source.content).trim())
                 ) {
                     "A Combined contribution is still settling. The inputs will be checked again before dispatch."
                 }
@@ -658,7 +749,7 @@ interface AgentPersistenceDao {
         val nextFence = Math.addExact(current.ownershipFence, 1L)
         val previousRevision = current.snapshotLatestAssistantRevision(request.run.createdAt)
         val selectedPrior = current.revisions.getOrNull(current.activeRevisionIndex)
-        val preserveVisibleRevision = request.resumeCombinedFrom != null && resumedPrefix.isEmpty() && (selectedPrior?.content ?: current.content).isNotBlank()
+        val preserveVisibleRevision = (request.resumeCombinedFrom != null || request.freezeCombinedSources || request.successorOfRunId != null) && resumedPrefix.isEmpty() && (selectedPrior?.content ?: current.content).isNotBlank()
         val retainedRevisionIndex = if (selectedPrior != null) current.activeRevisionIndex + if (previousRevision != null) 1 else 0 else 0
         val assistantMessage = request.assistantMessage.copy(
             content = resumedPrefix,
@@ -729,10 +820,31 @@ interface AgentPersistenceDao {
         val current = recoveryMessage(assistantMessage.id) ?: return
         val run = recoveryRun(runId) ?: return
         if (current.currentRunId != runId || current.ownershipFence != run.ownershipFence || assistantMessage.ownershipFence != run.ownershipFence) return
-        updateMessage(assistantMessage)
-        publishReply(run, assistantMessage, status, completedAt ?: System.currentTimeMillis() / 1000)
+        if (!validCombinedPublication(run)) return
+        val selected = dev.chungjungsoo.gptmobile.data.agent.preserveCombinedRetrySelection(current, assistantMessage, run, status)
+        updateMessage(selected)
+        publishReply(run, selected, status, completedAt ?: System.currentTimeMillis() / 1000)
         updateRunStatus(runId, status, startedAt, completedAt, terminalError)
         if (getChatRoom(assistantMessage.chatId)?.isArchived == true) setArchivedWithCompression(assistantMessage.chatId, true)
+    }
+
+    /** Recheck the sealed original at publication, after any asynchronous provider work. */
+    private suspend fun validCombinedPublication(run: AgentRun): Boolean {
+        if (run.synthesisKey == null) return true
+        val raw = run.synthesisSnapshot ?: return false
+        if (run.synthesisKey != dev.chungjungsoo.gptmobile.data.research.researchHash(raw)) return false
+        return try {
+            val snapshot = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromString<dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot>(raw)
+            val stage = dev.chungjungsoo.gptmobile.data.agent.AcceptedTaskRef.from(snapshot.userMessage)
+            val original = recoveryMessage(run.userMessageId) ?: return false
+            stage.validate(original)
+            snapshot.acceptedTask?.validate(original)
+            (snapshot.version < 6 || snapshot.inputDigest == snapshot.contentDigest()) && snapshot.profileUid == run.profileUid && run.chatId == original.chatId
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            false
+        }
     }
 
     /** Commit the complete accumulated answer and terminal status under the same ownership check. */
@@ -757,6 +869,7 @@ interface AgentPersistenceDao {
         ) {
             return false
         }
+        if (!validCombinedPublication(run)) return false
         val selected = dev.chungjungsoo.gptmobile.data.agent.preserveCombinedRetrySelection(current, assistantMessage, run, status)
         preserveCombinedPrefix(selected)
         updateMessage(selected)
@@ -775,6 +888,7 @@ interface AgentPersistenceDao {
         if (run.status != "RUNNING" || run.assistantMessageId != message.id || run.chatId != message.chatId) return false
         val current = recoveryMessage(message.id) ?: return false
         if (current.currentRunId != runId || current.ownershipFence != run.ownershipFence || message.ownershipFence != run.ownershipFence) return false
+        if (!validCombinedPublication(run)) return false
         val selected = dev.chungjungsoo.gptmobile.data.agent.preserveCombinedRetrySelection(current, message, run, null)
         preserveCombinedPrefix(selected)
         updateMessage(selected)

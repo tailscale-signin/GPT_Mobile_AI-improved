@@ -57,7 +57,8 @@ data class AgentRunRequest(
     val platform: PlatformV2,
     val userMessages: List<MessageV2>,
     val assistantMessages: List<List<MessageV2>>,
-    val chatToolConfig: ChatMcpToolConfig? = null
+    val chatToolConfig: ChatMcpToolConfig? = null,
+    val stage: AgentStageRequest? = null
 )
 
 data class ActiveAgentRun(
@@ -66,6 +67,7 @@ data class ActiveAgentRun(
     val profileUid: String,
     val assistantMessageId: Int? = null,
     val phase: LocalInferencePhase? = null,
+    val nativeProgress: dev.chungjungsoo.gptmobile.data.localruntime.GgufNativeProgress? = null,
     val gatewayStage: String? = null,
     val gatewayMessage: String? = null,
     val gatewayCheckpoint: Int? = null,
@@ -214,6 +216,10 @@ class AgentRunCoordinator @Inject constructor(
             .filter { it.chatId == chatId }
             .mapTo(mutableSetOf(), ActiveAgentRun::runId)
         requestCancellation(runIds, isInterrupted = false)
+    }
+
+    fun cancelRuns(runIds: Set<String>) {
+        requestCancellation(runIds.filterTo(mutableSetOf()) { jobs.containsKey(it) }, isInterrupted = false)
     }
 
     fun cancelAll() {
@@ -447,7 +453,8 @@ class AgentRunCoordinator @Inject constructor(
                 request.assistantMessages,
                 request.platform,
                 request.runId,
-                request.chatToolConfig
+                request.chatToolConfig,
+                request.stage
             ).collectApiStateUpdates(
                 onUpdate = { content, thoughts, timeline ->
                     val retained = if (content.isEmpty() && committedPrefix.isNotEmpty()) committedPrefix else content
@@ -508,6 +515,12 @@ class AgentRunCoordinator @Inject constructor(
                         }
                     }
                 },
+                onNativeProgress = { progress ->
+                    _activeRuns.update { runs ->
+                        val current = runs[request.runId]
+                        if (current == null) runs else runs + (request.runId to current.copy(nativeProgress = progress))
+                    }
+                },
                 onGatewayProgress = { progress ->
                     updateGatewayProgress(request.runId, progress)
                 },
@@ -556,6 +569,17 @@ class AgentRunCoordinator @Inject constructor(
             }
         } finally {
             withContext(NonCancellable) { checkpoints.cancelAndJoin() }
+        }
+        if (committedForHandoff && request.chatToolConfig?.combined?.role?.finalization == true) {
+            try {
+                withChatGate(request.chatId) {
+                    synthesisPlanner?.prepareFallback(request.chatId, request.runId)?.let { next -> startUnlocked(listOf(next)) }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                AppLogRecorder.record("Combined", "SUCCESSOR_NOT_STARTED · run=${request.runId} · reason=${failure.javaClass.simpleName}", "W")
+            }
         }
         if (committedForHandoff && request.chatToolConfig?.combined?.role == CombinedRunRole.CONTRIBUTOR) {
             val combined = requireNotNull(request.chatToolConfig.combined)

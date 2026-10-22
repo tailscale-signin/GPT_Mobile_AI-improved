@@ -125,6 +125,10 @@ class GPTMobileApp :
                 conversationDeletion.get().delete(temporary)
             }
             val combinedSettings = startup.settingRepository()
+            dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.initialize(this@GPTMobileApp)
+            dev.chungjungsoo.gptmobile.data.free.FreeQueueJobs.initialize(this@GPTMobileApp)
+            combinedSettings.migrateToPlatformV2()
+            combinedSettings.ensureFreeModels()
             val rooms = conversationDatabase.get().chatRoomDao()
             val existingConversationIds = (rooms.getChatRooms() + rooms.getArchivedChatRooms()).mapTo(hashSetOf()) { it.id }
             combinedSettings.recoverConversationCombinedDeletions(existingConversationIds)
@@ -158,6 +162,7 @@ class GPTMobileApp :
                     val interruptedAt = System.currentTimeMillis() / 1000
                     startup.agentRunDao().interruptActiveRuns(interruptedAt)
                     startup.agentPersistenceDao().cancelInterruptedToolEvents(interruptedAt)
+                    startup.combinedLifecycleReconciler().reconcile()
                 },
                 migrateSecrets = startup.settingRepository()::migrateSecrets
             )
@@ -260,6 +265,7 @@ interface StartupDependencies {
     fun settingRepository(): SettingRepository
     fun agentRunDao(): AgentRunDao
     fun agentPersistenceDao(): AgentPersistenceDao
+    fun combinedLifecycleReconciler(): dev.chungjungsoo.gptmobile.data.agent.CombinedLifecycleReconciler
     fun localRuntime(): LocalRuntime
     fun agentRunCoordinator(): AgentRunCoordinator
 }

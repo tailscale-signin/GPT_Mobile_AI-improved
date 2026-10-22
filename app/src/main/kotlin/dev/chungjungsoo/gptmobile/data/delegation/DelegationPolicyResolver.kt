@@ -52,7 +52,13 @@ object DelegationPolicyResolver {
         if (config.approvedWorkerUids != null && candidate.uid !in config.approvedWorkerUids && candidate.uid != config.targetProfileUid) add(DelegationBlockReason.NOT_APPROVED)
     }
 
-    fun sameModel(first: PlatformV2?, second: PlatformV2?): Boolean = first != null && second != null && CanonicalModelIdentity.independence(first, second) == ModelIndependence.SAME
+    /** Exact duplicate deployments share a reserved role even when their model alias is unresolved. */
+    fun sameModel(first: PlatformV2?, second: PlatformV2?): Boolean = first != null &&
+        second != null &&
+        (
+            CanonicalModelIdentity.independence(first, second) == ModelIndependence.SAME ||
+                CanonicalModelIdentity.resolve(first).deployment == CanonicalModelIdentity.resolve(second).deployment
+            )
 
     fun ranked(profiles: List<PlatformV2>, config: ModelDelegationSettings, primary: PlatformV2? = null, reviewer: PlatformV2? = null): List<PlatformV2> =
         profiles.filter { reasons(it, config, primary, reviewer).isEmpty() }.sortedWith(

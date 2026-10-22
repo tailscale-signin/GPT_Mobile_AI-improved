@@ -32,6 +32,7 @@ internal class CombinedDeliverySession(
     private val combined: CombinedExecutionContext? = null,
     private val answerContract: CombinedAnswerPolicy? = null,
     private val revisionId: String = "",
+    private val researchObligations: List<CombinedResearchObligation> = emptyList(),
     private val verify: suspend (CombinedVerificationRequest) -> CombinedEvidenceLedger? = { null },
     private val replace: suspend (CombinedReplacementCandidate) -> Boolean = { false },
     private val repairDraft: (suspend (CombinedRepairRequest) -> AgentProviderSession)? = null,
@@ -43,7 +44,7 @@ internal class CombinedDeliverySession(
         val policy = answerContract ?: CombinedAnswerPolicy.from(originalRequest)
         var currentEvidence = evidence
         var currentRevision = revisionId.ifBlank { UUID.randomUUID().toString() }
-        val coverage = withContext(Dispatchers.Default) { CombinedContentCoverage(sources) }
+        val coverage = withContext(Dispatchers.Default) { CombinedContentCoverage(sources, originalRequest) }
         val constrained = policy.maximumWords != null || policy.minimumWords != null || policy.targetWords != null || policy.singleExample || policy.requiresCurrentEvidence || policy.requiredFormat != null
         val progressive = structured && !constrained && committedPrefix.isEmpty()
         AppLogRecorder.record(
@@ -126,7 +127,8 @@ internal class CombinedDeliverySession(
             return@flow
         }
         suspend fun assess(candidate: Candidate): CombinedFinalAssessment = withContext(Dispatchers.Default) {
-            val checked = CombinedFinalCheck.check(candidate.text, sources, currentEvidence, policy, candidate.decoder?.passages.orEmpty(), candidate.decoder?.decisions.orEmpty(), currentRevision)
+            val result = CombinedFinalCheck.check(candidate.text, sources, currentEvidence, policy, candidate.decoder?.passages.orEmpty(), candidate.decoder?.decisions.orEmpty(), currentRevision)
+            val checked = result.copy(checks = result.checks + researchQuestionChecks(candidate.text, researchObligations))
             val invalid = checked.receipts.filterNot { CombinedEvidenceVerifier.validateReceipt(candidate.text, currentRevision, currentEvidence, it) }
             if (invalid.isEmpty()) checked else checked.copy(checks = checked.checks + CombinedAnswerCheck("INVALID_REVISION_EVIDENCE_RECEIPT", "PROVENANCE", "FAIL", true, invalid.mapTo(linkedSetOf()) { it.claimId }, "A support receipt did not validate against this answer revision and retained evidence."))
         }
@@ -144,19 +146,20 @@ internal class CombinedDeliverySession(
         var repairSkippedReason: String? = null
 
         fun report(candidate: Candidate, checked: CombinedFinalAssessment, final: Boolean): CombinedQualityReport {
+            val unresolvedResearch = checked.checks.any { it.category == "RESEARCH_SCOPE" && it.result != "PASS" }
             val providerComplete = candidate.terminal == ProviderEvent.Completed
             val material = correctionRequired || checked.correctionRequired
             val issues = (violations + candidate.decoder?.issues.orEmpty() + checked.issues + listOfNotNull("LEXICAL_COVERAGE_UNRESOLVED_HINTS".takeIf { coverageResult.missing.isNotEmpty() })).distinct()
             val framingValid = candidate.decoder?.issues.orEmpty().none { it in COMBINED_FRAMING_FAILURES }
             val delivered = when {
                 candidate.text.isBlank() -> "FAILED"
-                !providerComplete || !framingValid || material || violations.isNotEmpty() -> "PARTIAL"
+                !providerComplete || !framingValid || material || violations.isNotEmpty() || unresolvedResearch -> "PARTIAL"
                 issues.any { it != "LEXICAL_COVERAGE_UNRESOLVED_HINTS" } || checked.verificationNeeds.isNotEmpty() -> "COMPLETED_WITH_LIMITS"
                 else -> "COMPLETED"
             }
             return CombinedQualityReport(
                 answerDigest = researchHash(candidate.text),
-                complete = providerComplete && framingValid && !material && violations.isEmpty(),
+                complete = providerComplete && framingValid && !material && violations.isEmpty() && !unresolvedResearch,
                 status = when {
                     material -> "CORRECTION_REQUIRED"
                     !providerComplete -> "INTERRUPTED"
@@ -216,7 +219,7 @@ internal class CombinedDeliverySession(
                 if (!correctionRequired && assessment.verificationNeeds.isNotEmpty() && assessment.verificationNeeds.size < previousNeeds) continue
             }
             val coverageRepair = repairs == 0 && policy.targetWords != null && !policy.singleExample && coverageResult.missing.isNotEmpty()
-            val semanticRepair = combined != null && (assessment.hardFailures.isNotEmpty() || assessment.verificationNeeds.isNotEmpty())
+            val semanticRepair = combined != null && (assessment.requiredFailures.isNotEmpty() || assessment.verificationNeeds.isNotEmpty())
             val framingRepair = accepted.decoder?.issues.orEmpty().any { it in COMBINED_FRAMING_FAILURES }
             if (violations.isEmpty() && !coverageRepair && !semanticRepair && !framingRepair && !correctionRequired) {
                 repairSkippedReason = "NO_REMAINING_REQUIRED_CORRECTION"
@@ -240,7 +243,7 @@ internal class CombinedDeliverySession(
             val previousDigest = researchHash(accepted.text)
             val previousFailures = assessment.hardFailures.toSet()
             val hints = if (coverageRepair) coverageResult.missing else emptyList()
-            val requestedRepair = CombinedRepairRequest(accepted.text, policy, (violations + assessment.issues + accepted.decoder?.issues.orEmpty()).distinct(), currentEvidence, hints.map { it.text }, currentRevision, combined?.forRole(CombinedRunRole.REPAIR), targetRevisionId = UUID.randomUUID().toString())
+            val requestedRepair = CombinedRepairRequest(accepted.text, policy, (violations + assessment.requiredFailures + assessment.verificationNeeds.map { "Verify or qualify: ${it.proposition} (${it.reason})" } + assessment.checks.filter { it.category == "RESEARCH_SCOPE" && it.result != "PASS" }.map { "Address or explicitly disclose the evidence limitation for: ${it.message}" } + accepted.decoder?.issues.orEmpty()).distinct(), currentEvidence, hints.map { it.text }, currentRevision, combined?.forRole(CombinedRunRole.REPAIR), targetRevisionId = UUID.randomUUID().toString())
             val repairSession = withTimeoutOrNull(90_000L) {
                 try {
                     repairDraft?.invoke(requestedRepair) ?: repair(accepted.text, hints)
@@ -265,14 +268,23 @@ internal class CombinedDeliverySession(
             val rewrittenViolations = rewritten?.let { policy.violations(it.text) }.orEmpty()
             val protocolFailures = rewritten?.decoder?.issues.orEmpty().filter { it in COMBINED_FRAMING_FAILURES }
             val newMaterial = rewrittenChecks?.correctionRequired == true
+            val addedVerificationNeeds = rewrittenChecks?.verificationNeeds.orEmpty().any { next ->
+                assessment.verificationNeeds.none { previous ->
+                    next.proposition == previous.proposition ||
+                        CombinedClaimMatcher.match(previous.proposition, next.proposition) >= CombinedClaimMatcher.Match.PARAPHRASE &&
+                        CombinedClaimMatcher.match(next.proposition, previous.proposition) >= CombinedClaimMatcher.Match.PARAPHRASE
+                }
+            }
             val canAccept = rewritten != null &&
                 rewritten.text.isNotBlank() &&
                 rewritten.terminal == ProviderEvent.Completed &&
                 rewrittenViolations.isEmpty() &&
                 protocolFailures.isEmpty() &&
                 !newMaterial &&
+                !addedVerificationNeeds &&
                 rewrittenChecks != null &&
-                rewrittenChecks.hardFailures.none { it !in previousFailures }
+                rewrittenChecks.hardFailures.none { it !in previousFailures } &&
+                rewrittenChecks.verificationNeeds.size <= assessment.verificationNeeds.size
             if (canAccept && rewritten != null && rewrittenChecks != null) {
                 val nextCoverage = withContext(Dispatchers.Default) { coverage.check(rewritten.text) }
                 val priorCorrection = correctionRequired
@@ -311,6 +323,7 @@ internal class CombinedDeliverySession(
                     newMaterial -> "REPLACEMENT_MATERIAL_CHECK_FAILED:${rewrittenChecks?.issues.orEmpty().joinToString(",") }"
                     rewrittenViolations.isNotEmpty() -> "REPLACEMENT_CONTRACT_FAILED:${rewrittenViolations.joinToString(",") }"
                     protocolFailures.isNotEmpty() -> "REPLACEMENT_PROTOCOL_FAILED:${protocolFailures.joinToString(",") }"
+                    addedVerificationNeeds || rewrittenChecks != null && rewrittenChecks.verificationNeeds.size > assessment.verificationNeeds.size -> "REPLACEMENT_ADDED_VERIFICATION_NEEDS"
                     else -> "REPLACEMENT_ADDED_FAILED_CHECKS"
                 }
                 emit(ProviderEvent.Notice(if (correctionRequired) "The correction did not pass its checks. The retained draft remains marked as needing correction." else "The revision did not pass its checks. The earlier draft was retained.", persistent = true))
@@ -345,7 +358,7 @@ internal class CombinedDeliverySession(
         if (violations.isNotEmpty()) emit(ProviderEvent.Notice("The answer was delivered with an unmet instruction check.", persistent = true))
         if (correctionRequired) emit(ProviderEvent.Notice("The retained draft requires correction; it is not a checked final answer.", persistent = true))
         if (accepted.text.isBlank()) {
-            emit(ProviderEvent.Failed("Combined synthesis produced no usable answer records."))
+            emit(accepted.terminal as? ProviderEvent.Failed ?: ProviderEvent.Failed("Combined synthesis produced no usable answer records."))
         } else if (!finalReport.complete || finalReport.deliveredScopeStatus == "PARTIAL") {
             emit(accepted.terminal as? ProviderEvent.Failed ?: ProviderEvent.Failed("COMBINED_PARTIAL: The retained answer has unfinished delivery or required checks."))
         } else {

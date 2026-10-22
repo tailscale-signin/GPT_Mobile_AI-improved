@@ -12,12 +12,13 @@ data class ExaminationTransition(@PrimaryKey(autoGenerate = true) val sequence: 
 
 internal object ExaminationLifecycle {
     val active = setOf(ExaminationStage.QUEUED, ExaminationStage.RESOLVING, ExaminationStage.READING, ExaminationStage.EXTRACTING, ExaminationStage.APPRAISING, ExaminationStage.REVIEWING)
+    val waiting = setOf(ExaminationStage.WAITING_NETWORK, ExaminationStage.WAITING_RATE_LIMIT, ExaminationStage.WAITING_CAPACITY, ExaminationStage.BLOCKED_SOURCE)
     const val HEARTBEAT_MS = 15_000L
     const val ATTEMPT_MS = 15 * 60_000L
     fun phaseMillis(stage: ExaminationStage): Long = when (stage) {
         ExaminationStage.QUEUED, ExaminationStage.RESOLVING, ExaminationStage.READING -> 2 * 60_000L
         ExaminationStage.EXTRACTING, ExaminationStage.REVIEWING -> 3 * 60_000L
-        ExaminationStage.APPRAISING -> 60_000L
+        ExaminationStage.APPRAISING -> 180_000L
         else -> 0L
     }
 }

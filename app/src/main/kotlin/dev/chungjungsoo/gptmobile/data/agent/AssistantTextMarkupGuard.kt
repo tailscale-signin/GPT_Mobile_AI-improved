@@ -8,11 +8,13 @@ import kotlinx.coroutines.flow.flow
 /** Withhold provider text that contains unresolved wire-level tool instructions. */
 internal fun Flow<ProviderEvent>.withAssistantTextMarkupGuard(
     initialSuccessfulSearch: Boolean = false,
-    searchToolNames: Set<String> = emptySet()
+    searchToolNames: Set<String> = emptySet(),
+    validateSearchClaims: Boolean = true,
+    allowControlJsonText: Boolean = false
 ): Flow<ProviderEvent> = flow {
-    val guard = AssistantTextMarkupGuard()
+    val guard = AssistantTextMarkupGuard(allowControlJsonText)
     var blocked = false
-    var successfulWebSearch = initialSuccessfulSearch
+    var successfulWebSearch = initialSuccessfulSearch || !validateSearchClaims
 
     suspend fun finishText() {
         if (blocked) return
@@ -21,7 +23,7 @@ internal fun Flow<ProviderEvent>.withAssistantTextMarkupGuard(
         if (result.blocked) {
             blocked = true
             logRejectedMarkup(result.reason.orEmpty())
-            emit(ProviderEvent.Failed(result.failureMessage()))
+            emit(ProviderEvent.Failed(result.failureMessage(), errorCode = if (result.reason == "unsupported_search_claim") "UNSUPPORTED_SEARCH_CLAIM" else "TOOL_PROTOCOL_INVALID_FRAME"))
         }
     }
 
@@ -44,7 +46,7 @@ internal fun Flow<ProviderEvent>.withAssistantTextMarkupGuard(
                 if (result.blocked) {
                     blocked = true
                     logRejectedMarkup(result.reason.orEmpty())
-                    emit(ProviderEvent.Failed(result.failureMessage()))
+                    emit(ProviderEvent.Failed(result.failureMessage(), errorCode = if (result.reason == "unsupported_search_claim") "UNSUPPORTED_SEARCH_CLAIM" else "TOOL_PROTOCOL_INVALID_FRAME"))
                 }
             }
             ProviderEvent.Completed -> {
@@ -67,7 +69,9 @@ private fun logRejectedMarkup(reason: String) = AppLogRecorder.record(
     "W"
 )
 
-private class AssistantTextMarkupGuard {
+private class AssistantTextMarkupGuard(private val allowControlJsonText: Boolean = false) {
+    private var initialText = true
+    private var jsonCandidate = false
     data class Result(val text: String = "", val blocked: Boolean = false, val reason: String? = null) {
         fun failureMessage(): String = when (reason) {
             "unsupported_search_claim" -> "The model claimed a web search that has no successful web-search tool result. That claim was withheld."
@@ -82,13 +86,25 @@ private class AssistantTextMarkupGuard {
     private val wireMarkup = Regex("(?is)</?(?:tool_call|function_call|tool_result|invoke)\\b[^>]*>|<\\|(?:tool_call|function_call)(?:\\|)?>|<\\|im_start\\|>")
     private val assistantToolLine = Regex("(?im)^\\s*assistant\\s+to=[A-Za-z0-9_.-]+\\s+(?:\\[|\\{)")
     private val assistantToolPrefix = Regex("(?im)^\\s*assistant\\s+to=")
-    private val partialTags = listOf("<tool_call", "<function_call", "<tool_result", "<invoke", "</tool_call", "</function_call", "</tool_result", "</invoke", "<|tool_call|>", "<|tool_call>", "<|function_call|>", "<|function_call>", "<|im_start|>")
+    private val partialTags = listOf("<｜DSML｜", "</｜DSML｜", "<|DSML|", "</|DSML|", "<tool_call", "<function_call", "<tool_result", "<invoke", "</tool_call", "</function_call", "</tool_result", "</invoke", "<|tool_call|>", "<|tool_call>", "<|function_call|>", "<|function_call>", "<|im_start|>")
     private val searchClaim = Regex("(?i)\\b(?:i|we)\\s+(?:have\\s+)?(?:searched|looked up|checked)\\s+(?:the\\s+)?(?:web|internet|online|latest news|current sources)\\b|\\b(?:my|our)\\s+(?:web|internet)\\s+search\\b")
 
     fun append(text: String, successfulWebSearch: Boolean): Result {
         if (blocked) return Result(blocked = true)
         pending.append(text)
-        val rawStart = listOfNotNull(wireMarkup.find(pending)?.range?.first, patternStart(assistantToolLine, linePrefix())).minOrNull()
+        if (initialText && pending.isNotBlank()) {
+            jsonCandidate = !allowControlJsonText && pending.toString().trimStart().startsWith("{")
+            initialText = false
+        }
+        if (jsonCandidate) {
+            if (pending.length > 65536) {
+                pending.clear()
+                blocked = true
+                return Result(blocked = true, reason = "oversized_unparsed_markup")
+            }
+            return Result()
+        }
+        val rawStart = listOfNotNull(DSML_CONTROL_MARKUP.find(pending)?.range?.first, wireMarkup.find(pending)?.range?.first, patternStart(assistantToolLine, linePrefix())).minOrNull()
         if (rawStart != null) {
             val safe = pending.substring(0, rawStart)
             pending.clear()
@@ -117,7 +133,15 @@ private class AssistantTextMarkupGuard {
 
     fun finish(successfulWebSearch: Boolean): Result {
         if (blocked) return Result(blocked = true)
-        val rawStart = listOfNotNull(wireMarkup.find(pending)?.range?.first, patternStart(assistantToolLine, linePrefix())).minOrNull()
+        if (jsonCandidate) {
+            jsonCandidate = false
+            if (ToolControlOutput.isControl(pending.toString())) {
+                pending.clear()
+                blocked = true
+                return Result(blocked = true, reason = "tool_control_in_content")
+            }
+        }
+        val rawStart = listOfNotNull(DSML_CONTROL_MARKUP.find(pending)?.range?.first, wireMarkup.find(pending)?.range?.first, patternStart(assistantToolLine, linePrefix())).minOrNull()
         if (rawStart != null) {
             val safe = pending.substring(0, rawStart)
             pending.clear()
@@ -200,3 +224,24 @@ private class AssistantTextMarkupGuard {
         const val MAX_PENDING_CHARACTERS = 512
     }
 }
+
+/** Normalize once at the raw provider boundary, before delivery or recovery accumulates text. */
+internal fun AgentProviderSession.withNormalizedAssistantText(userRequest: String = ""): AgentProviderSession =
+    if (this is NormalizedAssistantTextSession) this else NormalizedAssistantTextSession(this, ToolControlOutput.requestedJson(userRequest))
+
+private class NormalizedAssistantTextSession(private val source: AgentProviderSession, override val allowsControlJsonText: Boolean) : AgentProviderSession by source {
+    override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> {
+        val searchNames = tools.filter { AgentToolCapability.WEB_SEARCH in it.capabilities }.map { it.name }.toSet()
+        val searched = exchanges.any { exchange -> exchange.results.any { result -> !result.isError && result.dispatched && exchange.calls.any { it.callId == result.callId && it.name in searchNames } } }
+        return source.streamRound(tools, exchanges).withAssistantTextMarkupGuard(searched, searchNames, validateSearchClaims = false, allowControlJsonText = allowsControlJsonText)
+    }
+}
+
+internal fun sanitizeAssistantText(text: String): String {
+    val guard = AssistantTextMarkupGuard()
+    val first = guard.append(text, successfulWebSearch = true)
+    return first.text + if (first.blocked) "" else guard.finish(successfulWebSearch = true).text
+}
+
+/** Both native full-width DeepSeek delimiters and their ASCII transport variants. */
+internal val DSML_CONTROL_MARKUP = Regex("(?is)</?[|｜]DSML[|｜](?:tool_calls|invoke|parameter|function_calls|function_results)\\b[^>]*>?")

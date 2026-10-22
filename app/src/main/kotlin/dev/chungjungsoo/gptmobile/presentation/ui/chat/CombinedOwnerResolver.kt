@@ -14,7 +14,7 @@ internal object CombinedOwnerResolver {
             it.platformUid in acceptedProfileUids &&
                 it.platformUid in eligibleProfileUids &&
                 it.content.isNotBlank() &&
-                it.completionStatus in setOf("COMPLETED", "PARTIAL", "USABLE_PARTIAL")
+                CombinedContributionUsability.assess(it.completionStatus, it.content, allowPartial = true).admitted
         }.mapTo(hashSetOf()) { it.platformUid }
         return usable.sortedWith(compareBy<String> { it != preferredUid }.thenBy { it })
     }

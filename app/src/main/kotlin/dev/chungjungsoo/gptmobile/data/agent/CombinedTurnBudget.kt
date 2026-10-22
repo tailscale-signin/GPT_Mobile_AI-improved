@@ -74,7 +74,11 @@ data class CombinedBudgetSnapshot(
     val optionalTranches: Long = 1,
     val cancelled: Boolean = false,
     val closed: Boolean = false,
-    val revision: Long = 0
+    val revision: Long = 0,
+    val deliveryStatus: String = "PENDING",
+    val retryEligible: Boolean = false,
+    val firstFailure: String? = null,
+    val deliverySnapshotId: String? = null
 ) {
     val charged: CombinedResourceQuota get() = reservations.values.fold(CombinedResourceQuota()) { sum, item -> sum + item.charged }
     val unknownAttemptIds: Set<String> get() = reservations.values.filter { it.status in setOf(CombinedReservationStatus.RESERVED, CombinedReservationStatus.UNKNOWN) }.mapTo(linkedSetOf()) { it.attemptId }
@@ -258,6 +262,9 @@ class CombinedTurnBudget(
 
     /** A contributor's response, including failure, releases its unused protected baseline. */
     suspend fun finishStage(ownerKey: String, outcome: String, reason: String? = null) = mutex.withLock {
+        // Recovery and late callbacks still retain their raw run outcomes, but a closed root's
+        // delivery disposition is final. Replaying them must not undo explicit Use Reply/cancel.
+        if (state.closed || state.cancelled) return@withLock
         require(ownerKey == "finalization" || ownerKey in state.plan.baselineByOwner || ownerKey in state.pendingWork || ownerKey in state.plan.requested.participantUids.map { "contributor:$it" })
         require(outcome in TERMINAL_OUTCOMES)
         val recorded = if (reason.isNullOrBlank()) outcome else "$outcome:${reason.take(300)}"
@@ -265,11 +272,23 @@ class CombinedTurnBudget(
         // A failed/partial merge can be explicitly retried within its accepted budget. Keep its
         // unused final reserve protected until delivery or a closed/cancelled root ends the task.
         val release = ownerKey != "finalization" || outcome in setOf("COMPLETED", "CANCELLED", "BUDGET_BLOCKED")
+        val stageItems = state.pendingWork.filterValues { it.kind == CombinedWorkKind.STAGE && it.assignedOwnerKey == ownerKey }.keys + ownerKey
         commit(
             state.copy(
-                pendingWork = if (release) state.pendingWork - ownerKey else state.pendingWork,
-                completedWork = if (release) state.completedWork + ownerKey else state.completedWork,
-                stageOutcomes = state.stageOutcomes + (ownerKey to recorded)
+                pendingWork = if (release) state.pendingWork - stageItems else state.pendingWork,
+                completedWork = if (release) state.completedWork + stageItems else state.completedWork,
+                stageOutcomes = state.stageOutcomes + (ownerKey to recorded),
+                deliveryStatus = if (ownerKey == "finalization") {
+                    when (outcome) {
+                        "COMPLETED" -> "COMPLETED"
+                        "CANCELLED", "BUDGET_BLOCKED" -> outcome
+                        else -> "RECOVERABLE_FAILURE"
+                    }
+                } else {
+                    state.deliveryStatus
+                },
+                retryEligible = if (ownerKey == "finalization") outcome !in setOf("COMPLETED", "CANCELLED", "BUDGET_BLOCKED") && !state.closed && !state.cancelled else state.retryEligible,
+                firstFailure = state.firstFailure ?: recorded.takeIf { outcome !in setOf("COMPLETED", "CANCELLED") }
             )
         )
     }
@@ -359,7 +378,7 @@ class CombinedTurnBudget(
         hardLimitReason(state, protectedRemaining(state) + adjustment, null, checkCost = false)?.let { throw CombinedBudgetExceeded(it) }
         commit(
             state.copy(
-                pendingWork = state.pendingWork + (item.id to item.copy(reason = reason, kind = if (item.role.finalization) CombinedWorkKind.STAGE else CombinedWorkKind.EVIDENCE, assignedOwnerKey = owner)),
+                pendingWork = state.pendingWork + (item.id to item.copy(reason = reason, kind = if (item.role.finalization || item.role == CombinedRunRole.CONTRIBUTOR) CombinedWorkKind.STAGE else CombinedWorkKind.EVIDENCE, assignedOwnerKey = owner)),
                 baselineAdjustments = if (adjustment == CombinedResourceQuota()) state.baselineAdjustments else state.baselineAdjustments + CombinedBudgetAdjustment(owner, reason, adjustment)
             )
         )
@@ -391,8 +410,15 @@ class CombinedTurnBudget(
             terminalReason = (reason ?: if (remaining.isNotEmpty()) "Required work remained unfinished when the root closed." else null)?.take(500),
             pendingWork = emptyMap(),
             completedWork = state.completedWork + state.pendingWork.keys,
-            stageOutcomes = state.stageOutcomes + unresolved
+            stageOutcomes = unresolved + state.stageOutcomes,
+            deliveryStatus = finalOutcome,
+            retryEligible = false,
+            firstFailure = state.firstFailure ?: reason.takeIf { finalOutcome != "COMPLETED" }
         )
+    }
+
+    suspend fun recordDeliverySnapshot(snapshotId: String) = mutex.withLock {
+        if (state.deliverySnapshotId != snapshotId) commit(state.copy(deliverySnapshotId = snapshotId))
     }
 
     private suspend fun commit(next: CombinedBudgetSnapshot) {

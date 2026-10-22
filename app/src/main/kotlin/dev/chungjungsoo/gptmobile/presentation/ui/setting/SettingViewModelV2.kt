@@ -161,7 +161,13 @@ class SettingViewModelV2 @Inject constructor(
             }
             val profileToSave = platform.copy(
                 providerConnectionUid = connection?.uid ?: platform.providerConnectionUid,
-                apiUrl = if (connection != null || platform.providerConnectionUid != null) "" else platform.apiUrl,
+                apiUrl = if (platform.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.FREE) {
+                    platform.apiUrl
+                } else if (connection != null || platform.providerConnectionUid != null) {
+                    ""
+                } else {
+                    platform.apiUrl
+                },
                 token = if (connection != null || platform.providerConnectionUid != null) null else platform.token,
                 secretRef = if (connection != null || platform.providerConnectionUid != null) null else platform.secretRef
             )

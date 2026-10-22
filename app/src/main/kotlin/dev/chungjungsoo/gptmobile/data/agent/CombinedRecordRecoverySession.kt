@@ -20,24 +20,25 @@ internal class CombinedRecordRecoverySession(
     override val handlesToolsInternally = false
 
     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
-        var continuations = 0
+        var continuations = protocol.checkpoint().recoveryAttempts
         var noProgress = 0
         var pendingCharacters = 0
         var savedAt = System.nanoTime()
         if (restored) {
             val checkpoint = protocol.checkpoint()
             checkpoint.records.forEach { emit(ProviderEvent.TextDelta(it.wire + "\n")) }
-            if (checkpoint.failure != null) {
-                emit(ProviderEvent.Failed("${checkpoint.failure}: Saved records remain available; this stream requires an explicit new revision."))
-                return@flow
-            }
             if (checkpoint.ended) {
                 emit(ProviderEvent.Completed)
                 return@flow
             }
+            if (continuations >= maxContinuations || checkpoint.failure != null && !protocol.canRecoverMalformed) {
+                emit(ProviderEvent.Failed("${checkpoint.failure ?: "COMBINED_RECORD_RECOVERY_LIMIT"}: Saved records remain available; this stream requires an explicit new revision."))
+                return@flow
+            }
             validateAccess()
-            val context = protocol.continuationContext()
+            val context = protocol.continuationContext(repairMalformed = protocol.canRecoverMalformed)
             save(protocol.checkpoint())
+            continuations++
             active = continuation(protocol.checkpoint(), context)
         }
         while (true) {
@@ -46,6 +47,7 @@ internal class CombinedRecordRecoverySession(
             var complete = false
             var failure: ProviderEvent.Failed? = null
             var finishReason: String? = null
+            var rejectedRecord: CombinedRecordFailure? = null
             try {
                 active.streamRound(emptyList(), emptyList()).withSummedRequestUsage().collect { event ->
                     when (event) {
@@ -62,7 +64,7 @@ internal class CombinedRecordRecoverySession(
                                     savedAt = System.nanoTime()
                                 }
                                 records.forEach { emit(ProviderEvent.TextDelta(it.wire + "\n")) }
-                                protocol.failureReason?.let { throw CombinedRecordFailure(it) }
+                                protocol.failureReason?.let { reason -> throw CombinedRecordFailure(reason).also { rejectedRecord = it } }
                             }
                         }
                         is ProviderEvent.ToolCall, is ProviderEvent.ToolResult -> throw CombinedRecordFailure("COMBINED_TOOL_REQUEST_REJECTED")
@@ -84,8 +86,10 @@ internal class CombinedRecordRecoverySession(
                     }
                 }
                 if (error is CancellationException) throw error
-                // Do not emit from catch: the exception may have originated in a downstream collector.
-                throw error
+                // Only this exact parser sentinel can enter bounded reconstruction. Collector,
+                // persistence and authorization failures must propagate without further emission.
+                if (error !== rejectedRecord) throw error
+                failure = ProviderEvent.Failed(error.message.orEmpty())
             }
             val after = protocol.checkpoint()
             save(after)
@@ -94,14 +98,14 @@ internal class CombinedRecordRecoverySession(
                 return@flow
             }
             val outputLimit = finishReason in setOf("length", "max_tokens", "MAX_TOKENS", "output_limit") || failure?.let { dev.chungjungsoo.gptmobile.data.agent.tool.isProviderOutputLimitFailure(it.message) } == true
-            val recoverable = outputLimit || (failure == null && complete && !after.ended)
+            val recoverable = protocol.canRecoverMalformed || outputLimit || (failure == null && complete && !after.ended)
             noProgress = if (after.lastSequence == before.lastSequence) noProgress + 1 else 0
-            if (!recoverable || continuations >= maxContinuations || noProgress >= 2 || after.failure != null) {
+            if (!recoverable || continuations >= maxContinuations || noProgress >= 2 || after.failure != null && !protocol.canRecoverMalformed) {
                 emit(failure ?: ProviderEvent.Failed("COMBINED_PARTIAL: Structured delivery paused at record ${after.lastSequence + 1}. Committed passages and the unfinished record are saved."))
                 return@flow
             }
             validateAccess()
-            val context = protocol.continuationContext()
+            val context = protocol.continuationContext(repairMalformed = protocol.canRecoverMalformed)
             save(protocol.checkpoint())
             continuations++
             emit(ProviderEvent.Notice("Continuing the unfinished answer from saved record ${after.lastSequence + 1}."))

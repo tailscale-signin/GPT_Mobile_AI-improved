@@ -56,8 +56,9 @@ class SharedToolCallBroker(
             override val coordinatesChildWork = tool.coordinatesChildWork
             override val executionOwner = (tool as? OwnedAgentTool)?.executionOwner ?: AgentToolExecutionOwner.CLIENT
 
-            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult =
-                executeShared(
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                if (GitHubOperationTool.operationName(definition.name) != null && !GitHubOperationTool.immutableRead(definition.name, arguments)) return tool.execute(callId, arguments)
+                return executeShared(
                     scopeId = scopeId,
                     toolIdentity = toolIdentity,
                     callId = callId,
@@ -65,6 +66,7 @@ class SharedToolCallBroker(
                 ) {
                     tool.execute(callId, arguments)
                 }
+            }
         }
     }
 

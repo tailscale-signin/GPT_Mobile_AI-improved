@@ -27,6 +27,25 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AndroidResearchWorkflowTest {
+    @Test fun emptyContributorConsumesSharedAcceptedPlanWithoutRepeatingPlanning() = runBlocking {
+        val saved = Journal()
+        val shared = dev.chungjungsoo.gptmobile.data.research.ResearchPlanContract(
+            listOf(dev.chungjungsoo.gptmobile.data.research.ResearchQuestion("Q1", "What is the documented request limit?")),
+            listOf(dev.chungjungsoo.gptmobile.data.research.ResearchQuery("QRY1", "research device requests", listOf("Q1")))
+        )
+        val journal = object : ResearchJournal by saved {
+            override fun scoped(authority: String, sharePublicEvidence: Boolean): ResearchJournal = this
+            override suspend fun publicQuestionPlan(task: String, value: dev.chungjungsoo.gptmobile.data.research.ResearchPlanContract?) = shared
+        }
+        var planningCalls = 0
+        AndroidResearchWorkflow(config(1), listOf(search(), reader()), { prompt, tokens ->
+            if (prompt.startsWith("Plan public-web") || prompt.startsWith("Repair the planner")) planningCalls++
+            model(prompt, tokens)
+        }, journal).run("Research device request limits", "shared-plan")
+        assertEquals(0, planningCalls)
+        assertEquals(shared.questions, saved.snapshot!!.questionPlan)
+    }
+
     @Test fun emptyGapAdviceWithNoReadableSourcesUsesABoundedFallbackQuery() = runBlocking {
         var searches = 0
         val delegate = search()

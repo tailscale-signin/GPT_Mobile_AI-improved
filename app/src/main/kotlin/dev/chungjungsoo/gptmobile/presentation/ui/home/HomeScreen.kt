@@ -142,6 +142,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -204,6 +205,7 @@ fun HomeScreen(
     val showDeleteWarningDialog by homeViewModel.showDeleteWarningDialog.collectAsStateWithLifecycle()
     val platformState by homeViewModel.platformState.collectAsStateWithLifecycle()
     val activeChatIds by homeViewModel.activeChatIds.collectAsStateWithLifecycle()
+    val conversationProgress by homeViewModel.conversationProgress.collectAsStateWithLifecycle()
     val unreadChatIds by homeViewModel.unreadChatIds.collectAsStateWithLifecycle()
     val completedGenerations by homeViewModel.completedGenerations.collectAsStateWithLifecycle()
     val archivedChats by homeViewModel.archivedChats.collectAsStateWithLifecycle()
@@ -560,6 +562,7 @@ fun HomeScreen(
                                         idx = idx,
                                         chatListState = chatListState,
                                         isGenerating = isGenerating,
+                                        workProgress = conversationProgress[chatRoom.id],
                                         hasUnreadResponse = hasUnreadResponse,
                                         usingPlatform = usingPlatform,
                                         profileLabels = chatProfileLabels,
@@ -606,6 +609,7 @@ fun HomeScreen(
                                         idx = idx,
                                         chatListState = chatListState,
                                         isGenerating = isGenerating,
+                                        workProgress = conversationProgress[chatRoom.id],
                                         hasUnreadResponse = hasUnreadResponse,
                                         usingPlatform = usingPlatform,
                                         profileLabels = chatProfileLabels,
@@ -1039,7 +1043,8 @@ fun FancySwipeChatCard(
     rowActions: Map<String, () -> Unit> = emptyMap(),
     compact: Boolean = false,
     modifier: Modifier = Modifier,
-    animateStatus: Boolean = true
+    animateStatus: Boolean = true,
+    workProgress: ConversationWorkProgress? = null
 ) {
     val progress = dismissState.progress
     val swipeDirection = dismissState.dismissDirection
@@ -1193,7 +1198,8 @@ fun FancySwipeChatCard(
                 dragHandleModifier = dragHandleModifier,
                 rowActions = rowActions,
                 compact = compact,
-                animateStatus = animateStatus
+                animateStatus = animateStatus,
+                workProgress = workProgress
             )
         }
     }
@@ -1216,7 +1222,8 @@ internal fun ChatListItem(
     dragHandleModifier: Modifier = Modifier,
     rowActions: Map<String, () -> Unit> = emptyMap(),
     compact: Boolean = false,
-    animateStatus: Boolean = true
+    animateStatus: Boolean = true,
+    workProgress: ConversationWorkProgress? = null
 ) {
     var menuOpen by rememberSaveable(chatRoom.id) { mutableStateOf(false) }
     val interaction = remember { MutableInteractionSource() }
@@ -1229,105 +1236,114 @@ internal fun ChatListItem(
     } else {
         1f
     }
-    ListItem(
-        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-        modifier = Modifier
-            .fillMaxWidth()
-            .combinedClickable(
-                interactionSource = interaction,
-                indication = null,
-                onLongClick = onItemLongClick,
-                onClick = onItemClick
-            )
-            .semantics {
-                customActions = rowActions.map { (label, action) ->
-                    CustomAccessibilityAction(label) {
-                        action()
-                        true
-                    }
-                }
-            }
-            .padding(start = 8.dp, end = 8.dp),
-        trailingContent = {
-            if (chatListState.isSelectionMode && chatListState.selectedChats.getOrElse(idx) { false } && rowActions.isNotEmpty()) {
-                Box {
-                    IconButton(onClick = { menuOpen = true }) { Icon(Icons.Rounded.MoreVert, stringResource(R.string.conversation_actions)) }
-                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                        rowActions.forEach { (label, action) ->
-                            DropdownMenuItem(text = { Text(label) }, onClick = {
-                                menuOpen = false
-                                action()
-                            })
+    Column {
+        ListItem(
+            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+            modifier = Modifier
+                .fillMaxWidth()
+                .combinedClickable(
+                    interactionSource = interaction,
+                    indication = null,
+                    onLongClick = onItemLongClick,
+                    onClick = onItemClick
+                )
+                .semantics {
+                    customActions = rowActions.map { (label, action) ->
+                        CustomAccessibilityAction(label) {
+                            action()
+                            true
                         }
                     }
                 }
-            } else if (!chatListState.isSelectionMode && !chatListState.isSearchMode) {
-                Box(dragHandleModifier.size(32.dp).semantics { contentDescription = "Drag to organize conversation" })
-            }
-        },
-        headlineContent = {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                if (chatRoom.isFavorite) {
-                    Icon(
-                        imageVector = Icons.Rounded.PushPin,
-                        contentDescription = stringResource(R.string.pinned_chat),
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(16.dp)
+                .padding(start = 8.dp, end = 8.dp),
+            trailingContent = {
+                if (chatListState.isSelectionMode && chatListState.selectedChats.getOrElse(idx) { false } && rowActions.isNotEmpty()) {
+                    Box {
+                        IconButton(onClick = { menuOpen = true }) { Icon(Icons.Rounded.MoreVert, stringResource(R.string.conversation_actions)) }
+                        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                            rowActions.forEach { (label, action) ->
+                                DropdownMenuItem(text = { Text(label) }, onClick = {
+                                    menuOpen = false
+                                    action()
+                                })
+                            }
+                        }
+                    }
+                } else if (!chatListState.isSelectionMode && !chatListState.isSearchMode) {
+                    Box(dragHandleModifier.size(32.dp).semantics { contentDescription = "Drag to organize conversation" })
+                }
+            },
+            headlineContent = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    if (chatRoom.isFavorite) {
+                        Icon(
+                            imageVector = Icons.Rounded.PushPin,
+                            contentDescription = stringResource(R.string.pinned_chat),
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                    Text(
+                        text = chatRoom.title,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        color = Color.Unspecified,
+                        fontWeight = if (hasUnreadResponse) FontWeight.ExtraBold else FontWeight.Normal,
+                        modifier = Modifier.graphicsLayer { alpha = titleAlpha }
                     )
                 }
-                Text(
-                    text = chatRoom.title,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    color = Color.Unspecified,
-                    fontWeight = if (hasUnreadResponse) FontWeight.ExtraBold else FontWeight.Normal,
-                    modifier = Modifier.graphicsLayer { alpha = titleAlpha }
-                )
-            }
-        },
-        leadingContent = {
-            if (chatListState.isSelectionMode) {
-                Checkbox(
-                    checked = chatListState.selectedChats.getOrElse(idx) { false },
-                    onCheckedChange = { onItemClick() }
-                )
-            } else {
-                Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
-                    if (isGenerating) {
-                        if (motionEnabled) {
-                            CircularProgressIndicator(Modifier.size(40.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary)
-                        } else {
-                            CircularProgressIndicator(progress = { 1f }, modifier = Modifier.size(40.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary)
+            },
+            leadingContent = {
+                if (chatListState.isSelectionMode) {
+                    Checkbox(
+                        checked = chatListState.selectedChats.getOrElse(idx) { false },
+                        onCheckedChange = { onItemClick() }
+                    )
+                } else {
+                    Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+                        if (isGenerating) {
+                            if (motionEnabled) {
+                                CircularProgressIndicator(Modifier.size(40.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary)
+                            } else {
+                                CircularProgressIndicator(progress = { 1f }, modifier = Modifier.size(40.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary)
+                            }
                         }
-                    }
-                    ConversationModeSymbol(chatRoom, isServerChat, hasUnreadResponse)
-                    if (hasUnreadResponse) {
-                        dev.chungjungsoo.gptmobile.presentation.common.AppGlassSurface(
-                            modifier = Modifier.align(AbsoluteAlignment.BottomRight).size(18.dp),
-                            shape = CircleShape,
-                            opacity = 0.80f,
-                            blurRadius = 12.dp
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(Icons.Rounded.ChatBubble, "Unread reply", Modifier.size(12.dp), tint = MaterialTheme.colorScheme.error)
+                        ConversationModeSymbol(chatRoom, isServerChat, hasUnreadResponse)
+                        if (hasUnreadResponse) {
+                            dev.chungjungsoo.gptmobile.presentation.common.AppGlassSurface(
+                                modifier = Modifier.align(AbsoluteAlignment.BottomRight).size(18.dp),
+                                shape = CircleShape,
+                                opacity = 0.80f,
+                                blurRadius = 12.dp
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Rounded.ChatBubble, "Unread reply", Modifier.size(12.dp), tint = MaterialTheme.colorScheme.error)
+                                }
                             }
                         }
                     }
                 }
-            }
-        },
-        supportingContent = {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                ProfileNameText(usingPlatform, compact)
-                chatRoom.draftText?.takeIf { it.isNotBlank() }?.let { draft ->
-                    Text("Draft: $draft", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            },
+            supportingContent = {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    ProfileNameText(usingPlatform, compact)
+                    chatRoom.draftText?.takeIf { it.isNotBlank() }?.let { draft ->
+                        Text("Draft: $draft", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
                 }
             }
+        )
+        workProgress?.let { work ->
+            androidx.compose.material3.LinearProgressIndicator(
+                progress = { work.fraction },
+                modifier = Modifier.fillMaxWidth().height(3.dp).semantics { stateDescription = work.label },
+                color = if (work.running || work.fraction == 1f) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary
+            )
         }
-    )
+    }
 }
 
 @Composable

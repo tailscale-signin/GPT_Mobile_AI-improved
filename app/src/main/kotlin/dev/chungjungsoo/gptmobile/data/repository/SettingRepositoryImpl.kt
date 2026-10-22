@@ -232,6 +232,36 @@ class SettingRepositoryImpl @Inject constructor(
     override fun observeFavoriteMessageGroups(): Flow<Map<Int, String>> =
         settingDataSource.observeFavoriteMessageGroups()
 
+    /** Restart-safe migration: reparent profiles before removing old connections, then mark seeded. */
+    override suspend fun ensureFreeModels() = connectionMutation.withLock {
+        val catalog = dev.chungjungsoo.gptmobile.data.free.FreeModelCatalog
+        val settings = settingDataSource.getFeatureSettings()
+        if (settings.freeCatalogVersion >= catalog.VERSION) return@withLock
+        val connections = providerConnectionDao.getConnections().filter { it.compatibleType == ClientType.FREE }
+        val unified = ProviderConnection(uid = catalog.CONNECTION_UID, name = catalog.NAME, compatibleType = ClientType.FREE, apiUrl = FreeAiProvider.default.apiUrl)
+        providerConnectionDao.upsert(unified)
+        val profiles = platformV2Dao.getPlatforms()
+        profiles.filter { it.compatibleType == ClientType.FREE }.forEach { profile ->
+            val legacy = connections.firstOrNull { it.uid == profile.providerConnectionUid }
+            val endpoint = if (legacy != null && legacy.uid != catalog.CONNECTION_UID) legacy.apiUrl else profile.apiUrl
+            val provider = FreeAiProvider.fromApiUrl(endpoint) ?: return@forEach
+            platformV2Dao.editPlatform(provider.applyTo(profile.copy(apiUrl = endpoint)).copy(providerConnectionUid = unified.uid))
+        }
+        FreeAiProvider.entries.forEach { provider ->
+            val uid = "builtin-free-${provider.name.lowercase()}"
+            val current = platformV2Dao.getPlatforms()
+            if (current.none { it.uid == uid || it.compatibleType == ClientType.FREE && FreeAiProvider.fromApiUrl(it.apiUrl) == provider }) {
+                platformV2Dao.addPlatform(provider.applyTo(PlatformV2(uid = uid, name = provider.displayName, enabled = true, providerConnectionUid = unified.uid, timeout = 300)))
+            }
+        }
+        connections.filter { it.uid != unified.uid }.forEach { connection ->
+            // Unknown imported endpoints remain intact and reviewable rather than losing their children.
+            if (providerConnectionDao.profileCount(connection.uid) == 0) providerConnectionDao.delete(connection)
+        }
+        settingDataSource.mutateFeatureSettings { it.copy(freeCatalogVersion = catalog.VERSION) }
+        invalidatePlatformCache()
+    }
+
     override suspend fun migrateToPlatformV2() {
         // Migration is one-way. Once V2 profiles exist, never replace them with
         // legacy DataStore state: doing so can destroy user-edited profiles,
@@ -415,7 +445,8 @@ class SettingRepositoryImpl @Inject constructor(
         connection: ProviderConnection,
         credential: String?
     ): ProviderConnection {
-        val secured = secureProviderConnection(connection, credential)
+        val canonical = if (connection.compatibleType == ClientType.FREE) connection.copy(uid = dev.chungjungsoo.gptmobile.data.free.FreeModelCatalog.CONNECTION_UID, name = "Free Models", apiUrl = FreeAiProvider.default.apiUrl) else connection
+        val secured = secureProviderConnection(canonical, credential)
         providerConnectionDao.upsert(secured)
         invalidatePlatformCache()
         return secured
@@ -598,8 +629,10 @@ class SettingRepositoryImpl @Inject constructor(
         if (platform.compatibleType == ClientType.FREE) {
             val connection = platform.providerConnectionUid?.let { providerConnectionDao.getConnection(it) }
             require(connection == null || connection.compatibleType == ClientType.FREE) { "Free profiles need a Free connection." }
-            val resolved = platform.copy(apiUrl = connection?.apiUrl ?: platform.apiUrl)
-            return FreeAiProvider.requireFor(resolved).applyTo(resolved)
+            val resolved = platform.copy(apiUrl = if (connection?.uid == dev.chungjungsoo.gptmobile.data.free.FreeModelCatalog.CONNECTION_UID) platform.apiUrl else connection?.apiUrl ?: platform.apiUrl)
+            val owner = providerConnectionDao.getConnection(dev.chungjungsoo.gptmobile.data.free.FreeModelCatalog.CONNECTION_UID)
+                ?: addProviderConnection(ProviderConnection(name = "Free Models", compatibleType = ClientType.FREE, apiUrl = FreeAiProvider.default.apiUrl))
+            return FreeAiProvider.requireFor(resolved).applyTo(resolved).copy(providerConnectionUid = owner.uid)
         }
         if (platform.providerConnectionUid != null) {
             return platform.copy(token = null, secretRef = null)
@@ -625,7 +658,7 @@ class SettingRepositoryImpl @Inject constructor(
                 ?: providerConnectionDao.getConnection(connectionUid)
             if (connection != null) {
                 if (platform.compatibleType == ClientType.FREE) {
-                    val resolved = platform.copy(apiUrl = connection.apiUrl)
+                    val resolved = platform.copy(apiUrl = if (connection.uid == dev.chungjungsoo.gptmobile.data.free.FreeModelCatalog.CONNECTION_UID) platform.apiUrl else connection.apiUrl)
                     return FreeAiProvider.requireFor(resolved).applyTo(resolved)
                 }
                 return platform.copy(
@@ -649,7 +682,7 @@ class SettingRepositoryImpl @Inject constructor(
         if (connection.compatibleType == ClientType.FREE) {
             val provider = requireNotNull(FreeAiProvider.fromApiUrl(connection.apiUrl)) { "Choose a supported Free provider." }
             connection.secretRef?.let { secretVault.delete(it) }
-            return connection.copy(apiUrl = provider.apiUrl, secretRef = null)
+            return if (connection.uid == dev.chungjungsoo.gptmobile.data.free.FreeModelCatalog.CONNECTION_UID) connection.copy(name = "Free Models", apiUrl = FreeAiProvider.default.apiUrl, secretRef = null) else connection.copy(apiUrl = provider.apiUrl, secretRef = null)
         }
         if (credential == null) return connection
 

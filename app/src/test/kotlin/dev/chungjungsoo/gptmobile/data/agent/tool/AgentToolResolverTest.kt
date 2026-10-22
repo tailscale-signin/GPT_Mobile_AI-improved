@@ -59,6 +59,10 @@ class AgentToolResolverTest {
         settings.features = settings.features.copy(debugShowRuntime = false, smoothStreaming = false)
         assertTrue(requireNotNull(search.canReuseResult).invoke())
         settings.features = settings.features.withToolPluginEnabled(ToolPluginId.WEB_SEARCH, false)
+        assertTrue(requireNotNull(search.canReuseResult).invoke())
+        val builtIn = resolved.first { it.connectionUid == null && it.realToolName == "web_search" }
+        assertFalse(requireNotNull(builtIn.canReuseResult).invoke())
+        settings.features = settings.features.withToolPluginEnabled("service:exa", false)
         assertFalse(requireNotNull(search.canReuseResult).invoke())
     }
 
@@ -254,7 +258,7 @@ class AgentToolResolverTest {
         val dao = ResolverFakeToolConnectionDao()
         dao.upsertConnection(connection("work", ToolConnectionType.GITHUB, endpointUrl = "https://api.github.com"))
         val tools = resolver(dao = dao).resolve("profile")
-        val account = tools.single { it.connectionUid == "work" }
+        val account = tools.single { it.connectionUid == "work" && it.realToolName == BuiltInAgentTool.GITHUB }
         assertEquals("github__work", account.modelToolName)
         assertEquals(BuiltInAgentTool.GITHUB, account.realToolName)
         assertFalse(account.shareableReadOnly)
@@ -294,7 +298,7 @@ class AgentToolResolverTest {
             userMessage = dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(content = "Remember that I prefer Kotlin", platformType = null),
             delegate = { _, _, _ -> error("Free profiles must not delegate") }
         )
-        assertTrue(resolved.map { it.modelToolName }.containsAll(listOf("calculate_expression", "current_date", "device_location", "github", "read_file_slice", "read_url", "web_search")))
+        assertTrue(resolved.map { it.modelToolName }.containsAll(withGitHubFacades(listOf("calculate_expression", "current_date", "device_location", "github", "read_file_slice", "read_url", "web_search"))))
         assertEquals(1, resolved.count { it.modelToolName == "memory" })
         assertFalse(resolved.single { it.modelToolName == "memory" }.tool.definition.description.contains("search_documents"))
     }
@@ -306,7 +310,7 @@ class AgentToolResolverTest {
         val resolved = resolver.resolve("profile-1")
 
         assertEquals(
-            listOf("calculate_expression", "current_date", "github", "read_file_slice", "read_url", "web_search"),
+            withGitHubFacades(listOf("calculate_expression", "current_date", "github", "read_file_slice", "read_url", "web_search")),
             resolved.map { it.modelToolName }
         )
         assertEquals(null, resolved[0].connectionUid)
@@ -321,7 +325,7 @@ class AgentToolResolverTest {
         assertEquals(null, resolved[4].connectionName)
         assertEquals(null, resolved[5].connectionUid)
         assertEquals(null, resolved[5].connectionName)
-        assertEquals(WebSearchProvider.AUTO, resolved[5].tool.webSearchConfig().provider)
+        assertEquals(WebSearchProvider.AUTO, resolved.single { it.modelToolName == "web_search" }.tool.webSearchConfig().provider)
     }
 
     @Test
@@ -389,7 +393,7 @@ class AgentToolResolverTest {
         val resolved = resolver.resolve("profile-1")
 
         assertEquals(
-            listOf("calculate_expression", "current_date", "device_location", "github", "read_file_slice", "read_url", "web_search"),
+            withGitHubFacades(listOf("calculate_expression", "current_date", "device_location", "github", "read_file_slice", "read_url", "web_search")),
             resolved.map { it.tool.definition.name }
         )
         assertEquals(null, resolved.single { it.modelToolName == "device_location" }.connectionUid)
@@ -509,7 +513,7 @@ class AgentToolResolverTest {
         dao.bind(connection("search-1", ToolConnectionType.FIRECRAWL, secretRef = "secret-1"), binding("profile-1", "search-1", "unknown_tool"))
 
         assertEquals(
-            listOf("calculate_expression", "current_date", "github", "read_file_slice", "read_url", "web_search"),
+            withGitHubFacades(listOf("calculate_expression", "current_date", "github", "read_file_slice", "read_url", "web_search")),
             resolver.resolve("profile-1").map { it.modelToolName }
         )
     }
@@ -630,7 +634,7 @@ class AgentToolResolverTest {
         val resolved = resolver.resolve("profile-1")
 
         assertEquals(
-            listOf("calculate_expression", "current_date", "github", "read_file_slice", "read_url", "web_search"),
+            withGitHubFacades(listOf("calculate_expression", "current_date", "github", "read_file_slice", "read_url", "web_search")),
             resolved.map { it.modelToolName }
         )
     }
@@ -718,7 +722,7 @@ class AgentToolResolverTest {
             val resolved = resolver.resolve("profile-1")
 
             assertEquals(
-                listOf("calculate_expression", "current_date", "github", "mcp__mcp-good__echo", "read_file_slice", "read_url", "web_search"),
+                withGitHubFacades(listOf("calculate_expression", "current_date", "github", "mcp__mcp-good__echo", "read_file_slice", "read_url", "web_search")),
                 resolved.map { it.modelToolName }
             )
             manager.closeAll()
@@ -743,7 +747,7 @@ class AgentToolResolverTest {
         val resolved = resolver.resolve("profile-1")
 
         assertEquals(
-            listOf("calculate_expression", "current_date", "github", "read_file_slice", "read_url", "web_search", "web_search_search_a", "web_search_search_b"),
+            withGitHubFacades(listOf("calculate_expression", "current_date", "github", "read_file_slice", "read_url", "web_search", "web_search_search_a", "web_search_search_b")),
             resolved.map { it.modelToolName }
         )
         assertEquals("search-a", resolved.single { it.connectionUid == "search-a" }.connectionUid)
@@ -839,22 +843,22 @@ class AgentToolResolverTest {
             // Filter out by exact candidate ID "mcp-1:echo"
             val config1 = ChatMcpToolConfig(disabledToolIds = setOf("mcp-1:echo"))
             val resolved1 = resolver.resolve("profile-1", chatToolConfig = config1)
-            assertEquals(listOf("calculate_expression", "current_date", "github", "read_file_slice", "read_url", "web_search"), resolved1.map { it.modelToolName })
+            assertEquals(withGitHubFacades(listOf("calculate_expression", "current_date", "github", "read_file_slice", "read_url", "web_search")), resolved1.map { it.modelToolName })
 
             // Filter out by modelToolName "mcp__mcp-1__echo"
             val config2 = ChatMcpToolConfig(disabledToolIds = setOf("mcp__mcp-1__echo"))
             val resolved2 = resolver.resolve("profile-1", chatToolConfig = config2)
-            assertEquals(listOf("calculate_expression", "current_date", "github", "read_file_slice", "read_url", "web_search"), resolved2.map { it.modelToolName })
+            assertEquals(withGitHubFacades(listOf("calculate_expression", "current_date", "github", "read_file_slice", "read_url", "web_search")), resolved2.map { it.modelToolName })
 
             // Filter out by entire connection uid "mcp-1"
             val config3 = ChatMcpToolConfig(disabledToolIds = setOf("mcp-1"))
             val resolved3 = resolver.resolve("profile-1", chatToolConfig = config3)
-            assertEquals(listOf("calculate_expression", "current_date", "github", "read_file_slice", "read_url", "web_search"), resolved3.map { it.modelToolName })
+            assertEquals(withGitHubFacades(listOf("calculate_expression", "current_date", "github", "read_file_slice", "read_url", "web_search")), resolved3.map { it.modelToolName })
 
             // Allowed when tool is enabled
             val configEnabled = ChatMcpToolConfig()
             val resolvedEnabled = resolver.resolve("profile-1", chatToolConfig = configEnabled)
-            assertEquals(listOf("calculate_expression", "current_date", "github", "mcp__mcp-1__echo", "read_file_slice", "read_url", "web_search"), resolvedEnabled.map { it.modelToolName })
+            assertEquals(withGitHubFacades(listOf("calculate_expression", "current_date", "github", "mcp__mcp-1__echo", "read_file_slice", "read_url", "web_search")), resolvedEnabled.map { it.modelToolName })
 
             manager.closeAll()
             networkClient().close()
@@ -990,6 +994,116 @@ class AgentToolResolverTest {
         }
     }
 
+    private fun withGitHubFacades(names: List<String>): List<String> =
+        if ("github" !in names) names else (names + GitHubOperationTool.names).distinct().sorted() + dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.NAME
+
+    @Test fun nativeRecoveryUsesRegistryGrantsAndIgnoresUsageCounters() = runBlocking {
+        val registry = mockk<NativeMarketplaceRegistry>()
+        val client = mockk<NativeMarketplaceClient>()
+        val profile = PlatformV2(uid = "profile", name = "Researcher")
+        val settings = ResolverFakeSettingRepository(listOf(profile))
+        var installation = NativePluginInstallation(enabled = true, endpoints = mapOf("geocode" to "https://maps.example/search", "restrooms" to "https://maps.example/interpreter"))
+        coEvery { registry.load() } answers { mapOf("optional-openstreetmap" to installation) }
+        val held = resolver(settings = settings, nativeRegistry = registry, nativeClient = client).resolve(profile.uid).single { it.realToolName == "geocode" }
+        assertTrue(requireNotNull(held.canReuseResult).invoke())
+        installation = installation.copy(usageCount = 8, nextRequestAt = 3000, usageDay = "2026-10-21")
+        assertTrue(requireNotNull(held.canReuseResult).invoke())
+        val accepted = installation
+        installation = accepted.copy(endpoints = accepted.endpoints + ("geocode" to "https://another.example/search"))
+        assertFalse(requireNotNull(held.canReuseResult).invoke())
+        installation = accepted.copy(enabled = false)
+        assertFalse(requireNotNull(held.canReuseResult).invoke())
+        installation = accepted
+        settings.features = settings.features.withProfileToolPluginEnabled(profile.uid, "service:openstreetmap", false)
+        assertFalse(requireNotNull(held.canReuseResult).invoke())
+    }
+
+    @Test fun connectedSearchRecoveryRespectsItsProviderGrantIndependentlyOfBuiltInSearch() = runBlocking {
+        val profile = PlatformV2(uid = "profile", name = "Researcher")
+        val settings = ResolverFakeSettingRepository(listOf(profile), dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings().withToolPluginEnabled(ToolPluginId.WEB_SEARCH, false))
+        val dao = ResolverFakeToolConnectionDao()
+        dao.bind(connection("search", ToolConnectionType.EXA), binding(profile.uid, "search", "web_search"))
+        val held = resolver(dao = dao, settings = settings).resolve(profile.uid).single { it.connectionUid == "search" }
+        assertTrue(requireNotNull(held.canReuseResult).invoke())
+        settings.features = settings.features.withProfileToolPluginEnabled(profile.uid, "service:exa", false)
+        assertFalse(requireNotNull(held.canReuseResult).invoke())
+    }
+
+    @Test fun mcpSearchRecoveryStillRequiresApprovedReadAndUnchangedConnection() = runBlocking {
+        val schema = """{"tools":[{"name":"web_search","description":"Search","inputSchema":{"type":"object","properties":{}}}]}"""
+        McpClientManagerTest.McpFixtureServer(toolsResponse = schema).use { server ->
+            val profile = PlatformV2(uid = "profile", name = "Researcher")
+            val settings = ResolverFakeSettingRepository(listOf(profile))
+            val dao = ResolverFakeToolConnectionDao()
+            val connection = connection("mcp-search", ToolConnectionType.MCP, server.url, authType = ToolConnectionAuthType.NONE, allowCleartext = true).copy(approvedReadTools = "web_search")
+            val binding = binding(profile.uid, connection.connectionUid, "web_search")
+            dao.bind(connection, binding)
+            val held = resolver(dao = dao, settings = settings).resolve(profile.uid).single { it.connectionUid == connection.connectionUid }
+            assertTrue(requireNotNull(held.canReuseResult).invoke())
+            dao.bind(connection.copy(approvedReadTools = ""), binding)
+            assertFalse(requireNotNull(held.canReuseResult).invoke())
+        }
+    }
+
+    @Test fun smallGithubSchemasFollowAcceptedRepositoryIntentAcrossShortCommandsOnlyWithinTheConversation() = runBlocking {
+        val profile = PlatformV2(uid = "profile", name = "Writer")
+        val settings = ResolverFakeSettingRepository(listOf(profile))
+        val state = dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore()
+        suspend fun advertised(text: String, chatId: Int = 7): Set<String> {
+            val available = resolver(settings = settings, gitHubState = state).resolve(profile.uid, userMessage = dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(id = text.hashCode().and(Int.MAX_VALUE), chatId = chatId, content = text, platformType = null))
+            val directory = requireNotNull(available.firstNotNullOfOrNull { it.progressiveCatalog })
+            return directory.selected(available.map { it.tool.definition }).mapNotNull { GitHubOperationTool.operationName(it.name) }.toSet()
+        }
+        assertEquals(setOf("github_context", "github_search", "github_read"), advertised("Inspect this repository"))
+        assertEquals(setOf("github_context", "github_search", "github_read"), advertised("continue"))
+        assertTrue("github_stage_patch" in advertised("fix it"))
+        assertTrue("github_commit" in advertised("create a branch"))
+        assertTrue("github_commit" in advertised("push"))
+        assertTrue(advertised("hi").isEmpty())
+        assertTrue(advertised("continue", chatId = 8).isEmpty())
+    }
+
+    @Test fun telemetryEnabledStillPublishesCompactGithubOperationsAndHonorsRevocation() = runBlocking {
+        val profile = PlatformV2(uid = "profile", name = "Writer")
+        val settings = ResolverFakeSettingRepository(listOf(profile))
+        val resolver = resolver(settings = settings, statistics = mockk(relaxed = true))
+        for (task in listOf("check repo status", "show git branches", "inspect commits")) {
+            val tools = resolver.resolve(profile.uid, userMessage = dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(content = task, platformType = null))
+            assertTrue(tools.any { it.realToolName == "github_context" })
+            val catalog = requireNotNull(tools.firstNotNullOfOrNull { it.progressiveCatalog })
+            val schemas = catalog.selected(tools.map { it.tool.definition })
+            assertTrue(schemas.any { it.name == "github_context" })
+            assertFalse(schemas.any { it.name == "github" })
+            assertTrue(schemas.sumOf { dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.schemaTokens(it) } < 2000)
+        }
+        settings.features = settings.features.withToolPluginEnabled(ToolPluginId.GITHUB, false)
+        assertFalse(resolver.resolve(profile.uid).any { it.nativeGitHub })
+    }
+
+    @Test fun cachedAuthorizedOAuthCatalogIsResolvedBeforeCredentialRefreshAndRevocationStillWins() = runBlocking {
+        McpClientManagerTest.McpFixtureServer().use { server ->
+            val connection = connection("oauth-cache", ToolConnectionType.MCP, server.url, "unavailable-oauth", ToolConnectionAuthType.OAUTH, allowCleartext = true)
+            val dao = ResolverFakeToolConnectionDao()
+            dao.bind(connection, binding("profile", connection.connectionUid, "echo"))
+            val network = NetworkClient(CIO)
+            val manager = McpClientManager(network())
+            try {
+                val cached = manager.listTools(McpConnectionConfig(connection.connectionUid, server.url, true))
+                assertTrue(cached.any { it.name == "echo" })
+                val vault = ResolverFakeSecretVault(readError = IllegalStateException("OAuth credential acquisition must not run for cached schema discovery"))
+                val repository = ToolConnectionRepository(dao, vault)
+                val settings = ResolverFakeSettingRepository(listOf(PlatformV2(uid = "profile", name = "Writer")))
+                val resolver = AgentToolResolver(repository, settings, vault, network, manager, McpOAuthCoordinator(McpOAuthClient(network()), repository, vault, manager), DeviceLocationTool(mockk(relaxed = true), mockk(relaxed = true)))
+                assertEquals(cached, resolver.discoverMcpTools(connection))
+                assertTrue(resolver.resolve("profile", userMessage = dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(content = "Use echo", platformType = null), cachedCataloguesOnly = true).any { it.realToolName == "echo" })
+                settings.features = settings.features.withToolPluginEnabled(ToolPluginId.connection(connection.connectionUid), false)
+                assertFalse(resolver.resolve("profile", cachedCataloguesOnly = true).any { it.connectionUid == connection.connectionUid })
+            } finally {
+                manager.closeAll()
+            }
+        }
+    }
+
     private fun amazonEnabled() = dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings()
         .withToolPluginEnabled(ToolPluginId.AMAZON_SEARCH, true)
         .withProfileToolPluginEnabled("profile", ToolPluginId.AMAZON_SEARCH, true)
@@ -1008,7 +1122,9 @@ class AgentToolResolverTest {
         news: PublicNewsClient? = null,
         airbnb: PublicAirbnbClient? = null,
         healthReader: dev.chungjungsoo.gptmobile.data.health.HealthDataReader? = null,
-        healthConsent: dev.chungjungsoo.gptmobile.data.health.HealthConnectConsentStore? = null
+        healthConsent: dev.chungjungsoo.gptmobile.data.health.HealthConnectConsentStore? = null,
+        gitHubState: dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore? = null,
+        statistics: dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsRepository? = null
     ): AgentToolResolver {
         val repository = ToolConnectionRepository(dao, vault)
         val networkClient = NetworkClient(CIO)
@@ -1031,7 +1147,9 @@ class AgentToolResolverTest {
             publicNews = news,
             publicAirbnb = airbnb,
             healthReader = healthReader,
-            healthConsent = healthConsent
+            healthConsent = healthConsent,
+            gitHubRepositoryState = gitHubState,
+            statistics = statistics
         )
     }
 

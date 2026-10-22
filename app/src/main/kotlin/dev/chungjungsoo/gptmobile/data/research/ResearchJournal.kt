@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.research
 
 interface ResearchJournal {
     fun scoped(authority: String, sharePublicEvidence: Boolean): ResearchJournal = this
+    fun attributeSource(source: ResearchSource, discovered: Boolean = false, read: Boolean = false): ResearchSource = source
     fun sourceId(identity: String, fallback: String): String = fallback
     fun claimWork(key: String, leaseMillis: Long): Boolean = true
     fun releaseWork(key: String) = Unit
@@ -16,7 +17,12 @@ interface ResearchJournal {
     suspend fun featurePolicy(): dev.chungjungsoo.gptmobile.data.research.feature.ResearchFeatureSettings = dev.chungjungsoo.gptmobile.data.research.feature.ResearchFeatureSettings()
     suspend fun archiveLeads(task: String): List<ResearchSource> = emptyList()
     suspend fun retainBody(text: String): List<String> = emptyList()
+    suspend fun retainDeliveryReceipt(receipt: dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryReceipt): Boolean = false
+    suspend fun retainPartial(stage: String, profileUid: String, text: String): String? = null
     suspend fun bindTask(snapshot: ResearchSnapshot): ResearchSnapshot = snapshot
+
+    /** Accepted task planning only; this never grants access to another source or evidence scope. */
+    suspend fun publicQuestionPlan(task: String, value: ResearchPlanContract? = null): ResearchPlanContract? = null
     suspend fun save(snapshot: ResearchSnapshot)
     fun cancellationOrigin(): String = "UNKNOWN"
     fun stopRequested(): Boolean

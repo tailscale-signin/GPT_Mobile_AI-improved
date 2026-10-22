@@ -114,11 +114,21 @@ class CombinedOwnershipTest {
             db.messageDao().addMessages(user, answer)
             db.agentRunDao().upsert(AgentRun("source", 1, 2, 3, "primary", "provider", "model", "COMPLETED"))
             val dao = db.agentPersistenceDao()
-            val first = dao.persistAgentRetry(PersistAgentRetryRequest(user, answer, AgentRunDraft("combined-synthesis:a", "primary", "provider", "model", synthesisKey = "corpus-a", synthesisSnapshot = "full input")))
+            fun sealedCorpus(id: String) = dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot(
+                version = 6, userMessage = user, history = emptyList(), replies = emptyList(),
+                sources = listOf(dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse("primary", "Primary", content = answer.content)),
+                prompt = "Frozen input $id", profileUid = "primary", model = "model", systemPrompt = "", configKey = "config",
+                snapshotId = id, revisionId = id
+            ).seal().encode()
+            val corpusA = sealedCorpus("a")
+            val corpusB = sealedCorpus("b")
+            val keyA = dev.chungjungsoo.gptmobile.data.research.researchHash(corpusA)
+            val keyB = dev.chungjungsoo.gptmobile.data.research.researchHash(corpusB)
+            val first = dao.persistAgentRetry(PersistAgentRetryRequest(user, answer, AgentRunDraft("combined-synthesis:a", "primary", "provider", "model", synthesisKey = keyA, synthesisSnapshot = corpusA)))
             assertEquals(1L, first.assistantMessage.ownershipFence)
             assertEquals(1, db.agentRunDao().markRunning(first.run.runId, 1))
             assertTrue(dao.checkpointRunningMessage(first.assistantMessage.copy(content = "Committed chapter")))
-            val duplicate = dao.persistAgentRetry(PersistAgentRetryRequest(user, first.assistantMessage, AgentRunDraft("duplicate", "primary", "provider", "model", synthesisKey = "corpus-a")))
+            val duplicate = dao.persistAgentRetry(PersistAgentRetryRequest(user, first.assistantMessage, AgentRunDraft("duplicate", "primary", "provider", "model", synthesisKey = keyA)))
             assertEquals(first.run.runId, duplicate.run.runId)
             assertEquals("Committed chapter", duplicate.assistantMessage.content)
             assertEquals(1, db.agentRunDao().finishRunning(first.run.runId, "CANCELED", 2, null))
@@ -127,7 +137,7 @@ class CombinedOwnershipTest {
             }
             assertTrue(automaticReplacement.exceptionOrNull() is IllegalArgumentException)
             assertEquals(first.run.runId, dao.recoveryMessage(answer.id)?.currentRunId)
-            val second = dao.persistAgentRetry(PersistAgentRetryRequest(user, duplicate.assistantMessage, AgentRunDraft("combined-synthesis:b", "primary", "provider", "model", synthesisKey = "corpus-b"), replaceCombinedCorpus = true))
+            val second = dao.persistAgentRetry(PersistAgentRetryRequest(user, duplicate.assistantMessage, AgentRunDraft("combined-synthesis:b", "primary", "provider", "model", synthesisKey = keyB, synthesisSnapshot = corpusB), replaceCombinedCorpus = true))
             assertEquals(2L, second.assistantMessage.ownershipFence)
             assertEquals(1, db.agentRunDao().markRunning(second.run.runId, 3))
             assertFalse(dao.checkpointRunningMessage(first.assistantMessage.copy(content = "Late writer")))

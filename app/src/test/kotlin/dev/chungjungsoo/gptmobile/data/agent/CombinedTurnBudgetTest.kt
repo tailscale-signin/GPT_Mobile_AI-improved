@@ -14,6 +14,52 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CombinedTurnBudgetTest {
+    @Test fun appraisalAndStudyReviewHaveProtectedStageBudgetsIndependentOfVerification() = runBlocking {
+        val requested = CombinedPolicyResolver.accept(ConversationCombinedSettings(effort = 0), listOf("a"), mapOf("a" to "model"), "Examine the studies", acceptedResearch = CombinedResearchRequirement(1, 1, "WEB_AND_PAPERS", examinationRequested = true, independentReviewRequested = true))
+        val plan = CombinedPolicyResolver.resolve(requested, estimatedInputTokens = 1024)
+        val context = CombinedExecutionContext(requested, plan, "appraisal-root", profileUid = "a")
+        val budget = CombinedTurnBudgetStore.inMemory().open(context)
+        val appraisal = context.forRole(CombinedRunRole.RESEARCH, "a", CombinedResearchStages.id("a", "appraisal"))
+        assertEquals(6144, plan.outputTokens(CombinedRunRole.RESEARCH))
+        assertEquals(1024, plan.verificationOutputTokens)
+        val admitted = budget.reserve(appraisal, "full-appraisal", CombinedResourceQuota(12000, 6144))
+        assertTrue(admitted is CombinedBudgetAdmission.Granted)
+        assertEquals(CombinedBudgetPool.BASELINE, (admitted as CombinedBudgetAdmission.Granted).reservation.pool)
+        assertTrue(plan.baselineByOwner.getValue(CombinedResearchStages.id("a", "study_review")).generatedTokens >= 11 * 1024)
+    }
+
+    @Test fun researchContributorReportRepairAndContinuationUseItsThreeProtectedBaselinePasses() = runBlocking {
+        val requested = CombinedPolicyResolver.accept(
+            ConversationCombinedSettings(effort = 0),
+            listOf("a", "b"),
+            mapOf("a" to "model-a", "b" to "model-b"),
+            "Research the required evidence",
+            acceptedResearch = CombinedResearchRequirement(1, 1, "WEB_AND_PAPERS")
+        )
+        val plan = CombinedPolicyResolver.resolve(requested, estimatedInputTokens = 1024)
+        val contributor = CombinedExecutionContext(requested, plan, "research-funding", profileUid = "b")
+        val budget = CombinedTurnBudgetStore.inMemory().open(contributor)
+        assertEquals(CombinedResourceQuota(27072, 12288), plan.baselineByOwner["contributor:b"])
+        val finalReserve = plan.finalizationReserve
+        for (kind in listOf("research-contributor-brief", "research-report-repair", "research-report-repair-continuation")) {
+            val context = contributor.forInvocationKind(kind, "b")
+            assertEquals(CombinedRunRole.CONTRIBUTOR, context.role)
+            assertEquals("contributor:b", context.ownerKey)
+            val admission = budget.reserve(context, kind, CombinedResourceQuota(1024, 4096))
+            assertTrue("Required contributor stage $kind was not admitted: $admission", admission is CombinedBudgetAdmission.Granted)
+            assertEquals(CombinedBudgetPool.BASELINE, (admission as CombinedBudgetAdmission.Granted).reservation.pool)
+        }
+        assertTrue(budget.snapshot().reservations.values.none { it.pool == CombinedBudgetPool.FINALIZATION })
+        assertEquals(finalReserve, budget.snapshot().plan.finalizationReserve)
+        val final = contributor.forRole(CombinedRunRole.SYNTHESIS).forInvocationKind("research-report-repair", "a")
+        assertEquals(CombinedRunRole.REPAIR, final.role)
+        val finalAdmission = budget.reserve(final, "final-repair", finalReserve)
+        assertTrue(finalAdmission is CombinedBudgetAdmission.Granted)
+        assertEquals(CombinedBudgetPool.FINALIZATION, (finalAdmission as CombinedBudgetAdmission.Granted).reservation.pool)
+        budget.finishStage("contributor:b", "FAILED", "Writer failed after retaining evidence")
+        assertFalse(budget.snapshot().closed)
+    }
+
     @Test
     fun concurrentWorkersShareOneAtomicToolCeilingAndDuplicateIdsDoNotExecute() = runBlocking {
         val context = context(CombinedHardLimits(toolOperations = 7), renewable = false)
@@ -200,6 +246,22 @@ class CombinedTurnBudgetTest {
         val result = budget.reserve(repair, "actual-compiled", CombinedResourceQuota(1250, 100))
         assertTrue(result is CombinedBudgetAdmission.Granted)
         assertEquals(CombinedBudgetPool.FINALIZATION, (result as CombinedBudgetAdmission.Granted).reservation.pool)
+    }
+
+    @Test fun lateStageRecoveryCannotReplaceAnExplicitlyClosedDeliveryDisposition() = runBlocking {
+        val context = context()
+        val budget = CombinedTurnBudgetStore.inMemory().open(context)
+        budget.finishStage("finalization", "PARTIAL", "EXPLICIT_CONTRIBUTOR_FALLBACK")
+        budget.close("PARTIAL", "EXPLICIT_CONTRIBUTOR_FALLBACK")
+        val closed = budget.snapshot()
+        budget.finishStage("finalization", "FAILED", "EXPLICIT_CONTRIBUTOR_FALLBACK")
+        assertEquals(closed, budget.snapshot())
+
+        val canceled = CombinedTurnBudgetStore.inMemory().open(context)
+        canceled.cancel()
+        val stopped = canceled.snapshot()
+        canceled.finishStage("finalization", "INTERRUPTED", "Process stopped")
+        assertEquals(stopped, canceled.snapshot())
     }
 
     private fun context(

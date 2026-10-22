@@ -26,5 +26,20 @@ internal class DelegateGenerationException(
     val inputTokens: Long,
     val outputTokens: Long,
     val totalTokens: Long,
-    val usageEstimated: Boolean
-) : IllegalStateException("${kind.name}: $message")
+    val usageEstimated: Boolean,
+    partialText: String = "",
+    val transportComplete: Boolean = false,
+    val schemaValid: Boolean = false,
+    val stageAccepted: Boolean = false
+) : IllegalStateException("${kind.name}: $message") {
+    /** Private checkpoint material; never part of the exception message or evidence. */
+    val partialText: String = boundedDelegatePartial(partialText)
+}
+
+internal fun boundedDelegatePartial(text: String, maximumBytes: Int = 128 * 1024): String {
+    val bytes = text.toByteArray(Charsets.UTF_8)
+    if (bytes.size <= maximumBytes) return text
+    var end = maximumBytes.coerceAtLeast(0)
+    while (end > 0 && (bytes[end].toInt() and 0xC0) == 0x80) end--
+    return bytes.copyOf(end).toString(Charsets.UTF_8)
+}

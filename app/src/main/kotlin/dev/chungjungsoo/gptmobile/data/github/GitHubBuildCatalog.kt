@@ -26,7 +26,10 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
+import kotlinx.serialization.json.put
 
 @Serializable
 enum class GitHubBuildSource { RELEASE, WORKFLOW }
@@ -63,13 +66,16 @@ data class GitHubBuildPage(val builds: List<GitHubApkBuild>, val hasMore: Boolea
  */
 class GitHubBuildCatalog(
     private val token: String,
-    private val client: HttpClient = sharedClient
+    private val client: HttpClient = sharedClient,
+    private val scheduler: GitHubRequestScheduler = GitHubSessionCaches.schedulerForCredential(token)
 ) {
     private val rateLimits = if (client === sharedClient) {
         GitHubSessionCaches.rateLimitsForCredential(token)
     } else {
         GitHubRateLimitManager()
     }
+
+    private val cache = if (client === sharedClient) GitHubSessionCaches.forCredential(token) else GitHubResponseCache()
 
     suspend fun releases(owner: String, repo: String, page: Int = 1): GitHubBuildPage {
         val root = repositoryRoot(owner, repo)
@@ -147,7 +153,7 @@ class GitHubBuildCatalog(
         val runId = run.positiveId("id") ?: return emptyList()
         val builds = mutableListOf<GitHubApkBuild>()
         for (page in 1..MAX_ARTIFACT_PAGES) {
-            val response = get("$root/actions/runs/$runId/artifacts?per_page=$ARTIFACTS_PER_PAGE&page=$page")
+            val response = get("$root/actions/runs/$runId/artifacts?per_page=$ARTIFACTS_PER_PAGE&page=$page", immutable = true, identitySuffix = run.string("run_attempt") + ":" + run.string("updated_at"))
             val result = response.value as? JsonObject ?: invalidResponse()
             val artifacts = result["artifacts"] as? JsonArray ?: invalidResponse()
             artifacts.mapNotNull { it as? JsonObject }.forEach { artifact ->
@@ -167,7 +173,7 @@ class GitHubBuildCatalog(
                     detailsUrl = "$WEB_ROOT/${GitHubWorkspaceClient.segment(owner)}/${GitHubWorkspaceClient.segment(repo)}/actions/runs/$runId",
                     branch = branch,
                     commitSha = run.string("head_sha").takeIf(COMMIT_SHA::matches),
-                    expired = artifact.boolean("expired") == true,
+                    expired = artifact.boolean("expired") == true || runCatching { java.time.Instant.parse(artifact.string("expires_at")).toEpochMilli() <= System.currentTimeMillis() }.getOrDefault(false),
                     digest = artifact.string("digest").takeIf { it.isNotBlank() },
                     runId = runId
                 )
@@ -179,59 +185,87 @@ class GitHubBuildCatalog(
         throw CatalogFailure("A workflow run has too many artifacts to list here. Open the run on GitHub to inspect its builds.")
     }
 
-    private suspend fun get(path: String): ApiPage {
+    private suspend fun get(path: String, immutable: Boolean = false, identitySuffix: String = ""): ApiPage {
+        val key = "build-catalog:$path:$identitySuffix"
+        val cached = cache.get(key)
+        fun cachedPage(): ApiPage = ApiPage(requireNotNull(cached).value.jsonObject.getValue("value"), cached.value.jsonObject["has_next"]?.jsonPrimitive?.booleanOrNull)
+        if (cached != null && (immutable || System.currentTimeMillis() - cached.storedAtMillis < 15000)) {
+            scheduler.recordCacheHit()
+            return cachedPage()
+        }
         try {
-            try {
-                rateLimits.requireAvailable("core")
-            } catch (_: IllegalStateException) {
-                throw CatalogFailure("GitHub is limiting requests. Wait for its limit to reset, then refresh the builds.")
-            }
-            return client.prepareGet("$API_ROOT$path") {
-                header(HttpHeaders.Accept, "application/vnd.github+json")
-                header(HttpHeaders.UserAgent, "GPT-Mobile-App")
-                header("X-GitHub-Api-Version", GitHubWorkspaceClient.API_VERSION)
-                if (token.isNotBlank()) header(HttpHeaders.Authorization, "Bearer $token")
-            }.execute { response ->
-                rateLimits.record(response.headers)
-                if (!response.status.isSuccess()) {
-                    response.bodyAsChannel().cancel(null)
-                    val rateLimited = response.status.value == 429 ||
-                        response.status.value == 403 &&
-                        (response.headers["X-RateLimit-Remaining"] == "0" || response.headers["Retry-After"] != null)
-                    throw CatalogFailure(
-                        when {
-                            rateLimited -> "GitHub is limiting requests. Wait for its limit to reset, then refresh the builds."
-                            response.status.value == 401 -> "Reconnect this GitHub account to load its builds."
-                            response.status.value == 403 -> "GitHub denied build access. Check repository access and Actions read permission for workflow builds."
-                            response.status.value == 404 -> "GitHub could not find these builds or this account cannot access them."
-                            else -> "GitHub could not load builds (HTTP ${response.status.value}). Try again."
-                        }
-                    )
-                }
-                val declaredSize = response.headers[HttpHeaders.ContentLength]?.toLongOrNull()
-                val channel = response.bodyAsChannel()
-                val output = ByteArrayOutputStream()
+            return scheduler.execute(if (immutable) key else null) {
                 try {
-                    if (declaredSize != null && declaredSize > MAX_METADATA_BYTES) throw CatalogFailure("GitHub build metadata is too large to display.")
-                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                    while (output.size() <= MAX_METADATA_BYTES) {
-                        val count = channel.readAvailable(buffer, 0, minOf(buffer.size, MAX_METADATA_BYTES + 1 - output.size()))
-                        if (count < 0) break
-                        if (count == 0) {
-                            yield()
-                        } else {
-                            output.write(buffer, 0, count)
-                        }
-                    }
-                    if (output.size() > MAX_METADATA_BYTES) throw CatalogFailure("GitHub build metadata is too large to display.")
-                } finally {
-                    channel.cancel(null)
+                    rateLimits.requireAvailable("core")
+                } catch (_: IllegalStateException) {
+                    throw CatalogFailure("GitHub is limiting requests. Wait for its limit to reset, then refresh the builds.")
                 }
-                ApiPage(
-                    value = Json.parseToJsonElement(output.toByteArray().decodeToString(throwOnInvalidSequence = true)),
-                    // Pagination URLs never become request targets; later calls construct their own page path.
-                    hasNext = response.headers[HttpHeaders.Link]?.let { NEXT_LINK.containsMatchIn(it) }
-                )
+                scheduler.recordRequest()
+                client.prepareGet("$API_ROOT$path") {
+                    header(HttpHeaders.Accept, "application/vnd.github+json")
+                    header(HttpHeaders.UserAgent, "GPT-Mobile-App")
+                    header("X-GitHub-Api-Version", GitHubWorkspaceClient.API_VERSION)
+                    if (token.isNotBlank()) header(HttpHeaders.Authorization, "Bearer $token")
+                    cached?.etag?.takeIf { it.isNotBlank() }?.let { header(HttpHeaders.IfNoneMatch, it) }
+                }.execute response@{ response ->
+                    rateLimits.record(response.headers, response.status.value)
+                    if (response.status.value == 304 && cached != null) {
+                        cache.put(key, cached.etag, cached.value, immutable, allowWithoutEtag = true)
+                        scheduler.recordCacheHit()
+                        return@response cachedPage()
+                    }
+                    if (!response.status.isSuccess()) {
+                        response.bodyAsChannel().cancel(null)
+                        val rateLimited = response.status.value == 429 ||
+                            response.status.value == 403 &&
+                            (response.headers["X-RateLimit-Remaining"] == "0" || response.headers["Retry-After"] != null)
+                        throw CatalogFailure(
+                            when {
+                                rateLimited -> "GitHub is limiting requests. Wait for its limit to reset, then refresh the builds."
+                                response.status.value == 401 -> "Reconnect this GitHub account to load its builds."
+                                response.status.value == 403 -> "GitHub denied build access. Check repository access and Actions read permission for workflow builds."
+                                response.status.value == 404 -> "GitHub could not find these builds or this account cannot access them."
+                                else -> "GitHub could not load builds (HTTP ${response.status.value}). Try again."
+                            }
+                        )
+                    }
+                    val declaredSize = response.headers[HttpHeaders.ContentLength]?.toLongOrNull()
+                    val channel = response.bodyAsChannel()
+                    val output = ByteArrayOutputStream()
+                    try {
+                        if (declaredSize != null && declaredSize > MAX_METADATA_BYTES) throw CatalogFailure("GitHub build metadata is too large to display.")
+                        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                        while (output.size() <= MAX_METADATA_BYTES) {
+                            val count = channel.readAvailable(buffer, 0, minOf(buffer.size, MAX_METADATA_BYTES + 1 - output.size()))
+                            if (count < 0) break
+                            if (count == 0) {
+                                yield()
+                            } else {
+                                output.write(buffer, 0, count)
+                                scheduler.recordBytes(count.toLong())
+                            }
+                        }
+                        if (output.size() > MAX_METADATA_BYTES) throw CatalogFailure("GitHub build metadata is too large to display.")
+                    } finally {
+                        channel.cancel(null)
+                    }
+                    ApiPage(
+                        value = Json.parseToJsonElement(output.toByteArray().decodeToString(throwOnInvalidSequence = true)),
+                        // Pagination URLs never become request targets; later calls construct their own page path.
+                        hasNext = response.headers[HttpHeaders.Link]?.let { NEXT_LINK.containsMatchIn(it) }
+                    ).also { result ->
+                        cache.put(
+                            key,
+                            response.headers[HttpHeaders.ETag] ?: "",
+                            kotlinx.serialization.json.buildJsonObject {
+                                put("value", result.value)
+                                result.hasNext?.let { put("has_next", JsonPrimitive(it)) }
+                            },
+                            immutable = immutable,
+                            allowWithoutEtag = true
+                        )
+                    }
+                }
             }
         } catch (cancellation: CancellationException) {
             throw cancellation

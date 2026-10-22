@@ -27,10 +27,10 @@ class ToolAdmissionDiagnosticsTest {
             guard.slot("one")
             guard.append("x")
         }
-        repeat(31) { guard.slot("other-$it") }
+        repeat(MAX_BUFFERED_TOOL_CALLS - 1) { guard.slot("other-$it") }
         val failure = runCatching { guard.slot("thirty-third") }.exceptionOrNull() as ToolBatchOversizeException
         assertEquals("STREAM_TOOL_SLOTS", failure.threshold)
-        assertEquals(33, failure.observedValue)
+        assertEquals(MAX_BUFFERED_TOOL_CALLS + 1, failure.observedValue)
         assertEquals(null, failure.completeCallIds)
     }
 

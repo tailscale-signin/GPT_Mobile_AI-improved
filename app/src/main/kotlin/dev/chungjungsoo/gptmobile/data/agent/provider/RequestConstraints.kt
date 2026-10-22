@@ -8,6 +8,8 @@ data class RequestConstraints(
     val allowGatewayLocalTools: Boolean = false,
     val requestRole: String? = null,
     val attemptId: String? = null,
+    val queueScope: String? = null,
+    val queuePersistent: Boolean = false,
     val freshResponse: Boolean = false,
     val contextCeiling: Int? = null,
     val permissionRevision: String = "legacy-unverified",

@@ -32,12 +32,11 @@ internal class ResearchRecoveryLoader(private val agentPersistenceDao: AgentPers
             // any contributing connection is no longer authorized, including health.
             val runs = candidateRuns.filter { it.runId !in deniedRuns }
             val events = savedEvents.filter { it.runId !in deniedRuns && (it.toolName to it.connectionUidSnapshot) in allowed }
-            researchSessions?.loadChat(latest.chatId)
             val authorityTools = dev.chungjungsoo.gptmobile.data.agent.tool.aggregateWebSearch(allowedTools, true, true).filterNot { it.realToolName in setOf("delegate_to_model", "read_recovery_context") }
             val authority = dev.chungjungsoo.gptmobile.data.research.researchHash(policy.deepResearch.collectionPolicyKey() + authorityTools.map { it.selectionId() }.sorted().joinToString())
             val scope = if (sharingEnabled && authorityTools.all { it.connectionUid == null }) authority else "$authority:${platform.uid}"
-            val root = dev.chungjungsoo.gptmobile.data.agent.rootWorkId(savedUserTurns, runId)
-            val retainedResearch = researchSessions?.sessions?.value?.values.orEmpty().filter {
+            val root = taskRecovery?.let { "${latest.chatId}:${it.sourceMessageId}" } ?: dev.chungjungsoo.gptmobile.data.agent.rootWorkId(savedUserTurns, runId)
+            val retainedResearch = researchSessions?.exportTurn(latest.chatId, setOf(root), setOf(scope)).orEmpty().filter {
                 it.chatId == latest.chatId && it.turnId == root && it.authority == scope && it.runId !in deniedRuns
             }.map { it.snapshot }
             if (runs.isEmpty() && retainedResearch.isEmpty()) {
@@ -59,7 +58,7 @@ internal class ResearchRecoveryLoader(private val agentPersistenceDao: AgentPers
                     accessDecision = {
                         val currentProfile = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == platform.uid }
                         val currentRoom = agentPersistenceDao.getChatRoom(latest.chatId)
-                        val dependencies = allowedTools.filter { tool -> events.any { event -> event.toolName == tool.realToolName && event.connectionUidSnapshot == tool.connectionUid } }
+                        val dependencies = allowedTools.filter { tool -> events.any { event -> event.toolName == tool.realToolName && event.connectionUidSnapshot == tool.connectionUid } || retainedResearch.isNotEmpty() && tool in authorityTools }
                         val rejected = dependencies.filter { it.canReuseResult?.invoke() == false }
                         val reason = when {
                             recoveryProfile == null || currentProfile == null || !currentProfile.enabled -> "PROFILE_DISABLED"
@@ -69,7 +68,7 @@ internal class ResearchRecoveryLoader(private val agentPersistenceDao: AgentPers
                             rejected.isNotEmpty() -> "SOURCE_PERMISSION_REVOKED"
                             else -> "AUTHORIZED"
                         }
-                        if (reason != "AUTHORIZED") AppLogRecorder.record("Recovery", "RECOVERY_BLOCKED · runId=$runId · reason=$reason · dependencies=${rejected.size} · dispatched=false", "W")
+                        if (reason != "AUTHORIZED") AppLogRecorder.record("Recovery", "RECOVERY_BLOCKED · runId=$runId · reason=$reason · dependencies=${rejected.size} · tools=${rejected.map { it.modelToolName }.distinct().take(16).joinToString()} · dispatched=false", "W")
                         dev.chungjungsoo.gptmobile.data.agent.RecoveryAccessDecision(reason == "AUTHORIZED", reason, rejected.map { "tool:${it.selectionId()}" })
                     }
                 )

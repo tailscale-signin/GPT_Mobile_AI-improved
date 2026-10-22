@@ -53,11 +53,12 @@ fun ResearchArticleDialog(workId: String, versionId: String? = null, authority: 
     val displayedVersionId = if (showingOriginal) originalVersionId ?: versionId else versionId
     val relevantJobs = (jobs + listOfNotNull(focusedJob)).distinctBy { it.jobId }.filter { it.workId == workId && it.authority == authority && it.chatId == chatId }
     val examinationActive = relevantJobs.any { it.stage in dev.chungjungsoo.gptmobile.data.research.feature.ExaminationLifecycle.active }
-    val selectedProfile = profiles.firstOrNull { it.uid == profileUid && it.enabled }
-    val examinationBlocker = if (selectedProfile == null) {
-        "Choose an enabled crawler profile below to examine this article."
-    } else {
+    val selection = dev.chungjungsoo.gptmobile.data.research.feature.ResearchProfileResolver.selection(profileUid, profiles)
+    val selectedProfile = selection.profile
+    val examinationBlocker = dev.chungjungsoo.gptmobile.data.research.feature.examinerSelectionIssue(selection) ?: if (selectedProfile != null) {
         dev.chungjungsoo.gptmobile.data.research.feature.examinationAdmission(features, selectedProfile, ExaminationRequest(workId, profileUid, chatId, origin = dev.chungjungsoo.gptmobile.data.research.feature.ExaminationOrigin.USER_EXAMINE), currentTools())
+    } else {
+        "Choose Examiner to start an examination."
     }
     LaunchedEffect(workId, displayedVersionId, authority, relevantJobs.map { it.updatedAt }) { viewModel.open(workId, displayedVersionId, authority) }
     FadingDialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
@@ -98,12 +99,31 @@ fun ResearchArticleDialog(workId: String, versionId: String? = null, authority: 
                         Text("Source capture, AI appraisal, publication review and independent review are separate.")
                         state.validations.firstOrNull()?.let { validation -> Text("Capture validation: ${validation.kind.lowercase().replace('_', ' ')} · ${validation.workKind.lowercase().replace('_', ' ')}", style = MaterialTheme.typography.bodySmall) }
                         if (state.relationships.any { it.disposition == "PROVEN_PUBLIC_IDENTITY_LINKED" }) Text("Related public captures share a verified identifier; their versions and assessment histories remain available.", style = MaterialTheme.typography.bodySmall)
+                        val conflicts = state.relationships.filter { it.disposition == "IDENTITY_REVIEW_REQUIRED" }
+                        if (conflicts.isNotEmpty()) {
+                            Text("Identity review required", style = MaterialTheme.typography.titleMedium)
+                            Text("These DOI, PMID or URL identifiers point to different saved studies. This capture and the existing studies have been preserved separately; conflicting aliases are quarantined.")
+                            conflicts.map { it.evidence }.distinct().forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
+                            androidx.compose.material3.OutlinedButton(onClick = { viewModel.keepWorksSeparate() }) { Text("Keep studies separate") }
+                        }
+                        if (state.relationships.any { it.disposition == "REVIEWED_KEEP_SEPARATE" }) Text("Identity reviewed: studies kept separate; original identifier mappings preserved.", style = MaterialTheme.typography.bodySmall)
                         if (state.relationships.any { it.disposition == "AUTHORITY_ISOLATED_NO_MERGE" }) Text("Other records share an identifier but use separate permissions. Their evidence remains isolated.", style = MaterialTheme.typography.bodySmall)
                     }
                     item {
-                        dev.chungjungsoo.gptmobile.presentation.ui.setting.DelegateModelDropdown(profiles = profiles.filter { it.enabled }, selectedProfileUid = profileUid, enabled = true, onSelected = { profileUid = it?.uid.orEmpty() }, automaticLabel = "Choose profile", roleLabel = "Crawler AI profile")
+                        dev.chungjungsoo.gptmobile.presentation.ui.setting.DelegateModelDropdown(profiles = profiles.filter { it.enabled }, selectedProfileUid = profileUid, enabled = true, onSelected = { profileUid = it?.uid.orEmpty() }, automaticLabel = "Choose Examiner", roleLabel = "Examiner")
+                        if (profileUid.isNotBlank()) OutlinedButton(onClick = { profileUid = "" }) { Text("Clear Examiner selection") }
                         examinationBlocker?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error) }
-                        if (chatId > 0) OutlinedButton(onClick = { viewModel.saveCrawlerForChat(chatId, profileUid, currentTools()) }, enabled = profileUid.isNotBlank()) { Text("Use this crawler for this chat") }
+                        if (chatId > 0) {
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedButton(onClick = { viewModel.saveCrawlerForChat(chatId, profileUid, currentTools()) }, enabled = selectedProfile != null) { Text("Use this Examiner for this chat") }
+                                if (features.conversationResearch[chatId]?.crawlerProfileUid != null) {
+                                    OutlinedButton(onClick = {
+                                        viewModel.saveCrawlerForChat(chatId, "", currentTools())
+                                        profileUid = ""
+                                    }) { Text("Clear chat override") }
+                                }
+                            }
+                        }
                         androidx.compose.material3.Button(onClick = { viewModel.examine(ExaminationRequest(workId, profileUid, chatId, version.versionId, authority), currentTools) }, modifier = Modifier.fillMaxWidth(), enabled = examinationBlocker == null && !examinationActive && !admitting) {
                             Text(
                                 if (admitting) {
@@ -136,18 +156,27 @@ fun ResearchArticleDialog(workId: String, versionId: String? = null, authority: 
                 }
                 relevantJobs.forEach { job ->
                     item {
-                        Text(job.stage.name.lowercase().replace('_', ' '), style = MaterialTheme.typography.titleMedium)
+                        Text(examinationStageLabel(job.stage), style = MaterialTheme.typography.titleMedium)
                         job.terminalReason?.let { Text(it) }
                         val checkpoint = runCatching { Json.decodeFromString<dev.chungjungsoo.gptmobile.data.research.feature.ExaminationCheckpoint>(job.checkpointJson) }.getOrNull()
+                        checkpoint?.failure?.let { failure ->
+                            Text(failure.detail.ifBlank { failure.code.replace('_', ' ') }, style = MaterialTheme.typography.bodySmall)
+                            if (job.stage == ExaminationStage.BLOCKED_SOURCE) Text("Source access is blocked. Scientific reliability has not been reassessed.", style = MaterialTheme.typography.bodySmall)
+                            if (failure.retryable && failure.retryAtMs != null) {
+                                Text("Automatic retry after ${java.time.Instant.ofEpochMilli(failure.retryAtMs)}. You can stop this examination below.", style = MaterialTheme.typography.bodySmall)
+                            } else if (job.stage in dev.chungjungsoo.gptmobile.data.research.feature.ExaminationLifecycle.waiting) {
+                                Text("Retry with Examine / Resume after the stated condition is resolved.", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
                         checkpoint?.sourceValidation?.let { Text("Source check: ${it.status.replace('_', ' ')} · ${it.owner}", style = MaterialTheme.typography.bodySmall) }
                         checkpoint?.independentReports.orEmpty().forEach { report ->
                             Text("Review by ${report.reviewerModel}: ${report.verdict}")
                             report.reasons.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
                         }
                         if (features.researchFeature.showWarnings) checkpoint?.limitations.orEmpty().forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
-                        if (job.stage in setOf(ExaminationStage.QUEUED, ExaminationStage.RESOLVING, ExaminationStage.READING, ExaminationStage.EXTRACTING, ExaminationStage.APPRAISING, ExaminationStage.REVIEWING)) {
+                        if (job.stage in dev.chungjungsoo.gptmobile.data.research.feature.ExaminationLifecycle.active || job.stage in dev.chungjungsoo.gptmobile.data.research.feature.ExaminationLifecycle.waiting || job.stage == ExaminationStage.BLOCKED_SOURCE) {
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                OutlinedButton(onClick = { viewModel.pause(job.jobId) }) { Text("Pause") }
+                                if (job.stage in dev.chungjungsoo.gptmobile.data.research.feature.ExaminationLifecycle.active) OutlinedButton(onClick = { viewModel.pause(job.jobId) }) { Text("Pause") }
                                 OutlinedButton(onClick = { viewModel.cancel(job.jobId) }) { Text("Stop examination") }
                             }
                         }
@@ -176,4 +205,13 @@ fun ResearchArticleDialog(workId: String, versionId: String? = null, authority: 
             }
         }
     }
+}
+
+internal fun examinationStageLabel(stage: ExaminationStage): String = when (stage) {
+    ExaminationStage.WAITING_NETWORK -> "Waiting for network recovery"
+    ExaminationStage.WAITING_RATE_LIMIT -> "Waiting for provider rate limit"
+    ExaminationStage.WAITING_CAPACITY -> "Waiting for examination capacity"
+    ExaminationStage.BLOCKED_SOURCE -> "Source access blocked"
+    ExaminationStage.UNAVAILABLE -> "Source unavailable"
+    else -> stage.name.lowercase().replace('_', ' ').replaceFirstChar { it.titlecase() }
 }

@@ -584,17 +584,17 @@ fun McpMarketplaceScreen(
     }
     configuring?.let { preset ->
         val native = preset.integratedTool
-        if (preset.id == "airbnb-native") {
+        if (preset.id == "airbnb-native" || native == "crawlers") {
             dev.chungjungsoo.gptmobile.presentation.ui.setting.PluginConfigurationDialog(
-                id = ToolPluginId.AIRBNB,
+                id = if (native == "crawlers") ToolPluginId.CRAWLERS else ToolPluginId.AIRBNB,
                 name = preset.name,
                 features = features,
                 onFeature = connectionsViewModel::updateFeature,
-                onSave = { connectionsViewModel.configurePlugin(ToolPluginId.AIRBNB, it) },
+                onSave = { connectionsViewModel.configurePlugin(if (native == "crawlers") ToolPluginId.CRAWLERS else ToolPluginId.AIRBNB, it) },
                 onConnection = {
                     configuring = null
                     section = MarketplaceSection.MCP
-                    query = "Airbnb"
+                    query = if (native == "crawlers") "Crawler" else "Airbnb"
                 },
                 onDismiss = { configuring = null }
             )

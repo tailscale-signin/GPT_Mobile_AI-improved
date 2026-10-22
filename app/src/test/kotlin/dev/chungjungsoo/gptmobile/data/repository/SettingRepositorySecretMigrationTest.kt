@@ -21,9 +21,25 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SettingRepositorySecretMigrationTest {
+    @Test fun cleanInstallSeedsOneProviderAndRestartPreservesUserRemoval() = runBlocking {
+        val profiles = FakePlatformV2Dao()
+        val connections = FakeProviderConnectionDao()
+        val settings = FakeSettingDataSource()
+        val repository = SettingRepositoryImpl(settings, profiles, connections, FakeChatPlatformModelV2Dao(), FakeSecretVault())
+        repository.ensureFreeModels()
+        assertEquals(12, profiles.platforms.size)
+        assertTrue(profiles.platforms.all { it.enabled && it.compatibleType == ClientType.FREE && it.name == FreeAiProvider.requireFor(it).displayName })
+        assertEquals(1, connections.getConnections().size)
+        assertEquals("Free Models", connections.getConnections().single().name)
+        val removed = profiles.platforms.first()
+        profiles.deletePlatformRow(removed)
+        repository.ensureFreeModels()
+        assertEquals(11, profiles.platforms.size)
+        assertEquals(1, connections.getConnections().size)
+    }
 
     @Test
-    fun `Free connection changes hydrate the pinned model and never retain credentials`() = runBlocking {
+    fun `Free umbrella settings preserve service endpoints and never retain credentials`() = runBlocking {
         val profiles = FakePlatformV2Dao(mutableListOf())
         val repository = SettingRepositoryImpl(FakeSettingDataSource(), profiles, FakeProviderConnectionDao(), FakeChatPlatformModelV2Dao(), FakeSecretVault())
         val connection = repository.addProviderConnection(
@@ -36,8 +52,8 @@ class SettingRepositorySecretMigrationTest {
         assertEquals(FreeAiProvider.KILO.model, repository.getPlatformV2ById(1)?.model)
         repository.updateProviderConnection(connection.copy(apiUrl = FreeAiProvider.OVHCLOUD.apiUrl), "ignored")
         val restored = repository.getPlatformV2ById(1)!!
-        assertEquals(FreeAiProvider.OVHCLOUD.model, restored.model)
-        assertEquals(FreeAiProvider.OVHCLOUD.apiUrl, restored.apiUrl)
+        assertEquals(FreeAiProvider.KILO.model, restored.model)
+        assertEquals(FreeAiProvider.KILO.apiUrl, restored.apiUrl)
         assertEquals(profile.uid, restored.uid)
         assertNull(restored.token)
         assertNull(repository.getProviderCredentials(connection.uid))
@@ -243,6 +259,11 @@ private class FakeSettingDataSource(
     var favoriteGroups: List<String> = emptyList(),
     var favoriteMessageGroups: Map<Int, String> = emptyMap()
 ) : SettingDataSource {
+    private var features = dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings()
+    override suspend fun getFeatureSettings() = features
+    override suspend fun updateFeatureSettings(settings: dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings) {
+        features = settings
+    }
     override suspend fun getPreferencesSnapshot(): androidx.datastore.preferences.core.Preferences =
         androidx.datastore.preferences.core.emptyPreferences()
 

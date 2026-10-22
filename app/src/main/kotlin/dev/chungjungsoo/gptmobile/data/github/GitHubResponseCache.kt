@@ -16,7 +16,8 @@ class GitHubResponseCache(
     data class Entry(
         val etag: String,
         val value: JsonElement,
-        val storedAtMillis: Long = System.currentTimeMillis()
+        val storedAtMillis: Long = System.currentTimeMillis(),
+        val immutable: Boolean = false
     )
 
     private val entries = LinkedHashMap<String, Entry>(16, 0.75f, true)
@@ -27,12 +28,12 @@ class GitHubResponseCache(
 
     @Synchronized fun get(key: String): Entry? = entries[key]
 
-    @Synchronized fun put(key: String, etag: String?, value: JsonElement) {
-        if (etag.isNullOrBlank()) return
+    @Synchronized fun put(key: String, etag: String?, value: JsonElement, immutable: Boolean = false, allowWithoutEtag: Boolean = false) {
+        if (etag.isNullOrBlank() && !immutable && !allowWithoutEtag) return
         val size = value.toString().length
         if (size > maxCharacters) return
         entryCharacters += size - (entrySizes.put(key, size) ?: 0)
-        entries[key] = Entry(etag, value)
+        entries[key] = Entry(etag.orEmpty(), value, immutable = immutable)
         while (entries.size > maxEntries.coerceAtLeast(1) || entryCharacters > maxCharacters) {
             val oldest = entries.keys.first()
             entries.remove(oldest)
@@ -47,6 +48,14 @@ class GitHubResponseCache(
         blobCharacters += content.length - (decodedBlobs.put(sha, content)?.length ?: 0)
         while (decodedBlobs.size > maxEntries.coerceAtLeast(1) || blobCharacters > maxCharacters) {
             blobCharacters -= decodedBlobs.remove(decodedBlobs.keys.first())?.length ?: 0
+        }
+    }
+
+    @Synchronized fun invalidateMutable(repositoryPrefix: String = "") {
+        val remove = entries.filter { (key, entry) -> !entry.immutable && (repositoryPrefix.isBlank() || repositoryPrefix in key) }.keys
+        for (key in remove) {
+            entries.remove(key)
+            entryCharacters -= entrySizes.remove(key) ?: 0
         }
     }
 

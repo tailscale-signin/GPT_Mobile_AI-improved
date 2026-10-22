@@ -17,6 +17,7 @@ class DelegationFailureClassificationTest {
     @Test
     fun recognizesProviderOutputLimitFailures() {
         assertTrue(isProviderOutputLimitFailure("The response reached its output limit."))
+        assertTrue(isProviderOutputLimitFailure("Groq reached the model output limit before producing a final answer."))
         assertTrue(isProviderOutputLimitFailure("finish_reason=length"))
         assertTrue(isProviderOutputLimitFailure("Maximum completion tokens exceeded"))
     }

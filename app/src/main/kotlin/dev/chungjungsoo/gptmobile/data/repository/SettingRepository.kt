@@ -58,6 +58,7 @@ interface SettingRepository {
     suspend fun recoverConversationCombinedDeletions(existingChatIds: Set<Int>) {
         mutateFeatureSettings { ConversationCombinedLifecycle.recoverDeletions(it, existingChatIds) }
     }
+    suspend fun ensureFreeModels() {}
     suspend fun migrateToPlatformV2()
     suspend fun migrateSecrets(): List<SecretMigrationError>
     suspend fun updatePlatforms(platforms: List<Platform>)

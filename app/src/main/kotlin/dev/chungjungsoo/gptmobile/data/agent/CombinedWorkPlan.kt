@@ -86,7 +86,9 @@ data class CombinedResearchRequirement(
     val sourceGoal: Long,
     val contentScope: String,
     val gatewayConnectionUid: String? = null,
-    val allowNativeFallback: Boolean = false
+    val allowNativeFallback: Boolean = false,
+    val examinationRequested: Boolean = false,
+    val independentReviewRequested: Boolean = false
 ) {
     init {
         require(depth in 1..100 && sourceGoal > 0)
@@ -142,6 +144,7 @@ data class CombinedWorkPlan(
     val initialDraftOutputTokens: Int = 2048,
     val finalOutputTokens: Int = 2500,
     val verificationOutputTokens: Int = 1024,
+    val appraisalOutputTokens: Int = 6144,
     val toolsAllowed: Boolean = true,
     val searchAllowed: Boolean = true,
     val renewable: Boolean = false,
@@ -155,17 +158,29 @@ data class CombinedWorkPlan(
 
     fun outputTokens(role: CombinedRunRole): Int = when (role) {
         CombinedRunRole.CONTRIBUTOR -> initialDraftOutputTokens
-        CombinedRunRole.RESEARCH, CombinedRunRole.VERIFIER -> verificationOutputTokens
+        CombinedRunRole.RESEARCH -> appraisalOutputTokens
+        CombinedRunRole.VERIFIER -> verificationOutputTokens
         else -> finalOutputTokens
     }
 }
 
 /** Stable stage assignments keep Research analysis away from verification and writer escrow. */
 object CombinedResearchStages {
-    val names = listOf("plan", "extract", "find_gaps", "review")
+    val names = listOf("plan", "extract", "find_gaps", "review", "appraisal", "independent_review", "study_review")
+    fun outputTokens(stage: String): Int = when (stage) {
+        "appraisal" -> 6144
+        "study_review" -> 4096
+        else -> 2048
+    }
     fun id(profileUid: String, stage: String): String = "research:$profileUid:$stage"
     fun item(context: CombinedExecutionContext, profileUid: String, requestRole: String): CombinedWorkItem? {
-        val stage = requestRole.removePrefix("research-").takeIf { requestRole.startsWith("research-") && it in names } ?: return null
+        val stage = when (requestRole) {
+            "research-extraction" -> "extract"
+            "research-appraisal", "research-appraisal-part" -> "appraisal"
+            "research-independent-review" -> "independent_review"
+            "research-study-review", "research-study-review-part" -> "study_review"
+            else -> requestRole.removePrefix("research-").takeIf { requestRole.startsWith("research-") && it in names }
+        } ?: return null
         return context.plan?.workItems?.firstOrNull { it.id == id(profileUid, stage) }
     }
 }
@@ -180,7 +195,9 @@ data class CombinedExecutionContext(
     val profileUid: String? = null,
     val workItemId: String? = null,
     val chatId: Int = 0,
-    val persistBudget: Boolean = true
+    val persistBudget: Boolean = true,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val acceptedTask: AcceptedTaskRef? = null
 ) {
     fun forRole(role: CombinedRunRole, profileUid: String? = this.profileUid, workItemId: String? = if (role == this.role) this.workItemId else null) =
         copy(role = role, profileUid = profileUid, workItemId = workItemId)

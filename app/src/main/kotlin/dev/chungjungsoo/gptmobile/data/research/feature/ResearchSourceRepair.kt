@@ -15,7 +15,18 @@ internal class ResearchSourceRepair(private val database: ResearchDatabase, priv
     suspend fun classify(version: ResearchWorkVersion, text: String): SourceContentValidator.Result {
         require(researchHash(text) == version.contentHash)
         val pubmed = runCatching { java.net.URI(version.sourceUrl).host?.lowercase() == "pubmed.ncbi.nlm.nih.gov" }.getOrDefault(false)
-        val result = SourceContentValidator.validate(text, completeArticle = version.coverage in setOf(ArticleCoverage.FULL_TEXT_CAPTURED, ArticleCoverage.FULL_ARTICLE_EXAMINED), metadataOnly = version.coverage == ArticleCoverage.METADATA_ONLY, abstractOnly = version.coverage == ArticleCoverage.ABSTRACT_ONLY || pubmed)
+        val proof = dao.sourceValidations(version.versionId).firstOrNull { receipt ->
+            val evidence = runCatching { Json.decodeFromString<List<String>>(receipt.reasonsJson) }.getOrDefault(emptyList())
+            receipt.bodyHash == version.contentHash &&
+                receipt.validatorRevision >= 3 &&
+                receipt.kind == "STRUCTURED_ARTICLE" &&
+                "COMPLETE_STRUCTURED_BODY" in evidence &&
+                "NOT_TRUNCATED" in evidence &&
+                evidence.any { "method" in it.lowercase() || "experimental" in it.lowercase() } &&
+                evidence.any { "result" in it.lowercase() }
+        }
+        val reasons = proof?.let { runCatching { Json.decodeFromString<List<String>>(it.reasonsJson) }.getOrDefault(emptyList()) }.orEmpty()
+        val result = SourceContentValidator.validate(text, completeArticle = proof != null, structuredBody = proof != null, sectionNames = reasons.toSet(), truncated = if (proof != null) false else null, metadataOnly = version.coverage == ArticleCoverage.METADATA_ONLY, abstractOnly = version.coverage == ArticleCoverage.ABSTRACT_ONLY || pubmed, url = version.sourceUrl)
         val id = researchHash("${version.versionId}:${result.validatorVersion}:${result.bodyHash}:${result.kind}")
         val recorded = dao.sourceValidation(id)
         database.withTransaction {
@@ -32,16 +43,16 @@ internal class ResearchSourceRepair(private val database: ResearchDatabase, priv
                 publication in setOf("web-page", "web_reference", "web reference") -> "WEB_REFERENCE"
                 else -> "UNKNOWN"
             }
-            if (recorded == null) dao.sourceValidation(ResearchSourceValidation(id, version.versionId, result.bodyHash, result.validatorVersion, result.kind.name, Json.encodeToString(result.reasons), version.coverage, kind, System.currentTimeMillis()))
+            if (recorded == null) dao.sourceValidation(ResearchSourceValidation(id, version.versionId, result.bodyHash, result.validatorVersion, result.kind.name, Json.encodeToString((result.reasons + if (result.fullTextProven) reasons else emptyList()).distinct()), version.coverage, kind, System.currentTimeMillis()))
             val coverage = when (result.kind) {
-                SourceContentValidator.Kind.CHALLENGE, SourceContentValidator.Kind.AUTH_REQUIRED, SourceContentValidator.Kind.EMPTY, SourceContentValidator.Kind.PREVIEW -> ArticleCoverage.UNAVAILABLE
+                SourceContentValidator.Kind.CHALLENGE, SourceContentValidator.Kind.AUTH_REQUIRED, SourceContentValidator.Kind.EMPTY, SourceContentValidator.Kind.PREVIEW, SourceContentValidator.Kind.ERROR_PAGE, SourceContentValidator.Kind.SEARCH_RESULTS, SourceContentValidator.Kind.APPLICATION_SHELL -> ArticleCoverage.UNAVAILABLE
                 SourceContentValidator.Kind.METADATA -> ArticleCoverage.METADATA_ONLY
                 SourceContentValidator.Kind.ABSTRACT -> ArticleCoverage.ABSTRACT_ONLY
-                else -> version.coverage
+                SourceContentValidator.Kind.STRUCTURED_ARTICLE -> version.coverage.takeIf { it == ArticleCoverage.FULL_ARTICLE_EXAMINED } ?: ArticleCoverage.FULL_TEXT_CAPTURED
+                else -> ArticleCoverage.PARTIAL_TEXT
             }
             if (coverage != version.coverage) {
-                dao.version(version.copy(coverage = coverage, failure = "CONTENT_RECLASSIFIED:${result.kind}"))
-                dao.staleVersionAssessments(version.versionId)
+                if (dao.reclassifyVersion(version.versionId, version.contentHash, version.coverage, coverage, "CONTENT_RECLASSIFIED:${result.kind}") == 1) dao.staleVersionAssessments(version.versionId)
             }
             if (!result.usable) dao.staleVersionAssessments(version.versionId)
         }

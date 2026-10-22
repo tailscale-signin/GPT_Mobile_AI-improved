@@ -10,6 +10,8 @@ data class ProviderRequestConfig(
     val anthropicBetaFeatures: Set<String> = emptySet(),
     val extraHeaders: Map<String, String> = emptyMap(),
     val freeProvider: FreeAiProvider? = null,
+    val queueScope: String? = null,
+    val queuePersistent: Boolean = false,
     val openRouterReceipt: dev.chungjungsoo.gptmobile.data.openrouter.account.OpenRouterReceiptContext? = null,
     val profileUid: String? = null,
     val providerType: String? = null,

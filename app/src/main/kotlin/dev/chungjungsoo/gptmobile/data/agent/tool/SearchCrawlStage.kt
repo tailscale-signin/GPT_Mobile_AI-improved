@@ -76,7 +76,10 @@ internal class SearchCrawlStage(
                 null
             } ?: continue
             if (result.toolCallBudgetExhausted || result.outputBudgetExhausted) break
-            if (result.isError) continue
+            if (result.isError) {
+                if (Regex("(?i)HTTP (401|403)|CHALLENGE|CAPTCHA|AUTH_REQUIRED|ROBOTS_DENIED|SOURCE_ACCESS_BLOCKED|unsafe DNS|outside allowed domain").containsMatchIn(result.errorCode.orEmpty() + result.content.toString())) break
+                continue
+            }
             val retained = result.retainedContent ?: result.content
             val payload = retained.researchPayload()
             val text = pageText(payload).ifBlank { retained.researchText() }

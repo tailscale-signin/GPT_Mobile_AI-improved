@@ -247,15 +247,18 @@ internal fun ResearchFeatureScreen(onClose: () -> Unit, viewModel: DeepResearchS
                                     SettingsPanel("Examination") {
                                         val feature = state.featureDraft
                                         val crawlerProfiles by viewModel.crawlerProfiles.collectAsStateWithLifecycle()
-                                        Text("Crawler AI profile", style = MaterialTheme.typography.titleMedium)
+                                        val examiner = dev.chungjungsoo.gptmobile.data.research.feature.ResearchProfileResolver.selection(feature.crawlerProfileUid.orEmpty(), crawlerProfiles)
+                                        Text("Examiner", style = MaterialTheme.typography.titleMedium)
                                         DelegateModelDropdown(
                                             selectedProfileUid = feature.crawlerProfileUid.orEmpty(),
                                             profiles = crawlerProfiles.filter { it.enabled },
                                             enabled = enabled,
                                             onSelected = { viewModel.editFeature(feature.copy(crawlerProfileUid = it?.uid)) },
-                                            roleLabel = "Examination profile",
-                                            automaticLabel = "Choose profile"
+                                            roleLabel = "Examiner",
+                                            automaticLabel = "Choose Examiner"
                                         )
+                                        if (!feature.crawlerProfileUid.isNullOrBlank()) OutlinedButton(onClick = { viewModel.editFeature(feature.copy(crawlerProfileUid = null, autoExamination = AutoExamination.OFF, ordinaryChatAutoExamination = false)) }, enabled = enabled) { Text("Clear Examiner selection") }
+                                        dev.chungjungsoo.gptmobile.data.research.feature.examinerSelectionIssue(examiner)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
                                         Text("Research reviewer", style = MaterialTheme.typography.titleMedium)
                                         DelegateModelDropdown(
                                             selectedProfileUid = feature.reviewerProfileUid.orEmpty(),
@@ -266,10 +269,10 @@ internal fun ResearchFeatureScreen(onClose: () -> Unit, viewModel: DeepResearchS
                                             automaticLabel = "Use existing review policy"
                                         )
                                         Text("The selected reviewer receives captured Research evidence. A different model is needed for independent review; this choice also applies in Combined mode.")
-                                        AutoExamination.entries.forEach { value -> FilterChip(feature.autoExamination == value, { viewModel.editFeature(feature.copy(autoExamination = value)) }, enabled = enabled, label = { Text(if (value == AutoExamination.OFF) "Manual" else value.name.lowercase().replace('_', ' ')) }) }
-                                        ResearchFeatureSwitch("Auto-examine in ordinary chat", feature.ordinaryChatAutoExamination, enabled) { viewModel.editFeature(feature.copy(ordinaryChatAutoExamination = it)) }
+                                        AutoExamination.entries.forEach { value -> FilterChip(feature.autoExamination == value, { viewModel.editFeature(feature.copy(autoExamination = value)) }, enabled = enabled && (value == AutoExamination.OFF || examiner.profile != null), label = { Text(if (value == AutoExamination.OFF) "Manual" else value.name.lowercase().replace('_', ' ')) }) }
+                                        ResearchFeatureSwitch("Auto-examine in ordinary chat", feature.ordinaryChatAutoExamination, enabled && examiner.profile != null) { viewModel.editFeature(feature.copy(ordinaryChatAutoExamination = it)) }
                                         ResearchFeatureSwitch("Allow background examination", feature.backgroundExamination, enabled) { viewModel.editFeature(feature.copy(backgroundExamination = it)) }
-                                        Text("Native discovery follows up to two explicit full-text HTML links on the same site. Access refusal is terminal; figures and supplements remain unverified.")
+                                        Text("Native discovery follows permitted full-text links. Network, rate-limit and temporary memory waits keep their checkpoints. Source access refusals require an available alternate source or manual retry; they do not lower scientific reliability. Tables, figures and supplements remain unknown until inspected.")
                                         ResearchFeatureSwitch("Targeted article crawling", feature.targetedCrawl, enabled) { viewModel.editFeature(feature.copy(targetedCrawl = it)) }
                                         Text("Manual Examine does not change research depth. Provider, paper-reading, connection and cloud permissions are rechecked before dispatch. Native PDF support is capability-gated.")
                                     }

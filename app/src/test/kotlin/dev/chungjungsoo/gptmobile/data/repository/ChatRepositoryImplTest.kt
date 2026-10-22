@@ -238,6 +238,172 @@ class ChatRepositoryImplTest {
     }
 
     @Test
+    fun frozenCombinedPassagesKeepTheirDeliveryContractWithResearchEnabledAndRetainedEvidence() = runBlocking {
+        val platform = customPlatform().copy(disableAllTools = true, disableLocalTools = true)
+        val original = MessageV2(id = 2, chatId = 1, platformType = null, content = "Choose one interesting historical event under 100 words using the retained research.")
+        val text = "Haiti became independent in 1804 after a successful revolution."
+        val contributions = listOf(dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse(platform.uid, platform.name, content = text))
+        val runId = "combined-synthesis:retained-research-contract"
+        val sessions = dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore(object : ContextWrapper(null) {
+            override fun getFilesDir(): File = testFiles.root
+        })
+        val research = dev.chungjungsoo.gptmobile.data.research.ResearchSnapshot(
+            original.content,
+            sources = listOf(dev.chungjungsoo.gptmobile.data.research.ResearchSource("S1", "https://example.org/haiti", "Haitian independence", "Read", text)),
+            complete = true
+        )
+        sessions.journal(runId, 1, false, "1:2", ownerScope = platform.uid).save(research)
+        val prompt = dev.chungjungsoo.gptmobile.presentation.ui.chat.combinedSynthesisPrompt(original.content, contributions)
+        val frozen = dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot(
+            version = 4,
+            deliveryProtocol = "PASSAGES_V2",
+            userMessage = original,
+            history = emptyList(),
+            replies = emptyList(),
+            sources = contributions,
+            prompt = prompt,
+            profileUid = platform.uid,
+            model = platform.model,
+            systemPrompt = platform.systemPrompt.orEmpty(),
+            configKey = dev.chungjungsoo.gptmobile.data.benchmark.benchmarkConfigKey(platform),
+            evidence = dev.chungjungsoo.gptmobile.data.agent.CombinedEvidenceLedger.freeze(dev.chungjungsoo.gptmobile.data.research.ResearchCorpus.freeze(research), emptyList(), emptyMap())
+        )
+        val raw = frozen.encode()
+        val persistence = mockk<dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao>(relaxed = true)
+        coEvery { persistence.recoveryRun(runId) } returns dev.chungjungsoo.gptmobile.data.database.entity.AgentRun(
+            runId, 1, original.id, 3, platform.uid, platform.compatibleType.name, platform.model,
+            status = "RUNNING", ownershipFence = 7, displayRole = "COMBINED_FINAL",
+            synthesisSnapshot = raw, synthesisKey = dev.chungjungsoo.gptmobile.data.research.researchHash(raw)
+        )
+        coEvery { persistence.recoveryMessage(original.id) } returns original
+        coEvery { persistence.recoveryMessage(3) } returns MessageV2(id = 3, chatId = 1, platformType = platform.uid, content = "", currentRunId = runId, ownershipFence = 7)
+        val settings = mockk<SettingRepository>(relaxed = true)
+        coEvery { settings.fetchPlatformV2s() } returns listOf(platform)
+        coEvery { settings.getFeatureSettings() } returns dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings(queuedFollowUps = true)
+        val queued = mockk<dev.chungjungsoo.gptmobile.data.queue.PendingPromptDao>(relaxed = true)
+        every { queued.observePending() } returns flowOf(listOf(dev.chungjungsoo.gptmobile.data.queue.PendingPrompt("next-turn", 1, "Change the accepted request", "{}", 1)))
+        val framed = buildJsonObject {
+            put("type", "passage")
+            put("text", text)
+            put("profiles", JsonArray(listOf(kotlinx.serialization.json.JsonPrimitive("C1"))))
+            put("claims", JsonArray(listOf(kotlinx.serialization.json.JsonPrimitive("C1.1"))))
+        }.toString() + "\n"
+        val api = RecordingOpenAIAPI(ArrayDeque(listOf(flowOf(ChatCompletionChunk(choices = listOf(Choice(0, Delta(content = framed), finishReason = "stop")))))))
+        val tools = dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig(
+            allToolsDisabled = true,
+            research = dev.chungjungsoo.gptmobile.data.model.MultiSearchResearchSelection(researchToggle = true, depth = 50)
+        )
+        val states = withTimeout(10_000) {
+            createRepository(openAIAPI = api, settingsOverride = settings, persistenceOverride = persistence, researchOverride = sessions, pendingOverride = queued)
+                .completeChat(listOf(original), emptyList(), platform, runId, tools).toList()
+        }
+        val delivered = states.filterIsInstance<ApiState.Success>().joinToString("") { it.textChunk }
+        assertEquals(states.toString(), text, delivered)
+        assertEquals(1, api.requests.size)
+        assertFalse(api.requests.single().toString().contains("Untrusted research packet:"))
+        assertTrue(states.toString(), states.none { it is ApiState.Error })
+        val quality = states.filterIsInstance<ApiState.CombinedQuality>().last().report
+        assertTrue(quality.complete)
+        assertEquals(dev.chungjungsoo.gptmobile.data.research.researchHash(delivered), quality.answerDigest)
+        assertTrue(quality.passages.isNotEmpty())
+        assertTrue(quality.passages.all { it.matches(delivered) })
+        assertTrue(states.filterIsInstance<ApiState.Notice>().all { it.researchDelivery == null })
+        assertEquals(research.sources, sessions.sessions.value.getValue(runId).snapshot.sources)
+        io.mockk.verify(exactly = 0) { queued.observePending() }
+        io.mockk.coVerify(exactly = 0) { queued.acceptPreparedFollowUp(any(), any(), any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun queuedResearchFollowUpIsCheckedAsPartOfTheWholeReportAndReceipt() = runBlocking {
+        for ((unsupported, referencesHeading) in listOf(false to false, true to false, true to true)) {
+            val platform = customPlatform().copy(disableAllTools = true, disableLocalTools = true)
+            val runId = "research-queued-$unsupported-$referencesHeading"
+            val original = MessageV2(id = 12, chatId = 1, platformType = null, content = "Summarize the retained synthetic panel study.")
+            val passage = "A synthetic panel study measured bending response under laboratory conditions. Long-term durability remains uncertain."
+            val source = dev.chungjungsoo.gptmobile.data.research.ResearchSource("S1", "https://example.org/panel-study", "Synthetic panel study", "Read", passage)
+            val snapshot = dev.chungjungsoo.gptmobile.data.research.ResearchSnapshot(original.content, sources = listOf(source), complete = false)
+            val packet = dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryPacket.build(snapshot, dev.chungjungsoo.gptmobile.data.model.ResearchReportDetail.BRIEF)
+            val initial = "Partial coverage. Independent review is not available.\n\n$passage [S1]" +
+                if (referencesHeading) "\n\n## References\n\n[S1] ${source.url}" else " ${source.url}"
+            val appendix = if (unsupported) "Researchers observed improved recovery in 999 patients. [S1]" else "No verified long-term durability outcome is available. [S1]"
+            assertTrue(dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryValidator.validate(initial, packet).accepted)
+            assertEquals(!unsupported, dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryValidator.validate("$initial\n\n$appendix", packet).accepted)
+            val sessions = dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore(object : ContextWrapper(null) {
+                override fun getFilesDir(): File = testFiles.root
+            })
+            sessions.journal(runId, 1, false, "1:12", ownerScope = platform.uid).save(snapshot)
+            val tools = dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig(
+                allToolsDisabled = true,
+                research = dev.chungjungsoo.gptmobile.data.model.MultiSearchResearchSelection(researchToggle = true, depth = 50)
+            )
+            val settings = mockk<SettingRepository>(relaxed = true)
+            coEvery { settings.fetchPlatformV2s() } returns listOf(platform)
+            coEvery { settings.getFeatureSettings() } returns dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings(
+                queuedFollowUps = true,
+                delegation = dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings(deepResearch = dev.chungjungsoo.gptmobile.data.model.DeepResearchSettings(reportDetail = dev.chungjungsoo.gptmobile.data.model.ResearchReportDetail.BRIEF))
+            )
+            val pending = MutableStateFlow<List<dev.chungjungsoo.gptmobile.data.queue.PendingPrompt>>(emptyList())
+            val prompt = dev.chungjungsoo.gptmobile.data.queue.PendingPrompt("follow-up-$unsupported", 1, "Also explain the limitations", "{}", 1)
+            val queued = mockk<dev.chungjungsoo.gptmobile.data.queue.PendingPromptDao>(relaxed = true)
+            every { queued.observePending() } returns pending
+            coEvery { queued.canAcceptFollowUp(prompt, original.id, runId, platform.uid, platform.model, any(), tools) } returns true
+            var admitted = 0
+            coEvery { queued.acceptPreparedFollowUp(prompt, original.id, runId, platform.uid, platform.model, any(), tools) } coAnswers {
+                admitted++
+                pending.value = emptyList()
+                true
+            }
+            fun chunk(text: String) = ChatCompletionChunk(choices = listOf(Choice(0, Delta(content = text), finishReason = "stop")))
+            val api = RecordingOpenAIAPI(
+                ArrayDeque(
+                    listOf(
+                        kotlinx.coroutines.flow.flow {
+                            pending.value = listOf(prompt)
+                            // Finish the fast fixture response only after the real inbox
+                            // has made this addition visible and started its grace period.
+                            withTimeout(5_000) {
+                                dev.chungjungsoo.gptmobile.data.queue.FollowUpProgressStore.state.first {
+                                    it[prompt.id]?.phase == dev.chungjungsoo.gptmobile.data.queue.FollowUpPhase.COUNTDOWN
+                                }
+                            }
+                            emit(chunk(initial))
+                        },
+                        flowOf(chunk(appendix)),
+                        flowOf(chunk("{\"replacements\":[],\"append\":\"\"}"))
+                    )
+                )
+            )
+            val states = withTimeout(15_000) {
+                createRepository(openAIAPI = api, settingsOverride = settings, researchOverride = sessions, pendingOverride = queued)
+                    .completeChat(listOf(original), emptyList(), platform, runId, tools).toList()
+            }
+            assertEquals(states.toString(), 1, admitted)
+            assertEquals(if (unsupported) 3 else 2, api.requests.size)
+            assertTrue(api.requests[1].toString().contains(original.content))
+            assertTrue(api.requests[1].toString().contains(prompt.text))
+            assertTrue(api.requests[1].toString().contains("Untrusted research packet:"))
+            val delivered = states.filterIsInstance<ApiState.Success>().joinToString("") { it.textChunk }
+            val receipts = states.filterIsInstance<ApiState.Notice>().mapNotNull { it.researchDelivery }
+            assertEquals(states.toString(), 1, receipts.size)
+            val receipt = receipts.single()
+            assertTrue(receipt.toString(), receipt.matchesRevision(delivered))
+            assertFalse(receipt.matchesRevision(initial))
+            assertTrue(delivered.contains(passage))
+            if (unsupported) {
+                assertFalse(delivered, delivered.contains("999"))
+                assertFalse(receipt.accepted)
+                assertEquals(dev.chungjungsoo.gptmobile.data.research.delivery.ResearchReportValidity.EVIDENCE_ONLY, receipt.reportValidity)
+                assertTrue(states.any { it is ApiState.Error && it.message.contains("RESEARCH_PARTIAL") })
+            } else {
+                assertTrue(delivered, delivered.contains(appendix))
+                assertTrue(receipt.accepted)
+                assertTrue(dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryValidator.validate(delivered, packet).accepted)
+                assertTrue(states.toString(), states.none { it is ApiState.Error })
+            }
+        }
+    }
+
+    @Test
     fun `cold remote greeting never joins blocked optional tool or memory producers`() = runBlocking {
         val resolver = mockk<AgentToolResolver>()
         coEvery { resolver.resolve(any(), any(), any(), any(), any(), any(), any()) } coAnswers { kotlinx.coroutines.awaitCancellation() }
@@ -691,8 +857,13 @@ class ChatRepositoryImplTest {
 
     @Test
     fun `litert lm tool capable run records engine owned tool calls on the timeline`() = runBlocking {
+        val dateTool = dev.chungjungsoo.gptmobile.data.agent.tool.CurrentDateTool()
+        val resolver = mockk<AgentToolResolver>()
+        coEvery { resolver.resolve(any(), any(), any(), any(), any(), any(), any()) } returns listOf(
+            ResolvedAgentTool(dateTool, null, null, dateTool.definition.name, dateTool.definition.name)
+        )
         val runtime = FakeLocalRuntime().apply {
-            // This timeline fixture needs room for the complete expanded tool surface.
+            // The native planner retains the date tool while respecting this model's context.
             deviceRamGb = 12L
             scriptedEvents = listOf(
                 listOf(
@@ -714,15 +885,16 @@ class ChatRepositoryImplTest {
             modelCatalogRepository = FakeModelCatalogRepository(
                 listOf(CatalogEntry(id = "gemma3-1b-it", capabilities = CatalogCapabilities(tools = true)))
             ),
+            agentToolResolver = resolver,
             toolEventRecorder = ToolEventRecorder(traceDao.asDao(), proxy())
         )
 
         val states = repository.completeChat(
-            userMessages = listOf(MessageV2(content = "Hi", platformType = null)),
+            userMessages = listOf(MessageV2(content = "What is today's date?", platformType = null)),
             assistantMessages = emptyList(),
             platform = localPlatform().copy(maxTokens = 2048),
             runId = "run-local-tool"
-        ).toList().filterNot { it is ApiState.AssistStatus || it is ApiState.GatewayProgressChanged || it is ApiState.ProgressCheckpoint || (it is ApiState.Notice && (it.message.startsWith("Context estimate:") || it.message.startsWith("Context: no app-imposed limit."))) }
+        ).toList().filterNot { it is ApiState.AssistStatus || it is ApiState.GatewayProgressChanged || it is ApiState.ProgressCheckpoint || (it is ApiState.Notice && (it.message.startsWith("Context estimate:") || it.message.startsWith("Context: no app-imposed limit.") || it.message.startsWith("Local context:"))) }
 
         assertEquals(
             listOf(
@@ -743,8 +915,14 @@ class ChatRepositoryImplTest {
         assertTrue(completedMetrics?.resultBytes != null)
         assertEquals(1, runtime.sendMessageCalls.size)
         assertEquals(
-            listOf("calculate_expression", "current_date", "read_file_slice", "read_url", "web_search"),
-            runtime.createConversationCalls.single().tools.map { it.name }.sorted()
+            listOf(
+                dev.chungjungsoo.gptmobile.data.localruntime.LocalToolDescriptor(
+                    dateTool.definition.name,
+                    dateTool.definition.description,
+                    dateTool.definition.inputSchema.toString()
+                )
+            ),
+            runtime.createConversationCalls.single().tools
         )
         assertTrue(runtime.createConversationCalls.single().isConstrainedDecodingEnabled)
         assertEquals(2048, runtime.createConversationCalls.single().maxOutputTokens)
@@ -797,7 +975,7 @@ class ChatRepositoryImplTest {
         )
 
         repository.completeChat(
-            userMessages = listOf(MessageV2(content = "What tools do you have?", platformType = null)),
+            userMessages = listOf(MessageV2(content = "Help me plan a project; use available tools when needed.", platformType = null)),
             assistantMessages = emptyList(),
             platform = localPlatform().copy(maxTokens = 512),
             runId = "run-local-litert-tools"
@@ -1480,13 +1658,17 @@ class ChatRepositoryImplTest {
         persistenceOverride: dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao? = null,
         researchOverride: dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore? = null,
         recallOverride: dev.chungjungsoo.gptmobile.data.research.memory.ResearchRecallProvider? = null,
-        knowledgeOverride: dev.chungjungsoo.gptmobile.data.knowledge.MemoryDocumentRepository? = null
+        knowledgeOverride: dev.chungjungsoo.gptmobile.data.knowledge.MemoryDocumentRepository? = null,
+        pendingOverride: dev.chungjungsoo.gptmobile.data.queue.PendingPromptDao? = null
     ): ChatRepositoryImpl = ChatRepositoryImpl(
         context = object : ContextWrapper(null) {
             override fun getFilesDir(): File = testFiles.root
             override fun getSystemService(name: String): Any? = null
             override fun getSharedPreferences(name: String, mode: Int): android.content.SharedPreferences = mockk {
                 every { getString(any(), any()) } answers { secondArg() }
+                // Android exposes a mutable platform type; MockK otherwise casts
+                // Kotlin's immutable emptySet default to MutableSet before returning it.
+                every { getStringSet(any(), any()) } answers { secondArg<Set<String>?>()?.toMutableSet() }
             }
         },
         chatRoomV2Dao = proxy(),
@@ -1517,7 +1699,8 @@ class ChatRepositoryImplTest {
         toolApprovals = toolApprovals,
         researchSessions = researchOverride,
         researchRecall = recallOverride,
-        knowledge = knowledgeOverride
+        knowledge = knowledgeOverride,
+        pendingPromptDao = pendingOverride
     )
 
     private fun emptyToolResolver(): AgentToolResolver {

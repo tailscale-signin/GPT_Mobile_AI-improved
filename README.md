@@ -142,6 +142,7 @@ Report bugs through [GitHub Issues](https://github.com/tailscale-signin/GPT_Mobi
 | Topic | Guide |
 | --- | --- |
 | Research architecture and source access | [Academic research](docs/deep-research-implementation.md) |
+| Research, Combined and GitHub reliability repair | [Implementation and validation](docs/repairs/2026-10-21-reliability-and-workspace.md) |
 | Current research limits and engine catalogue | [Effort settings](app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/model/DeepResearchSettings.kt) · [Engine registry](app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/research/engine/ResearchEngineRegistry.kt) |
 | Local models and hardware qualification | [GPU/NPU execution](docs/gpu-npu-execution-plans.md) |
 | Memory behaviour and chat folders | [Memory and organisation](docs/implementation/memory-v2-chat-folders-2026-10-09.md) |

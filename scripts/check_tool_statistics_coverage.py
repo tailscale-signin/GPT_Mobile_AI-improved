@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def sources():
     base = ROOT / 'app/src/main/kotlin/dev/chungjungsoo/gptmobile'
     result = set()
-    for folder in ['data/agent/tool', 'data/marketplace']:
+    for folder in ['data/agent/tool', 'data/marketplace', 'data/crawl']:
         for path in (base / folder).glob('*.kt'):
             text = path.read_text()
             if 'AgentToolDefinition(' in text or re.search(r'override\s+val\s+definition', text):

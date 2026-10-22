@@ -57,12 +57,13 @@ internal fun planToolBatch(
 /** Reading independent pages is useful research, not a repeated invocation loop. */
 internal fun toolRepeatKey(call: ProviderEvent.ToolCall): String {
     val name = call.name.substringAfterLast("__")
-    if (name !in setOf("read_url", "firecrawl_scrape", "tavily_extract", "web_fetch_exa", "fetch", "read_doc")) return call.name
+    val github = call.name == "github" || call.name.startsWith("github_") || name in setOf("get_file_contents", "read_code", "search_code", "search_repository", "read_ranges", "get_pull_request", "pull_request_read")
+    if (!github && name !in setOf("read_url", "firecrawl_scrape", "tavily_extract", "web_fetch_exa", "fetch", "read_doc")) return call.name
     fun canonical(value: kotlinx.serialization.json.JsonElement): String = when (value) {
         is kotlinx.serialization.json.JsonObject -> value.entries.sortedBy { it.key }.joinToString(",", "{", "}") { kotlinx.serialization.json.JsonPrimitive(it.key).toString() + ":" + canonical(it.value) }
         is kotlinx.serialization.json.JsonArray -> value.joinToString(",", "[", "]") { canonical(it) }
         else -> value.toString()
     }
     val hash = java.security.MessageDigest.getInstance("SHA-256").digest(canonical(call.arguments).toByteArray())
-    return call.name + ":" + hash.joinToString("") { "%02x".format(it) }
+    return call.name + (if (github) "|operation=" else ":") + hash.joinToString("") { "%02x".format(it) }
 }

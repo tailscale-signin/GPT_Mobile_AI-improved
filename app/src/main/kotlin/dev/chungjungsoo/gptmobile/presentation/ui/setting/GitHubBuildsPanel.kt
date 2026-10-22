@@ -114,6 +114,11 @@ fun GitHubBuildsPanel(
                 }
             }
         }
+        currentList.refreshedAt?.let { refreshedAt ->
+            item("metadata-freshness") {
+                Text("Metadata checked ${java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date(refreshedAt))} · completed build metadata is reused", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
         item {
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(selected = state.source == GitHubBuildSource.RELEASE, onClick = {

@@ -35,6 +35,33 @@ class ResearchSessionStoreTest {
         directory.deleteRecursively()
     }
 
+    @Test fun concurrentSavesAndHistoryReadsPreserveEveryCommittedTask() = runBlocking {
+        val store = ResearchSessionStore(context)
+        kotlinx.coroutines.withTimeout(30_000) {
+            coroutineScope {
+                val writers = (1..8).map { n ->
+                    async(kotlinx.coroutines.Dispatchers.IO) {
+                        val journal = store.journal("parallel-$n", n, true, turnId = "$n:42")
+                        repeat(8) { step -> journal.save(ResearchSnapshot("task-$n", sources = (1..step + 1).map { ResearchSource("S$it", "https://example.org/$n/$it", "Study $it") }, complete = step == 7)) }
+                    }
+                }
+                val reader = async(kotlinx.coroutines.Dispatchers.IO) { repeat(8) { n -> store.loadChat(n + 1) } }
+                writers.forEach { it.await() }
+                reader.await()
+            }
+        }
+        val restarted = ResearchSessionStore(context)
+        (1..8).forEach { n -> assertEquals(8, restarted.journal("parallel-$n", n, true, turnId = "$n:42").load()?.sources?.size) }
+    }
+
+    @Test fun lazyJournalFromSupersededGenerationCannotCommitAfterResume() = runBlocking {
+        val store = ResearchSessionStore(context)
+        val stale = store.journal("old-uninitialized", 1, true, "1:42")
+        store.resumeGeneration(1, "1:42", "new-generation")
+        stale.save(ResearchSnapshot("stale"))
+        assertNull(ResearchSessionStore(context).journal("old-uninitialized", 1, true, "1:42").load())
+    }
+
     @Test fun componentFixtureDoesNotStartProductionApplication() {
         // Config.NONE does not prevent the merged manifest's Application from starting.
         // The suite default must keep process-lifetime jobs out of this disk-store fixture.
@@ -56,6 +83,16 @@ class ResearchSessionStoreTest {
         assertEquals("What changed in the latest release?", related.load("  WHAT changed in the latest   release? ")?.task)
         assertNull(store.journal("profile-c", 1, true, turnId = "1:43").load("What changed in the latest release?"))
         assertNotNull(related.load("A sibling subquestion shares the same corpus"))
+        assertEquals("What changed in the latest release?", ResearchSessionStore(context).journal("profile-d", 1, true, turnId = "1:42").load("Another sibling subquestion")?.task)
+    }
+
+    @Test fun acceptedOriginalTaskDoesNotFallBackToAnUnregisteredLegacyTask() = runBlocking {
+        val store = ResearchSessionStore(context)
+        store.journal("legacy", 1, true, "1:42").save(ResearchSnapshot("Unregistered old subquestion"))
+        store.acceptTask(1, "1:42", 42, "Accepted original request", listOf("p1"), "p1", "settings", "sources", true)
+        val current = store.journal("current", 1, true, "1:42", ownerScope = "p1")
+        assertNull(current.load("Unregistered old subquestion"))
+        assertEquals("Accepted original request", store.acceptedTask("1:42")?.taskText)
     }
 
     @Test fun taskScopedResearchLockSerializesSiblingProfiles() = runBlocking {

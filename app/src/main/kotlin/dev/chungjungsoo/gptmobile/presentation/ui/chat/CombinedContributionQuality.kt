@@ -21,15 +21,16 @@ internal object CombinedContributionUsability {
     )
 
     fun assess(status: String?, rawContent: String, allowPartial: Boolean = false): CombinedContributionAssessment {
-        val content = rawContent.trim()
+        val content = dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(rawContent).trim()
         val terminalFailure = status in setOf(AgentRunStatus.FAILED, AgentRunStatus.CANCELED, AgentRunStatus.INTERRUPTED)
         if (terminalFailure && (!allowPartial || status == AgentRunStatus.CANCELED)) return CombinedContributionAssessment(false, 0, "terminal_provider_failure")
         if (content.isBlank()) return CombinedContributionAssessment(false, 0, "empty_contribution")
         if (content == "This model reached its response limit. Would you like me to continue?") return CombinedContributionAssessment(false, 0, "application_notice_only")
-        if (rawActionMarkup.any { it.containsMatchIn(content) }) {
+        if (dev.chungjungsoo.gptmobile.data.agent.DSML_CONTROL_MARKUP.containsMatchIn(content) || rawActionMarkup.any { it.containsMatchIn(content) }) {
             return CombinedContributionAssessment(false, 0, "unresolved_action_markup")
         }
         val usableWords = Regex("[\\p{L}\\p{N}]+").findAll(content).count()
+        if (usableWords == 0) return CombinedContributionAssessment(false, 0, "no_substantive_answer")
         val score = when {
             content.length >= 500 && usableWords >= 60 -> 100
             content.length >= 160 && usableWords >= 24 -> 85
@@ -42,5 +43,24 @@ internal object CombinedContributionUsability {
 
 /** Compatibility facade for older call sites; new code names the actual structural measurement. */
 internal object CombinedContributionQuality {
+    fun sanitizeContribution(raw: String): String {
+        val text = dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(dev.chungjungsoo.gptmobile.util.stripAssistantErrorNote(raw))
+        val clean = text.lines().filterNot { line ->
+            line.trim().let { it == "This model reached its response limit. Would you like me to continue?" || it.startsWith("[PARTIAL_DELEGATE_OUTPUT:") || it.startsWith("[Provider error:") }
+        }.joinToString("\n")
+        return dev.chungjungsoo.gptmobile.data.agent.sanitizeAssistantText(clean).trim()
+    }
+
+    fun currentRequestContribution(currentRequest: String, content: String): String {
+        val clean = sanitizeContribution(content)
+        val intent = dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(currentRequest).intent
+        if (intent == "SUBSTANTIVE") return clean
+        val greeting = Regex("(?i)^(?:(?:hi|hello|hey)(?: there| again)?|welcome(?: back)?|good (?:morning|afternoon|evening)|(?:thank you|thanks)(?: very much)?|you(?:'|’)re welcome)[!,. ]*$|^(?:how|what) can I (?:help|assist)(?: you)?(?: with)?(?: today)?[?!,. ]*$")
+        val test = Regex("(?i)^(?:(?:test|testing|message|connection)(?: message| test)? (?:received|acknowledged|successful|works|working|is working|is active)|(?:I(?:'|’)m|I am) (?:here|ready)|ready|working|connected|received|test successful)[!,. ]*$")
+        return clean.split(Regex("(?<=[.!?])\\s+|\\n+")).map(String::trim)
+            .filter { it.length <= 240 && (greeting.matches(it) || intent == "TEST" && test.matches(it)) }
+            .joinToString(" ").take(1200)
+    }
+
     fun assess(status: String?, rawContent: String): CombinedContributionAssessment = CombinedContributionUsability.assess(status, rawContent)
 }

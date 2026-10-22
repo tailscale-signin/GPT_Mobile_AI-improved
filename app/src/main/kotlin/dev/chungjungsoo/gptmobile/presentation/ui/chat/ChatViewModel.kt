@@ -11,6 +11,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.agent.AgentRunCoordinator
 import dev.chungjungsoo.gptmobile.data.agent.AgentRunRequest
+import dev.chungjungsoo.gptmobile.data.agent.bindAcceptedStage
 import dev.chungjungsoo.gptmobile.data.agent.temperatureFor
 import dev.chungjungsoo.gptmobile.data.agent.tool.DelegationRecoveryInteractions
 import dev.chungjungsoo.gptmobile.data.catalog.CatalogEntry
@@ -44,6 +45,7 @@ import dev.chungjungsoo.gptmobile.data.model.ChatAttachment
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.ConversationDelegationSettings
+import dev.chungjungsoo.gptmobile.data.model.delegationFor
 import dev.chungjungsoo.gptmobile.data.model.excludesMemory
 import dev.chungjungsoo.gptmobile.data.model.isPrivateDestination
 import dev.chungjungsoo.gptmobile.data.repository.AttachmentUploadCoordinator
@@ -79,7 +81,9 @@ import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -112,7 +116,8 @@ class ChatViewModel @Inject constructor(
     private val researchSessionStore: dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore? = null,
     private val conversationExitWork: dev.chungjungsoo.gptmobile.data.chat.ConversationExitWork,
     @dev.chungjungsoo.gptmobile.di.DefaultDispatcher private val messageGroupingDispatcher: kotlinx.coroutines.CoroutineDispatcher,
-    private val memoryPreview: dev.chungjungsoo.gptmobile.data.readiness.MemoryPreviewCoordinator? = null
+    private val memoryPreview: dev.chungjungsoo.gptmobile.data.readiness.MemoryPreviewCoordinator? = null,
+    private val researchDatabase: dev.chungjungsoo.gptmobile.data.research.feature.ResearchDatabase? = null
 ) : ViewModel() {
     private val diagnosticPrivacyOwner = java.util.UUID.randomUUID().toString()
     private val visibleHistoryTurns = MutableStateFlow(if (savedStateHandle.get<Int>("targetMessageId") != null) Int.MAX_VALUE else 40)
@@ -312,6 +317,18 @@ class ChatViewModel @Inject constructor(
             )
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val researchProfileStatistics = combine(
+        researchSessions,
+        (invocationLedger?.usageForChat(chatRoomId) ?: flowOf(emptyList())).sample(250),
+        researchDatabase?.research()?.jobs()?.map { rows -> rows.filter { it.chatId == chatRoomId } }?.distinctUntilChanged() ?: flowOf(emptyList())
+    ) { sessions, requests, jobs ->
+        sessions.values.filter { it.chatId == chatRoomId }.groupBy { it.turnId }.mapValues { (root, rows) ->
+            val accepted = researchSessionStore?.acceptedTask(root)
+            val participants = accepted?.participantUids?.toSet() ?: requests.filter { it.turnKey == root }.mapNotNull { it.profileUid }.toSet()
+            dev.chungjungsoo.gptmobile.data.research.researchProfileStatistics(root, participants, rows, requests, jobs)
+        }
+    }.flowOn(Dispatchers.Default).distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     val invocationDiagnostics = (invocationLedger?.diagnosticsForChat(chatRoomId) ?: flowOf(emptyList()))
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -587,7 +604,9 @@ class ChatViewModel @Inject constructor(
                         }.coerceAtLeast(1),
                         contentScope = research.scope.name,
                         gatewayConnectionUid = research.gatewayConnectionUid,
-                        allowNativeFallback = research.allowNativeFallback
+                        allowNativeFallback = research.allowNativeFallback,
+                        examinationRequested = featureSettings.value.researchFeature.enabled && featureSettings.value.researchFeature.autoExamination != dev.chungjungsoo.gptmobile.data.research.feature.AutoExamination.OFF && research.academicEligibleByUi,
+                        independentReviewRequested = selected.any { featureSettings.value.delegationFor(it).reviewerEnabled }
                     )
                 }
         )
@@ -1220,7 +1239,48 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    fun retryChat(turnIndex: Int, platformIndex: Int) {
+    /** Recovery controls are bound to the card's persisted original turn, never latest chat text. */
+    fun recoverResearch(sourceMessageId: Int, command: String) {
+        val action = dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.fromText(command) ?: return
+        val turnIndex = _groupedMessages.value.userMessages.indexOfFirst { it.id == sourceMessageId }
+        if (turnIndex < 0) return
+        val row = _groupedMessages.value.assistantMessages.getOrNull(turnIndex).orEmpty()
+        val finalIndex = row.indexOfFirst { it.currentRunId?.let { id -> _agentRunsById.value[id]?.synthesisKey != null } == true }
+        if (action == dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.RETRY_WRITING && finalIndex >= 0) {
+            retryChat(turnIndex, finalIndex, action)
+            return
+        }
+        row.indices.filter { row[it].platformType in _activePlatformUids.value && row[it].platformType !in _disabledPlatformUids.value }.forEach { index -> retryChat(turnIndex, index, action) }
+    }
+
+    fun retryCombinedMerge(turnIndex: Int) {
+        val index = _groupedMessages.value.assistantMessages.getOrNull(turnIndex).orEmpty().indexOfFirst { it.currentRunId?.let { id -> _agentRunsById.value[id]?.synthesisKey != null } == true }
+        if (index >= 0) retryChat(turnIndex, index, dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.RETRY_WRITING)
+    }
+
+    fun cancelResearchWriting(sourceMessageId: Int) {
+        val active = agentRunCoordinator.activeRuns.value.keys
+        agentRunCoordinator.cancelRuns(_agentRunsById.value.values.filter { it.userMessageId == sourceMessageId && it.chatId == _chatRoom.value.id && it.runId in active }.mapTo(mutableSetOf()) { it.runId })
+    }
+
+    fun useCombinedReply(turnIndex: Int, sourceProfileUid: String) {
+        if (isGenerationBusy()) return
+        val owner = _groupedMessages.value.assistantMessages.getOrNull(turnIndex).orEmpty().firstOrNull { it.currentRunId?.let { id -> _agentRunsById.value[id]?.synthesisKey != null } == true } ?: return
+        viewModelScope.launch {
+            agentRunCoordinator.withChatGate(owner.chatId) {
+                val published = chatRepository.useCombinedReply(requireNotNull(owner.currentRunId), owner.ownershipFence, sourceProfileUid)
+                if (published == null) {
+                    _attachmentNotice.value = "The saved reply changed or is no longer available. Refresh the response before selecting it."
+                } else {
+                    _groupedMessages.value = fetchGroupedMessages(owner.chatId)
+                }
+            }
+        }
+    }
+
+    fun retryChat(turnIndex: Int, platformIndex: Int) = retryChat(turnIndex, platformIndex, null)
+
+    private fun retryChat(turnIndex: Int, platformIndex: Int, requestedRecovery: dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction?) {
         val currentAssistantMessage = _groupedMessages.value.assistantMessages
             .getOrNull(turnIndex)
             ?.getOrNull(platformIndex)
@@ -1231,12 +1291,13 @@ class ChatViewModel @Inject constructor(
         val userMessage = _groupedMessages.value.userMessages.getOrNull(turnIndex) ?: return
         val previousRun = currentAssistantMessage.currentRunId?.let { _agentRunsById.value[it] }
         val needsFreshCombinedTurn = previousRun?.status in setOf(AgentRunStatus.COMPLETED, AgentRunStatus.CANCELED, "CANCELLED") || currentAssistantMessage.timeline.any { it.combinedTurn?.deliveryStatus == "MERGE_UNAVAILABLE" }
-        if (_chatRoom.value.conversationMode == ConversationMode.COMBINED && previousRun != null && needsFreshCombinedTurn) {
+        if (_chatRoom.value.conversationMode == ConversationMode.COMBINED && previousRun != null && needsFreshCombinedTurn && requestedRecovery != dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.RETRY_WRITING) {
             regenerateCombinedTurn(turnIndex, currentAssistantMessage, userMessage, previousRun)
             return
         }
-        if (ownerProfileUid in _disabledPlatformUids.value) return
-        val platform = _platformsInApp.value.firstOrNull { it.uid == ownerProfileUid && it.enabled } ?: return
+        val writerUid = previousRun?.profileUid?.takeIf { previousRun.synthesisKey != null } ?: ownerProfileUid
+        if (writerUid in _disabledPlatformUids.value) return
+        val platform = _platformsInApp.value.firstOrNull { it.uid == writerUid && it.enabled } ?: return
         val accepted = dev.chungjungsoo.gptmobile.data.agent.CombinedAcceptedTurn.decode(previousRun?.synthesisSnapshot)
         val platformWithChatModel = resolvePlatformModel(platform).let { current ->
             current.copy(
@@ -1257,7 +1318,7 @@ class ChatViewModel @Inject constructor(
             "${userMessage.chatId}:$sourceMessageId",
             sourceMessageId,
             runId,
-            if (prior?.primaryOnly == true) dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.CONTINUE_PRIMARY_ONLY else dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.RETRY_FAILED_STAGE
+            requestedRecovery ?: if (prior?.primaryOnly == true) dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.CONTINUE_PRIMARY_ONLY else dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.RETRY_FAILED_STAGE
         )
         _loadingStates.update { states -> states.mapIndexed { index, state -> if (enabledPlatformsInChat.getOrNull(index) == ownerProfileUid) LoadingState.Loading else state } }
 
@@ -1428,7 +1489,7 @@ class ChatViewModel @Inject constructor(
                         _agentRunsById.update { it + (persisted.run.runId to persisted.run) }
                         _groupedMessages.update { current ->
                             updateAssistantSlot(current, turnIndex, platformIndex) { selected ->
-                                if (selected.id == message.id && selected.platformType == platform.uid) persisted.assistantMessage else selected
+                                if (selected.id == message.id && selected.platformType == message.platformType) persisted.assistantMessage else selected
                             }
                         }
                         agentRunCoordinator.start(
@@ -1438,9 +1499,10 @@ class ChatViewModel @Inject constructor(
                                     chatId = message.chatId,
                                     assistantMessage = persisted.assistantMessage,
                                     platform = acceptedPlatform,
-                                    userMessages = snapshot.history + snapshot.userMessage.copy(content = snapshot.prompt),
+                                    userMessages = snapshot.history + snapshot.userMessage,
                                     assistantMessages = snapshot.replies + listOf(emptyList()),
-                                    chatToolConfig = acceptedTools
+                                    chatToolConfig = acceptedTools,
+                                    stage = snapshot.bindAcceptedStage()
                                 )
                             )
                         )
@@ -1730,59 +1792,64 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    suspend fun exportChat(format: ChatExportFormat = ChatExportFormat.MARKDOWN): Pair<String, String> {
-        if (format == ChatExportFormat.DEBUG) {
-            check(debugMode.value) { "Enable Debug mode to export diagnostic conversation data." }
-            val room = _chatRoom.value
-            val visible = persistableMessages(_groupedMessages.value)
-            val allProfiles = _platformsInApp.value.toList()
-            val tools = _chatToolConfig.value
-            val features = featureSettings.value
-            val draft = question.text.toString()
-            val live = agentRunCoordinator.streamMessages.value.values.filter { it.chatId == room.id }.toList()
-            val baseRecords = chatRepository.fetchDebugRecords(room.id)
-            val records = kotlinx.serialization.json.JsonObject(baseRecords + ("researchLifecycle" to (researchSessionStore?.featureDiagnostics(room.id) ?: kotlinx.serialization.json.JsonObject(emptyMap()))))
-            val messages = withContext(Dispatchers.IO) {
-                chatRepository.fetchMessagesV2(room.id).associateBy { it.id }.toMutableMap().apply {
-                    visible.filter { it.id > 0 }.forEach { put(it.id, it) }
-                    live.filter { it.id > 0 }.forEach { put(it.id, it) }
-                }.values.toList().plus(visible.filter { it.id <= 0 }).sortedWith(compareBy<MessageV2> { it.createdAt }.thenBy { it.id })
-            }
-            val dependencyIds = buildSet {
-                addAll(enabledPlatformsInChat)
-                messages.forEach { message ->
-                    message.platformType?.let(::add)
-                    (message.combinedSources + message.revisions.flatMap { it.combinedSources }).forEach { add(it.platformUid) }
-                    (message.timeline + message.revisions.flatMap { it.timeline }).mapNotNull { it.assistDiagnostic?.profileUid }.forEach(::add)
-                }
-                (records["invocations"] as? kotlinx.serialization.json.JsonArray).orEmpty().forEach { row ->
-                    ((row as? kotlinx.serialization.json.JsonObject)?.get("profileUid") as? kotlinx.serialization.json.JsonPrimitive)?.content?.let(::add)
-                }
-                features.localAssistPolicy.profileUid?.let(::add)
-            }
-            val profiles = allProfiles.filter { it.uid in dependencyIds }
-            val research = researchSessionStore?.exportChat(room.id).orEmpty()
-            val json = kotlinx.serialization.json.Json {
-                encodeDefaults = true
-                prettyPrint = true
-            }
-            val body = withContext(Dispatchers.IO) {
-                buildChatDebugExport(
-                    room,
-                    messages,
-                    profiles,
-                    tools,
-                    features,
-                    draft,
-                    records,
-                    research,
-                    json,
-                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.entries.value
-                )
-            }
-            val safeTitle = room.title.replace(Regex("[^\\p{L}\\p{N}._ -]"), "_").take(80)
-            return "export_${safeTitle}_${System.currentTimeMillis()}.${format.extension}" to body
+    suspend fun exportDebugFile(directory: java.io.File): java.io.File = dev.chungjungsoo.gptmobile.data.diagnostics.JavaHeapWorkGate.run("debug-export") {
+        check(debugMode.value) { "Enable Debug mode to export diagnostic conversation data." }
+        val room = _chatRoom.value
+        val visible = persistableMessages(_groupedMessages.value)
+        val allProfiles = _platformsInApp.value.toList()
+        val tools = _chatToolConfig.value
+        val features = featureSettings.value
+        val draft = question.text.toString()
+        val live = agentRunCoordinator.streamMessages.value.values.filter { it.chatId == room.id }.toList()
+        val baseRecords = chatRepository.fetchDebugRecords(room.id)
+        val records = kotlinx.serialization.json.JsonObject(baseRecords + ("researchLifecycle" to (researchSessionStore?.featureDiagnostics(room.id) ?: kotlinx.serialization.json.JsonObject(emptyMap()))))
+        val messages = withContext(Dispatchers.IO) {
+            chatRepository.fetchMessagesV2(room.id).associateBy { it.id }.toMutableMap().apply {
+                visible.filter { it.id > 0 }.forEach { put(it.id, it) }
+                live.filter { it.id > 0 }.forEach { put(it.id, it) }
+            }.values.toList().plus(visible.filter { it.id <= 0 }).sortedWith(compareBy<MessageV2> { it.createdAt }.thenBy { it.id })
         }
+        val dependencyIds = buildSet {
+            addAll(enabledPlatformsInChat)
+            messages.forEach { message ->
+                message.platformType?.let(::add)
+                (message.combinedSources + message.revisions.flatMap { it.combinedSources }).forEach { add(it.platformUid) }
+                (message.timeline + message.revisions.flatMap { it.timeline }).mapNotNull { it.assistDiagnostic?.profileUid }.forEach(::add)
+            }
+            (records["invocations"] as? kotlinx.serialization.json.JsonArray).orEmpty().forEach { row ->
+                ((row as? kotlinx.serialization.json.JsonObject)?.get("profileUid") as? kotlinx.serialization.json.JsonPrimitive)?.content?.let(::add)
+            }
+            features.localAssistPolicy.profileUid?.let(::add)
+        }
+        val profiles = allProfiles.filter { it.uid in dependencyIds }
+        withContext(Dispatchers.IO) {
+            check(directory.mkdirs() || directory.isDirectory)
+            val json = kotlinx.serialization.json.Json { encodeDefaults = true }
+            val safeTitle = room.title.replace(Regex("[^\\p{L}\\p{N}._ -]"), "_").take(80)
+            val destination = java.io.File(directory, "export_${safeTitle}_${System.currentTimeMillis()}.zip")
+            val conversation = java.io.File.createTempFile("debug-conversation-", ".json", directory)
+            val staging = java.io.File.createTempFile("debug-bundle-", ".partial", directory)
+            try {
+                conversation.bufferedWriter().use { writer ->
+                    writeChatDebugExport(
+                        room, messages, profiles, tools, features, draft, records, emptyList(), json,
+                        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.entries.value, writer,
+                        researchStream = { consume -> researchSessionStore?.streamChat(room.id, consume) }
+                    )
+                }
+                StreamingDebugBundle.write(conversation, staging)
+                StreamingDebugBundle.verify(staging)
+                check(staging.renameTo(destination)) { "Unable to publish the completed export" }
+                destination
+            } finally {
+                conversation.delete()
+                staging.delete()
+            }
+        }
+    }
+
+    suspend fun exportChat(format: ChatExportFormat = ChatExportFormat.MARKDOWN): Pair<String, String> {
+        require(format != ChatExportFormat.DEBUG) { "Diagnostic exports use exportDebugFile so large histories stay off the heap." }
         val exported = groupPersistedMessages(completeWindowMessages(_groupedMessages.value), enabledPlatformsInChat, _chatRoom.value.id)
         val content = exported.assistantMessages.flatten()
             .map { assistantExportText(it, format, debugMode = debugMode.value) }
@@ -2514,7 +2581,7 @@ class ChatViewModel @Inject constructor(
             if (row.any { it.timeline.any { item -> item.combinedTurn?.deliveryStatus == "MERGE_UNAVAILABLE" } }) return@forEach
             val activeRow = activeSlotIndexes.mapNotNull { row.getOrNull(it) }
             if (activeRow.size != activeSlotIndexes.size) return@forEach
-            val sources = combinedSynthesisInputs(activeRow, runsById, _platformsInApp.value.associate { it.uid to it.name }, accepted?.context?.requested?.requestedModels ?: _chatPlatformModels.value)
+            val sources = combinedSynthesisInputs(activeRow, runsById, _platformsInApp.value.associate { it.uid to it.name }, accepted?.context?.requested?.requestedModels ?: _chatPlatformModels.value, grouped.userMessages[turnIndex].content)
                 ?: return@forEach
             if (!combinedSynthesisAttempts.reserve(userId, sources)) return@forEach
             combinedSynthesisMessages += userId
@@ -2640,13 +2707,12 @@ class ChatViewModel @Inject constructor(
 
         val normalizedResearchTask = dev.chungjungsoo.gptmobile.data.research.researchHash(userMessage.content.trim())
         val researchTurnId = "${leadMessage.chatId}:${userMessage.id}"
-        val turnSessions = researchSessionStore?.exportChat(leadMessage.chatId).orEmpty().filter { session ->
+        val turnSessions = researchSessionStore?.exportTurn(leadMessage.chatId, setOf(researchTurnId)).orEmpty().filter { session ->
             session.turnId == researchTurnId &&
                 dev.chungjungsoo.gptmobile.data.research.researchHash(session.snapshot.task.trim()) == normalizedResearchTask
         }
         // Never widen a source partition just because a contributor finished later.
         val leadAuthority = turnSessions.lastOrNull { it.runId == leadMessage.currentRunId }?.authority
-            ?: turnSessions.map { it.authority }.distinct().singleOrNull()
         val sharedEvidence = dev.chungjungsoo.gptmobile.data.research.ResearchCorpus.freezeAll(
             dev.chungjungsoo.gptmobile.data.research.authorizedResearchTransfer(turnSessions, leadAuthority)
         )
@@ -2666,10 +2732,6 @@ class ChatViewModel @Inject constructor(
         require(fullHistory.any { it.id == userMessage.id && it.platformType == null }) { "The Combined user turn is no longer available." }
         val historicalUsers = fullHistory.filter { it.platformType == null }.takeWhile { it.id != userMessage.id }
         val historicalReplies = historicalUsers.map { prior -> fullHistory.filter { it.linkedMessageId == prior.id && it.platformType != null } }
-        val inheritedOrigins = historicalReplies.flatten().flatMap { previous ->
-            previous.effectiveCombinedSources().flatMap { source -> source.ancestryIds + "contribution:${source.sourceDigest.ifBlank { dev.chungjungsoo.gptmobile.data.research.researchHash(source.content) }}" }
-        }.toSet()
-        attributedSources = attributedSources.map { it.copy(ancestryIds = it.ancestryIds + inheritedOrigins) }
         val selectedUids = acceptedUids
         val answerContract = dev.chungjungsoo.gptmobile.data.agent.CombinedAnswerPolicy.from(userMessage.content)
         val editorialContext = combined?.forRole(dev.chungjungsoo.gptmobile.data.agent.CombinedRunRole.SYNTHESIS, leadUid)
@@ -2755,13 +2817,14 @@ class ChatViewModel @Inject constructor(
                         disableAllTools = true,
                         disableLocalTools = true
                     ),
-                    userMessages = historicalUsers + userMessage.copy(content = synthesisPrompt),
+                    userMessages = historicalUsers + userMessage,
                     assistantMessages = historicalReplies + listOf(emptyList()),
                     chatToolConfig = (accepted?.tools ?: _chatToolConfig.value).copy(
                         allToolsDisabled = true,
                         delegation = dev.chungjungsoo.gptmobile.data.model.ConversationDelegationSettings(enabled = false),
                         combined = editorialContext
-                    )
+                    ),
+                    stage = kotlinx.serialization.json.Json.decodeFromString<dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot>(synthesisSnapshot).bindAcceptedStage()
                 )
             )
         )

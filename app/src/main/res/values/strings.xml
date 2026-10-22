@@ -772,10 +772,10 @@
     <string name="pair_server_link">Pairing link from your computer</string>
     <string name="pair_server_review">Review destination</string>
     <string name="context_apply_detected">Apply detected context ceiling</string>
-    <string name="free_ai">Free</string>
+    <string name="free_ai">Free Models</string>
     <string name="free_ai_description">Try AI without an account or API key. Choose a provider; memory stays off.</string>
     <string name="free_ai_no_account">No account · No API key</string>
-    <string name="free_ai_provider">Free provider</string>
+    <string name="free_ai_provider">Service</string>
     <string name="free_ai_model">Model: %1$s</string>
     <string name="free_ai_memory_off">Memory is always off</string>
     <string name="free_ai_memory_description">Free profiles do not capture or recall saved facts, workspace knowledge, or connected memory.</string>

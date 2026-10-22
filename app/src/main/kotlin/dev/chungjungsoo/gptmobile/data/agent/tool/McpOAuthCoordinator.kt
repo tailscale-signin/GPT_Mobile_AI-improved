@@ -22,10 +22,12 @@ class McpOAuthCoordinator @Inject constructor(
     private val secretVault: SecretVault,
     private val mcpClientManager: McpClientManager
 ) {
-    private val credentialMutex = Mutex()
-    private val rejectedCredentials = mutableMapOf<String, String>()
+    private val credentialLocks = java.util.concurrent.ConcurrentHashMap<String, Mutex>()
+    private fun credentialMutex(uid: String) = credentialLocks.computeIfAbsent(uid) { Mutex() }
+    private val rejectedCredentials = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private val refreshBackoff = java.util.concurrent.ConcurrentHashMap<String, Pair<String, Long>>()
 
-    suspend fun begin(connectionUid: String, redirectUri: String): String {
+    suspend fun begin(connectionUid: String, redirectUri: String): String = credentialMutex(connectionUid).withLock {
         val connection = requireOAuthConnection(connectionUid)
         val discovery = oauthClient.discover(
             resourceUrl = dev.chungjungsoo.gptmobile.data.security.EndpointSecrets.resolve(connection, secretVault),
@@ -33,24 +35,27 @@ class McpOAuthCoordinator @Inject constructor(
         )
         val start = oauthClient.beginAuthorization(discovery, redirectUri, connection.oauthClientId)
         if (start.pending.clientId != connection.oauthClientId) {
-            persistConnection(connection.copy(oauthClientId = start.pending.clientId))
+            persistConnection(connection.copy(oauthClientId = start.pending.clientId), expected = connection)
         }
         storePending(start.pending.copy(connectionUid = connectionUid))
-        return start.authorizationUri
+        start.authorizationUri
     }
 
-    suspend fun complete(connectionUid: String, callbackUri: String) {
+    suspend fun complete(connectionUid: String, callbackUri: String) = credentialMutex(connectionUid).withLock {
         val connection = requireOAuthConnection(connectionUid)
         val pendingRef = mcpOAuthPendingSecretRef(connectionUid)
         val pending = readSecret<McpOAuthPending>(pendingRef)
             ?: throw McpOAuthException("OAuth authorization is no longer pending.")
         if (pending.connectionUid != connectionUid) throw McpOAuthException("OAuth pending connection did not match.")
         val credential = oauthClient.completeAuthorization(pending, callbackUri)
+        check(requireOAuthConnection(connectionUid) == connection) { "MCP connection changed during authorization; reconnect with the current configuration." }
         persistConnection(
             connection.copy(oauthClientId = credential.clientId),
-            credential = NetworkClient.json.encodeToString(credential).encodeToByteArray()
+            credential = NetworkClient.json.encodeToString(credential).encodeToByteArray(),
+            expected = connection
         )
-        credentialMutex.withLock { rejectedCredentials.remove(connectionUid) }
+        rejectedCredentials.remove(connectionUid)
+        refreshBackoff.remove(connectionUid)
         secretVault.delete(pendingRef)
         mcpClientManager.close(connectionUid)
         mcpClientManager.resetHealth(connectionUid)
@@ -61,12 +66,13 @@ class McpOAuthCoordinator @Inject constructor(
         forceRefresh: Boolean = false,
         rejectedAuthorizationHeader: String? = null
     ): String {
+        val credentialMutex = credentialMutex(connection.connectionUid)
         credentialMutex.lock()
         try {
             require(connection.authType == ToolConnectionAuthType.OAUTH) { "OAuth connection required." }
-            val secretRef = connection.secretRef ?: throw McpOAuthException("MCP OAuth connection is not authorized.")
+            val secretRef = connection.secretRef ?: throw McpOAuthException("MCP OAuth connection is not authorized. Reconnect this service in Plugins/Tools.", requiresReauthorization = true)
             var credential = readSecret<McpOAuthCredential>(secretRef)
-                ?: throw McpOAuthException("MCP OAuth credential is missing.")
+                ?: throw McpOAuthException("MCP OAuth credential is missing. Reconnect this service in Plugins/Tools.", requiresReauthorization = true)
             if (credential.requiresReauthorization) {
                 throw McpOAuthException("OAuth authorization is no longer valid. Reconnect this service in Plugins/Tools.", requiresReauthorization = true)
             }
@@ -79,24 +85,31 @@ class McpOAuthCoordinator @Inject constructor(
             val isExpired = credential.expiresAtEpochSeconds?.let { it <= nowEpochSeconds() + REFRESH_SKEW_SECONDS } == true
             val shouldRefreshRejected = forceRefresh && (rejectedAuthorizationHeader == null || rejectedAuthorizationHeader == currentHeader)
             if (isExpired || shouldRefreshRejected) {
+                refreshBackoff[connection.connectionUid]?.takeIf { it.first == fingerprint && it.second > System.currentTimeMillis() }?.let { throw McpBackoffException(connection.connectionUid, it.second) }
                 credential = try {
                     oauthClient.refresh(credential)
                 } catch (error: McpOAuthException) {
-                    if (error.requiresReauthorization) {
+                    if (error.requiresReauthorization && requireOAuthConnection(connection.connectionUid) == connection) {
                         if (rejectedCredentials.size >= 64) rejectedCredentials.remove(rejectedCredentials.keys.first())
                         rejectedCredentials[connection.connectionUid] = fingerprint
                         // Store the rejection with the encrypted credential so app restarts
                         // do not replay an invalid refresh grant indefinitely.
                         persistConnection(
                             connection,
-                            credential = NetworkClient.json.encodeToString(credential.copy(requiresReauthorization = true)).encodeToByteArray()
+                            credential = NetworkClient.json.encodeToString(credential.copy(requiresReauthorization = true)).encodeToByteArray(),
+                            expected = connection
                         )
                     }
+                    if (!error.requiresReauthorization) refreshBackoff[connection.connectionUid] = fingerprint to (System.currentTimeMillis() + 30_000)
                     throw error
                 }
+                val live = requireOAuthConnection(connection.connectionUid)
+                check(live == connection) { "MCP connection changed during OAuth refresh; retry using the current configuration." }
+                refreshBackoff.remove(connection.connectionUid)
                 persistConnection(
                     connection.copy(oauthClientId = credential.clientId),
-                    credential = NetworkClient.json.encodeToString(credential).encodeToByteArray()
+                    credential = NetworkClient.json.encodeToString(credential).encodeToByteArray(),
+                    expected = connection
                 )
                 mcpClientManager.close(connection.connectionUid)
                 mcpClientManager.resetHealth(connection.connectionUid)
@@ -118,8 +131,10 @@ class McpOAuthCoordinator @Inject constructor(
 
     private suspend fun persistConnection(
         connection: ToolConnection,
-        credential: ByteArray? = null
+        credential: ByteArray? = null,
+        expected: ToolConnection
     ) = dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.withLock {
+        check(connectionRepository.getConnection(connection.connectionUid) == expected) { "MCP connection changed before OAuth credentials could be saved. Reconnect using the current configuration." }
         connectionRepository.upsertConnection(connection, credential = credential)
     }
 

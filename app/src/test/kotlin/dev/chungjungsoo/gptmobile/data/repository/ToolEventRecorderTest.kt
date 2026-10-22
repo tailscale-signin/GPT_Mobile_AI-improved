@@ -441,6 +441,7 @@ private class FakeAgentRunDao : AgentRunDao {
         totalTokens: Int?
     ): Int = 0
     override suspend fun getRecoverableGatewayRuns(): List<AgentRun> = emptyList()
+    override suspend fun combinedTerminalOwners(): List<AgentRun> = emptyList()
 }
 
 private class FakeAgentPersistenceDao : AgentPersistenceDao {

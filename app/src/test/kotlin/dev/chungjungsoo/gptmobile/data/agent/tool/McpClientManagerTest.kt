@@ -247,7 +247,18 @@ class McpClientManagerTest {
             )
 
             val tools = manager.listTools(config)
-            val result = manager.callTool(config, "echo", buildJsonObject { put("text", "hello") })
+            val metadata = buildJsonObject {
+                put(
+                    "gptmobile/crawlerGrant",
+                    buildJsonObject {
+                        put("signature", "signed-fixture")
+                        put("payload", buildJsonObject { put("principal", "profile") })
+                    }
+                )
+            }
+            val result = manager.callTool(config, "echo", buildJsonObject { put("text", "hello") }, metadata = metadata)
+            assertEquals(metadata, server.toolParams.single()["_meta"])
+            assertEquals(buildJsonObject { put("text", "hello") }, server.toolParams.single()["arguments"])
 
             assertEquals(listOf("echo"), tools.map { it.name })
             assertEquals("hello", result.content.single().let { it as io.modelcontextprotocol.kotlin.sdk.types.TextContent }.text)
@@ -337,15 +348,27 @@ class McpClientManagerTest {
             SlowInitializeMcpFixtureServer(started, startCount).use { second ->
                 val client = testClient()
                 val manager = McpClientManager(client)
+                try {
+                    val firstConfig = McpConnectionConfig("connection-1", first.url, allowCleartext = true)
+                    val secondConfig = McpConnectionConfig("connection-2", second.url, allowCleartext = true)
+                    val one = async { manager.listTools(firstConfig) }
+                    val two = async { manager.listTools(secondConfig) }
 
-                val one = async { manager.listTools(McpConnectionConfig("connection-1", first.url, allowCleartext = true)) }
-                val two = async { manager.listTools(McpConnectionConfig("connection-2", second.url, allowCleartext = true)) }
-
-                withTimeout(2_000) { started.await() }
-                assertEquals(listOf("echo"), one.await().map { it.name })
-                assertEquals(listOf("echo"), two.await().map { it.name })
-                manager.closeAll()
-                client.close()
+                    withTimeout(2_000) { started.await() }
+                    // Both slow handshakes outlive the 2-second consumer allowance.
+                    // Their independent producers continue and populate the cache.
+                    assertTrue(one.await().isEmpty())
+                    assertTrue(two.await().isEmpty())
+                    withTimeout(8_000) {
+                        while (manager.peekTools(firstConfig) == null || manager.peekTools(secondConfig) == null) kotlinx.coroutines.delay(25)
+                    }
+                    assertEquals(listOf("echo"), manager.listTools(firstConfig).map { it.name })
+                    assertEquals(listOf("echo"), manager.listTools(secondConfig).map { it.name })
+                    assertEquals(2, startCount.get())
+                } finally {
+                    manager.closeAll()
+                    client.close()
+                }
             }
         }
     }
@@ -378,6 +401,7 @@ class McpClientManagerTest {
         @Volatile
         var acceptedAuthorization: String? = acceptedAuthorization
         val methods = CopyOnWriteArrayList<String>()
+        val toolParams = CopyOnWriteArrayList<JsonObject>()
         val sessionHeaders = CopyOnWriteArrayList<String?>()
         val authorizationHeaders = CopyOnWriteArrayList<String>()
         val refreshRequests = AtomicInteger()
@@ -425,6 +449,7 @@ class McpClientManagerTest {
                     }
 
                     "tools/call" -> {
+                        toolParams += request["params"] as JsonObject
                         val text = request["params"]!!.let { it as JsonObject }["arguments"]!!.let { it as JsonObject }["text"]!!.jsonPrimitive.content
                         """{"content":[{"type":"text","text":"$text"}]}"""
                     }

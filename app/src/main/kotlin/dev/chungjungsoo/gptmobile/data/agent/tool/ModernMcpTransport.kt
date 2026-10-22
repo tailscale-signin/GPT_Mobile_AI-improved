@@ -71,6 +71,9 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
         }
         if (refresh) dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.checkAgain(config.endpointUrl)
         dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.requireAvailable(config.endpointUrl)
+        val endpointHost = URI(config.endpointUrl).host
+        val connectivity = dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared
+        val lease = connectivity.acquire(endpointHost) ?: error("DNS_RECOVERY: MCP discovery is waiting for the single connectivity probe.")
         val discovered = try {
             val discovery = rpc(config, "server/discover", JsonObject(emptyMap()))
             val advertised = discovery["supportedVersions"]
@@ -121,6 +124,8 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
             // Transport failure says nothing about protocol support. Never open a second
             // legacy connection to a host that did not answer discovery.
             throw error
+        } finally {
+            connectivity.release(lease)
         }
         if (endpoints.size >= 64) {
             endpoints.keys.firstOrNull()?.let {
@@ -149,7 +154,7 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
     fun capabilities(uid: String): Set<String> = (endpoints[uid]?.discovery?.get("capabilities") as? JsonObject)?.keys.orEmpty()
 
     suspend fun listTools(config: McpConnectionConfig): List<Tool> {
-        val definitions = pages(config, "tools/list", "tools").mapNotNull { element ->
+        val definitions = withMcpConnectivityLease(config) { pages(config, "tools/list", "tools") }.mapNotNull { element ->
             val definition = element as? JsonObject ?: return@mapNotNull null
             val schema = definition["inputSchema"] as? JsonObject ?: return@mapNotNull null
             if (runCatching { mirroredHeaders(schema, null) }.isFailure) return@mapNotNull null
@@ -159,7 +164,7 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
         return definitions.map { json.decodeFromJsonElement<Tool>(it) }
     }
 
-    suspend fun callTool(config: McpConnectionConfig, name: String, arguments: JsonObject, callId: String? = null): CallToolResult {
+    suspend fun callTool(config: McpConnectionConfig, name: String, arguments: JsonObject, callId: String? = null, metadata: JsonObject? = null): CallToolResult {
         if (schemas[config.connectionUid]?.containsKey(name) != true) listTools(config)
         val schema = requireNotNull(schemas[config.connectionUid]?.get(name)) { "Tool was removed or has an invalid HTTP header schema. Refresh the connection." }
         val result = request(
@@ -168,6 +173,7 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
             buildJsonObject {
                 put("name", name)
                 put("arguments", arguments)
+                metadata?.let { put("_meta", it) }
             },
             mirroredHeaders(schema, arguments)
         )
@@ -339,6 +345,8 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
             }
             setBody(body.toString())
         }.execute { response ->
+            // Any actual HTTP response proves this host is reachable, even an auth or protocol error.
+            dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.success(URI(config.endpointUrl).host)
             val channel = response.bodyAsChannel()
             val streaming = response.headers["Content-Type"].orEmpty().startsWith("text/event-stream")
             val buffer = StringBuilder()

@@ -56,7 +56,7 @@ object CombinedPolicyResolver {
             CombinedResourceQuota(512_000, 128_000, 80),
             CombinedResourceQuota(2_000_000, 512_000, 300)
         )[stop]
-        val draftOutput = listOf(512, 1024, 2048, 4096, 8192)[stop]
+        val draftOutput = maxOf(listOf(512, 1024, 2048, 4096, 8192)[stop], if (requested.acceptedResearch != null) 4096 else 0)
         val defaultFinal = listOf(700, 1400, 2500, 5000, 12_000)[stop]
         val explicitWords = Regex("(?i)\\b(?:exactly\\s+|about\\s+|approximately\\s+)?(\\d{1,7})[ -]+words?\\b")
             .find(requested.userPrompt)?.groupValues?.get(1)?.toLongOrNull()
@@ -69,7 +69,10 @@ object CombinedPolicyResolver {
         val input = estimatedInputTokens.toLong().coerceAtLeast(256)
         val availableOutput = hardLimits.generatedTokens ?: Long.MAX_VALUE
         val finalTokens = minOf(requestedFinal.toLong(), availableOutput).coerceAtLeast(0)
-        val finalInput = minOf(input, hardLimits.inputTokens ?: Long.MAX_VALUE)
+        // Research editing includes the compact contribution inventory and registered evidence,
+        // not just the original user prompt. Reserve these inputs before dispatching workers.
+        val editorialInput = if (requested.acceptedResearch != null) Math.addExact(input, Math.addExact(Math.multiplyExact(requested.participantUids.size.toLong(), draftOutput.toLong()), 8000L)) else input
+        val finalInput = minOf(editorialInput, hardLimits.inputTokens ?: Long.MAX_VALUE)
         // Protect a feasible final before admitting initial contributors. One correction is sealed.
         val proposedFinalReserve = CombinedResourceQuota(
             minOf(finalInput * 2, hardLimits.inputTokens ?: Long.MAX_VALUE),
@@ -95,7 +98,11 @@ object CombinedPolicyResolver {
                 quota.inputTokens + quota.generatedTokens <= totalCeiling - used.inputTokens - used.generatedTokens &&
                 quota.toolOperations <= (hardLimits.toolOperations ?: Long.MAX_VALUE) - used.toolOperations
         requested.participantUids.forEach { uid ->
-            val quota = CombinedResourceQuota(input, draftOutput.toLong())
+            // Report delivery, one correction and one output-limit completion are required
+            // contributor work. They never consume the protected final editor allocation.
+            val reportPasses = if (requested.acceptedResearch != null) 3L else 1L
+            val reportInput = if (requested.acceptedResearch != null) Math.addExact(input, 8000L) else input
+            val quota = CombinedResourceQuota(reportInput, draftOutput.toLong()).scale(reportPasses)
             val cost = prices[uid]?.cost(quota.inputTokens, quota.generatedTokens)
             val funded = hardLimits.costMicros?.let { cost != null && cost <= it - usedCost } ?: true
             if (admissible(quota) && funded) {
@@ -144,15 +151,28 @@ object CombinedPolicyResolver {
         val unfundedStages = linkedSetOf<String>()
         requested.acceptedResearch?.let { research ->
             requested.participantUids.filterNot { it in blocked }.forEach { uid ->
-                CombinedResearchStages.names.forEach { stage ->
+                CombinedResearchStages.names.filter { stage ->
+                    when (stage) {
+                        "appraisal", "study_review" -> research.examinationRequested
+                        "independent_review" -> research.examinationRequested && research.independentReviewRequested
+                        else -> true
+                    }
+                }.forEach { stage ->
                     val units = when (stage) {
                         "extract", "review" -> research.sourceGoal
+                        "study_review" -> Math.multiplyExact(research.sourceGoal, 11L)
+                        "appraisal", "independent_review" -> Math.multiplyExact(research.sourceGoal, 3L)
                         "find_gaps" -> maxOf(1L, (research.depth + 24L) / 25L)
                         else -> 1L
                     }
                     val id = CombinedResearchStages.id(uid, stage)
                     researchStages += CombinedWorkItem(id, CombinedRunRole.RESEARCH, units, reason = "ACCEPTED_RESEARCH_STAGE", assignedOwnerKey = id)
-                    val quota = CombinedResourceQuota(Math.addExact(input, 1024L), 2048).scale(units)
+                    val stageInput = when (stage) {
+                        "appraisal", "independent_review" -> 12000L
+                        "study_review" -> 16000L
+                        else -> 1024L
+                    }
+                    val quota = CombinedResourceQuota(Math.addExact(input, stageInput), CombinedResearchStages.outputTokens(stage).toLong()).scale(units)
                     val cost = prices[uid]?.cost(quota.inputTokens, quota.generatedTokens)
                     if (admissible(quota) && (hardLimits.costMicros?.let { cost != null && cost <= it - usedCost } ?: true)) {
                         baseline[id] = quota

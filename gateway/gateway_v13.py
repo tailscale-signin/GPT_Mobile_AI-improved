@@ -16442,31 +16442,7 @@ def _process_chat_payload_core(
                         # the active model context needs a smaller excerpt.
                         saved_tool_result = tool_text
 
-                        tool_text = (
-                            bound_repository_collection_result(
-                                function_name,
-                                tool_text,
-                            )
-                        )
-
-                        runtime_result_cap = int(
-                            runtime_perf.get("result_char_limit", 0) or 0
-                        )
-                        if (
-                            runtime_result_cap > 0
-                            and len(str(tool_text or "")) > runtime_result_cap
-                        ):
-                            logger.info(
-                                "v10.1 mobile result cap: tool=%s chars=%s -> %s",
-                                function_name,
-                                len(str(tool_text or "")),
-                                runtime_result_cap,
-                            )
-                            tool_text = _clip_context_text(
-                                str(tool_text or ""),
-                                runtime_result_cap,
-                                "result truncated by mobile performance profile; use a focused follow-up read",
-                            )
+                        runtime_result_cap = int(runtime_perf.get("result_char_limit", 0) or 0)
 
                         if (
                             workflow_profile
@@ -16493,6 +16469,14 @@ def _process_chat_payload_core(
                                     tool_text
                                     + fused_preload
                                 )
+
+                        # Preserve the assembled result before one final structured model-view cap.
+                        saved_tool_result = tool_text
+                        from v14.results import bound_result
+                        collection_cap = int(REPO_COLLECTION_RESULT_CHAR_CAPS.get(function_name, 0) or 0)
+                        caps = [cap for cap in (runtime_result_cap, collection_cap) if cap > 0]
+                        if caps:
+                            tool_text = bound_result(tool_text, min(caps))
 
                         structured_mcp_error = (
                             mcp_result_is_structured_error(

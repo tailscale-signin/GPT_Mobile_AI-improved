@@ -16,6 +16,21 @@ import kotlinx.serialization.json.longOrNull
 internal class ModelRequestPreparation(client: NetworkClient) {
     private val llama = LlamaCapacityRepository(client)
 
+    suspend fun prepareQueued(payload: String, config: ProviderRequestConfig, model: String, outputTokens: Int?): String {
+        val context = kotlinx.coroutines.currentCoroutineContext()
+        context[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]?.validate?.invoke()
+        val revision = context[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]?.revision ?: config.permissionRevision
+        dev.chungjungsoo.gptmobile.data.research.feature.ExaminationOutputBudget.requireCapacity(config.requestRole, outputTokens?.toLong() ?: 0)
+        val runtime = RuntimeFingerprint(config.profileUid ?: "unbound", "sha256:${researchHash(config.apiUrl)}", "anonymous", model, model, "unverified", "queued-native-v1", "unverified")
+        val capacity = CapacitySnapshot(runtime, config.contextCeiling?.takeIf { it > 0 && it < Int.MAX_VALUE }?.toLong(), provenance = CapacityProvenance.UNKNOWN)
+        val prepared = RequestAdmission.prepare(payload, config.requestRole, capacity, RequestAdmission.estimate(payload), outputTokens?.toLong(), revision, config.requireKnownCapacity, "queued-native-v1")
+        val wire = prepared.dispatchPayload(runtime, revision)
+        val attempt = dev.chungjungsoo.gptmobile.data.context.PhysicalAttemptBoundary.dispatch(prepared.receipt)
+        context[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.serialized(wire, prepared.receipt.copy(physicalAttemptId = attempt))
+        context[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.armHttp()
+        return wire
+    }
+
     suspend fun preparePollinationsGet(prompt: String, config: ProviderRequestConfig): String {
         kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]?.validate?.invoke()
         // This transport has no output-limit parameter. Do not report the unused JSON DTO cap as transmitted.
@@ -68,6 +83,7 @@ internal class ModelRequestPreparation(client: NetworkClient) {
         // those exact bytes once more; lowering a positive integer cannot add bytes.
         val finalAllowance = dev.chungjungsoo.gptmobile.data.context.EffectiveOutputAllowance.resolve(allowance.tokens, snapshot.outputTokens, snapshot.contextTokens, RequestAdmission.estimate(finalPayload))
         if (finalAllowance.tokens != allowance.tokens) finalPayload = applyOutputAllowance(bounded, config.providerType, finalAllowance.tokens).toString()
+        dev.chungjungsoo.gptmobile.data.research.feature.ExaminationOutputBudget.requireCapacity(config.requestRole, finalAllowance.tokens)
         dev.chungjungsoo.gptmobile.data.context.ProviderMessageValidator.validate(finalPayload, config.intentionalAssistantPrefill)
         val measured = RequestAdmission.estimate(finalPayload)
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
@@ -75,10 +91,10 @@ internal class ModelRequestPreparation(client: NetworkClient) {
             "OUTPUT_ALLOWANCE · role=${config.requestRole} · tokens=${finalAllowance.tokens} · source=${allowance.source} · providerCeiling=${snapshot.outputTokens ?: "unknown"} · providerConfirmed=${snapshot.provenance == CapacityProvenance.VERIFIED_ROUTE}"
         )
         val toolSchema = bounded["tools"]?.toString().orEmpty()
-        val toolCount = (bounded["tools"] as? kotlinx.serialization.json.JsonArray)?.size ?: 0
+        val toolNames = wireToolNames(bounded)
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
             "ToolCatalog",
-            "WIRE_SCHEMA · role=${config.requestRole} · serializedTools=$toolCount · serializedBytes=${toolSchema.toByteArray(Charsets.UTF_8).size} · schemaTokens=${if (toolSchema.isEmpty()) 0 else RequestAdmission.estimate(toolSchema).promptTokens} · measurement=UTF8_ESTIMATE"
+            "WIRE_SCHEMA · role=${config.requestRole} · serializedTools=${toolNames.size} · names=${toolNames.joinToString()} · serializedBytes=${toolSchema.toByteArray(Charsets.UTF_8).size} · schemaTokens=${if (toolSchema.isEmpty()) 0 else RequestAdmission.estimate(toolSchema).promptTokens} · measurement=UTF8_ESTIMATE"
         )
         val prepared = RequestAdmission.prepare(finalPayload, config.requestRole, snapshot, measured, finalAllowance.tokens, permissionRevision, requireKnownCapacity = config.requireKnownCapacity, reasoning = reasoning, messageValidatorRevision = dev.chungjungsoo.gptmobile.data.context.ProviderMessageValidator.VERSION)
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
@@ -90,6 +106,17 @@ internal class ModelRequestPreparation(client: NetworkClient) {
         kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.serialized(wire, prepared.receipt.copy(physicalAttemptId = attemptId))
         kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.armHttp()
         return wire
+    }
+}
+
+/** Names from the final serialized request, including Gemini's grouped declarations. */
+internal fun wireToolNames(root: JsonObject): List<String> = (root["tools"] as? kotlinx.serialization.json.JsonArray).orEmpty().flatMap { entry ->
+    val tool = entry as? JsonObject ?: return@flatMap emptyList()
+    val declarations = tool["functionDeclarations"] as? kotlinx.serialization.json.JsonArray
+    if (declarations != null) {
+        declarations.mapNotNull { ((it as? JsonObject)?.get("name") as? JsonPrimitive)?.content }
+    } else {
+        listOfNotNull(((tool["function"] as? JsonObject)?.get("name") as? JsonPrimitive)?.content ?: (tool["name"] as? JsonPrimitive)?.content ?: (tool["type"] as? JsonPrimitive)?.content)
     }
 }
 

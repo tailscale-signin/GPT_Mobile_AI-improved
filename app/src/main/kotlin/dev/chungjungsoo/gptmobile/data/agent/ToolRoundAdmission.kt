@@ -5,13 +5,15 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
+internal const val MAX_BUFFERED_TOOL_CALLS = 128
+
 /** Admission happens before UI events, argument serialization, or execution. Never unlimited. */
 internal class ToolRoundAdmission(
-    maxCalls: Int = 32,
+    maxCalls: Int = MAX_BUFFERED_TOOL_CALLS,
     private val maxArgumentBytes: Int = 16 * 1024,
     private val maxSameTool: Int = 16
 ) {
-    private val limit = maxCalls.coerceIn(0, 64)
+    private val limit = maxCalls.coerceIn(0, MAX_BUFFERED_TOOL_CALLS)
     private val ids = HashSet<String>()
     private val byName = HashMap<String, Int>()
     var observed: Int = 0
@@ -33,12 +35,13 @@ internal class ToolRoundAdmission(
         if (call.callId.length > 256) return reject("CALL_ID_CHARACTERS", call.callId.length, 256, call)
         if (call.name.length > 256) return reject("TOOL_NAME_CHARACTERS", call.name.length, 256, call)
         if (call.callId in ids) return reject("DUPLICATE_CALL_ID", 2, 1, call)
-        if ((byName[call.name] ?: 0) >= maxSameTool.coerceIn(1, 32)) return reject("SAME_TOOL_COUNT", (byName[call.name] ?: 0) + 1, maxSameTool.coerceIn(1, 32), call)
         val available = maxArgumentBytes.coerceIn(1, 64 * 1024) - argumentBytes
         val size = boundedJsonBytes(call.arguments, available)
         if (size > available) return reject("ARGUMENT_BYTES_LOWER_BOUND", argumentBytes + size, maxArgumentBytes.coerceIn(1, 64 * 1024), call)
+        val repeatKey = toolRepeatKey(call)
+        if ((byName[repeatKey] ?: 0) >= maxSameTool.coerceIn(1, 32)) return reject("SAME_TOOL_COUNT", (byName[repeatKey] ?: 0) + 1, maxSameTool.coerceIn(1, 32), call)
         ids += call.callId
-        byName[call.name] = (byName[call.name] ?: 0) + 1
+        byName[repeatKey] = (byName[repeatKey] ?: 0) + 1
         argumentBytes += size
         return true
     }
@@ -89,7 +92,7 @@ internal class ToolStreamGuard {
     private var bytes = 0
     fun slot(key: String) {
         if (key.length > 256) throw ToolBatchOversizeException("SLOT_ID_CHARACTERS", key.length, 256)
-        if (key !in slots && slots.size >= 32) throw ToolBatchOversizeException("STREAM_TOOL_SLOTS", slots.size + 1, 32)
+        if (key !in slots && slots.size >= MAX_BUFFERED_TOOL_CALLS) throw ToolBatchOversizeException("STREAM_TOOL_SLOTS", slots.size + 1, MAX_BUFFERED_TOOL_CALLS)
         slots += key
     }
     fun identifier(value: String?) {

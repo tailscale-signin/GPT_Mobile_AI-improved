@@ -32,7 +32,7 @@ class OllamaServerRepository @Inject constructor() {
         if (!url.startsWith("http://") && !url.startsWith("https://")) {
             url = "http://$url"
         }
-        return url.trimEnd('/')
+        return dev.chungjungsoo.gptmobile.data.network.LocalServerUrls.root(url)
     }
 
     suspend fun checkHealth(baseUrl: String): Result<OllamaServerHealth> = withContext(Dispatchers.IO) {

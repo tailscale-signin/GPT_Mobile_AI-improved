@@ -13,7 +13,9 @@ data class CombinedAcceptedTurn(
     val policyRecordKind: String = "COMBINED_ACCEPTED_TURN",
     val context: CombinedExecutionContext,
     val tools: ChatMcpToolConfig,
-    val parentRootBudgetId: String? = null
+    val parentRootBudgetId: String? = null,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val acceptedTask: AcceptedTaskRef? = null
 ) {
     fun encode(): String = json.encodeToString(this)
 
@@ -44,6 +46,7 @@ fun CombinedRequestedPolicy.temperatureFor(profileUid: String, fallback: Float?)
 fun CombinedExecutionContext.forInvocationKind(kind: String, profileUid: String): CombinedExecutionContext = forRole(
     when {
         kind.contains("continuation") -> if (role.finalization) CombinedRunRole.CONTINUATION else role
+        role == CombinedRunRole.CONTRIBUTOR && kind.replace('-', '_').contains("research_report_repair") -> CombinedRunRole.CONTRIBUTOR
         kind.contains("repair") -> CombinedRunRole.REPAIR
         kind.contains("verif") -> CombinedRunRole.VERIFIER
         else -> role

@@ -33,16 +33,37 @@ import dev.chungjungsoo.gptmobile.presentation.common.FadingModalBottomSheet as 
 
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-internal fun ResearchProgressCard(sessions: List<ResearchSession>, activeRunIds: Set<String>, stop: (String) -> Unit, writerFailure: String? = null, onRecovery: ((String) -> Unit)? = null) {
+internal fun ResearchProgressCard(
+    sessions: List<ResearchSession>,
+    activeRunIds: Set<String>,
+    stop: (String) -> Unit,
+    writerFailure: String? = null,
+    onRecovery: ((String) -> Unit)? = null,
+    deliveryReceipt: dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryReceipt? = null,
+    cancelWriting: (() -> Unit)? = null,
+    deliveryRevisionText: String? = null,
+    profileStatistics: List<dev.chungjungsoo.gptmobile.data.research.ResearchProfileStatistics> = emptyList(),
+    profileNames: Map<String, String> = emptyMap(),
+    deliveryComplete: Boolean? = null
+) {
     var expanded by remember { mutableStateOf(false) }
     var filter by remember { mutableStateOf("") }
     val activeSessions = sessions.filter { it.runId in activeRunIds && !it.snapshot.complete }
     val latest = (activeSessions.ifEmpty { sessions }).maxByOrNull { it.snapshot.updatedAt } ?: return
     val snapshot = latest.snapshot
-    val active = latest.runId in activeRunIds && !snapshot.complete
+    val collecting = activeSessions.any { session -> session.snapshot.phase.lowercase().let { phase -> !phase.contains("report") && !phase.contains("writing") && !phase.contains("summary") && !phase.contains("handoff") && phase !in setOf("complete", "completed", "ready") } }
+    val writing = activeRunIds.isNotEmpty() && !collecting
+    val active = collecting || writing
+    val displayedValidity = deliveryReceipt?.displayValidityFor(deliveryRevisionText)
     val readable = snapshot.sources.readableWorkCount()
     val saved = snapshot.sources.distinctBy { it.equivalenceGroup.ifBlank { it.id } }.size
-    val progress = (readable.toFloat() / snapshot.targetSources.coerceAtLeast(1)).coerceIn(0f, 1f)
+    val complete = deliveryComplete ?: (displayedValidity == dev.chungjungsoo.gptmobile.data.research.delivery.ResearchReportValidity.ACCEPTED)
+    val progress = if (complete && !active) {
+        1f
+    } else {
+        val acquisition = (readable.toFloat() / snapshot.targetSources.coerceAtLeast(1)).coerceIn(0f, 1f)
+        (acquisition * 0.7f + if (writing) 0.15f else 0f).coerceAtMost(0.95f)
+    }
     Card(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
         shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
@@ -52,15 +73,66 @@ internal fun ResearchProgressCard(sessions: List<ResearchSession>, activeRunIds:
             androidx.compose.foundation.layout.Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Rounded.Search, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                 Column(Modifier.weight(1f)) {
-                    Text(if (active) "Research · ${snapshot.phase}" else "Research evidence", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        when {
+                            collecting -> "Research · ${snapshot.phase}"
+                            writing -> "Writing from saved evidence"
+                            complete -> "Research report ready"
+                            else -> "Research evidence retained"
+                        },
+                        style = MaterialTheme.typography.titleMedium
+                    )
                     Text("$readable of ${snapshot.targetSources} readable · $saved discovered", style = MaterialTheme.typography.bodySmall)
                 }
                 if (active) androidx.compose.material3.CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
             }
             androidx.compose.material3.LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
-            val independent = snapshot.claims.count { it.independentReview && it.exactQuoteVerified }
-            Text(if (independent > 0) "$independent claims independently passage-reviewed" else "Independent review not completed", style = MaterialTheme.typography.labelMedium)
-            if (!active && writerFailure != null) {
+            profileStatistics.forEach { stats ->
+                Column(Modifier.fillMaxWidth()) {
+                    Text(profileNames[stats.profileUid] ?: stats.profileUid, style = MaterialTheme.typography.titleSmall)
+                    Text("${stats.sources} sources · ${stats.uniqueSources} unique · ${stats.sourcesRead} read · ${stats.studiesExamined} studies examined", style = MaterialTheme.typography.bodySmall)
+                    Text("${stats.inputTokens + stats.outputTokens} ${if (stats.estimatedTokens) "estimated tokens" else "tokens"} (${stats.inputTokens} input / ${stats.outputTokens} output) · ${stats.modelRequests} model requests", style = MaterialTheme.typography.bodySmall)
+                    if (stats.examinationsPending > 0) Text("${stats.examinationsPending} examinations pending", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            if (profileStatistics.isNotEmpty()) Text("Unique sources were found by only this profile among the selected profiles. Shared evidence retains its original attribution; older records without attribution are not assigned to a profile.", style = MaterialTheme.typography.labelSmall)
+            val checked = snapshot.claims.count { claim ->
+                val source = snapshot.sources.firstOrNull { it.id == claim.sourceId }
+                claim.exactQuoteVerified &&
+                    source?.readable == true &&
+                    claim.quote.isNotBlank() &&
+                    source.passage.contains(claim.quote) &&
+                    claim.reviewedSourceVersion == dev.chungjungsoo.gptmobile.data.research.capturedResearchVersion(source)
+            }
+            val independent = snapshot.claims.count { claim ->
+                val source = snapshot.sources.firstOrNull { it.id == claim.sourceId }
+                claim.independentReview &&
+                    claim.exactQuoteVerified &&
+                    source?.readable == true &&
+                    claim.quote.isNotBlank() &&
+                    source.passage.contains(claim.quote) &&
+                    claim.reviewedSourceVersion == dev.chungjungsoo.gptmobile.data.research.capturedResearchVersion(source)
+            }
+            androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("$readable readable ${if (readable == 1) "source" else "sources"}", style = MaterialTheme.typography.labelMedium)
+                Text("$checked ${if (checked == 1) "claim" else "claims"} checked against passages", style = MaterialTheme.typography.labelMedium)
+                Text("$independent independently reviewed", style = MaterialTheme.typography.labelMedium)
+                Text(
+                    when (displayedValidity) {
+                        dev.chungjungsoo.gptmobile.data.research.delivery.ResearchReportValidity.ACCEPTED -> "Report accepted"
+                        dev.chungjungsoo.gptmobile.data.research.delivery.ResearchReportValidity.EVIDENCE_ONLY -> "Evidence only · report not accepted"
+                        dev.chungjungsoo.gptmobile.data.research.delivery.ResearchReportValidity.REJECTED -> "Report needs correction"
+                        dev.chungjungsoo.gptmobile.data.research.delivery.ResearchReportValidity.INCOMPLETE -> "Report incomplete"
+                        null -> when {
+                            writing -> "Report writing"
+                            deliveryReceipt != null -> "Current report not checked"
+                            else -> "Report not yet accepted"
+                        }
+                    },
+                    style = MaterialTheme.typography.labelMedium
+                )
+            }
+            if (!active && (writerFailure != null || deliveryReceipt?.retryEligible == true)) {
                 Text("Evidence retained · writing needs attention", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.error)
             }
             androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -68,15 +140,16 @@ internal fun ResearchProgressCard(sessions: List<ResearchSession>, activeRunIds:
                     androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Rounded.Description, contentDescription = null)
                     Text("Evidence", modifier = Modifier.padding(start = 6.dp))
                 }
-                if (active) {
+                if (collecting) {
                     OutlinedButton(onClick = { activeSessions.forEach { stop(it.runId) } }) {
                         androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Rounded.Stop, contentDescription = null)
                         Text("Summarize", modifier = Modifier.padding(start = 6.dp))
                     }
                 }
-                if (!active && writerFailure != null && onRecovery != null) {
-                    OutlinedButton(onClick = { onRecovery("Retry failed stage") }) { Text("Resume writing") }
-                    OutlinedButton(onClick = { onRecovery("Proceed primary-only") }) { Text("Use primary") }
+                if (writing && cancelWriting != null) OutlinedButton(onClick = cancelWriting) { Text("Cancel writing") }
+                if (!active && onRecovery != null) {
+                    if (writerFailure != null || deliveryReceipt?.retryEligible == true) OutlinedButton(onClick = { onRecovery("Retry writing") }) { Text("Retry writing") }
+                    if (!snapshot.complete || readable < snapshot.targetSources) OutlinedButton(onClick = { onRecovery("Continue research") }) { Text("Continue research") }
                 }
             }
         }
@@ -92,21 +165,6 @@ internal fun ResearchProgressCard(sessions: List<ResearchSession>, activeRunIds:
                         Text(session.snapshot.task.take(200), style = MaterialTheme.typography.titleMedium)
                         Text("${session.snapshot.phase} · ${session.snapshot.searches} searches · ${session.snapshot.attempts} page attempts", style = MaterialTheme.typography.bodySmall)
                         session.snapshot.notes.filterNot { it.startsWith("Policy:") }.distinct().forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
-                    }
-                    if (session.snapshot.modelEvents.isNotEmpty()) {
-                        item(key = "models:${session.runId}") {
-                            Text("Research & Local Assist execution", style = MaterialTheme.typography.titleSmall)
-                            Text("Token counts below are estimates; Debug → Runtime shows provider-measured usage when available. Model review is not proof of scientific validity.", style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
-                    items(session.snapshot.modelEvents, key = { "model:${session.runId}:${it.id}" }) { event ->
-                        OutlinedCard {
-                            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text("${if (event.local) "Local Assist" else "Research model"} · ${event.model}", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
-                                Text("${event.stage} · ${event.outcome} · ${event.durationMs} ms", style = MaterialTheme.typography.labelMedium)
-                                Text("~${event.inputTokensEstimate} input / ~${event.outputTokensEstimate} output tokens · ${event.reason.ifBlank { if (event.independent) "Distinct model review" else "No independent review claimed" }}", style = MaterialTheme.typography.bodySmall)
-                            }
-                        }
                     }
                     items(session.snapshot.sources.filter { filter.isBlank() || (it.title + " " + it.passage + " " + it.url).contains(filter, ignoreCase = true) }, key = { session.runId + it.id }) { source ->
                         OutlinedCard {

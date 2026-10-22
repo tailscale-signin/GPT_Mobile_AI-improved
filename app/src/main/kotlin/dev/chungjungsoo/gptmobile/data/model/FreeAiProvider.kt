@@ -14,10 +14,18 @@ enum class FreeAiProvider(
     val requestsPerHour: Int,
     val maxOutputTokens: Int = 2048
 ) {
-    KILO("Kilo", "https://api.kilo.ai/api/gateway", "kilo-auto/free", true, 0, 200),
-    POLLINATIONS("Pollinations", "https://text.pollinations.ai", "openai-fast", true, 0, 0),
-    OVHCLOUD("OVHcloud", "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1", "Meta-Llama-3_3-70B-Instruct", true, 2, 0),
-    LLM7("LLM7", "https://api.llm7.io/v1", "mistral-Nemo-Instruct-2407", false, 10, 60);
+    KILO("Kilo", "https://ai-gateway.kilo.ai/api/v1", "kilo-auto/free", true, 0, 200),
+    POLLINATIONS("Pollinations", "https://text.pollinations.ai", "openai-fast", false, 0, 0),
+    OVHCLOUD("OVHcloud", "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1", "Mistral-Small-3.2-24B-Instruct-2506", true, 2, 0),
+    LLM7("LLM7", "https://api.llm7.io/v1", "mistral-Nemo-Instruct-2407", false, 10, 60),
+    BLOCKRUN("BlockRun", "https://blockrun.ai/api/v1", "nvidia/nemotron-3.5-lightning", false, 30, 300, 8192),
+    AI_HORDE("AI Horde", "https://aihorde.net/api/v2", "automatic", false, 0, 0, 1024),
+    VIREONIX("Vireonix", "https://vireonix.ai/v1", "auto", false, 0, 0, 8192),
+    OPENCODE("OpenCode", "https://opencode.ai/inference/openai/v1", "glm-5.3-flash-free", false, 0, 0, 8192),
+    HUGGING_FACE("Hugging Face Spaces", "https://qwen-qwen3-demo.hf.space", "qwen3-235b-a22b", false, 0, 0, 2048),
+    BRIDGENODE("BridgeNode", "https://bridgenode.cc/v1", "gpt-oss-20b", false, 0, 0, 8192),
+    CEHPOINT("Cehpoint", "https://ai-api.cehpoint.co.in/v1", "cehpoint-ai", false, 0, 0, 4096),
+    PORCHLM("PorchLM", "https://guythatlives.net/v1", "automatic", false, 0, 0);
 
     val isAvailable: Boolean
         get() = this != LLM7 || BuildConfig.FREE_LLM7_APPROVED
@@ -31,7 +39,7 @@ enum class FreeAiProvider(
         apiUrl = apiUrl,
         token = null,
         secretRef = null,
-        model = model,
+        model = platform.model.takeIf { dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.models(this).any { option -> option.id == it } } ?: model,
         maxTokens = (platform.maxTokens ?: maxOutputTokens).coerceIn(1, maxOutputTokens),
         batchMode = false,
         batchApiUrl = null,
@@ -45,6 +53,7 @@ enum class FreeAiProvider(
 
         fun fromApiUrl(url: String): FreeAiProvider? {
             val normalized = url.trim().trimEnd('/')
+            if (normalized in setOf("https://api.kilo.ai/api/gateway", "https://api.kilo.ai/api/gateway/chat/completions")) return KILO
             return entries.firstOrNull { it.apiUrl == normalized || it.chatCompletionsUrl == normalized }
         }
 
@@ -59,6 +68,6 @@ fun PlatformV2.excludesMemory(): Boolean {
     if (compatibleType == ClientType.FREE) return true
     if (model.endsWith(":free") || model == "openrouter/free" || model == "kilo-auto/free") return true
     val host = runCatching { URI(apiUrl.trim()).host?.lowercase() }.getOrNull()
-    return host in setOf("text.pollinations.ai", "api.llm7.io") ||
+    return host in FreeAiProvider.entries.mapNotNull { runCatching { URI(it.apiUrl).host }.getOrNull() }.toSet() ||
         (host == "oai.endpoints.kepler.ai.cloud.ovh.net" && token.isNullOrBlank())
 }

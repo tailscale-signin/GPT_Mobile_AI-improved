@@ -83,6 +83,7 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
     onUpdate: suspend (content: String, thoughts: String, timeline: List<AssistantTimelineItem>) -> Unit,
     onNotice: (String, Boolean) -> Unit = { _, _ -> },
     onPhaseChanged: ((LocalInferencePhase) -> Unit)? = null,
+    onNativeProgress: ((dev.chungjungsoo.gptmobile.data.localruntime.GgufNativeProgress) -> Unit)? = null,
     onGatewayProgress: ((GatewayProgress) -> Unit)? = null,
     onResearchReplacement: suspend (String, String) -> Boolean = { _, _ -> false },
     onCombinedReplacement: suspend (dev.chungjungsoo.gptmobile.data.agent.CombinedReplacementCandidate) -> Boolean = { false },
@@ -170,17 +171,18 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
                 }
 
                 is ApiState.Notice -> {
-                    if (chunk.persistent) {
-                        buffer.appendNotice(chunk.message)
+                    if (chunk.persistent || chunk.researchDelivery != null) {
+                        buffer.appendNotice(chunk.message, chunk.researchDelivery)
                     }
                     onNotice(chunk.message, chunk.persistent)
-                    if (chunk.persistent) {
+                    if (chunk.persistent || chunk.researchDelivery != null) {
                         buffer.publishNow(onUpdate)
                     }
                 }
 
                 is ApiState.PhaseChanged -> {
                     onPhaseChanged?.invoke(chunk.phase)
+                    chunk.nativeProgress?.let { onNativeProgress?.invoke(it) }
                 }
 
                 is ApiState.GatewayProgressChanged -> {
@@ -419,10 +421,10 @@ private class StreamingMessageBuffer(
         timelineVersion++
     }
 
-    fun appendNotice(message: String) {
+    fun appendNotice(message: String, receipt: dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryReceipt? = null) {
         flushTimelineText()
-        if (message.isBlank()) return
-        timeline += AssistantTimelineItem(type = AssistantTimelineItemType.NOTICE, content = message)
+        if (message.isBlank() && receipt == null) return
+        timeline += AssistantTimelineItem(type = AssistantTimelineItemType.NOTICE, content = message, researchDeliveryReceipt = receipt)
         timelineVersion += 1
     }
 

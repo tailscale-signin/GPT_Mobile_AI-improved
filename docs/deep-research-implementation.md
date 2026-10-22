@@ -1,5 +1,7 @@
 # Deep Research academic integration
 
+For the subsequent shared reader contract, typed Examine recovery, turn manifests, funded delivery, heap-safe persistence and report correction implementation, see the [October 21 reliability repair record](repairs/2026-10-21-reliability-and-workspace.md). The sections below describe the original integration and its historical design baseline.
+
 Branch: `feat/gpu-npu-execution-plans-2026-10-11`, based on `feat/qnn-full-reliability-v2-2026-10-11` (`5574590965a3a79571a16fa421979b4a3c2cc310`). Design input: *Deep Research Master Plugin Design Implementation Guide*, 11 October 2026. The user's requested base takes precedence over the guide's suggestion to start from main.
 
 ## User behavior and authorization

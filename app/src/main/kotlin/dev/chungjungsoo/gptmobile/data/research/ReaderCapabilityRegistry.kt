@@ -40,5 +40,15 @@ object ReaderCapabilityRegistry {
     fun readsUrl(definition: AgentToolDefinition, originalName: String = definition.name): Boolean =
         AgentToolCapability.PAGE_READER in definition.capabilities || legacyUrlReader(originalName, definition.inputSchema)
 
+    fun urlArguments(definition: AgentToolDefinition, originalName: String, url: String): JsonObject? {
+        if (!readsUrl(definition, originalName)) return null
+        val properties = definition.inputSchema["properties"] as? JsonObject ?: return null
+        val key = listOf("url", "urls").firstOrNull { it in properties } ?: return null
+        val arguments = properties.mapNotNull { (name, schema) -> (schema as? JsonObject)?.get("default")?.let { name to it } }.toMap().toMutableMap()
+        arguments[key] = if (key == "urls") JsonArray(listOf(JsonPrimitive(url))) else JsonPrimitive(url)
+        val result = JsonObject(arguments)
+        return result.takeIf { dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.errors(it, definition.inputSchema).isEmpty() }
+    }
+
     fun inspectsEvidence(definition: AgentToolDefinition): Boolean = readsUrl(definition) || definition.name == "deep_research_read_paper"
 }

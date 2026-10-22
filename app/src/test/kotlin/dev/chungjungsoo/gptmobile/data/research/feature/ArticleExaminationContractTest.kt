@@ -96,7 +96,7 @@ class ArticleExaminationContractTest {
     }
 
     @Test fun onlyCompleteStructuredTextCanJustifyAbsentFiguresAndSupplements() {
-        val evidence = dev.chungjungsoo.gptmobile.data.research.academic.AcademicEvidence("paper", "v1", "https://example.org/article", 1, "hash", "methods results limitations", "read", structuredFullText = true, sectionNames = setOf("Methods", "Results", "Limitations").map { it.lowercase() }.toSet(), declaredFigures = 0, declaredSupplements = 0)
+        val evidence = dev.chungjungsoo.gptmobile.data.research.academic.AcademicEvidence("paper", "v1", "https://example.org/article", 1, "hash", "methods results limitations", "read", structuredFullText = true, sectionNames = setOf("Methods", "Results", "Limitations").map { it.lowercase() }.toSet(), declaredFigures = 0, declaredSupplements = 0, declaredTables = 0)
         assertTrue(verifiedStructuredCoverage(evidence).complete)
         assertFalse(verifiedStructuredCoverage(evidence.copy(structuredFullText = false)).complete)
         assertFalse(verifiedStructuredCoverage(evidence.copy(declaredFigures = 1)).complete)

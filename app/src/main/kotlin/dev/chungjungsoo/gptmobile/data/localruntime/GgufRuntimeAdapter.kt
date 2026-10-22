@@ -230,7 +230,8 @@ internal class GgufRuntimeAdapter(private val context: Context) : LocalRuntime {
         require(images.isEmpty()) { "This GGUF runtime is text-only" }
         val config = checkNotNull(configuration) { "GGUF conversation is not open" }
         val active = handle
-        val messages = history.toList() + ("user" to text)
+        val previousHistory = history.toList()
+        val messages = previousHistory + ("user" to text)
         val started = SystemClock.elapsedRealtime()
         val segment = java.util.UUID.randomUUID().toString()
         var output = StringBuilder()
@@ -350,6 +351,10 @@ internal class GgufRuntimeAdapter(private val context: Context) : LocalRuntime {
                 journal.finished()
                 loadEngine(failedSpec.copy(accelerator = LocalAccelerators.CPU))
                 createConversation(config)
+                // Reopening restores only the initial messages, not turns completed
+                // since then. Preserve those turns for the next request after fallback.
+                history.clear()
+                history.addAll(previousHistory)
                 output = StringBuilder()
                 decoder = Utf8GenerationDecoder()
                 first = null
@@ -456,15 +461,6 @@ internal class GgufRuntimeAdapter(private val context: Context) : LocalRuntime {
         modelReceipt = ""
         if (active != 0L) withContext(Dispatchers.IO) { GgufNative.unload(active) }
     }
-}
-
-private fun Throwable.isVulkanComputePipelineFailure(): Boolean {
-    var current: Throwable? = this
-    while (current != null) {
-        if (current.message.orEmpty().contains("vk::Device::createComputePipeline", ignoreCase = true)) return true
-        current = current.cause
-    }
-    return false
 }
 
 /** Decode complete Unicode scalars only; a token boundary may split a UTF-8 sequence. */

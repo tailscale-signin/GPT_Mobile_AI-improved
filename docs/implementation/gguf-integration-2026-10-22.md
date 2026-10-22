@@ -61,6 +61,9 @@ Sources checked on October 22, 2026:
 8. Completed GPU failures now close their journal before CPU fallback begins, avoiding
    a false native-interruption record. CPU generation after fallback has its own active
    journal, so a genuine crash still protects the correct backend.
+9. Generation fallback restores every previously completed conversation turn after
+   reopening the CPU engine. GPU failure classification checks a bounded cause chain,
+   rejects wrapped cancellation, and cannot loop forever on cyclic exception causes.
 
 ## Validation
 
@@ -72,7 +75,7 @@ Sources checked on October 22, 2026:
   observations, oversized-input rejection and oversized-output-budget recovery.
 - Jinja tests passed, including upstream Gemma 2/4, Qwen 3/3.5, Phi and Mistral templates.
 - Verified optimized portable flags for 18 inference source files.
-- Focused JVM harness: 34 tests passed against production planning, prompt bridge,
+- Focused JVM harness: 36 tests passed against production planning, prompt bridge,
   manifest validation, digest validation and accelerator-policy code. Android/data
   boundary stand-ins were used; this is not a full Android app test.
 - Python GGUF governor, APK inventory and native-memory report parser tests passed;

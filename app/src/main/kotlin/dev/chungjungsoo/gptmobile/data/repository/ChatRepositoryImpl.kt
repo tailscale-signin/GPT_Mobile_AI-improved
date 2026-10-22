@@ -2915,14 +2915,7 @@ class ChatRepositoryImpl(
         )
     }
 
-    private fun planPrimaryContext(turns: List<ConversationTurn>, prompt: String, tools: List<ResolvedAgentTool>, limits: dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings, externalTools: Boolean): dev.chungjungsoo.gptmobile.data.context.ContextPlan {
-        val definitions = tools.map { it.tool.definition }
-        val catalog = if (limits.adaptiveToolCatalog && externalTools) dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.create(definitions, turns.lastOrNull { it.isCurrentTurn }?.userMessage?.content.orEmpty()) else null
-        val advertised = catalog?.selected(definitions + catalog.definition) ?: definitions
-        val plan = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.plan(turns, prompt, advertised, limits)
-        // Discovery preserves the full authorized set only when its schema actually fits.
-        return if (catalog != null && plan.tools.any { it.name == catalog.definition.name }) plan.copy(authorizedTools = definitions) else plan
-    }
+    private fun planPrimaryContext(turns: List<ConversationTurn>, prompt: String, tools: List<ResolvedAgentTool>, limits: dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings, externalTools: Boolean): dev.chungjungsoo.gptmobile.data.context.ContextPlan = dev.chungjungsoo.gptmobile.data.agent.planAuthorizedToolContext(turns, prompt, tools, limits, externalTools)
 
     private fun withoutExcludedAttachments(messages: List<MessageV2>, excluded: Collection<String>) =
         messages.map { message -> message.copy(attachments = message.attachments.filterNot { it.filePathForDisplay in excluded }) }
@@ -3376,7 +3369,7 @@ class ChatRepositoryImpl(
             platform.systemPrompt,
             tools.map { it.modelToolName },
             compact = localResearch || contextTokens < 4096,
-            deferCapabilities = platform.compatibleType == ClientType.LITERT_LM,
+            deferCapabilities = true,
             researchReport = researchReport
         ) + (if (quickRepliesEnabled && !synthesisRun) dev.chungjungsoo.gptmobile.data.agent.CHAT_QUICK_REPLY_INSTRUCTION else "") + projectInstructions.takeIf { it.isNotBlank() }?.let { "\nProject instructions supplied by the user:\n$it" }.orEmpty() + recoveryInstruction + progressInstruction + delegationInstruction + synthesisInstruction + contributorInstruction +
             if (reviewedPreparationUnavailable) "\nRequired delegate preparation or independent review could not finish. Do not do the task independently or present rejected delegate claims as verified facts. Explain the limitation and suggest retrying with a working delegate/reviewer or explicitly choosing primary-only recovery." else ""

@@ -1063,6 +1063,23 @@ class AgentToolResolverTest {
         assertTrue(advertised("continue", chatId = 8).isEmpty())
     }
 
+    @Test fun telemetryEnabledStillPublishesCompactGithubOperationsAndHonorsRevocation() = runBlocking {
+        val profile = PlatformV2(uid = "profile", name = "Writer")
+        val settings = ResolverFakeSettingRepository(listOf(profile))
+        val resolver = resolver(settings = settings, statistics = mockk(relaxed = true))
+        for (task in listOf("check repo status", "show git branches", "inspect commits")) {
+            val tools = resolver.resolve(profile.uid, userMessage = dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(content = task, platformType = null))
+            assertTrue(tools.any { it.realToolName == "github_context" })
+            val catalog = requireNotNull(tools.firstNotNullOfOrNull { it.progressiveCatalog })
+            val schemas = catalog.selected(tools.map { it.tool.definition })
+            assertTrue(schemas.any { it.name == "github_context" })
+            assertFalse(schemas.any { it.name == "github" })
+            assertTrue(schemas.sumOf { dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.schemaTokens(it) } < 2000)
+        }
+        settings.features = settings.features.withToolPluginEnabled(ToolPluginId.GITHUB, false)
+        assertFalse(resolver.resolve(profile.uid).any { it.nativeGitHub })
+    }
+
     @Test fun cachedAuthorizedOAuthCatalogIsResolvedBeforeCredentialRefreshAndRevocationStillWins() = runBlocking {
         McpClientManagerTest.McpFixtureServer().use { server ->
             val connection = connection("oauth-cache", ToolConnectionType.MCP, server.url, "unavailable-oauth", ToolConnectionAuthType.OAUTH, allowCleartext = true)
@@ -1106,7 +1123,8 @@ class AgentToolResolverTest {
         airbnb: PublicAirbnbClient? = null,
         healthReader: dev.chungjungsoo.gptmobile.data.health.HealthDataReader? = null,
         healthConsent: dev.chungjungsoo.gptmobile.data.health.HealthConnectConsentStore? = null,
-        gitHubState: dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore? = null
+        gitHubState: dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore? = null,
+        statistics: dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsRepository? = null
     ): AgentToolResolver {
         val repository = ToolConnectionRepository(dao, vault)
         val networkClient = NetworkClient(CIO)
@@ -1130,7 +1148,8 @@ class AgentToolResolverTest {
             publicAirbnb = airbnb,
             healthReader = healthReader,
             healthConsent = healthConsent,
-            gitHubRepositoryState = gitHubState
+            gitHubRepositoryState = gitHubState,
+            statistics = statistics
         )
     }
 

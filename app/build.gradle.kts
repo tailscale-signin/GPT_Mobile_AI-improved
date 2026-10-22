@@ -242,6 +242,12 @@ extensions.configure<ApplicationExtension> {
         unitTests {
             isIncludeAndroidResources = true
             all {
+                // Thousands of Robolectric tests retain SDK class loaders. Keep
+                // normal-suite garbage from triggering production heap admission
+                // in later reader tests; the separate 256 MiB gate stays explicit.
+                it.maxHeapSize = "1024m"
+                it.maxParallelForks = 1
+                it.forkEvery = 64
                 // Robolectric's real-descriptor interceptor needs these JDK 21 test-only APIs.
                 it.jvmArgs("--add-exports=java.base/jdk.internal.access=ALL-UNNAMED", "--add-opens=java.base/java.io=ALL-UNNAMED")
                 it.systemProperty("room.schemas", file("schemas").absolutePath)

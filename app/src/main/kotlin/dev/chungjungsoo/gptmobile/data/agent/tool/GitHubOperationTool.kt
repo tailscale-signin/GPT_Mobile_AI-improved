@@ -47,6 +47,7 @@ internal class GitHubOperationTool(
             val action = when (op) {
                 "github_context" -> when (requested) {
                     "", "resolve" -> "resolve_context"
+                    "status" -> "repo_status"
                     "index" -> "index_status"
                     "changes" -> "changed_since"
                     "efficiency" -> "efficiency"
@@ -94,8 +95,8 @@ internal class GitHubOperationTool(
         }
 
         fun taskTools(task: String): Set<String> {
-            val text = task.lowercase()
-            if (!Regex("\\b(github|repo(?:sitory)?|branch|commit|pull request|code|source|ci|workflow|release|push)\\b").containsMatchIn(text)) return emptySet()
+            val text = task.lowercase(java.util.Locale.ROOT)
+            if (!isGitHubTask(text) && !Regex("\\b(code|source|ci|pr)\\b").containsMatchIn(text)) return emptySet()
             val selected = linkedSetOf("github_context", "github_search", "github_read")
             if (Regex("\\b(pr|pull request|review|merge)\\b").containsMatchIn(text)) selected += "github_pr"
             if (Regex("\\b(ci|build|test failure|workflow|pipeline)\\b").containsMatchIn(text)) selected += "github_ci"
@@ -115,7 +116,7 @@ internal class GitHubOperationTool(
             val properties = linkedMapOf("owner" to field("string"), "repo" to field("string"), "commit_sha" to field("string"), "view_cursor" to field("string"))
             when (operation) {
                 "github_context" -> {
-                    properties["action"] = choice("resolve", "index", "changes", "efficiency")
+                    properties["action"] = choice("resolve", "status", "index", "changes", "efficiency")
                     properties["ref"] = field("string")
                     properties["base_sha"] = field("string")
                     properties["refresh"] = field("boolean")
@@ -202,7 +203,7 @@ internal class GitHubOperationTool(
                 }
             }
             val description = when (operation) {
-                "github_context" -> "Resolve and pin the selected repository; inspect index, changes or request efficiency."
+                "github_context" -> "Resolve and pin the selected repository; check remote status, index, changes or request efficiency."
                 "github_search" -> "Search pinned code and symbols locally. Follow index_cursor until complete."
                 "github_read" -> "Read exact source ranges or a saved evidence_id at a pinned commit."
                 "github_stage_patch" -> "Validate expected head/blob SHAs and preview exact edits without committing."

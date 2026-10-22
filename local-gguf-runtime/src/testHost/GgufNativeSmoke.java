@@ -66,11 +66,13 @@ public final class GgufNativeSmoke {
                     if (phase.equals("PREFILL_BATCH_END") && code == 0) processedBatches.add(processed);
                 }, adaptiveOperation);
             check(adaptive[1] > 0 && processedBatches.size() > 1, "Adaptive prefill did not complete multiple batches");
-            check(processedBatches.get(0) - adaptive[5] == 1, "Cold CPU prefill must start with one token");
+            long batchCapacity = GgufNative.allocationObservation(engine)[1];
+            check(processedBatches.get(0) - adaptive[5] == Math.min(8, adaptive[0] - adaptive[5]), "CPU prefill must start with the governor's bounded eight-token probe");
             for (int i = 1; i < processedBatches.size(); i++) {
                 long delta = processedBatches.get(i) - processedBatches.get(i - 1);
-                check(delta > 0 && delta <= 32, "CPU prefill batch exceeded its observable progress bound");
+                check(delta > 0 && delta <= batchCapacity, "CPU prefill batch exceeded its configured capacity");
             }
+            check(processedBatches.get(processedBatches.size() - 1) == adaptive[0], "Prefill progress did not cover the complete input");
             long duringPrefill = GgufNative.nextOperationId();
             GgufNative.prepareOperation(engine, duringPrefill);
             var stages = new java.util.ArrayList<String>();

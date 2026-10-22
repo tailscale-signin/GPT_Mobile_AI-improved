@@ -33,6 +33,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubOperationToolTest {
+    @Test fun compactContextCanRequestRemoteRepositoryStatus() {
+        val arguments = GitHubOperationTool.nativeArguments("github_context", buildJsonObject { put("action", "status") })!!
+        assertEquals("repo_status", arguments["action"]?.jsonPrimitive?.content)
+        assertTrue(GitHubOperationTool.definition("github_context").inputSchema.toString().contains("status"))
+    }
     private val sha = "a".repeat(40)
     private class Backend : AgentTool {
         override val definition = AgentToolDefinition("github", "Legacy backend", buildJsonObject {}, modelVisible = false)

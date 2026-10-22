@@ -14,6 +14,33 @@ import org.junit.Test
 class ProgressiveToolCatalogTest {
     private val tools = (1..80).map { AgentToolDefinition("task_$it", "Task $it", JsonObject(emptyMap())) }
 
+    @Test fun repositorySynonymsPrioritizeCompactToolsAndRetainAuthorizedGatewayTools() {
+        val native = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.names.map { dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.definition(it) }
+        val gateway = AgentToolDefinition("mcp__github__github_api", "Remote GitHub repository status", JsonObject(emptyMap()))
+        for (task in listOf("check repo status", "inspect git", "show branches", "inspect commits", "review repositories")) {
+            val catalog = ProgressiveToolCatalog(tools + native + gateway, task)
+            val selected = catalog.selected(tools + native + gateway)
+            assertEquals("github_context", selected.first().name)
+            assertTrue(selected.any { it.name == gateway.name })
+        }
+    }
+
+    @Test fun githubDiscoveryCanExpandTheInitialWindowButNeverExceedTheMaximumOrGrantAccess() = runTest {
+        val github = AgentToolDefinition("github__github_api", "GitHub action details ".repeat(600), JsonObject(emptyMap()))
+        assertTrue(ProgressiveToolCatalog.schemaTokens(github) > ProgressiveToolCatalog.SCHEMA_TOKEN_ALLOWANCE)
+        val catalog = ProgressiveToolCatalog(tools + github, "what tools do you have")
+        assertFalse(catalog.selected(tools + github).contains(github))
+        catalog.execute("discover", JsonObject(mapOf("query" to JsonPrimitive("github"))))
+        assertTrue(catalog.selected(tools + github).contains(github))
+        assertFalse(catalog.selected(tools).contains(github))
+        assertTrue(catalog.selected(tools + github).sumOf { ProgressiveToolCatalog.schemaTokens(it) } < ProgressiveToolCatalog.MAX_SCHEMA_TOKEN_ALLOWANCE)
+        val huge = github.copy(description = "x".repeat(100000))
+        val oversized = ProgressiveToolCatalog(listOf(huge), "check repo status")
+        oversized.execute("again", JsonObject(mapOf("query" to JsonPrimitive("github"))))
+        assertEquals("SCHEMA_TOO_LARGE", oversized.selectionOmissions(listOf(huge))[huge.name])
+        assertTrue(oversized.selected(listOf(huge)).isEmpty())
+    }
+
     @Test fun plannedInitialSchemasDoNotRemoveDiscoverableAuthorization() = runTest {
         val planned = requireNotNull(ProgressiveToolCatalog.create(tools, "task_1"))
         val initial = planned.selected(tools).map { it.name }.take(3).toSet()

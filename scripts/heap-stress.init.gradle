@@ -13,6 +13,14 @@ allprojects {
 gradle.projectsEvaluated {
     gradle.rootProject.allprojects { gateProject ->
         gateProject.tasks.withType(Test).each { gateTest ->
+            // Reassert after AGP's normal-suite defaults, just like the report paths.
+            gateTest.maxHeapSize = '256m'
+            gateTest.maxParallelForks = 1
+            gateTest.forkEvery = 1
+            gateTest.systemProperty 'gptmobile.heapStress', 'true'
+            // Restrict class scanning as well as --tests filtering: otherwise
+            // forkEvery=1 starts a JVM for every unrelated test class first.
+            gateTest.setIncludes(['**/ResearchSessionStoreHeapTest.class', '**/StreamingDebugBundleTest.class'] as Set)
             gateTest.reports.junitXml.outputLocation.set(gateProject.layout.buildDirectory.dir('test-results/heapRecovery'))
             gateTest.reports.html.outputLocation.set(gateProject.layout.buildDirectory.dir('reports/tests/heapRecovery'))
             gateTest.binaryResultsDirectory.set(gateProject.layout.buildDirectory.dir('test-results/heapRecovery/binary'))

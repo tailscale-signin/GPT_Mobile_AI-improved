@@ -75,10 +75,10 @@ internal class ModelRequestPreparation(client: NetworkClient) {
             "OUTPUT_ALLOWANCE · role=${config.requestRole} · tokens=${finalAllowance.tokens} · source=${allowance.source} · providerCeiling=${snapshot.outputTokens ?: "unknown"} · providerConfirmed=${snapshot.provenance == CapacityProvenance.VERIFIED_ROUTE}"
         )
         val toolSchema = bounded["tools"]?.toString().orEmpty()
-        val toolCount = (bounded["tools"] as? kotlinx.serialization.json.JsonArray)?.size ?: 0
+        val toolNames = wireToolNames(bounded)
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
             "ToolCatalog",
-            "WIRE_SCHEMA · role=${config.requestRole} · serializedTools=$toolCount · serializedBytes=${toolSchema.toByteArray(Charsets.UTF_8).size} · schemaTokens=${if (toolSchema.isEmpty()) 0 else RequestAdmission.estimate(toolSchema).promptTokens} · measurement=UTF8_ESTIMATE"
+            "WIRE_SCHEMA · role=${config.requestRole} · serializedTools=${toolNames.size} · names=${toolNames.joinToString()} · serializedBytes=${toolSchema.toByteArray(Charsets.UTF_8).size} · schemaTokens=${if (toolSchema.isEmpty()) 0 else RequestAdmission.estimate(toolSchema).promptTokens} · measurement=UTF8_ESTIMATE"
         )
         val prepared = RequestAdmission.prepare(finalPayload, config.requestRole, snapshot, measured, finalAllowance.tokens, permissionRevision, requireKnownCapacity = config.requireKnownCapacity, reasoning = reasoning, messageValidatorRevision = dev.chungjungsoo.gptmobile.data.context.ProviderMessageValidator.VERSION)
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
@@ -90,6 +90,17 @@ internal class ModelRequestPreparation(client: NetworkClient) {
         kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.serialized(wire, prepared.receipt.copy(physicalAttemptId = attemptId))
         kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.armHttp()
         return wire
+    }
+}
+
+/** Names from the final serialized request, including Gemini's grouped declarations. */
+internal fun wireToolNames(root: JsonObject): List<String> = (root["tools"] as? kotlinx.serialization.json.JsonArray).orEmpty().flatMap { entry ->
+    val tool = entry as? JsonObject ?: return@flatMap emptyList()
+    val declarations = tool["functionDeclarations"] as? kotlinx.serialization.json.JsonArray
+    if (declarations != null) {
+        declarations.mapNotNull { ((it as? JsonObject)?.get("name") as? JsonPrimitive)?.content }
+    } else {
+        listOfNotNull(((tool["function"] as? JsonObject)?.get("name") as? JsonPrimitive)?.content ?: (tool["name"] as? JsonPrimitive)?.content ?: (tool["type"] as? JsonPrimitive)?.content)
     }
 }
 

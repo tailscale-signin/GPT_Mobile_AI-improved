@@ -6,6 +6,7 @@ import tempfile
 import threading
 import time
 import unittest
+from contextlib import closing
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -59,7 +60,7 @@ class GatewayUpgradeTests(unittest.TestCase):
             self.assertIsNone(ledger.begin('owner','job','reconcile',binding,{},operation_kind=MUTABLE_READ))
             with self.assertRaises(ExternalOutcomeUnknown): ledger.begin('owner','job','next-write',{'tool':'push_files'}, {},operation_kind=MUTATION)
             with self.assertRaises(ActionConflict): ledger.begin('owner','job','write',{'tool':'push_files'}, {},operation_kind=MUTABLE_READ)
-            with runtime._durable_connect() as db:
+            with closing(runtime._durable_connect()) as db:
                 self.assertEqual(2,db.execute("SELECT COUNT(*) FROM gateway_action_attempts WHERE action_id='read'").fetchone()[0])
 
     def test_final_assembled_result_cap_preserves_exact_cursors_after_pr_preload(self):

@@ -17,7 +17,7 @@ internal object GitHubProviderPolicy {
                 }.getOrDefault(false)
         }.map { it.connectionUid }.toSet()
         val remote = tools.filter { it.connectionUid in official && !it.nativeGitHub }.mapNotNull { equivalent(it.realToolName) }.toSet()
-        return tools.filter { tool ->
+        return tools.filterForToolPolicy("EQUIVALENT_GITHUB_PROVIDER_SELECTED") { tool ->
             when {
                 tool.nativeGitHub && !tool.nativeGitHubAuthenticated -> GitHubOperationTool.operationName(tool.realToolName) !in remote - authenticated
                 tool.connectionUid in official -> equivalent(tool.realToolName) !in authenticated

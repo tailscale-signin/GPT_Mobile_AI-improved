@@ -101,6 +101,7 @@ class AgentRunner(
     ) {
         var executableToolByName = initialExecutableToolByName
         var exposedDefinitions = initialExposedDefinitions
+        val initialSchemaTokens = selectDefinitions(initialExposedDefinitions).sumOf { ProgressiveToolCatalog.schemaTokens(it).toLong() }
         var rounds = initialRounds
         var toolCallCount = initialToolCallCount
         var toolMayHaveExecuted = initialToolMayHaveExecuted
@@ -172,14 +173,11 @@ class AgentRunner(
 
             // collectRound catches only upstream provider failures. Cancellation and
             // downstream collector errors must leave the run without retrying or emitting.
-            val searchNames = (toolByName.values + executableToolByName.values).filter {
-                AgentToolCapability.WEB_SEARCH in it.definition.capabilities
-            }.mapTo(HashSet()) { it.definition.name }
-            val successfulSearch = exchanges.any { exchange ->
-                exchange.results.any { result -> !result.isError && result.dispatched && exchange.calls.any { it.callId == result.callId && it.name in searchNames } }
-            }
+            val searchContext = searchRoundContext(toolByName, executableToolByName, exchanges)
             val observedLimit = if (limits.combined == null) limits.maxObservedToolCalls.coerceIn(1, 1024) else limits.maxObservedToolCalls.coerceAtLeast(0)
-            val round = collectRound(session, exposedDefinitions, exchanges, (observedLimit - observedToolCalls).coerceAtLeast(0), successfulSearch, searchNames)
+            val roundDefinitions = fitProviderToolSchemas(selectDefinitions(exposedDefinitions), limits, initialSchemaTokens, replayTokens)
+            reconcileDiscoveryExchange(exchanges, roundDefinitions)
+            val round = collectRound(session, roundDefinitions, exchanges, (observedLimit - observedToolCalls).coerceAtLeast(0), searchContext.successful, searchContext.names)
             observedToolCalls += round.observedCalls
             if (round.batchRejected) {
                 val recovery = recoverRejectedBatch(session, round, exposedDefinitions, observedToolCalls, observedLimit, rounds, batchRepairAttempted, stormFinalizationAttempted, finalResponseRequested) ?: return
@@ -280,7 +278,7 @@ class AgentRunner(
             if (executableCalls.isNotEmpty()) toolMayHaveExecuted = true
             val executedResults = executeToolBatch(executableCalls, toolsForBatch)
             if (!finalResponseRequested && !retriedWithoutTools) {
-                val update = admitDiscoveredTools(dynamicTools(), toolByName, executableToolByName, exposedDefinitions, initialExposedDefinitions, consecutiveToolFailures, toolCallsByName, replayTokens, selectDefinitions) ?: return
+                val update = admitDiscoveredTools(dynamicTools(), toolByName, executableToolByName, exposedDefinitions, initialSchemaTokens, consecutiveToolFailures, toolCallsByName, replayTokens, selectDefinitions) ?: return
                 executableToolByName = update.tools
                 exposedDefinitions = update.definitions
             }
@@ -295,22 +293,7 @@ class AgentRunner(
                 }
             }
 
-            val deferredResults = deferredCalls.map { call ->
-                val message = if (call.callId in hostSuppressedIds) {
-                    "This website failed repeatedly and is paused for this response. read_url remains available for other hosts; choose another source."
-                } else if (call.callId in perToolSuppressedIds) {
-                    "This operation reached the per-response repeat limit. Use results already collected; do not repeat these arguments. Other authorized sources may still be read within the remaining budget."
-                } else {
-                    FINAL_RESPONSE_INSTRUCTION
-                }
-                AgentToolResult(
-                    callId = call.callId,
-                    content = ToolResultContent.Text(message),
-                    isError = true,
-                    dispatched = false,
-                    errorCode = "NOT_DISPATCHED"
-                )
-            }
+            val deferredResults = deferredToolResults(deferredCalls, hostSuppressedIds, perToolSuppressedIds)
             val canReadOtherSources = hostSuppressedIds.isNotEmpty() || deferredCalls.any { it.callId in perToolSuppressedIds && it.name in executableToolByName }
             // Give a scoped read one round to choose another source, then stop
             // paying for provider rounds that only repeat already-suppressed work.
@@ -329,6 +312,27 @@ class AgentRunner(
                 executableToolByName = emptyMap()
             }
         }
+    }
+
+    private data class SearchRoundContext(val names: Set<String>, val successful: Boolean)
+
+    private fun searchRoundContext(initial: Map<String, AgentTool>, active: Map<String, AgentTool>, exchanges: List<AgentToolExchange>): SearchRoundContext {
+        val names = (initial.values + active.values).filter { AgentToolCapability.WEB_SEARCH in it.definition.capabilities }.mapTo(HashSet()) { it.definition.name }
+        val successful = exchanges.any { exchange ->
+            exchange.results.any { result -> !result.isError && result.dispatched && exchange.calls.any { it.callId == result.callId && it.name in names } }
+        }
+        return SearchRoundContext(names, successful)
+    }
+
+    private fun deferredToolResults(calls: List<ProviderEvent.ToolCall>, hostSuppressedIds: Set<String>, perToolSuppressedIds: Set<String>): List<AgentToolResult> = calls.map { call ->
+        val message = if (call.callId in hostSuppressedIds) {
+            "This website failed repeatedly and is paused for this response. read_url remains available for other hosts; choose another source."
+        } else if (call.callId in perToolSuppressedIds) {
+            "This operation reached the per-response repeat limit. Use results already collected; do not repeat these arguments. Other authorized sources may still be read within the remaining budget."
+        } else {
+            FINAL_RESPONSE_INSTRUCTION
+        }
+        AgentToolResult(call.callId, ToolResultContent.Text(message), isError = true, dispatched = false, errorCode = "NOT_DISPATCHED")
     }
 
     private data class BatchRejectionRecovery(val definitions: List<AgentToolDefinition>, val repair: Boolean)
@@ -393,7 +397,7 @@ class AgentRunner(
         toolByName: Map<String, AgentTool>,
         executableToolByName: Map<String, AgentTool>,
         exposedDefinitions: List<AgentToolDefinition>,
-        initialExposedDefinitions: List<AgentToolDefinition>,
+        initialSchemaTokens: Long,
         consecutiveToolFailures: Map<String, Int>,
         toolCallsByName: Map<String, Int>,
         replayTokens: Long,
@@ -407,13 +411,13 @@ class AgentRunner(
         val selectedSchemas = selectDefinitions((exposedDefinitions + additions.map { it.definition }).distinctBy { it.name })
         val selectedNames = selectedSchemas.mapTo(HashSet()) { it.name }
         var schemaTokens = selectedSchemas.filter { it.name in executableToolByName }.sumOf { ProgressiveToolCatalog.schemaTokens(it).toLong() }
-        val initialSchemas = initialExposedDefinitions.sumOf { ProgressiveToolCatalog.schemaTokens(it).toLong() }
-        val contextWithoutInitialSchemas = (limits.initialContextTokens.toLong() - initialSchemas).coerceAtLeast(0)
-        val schemaAllowance = minOf(ProgressiveToolCatalog.SCHEMA_TOKEN_ALLOWANCE.toLong(), (limits.contextTokens.toLong() - contextWithoutInitialSchemas - replayTokens - limits.finalResponseReserveTokens).coerceAtLeast(0))
+        val contextWithoutInitialSchemas = (limits.initialContextTokens.toLong() - initialSchemaTokens).coerceAtLeast(0)
+        val schemaAllowance = minOf(ProgressiveToolCatalog.MAX_SCHEMA_TOKEN_ALLOWANCE.toLong(), (limits.contextTokens.toLong() - contextWithoutInitialSchemas - replayTokens - limits.finalResponseReserveTokens).coerceAtLeast(0))
         val admitted = additions.filter { tool ->
             val cost = ProgressiveToolCatalog.schemaTokens(tool.definition)
             val fits = tool.definition.name in selectedNames && schemaTokens + cost <= schemaAllowance
             if (fits) schemaTokens += cost
+            if (!fits) AppLogRecorder.record("ToolCatalog", "TOOL_OMITTED · stage=dynamic_admission · name=${tool.definition.name} · reason=${if (tool.definition.name !in selectedNames) "CATALOG_NOT_SELECTED" else "REMAINING_CONTEXT_BUDGET"} · schemaTokens=$cost · schemaAllowance=$schemaAllowance")
             fits
         }
         if (admitted.size < additions.size) emit(AgentRunEvent.Notice("Some discovered tool schemas exceed the remaining context allowance. Existing conversation context was preserved.", persistent = false))

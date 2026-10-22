@@ -12,12 +12,13 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
     // Local schema selection is not an external evidence operation. Cold acquisitions
     // retain their own wrapped child admission rather than charging this facade too.
     override val coordinatesChildWork = true
-    private val advanced = Regex("(?iu)\\b(research|study|studies|papers|repository|github)\\b").containsMatchIn(task)
-    private val toolAllowance = if (advanced) 16 else INITIAL_TOOLS
-    private val schemaAllowance = if (advanced) 6000 else SCHEMA_TOKEN_ALLOWANCE
+    private var advanced = advancedTask(task)
+    private val toolAllowance get() = if (advanced) 16 else INITIAL_TOOLS
+    private val schemaAllowance get() = if (advanced) MAX_SCHEMA_TOKEN_ALLOWANCE else SCHEMA_TOKEN_ALLOWANCE
     private val taskText = task
     private val candidates = definitions.filter { it.modelVisible }.associateBy { it.name }.toMutableMap()
     private val requiredCapabilities = if (Regex("(?i)\\b(research|search|sources|papers|studies|latest|news|verify|article|citations)\\b").containsMatchIn(task)) setOf(AgentToolCapability.WEB_SEARCH, AgentToolCapability.PAGE_READER) else emptySet()
+    private val omissions = mutableMapOf<String, String>()
     private val active = window(ranked(task).filter { initialNames == null || it.name in initialNames }).map { it.name }.toMutableSet()
     private val discovered = active.toMutableSet()
 
@@ -53,7 +54,26 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
     )
 
     @Synchronized
-    fun selected(allowed: List<AgentToolDefinition>): List<AgentToolDefinition> = allowed.filter { it.modelVisible && (it.name in active || it.name == NAME) }
+    fun selected(allowed: List<AgentToolDefinition>): List<AgentToolDefinition> {
+        val definitions = allowed.filter { it.modelVisible }.associateBy { it.name }
+        // Preserve task/discovery priority when the outer context planner has less room.
+        return (active + NAME).mapNotNull(definitions::get)
+    }
+
+    @Synchronized
+    internal fun selectionOmissions(allowed: List<AgentToolDefinition>): Map<String, String> {
+        val allowedNames = allowed.mapTo(HashSet()) { it.name }
+        return allowed.filterNot { it.name in active || it.name == NAME }.associate { tool ->
+            tool.name to if (!tool.modelVisible) "HIDDEN_COMPATIBILITY_SCHEMA" else omissions[tool.name] ?: "DEFERRED_NOT_REQUESTED"
+        } + active.filterNot { it in allowedNames }.associateWith { "CONTEXT_OR_AUTHORIZATION_FILTER" }
+    }
+
+    internal fun recordSelection(allowed: List<AgentToolDefinition>, selected: List<AgentToolDefinition>) {
+        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ToolCatalog", "SELECTED_SCHEMA · authorized=${allowed.size} · advertised=${selected.size} · names=${selected.joinToString { it.name }} · estimatedTokens=${selected.sumOf { schemaTokens(it).toLong() }} · measurement=UTF8_ESTIMATE")
+        selectionOmissions(allowed).forEach { (name, reason) ->
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ToolCatalog", "TOOL_OMITTED · stage=catalog · name=$name · reason=$reason · schemaAllowance=$schemaAllowance")
+        }
+    }
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
         val query = (arguments["query"] as? JsonPrimitive)?.content.orEmpty().take(4096)
@@ -81,6 +101,9 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
         val names = (arguments["names"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.content }.take(12)
         if (query.isBlank() && names.isEmpty()) return@synchronized AgentToolResult(callId, ToolResultContent.Text("Provide a task query or exact tool names."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
         val exact = candidates.values.firstOrNull { it.name.equals(query.trim(), ignoreCase = true) }
+        // Discovery may reveal repository intent after an ordinary first message.
+        // This raises only the schema window; runtime context and grants still apply.
+        if (advancedTask(query) || names.any { it in candidates && it.contains("github", true) } || exact?.name?.contains("github", true) == true) advanced = true
         val undiscovered = if (query.isNotBlank()) ranked(query) else emptyList()
         val found = (names.mapNotNull(candidates::get) + listOfNotNull(exact) + undiscovered).distinctBy { it.name }.take(12)
         val previousActive = active.toSet()
@@ -89,7 +112,7 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
         }
         val explicit = names.mapNotNull(candidates::get) + listOfNotNull(exact)
         val retained = ranked(taskText).filter { it.name in active }
-        val selected = window(pinned + explicit + retained + found + active.mapNotNull(candidates::get))
+        val selected = window(pinned + explicit + found + retained + active.mapNotNull(candidates::get))
         active.clear()
         active.addAll(selected.map { it.name })
         val admitted = found.filter { it.name in active }
@@ -108,7 +131,7 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
             )
             put("schema_budget_excluded", JsonArray(found.filterNot { it.name in active }.map { JsonPrimitive(it.name) }))
             put("schema_token_allowance", schemaAllowance)
-            put("selection_policy", "Current-task capabilities remain available; explicit relevant requests may replace lower-priority schemas. Executable permissions are unchanged.")
+            put("selection_policy", "Current-task capabilities remain available; discovery requests replace lower-priority schemas. Availability still requires the next request's context admission. Executable permissions are unchanged.")
             put("unknown_names", JsonArray(names.filterNot(candidates::containsKey).map(::JsonPrimitive)))
             put("authorized_tool_count", candidates.size)
             put("remaining_tool_count", candidates.size - discovered.size)
@@ -123,12 +146,20 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
     private fun window(ordered: List<AgentToolDefinition>): List<AgentToolDefinition> {
         var tokens = 256L
         val selected = mutableListOf<AgentToolDefinition>()
+        omissions.clear()
         for (tool in ordered.distinctBy { it.name }) {
-            if (selected.size >= toolAllowance) break
             val cost = schemaTokens(tool)
-            if (tokens + cost <= schemaAllowance) {
+            val reason = when {
+                cost + 256 > schemaAllowance -> "SCHEMA_TOO_LARGE"
+                selected.size >= toolAllowance -> "TOOL_COUNT_WINDOW"
+                tokens + cost > schemaAllowance -> "SCHEMA_WINDOW_BUDGET"
+                else -> null
+            }
+            if (reason == null) {
                 tokens += cost
                 selected += tool
+            } else {
+                omissions[tool.name] = reason
             }
         }
         return selected
@@ -145,8 +176,9 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
             val score = when {
                 name == needle -> 10000
                 operation != null -> if (operation in github) 1000 - github.indexOf(operation) else 0
-                github.isNotEmpty() && needle == taskText.lowercase(java.util.Locale.ROOT).trim() -> 0
+                github.isNotEmpty() && "github" in name -> 900
                 tool.capabilities.any { it in requiredCapabilities } -> 500
+                github.isNotEmpty() && needle == taskText.lowercase(java.util.Locale.ROOT).trim() -> 0
                 needle.isNotEmpty() && needle in name -> 100
                 else -> words.sumOf { word -> (if (word in name) 8 else 0) + (if (word in description) 1 else 0) }
             }
@@ -161,6 +193,9 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
 
         // Leaves room for the discovery schema and source content in the parent request planner.
         const val SCHEMA_TOKEN_ALLOWANCE = 2_000
+        const val MAX_SCHEMA_TOKEN_ALLOWANCE = 6_000
+        private fun advancedTask(task: String): Boolean =
+            dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(task).isNotEmpty() || Regex("(?iu)\\b(research|study|studies|papers)\\b").containsMatchIn(task)
         internal fun schemaTokens(tool: AgentToolDefinition): Int = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(tool.name + tool.description + tool.inputSchema.toString())
         fun create(definitions: List<AgentToolDefinition>, task: String, initialNames: Set<String>? = null): ProgressiveToolCatalog? =
             if (definitions.any { it.name == NAME } || definitions.none { !it.modelVisible || dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) != null } && definitions.size <= INITIAL_TOOLS && definitions.sumOf { schemaTokens(it).toLong() } <= SCHEMA_TOKEN_ALLOWANCE) null else ProgressiveToolCatalog(definitions, task, initialNames)
@@ -172,7 +207,7 @@ internal fun AgentProviderSession.withToolCatalog(catalog: ProgressiveToolCatalo
     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> =
         this@withToolCatalog.streamRound(
             catalog.selected(tools).also { selected ->
-                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ToolCatalog", "SELECTED_SCHEMA · authorized=${tools.size} · advertised=${selected.size} · estimatedTokens=${selected.sumOf { ProgressiveToolCatalog.schemaTokens(it).toLong() }} · measurement=UTF8_ESTIMATE")
+                catalog.recordSelection(tools, selected)
             },
             exchanges
         )

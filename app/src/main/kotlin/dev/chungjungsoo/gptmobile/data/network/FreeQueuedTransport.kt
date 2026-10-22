@@ -276,6 +276,7 @@ internal class FreeQueuedTransport(private val client: HttpClient, private val p
     private suspend fun readGradio(id: String, config: ProviderRequestConfig, model: String, emit: suspend (ChatCompletionChunk) -> Unit): Pair<String, String?> {
         var final: String? = null
         var snapshot: String? = null
+        var retrievalFailure: java.io.IOException? = null
         client.prepareGet("${FreeAiProvider.HUGGING_FACE.apiUrl}/gradio_api/call/add_message/$id") {
             timeout {
                 requestTimeoutMillis = null
@@ -290,7 +291,14 @@ internal class FreeQueuedTransport(private val client: HttpClient, private val p
             var lastNotice = 0L
             while (true) {
                 currentCoroutineContext()[RequestAuthorizationGuard]?.validate?.invoke()
-                val nextLine = if (channel.isClosedForRead) null else channel.readUTF8Line(2_000_000)
+                val nextLine = try {
+                    channel.readUTF8Line(2_000_000)
+                } catch (failure: java.io.IOException) {
+                    // Preserve already parsed output on a socket failure as well as EOF.
+                    // Only read errors are intercepted; consumer failures and Stop propagate.
+                    retrievalFailure = failure
+                    break
+                }
                 if (nextLine == null && event.isEmpty() && data.isEmpty()) break
                 val line = nextLine ?: ""
                 check(line.length < 2_000_000) { "Space output exceeds supported size" }
@@ -329,6 +337,7 @@ internal class FreeQueuedTransport(private val client: HttpClient, private val p
         }
         if (final == null) {
             snapshot?.takeIf { it.isNotBlank() }?.let { emit(ChatCompletionChunk(choices = listOf(Choice(delta = Delta(content = it))))) }
+            retrievalFailure?.let { throw it }
             throw QueueTerminalFailure("QUEUE_STREAM_DISCONNECTED: Space stream ended before completion. Any partial answer and the receipt are retained. This protocol cannot guarantee reconnect; explicitly start a new generation.", remoteTerminal = null)
         }
         return requireNotNull(final) to "Qwen/qwen3-235b-a22b"

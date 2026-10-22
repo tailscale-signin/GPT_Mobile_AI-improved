@@ -29,6 +29,10 @@ queue, final-writing and task-completion failures reported for build 124.
   unfinished essay endings block completion. One bounded full rewrite corrects
   writing defects; queue/access/provider failures do not become rewrite requests.
   Failed repairs retain the draft and an incomplete status.
+- Thrown provider stream failures now use the same draft-retention path as explicit
+  failure events, without scheduling a rewrite. Cancellation and downstream consumer
+  failures still propagate. A Gradio socket read failure retains its last parsed
+  snapshot and accepted receipt, without submitting a second job.
 - Combined freezes a task contract, isolates new subjects from earlier turns, and
   resolves explicit follow-up references. Wrong-subject output triggers fresh
   synthesis without the unrelated draft. Subject and required coverage defects are
@@ -55,6 +59,9 @@ build and the full test suite. Regression cases cover serialized budgets, cooldo
 restart, short-wait cancellation, queue identity and disconnects, no OpenCode
 network dispatch, full-answer replacement, device date/timezone, historical coverage,
 wrong-topic refusal, reasoning-only recovery and an approximately 500-word fixture.
+The follow-up draft repair passed 104 focused JVM tests, including socket failure
+after a snapshot, thrown provider exceptions, cancellation and downstream failure
+propagation. Changed Kotlin files passed ktlint 1.3.1.
 
 A live public Qwen Space probe used the same simplified payload shape without a
 session hash: schema lookup HTTP 200, submission HTTP 200, result stream HTTP 200.

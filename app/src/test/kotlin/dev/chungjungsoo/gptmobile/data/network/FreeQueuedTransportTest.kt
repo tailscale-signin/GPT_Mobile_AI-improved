@@ -13,9 +13,14 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
 import io.ktor.http.content.TextContent as HttpTextContent
 import io.ktor.http.headersOf
+import io.ktor.utils.io.ByteChannel
+import io.ktor.utils.io.writeStringUtf8
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
@@ -28,6 +33,53 @@ import org.junit.Test
 
 class FreeQueuedTransportTest {
     private val workerCatalog = """[{"name":"koboldcpp/Qwen2.5-7B-Instruct","count":1}]"""
+
+    @Test fun gradioSocketFailureRetainsSnapshotAndDoesNotResubmit() = runBlocking {
+        val receivedSnapshot = CompletableDeferred<Unit>()
+        val stream = ByteChannel(autoFlush = true)
+        var posts = 0
+        var reads = 0
+        val client = HttpClient(
+            MockEngine { wire ->
+                when {
+                    wire.url.encodedPath.endsWith("/info") -> respond("""{"named_endpoints":{"/add_message":{"parameters":[{"parameter_name":"input_value"},{"parameter_name":"settings_form_value"}]}}}""")
+                    wire.method == HttpMethod.Post -> {
+                        posts++
+                        respond("""{"event_id":"socket-failure-job"}""")
+                    }
+                    else -> {
+                        reads++
+                        respond(stream, headers = headersOf(HttpHeaders.ContentType, "text/event-stream"))
+                    }
+                }
+            }
+        ) { install(HttpTimeout) }
+        val writer = launch {
+            stream.writeStringUtf8("event: generating\ndata: [[{\"role\":\"assistant\",\"content\":\"Retain this partial answer\"}]]\n\n")
+            receivedSnapshot.await()
+            stream.cancel(java.io.IOException("socket reset after snapshot"))
+        }
+        try {
+            val network = mockk<NetworkClient>()
+            every { network.invoke() } returns client
+            val provider = FreeAiProvider.HUGGING_FACE
+            val config = ProviderRequestConfig(provider.apiUrl, null, freeProvider = provider, queueScope = java.util.UUID.randomUUID().toString())
+            val api = OpenAIAPIImpl(network)
+            val chunks = mutableListOf<dev.chungjungsoo.gptmobile.data.dto.openai.response.ChatCompletionChunk>()
+            api.streamChatCompletion(request(provider.model), 30, config).collect { chunk ->
+                chunks += chunk
+                if (chunk.applicationNotice?.contains("generating · job") == true) receivedSnapshot.complete(Unit)
+            }
+            assertEquals("Retain this partial answer", chunks.flatMap { it.choices.orEmpty() }.mapNotNull { it.effectiveDelta.content }.joinToString(""))
+            org.junit.Assert.assertTrue(chunks.last().error!!.message.contains("QUEUE_STREAM_DISCONNECTED"))
+            api.streamChatCompletion(request(provider.model), 30, config).toList()
+            assertEquals(1, posts)
+            assertEquals(1, reads)
+        } finally {
+            writer.cancel()
+            client.close()
+        }
+    }
 
     @Test fun ambiguousSubmissionTimeoutDoesNotSubmitTheJobTwice() = runBlocking {
         var submissions = 0

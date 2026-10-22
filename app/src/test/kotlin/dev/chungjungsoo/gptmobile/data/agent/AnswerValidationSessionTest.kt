@@ -2,6 +2,9 @@ package dev.chungjungsoo.gptmobile.data.agent
 
 import java.time.Instant
 import java.time.ZoneId
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
@@ -14,6 +17,62 @@ import org.junit.Test
 class AnswerValidationSessionTest {
     private fun session(vararg events: ProviderEvent) = object : AgentProviderSession {
         override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(*events)
+    }
+
+    @Test fun thrownProviderFailureRetainsBufferedOutputWithoutRewriting() = runBlocking {
+        val saved = mutableListOf<Pair<String, Boolean>>()
+        var rewrites = 0
+        val provider = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow<ProviderEvent> {
+                emit(ProviderEvent.TextDelta("A retained partial answer."))
+                throw java.io.IOException("connection interrupted")
+            }
+        }
+        val events = AnswerValidationSession(provider, "Explain the result", save = { text, complete -> saved += text to complete }) { _, _, _ ->
+            rewrites++
+            session()
+        }.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(listOf("A retained partial answer." to false), saved)
+        assertEquals("A retained partial answer.", events.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+        assertTrue(events.last() is ProviderEvent.Failed)
+        assertFalse(events.contains(ProviderEvent.Completed))
+        assertEquals(0, rewrites)
+    }
+
+    @Test fun cancellationSavesDraftAndPropagatesWithoutFailureOrRewrite() = runBlocking {
+        var saved = ""
+        var rewrites = 0
+        val provider = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow<ProviderEvent> {
+                emit(ProviderEvent.TextDelta("Before Stop"))
+                throw CancellationException("user stopped")
+            }
+        }
+        val validation = AnswerValidationSession(provider, "Explain", save = { text, complete ->
+            saved = text
+            assertFalse(complete)
+        }) { _, _, _ ->
+            rewrites++
+            session()
+        }
+        try {
+            validation.streamRound(emptyList(), emptyList()).toList()
+            org.junit.Assert.fail("Cancellation must propagate")
+        } catch (_: CancellationException) {
+            assertEquals("Before Stop", saved)
+            assertEquals(0, rewrites)
+        }
+    }
+
+    @Test fun downstreamFailureIsNotConvertedIntoAProviderFailure() = runBlocking {
+        val failure = java.io.IOException("consumer closed")
+        val validation = AnswerValidationSession(session(ProviderEvent.TextDelta("Hello")), "Hello", replaceDraft = { _, _ -> true }) { _, _, _ -> error("No rewrite") }
+        try {
+            validation.streamRound(emptyList(), emptyList()).collect { throw failure }
+            org.junit.Assert.fail("Consumer failure must propagate")
+        } catch (actual: java.io.IOException) {
+            org.junit.Assert.assertSame(failure, actual)
+        }
     }
 
     @Test fun oversizedAnswerIsReplacedOnceAndNeverAppended() = runBlocking {

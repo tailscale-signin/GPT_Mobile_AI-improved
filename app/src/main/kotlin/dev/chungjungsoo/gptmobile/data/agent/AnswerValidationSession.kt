@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.agent
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
 
@@ -36,7 +37,10 @@ internal class AnswerValidationSession(
             var toolRound = false
             var finish: String? = null
             try {
-                active.streamRound(if (attempt == 0) tools else emptyList(), if (attempt == 0) exchanges else emptyList()).collect { event ->
+                active.streamRound(if (attempt == 0) tools else emptyList(), if (attempt == 0) exchanges else emptyList()).catch { error ->
+                    if (error is CancellationException) throw error
+                    emit(ProviderEvent.Failed("ANSWER_PROVIDER_FAILED: ${error.message.orEmpty()}. The draft is retained."))
+                }.collect { event ->
                     when (event) {
                         is ProviderEvent.TextDelta -> {
                             check(text.length.toLong() + event.text.length <= (maximumCharacters.takeIf { it > 0 }?.toLong() ?: 1_048_576L)) { "Answer exceeds the safe validation buffer." }

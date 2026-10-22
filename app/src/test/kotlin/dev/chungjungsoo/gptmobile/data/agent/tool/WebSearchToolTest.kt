@@ -31,7 +31,7 @@ class WebSearchToolTest {
     @Test
     fun `automatic outcomes distinguish unusable 202 challenge parser failure rate limit and cached failure`() = runBlocking {
         for ((status, body, expected) in listOf(
-            Triple(202, "Accepted but no usable results", "UNAVAILABLE"),
+            Triple(202, "Accepted but no usable results", "CHALLENGE"),
             Triple(202, "<form class='challenge-form'>captcha</form>", "CHALLENGE"),
             Triple(200, "<html>unrecognized search markup</html>", "PARSE_FAILED"),
             Triple(429, "rate limit", "RATE_LIMITED")
@@ -65,9 +65,34 @@ class WebSearchToolTest {
         WebSearchTool(config, client, clock).execute("first", args)
         val later = Clock.offset(clock, java.time.Duration.ofDays(1))
         val blocked = WebSearchTool(config, client, later).execute("second", args)
-        assertTrue(blocked.content.toString().contains("disabled"))
+        assertTrue(blocked.content.toString().contains("AUTH_REQUIRED"))
         val changed = WebSearchTool(config.copy(bearerToken = "corrected-key"), client, later).execute("third", args)
         assertTrue(changed.content.toString().contains("HTTP 401"))
+    }
+
+    @Test fun sharedChallengeRetainsOriginalCauseAcrossProfiles() = runBlocking {
+        val endpoint = server("/shared", "challenge", 202)
+        val client = NetworkClient(CIO).also { networkClients += it }
+        val cooldown = AtomicLong(0)
+        fun search() = WebSearchTool(WebSearchProviderConfig(WebSearchProvider.AUTO, "", ""), client, clock, autoSearchEndpointTemplates = listOf(endpoint.url("/shared?q={query}"), endpoint.url("/shared?q={query}")), autoSearchBlockedUntilMs = cooldown)
+        search().execute("first", arguments())
+        val cached = search().execute("other-profile", arguments())
+        assertEquals("CHALLENGE", cached.errorCode)
+        assertTrue(cached.content.toString().contains("202"))
+        assertEquals(1, endpoint.requestCount)
+    }
+
+    @Test fun repairedSameCredentialCanBeExplicitlyRetested() = runBlocking {
+        val endpoint = server("/repair", "{}", 401)
+        val client = NetworkClient(CIO).also { networkClients += it }
+        val config = WebSearchProviderConfig(WebSearchProvider.PERPLEXITY, "repair-test", endpoint.url("/repair"))
+        WebSearchTool(config, client, clock).execute("first", arguments())
+        val retry = WebSearchTool(config, client, clock)
+        retry.execute("blocked", arguments())
+        assertEquals(1, endpoint.requestCount)
+        retry.resetAccessFailureAfterRepair()
+        retry.execute("explicit-retest", arguments())
+        assertEquals(2, endpoint.requestCount)
     }
 
     @Test
@@ -78,7 +103,7 @@ class WebSearchToolTest {
         val args = buildJsonObject { put("query", "test") }
         WebSearchTool(config, client, clock).execute("first", args)
         val blocked = WebSearchTool(config, client, Clock.offset(clock, java.time.Duration.ofMinutes(4))).execute("second", args)
-        assertTrue(blocked.content.toString().contains("disabled"))
+        assertTrue(blocked.content.toString().contains("AUTH_REQUIRED"))
         assertEquals(1, server.requestCount)
         val retried = WebSearchTool(config, client, Clock.offset(clock, java.time.Duration.ofMinutes(6))).execute("third", args)
         assertTrue(retried.content.toString().contains("HTTP 402"))
@@ -126,7 +151,7 @@ class WebSearchToolTest {
         for (status in listOf(401, 403, 429)) {
             val server = server("/search", """{"error":"brave-key private diagnostic"}""", status)
             val result = tool(WebSearchProvider.BRAVE, server.url("/search")).execute("failed", arguments())
-            val text = (result.content as ToolResultContent.Text).text
+            val text = result.content.toString()
             assertTrue(result.isError)
             assertTrue(text.contains("Brave Search"))
             assertTrue(text.contains("HTTP $status"))
@@ -475,7 +500,7 @@ class WebSearchToolTest {
         val result = tool.execute("http-call", arguments())
 
         assertTrue(result.isError)
-        val error = (result.content as ToolResultContent.Text).text
+        val error = result.content.toString()
         assertTrue(error.contains("Exa web search rate limit"))
         assertTrue(error.contains("HTTP 429"))
         assertTrue(error.contains("Wait before retrying"))
@@ -489,14 +514,15 @@ class WebSearchToolTest {
         val result = tool.execute("missing-call", arguments())
 
         assertTrue(result.isError)
-        assertEquals("Web search failed: missing required result fields.", (result.content as ToolResultContent.Text).text)
+        assertEquals("PARSE_FAILED", result.errorCode)
+        assertTrue(result.content.toString().contains("bodyReceived"))
     }
 
     @Test
     fun searchAuthenticationFailuresNameTheSeparateSearchProvider() = runBlocking {
         val server = server("/search", """{"error":{"message":"User not found. perplexity-key"}}""", status = 401)
         val result = tool(WebSearchProvider.PERPLEXITY, server.url("/search")).execute("auth-call", arguments())
-        val message = (result.content as ToolResultContent.Text).text
+        val message = result.content.toString()
         assertTrue(result.isError)
         assertTrue(message.contains("Perplexity"))
         assertTrue(message.contains("HTTP 401"))

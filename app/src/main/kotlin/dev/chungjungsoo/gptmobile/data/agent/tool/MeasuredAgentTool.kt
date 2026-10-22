@@ -16,6 +16,7 @@ class MeasuredAgentTool(
     private val onMeasured: (AgentToolResult) -> Unit = {}
 ) : AgentTool,
     OwnedAgentTool {
+    override fun withChildBudget(bind: (AgentTool) -> AgentTool): AgentTool = MeasuredAgentTool(delegate.withChildBudget(bind), nanoTime, onMeasured)
     override val definition = delegate.definition
     override val managesExecutionBudget = delegate.managesExecutionBudget
     override val coordinatesChildWork = delegate.coordinatesChildWork

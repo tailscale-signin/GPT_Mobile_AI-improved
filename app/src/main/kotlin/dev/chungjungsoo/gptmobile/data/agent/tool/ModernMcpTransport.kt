@@ -164,7 +164,7 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
         return definitions.map { json.decodeFromJsonElement<Tool>(it) }
     }
 
-    suspend fun callTool(config: McpConnectionConfig, name: String, arguments: JsonObject, callId: String? = null): CallToolResult {
+    suspend fun callTool(config: McpConnectionConfig, name: String, arguments: JsonObject, callId: String? = null, metadata: JsonObject? = null): CallToolResult {
         if (schemas[config.connectionUid]?.containsKey(name) != true) listTools(config)
         val schema = requireNotNull(schemas[config.connectionUid]?.get(name)) { "Tool was removed or has an invalid HTTP header schema. Refresh the connection." }
         val result = request(
@@ -173,6 +173,7 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
             buildJsonObject {
                 put("name", name)
                 put("arguments", arguments)
+                metadata?.let { put("_meta", it) }
             },
             mirroredHeaders(schema, arguments)
         )

@@ -18,26 +18,29 @@ class FreeAiRequestLimiter(
         var retryAt = 0L
     }
 
-    private val buckets = FreeAiProvider.entries.associateWith { Bucket() }
+    private val buckets = java.util.concurrent.ConcurrentHashMap<Pair<FreeAiProvider, String>, Bucket>()
+    private fun bucket(provider: FreeAiProvider, model: String = ""): Bucket = buckets.computeIfAbsent(provider to if (provider == FreeAiProvider.OVHCLOUD) model else "") { Bucket() }
 
-    suspend fun <T> withRequest(provider: FreeAiProvider, request: suspend () -> T): T =
-        buckets.getValue(provider).permit.withPermit {
+    suspend fun <T> withRequest(provider: FreeAiProvider, request: suspend () -> T): T = withRequest(provider, "", request)
+
+    suspend fun <T> withRequest(provider: FreeAiProvider, model: String, request: suspend () -> T): T =
+        bucket(provider, model).permit.withPermit {
             // Short local spacing is scheduling, not an exhausted provider quota.
             // Keep the permit while waiting so parallel profiles cannot race the next slot.
             delay(spacingDelayMillis(provider))
-            reserve(provider)
+            reserve(provider, model)
             request()
         }
 
     @Synchronized
     private fun spacingDelayMillis(provider: FreeAiProvider): Long {
-        val previous = buckets.getValue(provider).requests.peekLast() ?: return 0L
+        val previous = bucket(provider).requests.peekLast() ?: return 0L
         return if (provider == FreeAiProvider.LLM7) (previous + 1000 - nowMillis()).coerceIn(0, 1000) else 0L
     }
 
     @Synchronized
-    internal fun reserve(provider: FreeAiProvider) {
-        val bucket = buckets.getValue(provider)
+    internal fun reserve(provider: FreeAiProvider, model: String = "") {
+        val bucket = bucket(provider, model)
         val now = nowMillis()
         while (bucket.requests.isNotEmpty() && bucket.requests.first <= now - HOUR_MS) bucket.requests.removeFirst()
         val minuteRequests = bucket.requests.filter { it > now - MINUTE_MS }
@@ -56,21 +59,21 @@ class FreeAiRequestLimiter(
     }
 
     @Synchronized
-    fun defer(provider: FreeAiProvider, retryAfter: String?): Long {
+    fun defer(provider: FreeAiProvider, retryAfter: String?, model: String = ""): Long {
         val now = nowMillis()
         val seconds = retryAfter?.toLongOrNull()?.coerceAtLeast(1)
         val date = runCatching { ZonedDateTime.parse(retryAfter, DateTimeFormatter.RFC_1123_DATE_TIME).toInstant().toEpochMilli() }.getOrNull()
         val wait = (seconds?.coerceAtMost(86400)?.times(1000) ?: date?.minus(now) ?: MINUTE_MS).coerceIn(1000, 86400000)
-        val bucket = buckets.getValue(provider)
+        val bucket = bucket(provider, model)
         bucket.retryAt = maxOf(bucket.retryAt, now + wait)
         return (bucket.retryAt - now + 999) / 1000
     }
 
     /** Return the known provider/local quota cooldown without reserving a request. */
     @Synchronized
-    fun cooldownUntilMillis(provider: FreeAiProvider): Long? {
+    fun cooldownUntilMillis(provider: FreeAiProvider, model: String = ""): Long? {
         val now = nowMillis()
-        val bucket = buckets.getValue(provider)
+        val bucket = bucket(provider, model)
         while (bucket.requests.isNotEmpty() && bucket.requests.first <= now - HOUR_MS) bucket.requests.removeFirst()
         val minuteRequests = bucket.requests.filter { it > now - MINUTE_MS }
         var retryAt = bucket.retryAt

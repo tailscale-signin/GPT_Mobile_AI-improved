@@ -39,7 +39,7 @@ class ValidatePlatformConnectionUseCase @Inject constructor(
             when (platform.compatibleType) {
                 ClientType.OLLAMA -> {
                     // Test /api/tags
-                    val endpoint = if (url.endsWith("/api")) "$url/tags" else "$url/api/tags"
+                    val endpoint = dev.chungjungsoo.gptmobile.data.network.LocalServerUrls.ollamaTags(url)
                     val response = client.get(endpoint)
                     if (response.status.isSuccess()) {
                         ValidationResult(isSuccess = true, statusCode = response.status.value, message = "Connection successful.")
@@ -106,6 +106,13 @@ class ValidatePlatformConnectionUseCase @Inject constructor(
                         )
                     }
                 }
+                ClientType.CUSTOM, ClientType.LLAMA, ClientType.FREE -> {
+                    when (val result = dev.chungjungsoo.gptmobile.data.network.ApiKeyValidator.validate(platform.compatibleType, platform.apiUrl, token)) {
+                        is dev.chungjungsoo.gptmobile.data.network.ApiKeyValidator.ValidationResult.Success -> ValidationResult(true, message = result.message)
+                        is dev.chungjungsoo.gptmobile.data.network.ApiKeyValidator.ValidationResult.Error -> ValidationResult(false, message = result.message)
+                        else -> ValidationResult(false, message = "Validation did not complete")
+                    }
+                }
                 else -> {
                     // Lightweight GET ping
                     val response = client.get(url) {
@@ -113,7 +120,7 @@ class ValidatePlatformConnectionUseCase @Inject constructor(
                             header("Authorization", "Bearer $token")
                         }
                     }
-                    if (response.status.isSuccess() || response.status.value in 200..404) {
+                    if (response.status.isSuccess()) {
                         ValidationResult(isSuccess = true, statusCode = response.status.value, message = "Host reachable.")
                     } else {
                         ValidationResult(
@@ -124,6 +131,8 @@ class ValidatePlatformConnectionUseCase @Inject constructor(
                     }
                 }
             }
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
         } catch (e: UnknownHostException) {
             ValidationResult(
                 isSuccess = false,

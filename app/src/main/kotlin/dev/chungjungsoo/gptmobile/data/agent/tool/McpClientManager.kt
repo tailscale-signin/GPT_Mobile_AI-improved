@@ -272,7 +272,8 @@ class McpClientManager internal constructor(
         config: McpConnectionConfig,
         toolName: String,
         arguments: JsonObject,
-        callId: String? = null
+        callId: String? = null,
+        metadata: JsonObject? = null
     ): CallToolResult {
         val key = config.validatedKey()
         val observation = healthOrder.begin(config.connectionUid, key)
@@ -292,8 +293,25 @@ class McpClientManager internal constructor(
         val attemptId = java.util.UUID.randomUUID().toString()
         var outcome = dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolOutcome.UNKNOWN
         return try {
-            val result = modernTransport(config)?.let { it.callTool(config, toolName, arguments, callId) }
-                ?: withSession(config, retryStale = false, recordFailures = false, observation = observation) { it.client.callTool(toolName, arguments) }
+            val result = modernTransport(config)?.let { it.callTool(config, toolName, arguments, callId, metadata) }
+                ?: withSession(config, retryStale = false, recordFailures = false, observation = observation) {
+                    it.client.callTool(
+                        kotlinx.serialization.json.Json.decodeFromJsonElement(
+                            io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest.serializer(),
+                            kotlinx.serialization.json.buildJsonObject {
+                                put("method", kotlinx.serialization.json.JsonPrimitive("tools/call"))
+                                put(
+                                    "params",
+                                    kotlinx.serialization.json.buildJsonObject {
+                                        put("name", kotlinx.serialization.json.JsonPrimitive(toolName))
+                                        put("arguments", arguments)
+                                        metadata?.let { put("_meta", it) }
+                                    }
+                                )
+                            }
+                        )
+                    )
+                }
             outcome = if (result.isError == true) dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolOutcome.FAILURE else dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolOutcome.SUCCESS
             if (result.isError == true) {
                 val failure = result.toString()

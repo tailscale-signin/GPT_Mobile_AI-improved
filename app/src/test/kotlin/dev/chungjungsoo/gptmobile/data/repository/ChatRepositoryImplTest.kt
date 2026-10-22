@@ -975,7 +975,7 @@ class ChatRepositoryImplTest {
         )
 
         repository.completeChat(
-            userMessages = listOf(MessageV2(content = "What tools do you have?", platformType = null)),
+            userMessages = listOf(MessageV2(content = "Help me plan a project; use available tools when needed.", platformType = null)),
             assistantMessages = emptyList(),
             platform = localPlatform().copy(maxTokens = 512),
             runId = "run-local-litert-tools"

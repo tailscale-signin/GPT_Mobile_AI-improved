@@ -125,6 +125,10 @@ class GPTMobileApp :
                 conversationDeletion.get().delete(temporary)
             }
             val combinedSettings = startup.settingRepository()
+            dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.initialize(this@GPTMobileApp)
+            dev.chungjungsoo.gptmobile.data.free.FreeQueueJobs.initialize(this@GPTMobileApp)
+            combinedSettings.migrateToPlatformV2()
+            combinedSettings.ensureFreeModels()
             val rooms = conversationDatabase.get().chatRoomDao()
             val existingConversationIds = (rooms.getChatRooms() + rooms.getArchivedChatRooms()).mapTo(hashSetOf()) { it.id }
             combinedSettings.recoverConversationCombinedDeletions(existingConversationIds)

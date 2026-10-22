@@ -208,7 +208,7 @@ class AgentRunner(
                         "before completing the tool call"
                     ).any { roundFailure.contains(it, ignoreCase = true) }
                 if (protocolFailure) {
-                    if (!protocolRecoveryAttempted && !round.textEmitted && !session.handlesToolsInternally) {
+                    if (!protocolRecoveryAttempted && exposedDefinitions.isNotEmpty() && !round.textEmitted && !session.handlesToolsInternally) {
                         protocolRecoveryAttempted = true
                         exposedDefinitions = exposedDefinitions.map { definition ->
                             definition.copy(description = definition.description + " Protocol repair: call this capability only with its native function-call frame and valid JSON arguments. Never print tool-call markup as assistant text.")
@@ -753,7 +753,7 @@ class AgentRunner(
                 )
             }
             // Include synchronous stream construction failures in the upstream boundary.
-            emitAll(session.streamRound(exposedDefinitions, replayExchanges.map { exchange -> exchange.copy(results = exchange.results.map { dev.chungjungsoo.gptmobile.data.assist.OptionalAssistArtifacts.ready(it) }) }).withAssistantTextMarkupGuard(successfulSearch, searchToolNames))
+            emitAll(session.streamRound(exposedDefinitions, replayExchanges.map { exchange -> exchange.copy(results = exchange.results.map { dev.chungjungsoo.gptmobile.data.assist.OptionalAssistArtifacts.ready(it) }) }).withAssistantTextMarkupGuard(successfulSearch || session.hasPreparedSearchEvidence, searchToolNames, allowControlJsonText = session.allowsControlJsonText))
         }.catch { error ->
             if (error is CancellationException || error is VirtualMachineError || error is ThreadDeath || error is IllegalStateException && error.message?.startsWith("DISPATCH_POLICY_CHANGED:") == true) throw error
             if (error is ToolBatchOversizeException) {

@@ -49,10 +49,11 @@ class ReadUrlTool(
     private val outputLimitBytes: Int = MAX_OUTPUT_BYTES,
     private val deniedHosts: MutableSet<String> = ConcurrentHashMap.newKeySet(),
     private val documentContext: android.content.Context? = null,
-    private val unavailableUrls: MutableSet<String> = ConcurrentHashMap.newKeySet()
+    private val unavailableUrls: MutableSet<String> = ConcurrentHashMap.newKeySet(),
+    private val preserveLineBreaks: Boolean = false
 ) : AgentTool {
 
-    fun withOutputLimit(bytes: Int): ReadUrlTool = ReadUrlTool(dns, allowAddress, htmlToText, bytes.coerceIn(0, MAX_OUTPUT_BYTES), deniedHosts, documentContext, unavailableUrls)
+    fun withOutputLimit(bytes: Int): ReadUrlTool = ReadUrlTool(dns, allowAddress, htmlToText, bytes.coerceIn(0, MAX_OUTPUT_BYTES), deniedHosts, documentContext, unavailableUrls, preserveLineBreaks)
 
     override val definition: AgentToolDefinition = AgentToolDefinition(
         name = "read_url",
@@ -230,7 +231,7 @@ class ReadUrlTool(
                     null
                 }
                 val text = document?.text ?: if (isHtmlContent(contentType)) htmlToText(rawText) else rawText
-                val normalizedText = normalizeWhitespace(text)
+                val normalizedText = if (preserveLineBreaks) text.replace("\r\n", "\n").trim() else normalizeWhitespace(text)
                 val chunks = research?.retainBody?.invoke(normalizedText).orEmpty()
                 val plainText = truncateUtf8(normalizedText, outputCap)
                 val documentResult = dev.chungjungsoo.gptmobile.data.research.ResearchDocumentResult(

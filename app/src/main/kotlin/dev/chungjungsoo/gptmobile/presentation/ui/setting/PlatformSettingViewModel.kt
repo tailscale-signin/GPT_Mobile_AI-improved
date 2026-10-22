@@ -75,6 +75,19 @@ class PlatformSettingViewModel @Inject constructor(
 
     val featureSettings = settingRepository.observeFeatureSettings().stateIn(viewModelScope, SharingStarted.Eagerly, dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings())
     val pluginInstallations: StateFlow<Map<String, dev.chungjungsoo.gptmobile.data.marketplace.NativePluginInstallation>> = nativeMarketplaceRegistry?.state ?: MutableStateFlow(emptyMap())
+    val effectiveSearchInventory = MutableStateFlow<List<dev.chungjungsoo.gptmobile.data.agent.tool.EffectiveSearchEngine>>(emptyList())
+    fun refreshSearchInventory() {
+        viewModelScope.launch {
+            try {
+                effectiveSearchInventory.value = agentToolResolver.effectiveSearchInventory(platformUid)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                effectiveSearchInventory.value = listOf(dev.chungjungsoo.gptmobile.data.agent.tool.EffectiveSearchEngine("unavailable", "Search inventory", false, "Could not resolve settings; refresh to retry"))
+            }
+        }
+    }
+
     private val behaviorMutex = kotlinx.coroutines.sync.Mutex()
 
     fun updateProfileBehavior(transform: (dev.chungjungsoo.gptmobile.data.model.ProfileBehaviorSettings) -> dev.chungjungsoo.gptmobile.data.model.ProfileBehaviorSettings) {
@@ -83,7 +96,7 @@ class PlatformSettingViewModel @Inject constructor(
             try {
                 settingRepository.mutateFeatureSettings { current ->
                     val value = transform(current.profileBehavior[platformUid] ?: dev.chungjungsoo.gptmobile.data.model.ProfileBehaviorSettings()).normalized()
-                    current.copy(profileBehavior = current.profileBehavior + (platformUid to value))
+                    current.copy(profileBehavior = current.profileBehavior + (platformUid to value)).withProfileToolPluginEnabled(platformUid, dev.chungjungsoo.gptmobile.data.model.ToolPluginId.CRAWLERS, value.crawlersEnabled)
                 }
             } finally {
                 behaviorMutex.unlock()
@@ -387,12 +400,12 @@ class PlatformSettingViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val connection = settingRepository.fetchProviderConnections().firstOrNull {
-                    it.compatibleType == ClientType.FREE && FreeAiProvider.fromApiUrl(it.apiUrl) == provider
+                    it.uid == dev.chungjungsoo.gptmobile.data.free.FreeModelCatalog.CONNECTION_UID
                 } ?: settingRepository.addProviderConnection(
                     ProviderConnection(name = provider.displayName, compatibleType = ClientType.FREE, apiUrl = provider.apiUrl),
                     credential = null
                 )
-                settingRepository.updatePlatformV2(provider.applyTo(platform).copy(providerConnectionUid = connection.uid))
+                settingRepository.updatePlatformV2(provider.applyTo(platform.copy(model = provider.model)).copy(providerConnectionUid = connection.uid))
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {

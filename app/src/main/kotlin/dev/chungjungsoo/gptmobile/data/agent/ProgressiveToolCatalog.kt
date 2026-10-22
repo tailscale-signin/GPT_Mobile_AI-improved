@@ -26,7 +26,7 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
     private val acquiredQueryKeys = mutableSetOf<String>()
     override val definition = AgentToolDefinition(
         NAME,
-        "Search other authorized tools by task or exact names. Call this when the currently advertised tools cannot perform a task. Found tools become available next round. This cannot grant permissions or install tools.",
+        "List authorized tools with empty arguments, or search by task or exact names. Call this when the currently advertised tools cannot perform a task. Found tools become available next round. This cannot grant permissions or install tools.",
         buildJsonObject {
             put("type", "object")
             put(
@@ -78,7 +78,7 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
         val query = (arguments["query"] as? JsonPrimitive)?.content.orEmpty().take(4096)
         val names = (arguments["names"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.content }.take(12)
-        if ((query.isNotBlank() || names.isNotEmpty()) && acquireCold != null) {
+        if (acquireCold != null) {
             // Cache only successful acquisitions. Offline or empty catalogs remain retryable.
             // Never suspend while holding the selection monitor.
             val key = query.trim().lowercase(java.util.Locale.ROOT) + "|" + names.sorted().joinToString("|")
@@ -99,7 +99,33 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
     private fun selectResult(callId: String, arguments: JsonObject): AgentToolResult = synchronized(this) {
         val query = (arguments["query"] as? JsonPrimitive)?.content.orEmpty().take(4096)
         val names = (arguments["names"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.content }.take(12)
-        if (query.isBlank() && names.isEmpty()) return@synchronized AgentToolResult(callId, ToolResultContent.Text("Provide a task query or exact tool names."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
+        if (query.isBlank() && names.isEmpty()) {
+            return@synchronized AgentToolResult(
+                callId,
+                ToolResultContent.Json(
+                    buildJsonObject {
+                        put(
+                            "authorized_inventory",
+                            JsonArray(
+                                candidates.values.map { tool ->
+                                    buildJsonObject {
+                                        put("name", tool.name)
+                                        put("description", tool.description.take(240))
+                                        put("currently_advertised", tool.name in active)
+                                        put("operational_status", "not tested")
+                                        omissions[tool.name]?.let { put("omission_reason", it) }
+                                    }
+                                }
+                            )
+                        )
+                        put("permissions_changed", false)
+                        put("note", "Configured tools outside this authorized catalog are not executable. Reachability and successful execution require a separate check.")
+                    }
+                ),
+                false,
+                dispatched = false
+            )
+        }
         val exact = candidates.values.firstOrNull { it.name.equals(query.trim(), ignoreCase = true) }
         // Discovery may reveal repository intent after an ordinary first message.
         // This raises only the schema window; runtime context and grants still apply.

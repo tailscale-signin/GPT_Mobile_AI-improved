@@ -13,6 +13,27 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AssistantTextMarkupGuardTest {
+    @Test fun controlOutputExceptionRequiresAnExplicitOutputRequest() {
+        org.junit.Assert.assertFalse(ToolControlOutput.requestedJson("Search code repositories for a JSON API client"))
+        org.junit.Assert.assertFalse(ToolControlOutput.requestedJson("Find an example service with a free API"))
+        org.junit.Assert.assertTrue(ToolControlOutput.requestedJson("Return your answer as JSON"))
+        org.junit.Assert.assertTrue(ToolControlOutput.requestedJson("Show a code example of the tool call"))
+        org.junit.Assert.assertTrue(ToolControlOutput.requestedJson("Explain this JSON: {name: web_search}"))
+    }
+
+    @Test fun unresolvedJsonControlIsRejectedAtEveryChunkBoundary() = runBlocking {
+        for (text in listOf("""{"name":"web_search","parameters":{"query":"status"}}""", """{"role":"assistant","reasoning":"search","tool_calls":[{"function":{"name":"web_search","arguments":"{}"}}]}""")) {
+            for (split in 1 until text.length) {
+                val events = flowOf(ProviderEvent.TextDelta(text.take(split)), ProviderEvent.TextDelta(text.drop(split)), ProviderEvent.Completed).withAssistantTextMarkupGuard().toList()
+                assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().isEmpty())
+                assertEquals(1, events.filterIsInstance<ProviderEvent.Failed>().size)
+                val requested = flowOf(ProviderEvent.TextDelta(text), ProviderEvent.Completed).withAssistantTextMarkupGuard(allowControlJsonText = true).toList()
+                assertEquals(text, requested.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
+                assertTrue(requested.filterIsInstance<ProviderEvent.ToolCall>().isEmpty())
+            }
+        }
+    }
+
     @Test fun shortOrdinaryTextStreamsBeforeTheProviderFinishes() = runBlocking {
         val events = withTimeout(1000) {
             flow {

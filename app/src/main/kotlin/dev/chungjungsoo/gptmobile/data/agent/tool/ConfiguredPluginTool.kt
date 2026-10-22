@@ -14,6 +14,7 @@ import kotlinx.serialization.json.intOrNull
 
 internal class ConfiguredPluginTool(private val delegate: AgentTool, settings: PluginExecutionSettings) : OwnedAgentTool {
     private val settings = settings.normalized()
+    override fun withChildBudget(bind: (AgentTool) -> AgentTool): AgentTool = ConfiguredPluginTool(delegate.withChildBudget(bind), settings)
     override val definition = delegate.definition.let { original ->
         val properties = original.inputSchema["properties"] as? JsonObject
         if (properties == null || !isNamedWebSearch(original.name, original.description)) {

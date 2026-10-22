@@ -120,6 +120,18 @@ internal fun PluginConfigurationDialog(
                         Text("Choose engines and crawlers in each model profile.", style = MaterialTheme.typography.bodySmall)
                     }
                 }
+                if (id == ToolPluginId.CRAWLERS) {
+                    SettingsPanel("Multi-crawler") {
+                        PluginSwitch("Native HTML, PDF and Office reader · free", config.crawlerNative) { config = config.copy(crawlerNative = it) }
+                        PluginSwitch("Jina Reader · optional public URL sharing", config.crawlerJina) { config = config.copy(crawlerJina = it) }
+                        Text("Jina receives each selected public URL. Anonymous access has shared limits; select it separately in each profile's crawler list. No conversation, cookies or credentials are sent.", style = MaterialTheme.typography.bodySmall)
+                        PluginSlider("Pages per job", config.crawlerMaxPages, 1..100) { config = config.copy(crawlerMaxPages = it) }
+                        PluginSlider("Maximum deep-crawl depth", config.crawlerMaxDepth, 0..5) { config = config.copy(crawlerMaxDepth = it) }
+                        Text("Quick and smart modes read seed pages. Deep mode follows links only within the seed hosts. Two workers share tool budgets, robots rules and source hashes. Paused jobs continue only when resumed; status and results never start downloads.", style = MaterialTheme.typography.bodySmall)
+                        TextButton(onClick = onConnection) { Text("Connected crawler engines") }
+                        CrawlerJobsPanel()
+                    }
+                }
                 if (id == ToolPluginId.CALCULATOR) {
                     PluginSlider("Displayed decimal places", config.decimalPlaces, 0..15) { config = config.copy(decimalPlaces = it) }
                     Text("The numeric result retains full precision.", style = MaterialTheme.typography.bodySmall)

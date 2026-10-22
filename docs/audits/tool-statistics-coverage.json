@@ -273,6 +273,15 @@
       "upstreamAttempts": "Observable MCP calls and correlated Ktor sends (including request retries/redirects); gateway-internal retries remain unavailable unless explicitly reported"
     },
     {
+      "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/UniversalMarketplaceTool.kt",
+      "canonicalOwner": "service:universal-marketplace; optional-universal-marketplace instance",
+      "capture": "ToolExecutionBudget after admission; ObservedTool records distinct child subjects under inherited collection policy and suppresses same-subject double wrapping",
+      "outcome": "Raw AgentToolResult before output bounding; uncertain dispatch remains UNKNOWN",
+      "probe": "Passive connection metadata only; no arbitrary business operation probe",
+      "configuration": "Shared ToolStatisticsPanel/ToolStatisticsLink in service, profile, connection and MCP selectors",
+      "upstreamAttempts": "None: native link preparation performs no network acquisition or model call."
+    },
+    {
       "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/WebSearchTool.kt",
       "canonicalOwner": "ToolIdentity.of(realToolName, connectionUid); marketplace package instance retained",
       "capture": "ToolExecutionBudget after admission; ObservedTool records distinct child subjects under inherited collection policy and suppresses same-subject double wrapping",
@@ -282,6 +291,30 @@
       "upstreamAttempts": "Observable MCP calls and correlated Ktor sends (including request retries/redirects); gateway-internal retries remain unavailable unless explicitly reported"
     },
     {
+      "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/crawl/CrawlerIntegration.kt",
+      "canonicalOwner": "Native read_url with shared capture cache",
+      "capture": "Bound Web Fetch records cache results as shared and not dispatched; underlying reader captures acquisition telemetry",
+      "outcome": "Committed evidence, partial, paused, cancelled and unavailable remain distinct; restart does not imply dispatch",
+      "probe": "No unsolicited page generation; robots reads are explicit acquisition children",
+      "configuration": "Crawlers plugin and per-profile selected reader settings; saved jobs and shared ToolStatisticsPanel"
+    },
+    {
+      "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/crawl/CrawlerReaders.kt",
+      "canonicalOwner": "Selected native, Jina or approved connected reader",
+      "capture": "Bound child execution records the actual selected reader; no request inferred for a denied URL or local cooldown",
+      "outcome": "Committed evidence, partial, paused, cancelled and unavailable remain distinct; restart does not imply dispatch",
+      "probe": "No unsolicited page generation; robots reads are explicit acquisition children",
+      "configuration": "Crawlers plugin and per-profile selected reader settings; saved jobs and shared ToolStatisticsPanel"
+    },
+    {
+      "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/crawl/MultiCrawlerTool.kt",
+      "canonicalOwner": "Managed crawler job plus distinct selected reader children",
+      "capture": "ToolExecutionBudget binds every child, including robots reads; coordinator does not hold a child semaphore",
+      "outcome": "Committed evidence, partial, paused, cancelled and unavailable remain distinct; restart does not imply dispatch",
+      "probe": "No unsolicited page generation; robots reads are explicit acquisition children",
+      "configuration": "Crawlers plugin and per-profile selected reader settings; saved jobs and shared ToolStatisticsPanel"
+    },
+    {
       "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/marketplace/NativeMarketplaceCatalog.kt",
       "canonicalOwner": "ToolIdentity.of(realToolName, connectionUid); marketplace package instance retained",
       "capture": "ToolExecutionBudget after admission; ObservedTool records distinct child subjects under inherited collection policy and suppresses same-subject double wrapping",
@@ -289,15 +322,6 @@
       "probe": "Passive connection metadata only; no arbitrary business operation probe",
       "configuration": "Shared ToolStatisticsPanel/ToolStatisticsLink in service, profile, connection and MCP selectors",
       "upstreamAttempts": "Observable MCP calls and correlated Ktor sends (including request retries/redirects); gateway-internal retries remain unavailable unless explicitly reported"
-    },
-    {
-      "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/UniversalMarketplaceTool.kt",
-      "canonicalOwner": "service:universal-marketplace; optional-universal-marketplace instance",
-      "capture": "ToolExecutionBudget after admission; ObservedTool records distinct child subjects under inherited collection policy and suppresses same-subject double wrapping",
-      "outcome": "Raw AgentToolResult before output bounding; uncertain dispatch remains UNKNOWN",
-      "probe": "Passive connection metadata only; no arbitrary business operation probe",
-      "configuration": "Shared ToolStatisticsPanel/ToolStatisticsLink in service, profile, connection and MCP selectors",
-      "upstreamAttempts": "None: native link preparation performs no network acquisition or model call."
     }
   ]
 }

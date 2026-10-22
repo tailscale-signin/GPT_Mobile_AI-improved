@@ -1,6 +1,6 @@
-# Crawler companion — implementation in progress
+# Crawler companion — optional acquisition service
 
-This optional Linux Python companion is not yet enabled in the mobile catalog. The Android/gateway grant bridge, browser qualification, document models, and end-to-end acceptance gates must be completed before enabling it. Installing Crawl4AI does not make `browserReady` true.
+This optional Linux Python companion has an Android catalog entry and signed-grant bridge. The built-in Crawlers plugin works independently of this service. Browser egress and device end-to-end acceptance remain unqualified; installing Crawl4AI does not make `browserReady` true.
 
 ## Local development
 
@@ -8,7 +8,7 @@ Use Python 3.11 or later in a dedicated environment. Install `.[browser,alternat
 
 Run `gptmobile-crawler --data-dir /private/crawler --grant-key-file /private/crawler-grant.key`. The grant file must contain at least 32 random bytes and have owner-only permissions. The trusted gateway supplies signed grant metadata; the model cannot supply grants in tool arguments. Do not place that key in model context, logs, or portable backups.
 
-The stdio facade discovers exactly `fetch`, `start`, `status`, `results`, and `cancel`. A gateway alias of `crawler` provides the corresponding `crawler_fetch` etc. names. `crawler://health` reports installed versions and extraction readiness separately. Authenticated stateless Streamable HTTP is available at `/mcp`; companion installation metadata and the Android/gateway grant bridge remain pending.
+The stdio facade discovers exactly `fetch`, `start`, `status`, `results`, and `cancel`. The Android alias `crawler_companion` selects the signed-grant adapter and provides names such as `crawler_companion__fetch`. `crawler://health` reports installed versions and extraction readiness separately. Authenticated stateless Streamable HTTP is available at `/mcp`; Android sends authenticated grants in transport metadata after current profile and connection checks.
 
 ## HTTP deployment
 
@@ -21,13 +21,30 @@ Send authenticated JSON-RPC POST requests to `/mcp`. Initialization, discovery a
 - One coordinator owns the frontier. It has four background and two interactive worker slots, six HTTP permits, two permits per domain, and a one-second dispatch interval per domain.
 - Every robots fetch, redirect and page request goes through DNS validation, a pinned connection and durable parent-grant accounting. Domains must be explicitly in scope. Cancellation closes sockets and fences publication.
 - Grants are shared across jobs; creating another job cannot multiply their allowances. Unconfirmed attempts survive restart as uncertain. Startup never silently repeats them.
-- Text HTML uses Trafilatura 2.3.1. Scrapling 0.5 is a captured-byte fallback. Text PDFs use the installed `pdftotext`; absent OCR/browser capabilities are explicit, actionable outcomes.
+- Text HTML uses Trafilatura 2.3.1. Scrapling 0.5 is a captured-byte fallback. Text PDFs use the installed `pdftotext`. Add `--enable-ocr` to opt into local Tesseract English OCR for textless PDFs (at most three pages, always partial). Install `pdftoppm`, `tesseract` and licensed local `eng` traineddata separately; no language models are downloaded at runtime. Browser capability remains explicitly unavailable.
 - SQLite schema 3 stores content and artifacts once per access scope. Resumed jobs reference those objects and have separate new-work accounting. Deleting a parent preserves objects still referenced by its child.
 - Default content allowances are 512 MiB per service and 128 MiB per principal. These cover retained text and artifact payloads, not SQLite/index overhead. A full quota stops publication without erasing acquisition receipts.
-- Unpinned terminal jobs expire after seven days; temporary jobs expire after one hour. Snapshot cursors expire after one day. Expiry runs when accepting new work. Explicit archive pins prevent routine expiry; temporary evidence requires an explicitly authorized copy instead of a pin. The app import bridge is not implemented yet.
+- Unpinned terminal jobs expire after seven days; temporary jobs expire after one hour. Snapshot cursors expire after one day. Expiry runs when accepting new work. Explicit archive pins prevent routine expiry; temporary evidence requires an explicitly authorized copy instead of a pin. The Android managed crawler copies validated companion fetch chunks into its shared evidence store; users can then copy committed pages into Research. It does not pin remote source records or pretend a paginated excerpt is a full document.
 - Upgrades check integrity and create a verified SQLite backup before migrating existing schema 1/2 databases. Rollback cannot open a newer schema. Cooldowns persist across process restart.
 - Result pagination is snapshot-stable and counts the full JSON-RPC envelope, including compatibility text. Too-small output budgets produce an error with a retained job reference rather than empty success.
 
 ## Validation
 
-`python -m unittest discover -s tests -v` exercises the actual SQLite store, coordinator, facade, extraction boundary and metered fake transport. Tests include real loopback HTTP initialization, authentication, origin/protocol rejection, bounded requests, signed fetches and cross-principal cancellation. Browser rendering, OCR, real gateway integration and device acceptance remain unqualified. Distribution still requires hash-locked dependencies, upstream notices, a qualified browser build and separately licensed model manifests.
+`python -m unittest discover -s tests -v` exercises the actual SQLite store, coordinator, facade, extraction boundary and metered fake transport. Tests include real loopback HTTP initialization, authentication, origin/protocol rejection, bounded requests, signed fetches and cross-principal cancellation. Tests include an actual scanned-PDF OCR fixture when local tools/data are present. Browser rendering and real phone-to-server/device acceptance remain unqualified. Distribution still requires hash-locked dependencies, upstream notices, a qualified browser build and separately licensed model manifests.
+
+## Android setup
+
+Install **Crawler Companion** from the marketplace using the server's reachable
+HTTPS `/mcp` address and separate HTTP bearer token. Keep its
+`crawler_companion` alias. In **Plugins & Tools → Crawlers**, save the private
+grant key as 64–128 hexadecimal characters. This is the byte content of the
+server's grant-key file encoded as hex, not its pathname or HTTP token. Enable
+the connection and only the required operations for the selected profile.
+Select its approved read-only `fetch` operation as a multi-crawler reader.
+
+Grants expire 24 hours after the accepted turn and share a bounded request and
+64 MiB transfer allowance across jobs. A new permission revision cannot silently
+resume old authority. Create new authorized work after expiry; do not reuse or
+weaken the old grant. The Android native crawler can resume paused jobs from its
+saved-jobs panel. Companion jobs expose their own start/status/results/cancel
+operations and retain their existing reconciliation restrictions.

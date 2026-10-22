@@ -22,7 +22,7 @@ object ApiKeyValidator {
 
     suspend fun validate(clientType: ClientType, apiUrl: String, apiKey: String): ValidationResult = withContext(Dispatchers.IO) {
         if (clientType == ClientType.FREE) return@withContext validateFreeProvider(apiUrl)
-        val keyFreeGateway = apiKey.isBlank() && clientType in setOf(ClientType.LLAMA, ClientType.CUSTOM) && supportsKeyFreeGateway(apiUrl)
+        val keyFreeGateway = apiKey.isBlank() && clientType in setOf(ClientType.LLAMA, ClientType.CUSTOM) && apiUrl.isNotBlank()
         if (apiKey.isBlank() && !keyFreeGateway && clientType != ClientType.OLLAMA && clientType != ClientType.LITERT_LM) {
             return@withContext ValidationResult.Error("API key cannot be empty")
         }
@@ -38,8 +38,7 @@ object ApiKeyValidator {
                 if (base.isNotEmpty()) "$base/models" else "https://api.llama.com/v1/models"
             }
             ClientType.OLLAMA -> {
-                val base = apiUrl.trim().trimEnd('/')
-                if (base.isNotEmpty()) "$base/api/tags" else "http://localhost:11434/api/tags"
+                if (apiUrl.isNotBlank()) LocalServerUrls.ollamaTags(apiUrl) else "http://localhost:11434/api/tags"
             }
             ClientType.NVIDIA -> {
                 val base = runCatching { NvidiaEndpoints.normalize(apiUrl) }.getOrElse {
@@ -49,7 +48,7 @@ object ApiKeyValidator {
             }
             ClientType.FREE, ClientType.CUSTOM -> {
                 val base = apiUrl.trim().trimEnd('/')
-                if (base.isNotEmpty()) "$base/models" else return@withContext ValidationResult.Success("Custom URL accepted")
+                if (base.isNotEmpty()) "${LocalServerUrls.openAiBase(base)}/models" else return@withContext ValidationResult.Error("Enter a server URL")
             }
             ClientType.LITERT_LM -> return@withContext ValidationResult.Success("Local model does not require key validation")
         }
@@ -58,6 +57,7 @@ object ApiKeyValidator {
             val url = URL(testUrl)
             val connection = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
+                instanceFollowRedirects = false
                 connectTimeout = 8000
                 readTimeout = 8000
                 setRequestProperty("Accept", "application/json")
@@ -77,118 +77,49 @@ object ApiKeyValidator {
                 }
             }
 
-            val code = connection.responseCode
-            if (code in 200..299) {
-                ValidationResult.Success(if (keyFreeGateway) "Key-free Gateway connection succeeded (HTTP $code)" else "Connection successful (HTTP $code)")
-            } else {
-                val errorMsg = connection.errorStream?.bufferedReader()?.use { it.readText() }
-                when (code) {
-                    401 -> ValidationResult.Error("Unauthorized (401): Invalid API Key")
-                    403 -> ValidationResult.Error("Forbidden (403): Key lacks permissions or is disabled")
-                    429 -> ValidationResult.Error("Rate Limited (429): Quota exhausted or rate limit hit")
-                    else -> ValidationResult.Error("Server returned HTTP $code: ${errorMsg?.take(100) ?: "Check key and configuration"}")
+            try {
+                val code = connection.responseCode
+                if (code in 200..299) {
+                    if (clientType in setOf(ClientType.CUSTOM, ClientType.LLAMA, ClientType.OLLAMA)) {
+                        val bytes = connection.inputStream.use { input ->
+                            val output = java.io.ByteArrayOutputStream()
+                            val buffer = ByteArray(8192)
+                            while (output.size() <= 2_000_000) {
+                                val count = input.read(buffer, 0, minOf(buffer.size, 2_000_001 - output.size()))
+                                if (count < 0) break
+                                if (count > 0) output.write(buffer, 0, count)
+                            }
+                            output.toByteArray()
+                        }
+                        require(bytes.size <= 2_000_000) { "Model catalog is too large" }
+                        val root = kotlinx.serialization.json.Json.parseToJsonElement(bytes.decodeToString()) as? kotlinx.serialization.json.JsonObject
+                        require(root?.get(if (clientType == ClientType.OLLAMA) "models" else "data") is kotlinx.serialization.json.JsonArray) { "The server did not return a compatible model catalog." }
+                    }
+                    ValidationResult.Success(if (keyFreeGateway) "Anonymous server connection succeeded (HTTP $code)" else "Connection successful (HTTP $code)")
+                } else {
+                    val errorMsg = connection.errorStream?.bufferedReader()?.use { it.readText() }
+                    when (code) {
+                        401 -> ValidationResult.Error("Unauthorized (401): Invalid API Key")
+                        403 -> ValidationResult.Error("Forbidden (403): Key lacks permissions or is disabled")
+                        429 -> ValidationResult.Error("Rate Limited (429): Quota exhausted or rate limit hit")
+                        else -> ValidationResult.Error("Server returned HTTP $code: ${errorMsg?.take(100) ?: "Check key and configuration"}")
+                    }
                 }
+            } finally {
+                connection.disconnect()
             }
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             ValidationResult.Error("Connection error: ${e.localizedMessage ?: "Unable to reach server"}")
         }
     }
-    private fun supportsKeyFreeGateway(apiUrl: String): Boolean {
-        val base = apiUrl.trim().trimEnd('/').removeSuffix("/v1")
-        if (base.isBlank()) return false
-        return runCatching {
-            val connection = (URL("$base/gateway/capabilities").openConnection() as HttpURLConnection).apply {
-                requestMethod = "GET"
-                instanceFollowRedirects = false
-                connectTimeout = 8000
-                readTimeout = 8000
-                setRequestProperty("Accept", "application/json")
-            }
-            try {
-                if (connection.responseCode !in 200..299) return@runCatching false
-                val body = connection.inputStream.bufferedReader().use { it.readText() }
-                NetworkClient.openAIJson.decodeFromString<dev.chungjungsoo.gptmobile.data.network.gateway.GatewayCapabilities>(body).supportsKeyFreeConnection
-            } finally {
-                connection.disconnect()
-            }
-        }.getOrDefault(false)
-    }
-
     private suspend fun validateFreeProvider(apiUrl: String): ValidationResult {
         val provider = dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.fromApiUrl(apiUrl)
-            ?: return ValidationResult.Error("Choose a Free provider first.")
-        if (!provider.isAvailable) return ValidationResult.Error("This provider is awaiting approval. Choose another Free provider.")
-        return try {
-            if (provider == dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.POLLINATIONS) {
-                // A fresh prompt avoids a cached success hiding an upstream outage.
-                pollinationsCompletion {
-                    FreeAiRequestLimiter.shared.withRequest(provider) {
-                        val endpoint = pollinationsPromptUrl("user: Reply OK. Connection check ${java.util.UUID.randomUUID()}\n\nassistant:")
-                        val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
-                            connectTimeout = 10000
-                            readTimeout = 30000
-                            requestMethod = "GET"
-                            setRequestProperty("Accept", "text/plain")
-                        }
-                        try {
-                            val code = connection.responseCode
-                            val body = (if (code in 200..299) connection.inputStream else connection.errorStream)?.bufferedReader()?.use { it.readText() }.orEmpty()
-                            PollinationsResponse(code, body, connection.contentType, connection.getHeaderField("Retry-After"))
-                        } finally {
-                            connection.disconnect()
-                        }
-                    }
-                }
-                return ValidationResult.Success("Pollinations answered the test request.")
-            }
-            FreeAiRequestLimiter.shared.withRequest(provider) {
-                val legacy = provider == dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.POLLINATIONS
-                val endpoint = if (legacy) "${provider.apiUrl}/Reply%20OK?model=${provider.model}" else provider.chatCompletionsUrl
-                val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
-                    connectTimeout = 10000
-                    readTimeout = 30000
-                    requestMethod = if (legacy) "GET" else "POST"
-                    setRequestProperty("Accept", if (legacy) "text/plain" else "application/json")
-                }
-                try {
-                    if (!legacy) {
-                        connection.doOutput = true
-                        connection.setRequestProperty("Content-Type", "application/json")
-                        val payload = "{\"model\":\"${provider.model}\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply OK.\"}],\"stream\":false,\"max_tokens\":128}"
-                        connection.outputStream.use { it.write(payload.toByteArray()) }
-                    }
-                    val code = connection.responseCode
-                    when {
-                        code == 429 -> {
-                            val wait = FreeAiRequestLimiter.shared.defer(provider, connection.getHeaderField("Retry-After"))
-                            ValidationResult.Error("${provider.displayName} is rate limited. Retry in $wait seconds or choose another provider.")
-                        }
-                        code in 200..299 -> {
-                            val body = connection.inputStream.bufferedReader().use { it.readText() }
-                            val answer = if (legacy) {
-                                body.takeUnless { it.trimStart().startsWith("<") }
-                            } else {
-                                runCatching {
-                                    NetworkClient.openAIJson.decodeFromString<dev.chungjungsoo.gptmobile.data.dto.openai.response.ChatCompletionChunk>(body)
-                                        .choices.orEmpty().joinToString("") { it.effectiveDelta.content.orEmpty() }
-                                }.getOrNull()
-                            }
-                            if (answer.isNullOrBlank()) {
-                                ValidationResult.Error("Connected, but the model returned no answer. Try another Free provider.")
-                            } else {
-                                ValidationResult.Success("${provider.displayName} answered the test request.")
-                            }
-                        }
-                        else -> ValidationResult.Error("${provider.displayName} is unavailable (HTTP $code). Try later or choose another Free provider.")
-                    }
-                } finally {
-                    connection.disconnect()
-                }
-            }
-        } catch (cancelled: kotlinx.coroutines.CancellationException) {
-            throw cancelled
-        } catch (error: Exception) {
-            ValidationResult.Error(error.message ?: "Could not reach this Free provider.")
-        }
+            ?: return ValidationResult.Error("Choose a Free service first.")
+        if (!provider.isAvailable) return ValidationResult.Error("This service requires provider approval for this build.")
+        dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.refresh(provider, true)
+        val status = dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.status.value[provider]
+        return if (status?.reachable == true) ValidationResult.Success(status.message) else ValidationResult.Error(status?.message ?: "Service unavailable")
     }
 }

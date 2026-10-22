@@ -19,9 +19,15 @@ data class PluginExecutionSettings(
     val amazonFreshPrices: Boolean = false,
     val newsCountry: String = "CA",
     val newsLanguage: String = "en",
+    val crawlerNative: Boolean = true,
+    val crawlerJina: Boolean = false,
+    val crawlerMaxPages: Int = 20,
+    val crawlerMaxDepth: Int = 2,
     val amazonDailyRequests: Int = 100
 ) {
     fun normalized() = copy(
+        crawlerMaxPages = crawlerMaxPages.coerceIn(1, 100),
+        crawlerMaxDepth = crawlerMaxDepth.coerceIn(0, 5),
         nearbyRadiusMeters = nearbyRadiusMeters.coerceIn(100, 5000),
         fileExcerptLines = fileExcerptLines.coerceIn(10, 2000),
         timeoutSeconds = timeoutSeconds.coerceIn(5, 120),

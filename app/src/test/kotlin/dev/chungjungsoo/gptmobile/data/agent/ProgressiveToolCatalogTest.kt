@@ -14,6 +14,15 @@ import org.junit.Test
 class ProgressiveToolCatalogTest {
     private val tools = (1..80).map { AgentToolDefinition("task_$it", "Task $it", JsonObject(emptyMap())) }
 
+    @Test fun emptyDiscoveryReturnsReadOnlyInventory() = runTest {
+        val catalog = ProgressiveToolCatalog(tools, "list all tools")
+        val before = catalog.selected(tools)
+        val result = catalog.execute("inventory", JsonObject(emptyMap()))
+        assertFalse(result.isError)
+        assertTrue(result.content.toString().contains("authorized_inventory"))
+        assertEquals(before, catalog.selected(tools))
+    }
+
     @Test fun repositorySynonymsPrioritizeCompactToolsAndRetainAuthorizedGatewayTools() {
         val native = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.names.map { dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.definition(it) }
         val gateway = AgentToolDefinition("mcp__github__github_api", "Remote GitHub repository status", JsonObject(emptyMap()))
@@ -90,7 +99,9 @@ class ProgressiveToolCatalogTest {
 
     @Test fun emptyDiscoveryDoesNotActivateTools() = runTest {
         val catalog = requireNotNull(ProgressiveToolCatalog.create(tools, "task"))
-        assertTrue(catalog.execute("d", JsonObject(emptyMap())).isError)
+        val inventory = catalog.execute("d", JsonObject(emptyMap()))
+        assertFalse(inventory.isError)
+        assertTrue(inventory.content.toString().contains("authorized_inventory"))
         assertEquals(8, catalog.selected(tools).size)
     }
 

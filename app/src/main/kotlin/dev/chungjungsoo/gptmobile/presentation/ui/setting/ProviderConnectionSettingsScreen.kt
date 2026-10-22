@@ -100,6 +100,10 @@ fun ProviderConnectionSettingsScreen(
         )
         return
     }
+    if (connection.compatibleType == ClientType.FREE) {
+        FreeModelsSettingsScreen(settingViewModel, onNavigationClick, onOpenProfile, modifier)
+        return
+    }
     val isFree = connection.compatibleType == ClientType.FREE
     var name by remember(connection.uid, connection.name) { mutableStateOf(connection.name) }
     var apiUrl by remember(connection.uid, connection.apiUrl) { mutableStateOf(connection.apiUrl) }

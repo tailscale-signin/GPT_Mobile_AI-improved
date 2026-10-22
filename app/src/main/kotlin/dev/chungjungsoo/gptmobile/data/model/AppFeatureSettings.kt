@@ -4,6 +4,7 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class AppFeatureSettings(
+    val freeCatalogVersion: Int = 0,
     val readiness: dev.chungjungsoo.gptmobile.data.readiness.ReadinessSettings = dev.chungjungsoo.gptmobile.data.readiness.ReadinessSettings(),
     val newChatScores: Boolean = true,
     val newChatPrices: Boolean = true,
@@ -142,7 +143,8 @@ data class AppFeatureSettings(
         isToolPluginEnabled(pluginId) && isToolPluginSelected(profileUid, pluginId)
 
     fun withProfileToolPluginEnabled(profileUid: String, pluginId: String, enabled: Boolean): AppFeatureSettings {
-        val behavior = profileBehavior[profileUid] ?: ProfileBehaviorSettings()
+        val previous = profileBehavior[profileUid] ?: ProfileBehaviorSettings()
+        val behavior = if (pluginId == ToolPluginId.CRAWLERS) previous.copy(crawlersEnabled = enabled, crawlerToolIds = if (enabled && previous.crawlerToolIds.isEmpty()) setOf(":read_url") else previous.crawlerToolIds) else previous
         return copy(profileBehavior = profileBehavior + (profileUid to behavior.copy(toolPluginStates = behavior.toolPluginStates + (pluginId to enabled))))
     }
 
@@ -270,6 +272,7 @@ object ToolPluginId {
     const val CALCULATOR = "calculator"
     const val READ_FILES = "read_files"
     const val READ_URL = "read_url"
+    const val CRAWLERS = "crawlers"
     const val GITHUB = "github"
     const val AMAZON_SEARCH = "amazon_search"
     const val AMAZON_FREE = "amazon_free"
@@ -281,7 +284,7 @@ object ToolPluginId {
     const val DEVICE_LOCATION = "device_location"
     const val HEALTH_CONNECT = "health_connect"
 
-    val optInServices = setOf(AMAZON_SEARCH, AMAZON_FREE, NEWS, AIRBNB, GOOGLE_PLACES, DEEP_RESEARCH, HEALTH_CONNECT)
+    val optInServices = setOf(CRAWLERS, AMAZON_SEARCH, AMAZON_FREE, NEWS, AIRBNB, GOOGLE_PLACES, DEEP_RESEARCH, HEALTH_CONNECT)
 
     fun nativeOperation(packageId: String, operation: String): String = "native:$packageId:$operation"
 

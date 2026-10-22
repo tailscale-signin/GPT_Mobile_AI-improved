@@ -59,12 +59,15 @@ class ToolConnectionRepository internal constructor(
 
             else -> replaceCredential(protected, credential, previousSecretRef)
         }
+        if (previous != null && dev.chungjungsoo.gptmobile.data.crawl.CrawlerCompanionGrant.recognizes(previous) && (previous.endpointUrl != protected.endpointUrl || previous.alias != protected.alias)) secretVault.delete(dev.chungjungsoo.gptmobile.data.crawl.CrawlerCompanionGrant.reference(previous))
     }
 
     suspend fun deleteConnection(connectionUid: String) {
         dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.advance()
-        val secretRef = toolConnectionDao.getConnection(connectionUid)?.secretRef
+        val previous = toolConnectionDao.getConnection(connectionUid)
+        val secretRef = previous?.secretRef
         toolConnectionDao.deleteConnectionByUid(connectionUid)
+        previous?.takeIf(dev.chungjungsoo.gptmobile.data.crawl.CrawlerCompanionGrant::recognizes)?.let { secretVault.delete(dev.chungjungsoo.gptmobile.data.crawl.CrawlerCompanionGrant.reference(it)) }
         secretRef?.let { secretVault.delete(it) }
         secretVault.delete(mcpOAuthPendingSecretRef(connectionUid))
         secretVault.delete(EndpointSecrets.reference(connectionUid))

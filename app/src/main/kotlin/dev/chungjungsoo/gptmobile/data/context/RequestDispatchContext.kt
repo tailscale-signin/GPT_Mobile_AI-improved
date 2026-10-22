@@ -15,6 +15,7 @@ import kotlinx.serialization.json.JsonPrimitive
 /** Bridges a physical serializer to its existing invocation owner without retaining prompt bytes. */
 internal class RequestDispatchContext(private val candidates: Set<JsonObject>, private val runId: String? = null, private val invocationId: String? = null, private val preparedEvidence: Set<JsonObject> = emptySet()) : AbstractCoroutineContextElement(Key) {
     companion object Key : CoroutineContext.Key<RequestDispatchContext>
+    val queueScope: String? get() = runId ?: invocationId
     private val physicalOrdinal = java.util.concurrent.atomic.AtomicLong()
     val receipts = CopyOnWriteArrayList<RequestAdmissionReceipt>()
     val includedProducers = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()

@@ -16,6 +16,21 @@ import kotlinx.serialization.json.longOrNull
 internal class ModelRequestPreparation(client: NetworkClient) {
     private val llama = LlamaCapacityRepository(client)
 
+    suspend fun prepareQueued(payload: String, config: ProviderRequestConfig, model: String, outputTokens: Int?): String {
+        val context = kotlinx.coroutines.currentCoroutineContext()
+        context[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]?.validate?.invoke()
+        val revision = context[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]?.revision ?: config.permissionRevision
+        dev.chungjungsoo.gptmobile.data.research.feature.ExaminationOutputBudget.requireCapacity(config.requestRole, outputTokens?.toLong() ?: 0)
+        val runtime = RuntimeFingerprint(config.profileUid ?: "unbound", "sha256:${researchHash(config.apiUrl)}", "anonymous", model, model, "unverified", "queued-native-v1", "unverified")
+        val capacity = CapacitySnapshot(runtime, config.contextCeiling?.takeIf { it > 0 && it < Int.MAX_VALUE }?.toLong(), provenance = CapacityProvenance.UNKNOWN)
+        val prepared = RequestAdmission.prepare(payload, config.requestRole, capacity, RequestAdmission.estimate(payload), outputTokens?.toLong(), revision, config.requireKnownCapacity, "queued-native-v1")
+        val wire = prepared.dispatchPayload(runtime, revision)
+        val attempt = dev.chungjungsoo.gptmobile.data.context.PhysicalAttemptBoundary.dispatch(prepared.receipt)
+        context[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.serialized(wire, prepared.receipt.copy(physicalAttemptId = attempt))
+        context[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.armHttp()
+        return wire
+    }
+
     suspend fun preparePollinationsGet(prompt: String, config: ProviderRequestConfig): String {
         kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]?.validate?.invoke()
         // This transport has no output-limit parameter. Do not report the unused JSON DTO cap as transmitted.

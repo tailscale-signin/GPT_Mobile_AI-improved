@@ -172,7 +172,9 @@ class McpPresetCatalogTest {
 
     @Test
     fun localServicesHaveExplicitSetupAndCompanionsCannotBeInstalledAsServers() {
-        assertEquals(31, LocalMcpPresets.presets.size)
+        assertEquals(33, LocalMcpPresets.presets.size)
+        assertEquals("crawlers", McpPresetCatalog.findById("builtin-crawlers")!!.integratedTool)
+        assertEquals("crawler_companion", McpPresetCatalog.findById("crawler-companion")!!.alias)
         LocalMcpPresets.presets.filterNot { it.isPreinstalled }.forEach {
             assertTrue(it.commandOrUrl.isBlank())
             assertFalse(it.isDirectlyInstallable)

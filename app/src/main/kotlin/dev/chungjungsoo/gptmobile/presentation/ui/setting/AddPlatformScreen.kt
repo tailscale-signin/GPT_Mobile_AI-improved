@@ -311,7 +311,7 @@ fun AddPlatformScreen(
                             }
                             apiUrl = provider.apiUrl
                             model = provider.model
-                            val saved = savedConnections.firstOrNull { it.compatibleType == ClientType.FREE && it.apiUrl == provider.apiUrl }
+                            val saved = savedConnections.firstOrNull { it.compatibleType == ClientType.FREE }
                             selectedConnectionUid = saved?.uid
                             createNewConnection = saved == null
                             connectionName = provider.displayName

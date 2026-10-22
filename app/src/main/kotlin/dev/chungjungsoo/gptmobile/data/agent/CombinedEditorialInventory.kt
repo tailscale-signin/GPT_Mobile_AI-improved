@@ -19,8 +19,10 @@ internal object CombinedEditorialInventory {
             }
         }
         val focused = policy.singleExample || policy.maximumWords != null || policy.targetWords != null || Regex("(?i)\\b(?:rank(?:ed|ing)?|top \\d+|best|compare)\\b").containsMatchIn(request)
-        if (!focused || groups.size <= (if (policy.singleExample) 24 else 96)) return groups
+        if (!focused) return groups
         val terms = CombinedClaimMatcher.fingerprint(request).terms - requestNoise
+        // A generic request such as "Compare evidence" cannot identify an irrelevant topic.
+        if (terms.size < 2) return groups
         fun relevance(claim: CombinedClaimRecord) = CombinedClaimMatcher.fingerprint(claim.proposition).terms.intersect(terms).size
         val relevant = groups.filter { relevance(it) >= minOf(2, terms.size.coerceAtLeast(1)) }.ifEmpty { groups }
         val limit = if (policy.singleExample) 24 else 96

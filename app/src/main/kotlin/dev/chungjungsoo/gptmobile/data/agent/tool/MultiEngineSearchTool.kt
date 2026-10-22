@@ -305,7 +305,7 @@ class MultiEngineSearchTool(
                 put("engine", selected[index].connectionName ?: "Built-in search")
                 providerPayload(response.result)?.get("engines")?.let { put("engines", it) }
                 providerPayload(response.result)?.let { payload ->
-                    val metadata = listOf("cached", "retrieved_at", "cache_age_seconds", "errors", "benched_engines", "rescued_via", "dated_results", "filter_diagnostics")
+                    val metadata = listOf("cached", "retrieved_at", "cache_age_seconds", "errors", "benched_engines", "rescued_via", "dated_results", "filter_diagnostics", "httpStatus", "requestSent", "bodyReceived", "observedAt", "cachedFailure", "cooldownUntil", "route")
                         .mapNotNull { key -> payload[key]?.let { key to it } }.toMap()
                     if (metadata.isNotEmpty()) put("providerMetadata", JsonObject(metadata))
                 }
@@ -315,11 +315,11 @@ class MultiEngineSearchTool(
                 val partial = response.result.outputBudgetExhausted || evidenceHasTruncation(resultPayload(response.result))
                 val normalized = evidenceOutcome(response.outcome, buckets[index].isNotEmpty(), partial)
                 put("evidenceOutcome", normalized.name)
-                put("transportCompleted", response.result.dispatched)
+                put("transportCompleted", providerPayload(response.result)?.get("bodyReceived") ?: JsonPrimitive(false))
                 put("parsedSources", buckets[index].size)
                 put("partial", normalized == SearchEvidenceOutcome.PARTIAL)
                 if (normalized == SearchEvidenceOutcome.AUTH_REQUIRED) put("remedy", "Open Manage connection and reconnect or update the credential.")
-                if (normalized == SearchEvidenceOutcome.PARSE_FAILED) put("remedy", "Provider content was retained, but its source structure could not be parsed.")
+                if (normalized == SearchEvidenceOutcome.PARSE_FAILED) put("remedy", "The provider response could not be decoded or normalized into sources.")
                 put("results", buckets[index].size)
                 put("requestedCount", policy.fetchLimitPerEngine)
                 put("effectiveCount", response.effectiveCount)

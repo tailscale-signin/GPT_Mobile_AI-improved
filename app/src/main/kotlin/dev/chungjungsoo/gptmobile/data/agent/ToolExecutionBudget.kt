@@ -44,6 +44,13 @@ class ToolExecutionBudget(
         onFinished: suspend (String, Boolean) -> Unit = { _, _ -> },
         statisticsIdentity: dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolIdentity = dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolIdentity.of(tool.definition.name),
         authorize: suspend (String, JsonObject) -> Boolean = { _, _ -> true }
+    ): AgentTool = bindPrepared(tool.withChildBudget { child -> bind(child) }, onFinished, statisticsIdentity, authorize)
+
+    private fun bindPrepared(
+        tool: AgentTool,
+        onFinished: suspend (String, Boolean) -> Unit = { _, _ -> },
+        statisticsIdentity: dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolIdentity = dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolIdentity.of(tool.definition.name),
+        authorize: suspend (String, JsonObject) -> Boolean = { _, _ -> true }
     ): AgentTool = object : PreparableAgentTool, OwnedAgentTool {
         override val definition = tool.definition
         override val managesExecutionBudget = true

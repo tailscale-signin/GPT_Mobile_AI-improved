@@ -533,6 +533,8 @@ class OpenAICompatibleAdapter @Inject constructor(
                         reasoningMode = llamaReasoning,
                         allowReasoning = if (isLlama) constraints.allowReasoning else true,
                         token = activeKey.takeIf { it.isNotBlank() && platform.compatibleType != ClientType.FREE },
+                        queueScope = constraints.queueScope ?: constraints.combined?.rootBudgetId ?: constraints.attemptId,
+                        queuePersistent = constraints.queuePersistent,
                         freeProvider = if (platform.compatibleType == ClientType.FREE) dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.requireFor(platform) else null,
                         extraHeaders = (if (isOpenRouter) dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterPolicy.headers(routerSettings, constraints.freshResponse || freshOnce, !requestTools.isNullOrEmpty()) else emptyMap()) + llamaGatewayHeaders,
                         openRouterReceipt = if (isOpenRouter) {

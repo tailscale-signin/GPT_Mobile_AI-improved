@@ -150,6 +150,7 @@ class Server:
 
 def main():
     parser = argparse.ArgumentParser(description="GPT Mobile Crawler MCP stdio companion")
+    parser.add_argument("--enable-ocr", action="store_true", help="Enable bounded offline English OCR with installed Tesseract data")
     parser.add_argument("--data-dir", type=Path, required=True)
     parser.add_argument("--grant-key-file", type=Path, required=True)
     parser.add_argument("--http-host", help="Optional numeric bind address; remote listeners require TLS")
@@ -173,7 +174,8 @@ def main():
     key = args.grant_key_file.read_bytes()
     store = Store(args.data_dir / "crawler.sqlite")
     store.recover()
-    coordinator = Coordinator(store)
+    from .extraction import Extractor
+    coordinator = Coordinator(store, extractor=Extractor(enable_ocr=args.enable_ocr))
     server = Server(coordinator, key)
     if args.http_host:
         from .http_transport import CrawlerHttpServer

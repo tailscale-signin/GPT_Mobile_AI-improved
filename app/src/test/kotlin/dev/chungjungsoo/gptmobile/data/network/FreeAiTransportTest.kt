@@ -45,7 +45,7 @@ class FreeAiTransportTest {
             val network = mockk<NetworkClient>()
             every { network.invoke() } returns client
             val result = OpenAIAPIImpl(network).streamChatCompletion(
-                request().copy(model = "paid-model", models = listOf("paid-fallback"), maxTokens = 9000),
+                request().copy(models = listOf("paid-fallback"), maxTokens = 9000),
                 10,
                 ProviderRequestConfig("https://wrong.example", "do-not-send", freeProvider = FreeAiProvider.KILO)
             ).single()
@@ -72,7 +72,7 @@ class FreeAiTransportTest {
             val network = mockk<NetworkClient>()
             every { network.invoke() } returns client
             val result = OpenAIAPIImpl(network).streamChatCompletion(
-                request(),
+                request().copy(model = FreeAiProvider.POLLINATIONS.model),
                 10,
                 ProviderRequestConfig(FreeAiProvider.POLLINATIONS.apiUrl, null, freeProvider = FreeAiProvider.POLLINATIONS)
             ).single()
@@ -133,7 +133,7 @@ class FreeAiTransportTest {
     }
 
     private fun request() = ChatCompletionRequest(
-        model = "openai",
+        model = FreeAiProvider.KILO.model,
         messages = listOf(
             ChatMessage(Role.SYSTEM, listOf(TextContent("Be brief"))),
             ChatMessage(Role.USER, listOf(TextContent("A & B?")))

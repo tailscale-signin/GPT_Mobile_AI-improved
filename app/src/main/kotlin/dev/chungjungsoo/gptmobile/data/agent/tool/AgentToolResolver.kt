@@ -342,7 +342,7 @@ class AgentToolResolver @Inject constructor(
                     async {
                         val connection = requireNotNull(mcpBindings.first().connection)
                         try {
-                            resolveMcpTools(connection, mcpBindings, featureSettings, profileUid, cachedCataloguesOnly) to null
+                            resolveMcpTools(connection, mcpBindings, featureSettings, profileUid, cachedCataloguesOnly, userMessage) to null
                         } catch (error: CancellationException) {
                             throw error
                         } catch (error: Exception) {
@@ -479,9 +479,9 @@ class AgentToolResolver @Inject constructor(
             emptyList()
         }
         if (coldBindings.isEmpty()) {
-            if (finalized.none { it.nativeGitHub }) return finalized
+            if (finalized.none { it.nativeGitHub }) return attachCrawlers(finalized, profileUid, platform, featureSettings, userMessage, chatToolConfig)
             val directory = dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog(finalized.map { it.tool.definition }, catalogTask)
-            return finalized + ResolvedAgentTool(directory, null, "Authorized tool directory", directory.definition.name, directory.definition.name, progressiveCatalog = directory)
+            return attachCrawlers(finalized, profileUid, platform, featureSettings, userMessage, chatToolConfig) + ResolvedAgentTool(directory, null, "Authorized tool directory", directory.definition.name, directory.definition.name, progressiveCatalog = directory)
         }
         val discovered = java.util.concurrent.ConcurrentHashMap<String, ResolvedAgentTool>()
         val attemptedConnections = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
@@ -504,7 +504,7 @@ class AgentToolResolver @Inject constructor(
                     async {
                         val connection = requireNotNull(group.first().connection)
                         try {
-                            resolveMcpTools(connection, group, live, profileUid)
+                            resolveMcpTools(connection, group, live, profileUid, userMessage = userMessage)
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (_: Exception) {
@@ -524,9 +524,18 @@ class AgentToolResolver @Inject constructor(
                 check(previous == null || previous.connectionUid == next.connectionUid && previous.realToolName == next.realToolName) { "Ambiguous discovered tool alias; no action dispatched." }
                 discovered[next.modelToolName] = next
             }
-            admitted.map { it.tool.definition }
+            aggregateWebSearch(finalized + discovered.values).map { it.tool.definition }
         })
-        return finalized + ResolvedAgentTool(directory, null, "Authorized tool directory", directory.definition.name, directory.definition.name, dynamicTools = { discovered.values.toList() }, progressiveCatalog = directory)
+        return attachCrawlers(finalized, profileUid, platform, featureSettings, userMessage, chatToolConfig) + ResolvedAgentTool(directory, null, "Authorized tool directory", directory.definition.name, directory.definition.name, dynamicTools = { finalized + discovered.values }, progressiveCatalog = directory)
+    }
+
+    private suspend fun attachCrawlers(tools: List<ResolvedAgentTool>, profileUid: String, platform: PlatformV2?, features: AppFeatureSettings, message: MessageV2?, chat: ChatMcpToolConfig?): List<ResolvedAgentTool> {
+        val context = documentContext ?: return tools
+        if (message == null || platform == null || platform.disableAllTools || platform.disableRemoteTools || chat?.allToolsDisabled == true || chat?.isToolEnabled(listOf("crawler", ToolPluginId.CRAWLERS)) == false || !features.isToolPluginEnabledForProfile(profileUid, ToolPluginId.CRAWLERS)) return tools
+        val scope = dev.chungjungsoo.gptmobile.data.crawl.CrawlScope(profileUid, message.chatId, "${message.chatId}:${message.id}:${message.createdAt}", dev.chungjungsoo.gptmobile.data.crawl.crawlHash(features.toString() + platform.toString()), factVault?.scopeForChat(message.chatId)?.isTemporary == false)
+        return dev.chungjungsoo.gptmobile.data.crawl.CrawlerIntegration.attach(context, scope, features, tools) {
+            settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid } == platform && settingRepository.getFeatureSettings() == features
+        }
     }
 
     /** Keep registry I/O and native adapter construction out of the main resolver coroutine. */
@@ -1090,7 +1099,42 @@ class AgentToolResolver @Inject constructor(
         return selected
     }
 
-    private suspend fun resolveWebSearch(connection: ToolConnection?): ResolvedAgentTool? {
+    suspend fun testSearchConnection(connection: ToolConnection): dev.chungjungsoo.gptmobile.data.agent.AgentToolResult {
+        val tool = requireNotNull(resolveWebSearch(connection, resetAccess = true)) { "Not a search connection" }
+        return tool.tool.execute(
+            "connection-test-${java.util.UUID.randomUUID()}",
+            kotlinx.serialization.json.buildJsonObject {
+                put("query", kotlinx.serialization.json.JsonPrimitive("search connection test"))
+                put("maxResults", kotlinx.serialization.json.JsonPrimitive(1))
+            }
+        )
+    }
+
+    suspend fun effectiveSearchInventory(profileUid: String): List<EffectiveSearchEngine> {
+        val profile = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
+        val features = settingRepository.getFeatureSettings()
+        val connections = toolConnectionRepository.listConnections()
+        val bindings = toolConnectionRepository.listBindingsByProfile(profileUid)
+        val resolved = resolve(profileUid, cachedCataloguesOnly = true).filter { it.isWebSearchEngine() }
+        fun reason(connection: ToolConnection?, authorized: Boolean): String = when {
+            profile?.disableAllTools == true -> "Excluded: all tools disabled for this profile"
+            profile?.disableRemoteTools == true -> "Excluded: remote tools disabled for this profile"
+            connection != null && (!features.isToolPluginEnabledForProfile(profileUid, ToolServiceCatalog.forConnection(connection).id) || !features.isToolPluginEnabledForProfile(profileUid, ToolPluginId.connection(connection.connectionUid))) -> "Excluded: service or connection disabled for this profile"
+            connection != null && bindings.none { it.connectionUid == connection.connectionUid } -> "Excluded: connection not assigned to this profile"
+            connection != null && connection.type in SEARCH_PROVIDERS && connection.secretRef == null -> "Requires connection repair: missing credential"
+            authorized -> "Authorized · operational status shown below"
+            connection?.type == ToolConnectionType.MCP -> "Excluded: cached discovery or profile sharing consent unavailable"
+            else -> "Excluded: search service is not enabled for this profile"
+        }
+        val builtIn = resolved.any { it.connectionUid == null }
+        return listOf(EffectiveSearchEngine("builtin-duckduckgo", "Built-in DuckDuckGo", builtIn, reason(null, builtIn))) +
+            connections.filter { connection -> connection.type in SEARCH_PROVIDERS || resolved.any { it.connectionUid == connection.connectionUid } || connection.type == ToolConnectionType.MCP && bindings.any { it.connectionUid == connection.connectionUid && it.toolName.contains("search", true) } }.map { connection ->
+                val authorized = resolved.any { it.connectionUid == connection.connectionUid } && (connection.type !in SEARCH_PROVIDERS || connection.secretRef != null)
+                EffectiveSearchEngine(connection.connectionUid, connection.name, authorized, reason(connection, authorized))
+            }
+    }
+
+    private suspend fun resolveWebSearch(connection: ToolConnection?, resetAccess: Boolean = false): ResolvedAgentTool? {
         val actualConnection = connection ?: return null
         val provider = SEARCH_PROVIDERS[actualConnection.type] ?: return null
         val endpointUrl = provider.defaultEndpointUrl
@@ -1113,7 +1157,8 @@ class AgentToolResolver @Inject constructor(
                         config = WebSearchProviderConfig(
                             provider = provider.provider,
                             bearerToken = token,
-                            endpointUrl = endpointUrl
+                            endpointUrl = endpointUrl,
+                            connectionUid = actualConnection.connectionUid
                         ),
                         modelToolName = modelToolName,
                         networkClient = networkClient
@@ -1123,6 +1168,7 @@ class AgentToolResolver @Inject constructor(
                 bytes.fill(0)
             }
         } ?: MissingCredentialTool(definition)
+        if (resetAccess) (tool as? WebSearchTool)?.resetAccessFailureAfterRepair()
         return tool.resolved(actualConnection.connectionUid, actualConnection.name, WEB_SEARCH_TOOL)
     }
 
@@ -1131,7 +1177,8 @@ class AgentToolResolver @Inject constructor(
         bindings: List<AgentToolBindingWithConnection>,
         features: AppFeatureSettings,
         profileUid: String,
-        cachedOnly: Boolean = false
+        cachedOnly: Boolean = false,
+        userMessage: MessageV2? = null
     ): List<ResolvedAgentTool> {
         val selectedNames = bindings.map { it.binding.toolName }.toSet()
         val remoteTools = if (cachedOnly) mcpClientManager.peekToolsForConnection(connection.connectionUid, connection.endpointUrl, connection.allowCleartext).orEmpty() else discoverMcpTools(connection)
@@ -1165,7 +1212,18 @@ class AgentToolResolver @Inject constructor(
                     },
                     remoteToolName = remoteTool.name,
                     outputSchema = remoteTool.outputSchema,
-                    clientManager = mcpClientManager
+                    clientManager = mcpClientManager,
+                    metadata = if (dev.chungjungsoo.gptmobile.data.crawl.CrawlerCompanionGrant.recognizes(connection)) {
+                        (
+                            {
+                                check(settingRepository.getFeatureSettings() == features && toolConnectionRepository.getConnection(connection.connectionUid) == connection) { "Crawler authority changed" }
+                                val limit = (features.pluginExecution[ToolPluginId.CRAWLERS] ?: PluginExecutionSettings()).normalized().crawlerMaxPages * 6
+                                dev.chungjungsoo.gptmobile.data.crawl.CrawlerCompanionGrant.metadata(secretVault, connection, profileUid, userMessage, dev.chungjungsoo.gptmobile.data.crawl.crawlHash(features.toString()), userMessage?.let { factVault?.scopeForChat(it.chatId)?.isTemporary == false } == true, limit)
+                            }
+                            )
+                    } else {
+                        null
+                    }
                 )
                 ResolvedAgentTool(
                     tool = if (ToolServiceCatalog.forConnection(connection).id == ToolPluginId.AIRBNB && remoteTool.name.contains(Regex("(?i)search|listing|details"))) {
@@ -1179,7 +1237,22 @@ class AgentToolResolver @Inject constructor(
                     connectionName = connection.name,
                     realToolName = remoteTool.name,
                     modelToolName = tool.definition.name,
-                    shareableReadOnly = remoteTool.name in connection.approvedReadTools.lines().map(String::trim)
+                    shareableReadOnly = remoteTool.name in connection.approvedReadTools.lines().map(String::trim),
+                    canReuseResult = if (remoteTool.name in connection.approvedReadTools.lines().map(String::trim)) {
+                        (
+                            {
+                                val currentProfile = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
+                                currentProfile?.enabled == true &&
+                                    !currentProfile.disableAllTools &&
+                                    !currentProfile.disableRemoteTools &&
+                                    settingRepository.getFeatureSettings() == features &&
+                                    toolConnectionRepository.getConnection(connection.connectionUid) == connection &&
+                                    recoveryBindingGrants(toolConnectionRepository.listBindingsWithConnections(profileUid).filter { it.binding.connectionUid == connection.connectionUid && it.binding.toolName == remoteTool.name }) == recoveryBindingGrants(bindings.filter { it.binding.toolName == remoteTool.name })
+                            }
+                            )
+                    } else {
+                        null
+                    }
                 )
             }
     }
@@ -1265,7 +1338,8 @@ private class McpAgentTool(
     private val config: suspend (Boolean, String?) -> McpConnectionConfig,
     private val remoteToolName: String,
     private val clientManager: McpClientManager,
-    private val outputSchema: io.modelcontextprotocol.kotlin.sdk.types.ToolSchema? = null
+    private val outputSchema: io.modelcontextprotocol.kotlin.sdk.types.ToolSchema? = null,
+    private val metadata: (suspend () -> JsonObject)? = null
 ) : AgentTool {
     private val unknownCatalogRefreshed = java.util.concurrent.atomic.AtomicBoolean()
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
@@ -1294,8 +1368,9 @@ private class McpAgentTool(
         } catch (_: Exception) {
             return AgentToolResult(callId, ToolResultContent.Text("MCP connection unavailable. Check installation, enable state and credentials in Tool connections."), true)
         }
+        val trustedMetadata = metadata?.invoke()
         val result = try {
-            clientManager.callTool(initialConfig, remoteToolName, remoteArguments, callId)
+            clientManager.callTool(initialConfig, remoteToolName, remoteArguments, callId, trustedMetadata)
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
@@ -1304,7 +1379,8 @@ private class McpAgentTool(
                 config(true, initialConfig.authorizationHeader),
                 remoteToolName,
                 remoteArguments,
-                callId
+                callId,
+                trustedMetadata
             )
         }
         if (result.isError == true && result.content.toString().let { it.contains("unknown tool", true) || it.contains("tool not found", true) }) {

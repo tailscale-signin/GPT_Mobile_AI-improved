@@ -247,7 +247,18 @@ class McpClientManagerTest {
             )
 
             val tools = manager.listTools(config)
-            val result = manager.callTool(config, "echo", buildJsonObject { put("text", "hello") })
+            val metadata = buildJsonObject {
+                put(
+                    "gptmobile/crawlerGrant",
+                    buildJsonObject {
+                        put("signature", "signed-fixture")
+                        put("payload", buildJsonObject { put("principal", "profile") })
+                    }
+                )
+            }
+            val result = manager.callTool(config, "echo", buildJsonObject { put("text", "hello") }, metadata = metadata)
+            assertEquals(metadata, server.toolParams.single()["_meta"])
+            assertEquals(buildJsonObject { put("text", "hello") }, server.toolParams.single()["arguments"])
 
             assertEquals(listOf("echo"), tools.map { it.name })
             assertEquals("hello", result.content.single().let { it as io.modelcontextprotocol.kotlin.sdk.types.TextContent }.text)
@@ -390,6 +401,7 @@ class McpClientManagerTest {
         @Volatile
         var acceptedAuthorization: String? = acceptedAuthorization
         val methods = CopyOnWriteArrayList<String>()
+        val toolParams = CopyOnWriteArrayList<JsonObject>()
         val sessionHeaders = CopyOnWriteArrayList<String?>()
         val authorizationHeaders = CopyOnWriteArrayList<String>()
         val refreshRequests = AtomicInteger()
@@ -437,6 +449,7 @@ class McpClientManagerTest {
                     }
 
                     "tools/call" -> {
+                        toolParams += request["params"] as JsonObject
                         val text = request["params"]!!.let { it as JsonObject }["arguments"]!!.let { it as JsonObject }["text"]!!.jsonPrimitive.content
                         """{"content":[{"type":"text","text":"$text"}]}"""
                     }

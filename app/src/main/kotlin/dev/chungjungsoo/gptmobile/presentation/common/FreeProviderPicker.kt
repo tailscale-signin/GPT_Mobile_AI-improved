@@ -21,6 +21,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -41,7 +42,9 @@ fun FreeProviderPicker(
     apiUrl: String,
     onProviderSelected: (FreeAiProvider) -> Unit,
     modifier: Modifier = Modifier,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    model: String? = null,
+    onModelSelected: ((String) -> Unit)? = null
 ) {
     val selected = FreeAiProvider.fromApiUrl(apiUrl)
     val scope = rememberCoroutineScope()
@@ -82,7 +85,7 @@ fun FreeProviderPicker(
                                 Column {
                                     Text(provider.displayName)
                                     Text(
-                                        stringResource(if (provider.isAvailable) provider.descriptionRes() else R.string.free_ai_awaiting_approval),
+                                        if (provider.isAvailable) dev.chungjungsoo.gptmobile.data.free.FreeModelCatalog.details(provider).limits else stringResource(R.string.free_ai_awaiting_approval),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -98,8 +101,11 @@ fun FreeProviderPicker(
                 }
             }
             selected?.let { provider ->
+                if (model != null && onModelSelected != null) {
+                    FreeModelPicker(provider, model, onModelSelected, enabled)
+                }
                 Text(
-                    stringResource(if (provider.isAvailable) provider.descriptionRes() else R.string.free_ai_approval_description),
+                    if (provider.isAvailable) dev.chungjungsoo.gptmobile.data.free.FreeModelCatalog.details(provider).privacy else stringResource(R.string.free_ai_approval_description),
                     style = MaterialTheme.typography.bodyMedium,
                     color = if (provider.isAvailable) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error
                 )
@@ -136,9 +142,21 @@ fun FreeProviderPicker(
     }
 }
 
-private fun FreeAiProvider.descriptionRes(): Int = when (this) {
-    FreeAiProvider.KILO -> R.string.free_ai_kilo_description
-    FreeAiProvider.POLLINATIONS -> R.string.free_ai_pollinations_description
-    FreeAiProvider.OVHCLOUD -> R.string.free_ai_ovh_description
-    FreeAiProvider.LLM7 -> R.string.free_ai_llm7_description
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun FreeModelPicker(provider: FreeAiProvider, selected: String, onSelected: (String) -> Unit, enabled: Boolean) {
+    val catalog by dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.catalog.collectAsState()
+    var expanded by remember { mutableStateOf(false) }
+    val models = remember(provider, catalog) { dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.models(provider) }
+    ExposedDropdownMenuBox(expanded, { if (enabled) expanded = it }) {
+        OutlinedTextField(selected, {}, readOnly = true, label = { Text("Model") }, modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable), trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) })
+        ExposedDropdownMenu(expanded, { expanded = false }) {
+            models.forEach { model ->
+                DropdownMenuItem(text = { Text(model.label) }, onClick = {
+                    onSelected(model.id)
+                    expanded = false
+                })
+            }
+        }
+    }
 }

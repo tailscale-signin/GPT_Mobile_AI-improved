@@ -9,9 +9,10 @@ import kotlinx.coroutines.flow.flow
 internal fun Flow<ProviderEvent>.withAssistantTextMarkupGuard(
     initialSuccessfulSearch: Boolean = false,
     searchToolNames: Set<String> = emptySet(),
-    validateSearchClaims: Boolean = true
+    validateSearchClaims: Boolean = true,
+    allowControlJsonText: Boolean = false
 ): Flow<ProviderEvent> = flow {
-    val guard = AssistantTextMarkupGuard()
+    val guard = AssistantTextMarkupGuard(allowControlJsonText)
     var blocked = false
     var successfulWebSearch = initialSuccessfulSearch || !validateSearchClaims
 
@@ -68,7 +69,9 @@ private fun logRejectedMarkup(reason: String) = AppLogRecorder.record(
     "W"
 )
 
-private class AssistantTextMarkupGuard {
+private class AssistantTextMarkupGuard(private val allowControlJsonText: Boolean = false) {
+    private var initialText = true
+    private var jsonCandidate = false
     data class Result(val text: String = "", val blocked: Boolean = false, val reason: String? = null) {
         fun failureMessage(): String = when (reason) {
             "unsupported_search_claim" -> "The model claimed a web search that has no successful web-search tool result. That claim was withheld."
@@ -89,6 +92,18 @@ private class AssistantTextMarkupGuard {
     fun append(text: String, successfulWebSearch: Boolean): Result {
         if (blocked) return Result(blocked = true)
         pending.append(text)
+        if (initialText && pending.isNotBlank()) {
+            jsonCandidate = !allowControlJsonText && pending.toString().trimStart().startsWith("{")
+            initialText = false
+        }
+        if (jsonCandidate) {
+            if (pending.length > 65536) {
+                pending.clear()
+                blocked = true
+                return Result(blocked = true, reason = "oversized_unparsed_markup")
+            }
+            return Result()
+        }
         val rawStart = listOfNotNull(DSML_CONTROL_MARKUP.find(pending)?.range?.first, wireMarkup.find(pending)?.range?.first, patternStart(assistantToolLine, linePrefix())).minOrNull()
         if (rawStart != null) {
             val safe = pending.substring(0, rawStart)
@@ -118,6 +133,14 @@ private class AssistantTextMarkupGuard {
 
     fun finish(successfulWebSearch: Boolean): Result {
         if (blocked) return Result(blocked = true)
+        if (jsonCandidate) {
+            jsonCandidate = false
+            if (ToolControlOutput.isControl(pending.toString())) {
+                pending.clear()
+                blocked = true
+                return Result(blocked = true, reason = "tool_control_in_content")
+            }
+        }
         val rawStart = listOfNotNull(DSML_CONTROL_MARKUP.find(pending)?.range?.first, wireMarkup.find(pending)?.range?.first, patternStart(assistantToolLine, linePrefix())).minOrNull()
         if (rawStart != null) {
             val safe = pending.substring(0, rawStart)
@@ -203,14 +226,14 @@ private class AssistantTextMarkupGuard {
 }
 
 /** Normalize once at the raw provider boundary, before delivery or recovery accumulates text. */
-internal fun AgentProviderSession.withNormalizedAssistantText(): AgentProviderSession =
-    if (this is NormalizedAssistantTextSession) this else NormalizedAssistantTextSession(this)
+internal fun AgentProviderSession.withNormalizedAssistantText(userRequest: String = ""): AgentProviderSession =
+    if (this is NormalizedAssistantTextSession) this else NormalizedAssistantTextSession(this, ToolControlOutput.requestedJson(userRequest))
 
-private class NormalizedAssistantTextSession(private val source: AgentProviderSession) : AgentProviderSession by source {
+private class NormalizedAssistantTextSession(private val source: AgentProviderSession, override val allowsControlJsonText: Boolean) : AgentProviderSession by source {
     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> {
         val searchNames = tools.filter { AgentToolCapability.WEB_SEARCH in it.capabilities }.map { it.name }.toSet()
         val searched = exchanges.any { exchange -> exchange.results.any { result -> !result.isError && result.dispatched && exchange.calls.any { it.callId == result.callId && it.name in searchNames } } }
-        return source.streamRound(tools, exchanges).withAssistantTextMarkupGuard(searched, searchNames, validateSearchClaims = false)
+        return source.streamRound(tools, exchanges).withAssistantTextMarkupGuard(searched, searchNames, validateSearchClaims = false, allowControlJsonText = allowsControlJsonText)
     }
 }
 

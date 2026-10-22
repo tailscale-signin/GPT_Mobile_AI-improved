@@ -122,6 +122,7 @@ enum class AgentRunStatus {
 }
 
 interface AgentTool {
+    fun withChildBudget(bind: (AgentTool) -> AgentTool): AgentTool = this
     val definition: AgentToolDefinition
 
     /** The shared budget times execution only; waiting for a user decision must not time out. */
@@ -152,6 +153,8 @@ data class AgentToolExchange(
 )
 
 interface AgentProviderSession {
+    val allowsControlJsonText: Boolean get() = false
+    val hasPreparedSearchEvidence: Boolean get() = false
     val handlesToolsInternally: Boolean
         get() = false
 

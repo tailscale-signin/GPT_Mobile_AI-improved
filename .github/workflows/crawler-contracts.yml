@@ -22,8 +22,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Install isolated crawler dependencies
         run: |
+          sudo apt-get update && sudo apt-get install -y poppler-utils tesseract-ocr tesseract-ocr-eng
           python3 -m venv "$RUNNER_TEMP/crawler-env"
-          "$RUNNER_TEMP/crawler-env/bin/python" -m pip install ./mcp/crawler
+          "$RUNNER_TEMP/crawler-env/bin/python" -m pip install ./mcp/crawler pillow
       - name: Verify storage, metering, extraction and authenticated transports
         working-directory: mcp/crawler
         run: |

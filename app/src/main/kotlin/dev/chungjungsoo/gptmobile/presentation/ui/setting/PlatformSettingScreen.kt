@@ -205,7 +205,7 @@ fun PlatformSettingScreen(
                 ) {
                     val isLocalPlatform = platformData.compatibleType == ClientType.LITERT_LM
                     val isFreePlatform = platformData.compatibleType == ClientType.FREE
-                    val supportsTools = !isFreePlatform || FreeAiProvider.fromApiUrl(platformData.apiUrl)?.supportsTools == true
+                    val supportsTools = !isFreePlatform || FreeAiProvider.fromApiUrl(platformData.apiUrl)?.let { dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.model(it, platformData.model)?.tools } == true
                     val isOllamaPlatform = platformData.compatibleType == ClientType.OLLAMA
                     ProfileIdentityCard(platformData)
                     if (platformData.compatibleType == ClientType.NVIDIA) {
@@ -233,6 +233,8 @@ fun PlatformSettingScreen(
                             FreeProviderPicker(
                                 apiUrl = platformData.apiUrl,
                                 onProviderSelected = settingViewModel::selectFreeProvider,
+                                model = platformData.model,
+                                onModelSelected = { settingViewModel.updatePlatform(platformData.copy(model = it)) },
                                 modifier = Modifier.padding(16.dp),
                                 enabled = platformData.enabled
                             )
@@ -677,6 +679,7 @@ fun PlatformSettingScreen(
                         if (supportsTools) PlatformMaxToolCallsSettingHost(settingViewModel)
                     }
                     if (profileTab == 1) {
+                        EffectiveSearchInventoryPanel(settingViewModel)
                         ProfileToolsPanel(
                             viewModel = settingViewModel,
                             platform = platformData,
@@ -960,6 +963,13 @@ private fun SearchBackendDialog(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(stringResource(R.string.ui_v2_built_in_page_reader), Modifier.weight(1f))
                             Switch(":read_url" in crawlerIds, { checked -> crawlerIds = if (checked) crawlerIds + ":read_url" else crawlerIds - ":read_url" })
+                        }
+                        Text("Enable the Crawlers service in Plugins & Tools. Selected readers are shared by search enrichment and managed crawl jobs.", style = MaterialTheme.typography.bodySmall)
+                        if (features.pluginExecution[dev.chungjungsoo.gptmobile.data.model.ToolPluginId.CRAWLERS]?.crawlerJina == true) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("Jina Reader · shares selected public URLs", Modifier.weight(1f))
+                                Switch(":jina_crawler_fetch" in crawlerIds, { checked -> crawlerIds = if (checked) crawlerIds + ":jina_crawler_fetch" else crawlerIds - ":jina_crawler_fetch" })
+                            }
                         }
                         toolBindingState.mcpToolOptions.filter {
                             dev.chungjungsoo.gptmobile.data.agent.tool.isCrawlerTool(it.toolName, it.description.orEmpty()) &&

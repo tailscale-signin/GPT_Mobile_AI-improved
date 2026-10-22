@@ -159,8 +159,11 @@ The catalog format follows OpenRouter's [ZDR endpoint API](https://openrouter.ai
 
 ## Validation
 
-Validation results are recorded after the final source tree is tested. Regression
-coverage includes 33-call interruption/resume, changed call identity and grants,
+The follow-up passed 3,975 Android JVM tests across 659 suites, with zero
+failures/errors and two opt-in heap cases skipped in the normal run. The separate
+256 MiB gate passed all six tests and preserved all 661 normal-suite report files
+byte for byte. See the [combined validation record](2026-10-22-free-models-search-crawlers.md#validation)
+for the remaining gates and qualification limits. Regression coverage includes 33-call interruption/resume, changed call identity and grants,
 chunked review restart, identity quarantine, concurrent saves/readers, stale
 recovery fences, five-profile source attribution, five-question coverage,
 progress completion gates, independent OAuth refresh, search challenge failover

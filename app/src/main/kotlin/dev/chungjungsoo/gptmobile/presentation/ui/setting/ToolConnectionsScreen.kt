@@ -637,9 +637,17 @@ private fun CollapsibleToolConnectionCard(
                         if (connection.authType == ToolConnectionAuthType.OAUTH) OutlinedButton(onClick = onOAuthClick) { Text(if (missingCredential) "Sign in" else "Reconnect") }
                     }
                     connection.endpointUrl?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                    if (connection.type == ToolConnectionType.MCP || connection.type == ToolConnectionType.AMAZON_SERPAPI) {
+                    if (connection.type in setOf(ToolConnectionType.MCP, ToolConnectionType.AMAZON_SERPAPI, ToolConnectionType.BRAVE, ToolConnectionType.EXA, ToolConnectionType.FIRECRAWL, ToolConnectionType.PERPLEXITY)) {
                         TextButton(onClick = onRefreshHealth, enabled = health?.status != ToolConnectionHealthStatus.CHECKING && !missingCredential && !missingEndpoint) {
-                            Text(if (connection.type == ToolConnectionType.AMAZON_SERPAPI) "Test Amazon Search · 1 request" else "Check connection")
+                            Text(
+                                if (connection.type == ToolConnectionType.AMAZON_SERPAPI) {
+                                    "Test Amazon Search · 1 request"
+                                } else if (connection.type != ToolConnectionType.MCP) {
+                                    "Test search · 1 request"
+                                } else {
+                                    "Check connection"
+                                }
+                            )
                         }
                     }
                     TextButton(onClick = onDeleteClick) {

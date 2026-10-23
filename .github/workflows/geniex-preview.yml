@@ -71,13 +71,15 @@ jobs:
           # Match native-memory-smoke.yml: release compiler/KSP/R8 analysis
           # memory before ApkFlinger allocates its packaging buffers.
           ./gradlew -PgeniexRuntime=true -PnativeMemorySmoke=true :app:minifyNativeSmokeWithR8 --no-daemon --max-workers=1 --console=plain --info --stacktrace '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -Dfile.encoding=UTF-8' 2>&1 | tee build/geniex-validation/shrinker.log
+      # ApkFlinger uses the common pool, independently of --max-workers. Serialize
+      # native-library compression so simultaneous byte buffers cannot exhaust the heap.
       - name: Package the minified GenieX APK in a fresh process
         timeout-minutes: 25
         shell: bash
         run: |
           set -o pipefail
           mkdir -p build/geniex-validation
-          ./gradlew -PgeniexRuntime=true -PnativeMemorySmoke=true :app:assembleNativeSmoke --no-daemon --max-workers=1 --console=plain --info --stacktrace '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -Dfile.encoding=UTF-8' 2>&1 | tee build/geniex-validation/package.log
+          ./gradlew -PgeniexRuntime=true -PnativeMemorySmoke=true :app:assembleNativeSmoke --no-daemon --max-workers=1 --console=plain --info --stacktrace '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -Djava.util.concurrent.ForkJoinPool.common.parallelism=1 -XX:+UseG1GC -Dfile.encoding=UTF-8' 2>&1 | tee build/geniex-validation/package.log
       - name: Audit minified GenieX native stack
         run: |
           python3 scripts/check_local_runtime_apk.py --native-stack geniex app/build/outputs/apk/nativeSmoke/*.apk

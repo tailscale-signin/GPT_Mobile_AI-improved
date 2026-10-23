@@ -98,3 +98,20 @@ This is a text-generation integration. GGUF is a container, not a guarantee that
 every architecture, quantization, shard set, projector or model size can run on a
 particular phone. Multimodal projector loading and new Hexagon/OpenCL packaging are
 separate deliverables and are not claimed by this change.
+
+
+## CI follow-up, 23 October 2026
+
+The native-memory job on PR #730 failed in `ApkFlinger.writeFile` / Zipflinger
+`BytesSource` with a 4 GiB heap. AGP 9.4.1 dispatches compression through
+`ForkJoinPool.commonPool`, independently of Gradle's worker limit. Both native
+packaging workflows now set `java.util.concurrent.ForkJoinPool.common.parallelism=1`
+for APK assembly, preserving the heap ceiling, R8 and packaged-library audits.
+
+The GenieX suite on PR #731 found a race in `CombinedPassageIndicatorsTest`:
+recomposition resumed inline on `DefaultDispatcher-worker-4`, causing Android's
+`CalledFromWrongThreadException`. Its Compose rule now uses `StandardTestDispatcher`
+so matching results recompose on the test clock, as in `ChatMarkdownWordingTest`.
+The badge, click and stale-result assertions remain intact. Changed Kotlin passes
+ktlint 1.3.1; both workflow documents parse successfully. Full APK assembly and
+Android test validation run in CI.

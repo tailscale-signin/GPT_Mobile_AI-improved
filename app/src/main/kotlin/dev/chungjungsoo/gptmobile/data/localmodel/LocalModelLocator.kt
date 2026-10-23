@@ -171,6 +171,7 @@ object LocalModelLocator {
                             checkCurrent()
                             val count = input.read(buffer)
                             if (count < 0) break
+                            require(copied + count <= 16_000_000_000L) { "Model exceeds the supported size limit" }
                             check(targetModelsRootDir.usableSpace > count + 8L * 1024 * 1024) { "Not enough storage to finish import" }
                             output.write(buffer, 0, count)
                             digest.update(buffer, 0, count)

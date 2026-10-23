@@ -20,7 +20,16 @@ internal object NativeModelSource {
 
     fun <T> withFile(context: Context, uri: Uri, name: String, block: (File) -> T): T =
         (context.contentResolver.openFileDescriptor(uri, "r") ?: error("Source access was lost. Select it again.")).use {
-            withDescriptor(context.cacheDir, it, name, block)
+            try {
+                withDescriptor(context.cacheDir, it, name, block)
+            } catch (failure: CannotLink) {
+                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
+                    "LocalImport",
+                    "LINK_NATIVE_PATH_UNAVAILABLE · provider=${uri.authority} · reason=${failure.detail} · exception=${failure.cause?.javaClass?.simpleName.orEmpty()} · copyAvailable=true",
+                    "W"
+                )
+                throw failure
+            }
         }
 
     // The caller owns the descriptor. Neither a probe nor its temporary alias may close it.

@@ -33,6 +33,7 @@ class MemoryGraphFtsAvailabilityTest {
         every { database.openHelper } returns helper
         every { database.memoryGraphDao() } returns dao
         every { sql.query("PRAGMA compile_options") } returns cursor(emptyList())
+        every { sql.query("PRAGMA module_list") } returns cursor(emptyList())
         coEvery { dao.searchLike(any(), any(), any()) } returns emptyList()
     }
 
@@ -42,9 +43,42 @@ class MemoryGraphFtsAvailabilityTest {
         every { sql.query(any<SupportSQLiteQuery>()) } returns cursor(emptyList())
         val repository = MemoryGraphRepository(database)
         repeat(2) { assertTrue(repository.searchNodes("astronomy", null).isEmpty()) }
-        verify(exactly = 0) { sql.query("PRAGMA module_list") }
+        verify(exactly = 1) { sql.query("PRAGMA module_list") }
         verify(exactly = 1) { sql.execSQL(match { it.contains("USING fts5") }) }
         verify(exactly = 2) { sql.query(any<SupportSQLiteQuery>()) }
+    }
+
+    @Test
+    fun `registered modules avoid unsupported FTS5 when compile options are unavailable`() = runBlocking {
+        every { sql.query("SELECT sql FROM sqlite_master WHERE name = 'memory_graph_fts'") } returns cursor(emptyList())
+        every { sql.query("PRAGMA module_list") } returns cursor(listOf("fts3", "fts4", "rtree"))
+        every { sql.query(any<SupportSQLiteQuery>()) } returns cursor(emptyList())
+        val repository = MemoryGraphRepository(database)
+        repeat(2) { assertTrue(repository.searchNodes("astronomy", null).isEmpty()) }
+        verify(exactly = 0) { sql.query("PRAGMA compile_options") }
+        verify(exactly = 0) { sql.execSQL(match { it.contains("USING fts5") }) }
+        verify(exactly = 1) { sql.execSQL(match { it.contains("USING fts4") }) }
+    }
+
+    @Test
+    fun `registered module list without FTS uses LIKE without failed DDL`() = runBlocking {
+        every { sql.query("SELECT sql FROM sqlite_master WHERE name = 'memory_graph_fts'") } returns cursor(emptyList())
+        every { sql.query("PRAGMA module_list") } returns cursor(listOf("rtree"))
+        val repository = MemoryGraphRepository(database)
+        repeat(2) { assertTrue(repository.searchNodes("astronomy", null).isEmpty()) }
+        verify(exactly = 0) { sql.execSQL(any<String>()) }
+        coVerify(exactly = 2) { dao.searchLike("personal", "%astronomy%", 20) }
+    }
+
+    @Test
+    fun `module probe failure falls back to compile diagnostics`() = runBlocking {
+        every { sql.query("SELECT sql FROM sqlite_master WHERE name = 'memory_graph_fts'") } returns cursor(emptyList())
+        every { sql.query("PRAGMA module_list") } throws IllegalStateException("unsupported")
+        every { sql.query("PRAGMA compile_options") } returns cursor(listOf("ENABLE_FTS4"))
+        every { sql.query(any<SupportSQLiteQuery>()) } returns cursor(emptyList())
+        assertTrue(MemoryGraphRepository(database).searchNodes("astronomy", null).isEmpty())
+        verify(exactly = 0) { sql.execSQL(match { it.contains("USING fts5") }) }
+        verify(exactly = 1) { sql.execSQL(match { it.contains("USING fts4") }) }
     }
 
     @Test

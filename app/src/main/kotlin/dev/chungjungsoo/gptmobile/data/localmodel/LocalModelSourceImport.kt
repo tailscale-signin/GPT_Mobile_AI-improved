@@ -29,6 +29,7 @@ internal object LocalModelSourceImport {
     suspend fun execute(context: Context, repository: LocalModelRepository, source: LocalModelSource, jobId: String, checkCurrent: () -> Unit, progress: (Long) -> Unit): LocalModelImportResult {
         checkCurrent()
         if (source.mode == LocalModelSource.Mode.LINK) return repository.linkSource(source.uri, source.folder, checkCurrent, progress)
+        require(source.uri.scheme == "content") { "Choose a model using the file picker." }
         val resolver = context.contentResolver
         if (!source.folder) {
             val name = resolver.query(source.uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { if (it.moveToFirst()) it.getString(0) else null } ?: error("Source filename is unavailable")

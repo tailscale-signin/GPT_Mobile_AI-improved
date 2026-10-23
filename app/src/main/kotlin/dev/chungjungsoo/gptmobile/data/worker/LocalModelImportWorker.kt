@@ -34,10 +34,10 @@ class LocalModelImportWorker @AssistedInject constructor(
         try {
             dev.chungjungsoo.gptmobile.presentation.StartupRecoveryGate.await()
             val notifications = applicationContext.getSystemService(NotificationManager::class.java)
-            notifications.createNotificationChannel(NotificationChannel(CHANNEL, applicationContext.getString(R.string.local_ai_import), NotificationManager.IMPORTANCE_LOW))
+            notifications.createNotificationChannel(NotificationChannel(CHANNEL, applicationContext.getString(R.string.local_ai_import_review), NotificationManager.IMPORTANCE_LOW))
             val notification = NotificationCompat.Builder(applicationContext, CHANNEL)
                 .setSmallIcon(android.R.drawable.stat_sys_download)
-                .setContentTitle(applicationContext.getString(R.string.local_ai_import))
+                .setContentTitle(applicationContext.getString(R.string.local_ai_import_review))
                 .setContentText(applicationContext.getString(R.string.local_ai_import_working))
                 .setProgress(0, 0, true).setOngoing(true)
                 .addAction(android.R.drawable.ic_delete, applicationContext.getString(R.string.cancel), androidx.work.WorkManager.getInstance(applicationContext).createCancelPendingIntent(id)).build()
@@ -48,7 +48,7 @@ class LocalModelImportWorker @AssistedInject constructor(
                 check(!isStopped) { "Import stopped" }
             }
             val folder = inputData.getBoolean(FOLDER, false)
-            val mode = inputData.getString(MODE)?.let { dev.chungjungsoo.gptmobile.data.localmodel.LocalModelSource.Mode.valueOf(it) } ?: dev.chungjungsoo.gptmobile.data.localmodel.LocalModelSource.Mode.LINK
+            val mode = dev.chungjungsoo.gptmobile.data.localmodel.localModelImportMode(inputData.getString(MODE), inputData.getBoolean(COPY_TO_APP, false))
             var lastUpdate = 0L
             val progress: (Long) -> Unit = { bytes ->
                 val now = System.nanoTime() / 1_000_000
@@ -88,6 +88,7 @@ class LocalModelImportWorker @AssistedInject constructor(
         const val SOURCE = "source"
         const val FOLDER = "folder"
         const val MODE = "mode"
+        const val COPY_TO_APP = "copyToApp"
         const val OWNS_GRANT = "ownsGrant"
         const val BYTES = "bytes"
         const val MESSAGE = "message"

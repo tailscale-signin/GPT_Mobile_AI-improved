@@ -143,6 +143,8 @@ internal data class DelegatedChildResolution(
     val text: String?
 )
 
+internal fun requiresCompleteDelegatedResponse(role: String): Boolean = role in setOf("reviewer", "assist", "combined-verifier") || role.startsWith("research-")
+
 internal fun usableDelegatedToolResult(result: AgentToolResult): String? {
     if (result.isError) return null
     val value = when (val content = result.content) {
@@ -159,12 +161,15 @@ internal fun resolveDelegatedChildResult(
     rawText: String,
     toolFallbacks: List<String>,
     extractionFailed: Boolean,
-    providerFailure: String?
+    providerFailure: String?,
+    requireCompleteTransport: Boolean = false,
+    transportComplete: Boolean = true
 ): DelegatedChildResolution {
     val direct = rawText.trim().takeIf { it.length >= MIN_DELEGATED_USEFUL_CHARS && '\u0000' !in it && it != "This model reached its response limit. Would you like me to continue?" }
     val recovered = toolFallbacks.distinct().joinToString("\n\n").takeIf { it.length >= MIN_DELEGATED_USEFUL_CHARS }
     val usable = direct ?: recovered
     val status = when {
+        requireCompleteTransport && (!transportComplete || providerFailure != null) -> DelegatedChildStatus.FAILED
         // Usable output wins over a trailing provider failure. Streaming providers can
         // emit a valid final/tool result and then surface a transport reset while the
         // connection is closing; discarding completed work turns success into a false
@@ -985,7 +990,7 @@ class ChatRepositoryImpl(
         val parentAuthority = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]
         val dispatchAuthority = dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.capture(settingRepository, target)
         val reviewing = requestRole == "reviewer"
-        val structuredStage = reviewing || requestRole == "assist" || requestRole.startsWith("research-")
+        val structuredStage = requiresCompleteDelegatedResponse(requestRole)
         val followingUp = requestRole == "follow_up"
         val conciseKey = "${target.uid}|${target.model}"
         val concise = !allowTools || followingUp || reviewing || conciseKey in conciseDelegateProfiles
@@ -1273,7 +1278,7 @@ class ChatRepositoryImpl(
         }
         val elapsedMs = System.currentTimeMillis() - startedAtMs
         val rawText = text.toString()
-        val resolution = resolveDelegatedChildResult(rawText, toolFallbacks, extractionFailed, providerFailure)
+        val resolution = resolveDelegatedChildResult(rawText, toolFallbacks, extractionFailed, providerFailure, structuredStage, transportComplete)
         val usableText = resolution.text
         val status = resolution.status
         val reasoningOnly = usableText == null && reasoningChars > 0

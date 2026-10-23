@@ -59,11 +59,12 @@ class LocalModelSourceImportTest {
         filename(original.name)
         every { resolver.openInputStream(uri) } answers { original.inputStream() }
         every { resolver.openFileDescriptor(uri, "r") } throws SecurityException("Native reopen denied")
-        coEvery { repository.importPersisted(any(), original.name, "durable-job", any(), any()) } coAnswers {
-            LocalModelLocator.importModel(firstArg(), original.name, destination, stagingId = "durable-job", onProgress = arg(4))
+        val jobId = "12345678-1234-1234-1234-123456789abc"
+        coEvery { repository.importPersisted(any(), original.name, jobId, any(), any()) } coAnswers {
+            LocalModelLocator.importModel(firstArg(), original.name, destination, stagingId = jobId, onProgress = arg(4))
         }
         var progress = 0L
-        val result = importLocalModelSource(repository, resolver, LocalModelSource(uri, LocalModelSource.Kind.FILE, true), "durable-job", {}, { progress = it })
+        val result = importLocalModelSource(repository, resolver, LocalModelSource(uri, LocalModelSource.Kind.FILE, true), jobId, {}, { progress = it })
         assertTrue(result is LocalModelImportResult.Success)
         val installed = File((result as LocalModelImportResult.Success).absoluteFilePath)
         assertTrue(installed.canonicalPath.startsWith(destination.canonicalPath + "/"))

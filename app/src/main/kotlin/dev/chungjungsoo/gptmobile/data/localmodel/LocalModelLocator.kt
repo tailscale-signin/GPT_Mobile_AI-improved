@@ -25,6 +25,7 @@ sealed interface LocalModelImportResult {
             SOURCE_FILE_NOT_FOUND,
             SOURCE_NOT_A_FILE,
             UNREADABLE_SOURCE,
+            LINK_UNSUPPORTED,
             UNSUPPORTED_FORMAT,
             INVALID_MODEL,
             RUNTIME_UNAVAILABLE,

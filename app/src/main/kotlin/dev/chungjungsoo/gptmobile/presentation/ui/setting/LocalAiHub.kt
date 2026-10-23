@@ -126,6 +126,8 @@ fun LocalModelsScreen(
                 inspectionFailure = failure
             }
         }
+        var copyRequested by rememberSaveable(pendingUri, pendingFolder) { mutableStateOf(false) }
+        val copyModel = copyRequested || preview?.linkProblem != null
         val inspectionError = inspectionFailure?.let { it.message ?: stringResource(R.string.local_ai_inspect_failed) }
         AlertDialog(
             onDismissRequest = { pendingUri = null },
@@ -141,16 +143,21 @@ fun LocalModelsScreen(
                         details.installedBytes?.let { Text(stringResource(R.string.local_ai_installed_size, dev.chungjungsoo.gptmobile.data.catalog.ModelCatalogParser.formatDownloadSize(it))) }
                         if (details.backends.isNotEmpty()) Text(stringResource(R.string.local_ai_declared_processors, details.backends.joinToString().uppercase()))
                         details.contextTokens?.let { Text(stringResource(R.string.local_ai_import_context, it, details.assets)) }
-                        Text(stringResource(R.string.local_ai_file_review))
+                        LocalModelImportChoice(
+                            copyModel = copyModel,
+                            linkUnavailable = details.linkProblem != null,
+                            folder = pendingFolder,
+                            onCopyChanged = { copyRequested = it }
+                        )
                         Text(stringResource(R.string.local_ai_import_verification), style = MaterialTheme.typography.bodySmall)
                     }
                 }
             },
             confirmButton = {
                 TextButton(enabled = preview != null && !importActive, onClick = {
-                    viewModel.importCustomModel(context.contentResolver, source)
+                    viewModel.importCustomModel(context.contentResolver, source.copy(mode = if (copyModel) dev.chungjungsoo.gptmobile.data.localmodel.LocalModelSource.Mode.COPY else dev.chungjungsoo.gptmobile.data.localmodel.LocalModelSource.Mode.LINK))
                     pendingUri = null
-                }) { Text(stringResource(R.string.local_ai_import)) }
+                }) { Text(stringResource(if (copyModel) R.string.local_ai_import_copy else R.string.local_ai_import)) }
             },
             dismissButton = { TextButton(onClick = { pendingUri = null }) { Text(stringResource(R.string.cancel)) } }
         )

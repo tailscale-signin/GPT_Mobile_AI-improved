@@ -7,20 +7,7 @@ import dev.chungjungsoo.gptmobile.data.model.ProfileColorIdentity
 
 /** Resolve against the actual opaque surface, including custom themes, with WCAG normal-text contrast. */
 object ProfileAttributionPalette {
-    // Assign widely separated hues to the first eight contributors, then fill
-    // the gaps for larger conversations. The persisted marker, rather than
-    // the hash of a name, keeps every colour stable across profile reordering.
-    private val separatedHues = floatArrayOf(
-        0f, 180f, 90f, 270f, 45f, 225f, 135f, 315f,
-        22.5f, 202.5f, 112.5f, 292.5f, 67.5f, 247.5f, 157.5f, 337.5f
-    )
-
-    /**
-     * Assign colours to the actual Combined contributors, not to their global
-     * profile-creation indices. A user's selected profiles may have markers
-     * in the hundreds; every visible source must still receive a separated hue.
-     * Original identities remain persisted unchanged.
-     */
+    /** Persisted hue and marker are shared by tabs, answers, legends and restored chats. */
     fun forSelection(
         profileUids: List<String>,
         persisted: Map<String, ProfileColorIdentity>
@@ -30,8 +17,7 @@ object ProfileAttributionPalette {
     }
 
     fun foreground(identity: ProfileColorIdentity, surface: Color): Color {
-        val hue = separatedHues.getOrNull(identity.marker - 1)
-            ?: ((identity.hue % 360 + 360) % 360).toFloat()
+        val hue = ((identity.hue % 360 + 360) % 360).toFloat()
         val seed = Color.hsv(hue, 0.92f, 0.95f)
         if (contrast(seed, surface) >= 4.5) return seed
         val endpoint = if (contrast(Color.Black, surface) >= contrast(Color.White, surface)) Color.Black else Color.White

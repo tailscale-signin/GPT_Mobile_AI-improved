@@ -153,7 +153,7 @@ internal class CombinedDeliverySession(
         var noProgress = 0
         var repairSkippedReason: String? = if (singlePass) "SINGLE_PASS_LOCAL_CHECKS_ONLY" else null
 
-        fun report(candidate: Candidate, checked: CombinedFinalAssessment, final: Boolean): CombinedQualityReport {
+        suspend fun report(candidate: Candidate, checked: CombinedFinalAssessment, final: Boolean): CombinedQualityReport {
             val unresolvedResearch = checked.checks.any { it.category == "RESEARCH_SCOPE" && it.result != "PASS" }
             val providerComplete = candidate.terminal == ProviderEvent.Completed
             val material = correctionRequired || checked.correctionRequired
@@ -165,6 +165,8 @@ internal class CombinedDeliverySession(
                 issues.any { it != "LEXICAL_COVERAGE_UNRESOLVED_HINTS" } || checked.verificationNeeds.isNotEmpty() -> "COMPLETED_WITH_LIMITS"
                 else -> "COMPLETED"
             }
+            val wording = withContext(Dispatchers.Default) { combinedWordingSpans(candidate.text, sources) }
+            val represented = wording.flatMapTo(linkedSetOf()) { it.profileUids } + candidate.decoder?.passages.orEmpty().filter { it.matches(candidate.text) && it.semanticLinkStatus == "CONSERVATIVE_LINK_CHECKED" }.flatMapTo(linkedSetOf()) { it.profileUids }
             return CombinedQualityReport(
                 answerDigest = researchHash(candidate.text),
                 complete = candidate.text.isNotBlank() && providerComplete && framingValid && !material && violations.isEmpty() && !unresolvedResearch,
@@ -172,6 +174,7 @@ internal class CombinedDeliverySession(
                     candidate.text.isBlank() -> "FAILED"
                     material -> "CORRECTION_REQUIRED"
                     !providerComplete -> "INTERRUPTED"
+                    delivered == "PARTIAL" -> "PARTIAL"
                     issues.isEmpty() -> "COMPLETED_UNVERIFIED"
                     else -> "COMPLETED_WITH_ISSUES"
                 },
@@ -201,7 +204,12 @@ internal class CombinedDeliverySession(
                 repairRejections = rejections.toList(), consideredProfileUids = sources.mapTo(linkedSetOf()) { it.platformUid },
                 requestedPolicyDigest = combined?.requested?.requestedPolicyDigest.orEmpty(), effectivePlanDigest = combined?.plan?.effectivePlanDigest.orEmpty(),
                 includedProfileUids = if (singlePass) sources.mapTo(linkedSetOf()) { it.platformUid } else emptySet(),
-                representedProfileUids = candidate.decoder?.passages.orEmpty().filter { it.matches(candidate.text) && it.semanticLinkStatus == "CONSERVATIVE_LINK_CHECKED" }.flatMapTo(linkedSetOf()) { it.profileUids }
+                representedProfileUids = represented,
+                finalAssessment = final,
+                lengthCompliance = if (violations.any { it.contains("WORD") || it.contains("LENGTH") }) "UNMET" else "MET",
+                topicCoverage = if (checked.checks.any { it.category in setOf("SCOPE", "RESEARCH_SCOPE") && it.result != "PASS" }) "UNRESOLVED" else "LOCAL_CHECKS_PASSED",
+                sourceLinkStatus = if (represented.isEmpty()) "UNESTABLISHED" else "PARTIAL_TEXT_MATCHES",
+                sourceLinkRejections = checked.checks.filter { it.id.startsWith("UNESTABLISHED_FINAL_CLAIM_LINK") }.groupingBy { "CLAIM_OR_QUALIFIER_NOT_ALIGNED" }.eachCount()
             )
         }
 

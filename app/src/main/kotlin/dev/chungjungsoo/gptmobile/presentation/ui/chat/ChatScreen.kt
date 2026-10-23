@@ -201,7 +201,12 @@ fun ChatScreen(
             onRetry = chatViewModel::retryCombinedProfile,
             onRemove = { chatViewModel.setPlatformMembership(it, false) },
             onCheckJob = chatViewModel::checkQueuedJob,
-            onDismiss = { failuresDismissed = true }
+            onDismiss = { failuresDismissed = true },
+            canCombineAvailable = chatViewModel.canCombineAvailable(failureTurn),
+            onCombineAvailable = {
+                chatViewModel.combineAvailableResults(failureTurn)
+                failuresDismissed = true
+            }
         )
     }
     val inputRequests by chatViewModel.pendingMcpInput.collectAsStateWithLifecycle()
@@ -893,7 +898,7 @@ fun ChatScreen(
                     }
                     if (combinedFailures.isNotEmpty()) {
                         TextButton(onClick = { failuresDismissed = false }) {
-                            Text("Resolve ${combinedFailures.size} profile problem(s) · primary waiting", color = MaterialTheme.colorScheme.error)
+                            Text("Resolve ${combinedFailures.size} profile problem(s)", color = MaterialTheme.colorScheme.error)
                         }
                     }
                     if (chatViewModel.enabledPlatformsInChat.size > 1 || chatRoom.conversationMode == ConversationMode.COMBINED) {
@@ -1244,6 +1249,14 @@ private fun ChatMessagePair(
             ProfileAttributionPalette.foreground(identity, attributionSurface)
         }
     }
+    LaunchedEffect(combinedIdentities, attributionColors, attributionSurface) {
+        if (combinedMode && dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.enabled == true) {
+            combinedIdentities.forEach { (uid, identity) ->
+                val color = attributionColors.getValue(uid)
+                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("CombinedPalette", "DISPLAY_COLOUR · profile=$uid · marker=${identity.marker} · hue=${identity.hue} · foreground=$color · background=$attributionSurface · contrast=${ProfileAttributionPalette.contrast(color, attributionSurface)}")
+            }
+        }
+    }
     val hasCombinedTabs = combinedMode && (combinedSynthesisIndex >= 0 || combinedProfiles.size > 1)
     val selectedProfile = combinedProfiles.firstOrNull { it.uid == selectedCombinedProfileUid }.takeIf { hasCombinedTabs }
     val isSourceResponse = selectedProfile != null
@@ -1491,10 +1504,10 @@ private fun ChatMessagePair(
                     } else {
                         null
                     },
-                    splitForPassageIndicators = showCombinedTextMatches,
+                    splitForPassageIndicators = hasCombinedTabs && selectedProfile == null,
                     passageIndicators = { segment ->
-                        if (showCombinedTextMatches) {
-                            CombinedPassageIndicators(segment, assistantMessages.getOrNull(combinedSynthesisIndex)?.effectiveCombinedSources().orEmpty(), combinedIdentities, onCombinedProfileClick)
+                        if (hasCombinedTabs && selectedProfile == null) {
+                            CombinedPassageIndicators(segment, assistantMessages.getOrNull(combinedSynthesisIndex)?.effectiveCombinedSources().orEmpty(), combinedIdentities, debug = showCombinedTextMatches, onOpenContribution = onCombinedProfileClick)
                         }
                     },
                     articleCards = { segment ->

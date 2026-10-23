@@ -33,6 +33,7 @@ internal fun CombinedPassageIndicators(
     passage: String,
     sources: List<CombinedModelResponse>,
     identities: Map<String, ProfileColorIdentity>,
+    debug: Boolean = false,
     onOpenContribution: (String) -> Unit
 ) {
     val snapshot by produceState<PassageIndicatorSnapshot?>(null, passage, sources) {
@@ -48,9 +49,10 @@ internal fun CombinedPassageIndicators(
     }
     val matches = snapshot?.takeIf { it.passage == passage && it.sources == sources }?.matches.orEmpty()
     Column {
-        matches.forEach { (sentence, profiles) ->
-            Text(stringResource(R.string.combined_text_match_passage, sentence.take(72)), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        matches.filter { debug || it.second.size > 1 }.forEach { (sentence, profiles) ->
+            if (debug) Text(stringResource(R.string.combined_text_match_passage, sentence.take(72)), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(Modifier.horizontalScroll(rememberScrollState())) {
+                if (!debug) Text("Shared", style = MaterialTheme.typography.labelSmall)
                 profiles.forEach { uid ->
                     val source = sources.singleOrNull { it.platformUid == uid }
                     val identity = identities[uid]

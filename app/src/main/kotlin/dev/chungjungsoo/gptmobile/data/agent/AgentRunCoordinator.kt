@@ -374,6 +374,7 @@ class AgentRunCoordinator @Inject constructor(
             val profile = profiles[run.profileUid] ?: continue
             if (!sameGatewayEndpoint(profile.apiUrl, baseUrl)) continue
 
+            AppLogRecorder.record("CombinedRetry", "RECOVERY_INSPECTION · initiator=AUTOMATIC_RECOVERY · runId=${run.runId} · profileUid=${run.profileUid} · action=INSPECT_SAVED_JOB")
             val recoveryAgeSeconds = gatewayRecoveryAgeSeconds(run, nowSeconds)
             if (gatewayRecoveryExpired(run, nowSeconds)) {
                 val token = dev.chungjungsoo.gptmobile.data.network.ApiCredentialRotator

@@ -14,8 +14,14 @@ object ProfileColorRegistry {
         var marker = (existing.values.maxOfOrNull { it.marker } ?: 0).coerceAtLeast(0)
         profileUids.distinct().sorted().filter { it !in result }.forEach { uid ->
             val initial = (researchHash(uid).take(8).toLong(16) % 360).toInt()
-            // Coprime step visits every hue; existing assignments never move when profiles change.
-            val hue = (0 until 360).map { (initial + it * 137) % 360 }.firstOrNull { it !in used } ?: initial
+            // Farthest-point assignment separates new identities while preserving every saved hue.
+            // The hash only breaks ties; removal/reordering never renumbers existing markers.
+            val hue = (0 until 360).map { (initial + it) % 360 }.maxByOrNull { candidate ->
+                used.minOfOrNull { prior ->
+                    val distance = kotlin.math.abs(candidate - ((prior % 360 + 360) % 360))
+                    minOf(distance, 360 - distance)
+                } ?: 360
+            } ?: initial
             marker = Math.addExact(marker, 1)
             result[uid] = ProfileColorIdentity(hue = hue, marker = marker)
             used += hue

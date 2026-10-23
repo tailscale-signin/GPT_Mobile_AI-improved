@@ -64,6 +64,39 @@ class CombinedSynthesisPlannerTest {
         coVerify(exactly = 1) { chats.persistAgentRetry(any()) }
     }
 
+    @Test fun failedTerminalHelperCannotHoldUpUsableContributions() = runTest {
+        fixture("FAILED")
+        val requested = CombinedPolicyResolver.accept(dev.chungjungsoo.gptmobile.data.model.ConversationCombinedSettings(), listOf("p", "h"), mapOf("p" to "m", "h" to "m"), user.content, singlePass = true)
+        val execution = CombinedExecutionContext(requested, CombinedPolicyResolver.resolve(requested), "root", chatId = 1)
+        val accepted = CombinedAcceptedTurn(context = execution, tools = ChatMcpToolConfig(combined = execution))
+        coEvery { chats.combinedActiveMembers(1) } returns setOf("p", "h")
+        every { chats.observeAgentRuns(1) } returns flowOf(
+            listOf(
+                AgentRun("p-run", 1, 2, 3, "p", "CUSTOM", "m", "COMPLETED", synthesisSnapshot = accepted.encode()),
+                AgentRun("h-run", 1, 2, 4, "h", "CUSTOM", "m", "FAILED", synthesisSnapshot = accepted.encode())
+            )
+        )
+        coEvery { settings.fetchPlatformV2s() } returns listOf(dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2(uid = "p", name = "Primary", enabled = true, model = "m"))
+        coEvery { research.exportTurn(1, any(), any()) } returns emptyList()
+        every { chats.observeToolEvents(1) } returns flowOf(emptyList())
+        coEvery { chats.persistAgentRetry(any()) } answers {
+            val request = firstArg<dev.chungjungsoo.gptmobile.data.database.entity.PersistAgentRetryRequest>()
+            assertTrue(request.freezeCombinedSources)
+            val assistant = request.assistantMessage.copy(content = "", currentRunId = request.run.runId)
+            dev.chungjungsoo.gptmobile.data.database.entity.PersistAgentRetryResult(
+                assistant,
+                AgentRun(request.run.runId, 1, 2, 3, "p", "CUSTOM", "m", synthesisKey = request.run.synthesisKey, synthesisSnapshot = request.run.synthesisSnapshot)
+            )
+        }
+        val next = planner.prepare(1, 2, "root")
+        assertNotNull(next)
+        assertEquals("p", next!!.platform.uid)
+        assertEquals(CombinedRunRole.SYNTHESIS, next.chatToolConfig?.combined?.role)
+        assertTrue(next.assistantMessages.last().isEmpty())
+        assertEquals(2, next.userMessages.last().id)
+        coVerify(exactly = 1) { chats.persistAgentRetry(any()) }
+    }
+
     @Test fun participantBarrierUsesPersistedRunsBeforeAnySynthesisPreparation() = runTest {
         fixture()
         assertNull(planner.prepare(1, 2, "root"))

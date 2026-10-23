@@ -70,14 +70,26 @@ internal object CombinedFinalCheck {
 
         val sourceAssessments = inventory.associate { claim -> claim.id to CombinedEvidenceVerifier.assess(claim.id, claim.proposition, evidence) }
         val matches = inventory.associate { claim ->
-            claim.id to destinations.filter { (text, _) ->
-                CombinedClaimSemantics.lostQualifiers(claim.qualifiers, CombinedClaimSemantics.qualifiers(text)).isEmpty() &&
-                    (
-                        CombinedContentCoverage.normalized(claim.proposition) == CombinedContentCoverage.normalized(text) ||
-                            CombinedClaimMatcher.match(claim.proposition, text) >= CombinedClaimMatcher.Match.PARAPHRASE
-                        )
-            }.map { it.second }
+            claim.id to destinations.flatMap { (text, span) ->
+                fun aligned(value: String): Boolean = CombinedClaimSemantics.lostQualifiers(claim.qualifiers, CombinedClaimSemantics.qualifiers(value)).isEmpty() &&
+                    CombinedClaimMatcher.match(claim.proposition, value) >= CombinedClaimMatcher.Match.PARAPHRASE
+                val clauses = CombinedClaimClauses.spans(text).filter { aligned(it.text) }
+                if (clauses.isNotEmpty()) {
+                    clauses.map { clause ->
+                        if (clauses.size == 1 && text.take(clause.start).none(Char::isLetterOrDigit) && text.drop(clause.end).none(Char::isLetterOrDigit)) {
+                            span
+                        } else {
+                            CombinedCoverageLink(span.startUtf16 + clause.start, span.startUtf16 + clause.end, dev.chungjungsoo.gptmobile.data.research.researchHash(clause.text))
+                        }
+                    }
+                } else if (aligned(text)) {
+                    listOf(span)
+                } else {
+                    emptyList()
+                }
+            }
         }
+
         val corrections = inventory.associate { claim ->
             claim.id to if (sourceAssessments[claim.id]?.result == "CONFLICTING_PASSAGES") {
                 destinations.filter { (text, _) ->
@@ -105,7 +117,9 @@ internal object CombinedFinalCheck {
                 emptyList()
             }
             val outputs = (claim?.let { matches[it.id] }.orEmpty() + correctedOrDisputed).distinct().filter { span ->
-                declaration.finalQuote.isBlank() || answer.substring(span.startUtf16, span.endUtf16).contains(declaration.finalQuote)
+                declaration.finalQuote.isBlank() ||
+                    answer.substring(span.startUtf16, span.endUtf16).contains(declaration.finalQuote) ||
+                    answer.lastIndexOf(declaration.finalQuote, span.startUtf16).let { quoteStart -> quoteStart >= 0 && quoteStart + declaration.finalQuote.length >= span.endUtf16 }
             }
             val linksRequired = declaration.disposition in setOf("INCLUDED", "MERGED", "QUALIFIED", "DISPUTED", "CORRECTED")
             if (claim == null || linksRequired && outputs.isEmpty() || declaration.disposition == "MERGED" && declaration.finalQuote.isBlank()) {

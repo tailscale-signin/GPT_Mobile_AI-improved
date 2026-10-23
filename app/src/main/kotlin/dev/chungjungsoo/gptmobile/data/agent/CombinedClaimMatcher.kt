@@ -28,7 +28,7 @@ internal object CombinedClaimMatcher {
     private val contraction = Regex("\\b([\\p{L}]+)n't\\b")
     private val bound = Regex("\\b(at least|at most|more than|less than|no more than|no less than)\\b")
     private val stop = setOf(
-        "a", "an", "and", "are", "as", "at", "be", "been", "by", "for", "from", "has",
+        "a", "an", "and", "also", "but", "however", "are", "as", "at", "be", "been", "by", "for", "from", "has",
         "have", "in", "into", "is", "it", "its", "of", "on", "or", "our", "that", "the",
         "their", "them", "there", "these", "this", "those", "to", "was", "were", "which",
         "while", "who", "with", "would", "not", "no", "never", "without", "only", "can",
@@ -94,14 +94,19 @@ internal object CombinedClaimMatcher {
     }
 
     /** Subject-preserving alignment; never compare contradictory numbers or reversed polarity. */
-    fun match(source: Fingerprint, answer: Fingerprint): Match {
-        if (CombinedClaimSemantics.lostQualifiers(source.qualifiers, answer.qualifiers).isNotEmpty()) return Match.NONE
-        if (source.negative != answer.negative) return Match.NONE
-        if (source.hedged && !answer.hedged) return Match.NONE
-        if (source.restrictions != answer.restrictions) return Match.NONE
+    fun compatible(source: Fingerprint, answer: Fingerprint): Boolean {
+        if (CombinedClaimSemantics.lostQualifiers(source.qualifiers, answer.qualifiers).isNotEmpty()) return false
+        if (source.negative != answer.negative) return false
+        if (source.hedged && !answer.hedged) return false
+        if (source.restrictions != answer.restrictions) return false
         // A bag of numbers loses their associations (12 homes / 14 schools vs the reverse).
         // Ambiguous reorderings remain unresolved instead of silently proving coverage.
-        if (source.numbers.isNotEmpty() && source.orderedNumbers != answer.orderedNumbers) return Match.NONE
+        if (source.numbers.isNotEmpty() && source.orderedNumbers != answer.orderedNumbers) return false
+        return true
+    }
+
+    fun match(source: Fingerprint, answer: Fingerprint): Match {
+        if (!compatible(source, answer)) return Match.NONE
         val overlap = source.terms.intersect(answer.terms).size
         val exact = source.ordered.isNotBlank() &&
             (" " + source.ordered + " " in " " + answer.ordered + " ") &&
@@ -116,7 +121,15 @@ internal object CombinedClaimMatcher {
         }
     }
 
-    fun match(source: String, answer: String): Match = match(fingerprint(source), fingerprint(answer))
+    fun match(source: String, answer: String): Match {
+        val sourceFingerprint = fingerprint(source)
+        val direct = match(sourceFingerprint, fingerprint(answer))
+        if (direct >= Match.PARAPHRASE) return direct
+        // Keep strict number/qualifier checks on each candidate clause. Never compare
+        // number sets across a merged sentence or relax date associations globally.
+        return CombinedClaimClauses.spans(answer).maxOfOrNull { match(sourceFingerprint, fingerprint(it.text)) }
+            ?.let { maxOf(direct, it) } ?: direct
+    }
 
     /**
      * Flag disputes for the final editor's evidence check. A different number is not by

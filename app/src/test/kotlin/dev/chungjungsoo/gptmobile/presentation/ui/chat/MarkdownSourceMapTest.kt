@@ -55,7 +55,7 @@ class MarkdownSourceMapTest {
     }
 
     @Test
-    fun `model passage labels can suppress uncertain unique wording`() {
+    fun `unverified passage labels cannot erase established unique wording`() {
         val sentence = "Silver mines funded public works and naval power in ancient Athens."
         val rows = listOf(dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse("one", "One", content = sentence))
         val (markdown, map) = mapped(sentence)
@@ -68,7 +68,27 @@ class MarkdownSourceMapTest {
             )
         )
 
-        assertTrue(map.wordingSpans(sentence, markdown, rows, declaredShared).isEmpty())
+        val supported = map.wordingSpans(sentence, markdown, rows, declaredShared)
+        assertTrue(supported.isNotEmpty())
+        assertTrue(supported.all { it.profileUids == setOf("one") })
+    }
+
+    @Test
+    fun `shared paragraph labels retain independently supported clause colours`() {
+        val first = "Bartolomeu Dias rounded the Cape of Good Hope in 1488."
+        val second = "Vasco da Gama reached India in 1498."
+        val answer = first.dropLast(1) + ", and " + second
+        val sources = listOf(
+            dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse("dias", "Dias", content = first),
+            dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse("gama", "Gama", content = second)
+        )
+        val passage = dev.chungjungsoo.gptmobile.data.agent.CombinedPassageRecord(0, answer.length, researchHash(answer), setOf("dias", "gama"), semanticLinkStatus = "CONSERVATIVE_LINK_CHECKED")
+        val (markdown, map) = mapped(answer)
+        val spans = map.wordingSpans(answer, markdown, sources, listOf(passage), includeShared = true)
+        assertEquals(setOf("dias", "gama"), spans.map { it.profileUid }.toSet())
+        assertTrue(spans.all { it.profileUids.size == 1 })
+        val shared = map.wordingSpans(answer, markdown, sources + sources[1].copy(platformUid = "gama-peer"), includeShared = true)
+        assertTrue(shared.any { it.profileUids == setOf("gama", "gama-peer") })
     }
 
     @Test

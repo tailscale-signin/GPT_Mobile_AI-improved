@@ -145,6 +145,38 @@ fun ChatMarkdown(
     val clipboardContext = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
     val displayMathNonce = remember(contentIdentity) { UUID.randomUUID().toString().replace("-", "") }
+    var attributionSelection by remember(contentIdentity) { mutableStateOf<Pair<String, Set<String>>?>(null) }
+    attributionSelection?.let { (passage, owners) ->
+        val matchingSources = wording?.sources.orEmpty().filter { it.platformUid in owners }
+        val sourceExcerpts by androidx.compose.runtime.produceState<Map<String, List<String>>>(emptyMap(), passage, matchingSources) {
+            value = withContext(Dispatchers.Default) {
+                matchingSources.associate { source ->
+                    source.platformUid to dev.chungjungsoo.gptmobile.data.agent.CombinedClaimClauses.spans(source.content).filter { clause ->
+                        dev.chungjungsoo.gptmobile.data.agent.CombinedClaimMatcher.match(passage, clause.text) >= dev.chungjungsoo.gptmobile.data.agent.CombinedClaimMatcher.Match.POSSIBLE ||
+                            passage.trim().length >= 3 &&
+                            clause.text.contains(passage.trim(), ignoreCase = true)
+                    }.take(3).map { it.text }
+                }
+            }
+        }
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { attributionSelection = null },
+            title = { androidx.compose.material3.Text(if (owners.size > 1) "Shared contribution" else "Contributing profile") },
+            text = {
+                androidx.compose.foundation.lazy.LazyColumn {
+                    item { androidx.compose.material3.Text(passage) }
+                    matchingSources.forEach { source ->
+                        item {
+                            androidx.compose.material3.Text(source.platformName, style = MaterialTheme.typography.titleSmall)
+                            sourceExcerpts[source.platformUid].orEmpty().forEach { androidx.compose.material3.Text(it, style = MaterialTheme.typography.bodySmall) }
+                        }
+                    }
+                    item { androidx.compose.material3.Text("Source wording links do not certify factual accuracy.", style = MaterialTheme.typography.labelSmall) }
+                }
+            },
+            confirmButton = { androidx.compose.material3.TextButton(onClick = { attributionSelection = null }) { androidx.compose.material3.Text("Close") } }
+        )
+    }
     var rendered by remember(contentIdentity) { mutableStateOf(PreparedChatMarkdown()) }
     var lastTraceAt by remember(contentIdentity) { mutableLongStateOf(0L) }
     val latestRequest = rememberUpdatedState(
@@ -183,7 +215,7 @@ fun ChatMarkdown(
                     val profileSpans = if (request.provenance != null && mapped != null) {
                         mapped.second.exclusiveSpans(request.content, combined, request.provenance.validated, request.provenance.corpusDigest, request.provenance.policyRevision)
                     } else if (wantsWording && mapped != null) {
-                        mapped.second.wordingSpans(request.content, combined, requireNotNull(request.wording).sources, request.wording.passages, request.wording.fullAnswer)
+                        mapped.second.wordingSpans(request.content, combined, requireNotNull(request.wording).sources, request.wording.passages, request.wording.fullAnswer, includeShared = true)
                     } else {
                         emptyList()
                     }
@@ -249,7 +281,10 @@ fun ChatMarkdown(
     val targetYellow = SuggestionHighlightManager.HIGHLIGHT_YELLOW
     val targetBg = SuggestionHighlightManager.HIGHLIGHT_TRANSLUCENT_BG
 
-    val annotator = remember(memoryRanges, rendered.profileIndex, provenance, wording, proseColor, inlineMathByPlaceholder, highlightSentence, highlightProgress, normalTextColor, hasStreamed, fadeClock, arrivalSegments.size) {
+    val sourceLinkRanges = remember(combinedMarkdown) {
+        Regex("""\[[^\]\n]*]\([^)\n]+\)|https?://[^\s<>]+""").findAll(combinedMarkdown).map { it.range }.toList()
+    }
+    val annotator = remember(sourceLinkRanges, memoryRanges, rendered.profileIndex, provenance, wording, proseColor, inlineMathByPlaceholder, highlightSentence, highlightProgress, normalTextColor, hasStreamed, fadeClock, arrivalSegments.size) {
         markdownAnnotator { source, child ->
             val text = source.substring(child.startOffset, child.endOffset)
             val hasMath = containsInlineMathPlaceholder(text)
@@ -270,7 +305,21 @@ fun ChatMarkdown(
                         val start = maxOf(startOffset, span.start)
                         val end = minOf(endOffset, span.end)
                         val color = (provenance?.profileColors ?: wording?.profileColors)?.get(span.profileUid)
-                        if (start < end && color != null) addStyle(SpanStyle(color = color), outputStart + start - startOffset, outputStart + end - startOffset)
+                        if (start < end) {
+                            val from = outputStart + start - startOffset
+                            val to = outputStart + end - startOffset
+                            if (color != null && span.profileUids.size == 1) addStyle(SpanStyle(color = color), from, to)
+                            // Keep existing citation/URL links in charge of their own tap targets.
+                            if (wording != null && sourceLinkRanges.none { it.first < child.endOffset && it.last >= child.startOffset }) {
+                                addLink(
+                                    androidx.compose.ui.text.LinkAnnotation.Clickable("combined:${span.start}:${span.end}") {
+                                        attributionSelection = combinedMarkdown.substring(span.start, span.end) to span.profileUids
+                                    },
+                                    from,
+                                    to
+                                )
+                            }
+                        }
                     }
                 }
                 true

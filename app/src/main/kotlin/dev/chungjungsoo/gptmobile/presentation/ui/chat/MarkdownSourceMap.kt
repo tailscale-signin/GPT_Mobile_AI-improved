@@ -33,14 +33,14 @@ data class CombinedWordingPresentation(
     val fullAnswer: String = ""
 )
 
-data class MappedProfileSpan(val start: Int, val end: Int, val profileUid: String)
+data class MappedProfileSpan(val start: Int, val end: Int, val profileUid: String, val profileUids: Set<String> = setOf(profileUid))
 
 data class MarkdownSourceMap(
     val answerDigest: String,
     val markdownDigest: String,
     val runs: List<MarkdownSourceRun>
 ) {
-    fun wordingSpans(original: String, markdown: String, sources: List<CombinedModelResponse>, passages: List<dev.chungjungsoo.gptmobile.data.agent.CombinedPassageRecord> = emptyList(), fullAnswer: String = original): List<MappedProfileSpan> {
+    fun wordingSpans(original: String, markdown: String, sources: List<CombinedModelResponse>, passages: List<dev.chungjungsoo.gptmobile.data.agent.CombinedPassageRecord> = emptyList(), fullAnswer: String = original, includeShared: Boolean = false): List<MappedProfileSpan> {
         if (answerDigest != researchHash(original) || markdownDigest != researchHash(markdown)) return emptyList()
         if (runs.any {
                 it.sourceStart < 0 ||
@@ -62,11 +62,11 @@ data class MarkdownSourceMap(
         val validPassages = if (fullAnswerOffset == null) emptyList() else passages.filter { it.matches(fullAnswer) }
         val wording = combinedWordingSpans(original, sources)
         val spans = wording.filter { span ->
-            val owner = span.profileUids.singleOrNull() ?: return@filter false
+            val owner = span.profileUids.singleOrNull() ?: return@filter includeShared
             val start = (fullAnswerOffset ?: 0) + span.start
             val end = (fullAnswerOffset ?: 0) + span.end
             validPassages.none { passage ->
-                passage.start < end && passage.end > start && passage.profileUids != setOf(owner)
+                passage.semanticLinkStatus == "CONSERVATIVE_LINK_CHECKED" && passage.start < end && passage.end > start && owner !in passage.profileUids
             }
         }
         val sourceUids = sources.map { it.platformUid }.toSet()
@@ -95,7 +95,7 @@ data class MarkdownSourceMap(
             runs.mapNotNull { run ->
                 val start = maxOf(span.start, run.sourceStart)
                 val end = minOf(span.end, run.sourceEnd)
-                if (start >= end) null else MappedProfileSpan(run.transformedStart + start - run.sourceStart, run.transformedStart + end - run.sourceStart, uid)
+                if (start >= end) null else MappedProfileSpan(run.transformedStart + start - run.sourceStart, run.transformedStart + end - run.sourceStart, uid, span.profileUids)
             }
         }
     }

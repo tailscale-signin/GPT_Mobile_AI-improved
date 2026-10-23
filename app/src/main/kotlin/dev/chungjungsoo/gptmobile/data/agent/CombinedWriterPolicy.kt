@@ -9,7 +9,12 @@ internal object CombinedWriterPolicy {
         val policy = CombinedAnswerPolicy.from(request)
         val words = policy.maximumWords ?: policy.targetWords ?: policy.minimumWords ?: if (CombinedTaskContract.from(request).action == "CONVERSATION") 30 else 500
         val observation = CombinedWriterObservations.get(CombinedWriterObservations.key(profile))
-        val reasoningReserve = if (observation?.reasoningDisabled in setOf("NOT_HONORED", "DISABLE_UNVERIFIED")) 2048 else 0
+        val reasoningReserve = when {
+            (observation?.reasoningTokensHighWater ?: 0) > 0 -> (observation!!.reasoningTokensHighWater.toLong() * 5 / 4 + 256).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+            observation?.reasoningDisabled in setOf("NOT_HONORED", "DISABLE_UNVERIFIED") -> 4096
+            observation?.reasoningDisabled == "OBSERVED_NO_REASONING" && observation.completeAnswers > 0 -> 0
+            else -> 4096
+        }
         return maxOf((words * 2.2 + 512 + reasoningReserve).toLong(), observation?.minimumUsefulOutputAllowance?.toLong() ?: 0L, observation?.stalledOutputAllowance?.toLong()?.plus(512) ?: 0L).coerceIn(768, Int.MAX_VALUE.toLong()).toInt()
     }
     fun unavailableReason(profile: PlatformV2, request: String, inputTokens: Int = 0): String? {
@@ -28,7 +33,7 @@ internal object CombinedWriterPolicy {
         .filter { CombinedProviderEligibility.unavailableReason(it, request, writer = true) == null && unavailableReason(it, request, inputTokens) == null }
         .sortedWith(
             compareBy<PlatformV2> {
-                CombinedWriterObservations.get(CombinedWriterObservations.key(it))?.let { o -> o.reasoningOnlyAttempts * 4 + o.malformedAttempts * 5 + o.emptyAttempts * 3 + o.queueDelays * 5 } ?: 0
-            }.thenBy { it.uid != preferredUid }.thenByDescending { CombinedWriterObservations.get(CombinedWriterObservations.key(it))?.completedPassages ?: 0 }.thenBy { it.name.lowercase() }.thenBy { it.uid }
+                CombinedWriterObservations.get(CombinedWriterObservations.key(it))?.let { o -> o.reasoningOnlyAttempts * 4 + o.malformedAttempts * 5 + o.emptyAttempts * 3 + o.queueDelays * 5 + o.incompleteAnswers * 3 } ?: 0
+            }.thenBy { it.uid != preferredUid }.thenByDescending { CombinedWriterObservations.get(CombinedWriterObservations.key(it))?.completeAnswers ?: 0 }.thenBy { it.name.lowercase() }.thenBy { it.uid }
         )
 }

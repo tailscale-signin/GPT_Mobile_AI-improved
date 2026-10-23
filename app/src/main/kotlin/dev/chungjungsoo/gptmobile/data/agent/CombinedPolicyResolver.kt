@@ -66,7 +66,7 @@ object CombinedPolicyResolver {
         // PASSAGES_V3 includes decision and framing records in the provider output cap.
         // This capacity never changes the visible word contract or an explicit caller cap.
         val recordAllowance = maxOf(512L, visibleGuide / 3) + minOf(1024L, (requested.acceptedResearch?.sourceGoal ?: 0L) * 64L)
-        val reasoningReserve = 2048L
+        val reasoningReserve = 4096L
         val requestedFinal = requiredOutputTokens?.coerceAtLeast(1)
             ?: Math.addExact(visibleGuide, recordAllowance + reasoningReserve).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
         val input = estimatedInputTokens.toLong().coerceAtLeast(256)
@@ -76,10 +76,11 @@ object CombinedPolicyResolver {
         // not just the original user prompt. Reserve these inputs before dispatching workers.
         val editorialInput = if (requested.acceptedResearch != null) Math.addExact(input, Math.addExact(Math.multiplyExact(requested.participantUids.size.toLong(), draftOutput.toLong()), 8000L)) else input
         val finalInput = minOf(editorialInput, hardLimits.inputTokens ?: Long.MAX_VALUE)
-        // Protect a feasible final before admitting initial contributors. One correction is sealed.
+        // Single-pass turns cannot spend a second generation; protect exactly one writer.
+        val finalPasses = if (requested.singlePass) 1 else 2
         val proposedFinalReserve = CombinedResourceQuota(
-            minOf(finalInput * 2, hardLimits.inputTokens ?: Long.MAX_VALUE),
-            minOf(finalTokens * 2, availableOutput),
+            minOf(finalInput * finalPasses, hardLimits.inputTokens ?: Long.MAX_VALUE),
+            minOf(finalTokens * finalPasses, availableOutput),
             0
         )
         val totalCeiling = hardLimits.totalTokens ?: Long.MAX_VALUE

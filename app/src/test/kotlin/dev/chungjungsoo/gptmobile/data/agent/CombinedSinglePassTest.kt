@@ -20,6 +20,11 @@ class CombinedSinglePassTest {
         return CombinedExecutionContext(requested, CombinedPolicyResolver.resolve(requested), "single-root", profileUid = "p")
     }
 
+    @Test fun singlePassReservesOneWriterInsteadOfAnUnusedRewrite() {
+        val plan = context().plan!!
+        assertEquals(plan.finalOutputTokens.toLong(), plan.finalizationReserve.generatedTokens)
+    }
+
     @Test fun concurrentPrimaryDispatchAndRestorationPermitOnlyOnePhysicalRequest() = runTest {
         val ctx = context().forRole(CombinedRunRole.SYNTHESIS)
         val budget = CombinedTurnBudgetStore.inMemory().open(ctx)

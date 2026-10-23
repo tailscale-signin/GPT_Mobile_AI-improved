@@ -155,7 +155,7 @@ internal fun CombinedContributionInspector(
                         Text(stringResource(R.string.combined_support_class, selected.supportClass.name), style = MaterialTheme.typography.titleMedium)
                         Text(stringResource(R.string.combined_comparison_coverage, selected.compared, selected.expected))
                         if (selected.supportClass == ClaimSupportClass.UNKNOWN) Text(stringResource(R.string.combined_support_unknown))
-                        CombinedPassageIndicators(selected.text, sources, identities) { uid ->
+                        CombinedPassageIndicators(selected.text, sources, identities, debug = true) { uid ->
                             open = false
                             onOpenContribution(uid)
                         }

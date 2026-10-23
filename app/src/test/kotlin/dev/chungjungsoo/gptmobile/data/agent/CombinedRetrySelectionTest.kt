@@ -62,7 +62,7 @@ class CombinedRetrySelectionTest {
         assertEquals(old.content, preserveCombinedRetrySelection(current, candidate().copy(content = "Changed after validation"), run, "COMPLETED").effectiveContent())
     }
 
-    @Test fun committedV3PassageRemainsVisibleAfterFailureWithoutClaimingCompletion() {
+    @Test fun shorterCommittedV3CandidateDoesNotReplacePriorCombinedAnswer() {
         val partial = candidate(complete = false).let { candidate ->
             val report = requireNotNull(candidate.timeline.single().combinedQuality).copy(
                 passages = listOf(CombinedPassageRecord(0, candidate.content.length, researchHash(candidate.content), setOf("p")))
@@ -71,7 +71,7 @@ class CombinedRetrySelectionTest {
         }
         val staged = run.copy(synthesisSnapshot = Json.encodeToString(CombinedInputSnapshot.serializer(), snapshot.copy(deliveryProtocol = "PASSAGES_V3")))
         val retained = preserveCombinedRetrySelection(current, partial, staged, "FAILED")
-        assertEquals(partial.content, retained.effectiveContent())
+        assertEquals(old.content, retained.effectiveContent())
         assertEquals(false, retained.timeline.single().combinedQuality?.complete)
         assertEquals("PARTIAL", retained.timeline.single().combinedQuality?.deliveredScopeStatus)
         assertEquals(old, retained.revisions.single())
@@ -94,10 +94,13 @@ class CombinedRetrySelectionTest {
     }
 
     @Test fun aPromotedV3PassageStaysSelectedWhenLaterCallbacksCarryTheOldSelection() {
+        val old = old.copy(runId = "contributor:first")
+        val current = current.copy(revisions = listOf(old))
         val staged = run.copy(synthesisSnapshot = Json.encodeToString(CombinedInputSnapshot.serializer(), snapshot.copy(deliveryProtocol = "PASSAGES_V3")))
         val stale = candidate(complete = false).let { candidate ->
             candidate.copy(
                 activeRevisionIndex = current.activeRevisionIndex,
+                revisions = current.revisions,
                 timeline = listOf(
                     candidate.timeline.single().copy(
                         combinedQuality = requireNotNull(candidate.timeline.single().combinedQuality).copy(

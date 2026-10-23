@@ -319,6 +319,7 @@ class ChatRepositoryImpl(
         val resolved = dev.chungjungsoo.gptmobile.data.agent.CombinedPolicyResolver.resolve(
             execution.requested,
             estimatedInputTokens = estimatedInput,
+            requiredOutputTokens = profiles.filter { dev.chungjungsoo.gptmobile.data.agent.CombinedProviderEligibility.unavailableReason(it, execution.requested.userPrompt, writer = true) == null }.maxOfOrNull { dev.chungjungsoo.gptmobile.data.agent.CombinedWriterPolicy.requiredOutput(execution.requested.userPrompt, it) },
             toolsAllowed = allowed,
             hardLimits = dev.chungjungsoo.gptmobile.data.agent.CombinedHardLimits(
                 totalTokens = limits.totalRunTokens.takeIf { it != Int.MAX_VALUE }?.toLong(),
@@ -2644,7 +2645,9 @@ class ChatRepositoryImpl(
         settings: dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings
     ): dev.chungjungsoo.gptmobile.data.context.ContextPlan =
         if (synthesisRun) {
-            dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.planFullInputOrMultipass(turns, prompt, settings, combined)
+            val output = listOfNotNull(settings.outputTokens.takeIf { it > 0 }, combined?.plan?.outputTokens(combined.role)).minOrNull()
+            val fullSettings = output?.let { settings.copy(outputTokens = it) } ?: settings
+            dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.planFullInputOrMultipass(turns, prompt, fullSettings, combined)
         } else {
             if (platform.compatibleType == ClientType.LITERT_LM) {
                 val task = turns.lastOrNull { it.isCurrentTurn }?.userMessage?.effectiveContent().orEmpty()
@@ -4169,7 +4172,7 @@ class ChatRepositoryImpl(
                 dev.chungjungsoo.gptmobile.data.agent.ToolBatchCheckpoint.forTurn(context.filesDir, user.chatId, "${user.chatId}:${user.id}:${platform.uid}:${dispatchAuthority.revision}", persistent = agentPersistenceDao.getChatRoom(user.chatId)?.isTemporary == false)
             }
         ).run(advertisedSession, executableTools, dynamicTools = { effectiveTools.flatMap { it.dynamicTools?.invoke().orEmpty() }.map { it.tool } }, selectDefinitions = { definitions -> catalog?.selected(definitions) ?: definitions })
-        streamAgentEvents(agentEvents, platform, runId, resolvedTools.size, trace, chatToolConfig?.combined != null).collect { send(it) }
+        streamAgentEvents(agentEvents, platform, runId, resolvedTools.size, trace, chatToolConfig?.combined != null, resolvedOutputCap).collect { send(it) }
     }
 
     private suspend fun followUpInbox(
@@ -4221,8 +4224,12 @@ class ChatRepositoryImpl(
         runId: String,
         selectedToolCount: Int,
         trace: ToolTraceSession,
-        retainGenerationReceipt: Boolean = false
+        retainGenerationReceipt: Boolean = false,
+        outputAllowance: Int? = null
     ): Flow<ApiState> = flow {
+        val editorialPass = runId.startsWith("combined-synthesis:")
+        val capKey = dev.chungjungsoo.gptmobile.data.agent.CombinedWriterObservations.key(platform)
+        var resolvedOutputCap = outputAllowance
         dev.chungjungsoo.gptmobile.data.diagnostics.FrameTimingRecorder.phase(runId, "streaming")
         val progressTracker = dev.chungjungsoo.gptmobile.data.agent.ToolProgressTracker()
         val progressParser = dev.chungjungsoo.gptmobile.data.agent.PublicProgressParser()
@@ -4298,7 +4305,10 @@ class ChatRepositoryImpl(
                         }
                     }
 
-                    is ProviderEvent.CombinedQuality -> emit(ApiState.CombinedQuality(providerEvent.report))
+                    is ProviderEvent.CombinedQuality -> {
+                        if (editorialPass) dev.chungjungsoo.gptmobile.data.agent.CombinedWriterObservations.recordDelivery(capKey, providerEvent.report, resolvedOutputCap)
+                        emit(ApiState.CombinedQuality(providerEvent.report))
+                    }
                     is ProviderEvent.Failed -> {
                         val recovery = if (runId.startsWith("combined-synthesis:")) dev.chungjungsoo.gptmobile.data.agent.CombinedRecoveryFailure.from(providerEvent) else null
                         recovery?.let { dev.chungjungsoo.gptmobile.data.agent.CombinedWriterObservations.recordFailure(dev.chungjungsoo.gptmobile.data.agent.CombinedWriterObservations.key(platform), it.category) }
@@ -4310,8 +4320,15 @@ class ChatRepositoryImpl(
                         emit(ApiState.PhaseChanged(providerEvent.phase, providerEvent.nativeProgress))
                     }
                     is ProviderEvent.LocalMetrics -> Unit
-                    is ProviderEvent.RequestConfigured -> if (retainGenerationReceipt) emit(ApiState.TokenUsage(null, null, null, outputAllowance = providerEvent.serializedOutputTokens ?: providerEvent.effectiveOutputTokens))
+                    is ProviderEvent.RequestConfigured -> {
+                        resolvedOutputCap = providerEvent.serializedOutputTokens ?: providerEvent.effectiveOutputTokens ?: outputAllowance
+                        if (retainGenerationReceipt) emit(ApiState.TokenUsage(null, null, null, outputAllowance = resolvedOutputCap))
+                    }
                     is ProviderEvent.Usage -> {
+                        if (editorialPass) {
+                            dev.chungjungsoo.gptmobile.data.agent.CombinedWriterObservations.recordUsage(capKey, providerEvent.reasoningTokens)
+                            AppLogRecorder.record("CombinedWriter", "WRITER_USAGE · runId=$runId · allowReasoning=false · reasoningTokens=${providerEvent.reasoningTokens ?: -1} · outputTokens=${providerEvent.outputTokens ?: -1} · outputAllowance=$resolvedOutputCap · finish=${providerEvent.finishReason.orEmpty()}")
+                        }
                         if (providerEvent.inputTokens != null || providerEvent.outputTokens != null || providerEvent.totalTokens != null || retainGenerationReceipt && providerEvent.finishReason != null) {
                             emit(ApiState.TokenUsage(providerEvent.inputTokens, providerEvent.outputTokens, providerEvent.totalTokens, providerEvent.finishReason.takeIf { retainGenerationReceipt }))
                         }

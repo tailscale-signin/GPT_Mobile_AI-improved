@@ -145,8 +145,12 @@ class MarkdownSourceMapTest {
         assertTrue(coloured.contains("[a link](https://example.org)"))
         assertTrue(coloured.contains("| é | שלום |"))
         assertTrue(spans.all { it.profileUid == "one" })
-        assertTrue(map.wordingSpans(source, markdown, rows, listOf(passage.copy(profileUids = setOf("one", "two"))), source).isEmpty())
+        val sharedLabels = map.wordingSpans(source, markdown, rows, listOf(passage.copy(profileUids = setOf("one", "two"))), source)
+        assertTrue(sharedLabels.isNotEmpty())
+        assertTrue(sharedLabels.all { it.profileUids == setOf("one") })
         assertTrue(map.wordingSpans(source, markdown, rows, listOf(passage.copy(profileUids = setOf("unknown"))), source).isEmpty())
-        assertTrue(map.wordingSpans(source, markdown, rows, listOf(passage, passage.copy(profileUids = setOf("one", "two"))), source).isEmpty())
+        val overlappingLabels = map.wordingSpans(source, markdown, rows, listOf(passage, passage.copy(profileUids = setOf("one", "two"))), source)
+        assertTrue(overlappingLabels.isNotEmpty())
+        assertTrue(overlappingLabels.all { it.profileUids == setOf("one") })
     }
 }

@@ -60,7 +60,11 @@ data class MarkdownSourceMap(
             start >= 0 && fullAnswer.indexOf(original, start + 1) < 0
         }
         val validPassages = if (fullAnswerOffset == null) emptyList() else passages.filter { it.matches(fullAnswer) }
-        val wording = combinedWordingSpans(original, sources)
+        // Math placeholders and removed metadata have no prose source run. Mask those
+        // gaps without moving UTF-16 offsets so their numbers cannot invalidate a claim.
+        val prose = CharArray(original.length) { if (original[it] == '\n') '\n' else ' ' }
+        runs.forEach { run -> original.toCharArray(prose, run.sourceStart, run.sourceStart, run.sourceEnd) }
+        val wording = combinedWordingSpans(String(prose), sources)
         val spans = wording.filter { span ->
             val owner = span.profileUids.singleOrNull() ?: return@filter includeShared
             val start = (fullAnswerOffset ?: 0) + span.start

@@ -65,6 +65,7 @@ class ApiStateFlowExtensionsTest {
         assertTrue(result is ApiStateFlowOutcome.Failed)
         val restored = kotlinx.serialization.json.Json.decodeFromString<AssistantTimelineItem>(kotlinx.serialization.json.Json.encodeToString(AssistantTimelineItem.serializer(), saved.single()))
         assertEquals(block, restored.recoveryBlock)
+        assertTrue(restored.profileFailure != null)
         val history = listOf(MessageV2(id = 2, chatId = 7, content = "", platformType = "writer", timeline = listOf(restored)))
         assertEquals(block, dev.chungjungsoo.gptmobile.data.agent.recoveryBlock("7:1", "generation-1", "destination", "policy-1", listOf("source:S1:v1"), history, "RETRY_FAILED_STAGE"))
         val retry = dev.chungjungsoo.gptmobile.data.agent.recoveryBlock("7:1", "generation-2", "destination", "policy-1", listOf("source:S1:v1"), history, "RETRY_FAILED_STAGE")
@@ -73,6 +74,15 @@ class ApiStateFlowExtensionsTest {
         val changed = dev.chungjungsoo.gptmobile.data.agent.recoveryBlock("7:1", "generation-2", "destination", "policy-2", listOf("source:S1:v1"), history, "RETRY_FAILED_STAGE")
         assertTrue(block.fingerprint != changed.fingerprint)
         assertEquals(1, changed.attemptCount)
+    }
+
+    @Test fun structuredFailurePublishesAfterTheLastTextCheckpoint() = runBlocking {
+        var saved = emptyList<AssistantTimelineItem>()
+        val result = flowOf(ApiState.Success("Partial answer"), ApiState.Error("Rate limited. Next eligible retry: 2026-10-24T00:00:00Z"))
+            .collectApiStateUpdates(onUpdate = { _, _, timeline -> saved = timeline })
+        assertTrue(result is ApiStateFlowOutcome.Failed)
+        val failure = saved.single { it.profileFailure != null }.profileFailure!!
+        assertEquals(java.time.Instant.parse("2026-10-24T00:00:00Z").toEpochMilli(), failure.retryAfterMillis)
     }
 
     @Test
@@ -412,7 +422,8 @@ class ApiStateFlowExtensionsTest {
         val assistantContent = assistantMessage.content
         assertTrue(assistantContent.contains("Partial answer"))
         assertTrue(assistantContent.contains("[Response stopped: Request timed out.]"))
-        assertEquals(assistantContent, assistantMessage.timeline.single().content)
+        assertEquals(assistantContent, assistantMessage.timeline.single { it.type == AssistantTimelineItemType.TEXT }.content)
+        assertEquals("TIMEOUT", assistantMessage.timeline.single { it.profileFailure != null }.profileFailure?.category)
         assertEquals(ApiStateFlowOutcome.Failed("Request timed out."), outcome)
     }
 

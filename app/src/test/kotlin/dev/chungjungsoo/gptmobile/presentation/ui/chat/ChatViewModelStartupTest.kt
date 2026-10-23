@@ -161,7 +161,7 @@ class ChatViewModelStartupTest {
         messages.value = messages.value.map { if (it.platformType == "profile-1") it.copy(currentRunId = primary.runId, content = "Primary is writing") else it }
         activeRuns.value = mapOf(primary.runId to ActiveAgentRun(primary.runId, 7, primary.profileUid, primary.assistantMessageId))
         val model = createViewModel()
-        assertTrue(model.combinedFailures.value.isEmpty())
+        assertEquals(setOf("profile-2"), model.combinedFailures.value.map { it.profileUid }.toSet())
         assertEquals(ChatViewModel.LoadingState.Loading, model.loadingStates.value.first())
         assertEquals("Primary is writing", model.groupedMessages.value.assistantMessages.single().first().content)
         verify(exactly = 0) { coordinator.cancelRuns(any()) }

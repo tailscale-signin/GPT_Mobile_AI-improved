@@ -85,7 +85,8 @@ class CombinedLifecycleIntegrationTest {
     private lateinit var sessions: ResearchSessionStore
     private lateinit var repository: ChatRepositoryImpl
     private var profiles = (1..5).map { index ->
-        PlatformV2(uid = "p$index", name = "Profile $index", compatibleType = ClientType.CUSTOM, apiUrl = "https://model.example/v1", model = "model-$index", token = "fixture", maxTokens = 4096, disableAllTools = true, disableLocalTools = true)
+        // Unknown routes need room for visible prose, passage framing and reasoning.
+        PlatformV2(uid = "p$index", name = "Profile $index", compatibleType = ClientType.CUSTOM, apiUrl = "https://model.example/v1", model = "model-$index", token = "fixture", maxTokens = 8192, disableAllTools = true, disableLocalTools = true)
     }
     private val requests = mutableListOf<ChatCompletionRequest>()
     private var answer: suspend FlowCollector<ChatCompletionChunk>.(ChatCompletionRequest) -> Unit = { emitText("Ready.") }

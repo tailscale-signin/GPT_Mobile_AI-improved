@@ -66,7 +66,15 @@ internal fun preserveCombinedRetrySelection(current: MessageV2, candidate: Messa
         policyDistance(snapshot, candidate.content) < policyDistance(snapshot, priorCombined.content) &&
         scopeFailures(report) <= scopeFailures(priorReport) &&
         CombinedHistoryOutline.periods(candidate.content).containsAll(CombinedHistoryOutline.periods(priorCombined.content))
-    val promote = explicitReply ||
+    val committedReport = current.timeline.lastOrNull { it.combinedQuality != null }?.combinedQuality
+    val alreadyAccepted = current.activeRevisionIndex == ACTIVE_REVISION_LATEST &&
+        current.currentRunId == run.runId &&
+        current.content == candidate.content &&
+        committedReport?.complete == true &&
+        !committedReport.correctionRequired &&
+        committedReport.answerDigest == researchHash(current.content)
+    val promote = alreadyAccepted ||
+        explicitReply ||
         accepted &&
         (priorReport?.complete != true || scopeFailures(report) <= scopeFailures(priorReport)) ||
         committedPartial &&

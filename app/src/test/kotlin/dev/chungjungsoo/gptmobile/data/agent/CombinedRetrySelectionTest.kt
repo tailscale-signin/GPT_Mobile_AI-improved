@@ -58,6 +58,16 @@ class CombinedRetrySelectionTest {
         assertEquals(old, accepted.revisions.single())
     }
 
+    @Test fun acceptedCombinedCandidateCannotRevertOnLateMetadataCallbacks() {
+        val accepted = preserveCombinedRetrySelection(current, candidate(), run, "COMPLETED")
+        for (status in listOf(null, "COMPLETED", "FAILED", "INTERRUPTED")) {
+            val later = preserveCombinedRetrySelection(accepted, candidate().copy(activeRevisionIndex = 0), run, status)
+            assertEquals(ACTIVE_REVISION_LATEST, later.activeRevisionIndex)
+            assertEquals("Validated replacement", later.effectiveContent())
+        }
+        assertEquals(0, preserveCombinedRetrySelection(accepted, candidate().copy(content = "Changed after completion"), run, null).activeRevisionIndex)
+    }
+
     @Test fun staleReportCannotSelectChangedCandidate() {
         assertEquals(old.content, preserveCombinedRetrySelection(current, candidate().copy(content = "Changed after validation"), run, "COMPLETED").effectiveContent())
     }

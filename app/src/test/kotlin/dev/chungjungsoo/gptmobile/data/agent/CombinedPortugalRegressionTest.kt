@@ -76,6 +76,23 @@ class CombinedPortugalRegressionTest {
         assertTrue("builtin-free-vireonix" in report.representedProfileUids)
     }
 
+    @Test fun missingHistoricalScopeDoesNotClaimAFactualContradiction() = kotlinx.coroutines.test.runTest {
+        val request = fixture.getValue("request").jsonPrimitive.content
+        val answer = fixture.getValue("latest").jsonPrimitive.content
+        val requested = CombinedPolicyResolver.accept(dev.chungjungsoo.gptmobile.data.model.ConversationCombinedSettings(), sources.map { it.platformUid }, sources.associate { it.platformUid to "model" }, request, singlePass = true)
+        val context = CombinedExecutionContext(requested, CombinedPolicyResolver.resolve(requested), "partial-reference")
+        val provider = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = kotlinx.coroutines.flow.flowOf(ProviderEvent.TextDelta(answer), ProviderEvent.Completed)
+        }
+        val session = CombinedDeliverySession(provider, sources, 20000, validateAccess = {}, originalRequest = request, combined = context) { _, _ -> error("No rewrite request") }
+        val report = session.streamRound(emptyList(), emptyList()).toList().filterIsInstance<ProviderEvent.CombinedQuality>().last().report
+        assertFalse(report.complete)
+        assertEquals("PARTIAL", report.deliveredScopeStatus)
+        assertEquals("UNMET", report.lengthCompliance)
+        assertEquals("UNRESOLVED", report.topicCoverage)
+        assertEquals("UNVERIFIED", report.verificationStatus)
+    }
+
     @Test fun compactPromptPreservesFullBodiesAndResolvableClaimOffsets() {
         val request = fixture.getValue("request").jsonPrimitive.content
         val requested = CombinedPolicyResolver.accept(dev.chungjungsoo.gptmobile.data.model.ConversationCombinedSettings(), sources.map { it.platformUid }, sources.associate { it.platformUid to "model" }, request, singlePass = true)

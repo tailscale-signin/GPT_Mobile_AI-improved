@@ -193,7 +193,7 @@ internal class CombinedDeliverySession(
                     "CHECKING"
                 },
                 verificationStatus = when {
-                    material -> "CORRECTION_REQUIRED"
+                    checked.checks.any { it.material && it.result == "FAIL" && it.category !in setOf("REQUEST", "SCOPE", "RESEARCH_SCOPE") } -> "CORRECTION_REQUIRED"
                     checked.verificationNeeds.isNotEmpty() -> "NEEDS_VERIFICATION"
                     checked.receipts.any { it.evidenceIds.isNotEmpty() } -> "PASSAGES_CHECKED_WITH_LIMITS"
                     else -> "UNVERIFIED"

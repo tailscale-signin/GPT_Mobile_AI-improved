@@ -422,7 +422,7 @@ class ApiStateFlowExtensionsTest {
         val assistantContent = assistantMessage.content
         assertTrue(assistantContent.contains("Partial answer"))
         assertTrue(assistantContent.contains("[Response stopped: Request timed out.]"))
-        assertEquals(assistantContent, assistantMessage.timeline.single { it.type == AssistantTimelineItemType.TEXT }.content)
+        assertEquals(assistantContent, assistantMessage.timeline.filter { it.type == AssistantTimelineItemType.TEXT }.joinToString("") { it.content })
         assertEquals("TIMEOUT", assistantMessage.timeline.single { it.profileFailure != null }.profileFailure?.category)
         assertEquals(ApiStateFlowOutcome.Failed("Request timed out."), outcome)
     }

@@ -38,4 +38,13 @@ class CombinedFullInputPlanTest {
         val turns = listOf(turn("history ".repeat(3000), false), turn("contribution ".repeat(3000), true))
         assertEquals(turns, ContextBudgetService.planFullInput(turns, "", TokenBudgetSettings()).turns)
     }
+
+    @Test fun singlePassOverflowCannotCreateHiddenInspectionCalls() {
+        val requested = dev.chungjungsoo.gptmobile.data.agent.CombinedPolicyResolver.accept(dev.chungjungsoo.gptmobile.data.model.ConversationCombinedSettings(), listOf("p"), mapOf("p" to "model"), "Compare", singlePass = true)
+        val context = dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext(requested, dev.chungjungsoo.gptmobile.data.agent.CombinedPolicyResolver.resolve(requested), "root", profileUid = "p")
+        val failure = runCatching {
+            ContextBudgetService.planFullInputOrMultipass(listOf(turn("Complete source body ".repeat(4000), true)), "Frozen system", TokenBudgetSettings(contextTokens = 1024, outputTokens = 128), context)
+        }.exceptionOrNull()
+        assertTrue(failure?.message.orEmpty().startsWith("COMBINED_CONTEXT_CAPACITY"))
+    }
 }

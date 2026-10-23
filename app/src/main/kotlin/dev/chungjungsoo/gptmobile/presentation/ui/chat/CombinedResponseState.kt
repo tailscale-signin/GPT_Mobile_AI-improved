@@ -87,7 +87,7 @@ internal fun combinedResponseProfiles(
     } else {
         (platformUids + responses.mapNotNull { it.platformType } + sources.keys).distinct()
     }
-    return uids.mapIndexedNotNull { order, uid ->
+    return uids.filter { it in participatingUids }.mapIndexedNotNull { order, uid ->
         val index = responses.indexOfFirst { it.platformType == uid }
         val original = responses.getOrNull(index)
         val source = sources[uid]
@@ -103,7 +103,9 @@ internal fun combinedResponseProfiles(
             name = combinedProfileLabel(source?.platformName ?: profileNames[uid].orEmpty(), "AI ${order + 1}"),
             assistantIndex = index.takeIf { it >= 0 } ?: platformUids.indexOf(uid),
             message = response,
-            status = if (run == null && source?.completionStatus in setOf(AgentRunStatus.FAILED, AgentRunStatus.INTERRUPTED, AgentRunStatus.CANCELED)) {
+            status = if (run?.status == AgentRunStatus.COMPLETED && response != null && CombinedContributionUsability.assess(run.status, response.content, allowPartial = true, finishReason = response.timeline.lastOrNull { it.generation != null }?.generation?.finishReason).usablePartial) {
+                CombinedResponseStatus.FAILED
+            } else if (run == null && source?.completionStatus in setOf(AgentRunStatus.FAILED, AgentRunStatus.INTERRUPTED, AgentRunStatus.CANCELED)) {
                 CombinedResponseStatus.FAILED
             } else {
                 combinedResponseStatus(response, run, preparing && source == null && run == null && uid in participatingUids)
@@ -118,7 +120,7 @@ internal fun combinedAnswerStatus(
     runsById: Map<String, AgentRun>
 ): CombinedResponseStatus {
     if (synthesis != null) return combinedResponseStatus(synthesis, synthesis.currentRunId?.let(runsById::get))
-    return if (profiles.isNotEmpty() && profiles.all { it.status == CombinedResponseStatus.FAILED }) {
+    return if (profiles.any { runsById[it.message?.currentRunId]?.status == AgentRunStatus.CANCELED } || profiles.isNotEmpty() && profiles.all { it.status == CombinedResponseStatus.FAILED }) {
         CombinedResponseStatus.FAILED
     } else {
         // The combined answer is still waiting for its synthesis run, even if every source just completed.

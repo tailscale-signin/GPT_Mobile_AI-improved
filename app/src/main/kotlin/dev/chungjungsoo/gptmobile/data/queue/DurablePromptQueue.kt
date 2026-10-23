@@ -164,6 +164,7 @@ class DurablePromptQueue @Inject constructor(
             val accepted = combined.requested
             val requested = dev.chungjungsoo.gptmobile.data.agent.CombinedPolicyResolver.accept(
                 settings = accepted.settings,
+                singlePass = accepted.singlePass,
                 participantUids = accepted.participantUids,
                 requestedModels = accepted.requestedModels,
                 userPrompt = text,

@@ -38,7 +38,7 @@ class LocalContextPlannerTest {
             assertTrue(search in plan.tools)
             assertTrue(goal in plan.priorTurns)
             assertEquals("required_follow_up", plan.toolSelectionReasons[search.name])
-            assertTrue(plan.toolSelectionReasons.values.contains("context_budget"))
+            assertTrue(plan.toolSelectionReasons.values.contains("not_needed_for_request"))
         }
     }
 
@@ -47,9 +47,9 @@ class LocalContextPlannerTest {
         val search = AgentToolDefinition("web_search", "Search", buildJsonObject {})
         val history = listOf(turn("search hulk hogan"), turn("Write a poem"))
         val plan = LocalContextPlanner.plan(history, "check again", "", listOf(search, date), 1024, null)
-        assertEquals("optional_fits_context", plan.toolSelectionReasons[search.name])
+        assertEquals("not_needed_for_request", plan.toolSelectionReasons[search.name])
         val disabled = LocalContextPlanner.plan(listOf(turn("search hulk hogan")), "check again", "", listOf(date), 1024, null)
-        assertEquals(listOf(date), disabled.tools)
+        assertTrue(disabled.tools.isEmpty())
         assertEquals("required_current_request", LocalContextPlanner.plan(history, "tell me the time", "", listOf(date, search), 1024, null).toolSelectionReasons[date.name])
     }
 
@@ -59,21 +59,21 @@ class LocalContextPlannerTest {
         assertEquals(3L, plan.estimatedPromptTokens)
     }
 
-    @Test fun schemaCountHasNoArbitraryCeilingWhenAllSchemasFit() {
+    @Test fun optionalSchemaSelectionIsBoundedByRequestRelevance() {
         val tools = (1..30).map { AgentToolDefinition("tool$it", "Short", buildJsonObject {}) }
         val plan = LocalContextPlanner.plan(emptyList(), "Compare the available actions", "", tools, 32_768, 1024)
-        assertEquals(30, plan.tools.size)
-        assertEquals(0, plan.omittedTools)
+        assertEquals(3, plan.tools.size)
+        assertEquals(27, plan.omittedTools)
     }
 
     @Test
     fun `large tool catalog fits a 1024 context with response and result headroom`() {
         val tools = (1..40).map { AgentToolDefinition("tool$it", "description ".repeat(20), buildJsonObject {}) }
         val plan = LocalContextPlanner.plan(emptyList(), "Hi", "Be helpful", tools, 1024, null)
-        assertTrue(plan.tools.isNotEmpty())
+        assertTrue(plan.tools.isEmpty())
         assertTrue(plan.omittedTools > 0)
-        assertTrue(plan.estimatedPromptTokens < 1024 - 256 - 128 - 128)
-        assertEquals(512, plan.toolResultBytes)
+        assertTrue(plan.estimatedPromptTokens < 200)
+        assertEquals(0, plan.toolResultBytes)
     }
 
     @Test
@@ -181,8 +181,8 @@ class LocalContextPlannerTest {
         val tool = AgentToolDefinition("lookup", "Optional description ".repeat(20), buildJsonObject {})
         val plan = LocalContextPlanner.plan(listOf(history), "Summarize", "Instruction ".repeat(30), listOf(tool), 1024, 256)
         assertEquals(listOf(history), plan.priorTurns)
-        assertEquals(listOf(tool), plan.tools)
-        assertTrue(plan.outputReserveTokens in 1 until 256)
+        assertTrue(plan.tools.isEmpty())
+        assertTrue(plan.outputReserveTokens in 1..256)
         assertTrue(plan.estimatedPromptTokens + plan.outputReserveTokens + plan.toolResultBytes / 2 + 128 < 1024)
     }
 
@@ -206,7 +206,7 @@ class LocalContextPlannerTest {
     fun largeOutputPreferencePreservesUsableCatalogInsteadOfOneTool() {
         val tools = (1..9).map { AgentToolDefinition("tool$it", "Description ".repeat(30), buildJsonObject {}) }
         val plan = LocalContextPlanner.plan(emptyList(), "What can you do?", "Instructions ".repeat(270), tools, 8192, 8192)
-        assertEquals(tools.toSet(), plan.tools.toSet())
+        assertEquals(3, plan.tools.size)
         assertTrue(plan.outputReserveTokens >= 512)
         assertTrue(plan.estimatedPromptTokens + plan.outputReserveTokens + plan.toolResultBytes / 2 + 256 < 8192)
     }

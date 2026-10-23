@@ -1,6 +1,15 @@
 #include <jni.h>
 #include "llama.h"
 #include "llama-ext.h"
+#include "llama-model.h"
+#include <cstdlib>
+#include <cstdio>
+#if GGUF_OPENCL
+#include <CL/cl.h>
+#endif
+#if GGML_USE_VULKAN
+#include <vulkan/vulkan.h>
+#endif
 #include "ggml-backend.h"
 #include "gguf_chat_template.h"
 #include "gguf_prefill_governor.h"
@@ -21,6 +30,9 @@ struct Engine {
     llama_context * context = nullptr;
     int batchTokens = 256;
     bool cpuOnly = true;
+    int requestedLayers = 0;
+    std::string backend = "cpu";
+    std::string deviceInfo;
     std::unique_ptr<GgufChatTemplate> chatTemplate;
     std::atomic<bool> stop{false};
     std::atomic<jlong> operation{0};
@@ -37,7 +49,92 @@ std::mutex operationMutex;
 std::once_flag initialized;
 using Clock = std::chrono::steady_clock;
 long elapsed(Clock::time_point from) { return std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - from).count(); }
-void fail(JNIEnv * env, const char * message) { env->ThrowNew(env->FindClass("java/lang/IllegalStateException"), message); }
+std::mutex errorMutex;
+std::string nativeError;
+std::string nativeErrorPath;
+void initialize() {
+#if GGUF_OPENCL && defined(__ANDROID__)
+    setenv("OCL_ICD_FILENAMES", "libOpenCL.so", 0);
+#endif
+    llama_log_set([](ggml_log_level level, const char * text, void *) {
+        if (level != GGML_LOG_LEVEL_ERROR || !text) return;
+        std::lock_guard<std::mutex> lock(errorMutex);
+        nativeError += text;
+        if (nativeError.size() > 4096) nativeError.erase(0, nativeError.size() - 4096);
+        if (!nativeErrorPath.empty()) {
+            if (FILE * output = std::fopen(nativeErrorPath.c_str(), "wb")) {
+                std::fwrite(nativeError.data(), 1, nativeError.size(), output);
+                std::fflush(output); std::fclose(output);
+            }
+        }
+    }, nullptr);
+    llama_backend_init();
+}
+void fail(JNIEnv * env, const char * message) {
+    std::string detail(message);
+    { std::lock_guard<std::mutex> lock(errorMutex); if (!nativeError.empty()) detail += " | native: " + nativeError; }
+    std::string category = "UNKNOWN";
+    if (detail.find("GGUF_GPU_DEVICE_UNAVAILABLE") != std::string::npos) category = "DEVICE_UNAVAILABLE";
+    else if (detail.find("createComputePipeline") != std::string::npos || detail.find("CL_BUILD_PROGRAM_FAILURE") != std::string::npos) category = "SHADER_COMPILATION";
+    else if (detail.find("GGUF_GPU_MODEL_LOAD") != std::string::npos) category = "MODEL_LOAD";
+    else if (detail.find("GGUF_GPU_ALLOCATION") != std::string::npos) category = "ALLOCATION";
+    else if (detail.find("GGUF_GPU_UNSUPPORTED_OPERATION") != std::string::npos) category = "UNSUPPORTED_OPERATION";
+    else if (detail.find("canceled") != std::string::npos) category = "CANCELLED";
+    jclass type = env->FindClass("dev/melo/gguf/GgufNativeException");
+    jmethodID constructor = env->GetMethodID(type, "<init>", "(Ljava/lang/String;Ljava/lang/String;)V");
+    auto code = env->NewStringUTF(category.c_str());
+    auto original = env->NewStringUTF(detail.c_str());
+    auto error = static_cast<jthrowable>(env->NewObject(type, constructor, code, original));
+    env->Throw(error);
+    env->DeleteLocalRef(code); env->DeleteLocalRef(original); env->DeleteLocalRef(error); env->DeleteLocalRef(type);
+}
+std::string backendName(JNIEnv * env, jstring value) {
+    if (!value) return "cpu";
+    const char * text = env->GetStringUTFChars(value, nullptr);
+    std::string result(text); env->ReleaseStringUTFChars(value, text); return result;
+}
+ggml_backend_dev_t selectedDevice(const std::string & backend) {
+    if (backend != "gpu" && backend != "opencl") return nullptr;
+    const char * wanted = backend == "opencl" ? "OpenCL" : "Vulkan";
+    auto reg = ggml_backend_reg_by_name(wanted);
+    if (!reg) return nullptr;
+    for (size_t i = 0; i < ggml_backend_reg_dev_count(reg); ++i) {
+        auto dev = ggml_backend_reg_dev_get(reg, i);
+        if (ggml_backend_dev_type(dev) == GGML_BACKEND_DEVICE_TYPE_GPU) return dev;
+    }
+    return nullptr;
+}
+std::string driverInfo(const std::string & backend) {
+#if GGUF_OPENCL
+    if (backend == "opencl") {
+        cl_platform_id platforms[8]; cl_uint count = 0;
+        if (clGetPlatformIDs(8, platforms, &count) == CL_SUCCESS) for (cl_uint i = 0; i < std::min(count, 8u); ++i) {
+            cl_device_id device;
+            if (clGetDeviceIDs(platforms[i], CL_DEVICE_TYPE_GPU, 1, &device, nullptr) != CL_SUCCESS) continue;
+            char name[512] = {}, driver[512] = {};
+            clGetDeviceInfo(device, CL_DEVICE_NAME, sizeof(name), name, nullptr);
+            clGetDeviceInfo(device, CL_DRIVER_VERSION, sizeof(driver), driver, nullptr);
+            return std::string(name) + ";driver=" + driver;
+        }
+    }
+#endif
+#if GGML_USE_VULKAN
+    if (backend == "gpu") {
+        VkInstanceCreateInfo info{}; info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+        VkInstance instance;
+        if (vkCreateInstance(&info, nullptr, &instance) == VK_SUCCESS) {
+            uint32_t count = 8; VkPhysicalDevice devices[8]; std::string result;
+            auto status = vkEnumeratePhysicalDevices(instance, &count, devices);
+            if ((status == VK_SUCCESS || status == VK_INCOMPLETE) && count > 0) {
+                VkPhysicalDeviceProperties properties; vkGetPhysicalDeviceProperties(devices[0], &properties);
+                result = std::string(properties.deviceName) + ";driver=" + std::to_string(properties.driverVersion) + ";api=" + std::to_string(properties.apiVersion);
+            }
+            vkDestroyInstance(instance, nullptr); return result;
+        }
+    }
+#endif
+    return "driver=unavailable";
+}
 std::string bytes(JNIEnv * env, jbyteArray value) {
     if (!value) throw std::runtime_error("Missing UTF-8 value");
     const auto size = env->GetArrayLength(value);
@@ -56,15 +153,24 @@ bool aborted(void * data) { return static_cast<Engine *>(data)->stop.load(); }
 }
 
 extern "C" JNIEXPORT jstring JNICALL Java_dev_melo_gguf_GgufNative_buildInfo(JNIEnv * env, jclass) {
-    const std::string info = std::string("compiler=") + __VERSION__ + ";variant=" + GGUF_BUILD_TYPE + ";unoptimizedStepping=" + std::to_string(GGUF_NATIVE_DEBUG) + ";nativeProgress=1;operationControl=1;cpuPrefill=adaptive-v1";
+    const std::string info = std::string("compiler=") + __VERSION__ + ";variant=" + GGUF_BUILD_TYPE + ";unoptimizedStepping=" + std::to_string(GGUF_NATIVE_DEBUG) + ";nativeProgress=1;operationControl=1;cpuPrefill=adaptive-v2;kleidiai=" + std::to_string(GGUF_KLEIDIAI);
     return env->NewStringUTF(info.c_str());
 }
 
 extern "C" JNIEXPORT jboolean JNICALL Java_dev_melo_gguf_GgufNative_supportsGpuOffload(JNIEnv * env, jclass) {
     try {
-        std::call_once(initialized, [] { llama_backend_init(); });
-        return llama_supports_gpu_offload() ? JNI_TRUE : JNI_FALSE;
+        std::call_once(initialized, initialize);
+        return selectedDevice("gpu") ? JNI_TRUE : JNI_FALSE;
     } catch (const std::exception & e) { fail(env, e.what()); return JNI_FALSE; }
+}
+
+extern "C" JNIEXPORT void JNICALL Java_dev_melo_gguf_GgufNative_configureDiagnosticFile(JNIEnv * env, jclass, jbyteArray path) {
+    try { std::lock_guard<std::mutex> lock(errorMutex); nativeErrorPath = bytes(env, path); }
+    catch (const std::exception & e) { fail(env, e.what()); }
+}
+extern "C" JNIEXPORT jboolean JNICALL Java_dev_melo_gguf_GgufNative_supportsBackend(JNIEnv * env, jclass, jstring backend) {
+    try { std::call_once(initialized, initialize); const auto name = backendName(env, backend); return name == "cpu" || selectedDevice(name) ? JNI_TRUE : JNI_FALSE; }
+    catch (const std::exception & e) { fail(env, e.what()); return JNI_FALSE; }
 }
 
 extern "C" JNIEXPORT void JNICALL Java_dev_melo_gguf_GgufNative_validateChatTemplate(JNIEnv * env, jclass, jbyteArray templateBytes) {
@@ -119,26 +225,36 @@ struct LoadProgressObserver {
 };
 }
 
-extern "C" JNIEXPORT jlong JNICALL Java_dev_melo_gguf_GgufNative_loadConfiguredProgress(JNIEnv * env, jclass, jbyteArray path, jint contextTokens, jint threads, jint gpuLayers, jlong operationId, jint promptThreads, jint batchTokens, jint microBatchTokens, jobject progress) {
+extern "C" JNIEXPORT jlong JNICALL Java_dev_melo_gguf_GgufNative_loadBackendProgress(JNIEnv * env, jclass, jbyteArray path, jint contextTokens, jint threads, jint gpuLayers, jlong operationId, jint promptThreads, jint batchTokens, jint microBatchTokens, jobject progress, jstring backendValue) {
     try {
         if (contextTokens < 128 || contextTokens > 32768 || threads < 1 || threads > 64 || gpuLayers < 0 || gpuLayers > 999) throw std::runtime_error("Unsupported GGUF context, thread, or GPU layer limit");
         if (promptThreads < 1 || promptThreads > 64 || (batchTokens != 64 && batchTokens != 128 && batchTokens != 256) || (microBatchTokens != 64 && microBatchTokens != 128 && microBatchTokens != 256) || microBatchTokens > batchTokens) throw std::runtime_error("Invalid GGUF prompt thread or batch configuration");
-        std::call_once(initialized, [] { llama_backend_init(); });
-        if (gpuLayers > 0 && !llama_supports_gpu_offload()) throw std::runtime_error("GGUF Vulkan GPU offload is unavailable on this device or build; select CPU");
+        std::call_once(initialized, initialize);
+        const auto backend = backendName(env, backendValue);
+        if (backend != "cpu" && backend != "gpu" && backend != "opencl") throw std::runtime_error("Unsupported GGUF backend");
+        auto device = gpuLayers > 0 ? selectedDevice(backend) : nullptr;
+        if (gpuLayers > 0 && !device) throw std::runtime_error("GGUF_GPU_DEVICE_UNAVAILABLE: selected GPU backend has no compatible device");
+        { std::lock_guard<std::mutex> lock(errorMutex); nativeError.clear(); }
         if (loadOperation != operationId || cancelLoad) throw std::runtime_error("GGUF load canceled before entry");
         LoadProgressObserver observer(env, progress, operationId);
         observer.emit("LOADING_WEIGHTS", 0);
         auto engine = std::make_shared<Engine>();
         auto mp = llama_model_default_params();
-        ggml_backend_dev_t cpuOnly[] = {nullptr};
-        mp.devices = gpuLayers > 0 ? nullptr : cpuOnly;
+        ggml_backend_dev_t selected[] = {device, nullptr};
+        mp.devices = selected;
+        engine->backend = backend;
+        engine->requestedLayers = gpuLayers;
+        engine->deviceInfo = device ? std::string(ggml_backend_dev_name(device)) + ";" + ggml_backend_dev_description(device) + ";" + driverInfo(backend) : "CPU";
         mp.n_gpu_layers = gpuLayers;
         mp.progress_callback = [](float fraction, void * data) { return static_cast<LoadProgressObserver *>(data)->emit("LOADING_WEIGHTS", fraction); };
         mp.progress_callback_user_data = &observer;
         const auto filename = bytes(env, path);
         if (filename.find('\0') != std::string::npos) throw std::runtime_error("Invalid model path");
         engine->model = llama_model_load_from_file(filename.c_str(), mp);
-        if (!engine->model) throw std::runtime_error("GGUF load failed: unsupported artifact, canceled load, or insufficient resources");
+        if (!engine->model) {
+            if (cancelLoad || loadOperation != operationId) throw std::runtime_error("GGUF load canceled");
+            throw std::runtime_error(gpuLayers > 0 ? "GGUF_GPU_MODEL_LOAD: model load failed; cause is in the original native error" : "GGUF load failed: unsupported artifact or insufficient resources");
+        }
         observer.emit("PREPARING_TEMPLATE", -1);
         const char * tmpl = llama_model_chat_template(engine->model, nullptr);
         if (!tmpl || !*tmpl) throw std::runtime_error("GGUF has no embedded chat template; import a chat-tuned GGUF export");
@@ -174,13 +290,38 @@ extern "C" JNIEXPORT jlong JNICALL Java_dev_melo_gguf_GgufNative_loadConfiguredP
         cp.abort_callback_data = engine.get();
         observer.emit("ALLOCATING_CONTEXT", -1);
         engine->context = llama_init_from_model(engine->model, cp);
-        if (!engine->context || cancelLoad || loadOperation != operationId) throw std::runtime_error("GGUF context allocation failed or was canceled");
+        if (cancelLoad || loadOperation != operationId) throw std::runtime_error("GGUF context allocation canceled");
+        if (!engine->context) throw std::runtime_error(gpuLayers > 0 ? "GGUF_GPU_ALLOCATION: context allocation failed" : "GGUF context allocation failed");
         const jlong handle = nextId.fetch_add(1);
         std::lock_guard<std::mutex> lock(registryMutex);
         engines.emplace(handle, engine);
         observer.emit("NATIVE_READY", 1);
         return handle;
     } catch (const std::exception & e) { fail(env, e.what()); return 0; }
+}
+
+extern "C" JNIEXPORT jlong JNICALL Java_dev_melo_gguf_GgufNative_loadConfiguredProgress(JNIEnv * env, jclass type, jbyteArray path, jint contextTokens, jint threads, jint gpuLayers, jlong operationId, jint promptThreads, jint batchTokens, jint microBatchTokens, jobject progress) {
+    auto backend = env->NewStringUTF(gpuLayers > 0 ? "gpu" : "cpu");
+    auto result = Java_dev_melo_gguf_GgufNative_loadBackendProgress(env, type, path, contextTokens, threads, gpuLayers, operationId, promptThreads, batchTokens, microBatchTokens, progress, backend);
+    env->DeleteLocalRef(backend); return result;
+}
+extern "C" JNIEXPORT jstring JNICALL Java_dev_melo_gguf_GgufNative_backendDeviceInfo(JNIEnv * env, jclass, jstring value) {
+    try { std::call_once(initialized, initialize); return env->NewStringUTF(driverInfo(backendName(env, value)).c_str()); }
+    catch (const std::exception & e) { fail(env, e.what()); return nullptr; }
+}
+extern "C" JNIEXPORT jstring JNICALL Java_dev_melo_gguf_GgufNative_executionInfo(JNIEnv * env, jclass, jlong handle) {
+    try {
+        auto engine = get(handle);
+        int layers = 0;
+        for (int i = 0; i < llama_model_n_layer(engine->model); ++i) {
+            auto device = engine->model->dev_layer(i);
+            if (device && ggml_backend_dev_type(device) == GGML_BACKEND_DEVICE_TYPE_GPU) ++layers;
+        }
+        std::string buffers;
+        for (const auto & entry : llama_get_memory_breakdown(engine->context)) { if (!buffers.empty()) buffers += ","; buffers += ggml_backend_buft_name(entry.first); }
+        const std::string info = "buffers=" + buffers + ";backend=" + engine->backend + ";device=" + engine->deviceInfo + ";requestedLayers=" + std::to_string(engine->requestedLayers) + ";actualRepeatingLayers=" + std::to_string(layers);
+        return env->NewStringUTF(info.c_str());
+    } catch (const std::exception & e) { fail(env, e.what()); return nullptr; }
 }
 
 extern "C" JNIEXPORT jlong JNICALL Java_dev_melo_gguf_GgufNative_loadConfigured(JNIEnv * env, jclass type, jbyteArray path, jint contextTokens, jint threads, jint gpuLayers, jlong operationId, jint promptThreads, jint batchTokens, jint microBatchTokens) {
@@ -310,7 +451,7 @@ extern "C" JNIEXPORT jlongArray JNICALL Java_dev_melo_gguf_GgufNative_generatePr
             if (result != 0) { stop = engine->stop ? 2 : 3; break; }
             input += n;
             offset += n;
-            governor.observed(elapsed(batchStart));
+            governor.observed(elapsed(batchStart), n);
         }
         const jlong prefillMs = elapsed(start);
         const auto decodeStart = Clock::now();

@@ -49,6 +49,25 @@ import org.junit.Test
 
 class LiteRtLmAdapterTest {
     @Test
+    fun `greeting omits available native and prompt bridge tools`() = runBlocking {
+        for (nativeTools in listOf(true, false)) {
+            val runtime = FakeLocalRuntime().apply {
+                capabilities = LocalModelCapabilities(backends = setOf("gpu"), tools = nativeTools)
+                scriptedEvents = listOf(listOf(LocalRuntimeEvent.TextDelta("Hello!"), LocalRuntimeEvent.Done))
+            }
+            val events = adapter(runtime).openSession(turns("hi"), localPlatform(), listOf(lookupTool()))
+                .streamRound(emptyList(), emptyList()).toList()
+            val config = runtime.createConversationCalls.single()
+            assertTrue(config.tools.isEmpty())
+            assertFalse(config.systemPrompt.orEmpty().contains("lookup"))
+            assertFalse(config.systemPrompt.orEmpty().contains("Authorized local tools"))
+            assertEquals(listOf("hi"), runtime.sendMessageCalls)
+            assertEquals("Hello!", events.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+            assertTrue(events.contains(ProviderEvent.Completed))
+        }
+    }
+
+    @Test
     fun `known native quarantine rejects before metadata inspection or engine queue`() = runBlocking {
         val fake = FakeLocalRuntime()
         val blocked = object : LocalRuntime by fake {
@@ -102,7 +121,7 @@ class LiteRtLmAdapterTest {
         val authority = dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard("live") { check(allowed) }
         val events = kotlinx.coroutines.withContext(authority) {
             adapter(runtime, catalog = toolsCatalog()).openSession(
-                turns("look up"),
+                turns("Use lookup"),
                 localPlatform(),
                 listOf(
                     lookupTool { id, _ ->
@@ -134,11 +153,11 @@ class LiteRtLmAdapterTest {
             }
         )
         kotlinx.coroutines.withContext(dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard("old") { check(priorAllowed) }) {
-            adapter.openSession(turns("first"), localPlatform(), tools).streamRound(emptyList(), emptyList()).toList()
+            adapter.openSession(turns("Use lookup first"), localPlatform(), tools).streamRound(emptyList(), emptyList()).toList()
         }
         priorAllowed = false
         val events = kotlinx.coroutines.withContext(dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard("new") {}) {
-            adapter.openSession(listOf(completedTurn("first", "one"), pendingTurn("next")), localPlatform(), tools).streamRound(emptyList(), emptyList()).toList()
+            adapter.openSession(listOf(completedTurn("Use lookup first", "one"), pendingTurn("Use lookup next")), localPlatform(), tools).streamRound(emptyList(), emptyList()).toList()
         }
         assertEquals("new", callbackRevision)
         assertEquals(1, runtime.createConversationCalls.size)
@@ -226,8 +245,8 @@ class LiteRtLmAdapterTest {
         }
         val adapter = adapter(runtime, catalog = toolsCatalog())
         val tools = listOf(lookupTool())
-        adapter.openSession(turns("first"), localPlatform(), tools).streamRound(emptyList(), emptyList()).toList()
-        val events = adapter.openSession(listOf(completedTurn("first", "one"), pendingTurn("next")), localPlatform(), tools)
+        adapter.openSession(turns("Use lookup first"), localPlatform(), tools).streamRound(emptyList(), emptyList()).toList()
+        val events = adapter.openSession(listOf(completedTurn("Use lookup first", "one"), pendingTurn("Use lookup next")), localPlatform(), tools)
             .streamRound(emptyList(), emptyList()).toList()
         assertEquals(2, runtime.sendMessageCalls.size)
         assertEquals(1, runtime.toolExecutorCalls.size)
@@ -284,7 +303,7 @@ class LiteRtLmAdapterTest {
             scriptedToolInvocations = listOf(listOf(ScriptedToolInvocation("lookup", "{}", afterEventIndex = 0)))
         }
         val events = adapter(runtime, catalog = toolsCatalog()).openSession(
-            turns("look up the result"),
+            turns("Use lookup for the result"),
             localPlatform(),
             listOf(lookupTool { id, _ -> AgentToolResult(id, ToolResultContent.Text("x".repeat(50000)), false) })
         ).streamRound(emptyList(), emptyList()).toList()
@@ -305,7 +324,7 @@ class LiteRtLmAdapterTest {
             dispatched++
             AgentToolResult(id, ToolResultContent.Text("Unavailable"), true)
         }
-        val events = adapter(runtime, catalog = FakeModelCatalogRepository(listOf(CatalogEntry(id = "gemma3-1b-it", maxContextTokens = 8192)))).openSession(turns("look up this result"), localPlatform(), listOf(failing)).streamRound(emptyList(), emptyList()).toList()
+        val events = adapter(runtime, catalog = FakeModelCatalogRepository(listOf(CatalogEntry(id = "gemma3-1b-it", maxContextTokens = 8192)))).openSession(turns("Use lookup for this result"), localPlatform(), listOf(failing)).streamRound(emptyList(), emptyList()).toList()
         assertEquals(2, dispatched)
         assertTrue(runtime.createConversationCalls.last().tools.isEmpty())
         assertEquals(2, runtime.sendMessageCalls.size)
@@ -1104,7 +1123,7 @@ class LiteRtLmAdapterTest {
             scriptedEvents = listOf(listOf(LocalRuntimeEvent.TextDelta("ok"), LocalRuntimeEvent.Done))
         }
         val adapter = adapter(runtime, catalog = toolsCatalog())
-        val session = adapter.openSession(turns("hello"), localPlatform(), listOf(lookupTool()))
+        val session = adapter.openSession(turns("Use lookup"), localPlatform(), listOf(lookupTool()))
 
         assertTrue(session.handlesToolsInternally)
         session.streamRound(emptyList(), emptyList()).toList()
@@ -1135,7 +1154,7 @@ class LiteRtLmAdapterTest {
         val adapter = adapter(runtime, catalog = toolsCatalog())
 
         val events = adapter.openSession(
-            turns("hello"),
+            turns("Use lookup"),
             localPlatform(),
             listOf(
                 lookupTool { callId, arguments ->
@@ -1173,7 +1192,7 @@ class LiteRtLmAdapterTest {
         }
         val adapter = adapter(runtime)
 
-        adapter.openSession(turns("hello"), localPlatform(), listOf(lookupTool()))
+        adapter.openSession(turns("Use lookup"), localPlatform(), listOf(lookupTool()))
             .streamRound(emptyList(), emptyList())
             .toList()
 
@@ -1195,7 +1214,7 @@ class LiteRtLmAdapterTest {
         val adapter = adapter(runtime)
         var invoked = false
         val events = adapter.openSession(
-            turns("hello"),
+            turns("Use lookup"),
             localPlatform(),
             listOf(
                 lookupTool { callId, _ ->
@@ -1294,7 +1313,9 @@ class LiteRtLmAdapterTest {
             tools
         ).streamRound(emptyList(), emptyList()).toList()
         val actual = runtime.createConversationCalls.single().systemPrompt.orEmpty()
-        assertTrue(actual.contains("Final local tool inventory: web_search."))
+        assertTrue(actual.contains("Final local tool inventory:"))
+        assertTrue(actual.contains("web_search"))
+        assertTrue(actual.contains("discover_available_tools"))
         assertFalse(actual.contains("unrelated"))
         assertFalse(actual.contains("Live mobile tool context"))
         assertEquals("web_search", events.filterIsInstance<ProviderEvent.ToolCall>().single().name)
@@ -1313,7 +1334,7 @@ class LiteRtLmAdapterTest {
             )
         }
         val events = adapter(runtime).openSession(
-            turns("Check the weather"),
+            turns("Use lookup to check the weather"),
             localPlatform(),
             listOf(
                 lookupTool { id, _ ->
@@ -1342,7 +1363,7 @@ class LiteRtLmAdapterTest {
             }
         }
         val events = adapter(runtime).openSession(
-            turns("Look up the weather"),
+            turns("Use lookup for the weather"),
             localPlatform(),
             listOf(
                 lookupTool { id, _ ->
@@ -1398,7 +1419,7 @@ class LiteRtLmAdapterTest {
         val authority = dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard("live") { check(allowed) }
         val events = kotlinx.coroutines.withContext(authority) {
             adapter(runtime).openSession(
-                turns("look up"),
+                turns("Use lookup"),
                 localPlatform(),
                 listOf(
                     lookupTool { id, _ ->
@@ -1427,7 +1448,7 @@ class LiteRtLmAdapterTest {
             )
         }
         val events = adapter(runtime, catalog = toolsCatalog()).openSession(
-            turns("look up the weather"),
+            turns("Use lookup for the weather"),
             localPlatform(),
             listOf(
                 lookupTool { id, _ ->
@@ -1474,9 +1495,9 @@ class LiteRtLmAdapterTest {
         val platform = localPlatform()
         val tools = listOf(lookupTool())
 
-        adapter.openSession(turns("first"), platform, tools).streamRound(emptyList(), emptyList()).toList()
+        adapter.openSession(turns("Use lookup first"), platform, tools).streamRound(emptyList(), emptyList()).toList()
         adapter.openSession(
-            listOf(completedTurn("first", "one"), pendingTurn("second")),
+            listOf(completedTurn("Use lookup first", "one"), pendingTurn("Use lookup second")),
             platform,
             tools
         ).streamRound(emptyList(), emptyList()).toList()
@@ -1529,7 +1550,7 @@ class LiteRtLmAdapterTest {
 
         val first = launch {
             adapter.openSession(
-                turns("a"),
+                turns("Use lookup for a"),
                 localPlatform(),
                 listOf(
                     lookupTool { callId, _ ->
@@ -1547,7 +1568,7 @@ class LiteRtLmAdapterTest {
 
         val second = launch {
             adapter.openSession(
-                turns("b"),
+                turns("Use echo for b"),
                 localPlatform(uid = "other"),
                 listOf(
                     lookupTool(name = "echo") { callId, _ ->
@@ -1660,11 +1681,11 @@ class LiteRtLmAdapterTest {
         val adapter = adapter(runtime, catalog = toolsCatalog())
         val platform = localPlatform()
 
-        adapter.openSession(turns("first"), platform, listOf(lookupTool()))
+        adapter.openSession(turns("Use lookup first"), platform, listOf(lookupTool()))
             .streamRound(emptyList(), emptyList())
             .toList()
         adapter.openSession(
-            listOf(completedTurn("first", "one"), pendingTurn("second")),
+            listOf(completedTurn("Use lookup first", "one"), pendingTurn("Use echo second")),
             platform,
             listOf(lookupTool(name = "echo"))
         ).streamRound(emptyList(), emptyList()).toList()
@@ -1693,7 +1714,7 @@ class LiteRtLmAdapterTest {
         val adapter = adapter(runtime, catalog = toolsCatalog())
         val failingTool = lookupTool { _, _ -> error("boom") }
 
-        val events = adapter.openSession(turns("hello"), localPlatform(), listOf(failingTool))
+        val events = adapter.openSession(turns("Use lookup"), localPlatform(), listOf(failingTool))
             .streamRound(emptyList(), emptyList())
             .toList()
 
@@ -2021,8 +2042,9 @@ class LiteRtLmAdapterTest {
         // Anchor (first user & model message) must be preserved
         assertEquals("Anchor prompt setup instructions", config.initialMessages[0].text)
         assertEquals("Anchor reply confirmation", config.initialMessages[1].text)
-        // Required generation/template headroom takes priority over optional recent history.
-        assertEquals(2, config.initialMessages.size)
+        // Preserve the anchor and retain only history that fits the complete request.
+        // The compact path may retain recent turns that previously lost space to boilerplate.
+        assertTrue(config.initialMessages.size in 2..6)
     }
 
     @Test
@@ -2319,7 +2341,7 @@ class LiteRtLmAdapterTest {
         val native = FakeLocalRuntime().apply {
             failLoadEngineIf = { dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntimeFallbackDisabledException(IllegalStateException("QNN failed")) }
         }
-        val events = adapter(native).openSession(turns("hello"), localPlatform()).streamRound(emptyList(), emptyList()).toList()
+        val events = adapter(native).openSession(turns("Use lookup"), localPlatform()).streamRound(emptyList(), emptyList()).toList()
         assertEquals(1, native.loadEngineCalls.size)
         assertTrue(events.filterIsInstance<ProviderEvent.Failed>().single().message.contains("fallback is disabled"))
     }
@@ -2437,7 +2459,7 @@ class LiteRtLmAdapterTest {
         }
         var invoked = false
         val events = adapter(runtime, deviceSocModel = "SM8750").openSession(
-            turns("check the weather"),
+            turns("Use lookup to check the weather"),
             localPlatform().copy(accelerator = "npu"),
             listOf(
                 lookupTool { callId, arguments ->

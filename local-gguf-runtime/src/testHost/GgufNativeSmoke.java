@@ -22,7 +22,7 @@ public final class GgufNativeSmoke {
             GgufNative.load(args[0].getBytes(StandardCharsets.UTF_8), 512, 2, 1);
             throw new AssertionError("GPU request silently fell back to the CPU-only host runtime");
         } catch (IllegalStateException expected) {
-            if (!expected.getMessage().contains("GPU offload is unavailable")) throw expected;
+            if (!(expected instanceof dev.melo.gguf.GgufNativeException) || !((dev.melo.gguf.GgufNativeException) expected).category.equals("DEVICE_UNAVAILABLE")) throw expected;
         }
         long engine = GgufNative.load(args[0].getBytes(StandardCharsets.UTF_8), 512, 2, 0);
         try {

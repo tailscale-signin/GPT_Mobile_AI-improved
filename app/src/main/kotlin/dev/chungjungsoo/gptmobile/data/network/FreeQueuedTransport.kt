@@ -59,6 +59,7 @@ internal class FreeQueuedTransport(private val client: HttpClient, private val p
         // Scope isolates conversations/accepted turns; payload and permission changes cannot reuse jobs.
         val scope = config.queueScope ?: context[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.queueScope ?: java.util.UUID.randomUUID().toString()
         val key = researchHash("$scope|${config.profileUid}|${config.permissionRevision}|${provider.name}|${config.queuePersistent}|$identityPayload")
+        val submission = FreeQueueJob(key, chatId = scope.substringBefore(':').toIntOrNull(), protocol = if (provider == FreeAiProvider.HUGGING_FACE) "GRADIO_CALL_V2" else "HORDE", ownerRunId = context[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.queueScope, profileUid = config.profileUid, requestedModel = request.model)
         FreeQueueJobs.withJob(key) {
             var job = FreeQueueJobs.read(key, config.queuePersistent)
             job?.let { saved ->
@@ -111,7 +112,7 @@ internal class FreeQueuedTransport(private val client: HttpClient, private val p
                         if (config.captureGenerationReceipt || config.requestRole == "synthesis") config.freeDiagnostics?.admission?.outputTokens?.toInt()?.let { emit(ChatCompletionChunk(serializedOutputTokens = it)) }
                         config.freeDiagnostics?.stage = "submission"
                         val response = FreeAiRequestLimiter.shared.withRequest(provider, request.model) {
-                            FreeQueueJobs.save(FreeQueueJob(key, chatId = scope.substringBefore(':').toIntOrNull()), config.queuePersistent)
+                            FreeQueueJobs.save(submission, config.queuePersistent)
                             config.freeDiagnostics?.requestSent = true
                             client.post(if (provider == FreeAiProvider.AI_HORDE) hordeBase(request.model) + "/async" else "${provider.apiUrl}/gradio_api/call/add_message") {
                                 contentType(ContentType.Application.Json)
@@ -124,7 +125,7 @@ internal class FreeQueuedTransport(private val client: HttpClient, private val p
                             }
                         }
                         // A timeout (408) can arrive after enqueueing; keep its uncertain receipt.
-                        if (response.status.value in setOf(400, 401, 402, 403, 404, 405, 413, 415, 422, 429)) FreeQueueJobs.save(FreeQueueJob(key, state = "REJECTED", chatId = scope.substringBefore(':').toIntOrNull()), config.queuePersistent)
+                        if (response.status.value in setOf(400, 401, 402, 403, 404, 405, 413, 415, 422, 429)) FreeQueueJobs.save(submission.copy(state = "REJECTED"), config.queuePersistent)
                         val root = checkedJson(response, config, request.model)
                         val id = root.text(if (provider == FreeAiProvider.AI_HORDE) "id" else "event_id")
                         check(id != null && id.matches(Regex("[A-Za-z0-9-]{1,128}"))) { "Queue accepted no usable job ID. The submission will not be repeated." }
@@ -156,7 +157,7 @@ internal class FreeQueuedTransport(private val client: HttpClient, private val p
             } catch (cancelled: CancellationException) {
                 if (cancelled !is TimeoutCancellationException) {
                     withContext(NonCancellable) {
-                        FreeQueueJobs.save((job ?: FreeQueueJob(key, chatId = scope.substringBefore(':').toIntOrNull())).copy(state = "CANCELLED"), config.queuePersistent)
+                        FreeQueueJobs.save((job ?: submission).copy(state = "CANCELLED"), config.queuePersistent)
                         withTimeoutOrNull(5000) {
                             if (provider == FreeAiProvider.AI_HORDE && job?.id != null) {
                                 client.delete("${hordeBase(request.model)}/status/${job!!.id}") {
@@ -208,7 +209,8 @@ internal class FreeQueuedTransport(private val client: HttpClient, private val p
             return job.answer?.let { "Saved provider result:\n\n$it" }
                 ?: "Saved Space job: ${job.state.lowercase()}. This deployment does not offer a separate status endpoint. Generate again creates a new request; checking this receipt has not submitted one."
         }
-        require(job.id?.matches(Regex("[A-Za-z0-9-]{1,128}")) == true)
+        if (job.id == null) return "Submission outcome is uncertain and no remote job ID was received. No duplicate generation was submitted."
+        require(job.id.matches(Regex("[A-Za-z0-9-]{1,128}")))
         return FreeQueueJobs.withJob(job.key) {
             val current = requireNotNull(FreeQueueJobs.read(job.key, config.queuePersistent))
             current.answer?.let { return@withJob "Saved provider result (not a Combined answer):\n\n$it" }
@@ -231,8 +233,8 @@ internal class FreeQueuedTransport(private val client: HttpClient, private val p
                 }
                 result.flag("done") == true -> {
                     val generation = (result["generations"] as? JsonArray)?.firstOrNull() as? JsonObject
-                    val answer = generation?.text("text").orEmpty()
-                    FreeQueueJobs.save(current.copy(state = "COMPLETE", answer = answer, servedModel = generation?.text("model")), config.queuePersistent)
+                    val answer = dev.chungjungsoo.gptmobile.presentation.ui.thinking.ThinkingParser.parse(generation?.text("text").orEmpty()).displayContent
+                    FreeQueueJobs.save(current.copy(state = if (answer.isBlank()) "FAILED" else "COMPLETE", answer = answer.takeIf { it.isNotBlank() }, servedModel = generation?.text("model")), config.queuePersistent)
                     "Saved provider result (not a Combined answer):\n\n${answer.ifBlank { "The provider returned no answer text." }}"
                 }
                 else -> "The remote job is still pending. Queue position: ${result.text("queue_position") ?: "unknown"}. No duplicate generation was submitted."

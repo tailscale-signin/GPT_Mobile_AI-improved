@@ -35,10 +35,14 @@ class CombinedSynthesisPlanner @Inject constructor(
         val accepted = acceptedRecords.firstOrNull { it.context.rootBudgetId == rootBudgetId } ?: return null
         if (acceptedRecords.any { it.context.rootBudgetId != rootBudgetId || it.context.requested.requestedPolicyDigest != accepted.context.requested.requestedPolicyDigest }) return null
         if (chatRepository.isCombinedTurnCancelled(rootBudgetId)) return null
-        val responses = accepted.context.requested.participantUids.map { uid -> allResponses.singleOrNull { it.platformType == uid } ?: return null }
+        val members = if (accepted.context.requested.singlePass) chatRepository.combinedActiveMembers(chatId) ?: accepted.context.requested.participantUids.toSet() else accepted.context.requested.participantUids.toSet()
+        val activeUids = accepted.context.requested.participantUids.filter { it in members }
+        if (activeUids.isEmpty()) return null
+        val responses = activeUids.map { uid -> allResponses.singleOrNull { it.platformType == uid } ?: return null }
         if (responses.any { runs[it.currentRunId]?.status !in setOf("COMPLETED", "FAILED", "INTERRUPTED", "CANCELED") }) return null
         val profiles = settingRepository.fetchPlatformV2s()
-        val sources = combinedSynthesisInputs(responses, runs, profiles.associate { it.uid to it.name }, accepted.context.requested.requestedModels, userMessage.content).orEmpty()
+        val sources = combinedSynthesisInputs(responses, runs, profiles.associate { it.uid to it.name }, accepted.context.requested.requestedModels, userMessage.content, requireComplete = accepted.context.requested.singlePass)
+            ?: if (accepted.context.requested.singlePass) return null else emptyList()
         val retainedPublicEvidence = if (sources.isEmpty() && accepted.context.requested.acceptedResearch != null) {
             researchSessionStore.exportTurn(chatId, setOf("$chatId:$userId")).any { session ->
                 session.turnId == "$chatId:$userId" && dev.chungjungsoo.gptmobile.data.research.researchHash(session.snapshot.task.trim()) == dev.chungjungsoo.gptmobile.data.research.researchHash(userMessage.content.trim()) && session.snapshot.sources.any { it.readable && it.publicCapture && it.retrievalReceipt.isNotBlank() }
@@ -53,8 +57,8 @@ class CombinedSynthesisPlanner @Inject constructor(
         val taskRef = accepted.acceptedTask ?: accepted.context.acceptedTask ?: AcceptedTaskRef.from(userMessage)
         taskRef.validate(userMessage)
         val combined = accepted.context.copy(chatId = userMessage.chatId, acceptedTask = taskRef)
-        val pinnedPrimary = combined.requested.preferredOwnerUid
-        val acceptedUids = combined.requested.participantUids
+        val pinnedPrimary = combined.requested.preferredOwnerUid?.takeIf { it in activeUids } ?: activeUids.first()
+        val acceptedUids = activeUids
         val writerOrder = CombinedOwnerResolver.eligibleOrder(
             sources,
             acceptedUids,
@@ -72,7 +76,11 @@ class CombinedSynthesisPlanner @Inject constructor(
                 }
             }
         }
-        val authorizedLead = CombinedWriterPolicy.rank(candidates.filter { sources.none { it.localOnly } || it.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.LITERT_LM }, userMessage.content, pinnedPrimary, dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(sources.joinToString("\n") { it.content })).firstOrNull()
+        val authorizedLead = CombinedWriterPolicy.rank(candidates.filter { !combined.requested.singlePass || pinnedPrimary == null || it.uid == pinnedPrimary }.filter { sources.none { it.localOnly } || it.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.LITERT_LM }, userMessage.content, pinnedPrimary, dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(sources.joinToString("\n") { it.content })).firstOrNull()
+        if (combined.requested.singlePass && authorizedLead == null) {
+            chatRepository.markCombinedMergeUnavailable(chatId, userId, rootBudgetId)
+            return null
+        }
         val leadPlatform = authorizedLead ?: profiles.firstOrNull { it.uid in acceptedUids && it.uid == pinnedPrimary } ?: profiles.firstOrNull { it.uid in acceptedUids }
         if (leadPlatform == null) {
             chatRepository.markCombinedMergeUnavailable(userMessage.chatId, userMessage.id, combined.rootBudgetId)
@@ -127,6 +135,7 @@ class CombinedSynthesisPlanner @Inject constructor(
             val inventory = dev.chungjungsoo.gptmobile.data.agent.CombinedClaimInventory.freeze(attributedSources)
             prompt to dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot(
                 version = 6,
+                dispatchIdentity = if (combined.requested.singlePass) combinedDigest("$chatId:$userId:$rootBudgetId:$leadUid:${leadPlatform.model}:" + attributedSources.sortedBy { it.platformUid }.joinToString("|") { it.platformUid + ":" + combinedDigest(it.content) }) else "",
                 deliveryProtocol = deliveryProtocol,
                 evidence = evidenceLedger,
                 turnContext = turnContext,
@@ -217,6 +226,7 @@ class CombinedSynthesisPlanner @Inject constructor(
         if (dev.chungjungsoo.gptmobile.data.research.researchHash(raw) != prior.synthesisKey) return null
         val original = runCatching { kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromString<CombinedInputSnapshot>(raw) }.getOrNull() ?: return null
         val policy = original.combined ?: return null
+        if (policy.requested.singlePass) return null
         if (!chatRepository.canRetryCombined(policy.rootBudgetId)) return null
         val messages = chatRepository.fetchMessagesV2(chatId)
         val owner = messages.singleOrNull { it.id == prior.assistantMessageId && it.currentRunId == prior.runId && it.ownershipFence == prior.ownershipFence } ?: return null

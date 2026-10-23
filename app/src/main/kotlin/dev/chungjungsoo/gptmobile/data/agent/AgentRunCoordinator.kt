@@ -41,6 +41,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -147,13 +148,49 @@ class AgentRunCoordinator @Inject constructor(
         }
     }
 
+    suspend fun resumeCombinedCollection(chatId: Int, userId: Int, rootBudgetId: String) = withChatGate(chatId) {
+        synthesisPlanner?.prepare(chatId, userId, rootBudgetId)?.let { startUnlocked(listOf(it)) }
+    }
+
+    suspend fun removeCombinedProfile(chatId: Int, profileUid: String) {
+        val ids = _activeRuns.value.values.filter { it.chatId == chatId && it.profileUid == profileUid }.mapTo(hashSetOf()) { it.runId } + deferredStarts.values.filter { it.chatId == chatId && it.platform.uid == profileUid }.map { it.runId }
+        terminalizeAndCancel(ids, false, dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.SUPERSEDED_GENERATION)
+    }
+
     suspend fun tryAnotherCombinedWriter(chatId: Int, runId: String): Boolean = withChatGate(chatId) {
         val next = synthesisPlanner?.prepareFallback(chatId, runId) ?: return@withChatGate false
         startUnlocked(listOf(next))
         true
     }
 
+    private val deferredStarts = ConcurrentHashMap<String, AgentRunRequest>()
+
+    private fun deferUntilForeground(requests: List<AgentRunRequest>) {
+        val waiting = requests.filter { deferredStarts.putIfAbsent(it.runId, it) == null }
+        if (waiting.isEmpty()) return
+        waiting.forEach { _notices.tryEmit(AgentRunNotice(it.chatId, it.runId, "App execution paused. Return to the app to continue; no provider request has been sent.", true)) }
+        scope.launch {
+            try {
+                dev.chungjungsoo.gptmobile.presentation.AppForegroundTracker.visibility.first { it }
+                withChatGate(waiting.map { it.chatId }) {
+                    val pending = waiting.filter { request ->
+                        val run = chatRepository.observeAgentRuns(request.chatId).first().firstOrNull { it.runId == request.runId }
+                        run?.status == AgentRunStatus.QUEUED && (request.chatToolConfig?.combined?.let { !chatRepository.isCombinedTurnCancelled(it.rootBudgetId) } ?: true)
+                    }
+                    waiting.forEach { deferredStarts.remove(it.runId) }
+                    startUnlocked(pending)
+                }
+            } finally {
+                waiting.forEach { deferredStarts.remove(it.runId) }
+            }
+        }
+    }
+
     private suspend fun startUnlocked(requests: List<AgentRunRequest>) {
+        if (requests.isNotEmpty() && !AgentRunForegroundService.canStartNow() && runCatching { settingRepository.getFeatureSettings().backgroundGeneration }.getOrDefault(true)) {
+            deferUntilForeground(requests)
+            return
+        }
         val pending = requests.distinctBy(AgentRunRequest::runId).mapNotNull { request ->
             val rootMessage = resolveTaskRecovery(request.userMessages)?.sourceMessageId ?: request.userMessages.lastOrNull()?.id
             val cancellation = dev.chungjungsoo.gptmobile.data.delegation.DelegationCancellationContext("${request.chatId}:$rootMessage", request.runId)
@@ -207,7 +244,11 @@ class AgentRunCoordinator @Inject constructor(
                     job.cancel()
                 }
                 _activeRuns.update { active -> active - pending.map { it.first.runId }.toSet() }
-                failQueuedStarts(pending.map { it.first }, error)
+                if (error is android.app.ForegroundServiceStartNotAllowedException && dev.chungjungsoo.gptmobile.presentation.AppForegroundTracker.isBackgrounded) {
+                    deferUntilForeground(pending.map { it.first })
+                } else {
+                    failQueuedStarts(pending.map { it.first }, error)
+                }
                 return
             }
         }
@@ -217,32 +258,32 @@ class AgentRunCoordinator @Inject constructor(
     fun cancelChat(chatId: Int) {
         val runIds = _activeRuns.value.values
             .filter { it.chatId == chatId }
-            .mapTo(mutableSetOf(), ActiveAgentRun::runId)
+            .mapTo(mutableSetOf(), ActiveAgentRun::runId) + deferredStarts.values.filter { it.chatId == chatId }.map { it.runId }
         requestCancellation(runIds, isInterrupted = false)
     }
 
     fun cancelRuns(runIds: Set<String>) {
-        requestCancellation(runIds.filterTo(mutableSetOf()) { jobs.containsKey(it) }, isInterrupted = false)
+        requestCancellation(runIds.filterTo(mutableSetOf()) { jobs.containsKey(it) || deferredStarts.containsKey(it) }, isInterrupted = false)
     }
 
     fun cancelAll() {
-        requestCancellation(jobs.keys.toSet(), isInterrupted = false)
+        requestCancellation(jobs.keys.toSet() + deferredStarts.keys, isInterrupted = false)
     }
 
     fun interruptAll() {
-        requestCancellation(jobs.keys.toSet(), isInterrupted = true)
+        requestCancellation(jobs.keys.toSet() + deferredStarts.keys, isInterrupted = true)
     }
 
     suspend fun cancelChatAndJoin(chatId: Int, origin: dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin = dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.USER_WHOLE_RUN) {
         val runIds = _activeRuns.value.values
             .filter { it.chatId == chatId }
-            .mapTo(mutableSetOf(), ActiveAgentRun::runId)
+            .mapTo(mutableSetOf(), ActiveAgentRun::runId) + deferredStarts.values.filter { it.chatId == chatId }.map { it.runId }
         withContext(NonCancellable) {
             terminalizeAndCancel(runIds, isInterrupted = false, origin = origin)
         }
     }
 
-    fun hasActiveRuns(chatId: Int): Boolean = _activeRuns.value.values.any { it.chatId == chatId }
+    fun hasActiveRuns(chatId: Int): Boolean = _activeRuns.value.values.any { it.chatId == chatId } || deferredStarts.values.any { it.chatId == chatId }
 
     suspend fun <T> withChatGate(chatId: Int, block: suspend () -> T): T = withChatGate(listOf(chatId), block)
 
@@ -274,13 +315,14 @@ class AgentRunCoordinator @Inject constructor(
                 dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.PERMISSION_REVOKED
             )
         cancelCombinedRootsAndRuns(
-            roots = if (cancelCombined) runIds.mapNotNull { combinedRoots[it] } else emptyList(),
+            roots = if (cancelCombined) runIds.mapNotNull { combinedRoots[it] ?: deferredStarts[it]?.chatToolConfig?.combined?.rootBudgetId } else emptyList(),
             cancelRoot = chatRepository::cancelCombinedTurn,
             onRootFailure = { root, failure -> AppLogRecorder.record("Combined", "CANCELLATION_JOURNAL_FAILED · root=$root · reason=${failure.javaClass.simpleName}", "W") }
         ) {
             if (isInterrupted) interruptingRunIds += runIds
             val completedAt = currentEpochSeconds()
             runIds.forEach { runId ->
+                deferredStarts.remove(runId)
                 cancellationContexts[runId]?.mark(if (isInterrupted) dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.PROCESS_INTERRUPTION else origin)
                 runCatching {
                     cancelAndJoinAgentRun(jobs[runId]) {
@@ -299,8 +341,10 @@ class AgentRunCoordinator @Inject constructor(
     private fun failQueuedStarts(requests: List<AgentRunRequest>, error: RuntimeException) {
         scope.launch {
             val completedAt = currentEpochSeconds()
-            val message = error.message?.takeIf { it.isNotBlank() }
-                ?: "Android did not allow the foreground agent service to start."
+            val message = "APP_EXECUTION_SERVICE_START: " + (
+                error.message?.takeIf { it.isNotBlank() }
+                    ?: "Android did not allow the foreground agent service to start."
+                )
             requests.forEach { request ->
                 runCatching {
                     chatRepository.commitAgentRun(
@@ -432,6 +476,13 @@ class AgentRunCoordinator @Inject constructor(
         const val GATEWAY_RECOVERY_EXPIRED = "GATEWAY_RECOVERY_EXPIRED"
     }
     private suspend fun execute(request: AgentRunRequest) = coroutineScope {
+        if (request.chatToolConfig?.combined?.role == CombinedRunRole.CONTRIBUTOR) {
+            val reason = CombinedProviderEligibility.unavailableReason(request.platform, request.userMessages.lastOrNull()?.content.orEmpty())
+            if (reason != null) {
+                chatRepository.finishQueuedAgentRun(request.runId, AgentRunStatus.FAILED, currentEpochSeconds(), reason)
+                return@coroutineScope
+            }
+        }
         val startedAt = currentEpochSeconds()
         var assistantMessage = request.assistantMessage
         val recoveryMarkers = request.assistantMessage.timeline.filter { it.recovery?.generationId == request.runId || it.combinedTurn != null || it.writerIdentity != null }
@@ -451,14 +502,24 @@ class AgentRunCoordinator @Inject constructor(
         var checkpoints = newCheckpoints()
         try {
             if (!withContext(NonCancellable) { chatRepository.markAgentRunRunning(request.runId, startedAt) }) return@coroutineScope
-            val outcome = chatRepository.completeChat(
-                request.userMessages,
-                request.assistantMessages,
-                request.platform,
-                request.runId,
-                request.chatToolConfig,
-                request.stage
-            ).collectApiStateUpdates(
+            val recovered = if (request.chatToolConfig?.combined?.requested?.singlePass == true) {
+                chatRepository.observeAgentRuns(request.chatId).first().firstOrNull { it.runId == request.runId }?.let { CombinedAcceptedTurn.decode(it.synthesisSnapshot)?.recoveredProviderAnswer }
+            } else {
+                null
+            }
+            val response = if (recovered != null) {
+                kotlinx.coroutines.flow.flowOf(dev.chungjungsoo.gptmobile.data.dto.ApiState.Success(recovered), dev.chungjungsoo.gptmobile.data.dto.ApiState.Done)
+            } else {
+                chatRepository.completeChat(
+                    request.userMessages,
+                    request.assistantMessages,
+                    request.platform,
+                    request.runId,
+                    request.chatToolConfig,
+                    request.stage
+                )
+            }
+            val outcome = response.collectApiStateUpdates(
                 onUpdate = { content, thoughts, timeline ->
                     val retained = if (content.isEmpty() && committedPrefix.isNotEmpty()) committedPrefix else content
                     require(retained.startsWith(committedPrefix)) { "A resumed Combined stream attempted to replace its committed prefix." }
@@ -573,7 +634,7 @@ class AgentRunCoordinator @Inject constructor(
         } finally {
             withContext(NonCancellable) { checkpoints.cancelAndJoin() }
         }
-        if (committedForHandoff && request.chatToolConfig?.combined?.role?.finalization == true) {
+        if (committedForHandoff && request.chatToolConfig?.combined?.role?.finalization == true && !request.chatToolConfig.combined.requested.singlePass) {
             try {
                 withChatGate(request.chatId) {
                     synthesisPlanner?.prepareFallback(request.chatId, request.runId)?.let { next -> startUnlocked(listOf(next)) }

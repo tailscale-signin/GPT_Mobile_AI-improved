@@ -5,6 +5,7 @@ plugins { id("com.android.library") }
 
 // Match the app's preview ABI policy; GenieX packages ARM64 only.
 val ggufAbis = if (providers.gradleProperty("geniexRuntime").orNull == "true") listOf("arm64-v8a") else listOf("arm64-v8a", "x86_64")
+val ggufOpencl = providers.gradleProperty("ggufOpencl").map { it != "false" }.getOrElse(true)
 val ggufVulkan = providers.gradleProperty("ggufVulkan").map { it != "false" }.getOrElse(true)
 
 abstract class GenerateGgufRuntimeInventory : DefaultTask() {
@@ -16,6 +17,9 @@ abstract class GenerateGgufRuntimeInventory : DefaultTask() {
     abstract val vulkanEnabled: Property<Boolean>
 
     @get:Input
+    abstract val openclEnabled: Property<Boolean>
+
+    @get:Input
     abstract val packagedAbis: ListProperty<String>
 
     @get:OutputDirectory
@@ -23,7 +27,7 @@ abstract class GenerateGgufRuntimeInventory : DefaultTask() {
 
     @TaskAction
     fun generate() {
-        val backends = if (vulkanEnabled.get()) "[\"cpu\",\"gpu\"]" else "[\"cpu\"]"
+        val backends = (listOf("cpu") + (if (vulkanEnabled.get()) listOf("gpu") else emptyList()) + (if (openclEnabled.get()) listOf("opencl") else emptyList())).joinToString(",", "[", "]") { "\"$it\"" }
         val output = outputDirectory.get().file("gguf-runtime-inventory.json").asFile
         output.parentFile.mkdirs()
         val abis = packagedAbis.get().joinToString(separator = ",", prefix = "[", postfix = "]") { "\"$it\"" }
@@ -34,6 +38,7 @@ abstract class GenerateGgufRuntimeInventory : DefaultTask() {
 val generateGgufRuntimeInventory = tasks.register<GenerateGgufRuntimeInventory>("generateGgufRuntimeInventory") {
     template.set(layout.projectDirectory.file("src/main/gguf-runtime-inventory.json.in"))
     vulkanEnabled.set(ggufVulkan)
+    openclEnabled.set(ggufOpencl)
     packagedAbis.set(ggufAbis)
     outputDirectory.set(layout.buildDirectory.dir("generated/ggufInventory/assets"))
 }
@@ -46,7 +51,7 @@ extensions.configure<LibraryExtension> {
         minSdk = 31
         ndk { abiFilters += ggufAbis }
         externalNativeBuild {
-            cmake { arguments += listOf("-DANDROID_STL=c++_static", "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON", "-DGGUF_VULKAN=$ggufVulkan") }
+            cmake { arguments += listOf("-DANDROID_STL=c++_static", "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON", "-DGGUF_VULKAN=$ggufVulkan", "-DGGUF_OPENCL=$ggufOpencl") }
         }
         consumerProguardFiles("consumer-rules.pro")
     }

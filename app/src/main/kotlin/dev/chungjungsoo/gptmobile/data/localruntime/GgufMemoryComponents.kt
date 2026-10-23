@@ -15,7 +15,7 @@ internal fun ggufMemoryComponents(modelBytes: Long, contextTokens: Int, kvBytesP
         "kvCache" to maxOf(Math.multiplyExact(aligned, maxOf(256L * 1024, kvBytesPerToken)), measured?.let { it.hostContextBytes + it.deviceContextBytes } ?: 0),
         "contextMetadata" to 32 * mib,
         "computeWorkspace" to maxOf(96 * mib + batch.toLong() * microBatch * 64 + threads * mib, measured?.let { it.hostComputeBytes + it.deviceComputeBytes } ?: 0),
-        "backendOverlap" to if (accelerator == LocalAccelerators.GPU) modelBytes else 0
+        "backendOverlap" to if (LocalAccelerators.isGpu(accelerator)) modelBytes else 0
     )
 }
 
@@ -61,7 +61,7 @@ internal class LocalMemoryCalibrationStore(private val directory: File) {
         }
     }
     companion object {
-        fun key(artifact: String, spec: LocalEngineSpec): String = dev.chungjungsoo.gptmobile.data.research.researchHash("$artifact|${android.os.Build.FINGERPRINT}|${dev.chungjungsoo.gptmobile.BuildConfig.APP_COMMIT}|${dev.melo.gguf.GgufNative.REVISION}|${spec.accelerator}|${spec.maxTokens}|${spec.ggufBatchTokens}|${spec.ggufMicroBatchTokens}|${spec.cpuThreads}|${spec.ggufPromptThreads}")
+        fun key(artifact: String, spec: LocalEngineSpec): String = dev.chungjungsoo.gptmobile.data.research.researchHash("$artifact|${android.os.Build.FINGERPRINT}|${dev.chungjungsoo.gptmobile.BuildConfig.APP_COMMIT}|${dev.melo.gguf.GgufNative.REVISION}|${spec.accelerator}|${spec.maxTokens}|${spec.ggufBatchTokens}|${spec.ggufMicroBatchTokens}|${spec.cpuThreads}|${spec.ggufPromptThreads}|${spec.ggufGpuLayers}")
     }
 }
 

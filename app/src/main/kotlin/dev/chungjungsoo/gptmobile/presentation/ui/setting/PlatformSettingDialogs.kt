@@ -872,7 +872,7 @@ private fun AcceleratorDialog(
                 Text(stringResource(R.string.accelerator_setting_description))
                 options.forEach { option ->
                     RadioItem(
-                        title = acceleratorTitle(option.accelerator),
+                        title = acceleratorTitle(option.accelerator, options.any { it.accelerator == LocalAccelerators.AUTO }),
                         description = acceleratorUnavailableReason(option),
                         value = option.accelerator,
                         selected = LocalAccelerators.normalize(accelerator) == option.accelerator,
@@ -895,8 +895,10 @@ private fun AcceleratorDialog(
 }
 
 @Composable
-private fun acceleratorTitle(accelerator: String): String = when (accelerator) {
-    LocalAccelerators.GPU -> stringResource(R.string.accelerator_gpu)
+private fun acceleratorTitle(accelerator: String, gguf: Boolean): String = when (accelerator) {
+    LocalAccelerators.GPU -> if (gguf) "Vulkan GPU" else stringResource(R.string.accelerator_gpu)
+    LocalAccelerators.OPENCL -> "OpenCL GPU"
+    LocalAccelerators.AUTO -> "Auto (tested configuration)"
     LocalAccelerators.NPU -> stringResource(R.string.accelerator_npu)
     else -> stringResource(R.string.accelerator_cpu)
 }

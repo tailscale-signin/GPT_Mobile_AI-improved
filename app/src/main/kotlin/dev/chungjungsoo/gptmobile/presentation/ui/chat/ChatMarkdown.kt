@@ -171,9 +171,9 @@ fun ChatMarkdown(
                 try {
                     val visibleSource = dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(request.content)
                     val parsed = parseChatMarkdown(visibleSource, cacheResult = !request.streaming)
-                    // Match frozen source wording once the final response settles so streaming
-                    // does not re-scan every partial delta. Synthesis labels never assign colors.
-                    val wantsWording = request.wording != null && !request.streaming
+                    // Rendering is sampled above; completed passage mappings can colour live output.
+                    // Shared, invalid and unknown source declarations remain neutral.
+                    val wantsWording = request.wording != null
                     val mapped = if (request.provenance != null || wantsWording) {
                         buildMappedMarkdown(request.content, visibleSource, parsed, displayMathNonce)
                     } else {
@@ -183,7 +183,7 @@ fun ChatMarkdown(
                     val profileSpans = if (request.provenance != null && mapped != null) {
                         mapped.second.exclusiveSpans(request.content, combined, request.provenance.validated, request.provenance.corpusDigest, request.provenance.policyRevision)
                     } else if (wantsWording && mapped != null) {
-                        mapped.second.wordingSpans(request.content, combined, requireNotNull(request.wording).sources)
+                        mapped.second.wordingSpans(request.content, combined, requireNotNull(request.wording).sources, request.wording.passages, request.wording.fullAnswer)
                     } else {
                         emptyList()
                     }

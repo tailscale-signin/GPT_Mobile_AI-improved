@@ -512,6 +512,7 @@ class ChatPromptQueueTest {
         every { settings.observeDebugMode() } returns flowOf(false)
         every { settings.observeFeatureSettings() } returns flowOf(AppFeatureSettings(automaticConversationTitles = false))
         val coordinator = mockk<AgentRunCoordinator>(relaxed = true)
+        coEvery { coordinator.withChatGate(any<Int>(), any<suspend () -> ChatRoomV2>()) } coAnswers { secondArg<suspend () -> ChatRoomV2>().invoke() }
         every { coordinator.activeRuns } returns activeRuns
         every { coordinator.streamMessages } returns MutableStateFlow(emptyMap())
         every { coordinator.notices } returns MutableSharedFlow<AgentRunNotice>()

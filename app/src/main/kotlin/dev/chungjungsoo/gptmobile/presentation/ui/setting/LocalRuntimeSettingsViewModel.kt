@@ -168,8 +168,17 @@ class LocalRuntimeSettingsViewModel @Inject constructor(
             tuningLocked = true
         )
         val backends = metadata?.backends.orEmpty().ifEmpty { setOf(accelerator) }
-        val candidates = backends.sorted().filter { it in setOf("cpu", "gpu", "npu") }.flatMap { backend ->
+        val candidates = backends.sorted().filter { it in setOf("cpu", "gpu", "opencl", "npu") }.flatMap { backend ->
             val candidate = base.copy(accelerator = backend)
+            if (metadata?.backends?.contains("auto") == true) {
+                val configurations = if (backend == "cpu") {
+                    val counts = dev.chungjungsoo.gptmobile.data.localruntime.GgufCpuThreads.candidates(cores)
+                    (counts.map { candidate.copy(cpuThreads = 4.coerceAtMost(cores), ggufPromptThreads = it) } + counts.map { candidate.copy(cpuThreads = it, ggufPromptThreads = 4.coerceAtMost(cores)) }).distinct()
+                } else {
+                    listOf(8, 16, 32).map { candidate.copy(ggufGpuLayers = it) }
+                }
+                return@flatMap configurations.map { spec -> dev.chungjungsoo.gptmobile.data.benchmark.LocalBenchmarkCandidate("${profile.name} / $backend / threads ${spec.cpuThreads ?: 0}:${spec.ggufPromptThreads ?: 0} / layers ${spec.ggufGpuLayers}", spec) }
+            }
             val ordinary = dev.chungjungsoo.gptmobile.data.benchmark.LocalBenchmarkCandidate("${profile.name} / ${backend.uppercase()} / MTP off", candidate)
             if (metadata?.speculative == true && backend == "gpu") listOf(ordinary, dev.chungjungsoo.gptmobile.data.benchmark.LocalBenchmarkCandidate("${profile.name} / GPU / MTP requested", candidate.copy(speculativeDecoding = true))) else listOf(ordinary)
         }

@@ -8,7 +8,13 @@ import kotlinx.serialization.json.Json
 
 /** The selected old answer remains visible until the replacement is validated and committed. */
 internal fun preserveCombinedRetrySelection(current: MessageV2, candidate: MessageV2, run: AgentRun, terminalStatus: String?): MessageV2 {
-    if (!run.runId.startsWith("combined-synthesis:")) return candidate
+    if (!run.runId.startsWith("combined-synthesis:")) {
+        val accepted = CombinedAcceptedTurn.decode(run.synthesisSnapshot)?.takeIf { it.context.requested.singlePass } ?: return candidate
+        val generation = candidate.timeline.lastOrNull { it.generation != null }?.generation
+        val usability = dev.chungjungsoo.gptmobile.presentation.ui.chat.CombinedContributionUsability.assess(terminalStatus, candidate.content, allowPartial = true, request = accepted.context.requested.userPrompt, finishReason = generation?.finishReason, outputTokens = generation?.outputTokens, outputAllowance = generation?.outputAllowance)
+        val ready = terminalStatus == "COMPLETED" && usability.admitted && !usability.usablePartial
+        return candidate.copy(activeRevisionIndex = if (ready) ACTIVE_REVISION_LATEST else current.activeRevisionIndex)
+    }
     // Streaming callbacks retain the selection captured when the run started.
     // Once a validated checkpoint selects this revision, later stale callbacks
     // must not select the archived contributor or predecessor again.

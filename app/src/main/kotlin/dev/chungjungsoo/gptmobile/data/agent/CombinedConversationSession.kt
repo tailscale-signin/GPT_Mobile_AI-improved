@@ -11,6 +11,7 @@ internal object CombinedConversationSession {
     data class Prepared(val answer: String, val session: AgentProviderSession)
     fun create(snapshot: CombinedInputSnapshot): AgentProviderSession? = prepare(snapshot)?.session
     fun prepare(snapshot: CombinedInputSnapshot): Prepared? {
+        if (snapshot.combined?.requested?.singlePass == true) return null
         val intent = CurrentRequestContract.from(snapshot.userMessage.content).intent
         if (intent !in setOf("GREETING", "TEST", "PROVIDER_TEST")) return null
         val source = snapshot.sources.firstOrNull { CombinedContributionQuality.currentRequestContribution(snapshot.userMessage.content, it.content).isNotBlank() } ?: return null

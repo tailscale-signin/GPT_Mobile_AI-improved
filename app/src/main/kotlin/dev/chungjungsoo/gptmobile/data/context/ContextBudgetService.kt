@@ -52,7 +52,7 @@ object ContextBudgetService {
         try {
             planFullInput(turns, system, settings)
         } catch (overflow: IllegalArgumentException) {
-            if (overflow.message?.startsWith("COMBINED_CONTEXT_CAPACITY:") != true) throw overflow
+            if (combined?.requested?.singlePass == true || overflow.message?.startsWith("COMBINED_CONTEXT_CAPACITY:") != true) throw overflow
             val stages = CombinedCorpusMultipass.plan(turns, system, settings, combined)
             ContextPlan(
                 turns = turns,

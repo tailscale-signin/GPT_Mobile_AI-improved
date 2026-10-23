@@ -17,6 +17,9 @@ object LocalAccelerators {
     const val CPU = "cpu"
     const val GPU = "gpu"
     const val NPU = "npu"
+    const val OPENCL = "opencl"
+    const val AUTO = "auto"
+    fun isGpu(value: String?) = normalize(value) in setOf(GPU, OPENCL)
 
     val ALL = listOf(CPU, GPU, NPU)
 
@@ -30,8 +33,8 @@ object LocalAccelerators {
             entry.supportedAccelerators.any { it.equals(NPU, true) } &&
             QualcommSocSupport.canonicalSoc(soc) in setOf("SM8750", "SM8850")
 
-    fun choices(entry: dev.chungjungsoo.gptmobile.data.catalog.CatalogEntry, soc: String): List<AcceleratorOption> =
-        choices(entry.supportedAccelerators, entry.socToModelFiles, soc).filterNot { it.accelerator == NPU && portableGgufNpu(entry, soc) } +
+    fun choices(entry: dev.chungjungsoo.gptmobile.data.catalog.CatalogEntry, soc: String, deviceAbis: List<String> = android.os.Build.SUPPORTED_ABIS?.toList().orEmpty()): List<AcceleratorOption> =
+        choices(if (entry.variantLabel == "LLAMA_CPP") RuntimeCapabilityRegistry.gguf(deviceAbis).backends.toList() + AUTO else entry.supportedAccelerators, entry.socToModelFiles, soc).filterNot { it.accelerator == NPU && portableGgufNpu(entry, soc) } +
             if (portableGgufNpu(entry, soc)) listOf(AcceleratorOption(NPU, true)) else emptyList()
 
     /**
@@ -76,7 +79,9 @@ object LocalAccelerators {
         val normalized = value?.lowercase()
         return when (normalized) {
             "cpu", "arm", "aarch64" -> CPU
-            "gpu", "opencl", "opengl" -> GPU
+            "gpu", "vulkan", "opengl" -> GPU
+            "opencl" -> OPENCL
+            "auto" -> AUTO
             "npu", "hexagon", "qualcomm" -> NPU
             else -> CPU
         }
@@ -94,7 +99,7 @@ object LocalAccelerators {
         supported: List<String>,
         socToModelFiles: Map<String, *> = emptyMap<String, Any>(),
         deviceSocModel: String = ""
-    ): List<AcceleratorOption> = ALL.filter { it != NPU || QualcommSocSupport.htpVersion(deviceSocModel) != null }.map { accelerator ->
+    ): List<AcceleratorOption> = (ALL + listOf(OPENCL, AUTO).filter { it in supported }).filter { it != NPU || QualcommSocSupport.htpVersion(deviceSocModel) != null }.map { accelerator ->
         when (accelerator) {
             NPU -> npuChoice(supported, socToModelFiles, deviceSocModel)
 

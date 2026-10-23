@@ -71,7 +71,9 @@ data class CombinedQualityReport(
     val repairRejections: List<String> = emptyList(),
     val consideredProfileUids: Set<String> = emptySet(),
     val requestedPolicyDigest: String = "",
-    val effectivePlanDigest: String = ""
+    val effectivePlanDigest: String = "",
+    val includedProfileUids: Set<String> = emptySet(),
+    val representedProfileUids: Set<String> = emptySet()
 )
 
 /** One NDJSON record per paragraph permits progressive delivery without leaking protocol data. */

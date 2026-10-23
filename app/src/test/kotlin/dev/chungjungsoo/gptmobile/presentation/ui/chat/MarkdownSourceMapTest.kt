@@ -50,6 +50,7 @@ class MarkdownSourceMapTest {
         )
 
         assertTrue(map.wordingSpans(sentence, markdown, rows, declaredSingleOwner).isEmpty())
+        assertTrue(map.wordingSpans(sentence, markdown, rows, declaredSingleOwner.map { it.copy(semanticLinkStatus = "CONSERVATIVE_LINK_CHECKED") }).isEmpty())
         assertTrue(map.copy(runs = listOf(MarkdownSourceRun(0, -1, 5, 0))).wordingSpans(sentence, markdown, rows).isEmpty())
     }
 
@@ -110,5 +111,22 @@ class MarkdownSourceMapTest {
         val last = map.runs.last()
         assertTrue(source.substring(last.sourceStart, last.sourceEnd).endsWith("`code` same."))
         assertTrue(markdown.contains("${'$'}x${'$'} literal"))
+    }
+
+    @Test fun validatedPassagesKeepColoursThroughHeadingsListsLinksTablesAndEmoji() {
+        val source = "# A heading 😀\n\n1. **A bold item** with [a link](https://example.org).\n\n| Input | Output |\n| --- | --- |\n| é | שלום |"
+        val rows = listOf(dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse("one", "One", content = source))
+        val passage = dev.chungjungsoo.gptmobile.data.agent.CombinedPassageRecord(start = 0, end = source.length, digest = researchHash(source), profileUids = setOf("one"), semanticLinkStatus = "CONSERVATIVE_LINK_CHECKED")
+        val (markdown, map) = mapped(source)
+        val spans = map.wordingSpans(source, markdown, rows, listOf(passage), source)
+        val coloured = spans.joinToString("") { markdown.substring(it.start, it.end) }
+        assertTrue(coloured.contains("A heading 😀"))
+        assertTrue(coloured.contains("**A bold item**"))
+        assertTrue(coloured.contains("[a link](https://example.org)"))
+        assertTrue(coloured.contains("| é | שלום |"))
+        assertTrue(spans.all { it.profileUid == "one" })
+        assertTrue(map.wordingSpans(source, markdown, rows, listOf(passage.copy(profileUids = setOf("one", "two"))), source).isEmpty())
+        assertTrue(map.wordingSpans(source, markdown, rows, listOf(passage.copy(profileUids = setOf("unknown"))), source).isEmpty())
+        assertTrue(map.wordingSpans(source, markdown, rows, listOf(passage, passage.copy(profileUids = setOf("one", "two"))), source).isEmpty())
     }
 }

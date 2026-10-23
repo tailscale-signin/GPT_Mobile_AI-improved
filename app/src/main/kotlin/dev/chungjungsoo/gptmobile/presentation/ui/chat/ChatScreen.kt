@@ -192,6 +192,18 @@ fun ChatScreen(
             onCancelDelegation = { chatViewModel.respondDelegationRecovery(request.id, null) }
         )
     }
+    val combinedFailures by chatViewModel.combinedFailures.collectAsStateWithLifecycle()
+    val failureTurn = combinedFailures.firstOrNull()?.userMessageId
+    var failuresDismissed by remember(failureTurn, combinedFailures.map { it.profileUid to it.attemptId }) { mutableStateOf(false) }
+    if (failureTurn != null && !failuresDismissed) {
+        CombinedFailuresDialog(
+            failures = combinedFailures.filter { it.userMessageId == failureTurn },
+            onRetry = chatViewModel::retryCombinedProfile,
+            onRemove = { chatViewModel.setPlatformMembership(it, false) },
+            onCheckJob = chatViewModel::checkQueuedJob,
+            onDismiss = { failuresDismissed = true }
+        )
+    }
     val inputRequests by chatViewModel.pendingMcpInput.collectAsStateWithLifecycle()
     inputRequests.firstOrNull()?.let { McpInputDialog(it, chatViewModel::respondMcpInput) }
     val approvals by chatViewModel.pendingToolApprovals.collectAsStateWithLifecycle(emptyList())
@@ -344,6 +356,12 @@ fun ChatScreen(
     val lastMessageIndex = groupedMessages.userMessages.lastIndex
     var inspectedCombinedTurn by rememberSaveable(chatRoom.id) { mutableStateOf<String?>(null) }
     var inspectedCombinedProfileUid by rememberSaveable(chatRoom.id) { mutableStateOf<String?>(null) }
+    LaunchedEffect(activePlatformUids, inspectedCombinedProfileUid) {
+        if (inspectedCombinedProfileUid != null && inspectedCombinedProfileUid !in activePlatformUids) {
+            inspectedCombinedProfileUid = null
+            inspectedCombinedTurn = null
+        }
+    }
     var combinedTargetSelected by rememberSaveable(chatRoom.id, chatViewModel.targetMessageId) { mutableStateOf(false) }
     LaunchedEffect(isLoaded, hasTargetAssistant) {
         if (isLoaded && hasTargetAssistant && !combinedTargetSelected) {
@@ -873,6 +891,11 @@ fun ChatScreen(
                             chatViewModel.askQuestion()
                         }
                     }
+                    if (combinedFailures.isNotEmpty()) {
+                        TextButton(onClick = { failuresDismissed = false }) {
+                            Text("Resolve ${combinedFailures.size} profile problem(s) · primary waiting", color = MaterialTheme.colorScheme.error)
+                        }
+                    }
                     if (chatViewModel.enabledPlatformsInChat.size > 1 || chatRoom.conversationMode == ConversationMode.COMBINED) {
                         val dockTurn = bottomProfileTurn
                         val dockMessage = groupedMessages.userMessages.getOrNull(dockTurn)
@@ -892,11 +915,7 @@ fun ChatScreen(
                             emptyList()
                         }
                         ChatProfileDock(
-                            profileUids = if (combined && replies.firstOrNull { it.isCombinedSynthesis() }?.hasHistoricalRevisionSelected() == true) {
-                                frozenProfiles.map { it.uid }
-                            } else {
-                                (chatViewModel.enabledPlatformsInChat + frozenProfiles.map { it.uid }).distinct()
-                            },
+                            profileUids = if (combined) activePlatformUids else chatViewModel.enabledPlatformsInChat,
                             names = enabledPlatformLookup.mapValues { it.value.name } + frozenProfiles.associate { it.uid to it.name },
                             selectedUid = if (combined) inspectedCombinedProfileUid.takeIf { inspectedCombinedTurn == dockKey } else chatViewModel.enabledPlatformsInChat.getOrNull(indexStates.getOrElse(dockTurn) { 0 }),
                             pausedUids = disabledPlatformUids,
@@ -917,7 +936,7 @@ fun ChatScreen(
                                 }
                             },
                             onPause = chatViewModel::togglePlatformDisabled,
-                            failedUids = if (combined) frozenProfiles.filter { it.status == CombinedResponseStatus.FAILED }.mapTo(hashSetOf()) { it.uid } else replies.filter { response -> response.currentRunId?.let(agentRunsById::get)?.status in setOf(AgentRunStatus.FAILED, AgentRunStatus.CANCELED, AgentRunStatus.INTERRUPTED) }.mapNotNull { it.platformType }.toSet(),
+                            failedUids = if (combined) frozenProfiles.filter { it.status == CombinedResponseStatus.FAILED }.mapTo(hashSetOf()) { it.uid } + combinedFailures.filter { it.userMessageId == dockMessage?.id }.map { it.profileUid } else replies.filter { response -> response.currentRunId?.let(agentRunsById::get)?.status in setOf(AgentRunStatus.FAILED, AgentRunStatus.CANCELED, AgentRunStatus.INTERRUPTED) }.mapNotNull { it.platformType }.toSet(),
                             responseLabels = frozenProfiles.associate { profile ->
                                 profile.uid to when {
                                     profile.message?.content.isNullOrBlank() -> "No response"
@@ -1214,7 +1233,7 @@ private fun ChatMessagePair(
             emptyMap()
         } else {
             ProfileAttributionPalette.forSelection(
-                combinedProfiles.map { it.uid },
+                (combinedProfiles.map { it.uid } + assistantMessages.flatMap { it.effectiveCombinedSources() }.map { it.platformUid }).distinct(),
                 debugSettings.profileAttributionColors
             )
         }
@@ -1465,7 +1484,9 @@ private fun ChatMessagePair(
                     combinedWording = if (hasCombinedTabs && selectedProfile == null) {
                         CombinedWordingPresentation(
                             assistantMessages.getOrNull(combinedSynthesisIndex)?.effectiveCombinedSources().orEmpty(),
-                            attributionColors
+                            attributionColors,
+                            assistantMessages.getOrNull(combinedSynthesisIndex)?.effectiveTimeline()?.lastOrNull { it.combinedQuality != null }?.combinedQuality?.passages.orEmpty(),
+                            assistantMessages.getOrNull(combinedSynthesisIndex)?.effectiveContent().orEmpty()
                         )
                     } else {
                         null

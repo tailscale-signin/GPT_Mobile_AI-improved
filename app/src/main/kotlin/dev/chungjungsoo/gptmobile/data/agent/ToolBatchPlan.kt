@@ -58,7 +58,8 @@ internal fun planToolBatch(
 internal fun toolRepeatKey(call: ProviderEvent.ToolCall): String {
     val name = call.name.substringAfterLast("__")
     val github = call.name == "github" || call.name.startsWith("github_") || name in setOf("get_file_contents", "read_code", "search_code", "search_repository", "read_ranges", "get_pull_request", "pull_request_read")
-    if (!github && name !in setOf("read_url", "firecrawl_scrape", "tavily_extract", "web_fetch_exa", "fetch", "read_doc")) return call.name
+    val pageRead = name in setOf("read_url", "firecrawl_scrape", "tavily_extract", "web_fetch_exa", "fetch", "read_doc", "browse", "browse_url", "web_fetch", "fetch_url", "read_webpage") || name.endsWith("_read_url") || name.endsWith("_web_fetch")
+    if (!github && !pageRead) return call.name
     fun canonical(value: kotlinx.serialization.json.JsonElement): String = when (value) {
         is kotlinx.serialization.json.JsonObject -> value.entries.sortedBy { it.key }.joinToString(",", "{", "}") { kotlinx.serialization.json.JsonPrimitive(it.key).toString() + ":" + canonical(it.value) }
         is kotlinx.serialization.json.JsonArray -> value.joinToString(",", "[", "]") { canonical(it) }

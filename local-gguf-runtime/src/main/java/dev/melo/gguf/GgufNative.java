@@ -19,6 +19,11 @@ public final class GgufNative {
     /** True when the packaged backend discovers a compatible GPU on this device. */
     public static native boolean supportsGpuOffload();
     public static native String buildInfo();
+    public static native void configureDiagnosticFile(byte[] path);
+    public static native boolean supportsBackend(String backend);
+    public static native String backendDeviceInfo(String backend);
+    public static native String executionInfo(long handle);
+    public static native long loadBackendProgress(byte[] path, int contextTokens, int threads, int gpuLayers, long operationId, int promptThreads, int batchTokens, int microBatchTokens, LoadProgress progress, String backend);
     /** Parses only the embedded template; does not load model weights or allocate an engine. */
     public static native void validateChatTemplate(byte[] template);
     /** gpuLayers is zero for CPU or positive for explicit GPU layer offload. */

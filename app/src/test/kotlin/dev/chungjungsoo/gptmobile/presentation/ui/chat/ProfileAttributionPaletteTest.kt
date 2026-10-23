@@ -42,31 +42,21 @@ class ProfileAttributionPaletteTest {
     }
 
     @Test
-    fun `late created profiles are separated when selected and stable when selection order changes`() {
+    fun `late created profiles preserve their persisted identities after removal`() {
         val persisted = mapOf(
             "claude" to ProfileColorIdentity(hue = 88, marker = 37),
             "flash" to ProfileColorIdentity(hue = 90, marker = 86),
             "xiaomi" to ProfileColorIdentity(hue = 91, marker = 104)
         )
         val chosen = ProfileAttributionPalette.forSelection(listOf("xiaomi", "flash", "claude"), persisted)
-        val reordered = ProfileAttributionPalette.forSelection(listOf("flash", "claude", "xiaomi"), persisted)
-        assertEquals(chosen, reordered)
-        assertEquals(setOf(1, 2, 3), chosen.values.map { it.marker }.toSet())
+        val reduced = ProfileAttributionPalette.forSelection(listOf("xiaomi", "flash"), persisted)
+        assertEquals(persisted, chosen)
+        assertEquals(persisted.filterKeys { it != "claude" }, reduced)
         for (surface in listOf(Color.Black, Color.White)) {
-            val colours = chosen.values.map { ProfileAttributionPalette.foreground(it, surface) }
-            assertEquals(colours.size, colours.distinct().size)
-            colours.forEachIndexed { index, left ->
-                colours.drop(index + 1).forEach { right ->
-                    val distance = kotlin.math.abs(left.red - right.red) +
-                        kotlin.math.abs(left.green - right.green) +
-                        kotlin.math.abs(left.blue - right.blue)
-                    assertTrue("Selected profile colours are too similar", distance >= 0.32f)
-                }
+            reduced.forEach { (uid, identity) ->
+                assertEquals(ProfileAttributionPalette.foreground(chosen.getValue(uid), surface), ProfileAttributionPalette.foreground(identity, surface))
             }
         }
-        // Reassignment is UI-only: persisted identity and hue remain unchanged.
-        assertEquals(37, persisted.getValue("claude").marker)
-        assertEquals(86, persisted.getValue("flash").marker)
     }
 
     @Test

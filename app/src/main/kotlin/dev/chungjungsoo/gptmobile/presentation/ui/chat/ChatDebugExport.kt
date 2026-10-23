@@ -175,6 +175,7 @@ internal suspend fun writeChatDebugExport(
         put("providerFailures", json.encodeToJsonElement(dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.snapshot(room.id)))
         array("messages", messages.asSequence()) { json.encodeToJsonElement(it) }
         array("combinedAnalysis", combinedAnalysis) { it }
+        put("localRuntimeIncidents", JsonArray(dev.chungjungsoo.gptmobile.data.diagnostics.LocalRuntimeIncidentHistory.snapshot()))
         put(
             "appLogSnapshot",
             JsonArray(

@@ -12,7 +12,7 @@ class LocalAcceleratorsTest {
         val gguf = dev.chungjungsoo.gptmobile.data.catalog.CatalogEntry(id = "test", displayName = "Test GGUF", variantLabel = "LLAMA_CPP", supportedAccelerators = listOf("cpu", "gpu"))
         assertEquals("cpu", LocalAccelerators.defaultFor(gguf, "SM8750"))
         assertEquals("cpu", localSamplingDefaults(gguf, "SM8750", 16).accelerator)
-        assertTrue(LocalAccelerators.choices(gguf, "SM8750").any { it.accelerator == "gpu" && it.enabled })
+        assertTrue(LocalAccelerators.choices(gguf, "SM8750", listOf("arm64-v8a")).any { it.accelerator == "gpu" && it.enabled })
         assertEquals("gpu", LocalAccelerators.defaultFor(gguf.copy(variantLabel = "LITERT_LM"), "SM8750"))
     }
 

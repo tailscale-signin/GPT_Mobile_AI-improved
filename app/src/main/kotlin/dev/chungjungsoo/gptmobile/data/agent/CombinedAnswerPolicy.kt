@@ -23,7 +23,9 @@ data class CombinedAnswerPolicy(
     val comparative: Boolean = false,
     val noSearch: Boolean = false,
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
-    val task: CombinedTaskContract? = null
+    val task: CombinedTaskContract? = null,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val requiresOfficialPrices: Boolean = false
 ) {
     companion object {
         private val words = Regex("(?i)(?:(at least|minimum(?: of)?|more than|over|under|fewer than|less than|at most|no more than|up to|maximum(?: of)?|max[.:]?)\\s+)?([1-9][0-9,]{0,6})\\s*[-–]?\\s*words?\\b")
@@ -36,20 +38,23 @@ data class CombinedAnswerPolicy(
             val minimum = qualifier.startsWith("at least") || qualifier.startsWith("minimum") || qualifier in setOf("more than", "over")
             val strict = qualifier in setOf("under", "fewer than", "less than")
             val single = Regex("(?i)\\b(?:one|single|a random|random|an interesting random|a)\\s+(?:historical\\s+|history\\s+)?(?:fact|example|event|story|joke)\\b").containsMatchIn(request)
-            val current = Regex("(?i)\\b(?:newest|latest|breaking|current|today'?s?)\\b.*\\b(?:news|story|stories|headlines?|events?)\\b|\\b(?:news|story|stories|headlines?)\\b.*\\b(?:newest|latest|current|today)\\b").containsMatchIn(request)
+            val pricing = Regex("(?i)\\b(?:prices?|pricing|costs?)\\b").containsMatchIn(request)
+            val current = pricing || Regex("(?i)\\b(?:newest|latest|breaking|current|today'?s?)\\b.*\\b(?:news|story|stories|headlines?|events?)\\b|\\b(?:news|story|stories|headlines?)\\b.*\\b(?:newest|latest|current|today)\\b").containsMatchIn(request)
             val itemToken = itemCount.findAll(request).lastOrNull()?.groupValues?.get(1)?.lowercase()
             val items = itemToken?.toIntOrNull() ?: namedNumbers.indexOf(itemToken).takeIf { it > 0 }
             val format = when {
                 Regex("(?i)\\b(?:bullet(?:ed)?(?: points?| list)?|as bullets)\\b").containsMatchIn(request) -> "BULLETS"
                 Regex("(?i)\\b(?:numbered (?:list|items)|enumerate)\\b").containsMatchIn(request) -> "NUMBERED_LIST"
                 Regex("(?i)\\b(?:in|as|use) (?:a )?(?:markdown )?table\\b").containsMatchIn(request) -> "TABLE"
+                items != null && items > 1 -> "NUMBERED_LIST"
                 else -> null
             }
             val language = Regex("(?i)\\b(?:answer|reply|write|respond)?\\s*in (English|Portuguese|French|Spanish|German|Italian|Japanese|Korean|Chinese|Arabic|Hindi)\\b").find(request)?.groupValues?.get(1)?.lowercase()
             // Only explicit topic clauses are compiled. Guessing a topic from every noun would impose new work.
             val topicClause = Regex("(?i)\\b(?:cover|include|address)\\s+(?:these|the following)\\s+topics?\\s*:\\s*([^\\n.!?]+)").find(request)?.groupValues?.get(1)
             return CombinedAnswerPolicy(
-                version = 3,
+                version = 4,
+                requiresOfficialPrices = pricing,
                 task = CombinedTaskContract.from(request, previousRequest),
                 maximumWords = count?.let {
                     when {
@@ -68,7 +73,7 @@ data class CombinedAnswerPolicy(
                 requestedItems = items,
                 requestedLanguage = language,
                 requiredTopics = topicClause?.split(Regex("\\s*(?:,|;|\\band\\b)\\s*"))?.filter(String::isNotBlank).orEmpty(),
-                comparative = Regex("(?i)\\b(?:compare|comparison|versus|vs\\.?|all (?:models|results|contributions))\\b").containsMatchIn(request),
+                comparative = CombinedTaskContract.from(request, previousRequest).action == "COMPARE" || Regex("(?i)\\b(?:compare|comparison|versus|vs\\.?|all (?:models|results|contributions))\\b").containsMatchIn(request),
                 noSearch = Regex("(?i)\\b(?:no (?:search|browsing|tools)|do not (?:search|browse|use tools)|don't (?:search|browse|use tools)|without (?:searching|browsing|tools))\\b").containsMatchIn(request)
             )
         }
@@ -100,7 +105,16 @@ data class CombinedAnswerPolicy(
                 "NUMBERED_LIST" -> numberedCount
                 else -> maxOf(bulletCount, numberedCount)
             }
-            if (actual > 0 && actual != required) add("ITEM_COUNT_UNMET:$actual/$required")
+            if (actual != required) add("ITEM_COUNT_UNMET:$actual/$required")
+            if (requiredFormat == "NUMBERED_LIST") {
+                val items = Regex("(?m)^ {0,3}([0-9]+)[.)]\\s+(.+)$").findAll(answer).toList()
+                if (items.map { it.groupValues[1].toIntOrNull() } != (1..required).toList()) add("ITEM_NUMBERING_UNMET")
+                val labels = items.map { CombinedContentCoverage.normalized(it.groupValues[2].substringBefore(":").substringBefore(" — ").substringBefore(" – ")) }.filter { it.length > 3 }
+                if (labels.size != labels.distinct().size) add("DUPLICATE_LIST_ITEMS")
+            }
+        }
+        if (requiresOfficialPrices && task?.subjects.orEmpty().any { it.equals("LLM7", true) || it.equals("OpenRouter", true) }) {
+            if (Regex("(?i)(?:TP-Link|Netgear|Wi-Fi|wireless router|networking router).{0,80}(?:[$][0-9]|USD|CAD|dollars)|(?:[$][0-9]+|[0-9]+ dollars).{0,80}(?:TP-Link|Netgear|Wi-Fi)").containsMatchIn(answer)) add("API_PRICING_HARDWARE_MISMATCH")
         }
         if (answer.contains(COMBINED_RECOVERY_MARKER)) add("INTERNAL_RECOVERY_MARKER")
         val sentences = CombinedContentCoverage.sentences(answer).map(CombinedContentCoverage::normalized).filter { it.length > 30 }

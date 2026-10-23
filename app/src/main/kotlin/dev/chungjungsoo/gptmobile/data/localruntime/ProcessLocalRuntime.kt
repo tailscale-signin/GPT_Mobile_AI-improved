@@ -324,7 +324,10 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
                 }
             }
             override fun onServiceDisconnected(name: ComponentName) {
-                if (connection === this) disconnect("Native inference worker disconnected")
+                if (connection === this) {
+                    dev.chungjungsoo.gptmobile.data.diagnostics.LocalRuntimeIncidentHistory.record("NATIVE_PROCESS_EXIT", mapOf("reason" to "Inference worker disconnected; consult Android exit history for native signal"))
+                    disconnect("Native inference worker disconnected")
+                }
             }
             override fun onBindingDied(name: ComponentName) {
                 if (connection === this) disconnect("Inference binding expired")

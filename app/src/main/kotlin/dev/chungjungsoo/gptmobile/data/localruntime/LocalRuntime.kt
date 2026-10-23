@@ -25,6 +25,7 @@ data class LocalEngineSpec(
     val ggufBatchTokens: Int = 256,
     val ggufMicroBatchTokens: Int = 128,
     val ggufPromptThreads: Int? = null,
+    val ggufGpuLayers: Int = 8,
     val admissionReserveBytes: Long = 768L * 1024 * 1024
 )
 
@@ -86,7 +87,8 @@ data class LocalConversationConfig(
     val maxOutputTokens: Int? = null,
     val thinkingEnabled: Boolean? = null,
     val speculativeDecoding: Boolean? = null,
-    val finalResponseSchemaJson: String? = null
+    val finalResponseSchemaJson: String? = null,
+    val allowAutomaticRecovery: Boolean = true
 )
 
 /** Execution phase of local on-device inference. */
@@ -128,7 +130,11 @@ data class NativeInferenceMetrics(
     val prefillTokens: Int,
     val decodeTokens: Int,
     val prefillTokensPerSecond: Double,
-    val decodeTokensPerSecond: Double
+    val decodeTokensPerSecond: Double,
+    val reusedPromptTokens: Int? = null,
+    val processedPromptTokens: Int? = null,
+    val prefillDurationMs: Long? = null,
+    val decodeDurationMs: Long? = null
 ) {
     val hasValidTokenCounts: Boolean get() = prefillTokens >= 0 && decodeTokens >= 0
     val isValid: Boolean get() = prefillTokens >= 0 &&
@@ -244,6 +250,7 @@ interface LocalRuntime {
     }
 
     val latestAllocationObservation: NativeAllocationObservation? get() = null
+    val latestBackendFallbackReason: String? get() = null
 
     fun setLoadProgressObserver(observer: ((GgufNativeProgress) -> Unit)?) = Unit
 

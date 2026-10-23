@@ -141,4 +141,17 @@ class CombinedRetrySelectionTest {
         }
         assertEquals(old.content, preserveCombinedRetrySelection(current, candidate.copy(content = "Changed reply"), staged, "FAILED").effectiveContent())
     }
+
+    @Test fun contributorRetryKeepsUsefulPriorTextUntilCompleteReplacementArrives() {
+        val requested = CombinedPolicyResolver.accept(dev.chungjungsoo.gptmobile.data.model.ConversationCombinedSettings(), listOf("p"), mapOf("p" to "m"), "Give two reasons", singlePass = true)
+        val context = CombinedExecutionContext(requested, CombinedPolicyResolver.resolve(requested), "root", profileUid = "p")
+        val accepted = CombinedAcceptedTurn(context = context, tools = dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig(combined = context))
+        val contributorRun = run.copy(runId = "contributor-retry", synthesisSnapshot = accepted.encode())
+        val original = current.copy(currentRunId = contributorRun.runId)
+        assertEquals(old.content, preserveCombinedRetrySelection(original, original, contributorRun, "FAILED").effectiveContent())
+        val partial = original.copy(content = "1. A useful reason.")
+        assertEquals(old.content, preserveCombinedRetrySelection(original, partial, contributorRun, "COMPLETED").effectiveContent())
+        val replacement = original.copy(content = "1. A useful reason.\n2. Another distinct reason.")
+        assertEquals(replacement.content, preserveCombinedRetrySelection(original, replacement, contributorRun, "COMPLETED").effectiveContent())
+    }
 }

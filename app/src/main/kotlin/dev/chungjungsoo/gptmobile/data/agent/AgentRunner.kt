@@ -177,6 +177,10 @@ class AgentRunner(
             val round = if (restoredCalls.isNotEmpty()) RoundResult(calls = restoredCalls, completed = true, observedCalls = restoredCalls.size).also { restoredCalls = emptyList() } else collectRound(session, roundDefinitions, exchanges, (observedLimit - observedToolCalls).coerceAtLeast(0), searchContext.successful, searchContext.names)
             observedToolCalls += round.observedCalls
             if (round.batchRejected) {
+                if (limits.combined?.requested?.singlePass == true) {
+                    emit(failed(round.failure ?: "Tool batch rejected. Retry this profile explicitly; no calls from this batch were executed."))
+                    return
+                }
                 val recovery = recoverRejectedBatch(session, round, exposedDefinitions, observedToolCalls, observedLimit, rounds, batchRepairAttempted, stormFinalizationAttempted, finalResponseRequested) ?: return
                 exposedDefinitions = recovery.definitions
                 if (recovery.repair) {
@@ -189,7 +193,7 @@ class AgentRunner(
                 continue
             }
             if (round.toolDefinitionsRejected) {
-                if (exposedDefinitions.isNotEmpty() && !toolMayHaveExecuted && !retriedWithoutTools && !round.textEmitted) {
+                if (limits.combined?.requested?.singlePass != true && exposedDefinitions.isNotEmpty() && !toolMayHaveExecuted && !retriedWithoutTools && !round.textEmitted) {
                     retriedWithoutTools = true
                     exposedDefinitions = emptyList()
                     executableToolByName = emptyMap()
@@ -210,7 +214,7 @@ class AgentRunner(
                         "before completing the tool call"
                     ).any { roundFailure.contains(it, ignoreCase = true) }
                 if (protocolFailure) {
-                    if (!protocolRecoveryAttempted && exposedDefinitions.isNotEmpty() && !round.textEmitted && !session.handlesToolsInternally) {
+                    if (limits.combined?.requested?.singlePass != true && !protocolRecoveryAttempted && exposedDefinitions.isNotEmpty() && !round.textEmitted && !session.handlesToolsInternally) {
                         protocolRecoveryAttempted = true
                         exposedDefinitions = exposedDefinitions.map { definition ->
                             definition.copy(description = definition.description + " Protocol repair: call this capability only with its native function-call frame and valid JSON arguments. Never print tool-call markup as assistant text.")
@@ -221,7 +225,7 @@ class AgentRunner(
                     emit(AgentRunEvent.Provider(ProviderEvent.Failed(roundFailure, round.progressDeadline, errorCode = "TOOL_PROTOCOL_INVALID_FRAME")))
                     return
                 }
-                if (!roundRecoveryAttempted && !round.textEmitted && !session.handlesToolsInternally && recoverableRoundFailure(roundFailure, exchanges.isNotEmpty() || round.calls.isNotEmpty())) {
+                if (limits.combined?.requested?.singlePass != true && !roundRecoveryAttempted && !round.textEmitted && !session.handlesToolsInternally && recoverableRoundFailure(roundFailure, exchanges.isNotEmpty() || round.calls.isNotEmpty())) {
                     roundRecoveryAttempted = true
                     exposedDefinitions = emptyList()
                     executableToolByName = emptyMap()
@@ -237,7 +241,7 @@ class AgentRunner(
             val calls = routeSearchCalls(round.calls, executableToolByName)
             if (calls.isEmpty()) {
                 if (round.completed && !round.textEmitted) {
-                    if (!emptyAnswerRecoveryAttempted && !session.handlesToolsInternally && !finalResponseRequested) {
+                    if (limits.combined?.requested?.singlePass != true && !emptyAnswerRecoveryAttempted && !session.handlesToolsInternally && !finalResponseRequested) {
                         emptyAnswerRecoveryAttempted = true
                         finalResponseRequested = true
                         exposedDefinitions = emptyList()

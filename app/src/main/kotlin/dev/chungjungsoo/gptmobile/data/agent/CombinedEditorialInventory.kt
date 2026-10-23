@@ -30,7 +30,13 @@ internal object CombinedEditorialInventory {
         }
         // Contributors are screened at admission. An event need not repeat the country name
         // to belong to that contribution's subject (e.g. "The Bastille fell in 1789").
-        val ranked = groups.sortedWith(compareByDescending<CombinedClaimRecord> { relevance(it) }.thenBy { it.semanticId })
+        // A ranking has a comparison domain. Keep related qualifications without filling
+        // spare slots with unrelated domains; historical events use coverage instead.
+        val ranking = task.action != "HISTORY" && Regex("(?i)\\b(?:rank|ranking|best|top|recommend)\\b").containsMatchIn(request)
+        val aligned = if (ranking) groups.filter { CombinedClaimMatcher.fingerprint(it.proposition).terms.intersect(terms).isNotEmpty() } else emptyList()
+        val domainTerms = aligned.flatMap { CombinedClaimMatcher.fingerprint(it.proposition).terms }.toSet() - requestNoise
+        val relevant = if (aligned.isEmpty()) groups else groups.filter { it in aligned || CombinedClaimMatcher.fingerprint(it.proposition).terms.intersect(domainTerms).size >= 2 }
+        val ranked = relevant.sortedWith(compareByDescending<CombinedClaimRecord> { relevance(it) }.thenBy { it.semanticId })
         val limit = when {
             policy.singleExample -> 12
             focused -> ((policy.targetWords ?: policy.maximumWords ?: 500) / 20).coerceIn(12, 72)

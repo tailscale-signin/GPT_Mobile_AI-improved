@@ -45,7 +45,7 @@ internal object CombinedContributionUsability {
         // Reject clear corruption, not dialect, creative style or unfamiliar vocabulary.
         val corrupt = content.count { it == '\uFFFD' || it.isISOControl() && !it.isWhitespace() } * 20 > content.length
         if (corrupt) return CombinedContributionAssessment(false, 0, "corrupt_content", coherence = "CORRUPT")
-        if (task?.factual == true && task.action != "CONVERSATION" && usableWords < 4) return CombinedContributionAssessment(false, 0, "no_substantive_answer")
+        if (task?.historicalSurvey == true && usableWords < 4) return CombinedContributionAssessment(false, 0, "no_substantive_answer")
         val score = when {
             content.length >= 500 && usableWords >= 60 -> 100
             content.length >= 160 && usableWords >= 24 -> 85

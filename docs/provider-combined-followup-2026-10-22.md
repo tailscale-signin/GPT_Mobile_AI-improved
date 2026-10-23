@@ -59,9 +59,12 @@ build and the full test suite. Regression cases cover serialized budgets, cooldo
 restart, short-wait cancellation, queue identity and disconnects, no OpenCode
 network dispatch, full-answer replacement, device date/timezone, historical coverage,
 wrong-topic refusal, reasoning-only recovery and an approximately 500-word fixture.
-The follow-up draft repair passed 104 focused JVM tests, including socket failure
+The follow-up draft repair passed 106 focused JVM tests, including socket failure
 after a snapshot, thrown provider exceptions, cancellation and downstream failure
-propagation. Changed Kotlin files passed ktlint 1.3.1.
+propagation. Changed Kotlin files passed ktlint 1.3.1. Full-suite regression fixes
+retain uncertain short contributions, exclude unrelated comparison domains, and
+avoid adding a redundant successful-completion event. Date-only interception has
+a repository integration test; explicit date-tool requests still exercise tools.
 
 A live public Qwen Space probe used the same simplified payload shape without a
 session hash: schema lookup HTTP 200, submission HTTP 200, result stream HTTP 200.

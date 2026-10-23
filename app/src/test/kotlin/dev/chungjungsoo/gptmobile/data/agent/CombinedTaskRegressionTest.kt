@@ -12,6 +12,21 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CombinedTaskRegressionTest {
+    @Test fun shortContributionsAreNotRejectedWhenTaskMeaningIsUncertain() {
+        assertTrue(CombinedContributionUsability.assess("COMPLETED", "Useful contribution.", request = "Request").admitted)
+        assertTrue(CombinedContributionUsability.assess("COMPLETED", "4", request = "What is two plus two?").admitted)
+        assertFalse(CombinedContributionUsability.assess("COMPLETED", "Germany", request = "History of Germany").admitted)
+    }
+
+    @Test fun comparisonInventoryExcludesAnUnrelatedDomainWithoutLosingContributors() {
+        val sources = (1..12).map { p -> CombinedModelResponse("p$p", "Profile $p", content = (1..25).joinToString(" ") { "Provider $it offers a free model API for chat applications." } + " Archaeologists discovered ancient pottery near excavation site $p.") }
+        val request = "Rank the best free model APIs."
+        val rows = CombinedEditorialInventory.select(CombinedClaimSemantics.records(sources), request, CombinedAnswerPolicy.from(request))
+        assertEquals(25, rows.size)
+        assertTrue(rows.all { it.profileUids.size == 12 })
+        assertFalse(rows.any { it.proposition.contains("Archaeologists") })
+    }
+
     @Test fun explicitNewSubjectDoesNotInheritAConjunctionOrRewriteVerb() {
         assertTrue(CombinedTaskContract.relevantHistoryIndices("History of Germany that covers modern developments", listOf("History of Portugal")).isEmpty())
         assertTrue(CombinedTaskContract.relevantHistoryIndices("Rewrite the history of Germany", listOf("History of Portugal")).isEmpty())

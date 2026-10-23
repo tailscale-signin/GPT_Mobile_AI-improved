@@ -79,7 +79,6 @@ internal class AnswerValidationSession(
             if (failure == null && completed && defects.isEmpty()) {
                 save(candidate, true)
                 if (attempt > 0 || replaceDraft == null) publish(candidate)
-                emit(ProviderEvent.Notice("Response received · request checks passed. Factual accuracy remains unverified.", false))
                 emit(ProviderEvent.Completed)
                 return@flow
             }

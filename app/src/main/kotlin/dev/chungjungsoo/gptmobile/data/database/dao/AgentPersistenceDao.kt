@@ -94,6 +94,9 @@ interface AgentPersistenceDao {
         return updated
     }
 
+    @Query("SELECT * FROM agent_runs WHERE chat_id = :chatId AND user_message_id = :userId AND synthesis_key IS NOT NULL")
+    suspend fun synthesisRunsForTurn(chatId: Int, userId: Int): List<AgentRun>
+
     @Query("SELECT * FROM agent_runs WHERE chat_id = :chatId AND status = 'COMPLETED' ORDER BY created_at, run_id")
     suspend fun getCompletedRuns(chatId: Int): List<AgentRun>
 
@@ -701,6 +704,21 @@ interface AgentPersistenceDao {
 
         val current = requireNotNull(recoveryMessage(request.assistantMessage.id)) { "The answer slot was deleted." }
         val previousRun = current.currentRunId?.let { recoveryRun(it) }
+        if (request.run.synthesisKey != null) {
+            val decoder = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+            val incoming = request.run.synthesisSnapshot?.let { raw -> runCatching { decoder.decodeFromString<dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot>(raw) }.getOrNull() }
+            if (incoming != null && incoming.dispatchIdentity.isNotBlank()) {
+                if (request.freezeCombinedSources) {
+                    val membership = requireNotNull(getChatRoom(current.chatId)).activePlatform.toSet()
+                    val expected = incoming.combined?.requested?.participantUids.orEmpty().filter { it in membership }.toSet()
+                    require(incoming.sources.map { it.platformUid }.toSet() == expected) { "COMBINED_MEMBERSHIP_CHANGED: Recheck the complete remaining input before dispatch." }
+                }
+                val existing = synthesisRunsForTurn(current.chatId, request.userMessage.id).firstOrNull { run ->
+                    run.synthesisSnapshot?.let { runCatching { decoder.decodeFromString<dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot>(it).dispatchIdentity }.getOrNull() } == incoming.dispatchIdentity
+                }
+                if (existing != null) return PersistAgentRetryResult(requireNotNull(recoveryMessage(existing.assistantMessageId)), existing)
+            }
+        }
         if (request.run.synthesisKey != null && previousRun?.synthesisKey == request.run.synthesisKey) {
             return PersistAgentRetryResult(current, previousRun)
         }
@@ -749,7 +767,7 @@ interface AgentPersistenceDao {
         val nextFence = Math.addExact(current.ownershipFence, 1L)
         val previousRevision = current.snapshotLatestAssistantRevision(request.run.createdAt)
         val selectedPrior = current.revisions.getOrNull(current.activeRevisionIndex)
-        val preserveVisibleRevision = (request.resumeCombinedFrom != null || request.freezeCombinedSources || request.successorOfRunId != null) && resumedPrefix.isEmpty() && (selectedPrior?.content ?: current.content).isNotBlank()
+        val preserveVisibleRevision = (request.resumeCombinedFrom != null || request.freezeCombinedSources || request.successorOfRunId != null || request.replaceCombinedCorpus || dev.chungjungsoo.gptmobile.data.agent.CombinedAcceptedTurn.decode(request.run.synthesisSnapshot)?.context?.requested?.singlePass == true) && resumedPrefix.isEmpty() && (selectedPrior?.content ?: current.content).isNotBlank()
         val retainedRevisionIndex = if (selectedPrior != null) current.activeRevisionIndex + if (previousRevision != null) 1 else 0 else 0
         val assistantMessage = request.assistantMessage.copy(
             content = resumedPrefix,
@@ -898,6 +916,7 @@ interface AgentPersistenceDao {
         if (current.currentRunId != runId || current.ownershipFence != run.ownershipFence || message.ownershipFence != run.ownershipFence) return false
         if (!validCombinedPublication(run)) return false
         val selected = dev.chungjungsoo.gptmobile.data.agent.preserveCombinedRetrySelection(current, message, run, null)
+        if (selected == current) return true
         preserveCombinedPrefix(selected)
         updateMessage(selected)
         return true

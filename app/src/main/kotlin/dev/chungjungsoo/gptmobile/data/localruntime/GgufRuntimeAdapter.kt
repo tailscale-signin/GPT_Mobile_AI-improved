@@ -24,10 +24,23 @@ import kotlinx.coroutines.withContext
 
 /** Pinned CPU/Vulkan runtime, QAIRT-independent; the existing holder/process owns every lease. */
 internal class GgufRuntimeAdapter(private val context: Context) : LocalRuntime {
+    init {
+        dev.chungjungsoo.gptmobile.data.diagnostics.LocalRuntimeIncidentHistory.initialize(context)
+        dev.chungjungsoo.gptmobile.data.localmodel.GgufImportAdapter.configureMetadataCache(File(context.noBackupFilesDir, "gguf-metadata"))
+        dev.chungjungsoo.gptmobile.data.localmodel.PackageDigest.configureReceiptDirectory(File(context.noBackupFilesDir, "model-verification"))
+    }
     private val journal = NativeExitEvidence.journal(context, File(context.noBackupFilesDir, "gguf-native"))
 
     @Volatile private var handle = 0L
     private var loaded: LocalEngineSpec? = null
+    private var requested: LocalEngineSpec? = null
+    private var devicePlanKey: String? = null
+    private var effectiveThreads = 4
+    private var effectivePromptThreads = 4
+    private var executionReceipt = ""
+    private var backendFallback: String? = null
+    override val latestBackendFallbackReason get() = backendFallback
+    private val devicePlans = GgufDevicePlans(File(context.noBackupFilesDir, "gguf-device-plans"))
 
     @Volatile private var healthy = false
 
@@ -49,18 +62,14 @@ internal class GgufRuntimeAdapter(private val context: Context) : LocalRuntime {
     override fun setLoadProgressObserver(observer: ((GgufNativeProgress) -> Unit)?) {
         loadObserver = observer
     }
-    private val descriptors = ConcurrentHashMap<String, Map<String, String>>()
-    private fun metadata(model: File, manifest: ModelArtifactManifest): Map<String, String> {
-        val digest = manifest.files.first { it.path == manifest.entryFile }.sha256
-        val key = "${model.absolutePath}|$digest|${model.length()}|${model.lastModified()}"
-        descriptors.keys.removeIf { it.startsWith(model.absolutePath + "|") && it != key }
-        return descriptors.computeIfAbsent(key) { dev.chungjungsoo.gptmobile.data.localmodel.GgufImportAdapter.inspect(model) }
-    }
+    private fun metadata(model: File, manifest: ModelArtifactManifest): Map<String, String> =
+        dev.chungjungsoo.gptmobile.data.localmodel.GgufImportAdapter.inspect(model)
     override fun loadedEngineSpec() = loaded
-    override suspend fun isEngineLoaded(spec: LocalEngineSpec) = healthy && handle != 0L && loaded?.engineConfiguration() == spec.engineConfiguration()
+    override suspend fun isEngineLoaded(spec: LocalEngineSpec) = healthy && handle != 0L && (requested?.engineConfiguration() == spec.engineConfiguration() || loaded?.engineConfiguration() == spec.engineConfiguration())
     override fun hasOpenConversation() = configuration != null
 
     override suspend fun inspectModel(modelPath: String): LocalModelCapabilities = withContext(Dispatchers.IO) {
+        val inspectionStarted = SystemClock.elapsedRealtime()
         val file = File(modelPath)
         val manifest = ArtifactManifestStore.read(file)
         manifest.validate(requireNotNull(file.parentFile))
@@ -75,26 +84,55 @@ internal class GgufRuntimeAdapter(private val context: Context) : LocalRuntime {
         check("cpu" in manifest.supportedBackends) { "This artifact does not permit the packaged CPU backend" }
         val backends = buildSet {
             add("cpu")
+            add("auto")
+            if (RuntimeCapabilityRegistry.gguf(android.os.Build.SUPPORTED_ABIS?.toList().orEmpty()).backends.contains("opencl")) add("opencl")
             // A GGUF model is not compiled for a specific accelerator. Vulkan is an
             // engine capability and may be used for any compatible tensor layers.
             if (RuntimeCapabilityRegistry.gguf(android.os.Build.SUPPORTED_ABIS?.toList().orEmpty()).backends.contains("gpu")) add("gpu")
         }
+        AppLogRecorder.record("LocalModel", "GGUF_INSPECTION · durationMs=${SystemClock.elapsedRealtime() - inspectionStarted}")
+        dev.chungjungsoo.gptmobile.data.diagnostics.LocalRuntimeIncidentHistory.record("INSPECTION_FINISHED", mapOf("durationMs" to (SystemClock.elapsedRealtime() - inspectionStarted).toString()))
         LocalModelCapabilities(minOf(manifest.contextTokens, 32768), true, backends, false, false, false, false, kvBytesPerToken = uniformGgufKvBytesPerToken(metadata))
     }
 
     override suspend fun loadEngine(spec: LocalEngineSpec) = withContext(Dispatchers.IO) {
         RuntimeCapabilityRegistry.requireRuntime(ArtifactRuntime.LLAMA_CPP)
+        val incidents = File(context.noBackupFilesDir, "local-runtime-incidents").also { check(it.isDirectory || it.mkdirs()) }
+        GgufNative.configureDiagnosticFile(File(incidents, "native-error.log").absolutePath.toByteArray())
+        if (isEngineLoaded(spec)) return@withContext
+        backendFallback = null
         val file = File(spec.modelPath)
         val manifest = ArtifactManifestStore.read(file)
         val model = ModelArtifactManifest.safeFile(requireNotNull(file.parentFile), manifest.entryFile)
         val modelHash = manifest.files.first { it.path == manifest.entryFile }.sha256
-        val fallbackKey = "$modelHash|${GgufNative.REVISION}|${android.os.Build.FINGERPRINT}"
-        val effectiveSpec = if (
-            LocalAccelerators.normalize(spec.accelerator) == LocalAccelerators.GPU && fallbackKey in gpuFallbackModelKeys
-        ) {
-            spec.copy(accelerator = LocalAccelerators.CPU)
+        val requestedBackend = LocalAccelerators.normalize(spec.accelerator)
+        val baseKey = "$modelHash|${GgufNative.REVISION}|${android.os.Build.FINGERPRINT}"
+        val driverCache = mutableMapOf("cpu" to "cpu")
+        fun driver(backend: String) = driverCache.getOrPut(backend) { runCatching { GgufNative.backendDeviceInfo(backend) }.getOrDefault("unavailable") }
+        fun key(backend: String) = dev.chungjungsoo.gptmobile.data.research.researchHash("$baseKey|$backend|${driver(backend)}|${dev.chungjungsoo.gptmobile.BuildConfig.APP_COMMIT}|${spec.maxTokens}|${spec.ggufBatchTokens}|${spec.ggufMicroBatchTokens}")
+        val cpuSamples = devicePlans.read(key("cpu"))
+        val automatic = if (requestedBackend == LocalAccelerators.AUTO) {
+            listOf("gpu", "opencl").filter { it in RuntimeCapabilityRegistry.gguf(android.os.Build.SUPPORTED_ABIS?.toList().orEmpty()).backends }
+                .firstNotNullOfOrNull { GgufDevicePlans.gpu(devicePlans.read(key(it))) }
         } else {
-            spec
+            null
+        }
+        val selectedSpec = if (requestedBackend == LocalAccelerators.AUTO) spec.copy(accelerator = automatic?.backend ?: "cpu", ggufGpuLayers = automatic?.layers ?: 0) else spec
+        val drivers = driver(selectedSpec.accelerator)
+        val fallbackKey = "$baseKey|$drivers"
+        val planKey = key(selectedSpec.accelerator)
+        val samples = devicePlans.read(planKey)
+        effectiveThreads = GgufCpuThreads.resolve(spec.cpuThreads, Runtime.getRuntime().availableProcessors(), GgufDevicePlans.threads(cpuSamples, false))
+        effectivePromptThreads = GgufCpuThreads.resolve(spec.ggufPromptThreads ?: spec.cpuThreads, Runtime.getRuntime().availableProcessors(), GgufDevicePlans.threads(cpuSamples, true))
+        if (LocalAccelerators.isGpu(selectedSpec.accelerator) && selectedSpec.ggufGpuLayers > 8) {
+            check(samples.any { it.backend == selectedSpec.accelerator && it.layers >= minOf(selectedSpec.ggufGpuLayers / 2, 8) }) { "Qualify eight GPU layers with a real generation before increasing offload" }
+        }
+        val effectiveSpec = if (
+            LocalAccelerators.isGpu(selectedSpec.accelerator) && "$fallbackKey|${selectedSpec.accelerator}" in gpuFallbackModelKeys
+        ) {
+            selectedSpec.copy(accelerator = LocalAccelerators.CPU)
+        } else {
+            selectedSpec
         }
         if (isEngineLoaded(effectiveSpec)) return@withContext
         inspectModel(effectiveSpec.modelPath).validate(effectiveSpec)
@@ -111,29 +149,35 @@ internal class GgufRuntimeAdapter(private val context: Context) : LocalRuntime {
         }
         AppLogRecorder.record("LocalModel", "GGUF_TEMPLATE_PARSED · model=${model.name} · template=$templateName · runtimeRevision=${GgufNative.REVISION} · renderer=jinja · stage=syntax_only_preflight · modelLoadStarted=false")
         val accelerator = LocalAccelerators.normalize(effectiveSpec.accelerator)
-        check(accelerator in setOf(LocalAccelerators.CPU, LocalAccelerators.GPU)) { "Standalone GGUF supports CPU or Vulkan GPU only" }
+        check(accelerator in RuntimeCapabilityRegistry.gguf(android.os.Build.SUPPORTED_ABIS?.toList().orEmpty()).backends) { "Requested GGUF backend is not packaged in this build" }
         if (accelerator == LocalAccelerators.GPU) check(RuntimeCapabilityRegistry.gguf(android.os.Build.SUPPORTED_ABIS?.toList().orEmpty()).backends.contains("gpu")) { "This build does not include GGUF Vulkan GPU offload; rebuild with ggufVulkan=true" }
         AppLogRecorder.record("LocalModel", "GGUF_RUNTIME_COMPATIBILITY · importRevision=${manifest.runtimeVersion} · executionRevision=${GgufNative.REVISION} · qualification=pending_native_load")
         val identity = "$modelHash|${GgufNative.REVISION}|${android.os.Build.FINGERPRINT}|$accelerator|${effectiveSpec.maxTokens}"
         unloadEngine()
+        devicePlanKey = key(effectiveSpec.accelerator)
+        dev.chungjungsoo.gptmobile.data.diagnostics.LocalRuntimeIncidentHistory.record("LOAD_STARTED", mapOf("modelIdentity" to identity, "requestedBackend" to spec.accelerator, "selectedBackend" to accelerator, "drivers" to drivers, "layers" to effectiveSpec.ggufGpuLayers.toString()))
         journal.before(identity, "LOAD")
         try {
             cancellableNative(null) { loadNative(model, effectiveSpec, accelerator, templateName).also { handle = it } }
             healthy = true
             modelReceipt = "file=${model.name};architecture=${manifest.architecture ?: "unknown"};quantization=${manifest.weightPrecision ?: "unknown"};templateHash=${dev.chungjungsoo.gptmobile.data.research.researchHash(template)};modelBytes=${model.length()}"
             loaded = effectiveSpec
+            requested = spec
             tuple = identity
             modelFallbackKey = fallbackKey
         } catch (failure: Throwable) {
+            dev.chungjungsoo.gptmobile.data.diagnostics.LocalRuntimeIncidentHistory.record("LOAD_FAILED", mapOf("modelIdentity" to identity, "requestedBackend" to spec.accelerator, "category" to failure.ggufFailureCategory().name, "error" to failure.message.orEmpty()))
             withContext(NonCancellable) { unloadEngine() }
-            if (failure !is CancellationException && accelerator == LocalAccelerators.GPU && failure.isRecoverableGgufGpuLoadFailure()) {
-                gpuFallbackModelKeys += fallbackKey
+            if (failure !is CancellationException && LocalAccelerators.isGpu(accelerator) && failure.isRecoverableGgufGpuLoadFailure()) {
+                gpuFallbackModelKeys += "$fallbackKey|$accelerator"
+                backendFallback = "Running on CPU · $accelerator initialization failed: ${failure.message.orEmpty().take(500)}"
                 AppLogRecorder.record(
                     "LocalModel",
                     "GGUF_VULKAN_LOAD_FALLBACK · model=${file.name} · accelerator=gpu->cpu · visibleOutput=0 · reason=${failure.message.orEmpty().take(180)}",
                     "W"
                 )
                 val cpuSpec = effectiveSpec.copy(accelerator = LocalAccelerators.CPU)
+                devicePlanKey = key("cpu")
                 val cpuIdentity = "$modelHash|${GgufNative.REVISION}|${android.os.Build.FINGERPRINT}|${LocalAccelerators.CPU}|${cpuSpec.maxTokens}"
                 try {
                     // The failed GPU call returned and was fully unloaded. Finish its
@@ -146,7 +190,9 @@ internal class GgufRuntimeAdapter(private val context: Context) : LocalRuntime {
                     }
                     healthy = true
                     modelReceipt = "file=${model.name};architecture=${manifest.architecture ?: "unknown"};quantization=${manifest.weightPrecision ?: "unknown"};templateHash=${dev.chungjungsoo.gptmobile.data.research.researchHash(template)};modelBytes=${model.length()}"
+                    dev.chungjungsoo.gptmobile.data.diagnostics.LocalRuntimeIncidentHistory.record("CPU_FALLBACK", mapOf("requestedBackend" to spec.accelerator, "actualBackend" to "cpu", "reason" to failure.message.orEmpty()))
                     loaded = cpuSpec
+                    requested = spec
                     tuple = cpuIdentity
                     modelFallbackKey = fallbackKey
                     return@withContext
@@ -169,25 +215,29 @@ internal class GgufRuntimeAdapter(private val context: Context) : LocalRuntime {
         val planKey = LocalMemoryCalibrationStore.key(digest, spec.copy(accelerator = accelerator))
         val calibrations = LocalMemoryCalibrationStore(File(context.noBackupFilesDir, "local-memory-calibration"))
         val observed = calibrations.read(planKey)
-        val components = ggufMemoryComponents(model.length(), spec.maxTokens, kvBytes, spec.ggufBatchTokens, spec.ggufMicroBatchTokens, GgufCpuThreads.resolve(spec.ggufPromptThreads ?: spec.cpuThreads, Runtime.getRuntime().availableProcessors()), accelerator, observed)
+        val components = ggufMemoryComponents(model.length(), spec.maxTokens, kvBytes, spec.ggufBatchTokens, spec.ggufMicroBatchTokens, effectivePromptThreads, accelerator, observed)
         val estimate = LocalMemoryEstimate(components.totalMemoryBytes(), spec.admissionReserveBytes, LocalWorkloadAdmission.availableMemory(context), spec.maxTokens, if (observed == null) "conservative_unmeasured" else "conservative_component_calibrated", components, spec.maxTokens, planKey, systemMemory = LocalWorkloadAdmission.memorySnapshot(context))
         if (estimate.budget.hasShortfall) throw estimate.rejection("Fresh $accelerator admission failed after cleanup; no native allocation was dispatched.")
         AppLogRecorder.record("LocalModel", "NATIVE_LOAD_STARTED · backend=$accelerator · context=${spec.maxTokens} · requiredBytes=${estimate.requiredBytes} · reserveBytes=${estimate.reserveBytes} · availableBytes=${estimate.availableBytes}")
         val operation = activeOperation
-        GgufNative.loadConfiguredProgress(
+        val loadStarted = SystemClock.elapsedRealtime()
+        GgufNative.loadBackendProgress(
             model.absolutePath.toByteArray(),
             spec.maxTokens,
-            GgufCpuThreads.resolve(spec.cpuThreads, Runtime.getRuntime().availableProcessors()),
-            if (accelerator == LocalAccelerators.GPU) 999 else 0,
+            effectiveThreads,
+            if (LocalAccelerators.isGpu(accelerator)) spec.ggufGpuLayers.coerceIn(1, 256) else 0,
             activeOperation,
-            GgufCpuThreads.resolve(spec.ggufPromptThreads ?: spec.cpuThreads, Runtime.getRuntime().availableProcessors()),
+            effectivePromptThreads,
             spec.ggufBatchTokens.takeIf { it in setOf(64, 128, 256) } ?: 256,
             minOf(spec.ggufMicroBatchTokens.takeIf { it in setOf(64, 128, 256) } ?: 128, spec.ggufBatchTokens.takeIf { it in setOf(64, 128, 256) } ?: 256),
             GgufNative.LoadProgress { stage, fraction, elapsed ->
                 if (operation == activeOperation) loadObserver?.invoke(GgufNativeProgress(operation, stage, elapsedMs = elapsed, observedAtMs = SystemClock.elapsedRealtime(), loadFraction = fraction.toDouble().takeIf { it in 0.0..1.0 }))
-            }
+            },
+            accelerator
         ).also { engine ->
             handle = engine
+            executionReceipt = GgufNative.executionInfo(engine)
+            dev.chungjungsoo.gptmobile.data.diagnostics.LocalRuntimeIncidentHistory.record("LOAD_FINISHED", mapOf("durationMs" to (SystemClock.elapsedRealtime() - loadStarted).toString(), "execution" to executionReceipt, "threads" to effectiveThreads.toString(), "promptThreads" to effectivePromptThreads.toString(), "batch" to spec.ggufBatchTokens.toString(), "microbatch" to spec.ggufMicroBatchTokens.toString()))
             calibrationPlanKey = planKey
             val receipt = observeAllocation(engine, planKey)
             loadObserver?.invoke(GgufNativeProgress(operation, "NATIVE_ALLOCATION_OBSERVED", observedAtMs = SystemClock.elapsedRealtime(), loadFraction = 1.0, allocationObservation = receipt))
@@ -264,7 +314,13 @@ internal class GgufRuntimeAdapter(private val context: Context) : LocalRuntime {
                         activeOperation, stage, total, processed, sampled, elapsed, if (stage == "PREFILL_BATCH_BEGIN") 0 else code, now,
                         effectiveBatch = effectiveBatch,
                         prefillTokensPerSecond = if (elapsed > prefillStartedMs && processed >= reusedPromptTokens && sampled <= 0) (processed - reusedPromptTokens) * 1000.0 / (elapsed - prefillStartedMs) else null,
-                        actualRuntime = "llama.cpp · " + if (LocalAccelerators.normalize(spec.accelerator) == LocalAccelerators.GPU) "Vulkan" else "CPU",
+                        actualRuntime = "llama.cpp · " + if (LocalAccelerators.normalize(spec.accelerator) == LocalAccelerators.GPU) {
+                            "Vulkan"
+                        } else if (spec.accelerator == "opencl") {
+                            "OpenCL"
+                        } else {
+                            "CPU"
+                        },
                         modelName = modelReceipt.substringAfter("file=", "").substringBefore(';')
                     )
                     val previous = latest.getAndSet(progress)
@@ -292,7 +348,7 @@ internal class GgufRuntimeAdapter(private val context: Context) : LocalRuntime {
                     }
                 }) { acceptOutput ->
                     cancellableNative(engineHandle) {
-                        val configuration = "workerPid=${android.os.Process.myPid()};$modelReceipt;build=${GgufNative.buildInfo()};revision=${GgufNative.REVISION};accelerator=${spec.accelerator};context=${spec.maxTokens};threads=${GgufCpuThreads.resolve(spec.cpuThreads, Runtime.getRuntime().availableProcessors())};promptThreads=${GgufCpuThreads.resolve(spec.ggufPromptThreads ?: spec.cpuThreads, Runtime.getRuntime().availableProcessors())};batch=${spec.ggufBatchTokens};microbatch=${minOf(spec.ggufMicroBatchTokens, spec.ggufBatchTokens)};abi=${android.os.Build.SUPPORTED_ABIS.firstOrNull()};modelTuple=${tuple?.substringBefore('|')}"
+                        val configuration = "execution=$executionReceipt;workerPid=${android.os.Process.myPid()};$modelReceipt;build=${GgufNative.buildInfo()};revision=${GgufNative.REVISION};accelerator=${spec.accelerator};context=${spec.maxTokens};threads=$effectiveThreads;promptThreads=$effectivePromptThreads;batch=${spec.ggufBatchTokens};microbatch=${minOf(spec.ggufMicroBatchTokens, spec.ggufBatchTokens)};abi=${android.os.Build.SUPPORTED_ABIS.firstOrNull()};modelTuple=${tuple?.substringBefore('|')}"
                         trySend(LocalRuntimeEvent.PhaseChanged(LocalInferencePhase.PREFILL, GgufNativeProgress(activeOperation, "NATIVE_ENTRY", observedAtMs = SystemClock.elapsedRealtime(), configuration = configuration)))
                         GgufNative.generatePrepared(
                             engineHandle,
@@ -333,23 +389,28 @@ internal class GgufRuntimeAdapter(private val context: Context) : LocalRuntime {
                 runAttempt(active)
             } catch (failure: Throwable) {
                 val failedSpec = loaded
-                if (failure is kotlinx.coroutines.CancellationException ||
+                if (!config.allowAutomaticRecovery ||
+                    failure is kotlinx.coroutines.CancellationException ||
                     failedSpec == null ||
-                    LocalAccelerators.normalize(failedSpec.accelerator) != LocalAccelerators.GPU ||
+                    !LocalAccelerators.isGpu(failedSpec.accelerator) ||
                     output.isNotEmpty() ||
-                    !failure.isVulkanComputePipelineFailure()
+                    !failure.isRecoverableGgufGpuLoadFailure()
                 ) {
                     throw failure
                 }
-                modelFallbackKey?.let(gpuFallbackModelKeys::add)
+                modelFallbackKey?.let { gpuFallbackModelKeys += "$it|${failedSpec.accelerator}" }
                 AppLogRecorder.record(
                     "LocalModel",
                     "GGUF_VULKAN_GENERATION_FALLBACK · model=${File(failedSpec.modelPath).name} · accelerator=gpu->cpu · visibleOutput=0 · reason=${failure.message.orEmpty().take(180)}",
                     "W"
                 )
+                val originalRequest = requested
                 unloadEngine()
                 journal.finished()
                 loadEngine(failedSpec.copy(accelerator = LocalAccelerators.CPU))
+                requested = originalRequest
+                backendFallback = "Running on CPU · ${failedSpec.accelerator} generation failed: ${failure.message.orEmpty().take(500)}"
+                dev.chungjungsoo.gptmobile.data.diagnostics.LocalRuntimeIncidentHistory.record("CPU_FALLBACK", mapOf("requestedBackend" to failedSpec.accelerator, "actualBackend" to "cpu", "category" to failure.ggufFailureCategory().name, "reason" to failure.message.orEmpty()))
                 createConversation(config)
                 // Reopening restores only the initial messages, not turns completed
                 // since then. Preserve those turns for the next request after fallback.
@@ -368,7 +429,7 @@ internal class GgufRuntimeAdapter(private val context: Context) : LocalRuntime {
                 healthy = false
                 val elapsed = SystemClock.elapsedRealtime() - started
                 send(LocalRuntimeEvent.PhaseChanged(LocalInferencePhase.PREFILL, GgufNativeProgress(activeOperation, "TIMEOUT_RECEIPT", processedTokens = counts?.getOrNull(6) ?: -1, sampledTokens = counts?.getOrNull(1) ?: -1, elapsedMs = elapsed, nativeCode = counts?.getOrNull(4)?.toInt() ?: -1, configuration = "partial=true;cleanup=unload_before_reuse")))
-                if (counts != null && counts.size >= 5) send(LocalRuntimeEvent.Metrics(LocalInferenceMetrics(totalDurationMs = elapsed, totalCharacters = output.length, native = NativeInferenceMetrics(counts[0].toInt(), counts[1].toInt(), if (counts[2] > 0) (counts.getOrNull(6) ?: counts[0]) * 1000.0 / counts[2] else 0.0, if (counts[3] > 0) counts[1] * 1000.0 / counts[3] else 0.0), metricSource = "native_partial", firstVisibleAnswerMs = first, segmentId = segment, finishReason = outcome.terminalCode ?: "GGUF_PREFILL_TIMEOUT")))
+                if (counts != null && counts.size >= 5) send(LocalRuntimeEvent.Metrics(LocalInferenceMetrics(totalDurationMs = elapsed, totalCharacters = output.length, native = NativeInferenceMetrics(counts[0].toInt(), counts[1].toInt(), if (counts[2] > 0) (counts.getOrNull(6) ?: counts[0]) * 1000.0 / counts[2] else 0.0, if (counts[3] > 0) counts[1] * 1000.0 / counts[3] else 0.0, counts.getOrNull(5)?.toInt(), counts.getOrNull(6)?.toInt(), counts[2], counts[3]), metricSource = "native_partial", firstVisibleAnswerMs = first, segmentId = segment, finishReason = outcome.terminalCode ?: "GGUF_PREFILL_TIMEOUT")))
                 withContext(NonCancellable) { unloadEngine() }
                 send(LocalRuntimeEvent.Error("${outcome.terminalCode ?: "GGUF_PREFILL_TIMEOUT"}: The local model stopped making useful progress. Partial measurements were retained; the engine was unloaded before reuse."))
                 return@channelFlow
@@ -383,13 +444,41 @@ internal class GgufRuntimeAdapter(private val context: Context) : LocalRuntime {
                 else -> "native_error"
             }
             if (counts.size >= 7) AppLogRecorder.record("LocalModel", "GGUF_PREFIX_REUSE · reusedTokens=${counts[5]} · processedPromptTokens=${counts[6]} · totalPromptTokens=${counts[0]} · finish=$finish")
+            dev.chungjungsoo.gptmobile.data.diagnostics.LocalRuntimeIncidentHistory.record(
+                "GENERATION_FINISHED",
+                mapOf(
+                    "modelIdentity" to tuple.orEmpty(), "actualBackend" to loaded?.accelerator.orEmpty(),
+                    "promptTokens" to counts[0].toString(), "outputTokens" to counts[1].toString(),
+                    "reusedPromptTokens" to counts.getOrNull(5).toString(), "processedPromptTokens" to counts.getOrNull(6).toString(),
+                    "prefillMs" to counts[2].toString(), "decodeMs" to counts[3].toString(), "finish" to finish
+                )
+            )
+            if (finish == "eos" && unicodeComplete && output.isNotBlank() && !saturated) {
+                val activeSpec = checkNotNull(loaded)
+                val actualLayers = Regex("actualRepeatingLayers=(\\d+)").find(executionReceipt)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+                if (!LocalAccelerators.isGpu(activeSpec.accelerator) || actualLayers > 0) {
+                    devicePlanKey?.let { key ->
+                        runCatching {
+                            devicePlans.record(
+                                key,
+                                GgufDeviceSample(
+                                    activeSpec.accelerator, actualLayers, effectiveThreads, effectivePromptThreads,
+                                    if (counts[2] > 0) (counts.getOrNull(6) ?: counts[0]) * 1000.0 / counts[2] else 0.0,
+                                    if (counts[3] > 0) counts[1] * 1000.0 / counts[3] else 0.0,
+                                    (counts.getOrNull(6) ?: counts[0]).toInt(), counts[1].toInt(), activeSpec.tuningLocked
+                                )
+                            )
+                        }
+                    }
+                }
+            }
             // Control and final counters use suspending delivery, independent of callback queue pressure.
             send(
                 LocalRuntimeEvent.Metrics(
                     LocalInferenceMetrics(
                         totalDurationMs = SystemClock.elapsedRealtime() - started,
                         totalCharacters = output.length,
-                        native = NativeInferenceMetrics(counts[0].toInt(), counts[1].toInt(), if (counts[2] > 0) (counts.getOrNull(6) ?: counts[0]) * 1000.0 / counts[2] else 0.0, if (counts[3] > 0) counts[1] * 1000.0 / counts[3] else 0.0),
+                        native = NativeInferenceMetrics(counts[0].toInt(), counts[1].toInt(), if (counts[2] > 0) (counts.getOrNull(6) ?: counts[0]) * 1000.0 / counts[2] else 0.0, if (counts[3] > 0) counts[1] * 1000.0 / counts[3] else 0.0, counts.getOrNull(5)?.toInt(), counts.getOrNull(6)?.toInt(), counts[2], counts[3]),
                         metricSource = "native_segment",
                         firstVisibleAnswerMs = first,
                         decodeDurationMs = counts[3],
@@ -413,6 +502,7 @@ internal class GgufRuntimeAdapter(private val context: Context) : LocalRuntime {
                 }
             }
         } catch (failure: Throwable) {
+            dev.chungjungsoo.gptmobile.data.diagnostics.LocalRuntimeIncidentHistory.record("GENERATION_FAILED", mapOf("modelIdentity" to tuple.orEmpty(), "backend" to loaded?.accelerator.orEmpty(), "category" to failure.ggufFailureCategory().name, "error" to failure.message.orEmpty()))
             healthy = false
             withContext(NonCancellable) { unloadEngine() }
             throw failure
@@ -454,6 +544,7 @@ internal class GgufRuntimeAdapter(private val context: Context) : LocalRuntime {
         handle = 0
         healthy = false
         loaded = null
+        requested = null
         allocation = null
         calibrationPlanKey = null
         tuple = null

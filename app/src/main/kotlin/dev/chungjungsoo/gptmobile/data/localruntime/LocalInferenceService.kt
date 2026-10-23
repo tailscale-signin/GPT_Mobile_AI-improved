@@ -107,7 +107,7 @@ class LocalInferenceService : Service() {
                         val spec = checkNotNull(packet.spec)
                         validatePath(spec.modelPath)
                         require(spec.litertDispatchLibDir == null) { "Dispatch libraries are selected by the qualified runtime" }
-                        require(spec.accelerator in setOf("cpu", "gpu", "npu")) { "Unknown language backend" }
+                        require(spec.accelerator in setOf("cpu", "gpu", "opencl", "auto", "npu")) { "Unknown language backend" }
                         settings = packet.settings ?: AppFeatureSettings()
                         backend = packet.preferredBackend ?: LocalRuntimeBackend.DEFAULT
                         sessionId = ""

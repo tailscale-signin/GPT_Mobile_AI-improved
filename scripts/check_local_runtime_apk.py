@@ -123,7 +123,7 @@ def check_apk(apk_path, manifest):
                 assert f"lib/{abi}/{library}" in names, f"Missing memory runtime {abi}/{library}"
         gguf = json.loads(apk.read("assets/gguf-runtime-inventory.json"))
         assert gguf["revision"] == "620d2225cc436ab0b001e3200e590e3b286ef9ab"
-        assert gguf["backends"] in (["cpu"], ["cpu", "gpu"]), "Unsupported GGUF backend inventory"
+        assert gguf["backends"] in (["cpu"], ["cpu", "gpu"], ["cpu", "opencl"], ["cpu", "gpu", "opencl"]), "Unsupported GGUF backend inventory"
         check_gguf_dependencies(apk, manifest, abis)
         checked = 0
         for name, expected in manifest["libraries"].items():

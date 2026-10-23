@@ -65,7 +65,7 @@ data class ModelArtifactManifest(
         require(files.any { it.path == entryFile } && (tokenizerFile == null || files.any { it.path == tokenizerFile })) { "Missing entry or tokenizer asset" }
         require(runtime !in setOf(ArtifactRuntime.GENIEX_LLAMA_CPP, ArtifactRuntime.LLAMA_CPP) || (format == "gguf" && entryFile.endsWith(".gguf"))) { "GGUF runtime requires a GGUF artifact" }
         require(runtime != ArtifactRuntime.LITERT_LM || (format == "litertlm" && entryFile.endsWith(".litertlm"))) { "LiteRT runtime requires a LiteRT artifact" }
-        require(supportedBackends.isNotEmpty() && supportedBackends.all { it in setOf("cpu", "gpu", "npu") })
+        require(supportedBackends.isNotEmpty() && supportedBackends.all { it in setOf("cpu", "gpu", "opencl", "npu") })
         require(projectorFile == null || schemaVersion == 2 && files.any { it.path == projectorFile }) { "Missing versioned projector asset" }
         if (runtime == ArtifactRuntime.GENIEX_LLAMA_CPP && "npu" in supportedBackends) {
             require(schemaVersion == 2 && runtimeVersion == dev.chungjungsoo.gptmobile.BuildConfig.GENIEX_VERSION && weightPrecision.equals("Q4_0", true) && !architecture.isNullOrBlank()) { "GGUF Hexagon requires a v2 manifest, the pinned runtime, explicit architecture and Q4_0 precision" }
@@ -92,7 +92,7 @@ data class ModelArtifactManifest(
             require(magic.contentEquals("GGUF".toByteArray())) { "Invalid GGUF header" }
         }
         if (runtime == ArtifactRuntime.LLAMA_CPP) {
-            require(schemaVersion == 3 && supportedBackends in setOf(setOf("cpu"), setOf("cpu", "gpu")) && !vision && projectorFile == null) { "Standalone GGUF requires a schema-3 CPU/GPU text manifest" }
+            require(schemaVersion == 3 && "cpu" in supportedBackends && supportedBackends.all { it in setOf("cpu", "gpu", "opencl") } && !vision && projectorFile == null) { "Standalone GGUF requires a schema-3 CPU/GPU text manifest" }
             // GGUF is portable model data, not a binary linked to the importing engine.
             // Keep the import revision as provenance; qualify the actual architecture,
             // template and tensors against the currently packaged engine at load time.

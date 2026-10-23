@@ -65,7 +65,7 @@ data class LocalImportPreview(
             require(model.files.any { it.path == model.entryFile } && model.files.none { it.path == "manifest.json" }) { "Manifest entry asset is missing." }
             val total = model.files.sumOf { it.sizeBytes }
             require(total <= 32_000_000_000L && model.contextTokens > 0) { "Invalid bundle size or context metadata." }
-            require(model.supportedBackends.isNotEmpty() && model.supportedBackends.all { it in setOf("cpu", "gpu", "npu") })
+            require(model.supportedBackends.isNotEmpty() && model.supportedBackends.all { it in setOf("cpu", "gpu", "opencl", "npu") })
             return LocalImportPreview(model.familyId.ifBlank { name }, model.runtime.name.replace('_', ' '), size, total, model.supportedBackends.sorted(), model.contextTokens, model.files.size)
         }
     }

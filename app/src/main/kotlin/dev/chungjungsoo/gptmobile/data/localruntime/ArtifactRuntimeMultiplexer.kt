@@ -16,6 +16,12 @@ internal class ArtifactRuntimeMultiplexer(private val gguf: LocalRuntime, privat
         }
     }
     override suspend fun isEngineLoaded(spec: LocalEngineSpec) = active?.isEngineLoaded(spec) == true
+    override val latestAllocationObservation get() = active?.latestAllocationObservation
+    override val latestBackendFallbackReason get() = active?.latestBackendFallbackReason
+    override fun setLoadProgressObserver(observer: ((GgufNativeProgress) -> Unit)?) {
+        gguf.setLoadProgressObserver(observer)
+        preview.setLoadProgressObserver(observer)
+    }
     override fun loadedEngineSpec() = active?.loadedEngineSpec()
     override fun hasOpenConversation() = active?.hasOpenConversation() == true
     override suspend fun createConversation(config: LocalConversationConfig) = checkNotNull(active).createConversation(config)

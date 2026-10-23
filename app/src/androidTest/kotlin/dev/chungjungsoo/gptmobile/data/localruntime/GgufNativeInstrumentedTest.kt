@@ -22,7 +22,16 @@ class GgufNativeInstrumentedTest {
     @Test
     fun packagedVulkanRuntimeGeneratesOnCompatibleDevice() {
         assumeTrue(dev.chungjungsoo.gptmobile.BuildConfig.GGUF_VULKAN_ENABLED)
-        assumeTrue("Device has no compatible Vulkan GPU", GgufNative.supportsGpuOffload())
+        assertGpuInference("gpu")
+    }
+
+    @Test fun packagedOpenClRuntimeGeneratesOnCompatibleDevice() {
+        assumeTrue(dev.chungjungsoo.gptmobile.BuildConfig.GGUF_OPENCL_ENABLED)
+        assertGpuInference("opencl")
+    }
+
+    private fun assertGpuInference(backend: String) {
+        assumeTrue("Device has no compatible $backend GPU", GgufNative.supportsBackend(backend))
         val context = ApplicationProvider.getApplicationContext<Context>()
         val model = File(context.cacheDir, "gguf-vulkan-smoke.gguf")
         val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
@@ -32,7 +41,11 @@ class GgufNativeInstrumentedTest {
         try {
             val hash = MessageDigest.getInstance("SHA-256").digest(model.readBytes()).joinToString("") { "%02x".format(it) }
             assertEquals("c5398d4d93aa7dac7ee95fbc1f8448620fdb5b7445a8b42286c80d587e53dfd5", hash)
-            val handle = GgufNative.load(model.absolutePath.toByteArray(), 512, 2, 999)
+            val operation = GgufNative.nextOperationId()
+            GgufNative.prepareOperation(0, operation)
+            val handle = GgufNative.loadBackendProgress(model.absolutePath.toByteArray(), 512, 2, 8, operation, 2, 128, 64, null, backend)
+            assertTrue(GgufNative.executionInfo(handle).contains("backend=$backend"))
+            assertTrue(Regex("actualRepeatingLayers=([1-9][0-9]*)").containsMatchIn(GgufNative.executionInfo(handle)))
             try {
                 repeat(2) {
                     val output = ByteArrayOutputStream()

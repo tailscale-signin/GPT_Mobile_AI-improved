@@ -56,7 +56,10 @@ internal object CombinedContributionUsability {
         val unfinishedSyntax = prose && usableWords >= 12 && (content.endsWith(',') || Regex("(?i)\\b(?:a|an|the|and|or|of|to|by|with|were|was|defeated|including)$").containsMatchIn(content))
         val nearCap = outputAllowance != null && (outputTokens?.let { it >= outputAllowance * 0.9 } == true || content.length / 4 >= outputAllowance * 0.85)
         val clipped = finishReason in setOf("length", "max_tokens", "MAX_TOKENS") || unfinishedSyntax && (nearCap || task?.historicalSurvey == true)
-        val partial = terminalFailure || clipped
+        val requestedItems = request?.let { dev.chungjungsoo.gptmobile.data.agent.CombinedAnswerPolicy.from(it).requestedItems }
+        val actualItems = Regex("(?m)^ {0,3}(?:[0-9]+[.)]|[-*+])\\s+\\S").findAll(content).count()
+        val incompleteItems = requestedItems != null && requestedItems > 1 && actualItems < requestedItems
+        val partial = terminalFailure || clipped || incompleteItems
         val completeness = when {
             partial -> "PARTIAL"
             finishReason in setOf("stop", "end_turn", "STOP") -> "COMPLETE"

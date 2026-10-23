@@ -88,7 +88,12 @@ internal object PackageDigest {
     internal fun installedFileIdentity(file: File): String? = runCatching {
         val attributes = Files.readAttributes(file.toPath(), "unix:dev,ino,ctime,size,lastModifiedTime")
         require(attributes.keys.containsAll(setOf("dev", "ino", "ctime", "size", "lastModifiedTime")))
-        "${file.canonicalPath}|${LocalModelInstallationEpoch.current()}|$attributes"
+        "${file.canonicalPath}|${attributes.toSortedMap()}"
+    }.getOrNull() ?: runCatching {
+        // Android's NIO provider may omit the unix view. Os.stat supplies the
+        // same inode and nanosecond change/modify identity on supported Android.
+        val stat = android.system.Os.stat(file.canonicalPath)
+        "${file.canonicalPath}|${stat.st_dev}|${stat.st_ino}|${stat.st_size}|${stat.st_ctim.tv_sec}:${stat.st_ctim.tv_nsec}|${stat.st_mtim.tv_sec}:${stat.st_mtim.tv_nsec}"
     }.getOrNull()
 
     private val assetReceipts = java.util.concurrent.ConcurrentHashMap<String, String>()
@@ -96,17 +101,66 @@ internal object PackageDigest {
     /** Kernel change time and inode detect in-place edits as well as atomic replacements.
      * Filesystems without this identity receive full verification, never a timestamp-only fast path.
      */
+    @Volatile private var receiptDirectory: File? = null
+    fun configureReceiptDirectory(directory: File?) {
+        receiptDirectory = directory
+    }
+
+    internal fun clearMemoryReceipts() {
+        assetReceipts.clear()
+    }
+
+    @Synchronized
     fun verifyInstalledAssetCached(file: File, expected: String, checkCurrent: () -> Unit = {}): String {
         checkCurrent()
-        fun identity(): String? = installedFileIdentity(file)?.let { "$it|$expected" }
-        val before = identity()
-        if (before != null) assetReceipts[before]?.let { return it }
-        val digest = verify(file, expected, checkCurrent)
-        if (before != null && before == identity()) {
-            if (assetReceipts.size >= 256) assetReceipts.clear()
-            assetReceipts[before] = digest
+        require(expected.matches(Regex("[a-fA-F0-9]{64}"))) { "Invalid trusted package checksum metadata" }
+        val started = System.nanoTime()
+        val before = installedFileIdentity(file)?.let { "$it|${expected.lowercase()}" }
+        fun report(reason: String) {
+            val duration = (System.nanoTime() - started) / 1_000_000
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("LocalModel", "MODEL_CHECKSUM · durationMs=$duration · cache=$reason · bytes=${file.length()}")
+            dev.chungjungsoo.gptmobile.data.diagnostics.LocalRuntimeIncidentHistory.record("CHECKSUM_FINISHED", mapOf("durationMs" to duration.toString(), "cache" to reason, "bytes" to file.length().toString()))
         }
-        return digest
+        if (before != null) {
+            assetReceipts[before]?.let {
+                report("memory_hit")
+                return it
+            }
+        }
+        val receipt = before?.let { key -> receiptDirectory?.let { File(it, sha256(key.toByteArray()) + ".verified") } }
+        fun verifyOrReuse(): String {
+            checkCurrent()
+            if (before != null && receipt?.isFile == true && receipt.length() <= 8192 && receipt.readText() == before + "\n" + expected.lowercase() && before == installedFileIdentity(file)?.let { "$it|${expected.lowercase()}" }) {
+                assetReceipts[before] = expected.lowercase()
+                report("disk_hit")
+                return expected.lowercase()
+            }
+            val digest = verify(file, expected, checkCurrent)
+            if (before != null) {
+                check(before == installedFileIdentity(file)?.let { "$it|${expected.lowercase()}" }) { "Model changed during checksum verification" }
+                if (assetReceipts.size >= 256) assetReceipts.clear()
+                assetReceipts[before] = digest
+                receipt?.let {
+                    val temporary = File(it.parentFile, it.name + ".tmp")
+                    temporary.outputStream().use { output ->
+                        output.write((before + "\n" + digest).toByteArray())
+                        output.fd.sync()
+                    }
+                    Files.move(temporary.toPath(), it.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE)
+                }
+            }
+            report(if (before == null) "identity_unavailable_full_hash" else "miss_full_hash")
+            return digest
+        }
+        // Cross-process inspection and engine loading share one verification receipt.
+        return if (receipt == null) {
+            verifyOrReuse()
+        } else {
+            check(receipt.parentFile?.let { it.isDirectory || it.mkdirs() } == true) { "Could not prepare checksum receipt directory" }
+            java.io.RandomAccessFile(File(receipt.parentFile, "verification.lock"), "rw").use { lock ->
+                lock.channel.lock().use { verifyOrReuse() }
+            }
+        }
     }
 
     fun verify(file: File, expected: String, checkCurrent: () -> Unit = {}): String {

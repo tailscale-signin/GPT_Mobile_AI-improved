@@ -131,6 +131,7 @@ extensions.configure<ApplicationExtension> {
         buildConfigField("boolean", "GGUF_ENABLED", (providers.gradleProperty("ggufRuntime").orNull != "false").toString())
         val ggufVulkan = providers.gradleProperty("ggufVulkan").map { it != "false" }.getOrElse(true)
         buildConfigField("boolean", "GGUF_VULKAN_ENABLED", ggufVulkan.toString())
+        buildConfigField("boolean", "GGUF_OPENCL_ENABLED", providers.gradleProperty("ggufOpencl").map { it != "false" }.getOrElse(true).toString())
         buildConfigField("String", "GENIEX_VERSION", "\"${libs.versions.geniex.get()}\"")
         // Independent rollback controls. Mandatory parser/admission hard caps remain enabled.
         buildConfigField("boolean", "COMBINED_SECTION_RECOVERY", providers.gradleProperty("combinedSectionRecovery").map { (it != "false").toString() }.getOrElse("true"))

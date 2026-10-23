@@ -35,6 +35,9 @@ internal class CombinedInvocationAccounting(
     private val mutex = Mutex()
 
     suspend fun reserve(attemptId: String, receipt: RequestAdmissionReceipt?) = mutex.withLock {
+        if (context.requested.singlePass && attempts.isNotEmpty()) {
+            throw CombinedBudgetExceeded("COMBINED_EXPLICIT_RETRY_REQUIRED: A failed provider request cannot be resubmitted automatically.")
+        }
         val actual = receipt ?: throw CombinedBudgetExceeded("Compiled request receipt is missing; no Combined inference was sent.")
         val output = actual.outputTokens ?: throw CombinedBudgetExceeded("This transport cannot enforce an output bound; Combined dispatch requires a bounded provider request.")
         require(output > 0) { "No output capacity remains; no Combined inference was sent." }

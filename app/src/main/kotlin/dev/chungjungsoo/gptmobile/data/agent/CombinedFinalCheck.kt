@@ -52,6 +52,7 @@ internal object CombinedFinalCheck {
         val receipts = mutableListOf<CombinedVerificationReceipt>()
         val edges = mutableListOf<CombinedSupportEdge>()
         val needs = mutableListOf<CombinedVerificationNeed>()
+        if (policy.requiresOfficialPrices) checks += CombinedPricingContract.check(answer, evidence, policy)
         val contracts = policy.violations(answer)
         checks += CombinedAnswerCheck("ANSWER_CONTRACT", "REQUEST", if (contracts.isEmpty()) "PASS" else "FAIL", message = contracts.joinToString(", "))
         checks += contracts.map { CombinedAnswerCheck(it, "REQUEST", "FAIL", material = it == "TASK_SUBJECT_MISMATCH") }

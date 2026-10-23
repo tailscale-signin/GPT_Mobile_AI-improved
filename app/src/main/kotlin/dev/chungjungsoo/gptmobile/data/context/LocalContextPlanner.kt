@@ -31,10 +31,11 @@ internal object LocalContextPlanner {
         imageCount: Int = 0,
         historyImageCount: (ConversationTurn) -> Int = { 0 },
         renderToolPrompt: ((List<AgentToolDefinition>) -> String)? = null,
-        renderCapabilityPrompt: ((List<AgentToolDefinition>) -> String)? = null
+        renderCapabilityPrompt: ((List<AgentToolDefinition>) -> String)? = null,
+        explicitlyRequiredTools: Set<String> = emptySet()
     ): LocalContextPlan {
         require(contextTokens > 0)
-        val currentRequiredNames = requiredToolNames(currentUserPrompt, tools)
+        val currentRequiredNames = requiredToolNames(currentUserPrompt, tools) + explicitlyRequiredTools.intersect(tools.map { it.name }.toSet())
         // Follow only a contiguous, bounded chain of references to the previous
         // task. A new substantive request ends it; disabled tools are never added.
         val intentIndex = if (currentRequiredNames.isEmpty() && isToolFollowUp(currentUserPrompt)) {
@@ -44,7 +45,8 @@ internal object LocalContextPlanner {
         }
         val inheritedNames = intentIndex?.let { requiredToolNames(priorTurns[it].userMessage.effectiveContent(), tools) }.orEmpty()
         val requiredNames = currentRequiredNames + inheritedNames
-        val rankedTools = tools.sortedWith(compareByDescending<AgentToolDefinition> { it.name in requiredNames }.thenByDescending { relevance(currentUserPrompt, it) }.thenBy { it.name })
+        val relevantTools = relevantTools(currentUserPrompt, tools, requiredNames)
+        val rankedTools = relevantTools.sortedWith(compareByDescending<AgentToolDefinition> { it.name in requiredNames }.thenByDescending { relevance(currentUserPrompt, it) }.thenBy { it.name })
         fun schemaCost(selected: List<AgentToolDefinition>): Long = (
             renderToolPrompt?.let { estimate(it(selected)) }
                 ?: selected.sumOf { estimate(it.name) + estimate(it.description) + estimate(it.inputSchema.toString()) + 32 }
@@ -53,8 +55,8 @@ internal object LocalContextPlanner {
         // Tool definitions are charged below at their measured cost. Reserving another
         // tool block here double-counted the same tokens and caused local conversations
         // to silently receive zero tools on small-context models.
-        val toolResultReserve = if (tools.isEmpty()) 0 else maxOf(128, contextTokens / 4)
-        val templateReserve = minOf(256, contextTokens / 8)
+        val toolResultReserve = if (relevantTools.isEmpty()) 0 else maxOf(128, contextTokens / 4)
+        val templateReserve = 256 // Matches the minimum uncertainty reserve at physical dispatch.
         // Reserve explicit result headroom for small local contexts; larger engines have
         // provider-level response budgeting and should not lose tools unnecessarily.
         var used = estimate(systemPrompt.orEmpty()) + estimate(currentUserPrompt) + imageCount.toLong() * IMAGE_TOKEN_ESTIMATE
@@ -78,8 +80,7 @@ internal object LocalContextPlanner {
         // An oversized output preference must not consume every optional schema slot.
         // Protect at least one usable capability before allocating the reply budget.
         val protectedTools = requiredTools.ifEmpty {
-            rankedTools.firstOrNull { used + anchorTokens + schemaCost(listOf(it)) + safetyReserve < contextTokens }
-                ?.let(::listOf).orEmpty()
+            rankedTools.take(1)
         }
         // A large reply preference must not reduce an otherwise usable catalog to
         // one tool. Keep history anchors and a modest reply before optional schemas;
@@ -148,10 +149,11 @@ internal object LocalContextPlanner {
             outputReserve,
             tools.associate { tool ->
                 tool.name to when {
+                    tool !in relevantTools -> "not_needed_for_request"
                     tool !in selectedTools -> "context_budget"
                     tool.name in currentRequiredNames -> "required_current_request"
                     tool.name in inheritedNames -> "required_follow_up"
-                    else -> "optional_fits_context"
+                    else -> "relevant_to_request"
                 }
             }
         )
@@ -160,7 +162,7 @@ internal object LocalContextPlanner {
     internal fun requiredToolNames(prompt: String, tools: List<AgentToolDefinition>): Set<String> {
         val lower = prompt.lowercase()
         val required = mutableSetOf<String>()
-        tools.filter { tool -> lower.contains(tool.name.lowercase()) }.forEach { required += it.name }
+        tools.filter { tool -> Regex("(?<![a-z0-9_])" + Regex.escape(tool.name.lowercase()) + "(?![a-z0-9_])").containsMatchIn(lower) }.forEach { required += it.name }
         fun select(word: String) {
             val matching = tools.firstOrNull { it.name == word } ?: tools.firstOrNull {
                 when (word) {
@@ -186,7 +188,25 @@ internal object LocalContextPlanner {
         return required
     }
 
-    private fun isToolFollowUp(prompt: String): Boolean = prompt.trim().lowercase().let { text ->
+    /** Relevance precedes capacity: spare context is not a reason to send schemas. */
+    internal fun relevantTools(prompt: String, tools: List<AgentToolDefinition>, required: Set<String> = requiredToolNames(prompt, tools)): List<AgentToolDefinition> {
+        if (dev.chungjungsoo.gptmobile.data.research.isResearchConversationOnly(prompt) && required.isEmpty()) return emptyList()
+        val taskWords = Regex("[a-z0-9_]{3,}").findAll(prompt.lowercase()).map { it.value }
+            .filterNot { it in setOf("the", "and", "for", "this", "that", "with", "please", "can", "could", "use", "what", "how", "write", "explain", "tell", "give", "about") }.toSet()
+        val relevant = tools.filter { tool ->
+            tool.name in required || taskWords.any { word -> tool.name.lowercase().split('_').any { it == word } }
+        }
+        val toolIntent = required.isNotEmpty() ||
+            relevant.isNotEmpty() ||
+            Regex("(?i)\\b(tools?|capabilities|available actions|what can you do|github|repository|repositories|calendar|email|remember|calculate|weather|prices?|current|today)\\b").containsMatchIn(prompt)
+        val discovery = tools.firstOrNull { it.name == dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.NAME }
+        val selected = relevant.filter { it.name in required } + relevant.filterNot { it.name in required || it == discovery }.take(3)
+        val inventoryRequest = Regex("(?i)\\b(use (?:a |available |the )?tools?|available tools|what tools|what can you do|available actions|capabilities)\\b").containsMatchIn(prompt)
+        val fallback = if (inventoryRequest && discovery == null && selected.isEmpty()) tools.take(3) else emptyList()
+        return (selected + fallback + if (toolIntent && discovery != null) listOf(discovery) else emptyList()).distinctBy { it.name }
+    }
+
+    internal fun isToolFollowUp(prompt: String): Boolean = prompt.trim().lowercase().let { text ->
         text.length <= 160 &&
             Regex(
                 "^(?:(?:please|can you)\\s+)?(?:check again|try again|retry|continue|go on|do that|try it again|test tool[sa]?|test the tools|check the tools)[.!?\\s]*$"

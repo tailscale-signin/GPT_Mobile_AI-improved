@@ -15,7 +15,11 @@ data class CombinedAcceptedTurn(
     val tools: ChatMcpToolConfig,
     val parentRootBudgetId: String? = null,
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
-    val acceptedTask: AcceptedTaskRef? = null
+    val acceptedTask: AcceptedTaskRef? = null,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val recoveredProviderAnswer: String? = null,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val sourceQueueRunId: String? = null
 ) {
     fun encode(): String = json.encodeToString(this)
 

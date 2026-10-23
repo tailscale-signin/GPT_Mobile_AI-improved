@@ -16,7 +16,8 @@ internal fun combinedSynthesisInputs(
     runs: Map<String, AgentRun>,
     names: Map<String, String>,
     models: Map<String, String>,
-    currentRequest: String? = null
+    currentRequest: String? = null,
+    requireComplete: Boolean = false
 ): List<CombinedModelResponse>? {
     if (responses.any { message ->
             val status = runs[message.currentRunId]?.status
@@ -27,6 +28,7 @@ internal fun combinedSynthesisInputs(
     ) {
         return null
     }
+    if (requireComplete && combinedProfileFailures(0, currentRequest.orEmpty(), responses, runs, names, models).isNotEmpty()) return null
     val synthesis = responses.firstOrNull { it.isCombinedSynthesis() }
     val sources = responses.mapNotNull { message ->
         val uid = message.platformType ?: return@mapNotNull null
@@ -34,7 +36,7 @@ internal fun combinedSynthesisInputs(
         val originalContent = original?.content ?: message.content
         // Validate control markup before sanitizing, which may retain an innocent preamble.
         if (dev.chungjungsoo.gptmobile.data.agent.DSML_CONTROL_MARKUP.containsMatchIn(originalContent)) return@mapNotNull null
-        val content = currentRequest?.let { CombinedContributionQuality.currentRequestContribution(it, originalContent) } ?: CombinedContributionQuality.sanitizeContribution(originalContent)
+        val content = currentRequest?.takeUnless { requireComplete }?.let { CombinedContributionQuality.currentRequestContribution(it, originalContent) } ?: CombinedContributionQuality.sanitizeContribution(originalContent)
         if (isAssistantErrorMessage(content)) return@mapNotNull null
         // The synthesis run's status describes the editor, not the preserved contributor.
         val status = if (message.isCombinedSynthesis() && original != null) {
@@ -49,7 +51,7 @@ internal fun combinedSynthesisInputs(
         val finishReason = generation?.finishReason ?: original?.nativeFinishReason
         val assessment = CombinedContributionUsability.assess(status, content, allowPartial = true, request = currentRequest, demo = demo, finishReason = finishReason, outputTokens = generation?.outputTokens, outputAllowance = generation?.outputAllowance ?: 256.takeIf { uid == "builtin-free-ai_horde" })
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("CombinedScreening", "CONTRIBUTION_SCREENED · uid=$uid · admitted=${assessment.admitted} · reason=${assessment.reason} · relevance=${assessment.relevance} · coherence=${assessment.coherence} · completeness=${assessment.completeness}")
-        if (!assessment.admitted) return@mapNotNull null
+        if (!assessment.admitted || requireComplete && assessment.usablePartial) return@mapNotNull null
         CombinedModelResponse(
             platformUid = uid,
             platformName = names[uid] ?: original?.platformName ?: "AI",
@@ -72,7 +74,7 @@ internal fun combinedSynthesisInputs(
             nativeFinishReason = finishReason
         )
     }
-    if (sources.isEmpty()) return null
+    if (sources.isEmpty() || requireComplete && sources.size != responses.size) return null
     // A persisted editor owns the frozen corpus, including after failure or completion.
     // Late helper updates require explicit user recovery; never silently replace the final answer.
     if (synthesis != null) return null

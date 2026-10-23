@@ -7,6 +7,27 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PackageDigestReceiptTest {
+    @Test fun durableReceiptAvoidsRehashAfterMemoryCacheIsLost() {
+        val root = Files.createTempDirectory("persisted-verification").toFile()
+        try {
+            PackageDigest.configureReceiptDirectory(File(root, "private-receipts"))
+            val asset = File(root, "weights.gguf").apply { writeText("original") }
+            val expected = PackageDigest.sha256(asset)
+            PackageDigest.verifyInstalledAssetCached(asset, expected)
+            val before = PackageDigest.bytesHashed.get()
+            PackageDigest.clearMemoryReceipts()
+            assertEquals(expected, PackageDigest.verifyInstalledAssetCached(asset, expected))
+            if (PackageDigest.installedFileIdentity(asset) != null) assertEquals(before, PackageDigest.bytesHashed.get())
+            val timestamp = asset.lastModified()
+            asset.writeText("replaced")
+            asset.setLastModified(timestamp)
+            assertTrue(runCatching { PackageDigest.verifyInstalledAssetCached(asset, expected) }.isFailure)
+        } finally {
+            PackageDigest.configureReceiptDirectory(null)
+            root.deleteRecursively()
+        }
+    }
+
     @Test fun standaloneIdentityInvalidatesSameSizeEditWithPreservedModificationTime() {
         val root = kotlin.io.path.createTempDirectory("standalone-identity").toFile()
         try {

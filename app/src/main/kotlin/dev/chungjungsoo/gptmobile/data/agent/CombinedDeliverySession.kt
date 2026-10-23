@@ -47,7 +47,8 @@ internal class CombinedDeliverySession(
         var currentRevision = revisionId.ifBlank { UUID.randomUUID().toString() }
         val coverage = withContext(Dispatchers.Default) { CombinedContentCoverage(sources, originalRequest) }
         val constrained = policy.maximumWords != null || policy.minimumWords != null || policy.targetWords != null || policy.singleExample || policy.requiresCurrentEvidence || policy.requiredFormat != null || policy.task?.subjectConfidence == "EXPLICIT"
-        val progressive = structured && !constrained && committedPrefix.isEmpty()
+        val singlePass = combined?.requested?.singlePass == true
+        val progressive = structured && (singlePass || !constrained) && committedPrefix.isEmpty()
         AppLogRecorder.record(
             "CombinedSynthesis",
             "SYNTHESIS_DELIVERY_STARTED · sourceCount=${sources.size} · protocol=${if (recordProtocol) {
@@ -104,7 +105,7 @@ internal class CombinedDeliverySession(
             return Candidate(answer, terminal, decoder)
         }
         validateAccess()
-        if (policy.requiresCurrentEvidence && currentEvidence.records.none { it.readable && it.article && it.dated }) {
+        if (!singlePass && policy.requiresCurrentEvidence && currentEvidence.records.none { it.readable && it.article && it.dated }) {
             if (combined != null && !policy.noSearch) {
                 val acquired = verify(CombinedVerificationRequest("", currentRevision, listOf(CombinedVerificationNeed("current-article", originalRequest, "A dated, readable article is required by the current-news request")), currentEvidence, originalRequest))
                 validateAccess()
@@ -150,7 +151,7 @@ internal class CombinedDeliverySession(
         val rejections = mutableListOf<String>()
         val verificationAttempts = linkedSetOf<String>()
         var noProgress = 0
-        var repairSkippedReason: String? = null
+        var repairSkippedReason: String? = if (singlePass) "SINGLE_PASS_LOCAL_CHECKS_ONLY" else null
 
         fun report(candidate: Candidate, checked: CombinedFinalAssessment, final: Boolean): CombinedQualityReport {
             val unresolvedResearch = checked.checks.any { it.category == "RESEARCH_SCOPE" && it.result != "PASS" }
@@ -198,11 +199,13 @@ internal class CombinedDeliverySession(
                 verificationReceipts = checked.receipts, supportEdges = checked.supportEdges,
                 checks = checked.checks, verificationNeeds = checked.verificationNeeds,
                 repairRejections = rejections.toList(), consideredProfileUids = sources.mapTo(linkedSetOf()) { it.platformUid },
-                requestedPolicyDigest = combined?.requested?.requestedPolicyDigest.orEmpty(), effectivePlanDigest = combined?.plan?.effectivePlanDigest.orEmpty()
+                requestedPolicyDigest = combined?.requested?.requestedPolicyDigest.orEmpty(), effectivePlanDigest = combined?.plan?.effectivePlanDigest.orEmpty(),
+                includedProfileUids = if (singlePass) sources.mapTo(linkedSetOf()) { it.platformUid } else emptySet(),
+                representedProfileUids = candidate.decoder?.passages.orEmpty().filter { it.matches(candidate.text) && it.semanticLinkStatus == "CONSERVATIVE_LINK_CHECKED" }.flatMapTo(linkedSetOf()) { it.profileUids }
             )
         }
 
-        while (accepted.terminal == ProviderEvent.Completed) {
+        while (!singlePass && accepted.terminal == ProviderEvent.Completed) {
             validateAccess()
             correctionRequired = correctionRequired || assessment.correctionRequired
             if (correctionRequired) {
@@ -237,7 +240,7 @@ internal class CombinedDeliverySession(
                 repairSkippedReason = "CORRECTION_CAPACITY_UNAVAILABLE"
                 break
             }
-            if (combined == null && (repairs >= maxRepairRounds || progressive || committedPrefix.isNotEmpty())) {
+            if (repairs >= maxRepairRounds || combined == null && (progressive || committedPrefix.isNotEmpty())) {
                 repairSkippedReason = if (progressive || committedPrefix.isNotEmpty()) "LEGACY_REVISION_REQUIRES_NEW_OWNER" else "LEGACY_REPAIR_ALLOWANCE_REACHED"
                 break
             }

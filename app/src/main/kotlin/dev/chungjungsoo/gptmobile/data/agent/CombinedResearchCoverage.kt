@@ -12,6 +12,9 @@ internal data class CombinedResearchObligation(val id: String, val question: Str
             val root = Json.parseToJsonElement(prompt) as JsonObject
             (root["question_obligations"] as? JsonArray).orEmpty().mapNotNull { element ->
                 val row = element as? JsonObject ?: return@mapNotNull null
+                // General answer requirements are validated by CombinedFinalCheck;
+                // they do not require a research citation for a greeting or a list.
+                if ((row["kind"] as? JsonPrimitive)?.content == "REQUEST_CONTRACT") return@mapNotNull null
                 val id = (row["id"] as? JsonPrimitive)?.content ?: return@mapNotNull null
                 val question = (row["question"] as? JsonPrimitive)?.content?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
                 CombinedResearchObligation(id, question, (row["source_ids"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.content }.toSet())

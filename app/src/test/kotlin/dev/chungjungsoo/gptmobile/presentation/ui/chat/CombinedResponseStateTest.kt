@@ -23,7 +23,7 @@ class CombinedResponseStateTest {
         )
         val current = response("other", "New contribution", "new-run")
 
-        val profiles = profiles(listOf(lead, current))
+        val profiles = combinedResponseProfiles(listOf(lead, current), listOf("old"), emptyMap(), setOf("old"), false, emptyMap())
 
         assertEquals(listOf("old"), profiles.map { it.uid })
         assertEquals("Original contribution", profiles.single().message?.content)
@@ -94,16 +94,15 @@ class CombinedResponseStateTest {
     }
 
     @Test
-    fun `failed and canceled participants remain inspectable after membership changes and reopening`() {
+    fun `removed failed and canceled participants do not reappear after reopening`() {
         val responses = listOf(response("lead", "Error: unavailable", "failed"), response("other", "Partial answer", "canceled"))
         val runs = mapOf("failed" to run("failed", AgentRunStatus.FAILED), "canceled" to run("canceled", AgentRunStatus.CANCELED))
 
         val profiles = profiles(responses, participating = emptySet(), runs = runs)
 
-        assertEquals(listOf("lead", "other"), profiles.map { it.uid })
-        assertEquals(listOf(CombinedResponseStatus.FAILED, CombinedResponseStatus.FAILED), profiles.map { it.status })
-        assertEquals("Partial answer", profiles.last().message?.content)
-        assertEquals(CombinedResponseStatus.FAILED, combinedAnswerStatus(null, profiles, runs))
+        assertEquals(emptyList<CombinedResponseProfile>(), profiles)
+        assertEquals("Partial answer", responses.last().content)
+        assertEquals("canceled", responses.last().currentRunId)
     }
 
     @Test

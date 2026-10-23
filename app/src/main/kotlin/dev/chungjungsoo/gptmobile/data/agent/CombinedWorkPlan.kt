@@ -108,7 +108,9 @@ data class CombinedRequestedPolicy(
     val acceptedAtMillis: Long = 0,
     val settingsRevision: Long = 0,
     val requestedPolicyDigest: String = "",
-    val acceptedResearch: CombinedResearchRequirement? = null
+    val acceptedResearch: CombinedResearchRequirement? = null,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val singlePass: Boolean = false
 )
 
 /** Finite work sealed by the controller. Workers cannot add scope by calling a tool. */

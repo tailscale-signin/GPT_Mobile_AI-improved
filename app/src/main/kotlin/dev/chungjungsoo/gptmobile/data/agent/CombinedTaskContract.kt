@@ -42,7 +42,7 @@ data class CombinedTaskContract(
             "france" to listOf("France", "French"),
             "portugal" to listOf("Portugal", "Portuguese")
         )
-        private val reference = Regex("(?i)\\b(?:it|them|those|previous|above)\\b|\\b(?:compare|explain|summarize|rewrite|shorten)\\s+(?:this|that)\\b")
+        private val reference = Regex("(?i)\\b(?:it|them|those|previous|above|both sites|both providers|that model|these models)\\b|\\b(?:compare|explain|summarize|rewrite|shorten)\\s+(?:this|that)\\b")
         private val followUpVerb = Regex("(?i)^\\s*(?:continue|expand|shorten|rewrite|elaborate|summarize)\\b")
         private fun referencesPrior(text: String): Boolean = reference.containsMatchIn(text) ||
             followUpVerb.containsMatchIn(text) &&
@@ -65,7 +65,8 @@ data class CombinedTaskContract(
             val explicit = Regex("(?i)\\b(?:history of|history about|essay (?:on|about)|explain|describe|tell me about|what (?:is|are))\\s+(.+?)(?:[.!?]|$)")
                 .find(text)?.groupValues?.get(1)?.replace(Regex("(?i)\\s+(?:in|using|with)\\s+(?:exactly |about )?\\d+.*$"), "")?.trim()
             val prior = if (following) from(requireNotNull(previousRequest)) else null
-            val named = aliases.keys.filter { subject -> Regex("(?i)\\b${Regex.escape(subject)}\\b").containsMatchIn(text) }
+            val serviceNames = listOf("LLM7", "OpenRouter").filter { Regex("(?i)\\b${Regex.escape(it)}\\b").containsMatchIn(text) }
+            val named = serviceNames + aliases.keys.filter { subject -> Regex("(?i)\\b${Regex.escape(subject)}\\b").containsMatchIn(text) }
             val subjectText = explicit?.takeUnless { reference.containsMatchIn(it) || tokens(it).size > 6 || Regex("(?i)\\b(?:why|how|whether|should|would|could)\\b").containsMatchIn(it) }
             val directSubjects = named.ifEmpty { subjectText?.let { listOf(it) }.orEmpty() }
             val subjects = (directSubjects + prior?.subjects.orEmpty().takeIf { directSubjects.isEmpty() || action == "COMPARE" }.orEmpty()).distinct()

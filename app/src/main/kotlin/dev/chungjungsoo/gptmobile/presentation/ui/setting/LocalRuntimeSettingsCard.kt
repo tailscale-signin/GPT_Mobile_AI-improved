@@ -61,7 +61,7 @@ internal fun LocalRuntimeSettingsCard(viewModel: LocalRuntimeSettingsViewModel, 
             if (section == "engine") {
                 Text("Engine and processor", style = MaterialTheme.typography.titleLarge)
                 Text("${viewModel.soc} · ${viewModel.cores} CPU cores · ${viewModel.ramGb} GB RAM", style = MaterialTheme.typography.bodyMedium)
-                Text(active.engineSpec?.let { if (active.backend in setOf(LocalRuntimeBackend.GENIEX_QAIRT, LocalRuntimeBackend.GENIEX_LLAMA_CPP)) "${active.backend?.displayName} · Requested ${it.accelerator.uppercase()} · Effective processor not reported by SDK" else "${active.backend?.displayName} · Requested ${it.accelerator.uppercase()} · ${it.maxTokens} context · execution observation unavailable" } ?: "Engine idle", color = MaterialTheme.colorScheme.primary)
+                Text(active.engineSpec?.let { if (active.backend in setOf(LocalRuntimeBackend.GENIEX_QAIRT, LocalRuntimeBackend.GENIEX_LLAMA_CPP)) "${active.backend?.displayName} · Requested ${it.accelerator.uppercase()} · Effective processor not reported by SDK" else "${active.backend?.displayName} · Active ${it.accelerator.uppercase()} · ${it.maxTokens} context" } ?: "Engine idle", color = MaterialTheme.colorScheme.primary)
                 active.fallbackReason?.let { Text("Fallback: $it", style = MaterialTheme.typography.bodySmall) }
                 Text("The model package determines its engine. Choose a supported processor in the model profile; changing a global label cannot convert a model.", style = MaterialTheme.typography.bodySmall)
                 Text(npuStatus, style = MaterialTheme.typography.bodySmall)

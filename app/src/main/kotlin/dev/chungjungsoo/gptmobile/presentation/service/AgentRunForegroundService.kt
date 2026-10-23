@@ -412,6 +412,8 @@ class AgentRunForegroundService : Service() {
         private const val WAKELOCK_TIMEOUT_MS = 60 * 60 * 1000L // 1 hour max safeguard
         private const val NOTIFICATION_THROTTLE_MS = 500L // Throttle notification updates
 
+        fun canStartNow(): Boolean = promoted.get() || !AppForegroundTracker.isBackgrounded
+
         @androidx.annotation.MainThread
         fun start(context: Context) {
             // Active runs are published before this call. The existing observer updates the

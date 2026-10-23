@@ -192,7 +192,7 @@ class LocalRuntimeRouter(
         delegatedSpec = delegated
         preferenceAtLoad = preference
         tuningAtLoad = LocalEngineTuning(delegated.cpuThreads, delegated.cacheEnabled, delegated.speculativeDecoding, delegated.nativeMetricsEnabled)
-        _state.value = LocalRuntimeState(backend, runtime.loadedEngineSpec() ?: delegated, fallbackReason, preference, allocationObservation = runtime.latestAllocationObservation, loadProgress = state.value.loadProgress)
+        _state.value = LocalRuntimeState(backend, runtime.loadedEngineSpec() ?: delegated, runtime.latestBackendFallbackReason ?: fallbackReason, preference, allocationObservation = runtime.latestAllocationObservation, loadProgress = state.value.loadProgress)
     }
 
     override suspend fun isEngineLoaded(spec: LocalEngineSpec): Boolean {
@@ -227,7 +227,7 @@ class LocalRuntimeRouter(
         delegatedSpec = actual
         _state.value = _state.value.copy(
             engineSpec = actual,
-            fallbackReason = if (actual.accelerator != previous.accelerator) {
+            fallbackReason = runtime.latestBackendFallbackReason ?: if (actual.accelerator != previous.accelerator) {
                 "${previous.accelerator.uppercase()} generation failed; using ${actual.accelerator.uppercase()}"
             } else {
                 _state.value.fallbackReason

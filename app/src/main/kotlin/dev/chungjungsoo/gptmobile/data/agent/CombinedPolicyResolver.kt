@@ -15,7 +15,8 @@ object CombinedPolicyResolver {
         settingsRevision: Long = settings.revision,
         preferredOwnerUid: String? = null,
         requestedTemperatures: Map<String, Float?> = emptyMap(),
-        acceptedResearch: CombinedResearchRequirement? = null
+        acceptedResearch: CombinedResearchRequirement? = null,
+        singlePass: Boolean = false
     ): CombinedRequestedPolicy {
         require(settings.isSupported) { "This conversation uses a newer Combined settings version." }
         val participants = participantUids.filter(String::isNotBlank).distinct()
@@ -29,7 +30,8 @@ object CombinedPolicyResolver {
             userPrompt = userPrompt,
             acceptedAtMillis = acceptedAtMillis,
             settingsRevision = settingsRevision,
-            acceptedResearch = acceptedResearch
+            acceptedResearch = acceptedResearch,
+            singlePass = singlePass
         )
         return requested.copy(requestedPolicyDigest = combinedDigest(Json.encodeToString(requested)))
     }

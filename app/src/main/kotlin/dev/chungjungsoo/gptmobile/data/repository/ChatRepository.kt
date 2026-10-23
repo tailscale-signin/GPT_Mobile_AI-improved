@@ -109,6 +109,9 @@ interface ChatRepository {
     suspend fun prepareCombinedRetry(runId: String, platform: PlatformV2): dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot? = null
 
     suspend fun fetchDebugRecords(chatId: Int): kotlinx.serialization.json.JsonObject = kotlinx.serialization.json.JsonObject(emptyMap())
+    suspend fun combinedActiveMembers(chatId: Int): Set<String>? = null
+    suspend fun reopenCombinedContributor(runId: String): Boolean = false
+    suspend fun reconcileCombinedQueuedContributor(runId: String): String? = null
     suspend fun fetchMessagesV2(chatId: Int): List<MessageV2>
     suspend fun newestAssistantMessageId(chatId: Int): Int? = fetchMessagesV2(chatId)
         .filter { it.platformType != null && it.content.isNotBlank() }

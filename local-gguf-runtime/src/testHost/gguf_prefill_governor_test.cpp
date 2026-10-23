@@ -10,6 +10,13 @@ int main() {
     assert(cpu.selected(1000) == 128);
     for (int i = 0; i < 12; ++i) cpu.observed(5000);
     assert(cpu.selected(1000) == 1);
+    GgufPrefillGovernor measured(256, true);
+    measured.observed(570, 8);
+    assert(measured.selected(1000) == 16);
+    measured.observed(1140, 16);
+    assert(measured.selected(1000) == 32);
+    measured.observed(2280, 32);
+    assert(measured.selected(1000) == 35); // No binary-growth plateau at 32.
     GgufPrefillGovernor small(4, true);
     assert(small.selected(1000) == 4);
     GgufPrefillGovernor gpu(256, false);

@@ -25,12 +25,8 @@ object ProfileAttributionPalette {
         profileUids: List<String>,
         persisted: Map<String, ProfileColorIdentity>
     ): Map<String, ProfileColorIdentity> {
-        val ordered = profileUids.distinct().sortedWith(
-            compareBy<String>({ persisted[it]?.marker ?: Int.MAX_VALUE }, { it })
-        )
-        return ordered.mapIndexed { index, uid ->
-            uid to (persisted[uid] ?: ProfileColorIdentity(hue = 0, marker = index + 1)).copy(marker = index + 1)
-        }.toMap()
+        val identities = dev.chungjungsoo.gptmobile.data.model.ProfileColorRegistry.ensure(persisted, profileUids)
+        return profileUids.distinct().associateWith { identities.getValue(it) }
     }
 
     fun foreground(identity: ProfileColorIdentity, surface: Color): Color {

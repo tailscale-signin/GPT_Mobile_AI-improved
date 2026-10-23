@@ -498,7 +498,7 @@ fun PlatformSettingScreen(
                             SettingItem(
                                 modifier = Modifier.heightIn(min = 64.dp),
                                 title = stringResource(R.string.accelerator),
-                                description = acceleratorLabel(platformData.accelerator),
+                                description = acceleratorLabel(platformData.accelerator, acceleratorOptions.any { it.accelerator == LocalAccelerators.AUTO }),
                                 enabled = platformData.enabled && acceleratorOptions.isNotEmpty(),
                                 onItemClick = settingViewModel::openAcceleratorDialog,
                                 showTrailingIcon = false,
@@ -1287,8 +1287,10 @@ fun ExtendedThinkingSwitch(
 }
 
 @Composable
-private fun acceleratorLabel(accelerator: String?): String = when (LocalAccelerators.normalize(accelerator)) {
-    LocalAccelerators.GPU -> stringResource(R.string.accelerator_gpu)
+private fun acceleratorLabel(accelerator: String?, gguf: Boolean): String = when (LocalAccelerators.normalize(accelerator)) {
+    LocalAccelerators.GPU -> if (gguf) "Vulkan GPU" else stringResource(R.string.accelerator_gpu)
+    LocalAccelerators.OPENCL -> "OpenCL GPU"
+    LocalAccelerators.AUTO -> "Auto (tested configuration)"
     LocalAccelerators.NPU -> stringResource(R.string.accelerator_npu)
     else -> stringResource(R.string.accelerator_cpu)
 }

@@ -31,11 +31,12 @@ internal data class WireConversation(
     val outputTokens: Int?,
     val thinking: Boolean?,
     val speculative: Boolean?,
-    val finalResponseSchemaJson: String? = null
+    val finalResponseSchemaJson: String? = null,
+    val allowAutomaticRecovery: Boolean = true
 ) {
-    fun config(executor: LocalToolExecutor?) = LocalConversationConfig(sampler, systemPrompt, history, tools, constrained, executor, outputTokens, thinking, speculative, finalResponseSchemaJson)
+    fun config(executor: LocalToolExecutor?) = LocalConversationConfig(sampler, systemPrompt, history, tools, constrained, executor, outputTokens, thinking, speculative, finalResponseSchemaJson, allowAutomaticRecovery)
     companion object {
-        fun from(config: LocalConversationConfig) = WireConversation(config.sampler, config.systemPrompt, config.initialMessages, config.tools, config.isConstrainedDecodingEnabled, config.maxOutputTokens, config.thinkingEnabled, config.speculativeDecoding, config.finalResponseSchemaJson)
+        fun from(config: LocalConversationConfig) = WireConversation(config.sampler, config.systemPrompt, config.initialMessages, config.tools, config.isConstrainedDecodingEnabled, config.maxOutputTokens, config.thinkingEnabled, config.speculativeDecoding, config.finalResponseSchemaJson, config.allowAutomaticRecovery)
     }
 }
 

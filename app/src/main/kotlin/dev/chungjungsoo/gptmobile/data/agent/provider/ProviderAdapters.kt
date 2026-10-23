@@ -531,7 +531,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                         permissionRevision = constraints.permissionRevision,
                         requireKnownCapacity = constraints.requireKnownCapacity,
                         reasoningMode = llamaReasoning,
-                        allowReasoning = if (isLlama) constraints.allowReasoning else true,
+                        allowReasoning = constraints.allowReasoning,
                         token = activeKey.takeIf { it.isNotBlank() && (platform.compatibleType != ClientType.FREE || dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.requireFor(platform).requiresUserToken) },
                         queueScope = constraints.queueScope ?: constraints.combined?.rootBudgetId ?: constraints.attemptId,
                         queuePersistent = constraints.queuePersistent,

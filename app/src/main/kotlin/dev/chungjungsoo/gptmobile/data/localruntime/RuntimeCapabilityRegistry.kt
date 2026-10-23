@@ -12,12 +12,13 @@ internal object RuntimeCapabilityRegistry {
     fun gguf(
         abis: List<String>,
         enabled: Boolean = BuildConfig.GGUF_ENABLED,
-        vulkanEnabled: Boolean = BuildConfig.GGUF_VULKAN_ENABLED
+        vulkanEnabled: Boolean = BuildConfig.GGUF_VULKAN_ENABLED,
+        openclEnabled: Boolean = BuildConfig.GGUF_OPENCL_ENABLED
     ): RuntimeCapability = when {
         !enabled -> RuntimeCapability(RuntimeAvailability.DISABLED, emptySet(), "This app build does not include an enabled GGUF runtime", GGUF_REVISION)
         abis.none { it in setOf("arm64-v8a", "x86_64") } -> RuntimeCapability(RuntimeAvailability.UNAVAILABLE_FOR_ABI, emptySet(), "GGUF runtime unavailable for this device ABI", GGUF_REVISION)
         else -> {
-            val backends = if (vulkanEnabled) setOf("cpu", "gpu") else setOf("cpu")
+            val backends = setOf("cpu") + (if (vulkanEnabled) setOf("gpu") else emptySet()) + (if (openclEnabled) setOf("opencl") else emptySet())
             RuntimeCapability(RuntimeAvailability.PACKAGED, backends, "GGUF runtime packaged · ${backends.joinToString(" / ") { it.uppercase() }}; model load and device qualification are separate", GGUF_REVISION)
         }
     }

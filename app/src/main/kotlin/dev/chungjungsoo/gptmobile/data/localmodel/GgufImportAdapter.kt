@@ -1,61 +1,142 @@
 package dev.chungjungsoo.gptmobile.data.localmodel
 
+import java.io.BufferedInputStream
+import java.io.DataInputStream
 import java.io.File
+import java.io.FileInputStream
 import java.io.InputStream
-import java.io.RandomAccessFile
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
+import kotlinx.serialization.encodeToString
 
 /** Self-contained text GGUF only; models needing a projector or shards use a manifest bundle. */
 internal object GgufImportAdapter {
-    fun inspect(file: File, checkCurrent: () -> Unit = {}): Map<String, String> = RandomAccessFile(file, "r").use { input ->
-        require(input.readInt() == 0x47475546) { "Not a GGUF file" }
-        fun u32() = java.lang.Integer.reverseBytes(input.readInt()).toLong() and 0xffffffffL
-        fun u64() = java.lang.Long.reverseBytes(input.readLong()).also { require(it >= 0) }
-        fun text(): String {
-            val size = u64()
-            require(size <= 1_048_576 && input.filePointer + size <= input.length()) { "GGUF metadata is oversized or truncated" }
-            return ByteArray(size.toInt()).also(input::readFully).decodeToString()
-        }
-        require(u32() in 2..3) { "Unsupported GGUF version" }
-        val tensors = u64()
-        require(tensors in 1..100_000)
-        val count = u64()
-        require(count in 1..100_000)
-        fun value(type: Long, depth: Int = 0): String? {
-            checkCurrent()
-            require(depth <= 1 && input.filePointer <= 64L * 1024 * 1024) { "GGUF metadata exceeds inspection bounds" }
-            return when (type) {
-                0L, 1L, 7L -> input.readUnsignedByte().toString()
-                2L, 3L -> java.lang.Short.reverseBytes(input.readShort()).toString()
-                4L, 5L -> u32().toString()
-                6L -> {
-                    input.readInt()
-                    null
-                }
-                8L -> text()
-                9L -> {
-                    val element = u32()
-                    val size = u64()
-                    require(size <= 1_000_000)
-                    repeat(size.toInt()) { value(element, depth + 1) }
-                    null
-                }
-                10L, 11L -> u64().toString()
-                12L -> {
-                    input.readLong()
-                    null
-                }
-                else -> error("Unknown GGUF metadata type")
+    @Volatile private var metadataDirectory: File? = null
+    fun configureMetadataCache(directory: File) {
+        metadataDirectory = directory
+    }
+    private val metadataCache = java.util.concurrent.ConcurrentHashMap<String, Map<String, String>>()
+
+    fun inspect(file: File, checkCurrent: () -> Unit = {}): Map<String, String> {
+        checkCurrent()
+        val identity = PackageDigest.installedFileIdentity(file)
+        identity?.let { metadataCache[it]?.let { cached -> return cached } }
+        val persisted = identity?.let { key -> metadataDirectory?.let { File(it, PackageDigest.sha256(key.toByteArray()) + ".json") } }
+        persisted?.takeIf { it.isFile && it.length() <= 2 * 1024 * 1024 }?.let { cache ->
+            val saved = runCatching { kotlinx.serialization.json.Json.decodeFromString<Map<String, String>>(cache.readText()) }.getOrNull()
+            if (saved != null && identity == PackageDigest.installedFileIdentity(file)) {
+                metadataCache[checkNotNull(identity)] = saved
+                return saved
             }
         }
-        buildMap {
-            repeat(count.toInt()) {
-                val key = text()
-                val result = value(u32())
-                if (result != null && (key in setOf("general.architecture", "general.name", "general.file_type", "tokenizer.chat_template", "split.count") || key.endsWith(".context_length") || listOf(".block_count", ".attention.head_count", ".attention.head_count_kv", ".embedding_length", ".attention.key_length", ".attention.value_length").any(key::endsWith))) put(key, result)
+        val started = System.nanoTime()
+        val size = file.length()
+        var position = 0L
+        fun advance(count: Long) {
+            require(count >= 0 && count <= minOf(size, 64L * 1024 * 1024) - position) { "GGUF metadata is oversized or truncated" }
+            position += count
+        }
+        val result = DataInputStream(BufferedInputStream(FileInputStream(file), 256 * 1024)).use { input ->
+            fun u32(): Long {
+                advance(4)
+                return java.lang.Integer.reverseBytes(input.readInt()).toLong() and 0xffffffffL
+            }
+            fun u64(): Long {
+                advance(8)
+                return java.lang.Long.reverseBytes(input.readLong()).also { require(it >= 0) }
+            }
+            fun skip(bytes: Long) {
+                advance(bytes)
+                var remaining = bytes
+                while (remaining > 0) {
+                    checkCurrent()
+                    val skipped = input.skip(minOf(remaining, 256 * 1024L))
+                    if (skipped == 0L) {
+                        input.readByte()
+                        remaining--
+                    } else {
+                        remaining -= skipped
+                    }
+                }
+            }
+            fun text(retain: Boolean): String? {
+                val bytes = u64()
+                require(bytes <= 1_048_576) { "GGUF metadata string is oversized" }
+                if (!retain) {
+                    skip(bytes)
+                    return null
+                }
+                advance(bytes)
+                return ByteArray(bytes.toInt()).also(input::readFully).decodeToString()
+            }
+            require(u32() == 0x46554747L) { "Not a GGUF file" }
+            require(u32() in 2..3) { "Unsupported GGUF version" }
+            require(u64() in 1..100_000)
+            val count = u64().also { require(it in 1..100_000) }
+            val widths = mapOf(0L to 1L, 1L to 1L, 7L to 1L, 2L to 2L, 3L to 2L, 4L to 4L, 5L to 4L, 6L to 4L, 10L to 8L, 11L to 8L, 12L to 8L)
+            buildMap {
+                repeat(count.toInt()) {
+                    checkCurrent()
+                    val key = checkNotNull(text(true))
+                    val keep = key in setOf("general.architecture", "general.name", "general.file_type", "tokenizer.chat_template", "split.count") ||
+                        listOf(".context_length", ".block_count", ".attention.head_count", ".attention.head_count_kv", ".embedding_length", ".attention.key_length", ".attention.value_length").any(key::endsWith)
+                    val type = u32()
+                    val value = when {
+                        type == 8L -> text(keep)
+                        type == 9L -> {
+                            val element = u32()
+                            val length = u64().also { require(it <= 1_000_000) }
+                            when {
+                                element == 8L -> repeat(length.toInt()) {
+                                    checkCurrent()
+                                    text(false)
+                                }
+                                element in widths -> skip(Math.multiplyExact(length, widths.getValue(element)))
+                                else -> error("Unknown or nested GGUF metadata array type")
+                            }
+                            null
+                        }
+                        type !in widths -> error("Unknown GGUF metadata type")
+                        !keep || type in setOf(6L, 12L) -> {
+                            skip(widths.getValue(type))
+                            null
+                        }
+                        type in setOf(0L, 1L, 7L) -> {
+                            advance(1)
+                            input.readUnsignedByte().toString()
+                        }
+                        type in setOf(2L, 3L) -> {
+                            advance(2)
+                            java.lang.Short.reverseBytes(input.readShort()).toString()
+                        }
+                        type in setOf(4L, 5L) -> u32().toString()
+                        else -> u64().toString()
+                    }
+                    if (keep && value != null) put(key, value)
+                }
             }
         }
+        checkCurrent()
+        if (identity != null) {
+            check(identity == PackageDigest.installedFileIdentity(file)) { "Model changed during metadata inspection" }
+            if (metadataCache.size >= 32) metadataCache.clear()
+            metadataCache[identity] = result
+            persisted?.let { cache ->
+                runCatching {
+                    check(cache.parentFile!!.isDirectory || cache.parentFile!!.mkdirs())
+                    val temporary = File.createTempFile("metadata-", ".tmp", cache.parentFile)
+                    try {
+                        temporary.writeText(kotlinx.serialization.json.Json.encodeToString(result))
+                        java.nio.file.Files.move(temporary.toPath(), cache.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE)
+                    } finally {
+                        temporary.delete()
+                    }
+                }
+            }
+        }
+        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("LocalModel", "GGUF_METADATA · durationMs=${(System.nanoTime() - started) / 1_000_000} · bytes=$position · cache=miss · identity=${if (identity == null) "unavailable" else "strong"}")
+        dev.chungjungsoo.gptmobile.data.diagnostics.LocalRuntimeIncidentHistory.record("METADATA_PARSED", mapOf("durationMs" to ((System.nanoTime() - started) / 1_000_000).toString(), "bytes" to position.toString(), "cache" to "miss"))
+        return result
     }
 
     fun describe(model: File, id: String, digest: String, checkCurrent: () -> Unit = {}): ModelArtifactManifest {

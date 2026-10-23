@@ -115,9 +115,9 @@ internal class CombinedRecordRecoverySession(
             if (!recoverable || continuations >= maxContinuations || noProgress >= 2 || after.failure != null && !protocol.canRecoverMalformed) {
                 emit(
                     if (reasoningObserved && passagesAdded == 0 && (noProgress >= 2 || continuations >= maxContinuations)) {
-                        ProviderEvent.Failed("COMBINED_WRITER_STALLED: Reasoning consumed the allowance without completed answer passages. Retained contributions remain available; use another authorized writer.", errorCode = "COMBINED_WRITER_STALLED")
+                        ProviderEvent.Failed("COMBINED_WRITER_STALLED: Reasoning consumed the allowance without completed answer passages. Retained contributions remain available; an explicit user retry is required.", errorCode = "COMBINED_WRITER_STALLED")
                     } else if (failure == null && passagesAdded == 0 && after.records.isEmpty() && after.pending.isBlank()) {
-                        ProviderEvent.Failed("COMBINED_EMPTY_OUTPUT: The writer repeatedly returned no answer records.", errorCode = "COMBINED_EMPTY_OUTPUT")
+                        ProviderEvent.Failed("COMBINED_EMPTY_OUTPUT: The writer returned no answer records.", errorCode = "COMBINED_EMPTY_OUTPUT")
                     } else {
                         failure ?: ProviderEvent.Failed("COMBINED_PARTIAL: Structured delivery paused at record ${after.lastSequence + 1}. Committed passages and the unfinished record are saved.")
                     }

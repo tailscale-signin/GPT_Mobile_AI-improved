@@ -37,7 +37,7 @@ internal object CombinedRecoverySnapshot {
             }
             val compiledContract = CombinedAnswerPolicy.from(snapshot.userMessage.content, snapshot.history.takeIf { it.isNotEmpty() }?.joinToString("\n") { it.content })
             val compatibleContract = if (snapshot.answerContract?.version == 2) compiledContract.copy(version = 2, task = null) else compiledContract
-            require(snapshot.answerContract != null && snapshot.answerContract == compatibleContract) { "The saved answer contract changed." }
+            require(snapshot.answerContract != null && (snapshot.answerContract.version < 4 || snapshot.answerContract == compatibleContract)) { "The saved answer contract changed." }
         }
         require((modern || primaryUid == snapshot.profileUid) && platform.enabled && platform.uid == snapshot.profileUid && platform.model == snapshot.model && benchmarkConfigKey(platform) == snapshot.configKey) { "Restore the saved Combined owner and its accepted configuration before resuming." }
         require(snapshot.sources.none { it.localOnly } || platform.compatibleType == ClientType.LITERT_LM) { "Local-only contributions require an authorized local synthesis owner." }

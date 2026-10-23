@@ -149,6 +149,12 @@ class CombinedTurnBudget(
         require(attemptId.isNotBlank() && (upperCostMicros == null || upperCostMicros >= 0))
         if (state.cancelled || state.closed) return@withLock CombinedBudgetAdmission.Denied("Combined turn is cancelled or closed; no further dispatch is allowed.")
         if (state.plan.hardLimits.deadlineEpochMillis?.let { now() >= it } == true) return@withLock CombinedBudgetAdmission.Denied("The accepted turn deadline has been reached.")
+        if (context.requested.singlePass && (context.role.finalization || context.role == CombinedRunRole.VERIFIER)) {
+            if (context.role != CombinedRunRole.SYNTHESIS) return@withLock CombinedBudgetAdmission.Denied("COMBINED_SINGLE_PASS: Automatic verification, continuation and repair are disabled.")
+            if (state.reservations.values.any { it.role.finalization && it.resources.inputTokens > 0 && it.status != CombinedReservationStatus.RELEASED }) {
+                return@withLock CombinedBudgetAdmission.Denied("COMBINED_ALREADY_DISPATCHED: This turn's primary request was already admitted. Saved or uncertain output must not be recomputed.")
+            }
+        }
         if (attemptId in state.reservations) return@withLock CombinedBudgetAdmission.Denied("Physical attempt ID was already admitted; no action may be repeated.")
         if (effectFingerprint != null && state.reservations.values.any { it.effectFingerprint == effectFingerprint && it.status in setOf(CombinedReservationStatus.RESERVED, CombinedReservationStatus.UNKNOWN) }) {
             return@withLock CombinedBudgetAdmission.Denied("An equivalent action is in flight or has an unknown outcome. Reconcile it before dispatching it again.")
@@ -259,6 +265,20 @@ class CombinedTurnBudget(
     suspend fun completeWork(itemId: String) = mutex.withLock {
         if (itemId !in state.pendingWork) return@withLock
         commit(state.copy(pendingWork = state.pendingWork - itemId, completedWork = state.completedWork + itemId))
+    }
+
+    /** Explicit user retry only; retained attempts remain charged and the final reservation is protected. */
+    suspend fun reopenContributor(profileUid: String): Boolean = mutex.withLock {
+        if (state.closed || state.cancelled || profileUid !in state.plan.requested.participantUids || state.reservations.values.any { it.role.finalization && it.status != CombinedReservationStatus.RELEASED }) return@withLock false
+        val owner = "contributor:$profileUid"
+        if (owner !in state.stageOutcomes) return@withLock true
+        val owners = (state.plan.baselineByOwner.keys.filter { it == owner || it.startsWith("research:$profileUid:") } + owner).toSet()
+        val stages = state.plan.workItems.filter { it.kind == CombinedWorkKind.STAGE && it.assignedOwnerKey in owners }.associateBy { it.id }
+        // A user authorizes another bounded attempt, not a refund of the previous request.
+        // reserve() still enforces the whole-turn hard limits and other owners' protection.
+        val adjustments = owners.mapNotNull { key -> state.plan.baselineByOwner[key]?.let { CombinedBudgetAdjustment(key, "USER_REQUESTED_RETRY", it, state.plan.costReservesByOwner[key] ?: 0) } }
+        commit(state.copy(stageOutcomes = state.stageOutcomes - owners, completedWork = state.completedWork - owners - stages.keys, pendingWork = state.pendingWork + stages, baselineAdjustments = state.baselineAdjustments + adjustments))
+        true
     }
 
     /** A contributor's response, including failure, releases its unused protected baseline. */

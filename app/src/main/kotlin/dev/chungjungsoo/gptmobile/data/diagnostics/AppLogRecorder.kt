@@ -68,6 +68,9 @@ object AppLogRecorder {
     @Synchronized fun initialize(application: Application) {
         if (app != null) return
         app = application.applicationContext
+        LocalRuntimeIncidentHistory.initialize(application)
+        dev.chungjungsoo.gptmobile.data.localmodel.PackageDigest.configureReceiptDirectory(File(application.noBackupFilesDir, "model-verification"))
+        dev.chungjungsoo.gptmobile.data.localmodel.GgufImportAdapter.configureMetadataCache(File(application.noBackupFilesDir, "gguf-metadata"))
         RunDiagnostics.journal = RunDiagnosticJournal(
             dev.chungjungsoo.gptmobile.data.security.AndroidSecretVault(application, "gptmobile-diagnostic-metadata-v1", "run_diagnostics_v1"),
             scope
@@ -123,7 +126,7 @@ object AppLogRecorder {
             override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
             private fun event(activity: Activity, state: String) = record("Lifecycle", "${activity.javaClass.simpleName} $state")
         })
-        setEnabled(application.getSharedPreferences("app_diagnostics", Context.MODE_PRIVATE).getBoolean("tracking", false))
+        scope.launch { setEnabled(application.getSharedPreferences("app_diagnostics", Context.MODE_PRIVATE).getBoolean("tracking", false)) }
         record("Application", "Started process ${Process.myPid()}")
     }
 
@@ -242,6 +245,10 @@ object AppLogRecorder {
                 dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.snapshot().forEach { failure ->
                     val line = "${Instant.ofEpochMilli(failure.time)} W/FreeProviderFailure: " + kotlinx.serialization.json.Json.encodeToString(dev.chungjungsoo.gptmobile.data.free.FreeProviderFailureRecord.serializer(), failure)
                     output.appendLine(if (structured) structuredDiagnosticLine(line, "provider_failure") else line)
+                }
+                LocalRuntimeIncidentHistory.snapshot().forEach { incident ->
+                    val line = "${Instant.now()} I/LocalRuntimeIncident: $incident"
+                    output.appendLine(if (structured) structuredDiagnosticLine(line, "runtime_incident_history") else line)
                 }
                 val seen = mutableSetOf<String>()
                 val incidents = DiagnosticIncidentTracker()

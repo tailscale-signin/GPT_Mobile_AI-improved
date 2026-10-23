@@ -12,5 +12,8 @@ for test in (
         sys.argv[1],
         test_class,
         test,
-        optional_assumptions={(test_class, "packagedVulkanRuntimeGeneratesOnCompatibleDevice")},
+        optional_assumptions={
+            (test_class, "packagedVulkanRuntimeGeneratesOnCompatibleDevice"),
+            (test_class, "packagedOpenClRuntimeGeneratesOnCompatibleDevice"),
+        },
     )

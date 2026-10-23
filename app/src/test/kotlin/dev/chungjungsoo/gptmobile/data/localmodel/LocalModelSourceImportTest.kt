@@ -6,6 +6,7 @@ import android.database.MatrixCursor
 import android.net.Uri
 import android.provider.OpenableColumns
 import dev.chungjungsoo.gptmobile.data.repository.LocalModelRepository
+import io.mockk.Called
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every

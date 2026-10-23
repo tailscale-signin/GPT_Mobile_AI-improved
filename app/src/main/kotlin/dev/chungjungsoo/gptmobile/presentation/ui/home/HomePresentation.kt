@@ -9,6 +9,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -34,14 +36,29 @@ internal fun plainProfileName(raw: String, fallback: String = "AI profile"): Str
 }
 
 internal fun profileSubtitleColor(accent: Color, background: Color): Color {
-    // Relative opacity reduction: 25% more transparent than the previous 25% opacity.
-    return accent.copy(alpha = 0.25f * 0.75f)
+    fun contrast(color: Color): Float {
+        val a = color.compositeOver(background).luminance()
+        val b = background.luminance()
+        return (maxOf(a, b) + 0.05f) / (minOf(a, b) + 0.05f)
+    }
+    val readable = if (contrast(accent) >= 4.5f) {
+        accent
+    } else if (contrast(Color.White) >= contrast(Color.Black)) {
+        Color.White
+    } else {
+        Color.Black
+    }
+    for (step in 55..100) {
+        val color = readable.copy(alpha = step / 100f)
+        if (contrast(color) >= 4.5f) return color
+    }
+    return readable
 }
 
 @Composable
 internal fun ProfileNameText(names: String, compact: Boolean) {
     val plain = remember(names) { plainProfileName(names) }
-    Text(plain, color = profileSubtitleColor(MaterialTheme.colorScheme.primary, dev.chungjungsoo.gptmobile.presentation.common.appBaseBackground()), fontSize = 13.sp, maxLines = if (compact) 1 else 2, overflow = TextOverflow.Ellipsis)
+    Text(plain, color = profileSubtitleColor(MaterialTheme.colorScheme.primary, dev.chungjungsoo.gptmobile.presentation.common.appBaseBackground()), fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
 }
 
 @Composable

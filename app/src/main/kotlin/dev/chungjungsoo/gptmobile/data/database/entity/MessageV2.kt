@@ -95,7 +95,13 @@ data class CombinedModelResponse(
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
     val rawContentDigest: String = "",
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
-    val disposition: ContributionDisposition = ContributionDisposition.LEGACY_UNKNOWN
+    val disposition: ContributionDisposition = ContributionDisposition.LEGACY_UNKNOWN,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val contentCompleteness: String = "UNKNOWN",
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val factualSupport: String = "UNVERIFIED",
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val nativeFinishReason: String? = null
 )
 
 @Serializable

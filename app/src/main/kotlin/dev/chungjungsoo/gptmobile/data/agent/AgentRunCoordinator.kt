@@ -10,7 +10,6 @@ import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunTerminalError
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
-import dev.chungjungsoo.gptmobile.data.database.entity.appendChronologicalText
 import dev.chungjungsoo.gptmobile.data.database.entity.resetActiveRevision
 import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayProgress
@@ -25,8 +24,6 @@ import dev.chungjungsoo.gptmobile.presentation.service.AgentRunForegroundService
 import dev.chungjungsoo.gptmobile.util.ApiStateFlowOutcome
 import dev.chungjungsoo.gptmobile.util.LOW_POWER_STREAM_PUBLISH_INTERVAL_MILLIS
 import dev.chungjungsoo.gptmobile.util.STANDARD_STREAM_PUBLISH_INTERVAL_MILLIS
-import dev.chungjungsoo.gptmobile.util.assistantErrorAppendedText
-import dev.chungjungsoo.gptmobile.util.buildAssistantErrorContent
 import dev.chungjungsoo.gptmobile.util.collectApiStateUpdates
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
@@ -148,6 +145,12 @@ class AgentRunCoordinator @Inject constructor(
                 startUnlocked(requests)
             }
         }
+    }
+
+    suspend fun tryAnotherCombinedWriter(chatId: Int, runId: String): Boolean = withChatGate(chatId) {
+        val next = synthesisPlanner?.prepareFallback(chatId, runId) ?: return@withChatGate false
+        startUnlocked(listOf(next))
+        true
     }
 
     private suspend fun startUnlocked(requests: List<AgentRunRequest>) {
@@ -431,7 +434,7 @@ class AgentRunCoordinator @Inject constructor(
     private suspend fun execute(request: AgentRunRequest) = coroutineScope {
         val startedAt = currentEpochSeconds()
         var assistantMessage = request.assistantMessage
-        val recoveryMarkers = request.assistantMessage.timeline.filter { it.recovery?.generationId == request.runId || it.combinedTurn != null }
+        val recoveryMarkers = request.assistantMessage.timeline.filter { it.recovery?.generationId == request.runId || it.combinedTurn != null || it.writerIdentity != null }
         var committedPrefix = request.assistantMessage.content.takeIf { request.runId.startsWith("combined-synthesis:") }.orEmpty()
         var lastCheckpointAt = 0L
         var firstAnswerCheckpoint = false
@@ -633,17 +636,8 @@ internal fun resolvePublishInterval(
 internal fun terminalAgentMessage(message: MessageV2, error: String?, completedAt: Long): MessageV2 {
     if (error == null) return message.copy(createdAt = completedAt).resetActiveRevision()
 
-    if (message.currentRunId?.startsWith("combined-synthesis:") == true) {
-        return message.copy(
-            timeline = message.timeline + dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE, content = "Response stopped: $error"),
-            createdAt = completedAt
-        ).resetActiveRevision()
-    }
-    val updatedContent = buildAssistantErrorContent(message.content, error)
-    val appendedError = assistantErrorAppendedText(message.content, updatedContent)
     return message.copy(
-        content = updatedContent,
-        timeline = message.timeline.appendChronologicalText(appendedError),
+        timeline = message.timeline + dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE, runError = error),
         createdAt = completedAt
     ).resetActiveRevision()
 }

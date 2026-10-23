@@ -76,13 +76,20 @@ class LocalModelsViewModel @Inject constructor(
     private val huggingFaceEntries = MutableStateFlow<List<CatalogEntry>>(emptyList())
     private val huggingFaceSearchState = MutableStateFlow(HuggingFaceSearchState())
     private var huggingFaceSearchJob: Job? = null
-    private var npuOnly = false
-
-    fun setNpuOnly(value: Boolean) {
-        if (npuOnly == value) return
-        npuOnly = value
+    private val mutableFilters = MutableStateFlow(LocalDiscoveryFilters())
+    val filters: StateFlow<LocalDiscoveryFilters> = mutableFilters
+    fun updateFilters(change: (LocalDiscoveryFilters) -> LocalDiscoveryFilters) {
+        val previous = filters.value
+        mutableFilters.value = change(previous)
+        if (previous.processor != filters.value.processor) refreshHuggingFaceSearch()
+    }
+    fun resetFilters(showAll: Boolean = false) {
+        mutableFilters.value = LocalDiscoveryFilters(everyModel = showAll)
+        modelFilter.value = LocalModelFilter.ALL
+        searchQuery.value = ""
         refreshHuggingFaceSearch()
     }
+    fun setNpuOnly(value: Boolean) = updateFilters { it.copy(processor = if (value) "NPU" else "Any") }
 
     private val discoveryState = combine(
         searchQuery,
@@ -249,7 +256,7 @@ class LocalModelsViewModel @Inject constructor(
             if (!immediate) huggingFaceEntries.value = emptyList()
             huggingFaceSearchState.value = HuggingFaceSearchState(isLoading = true)
             runCatching {
-                if (npuOnly) {
+                if (filters.value.processor == "NPU") {
                     client.searchNpuOutcome(query, deviceSocModel)
                 } else {
                     client.searchOutcome(query, onPartial = { partial ->
@@ -323,6 +330,8 @@ class LocalModelsViewModel @Inject constructor(
     private val importScheduling = MutableStateFlow(false)
     val importedModelId = MutableStateFlow<String?>(null)
 
+    suspend fun inspectImport(source: dev.chungjungsoo.gptmobile.data.localmodel.LocalModelSource) = inspectImport(source.uri, source.folder)
+
     suspend fun inspectImport(uri: Uri, folder: Boolean): dev.chungjungsoo.gptmobile.data.localmodel.LocalImportPreview = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         val resolver = checkNotNull(importContext).contentResolver
         var name = uri.lastPathSegment.orEmpty()
@@ -393,6 +402,8 @@ class LocalModelsViewModel @Inject constructor(
     fun cancelImport() {
         importContext?.let { androidx.work.WorkManager.getInstance(it).cancelUniqueWork(dev.chungjungsoo.gptmobile.data.worker.LocalModelImportWorker.WORK) }
     }
+
+    fun importCustomModel(contentResolver: ContentResolver, source: dev.chungjungsoo.gptmobile.data.localmodel.LocalModelSource) = importCustomModel(contentResolver, source.uri, source.folder)
 
     fun importCustomModel(contentResolver: ContentResolver, uri: Uri, folder: Boolean = false) {
         val context = importContext ?: return
@@ -512,3 +523,5 @@ private data class LocalModelsListState(
     val isLoading: Boolean = true,
     val totalStorageBytes: Long = 0L
 )
+
+data class LocalDiscoveryFilters(val runtime: String = "All", val processor: String = "Any", val capability: String = "Any", val everyModel: Boolean = false)

@@ -19,7 +19,8 @@ internal object CombinedClaimMatcher {
         val hedged: Boolean,
         val restrictions: Set<String>,
         val ordered: String,
-        val qualifiers: CombinedClaimQualifiers = CombinedClaimQualifiers()
+        val qualifiers: CombinedClaimQualifiers = CombinedClaimQualifiers(),
+        val eventActions: Set<String> = emptySet()
     )
 
     private val word = Regex("[\\p{L}\\p{N}]+(?:[’'][\\p{L}\\p{N}]+)?")
@@ -87,7 +88,8 @@ internal object CombinedClaimMatcher {
             hedged = words.any { it in hedges },
             restrictions = words.filter { it in restrictions }.toSet() + bound.findAll(normalized).map { it.value.replace(" ", "") },
             ordered = words.filter { it !in stop }.joinToString(" "),
-            qualifiers = qualifiers
+            qualifiers = qualifiers,
+            eventActions = CombinedHistoricalEvent.actions(text)
         )
     }
 
@@ -121,6 +123,7 @@ internal object CombinedClaimMatcher {
      * itself a contradiction; the surrounding subject must have substantial overlap.
      */
     fun possibleConflict(first: Fingerprint, second: Fingerprint): Boolean {
+        if (first.eventActions.isNotEmpty() && second.eventActions.isNotEmpty() && first.eventActions.intersect(second.eventActions).isEmpty()) return false
         if (CombinedClaimSemantics.applicabilityConflicts(first.qualifiers, second.qualifiers).isNotEmpty()) return false
         if (first.terms.size < 3 || second.terms.size < 3) return false
         val sharedTerms = first.terms.intersect(second.terms)

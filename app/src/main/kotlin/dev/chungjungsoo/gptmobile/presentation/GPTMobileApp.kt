@@ -34,6 +34,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -90,7 +91,6 @@ class GPTMobileApp :
         val startupStartTime = SystemClock.elapsedRealtime()
 
         // Provider fields keep the child process from eagerly opening Room or starting app services.
-        if (!dev.chungjungsoo.gptmobile.data.localruntime.isInferenceProcess()) SanitizedChatBackup.restoreIfPresent(this)
         super.onCreate()
         dev.chungjungsoo.gptmobile.data.localmodel.LinkedModelSources.initialize(this)
         if (dev.chungjungsoo.gptmobile.data.localruntime.isInferenceProcess()) return
@@ -111,13 +111,16 @@ class GPTMobileApp :
         registerActivityLifecycleCallbacks(AppForegroundTracker)
         StartupRecoveryGate.start(applicationScope) {
             val gateStartTime = SystemClock.elapsedRealtime()
-            completeBackup.get().recoverAtStartup()
-            withContext(Dispatchers.Main) {
-                androidx.lifecycle.ProcessLifecycleOwner.get().lifecycle.addObserver(object : androidx.lifecycle.DefaultLifecycleObserver {
-                    override fun onStart(owner: androidx.lifecycle.LifecycleOwner) {
-                        dev.chungjungsoo.gptmobile.data.research.work.ResearchExaminationWorker.enqueue(this@GPTMobileApp)
-                    }
-                })
+            StartupRecoveryGate.step("legacy-restore") { SanitizedChatBackup.restoreIfPresent(this@GPTMobileApp) }
+            StartupRecoveryGate.step("backup-recovery") { completeBackup.get().recoverAtStartup() }
+            StartupRecoveryGate.step("research-observer") {
+                withContext(Dispatchers.Main) {
+                    androidx.lifecycle.ProcessLifecycleOwner.get().lifecycle.addObserver(object : androidx.lifecycle.DefaultLifecycleObserver {
+                        override fun onStart(owner: androidx.lifecycle.LifecycleOwner) {
+                            dev.chungjungsoo.gptmobile.data.research.work.ResearchExaminationWorker.enqueue(this@GPTMobileApp)
+                        }
+                    })
+                }
             }
             dev.chungjungsoo.gptmobile.data.research.work.ResearchExaminationWorker.enqueue(this@GPTMobileApp)
             val startup = startupDependencies()
@@ -129,7 +132,7 @@ class GPTMobileApp :
             val combinedSettings = startup.settingRepository()
             dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.initialize(this@GPTMobileApp)
             dev.chungjungsoo.gptmobile.data.free.FreeQueueJobs.initialize(this@GPTMobileApp)
-            combinedSettings.migrateToPlatformV2()
+            StartupRecoveryGate.step("platform-migration") { combinedSettings.migrateToPlatformV2() }
             combinedSettings.ensureFreeModels()
             val rooms = conversationDatabase.get().chatRoomDao()
             val existingConversationIds = (rooms.getChatRooms() + rooms.getArchivedChatRooms()).mapTo(hashSetOf()) { it.id }
@@ -146,28 +149,32 @@ class GPTMobileApp :
             }
             toolApprovals.get().recover()
             invocationLedger.get().recover()
-            startup.pendingLocalPlatformActivator().start()
-            applicationScope.launch {
-                kotlinx.coroutines.flow.combine(startup.settingRepository().observeFeatureSettings(), startup.settingRepository().observePlatformV2s()) { settings, profiles ->
-                    settings to profiles.any { dev.chungjungsoo.gptmobile.data.pricing.billingProvider(it) == "OPENROUTER" }
-                }.collect { (settings, eligible) -> dev.chungjungsoo.gptmobile.data.pricing.PricingRefreshSchedule.reconcile(this@GPTMobileApp, settings, eligible) }
-            }
-            applicationScope.launch {
-                kotlinx.coroutines.flow.combine(startup.settingRepository().observeFeatureSettings(), startup.settingRepository().observePlatformV2s()) { settings, profiles ->
-                    dev.chungjungsoo.gptmobile.data.research.work.examinationConfigurationRevision(settings, profiles)
-                }.distinctUntilChanged().collect {
-                    dev.chungjungsoo.gptmobile.data.research.work.ResearchExaminationWorker.enqueue(this@GPTMobileApp, reconsider = true)
+            StartupRecoveryGate.step("observers") {
+                startup.pendingLocalPlatformActivator().start()
+                applicationScope.launch {
+                    kotlinx.coroutines.flow.combine(startup.settingRepository().observeFeatureSettings(), startup.settingRepository().observePlatformV2s()) { settings, profiles ->
+                        settings to profiles.any { dev.chungjungsoo.gptmobile.data.pricing.billingProvider(it) == "OPENROUTER" }
+                    }.collect { (settings, eligible) -> dev.chungjungsoo.gptmobile.data.pricing.PricingRefreshSchedule.reconcile(this@GPTMobileApp, settings, eligible) }
+                }
+                applicationScope.launch {
+                    kotlinx.coroutines.flow.combine(startup.settingRepository().observeFeatureSettings(), startup.settingRepository().observePlatformV2s()) { settings, profiles ->
+                        dev.chungjungsoo.gptmobile.data.research.work.examinationConfigurationRevision(settings, profiles)
+                    }.distinctUntilChanged().collect {
+                        dev.chungjungsoo.gptmobile.data.research.work.ResearchExaminationWorker.enqueue(this@GPTMobileApp, reconsider = true)
+                    }
                 }
             }
-            secretMigrationErrors = runStartupMaintenance(
-                interruptPersistedWork = {
-                    val interruptedAt = System.currentTimeMillis() / 1000
-                    startup.agentRunDao().interruptActiveRuns(interruptedAt)
-                    startup.agentPersistenceDao().cancelInterruptedToolEvents(interruptedAt)
-                    startup.combinedLifecycleReconciler().reconcile()
-                },
-                migrateSecrets = startup.settingRepository()::migrateSecrets
-            )
+            StartupRecoveryGate.step("maintenance") {
+                secretMigrationErrors = runStartupMaintenance(
+                    interruptPersistedWork = {
+                        val interruptedAt = System.currentTimeMillis() / 1000
+                        startup.agentRunDao().interruptActiveRuns(interruptedAt)
+                        startup.agentPersistenceDao().cancelInterruptedToolEvents(interruptedAt)
+                        startup.combinedLifecycleReconciler().reconcile()
+                    },
+                    migrateSecrets = startup.settingRepository()::migrateSecrets
+                )
+            }
             if (secretMigrationErrors.isNotEmpty()) {
                 runCatching {
                     withContext(Dispatchers.Main) {
@@ -189,12 +196,12 @@ class GPTMobileApp :
         }
 
         applicationScope.launch {
-            StartupRecoveryGate.await()
+            StartupRecoveryGate.awaitReady()
             readiness.get().start()
         }
 
         applicationScope.launch {
-            StartupRecoveryGate.await()
+            StartupRecoveryGate.awaitReady()
             while (isActive) {
                 delay(60_000L)
                 semanticMemory.get().releaseWhenIdle()
@@ -273,20 +280,52 @@ interface StartupDependencies {
 }
 
 object StartupRecoveryGate {
-    @Volatile
-    private var job: kotlinx.coroutines.Deferred<Unit>? = null
+    @Volatile private var job: kotlinx.coroutines.Deferred<Unit>? = null
+    private var recoveryScope: CoroutineScope? = null
+    private var recoveryBlock: (suspend () -> Unit)? = null
+    private val completedSteps = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val successful = kotlinx.coroutines.flow.MutableStateFlow(false)
 
+    @Synchronized
     fun start(scope: CoroutineScope, block: suspend () -> Unit) {
-        // Publish the gate before recovery can construct repositories that launch consumers.
-        val recovery = scope.async(start = kotlinx.coroutines.CoroutineStart.LAZY) { block() }
+        completedSteps.clear()
+        successful.value = false
+        recoveryScope = scope
+        recoveryBlock = block
+        launchRecovery()
+    }
+
+    private fun launchRecovery() {
+        val scope = checkNotNull(recoveryScope)
+        val block = checkNotNull(recoveryBlock)
+        val recovery = scope.async(start = kotlinx.coroutines.CoroutineStart.LAZY) {
+            block()
+            successful.value = true
+        }
         job = recovery
         recovery.start()
     }
 
-    val ready: Boolean get() = job?.let { it.isCompleted && !it.isCancelled } == true
+    @Synchronized
+    fun retry() {
+        if (job?.isActive == true || ready) return
+        launchRecovery()
+    }
 
+    /** Completed migration phases are not repeated after a later phase fails. Individual
+     * interrupted phases retain their existing transactional journals for process recovery. */
+    suspend fun step(name: String, block: suspend () -> Unit) {
+        if (name in completedSteps) return
+        block()
+        completedSteps.add(name)
+    }
+
+    val ready: Boolean get() = job?.let { it.isCompleted && !it.isCancelled } == true
     suspend fun await() {
         job?.await()
+    }
+    suspend fun awaitReady() {
+        successful.first { it }
     }
 }
 

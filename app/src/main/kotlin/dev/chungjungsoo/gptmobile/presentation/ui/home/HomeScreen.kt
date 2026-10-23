@@ -58,6 +58,7 @@ import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.DragHandle
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PushPin
@@ -1270,7 +1271,7 @@ internal fun ChatListItem(
                         }
                     }
                 } else if (!chatListState.isSelectionMode && !chatListState.isSearchMode) {
-                    Box(dragHandleModifier.size(32.dp).semantics { contentDescription = "Drag to organize conversation" })
+                    Box(dragHandleModifier.size(48.dp).semantics { contentDescription = "Drag to organize conversation" }, contentAlignment = Alignment.Center) { Icon(androidx.compose.material.icons.Icons.Rounded.DragHandle, null, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
                 }
             },
             headlineContent = {

@@ -159,6 +159,7 @@ class SettingViewModelV2 @Inject constructor(
             val connection = newConnection?.let {
                 settingRepository.addProviderConnection(it, credential)
             }
+            val profileOwnsCredential = platform.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.FREE && dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.fromApiUrl(platform.apiUrl)?.requiresUserToken == true
             val profileToSave = platform.copy(
                 providerConnectionUid = connection?.uid ?: platform.providerConnectionUid,
                 apiUrl = if (platform.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.FREE) {
@@ -168,8 +169,8 @@ class SettingViewModelV2 @Inject constructor(
                 } else {
                     platform.apiUrl
                 },
-                token = if (connection != null || platform.providerConnectionUid != null) null else platform.token,
-                secretRef = if (connection != null || platform.providerConnectionUid != null) null else platform.secretRef
+                token = if (!profileOwnsCredential && (connection != null || platform.providerConnectionUid != null)) null else platform.token,
+                secretRef = if (!profileOwnsCredential && (connection != null || platform.providerConnectionUid != null)) null else platform.secretRef
             )
             synchronizeLinkedLabelColors(profileToSave)
             settingRepository.addPlatformV2(profileToSave)

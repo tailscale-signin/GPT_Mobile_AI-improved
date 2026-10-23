@@ -20,12 +20,18 @@ val LocalThemeViewModel = compositionLocalOf<ThemeViewModel> {
 
 @Composable
 fun ThemeSettingProvider(
-    themeViewModel: ThemeViewModel = hiltViewModel(),
+    themeViewModel: ThemeViewModel? = null,
+    enabled: Boolean = true,
     content: @Composable () -> Unit
 ) {
-    themeViewModel.themeSetting.collectAsStateWithLifecycle().value.run {
+    if (!enabled) {
+        content()
+        return
+    }
+    val activeViewModel = themeViewModel ?: hiltViewModel<ThemeViewModel>()
+    activeViewModel.themeSetting.collectAsStateWithLifecycle().value.run {
         CompositionLocalProvider(
-            LocalThemeViewModel provides themeViewModel,
+            LocalThemeViewModel provides activeViewModel,
             LocalDynamicTheme provides dynamicTheme,
             LocalThemeMode provides themeMode,
             LocalCustomPrimaryArgb provides customPrimaryArgb,

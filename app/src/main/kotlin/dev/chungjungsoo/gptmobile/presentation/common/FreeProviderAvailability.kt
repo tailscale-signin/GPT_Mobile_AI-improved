@@ -19,14 +19,15 @@ internal fun freeProviderClock(): State<Long> = produceState(System.currentTimeM
     }
 }
 
-internal fun freeProviderAvailability(provider: FreeAiProvider, model: String, status: FreeServiceStatus?, now: Long): String? {
+internal fun freeProviderAvailability(provider: FreeAiProvider, model: String, status: FreeServiceStatus?, now: Long, token: String? = null): String? {
     provider.unavailableReason?.let { return it }
-    val cooldown = FreeAiRequestLimiter.shared.cooldownUntilMillis(provider, model)
+    val cooldown = FreeAiRequestLimiter.shared.cooldownUntilMillis(provider, model, dev.chungjungsoo.gptmobile.data.network.freeCredentialIdentity(provider, token))
     if (cooldown != null && cooldown > now) {
         val seconds = (cooldown - now + 999) / 1000
-        return "Rate limited until ${DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(cooldown))} · ${seconds / 3600}h ${(seconds / 60) % 60}m ${seconds % 60}s remaining. Choose another provider; availability will be rechecked on your next request."
+        return "Next eligible retry: ${DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(cooldown))} · ${seconds / 3600}h ${(seconds / 60) % 60}m ${seconds % 60}s remaining. Choose another provider; availability will be rechecked on your next request."
     }
-    if (status?.readiness == FreeGenerationReadiness.RATE_LIMITED) return "Cooldown ended · availability will be rechecked on your next request."
+    dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.generationUnavailableReason(provider, model)?.let { return it }
+    if (status?.readiness == FreeGenerationReadiness.RATE_LIMITED) return if ((status.retryAt ?: 0) <= now) "Cooldown ended · availability will be rechecked on your next request." else "Provider reported a rate limit; this profile’s allowance will be checked before dispatch."
     if (status?.readiness == FreeGenerationReadiness.ACCESS_DENIED) return "Access denied · ${if ((status.retryAt ?: 0) > now && status.deniedModel == model) "temporarily unavailable for generation · " else ""}choose another provider or retry later."
     return status?.readiness?.takeUnless { it == FreeGenerationReadiness.UNTESTED }?.label
 }

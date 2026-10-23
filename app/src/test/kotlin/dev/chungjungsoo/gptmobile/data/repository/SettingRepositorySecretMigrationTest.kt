@@ -28,7 +28,7 @@ class SettingRepositorySecretMigrationTest {
         val repository = SettingRepositoryImpl(settings, profiles, connections, FakeChatPlatformModelV2Dao(), FakeSecretVault())
         repository.ensureFreeModels()
         assertEquals(12, profiles.platforms.size)
-        assertTrue(profiles.platforms.all { it.enabled == !FreeAiProvider.requireFor(it).isDemo && it.compatibleType == ClientType.FREE && it.name == FreeAiProvider.requireFor(it).displayName })
+        assertTrue(profiles.platforms.all { it.enabled == (!FreeAiProvider.requireFor(it).isDemo && FreeAiProvider.requireFor(it).isAvailable) && it.compatibleType == ClientType.FREE && it.name == FreeAiProvider.requireFor(it).displayName })
         assertEquals(1, connections.getConnections().size)
         assertEquals("Free Models", connections.getConnections().single().name)
         val removed = profiles.platforms.first()
@@ -57,6 +57,26 @@ class SettingRepositorySecretMigrationTest {
         assertEquals(profile.uid, restored.uid)
         assertNull(restored.token)
         assertNull(repository.getProviderCredentials(connection.uid))
+    }
+
+    @Test fun llm7TokenSurvivesSecureStorageNormalizationAndProviderSwitching() = runBlocking {
+        val profiles = FakePlatformV2Dao(mutableListOf())
+        val vault = FakeSecretVault()
+        val repository = SettingRepositoryImpl(FakeSettingDataSource(), profiles, FakeProviderConnectionDao(), FakeChatPlatformModelV2Dao(), vault)
+        val provider = FreeAiProvider.LLM7
+        val profile = provider.applyTo(platform(1, "llm7-profile", "synthetic-free-token", null).copy(apiUrl = provider.apiUrl))
+        assertEquals("synthetic-free-token", profile.token)
+        repository.addPlatformV2(profile)
+        val stored = profiles.getPlatform(1)!!
+        assertNull(stored.token)
+        assertEquals("synthetic-free-token", vault.read(stored.secretRef!!)!!.decodeToString())
+        val resolved = repository.getPlatformV2ById(1)!!
+        assertEquals("synthetic-free-token", resolved.token)
+        repository.updatePlatformV2(resolved.copy(name = "Renamed"))
+        assertEquals("synthetic-free-token", repository.getPlatformV2ById(1)!!.token)
+        repository.updatePlatformV2(FreeAiProvider.KILO.applyTo(resolved))
+        assertNull(repository.getPlatformV2ById(1)!!.token)
+        assertNull(vault.read(stored.secretRef!!))
     }
 
     @Test

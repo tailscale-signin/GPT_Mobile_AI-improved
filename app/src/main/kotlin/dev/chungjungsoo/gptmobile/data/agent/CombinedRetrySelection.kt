@@ -12,12 +12,13 @@ internal fun preserveCombinedRetrySelection(current: MessageV2, candidate: Messa
     // Streaming callbacks retain the selection captured when the run started.
     // Once a validated checkpoint selects this revision, later stale callbacks
     // must not select the archived contributor or predecessor again.
-    val selected = current.revisions.getOrNull(current.activeRevisionIndex)
-        ?: return candidate.copy(activeRevisionIndex = ACTIVE_REVISION_LATEST)
+    val selectedIndex = current.activeRevisionIndex.takeIf { current.revisions.getOrNull(it)?.content?.isNotBlank() == true }
+        ?: current.revisions.indexOfFirst { it.content.isNotBlank() }
+    val selected = current.revisions.getOrNull(selectedIndex)
     val snapshot = runCatching {
         Json { ignoreUnknownKeys = true }.decodeFromString<CombinedInputSnapshot>(run.synthesisSnapshot.orEmpty())
     }.getOrNull() ?: return candidate
-    if (selected.content.isBlank()) return candidate
+    if (selected == null && candidate.content.isBlank()) return candidate
     if (snapshot.resumeFromRunId == null && snapshot.sources.isEmpty() && snapshot.evidence.records.isEmpty()) return candidate
     val report = candidate.timeline.lastOrNull { it.combinedQuality != null }?.combinedQuality
     val accepted = terminalStatus == "COMPLETED" &&
@@ -47,7 +48,7 @@ internal fun preserveCombinedRetrySelection(current: MessageV2, candidate: Messa
                 source.completionStatus == fallback.sourceCompletionStatus &&
                 source.content == candidate.content
         }
-    return candidate.copy(activeRevisionIndex = if (accepted || committedPartial || explicitReply) ACTIVE_REVISION_LATEST else current.activeRevisionIndex)
+    return candidate.copy(activeRevisionIndex = if (accepted || committedPartial || explicitReply) ACTIVE_REVISION_LATEST else selectedIndex)
 }
 
 internal val COMBINED_FRAMING_FAILURES = setOf(

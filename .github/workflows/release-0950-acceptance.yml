@@ -3,6 +3,9 @@ on:
   pull_request:
     branches: [main, feat/unified-reliability-v2-2026-10-13]
     paths: ['app/**', 'scripts/run_release0950_acceptance.sh', '.github/workflows/release-0950-acceptance.yml']
+  push:
+    branches: [main]
+    paths: ['app/**', 'scripts/run_release0950_acceptance.sh', '.github/workflows/release-0950-acceptance.yml']
   workflow_dispatch:
 permissions:
   contents: read

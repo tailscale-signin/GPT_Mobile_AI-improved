@@ -21,6 +21,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
@@ -53,6 +55,9 @@ internal fun SelectPlatformProfileCard(
     onFavorite: () -> Unit,
     onInsights: () -> Unit
 ) {
+    val health by dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.status.collectAsState()
+    val now by dev.chungjungsoo.gptmobile.presentation.common.freeProviderClock()
+    val unavailable = androidx.compose.runtime.remember(profile, health, now) { dev.chungjungsoo.gptmobile.data.network.FreeProviderPreflight.check(profile) }
     val favoriteLabel = stringResource(if (profile.isFavorite) R.string.picker_remove_favorite else R.string.picker_add_favorite)
     val lines = if (LocalDensity.current.fontScale >= 1.3f) 3 else 1
     Surface(
@@ -66,7 +71,7 @@ internal fun SelectPlatformProfileCard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Row(
                     Modifier.weight(1f).heightIn(min = 64.dp).testTag("profile_select_${profile.uid}")
-                        .combinedClickable(role = Role.Checkbox, onClick = { onToggle(profile.uid) }, onLongClick = onFavorite)
+                        .combinedClickable(enabled = unavailable == null, role = Role.Checkbox, onClick = { onToggle(profile.uid) }, onLongClick = onFavorite)
                         .semantics(mergeDescendants = true) {
                             toggleableState = ToggleableState(selected)
                             customActions = listOf(
@@ -79,12 +84,13 @@ internal fun SelectPlatformProfileCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Checkbox(checked = selected, onCheckedChange = null)
+                    Checkbox(checked = selected && unavailable == null, onCheckedChange = null, enabled = unavailable == null)
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(profile.name, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = lines, overflow = TextOverflow.Ellipsis)
                             if (profile.isFavorite) Icon(Icons.Rounded.Star, stringResource(R.string.picker_favorite), Modifier.size(16.dp), tint = MaterialTheme.colorScheme.tertiary)
                         }
+                        unavailable?.let { Text(it.message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
                         Text(profile.model, style = MaterialTheme.typography.bodySmall.copy(textDirection = TextDirection.Ltr), color = MaterialTheme.colorScheme.primary, maxLines = lines, overflow = TextOverflow.Ellipsis)
                     }
                 }

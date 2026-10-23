@@ -532,7 +532,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                         requireKnownCapacity = constraints.requireKnownCapacity,
                         reasoningMode = llamaReasoning,
                         allowReasoning = if (isLlama) constraints.allowReasoning else true,
-                        token = activeKey.takeIf { it.isNotBlank() && platform.compatibleType != ClientType.FREE },
+                        token = activeKey.takeIf { it.isNotBlank() && (platform.compatibleType != ClientType.FREE || dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.requireFor(platform).requiresUserToken) },
                         queueScope = constraints.queueScope ?: constraints.combined?.rootBudgetId ?: constraints.attemptId,
                         queuePersistent = constraints.queuePersistent,
                         freeProvider = if (platform.compatibleType == ClientType.FREE) dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.requireFor(platform) else null,
@@ -599,6 +599,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                                 roundFailed = true
                                 streamInterrupted = true
                                 lastFailedMessage = providerFailureMessage(error, "Groq stream request failed")
+                                protocolErrorCode = if (error is java.io.IOException || error is io.ktor.client.plugins.HttpRequestTimeoutException) "NETWORK_ERROR" else protocolErrorCode
                                 canRotate = ApiCredentialRotator.isRotatableError(error)
                             }
                             .collect { chunk ->
@@ -612,7 +613,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                                 chunk.error?.let { error ->
                                     roundFailed = true
                                     lastFailedMessage = error.message
-                                    protocolErrorCode = error.code ?: protocolErrorCode
+                                    protocolErrorCode = error.code ?: error.type ?: protocolErrorCode
                                     canRotate = ApiCredentialRotator.containsQuotaOrRateLimitMessage(error.message)
                                 } ?: chunk.choices.orEmpty().forEach { choice ->
                                     reasoningParser.append(
@@ -658,14 +659,15 @@ class OpenAICompatibleAdapter @Inject constructor(
                     }
 
                     val outputLimitKey = "${platform.compatibleType}|${platform.apiUrl}|${platform.model}|${platform.openRouterRouting.orEmpty()}"
-                    var effectiveOutputTokens = ProviderOutputLimits.effective(outputLimitKey, constraints.outputLimit(effectiveMaxTokens))
+                    var effectiveOutputTokens: Int? = ProviderRouteCapacity.output(platform, constraints.outputLimit(effectiveMaxTokens))
                     var ceilingRetryUsed = false
                     if (constraints.maxOutputTokens != null) {
                         emit(
                             ProviderEvent.RequestConfigured(
                                 configuredProfileOutputTokens = effectiveMaxTokens,
                                 requestedOutputTokens = constraints.maxOutputTokens,
-                                effectiveOutputTokens = effectiveOutputTokens
+                                effectiveOutputTokens = effectiveOutputTokens,
+                                providerOutputCeiling = ProviderRouteCapacity.ceiling(platform)
                             )
                         )
                     }
@@ -675,7 +677,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                     var currentRequestMessages = baseMessages
 
                     while (true) {
-                        val requestConfig = delegatedLlamaRequestConfig(config, isLlama, effectiveOutputTokens, constraints)
+                        val requestConfig = delegatedLlamaRequestConfig(config, isLlama, effectiveOutputTokens, constraints).copy(captureGenerationReceipt = constraints.combined != null || constraints.requestRole == "synthesis")
                         val request = ChatCompletionRequest(
                             model = platform.model,
                             messages = currentRequestMessages,
@@ -700,7 +702,13 @@ class OpenAICompatibleAdapter @Inject constructor(
                             sessionId = openRouterSessionId,
                             options = parsedOllamaOptions
                         ).let { baseRequest ->
-                            if (isNvidia) NvidiaRequestPolicy.prepare(baseRequest, platform.reasoning, constraints.allowReasoning) else baseRequest
+                            if (isNvidia) {
+                                NvidiaRequestPolicy.prepare(baseRequest, platform.reasoning, constraints.allowReasoning)
+                            } else if (config.freeProvider == dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.BLOCKRUN && platform.model == "nvidia/nemotron-3.5-lightning") {
+                                baseRequest.copy(chatTemplateKwargs = kotlinx.serialization.json.JsonObject(mapOf("enable_thinking" to JsonPrimitive(platform.reasoning && constraints.allowReasoning))))
+                            } else {
+                                baseRequest
+                            }
                         }
                         val assembler = ChatCompletionsEventAssembler()
                         var lastFinishReason: String? = null
@@ -756,9 +764,14 @@ class OpenAICompatibleAdapter @Inject constructor(
                                 roundFailed = true
                                 streamInterrupted = true
                                 lastFailedMessage = providerFailureMessage(error, "OpenAI-compatible stream request failed")
+                                protocolErrorCode = if (error is java.io.IOException || error is io.ktor.client.plugins.HttpRequestTimeoutException) "NETWORK_ERROR" else protocolErrorCode
                                 canRotate = ApiCredentialRotator.isRotatableError(error)
                             }
                             .collect { chunk ->
+                                chunk.serializedOutputTokens?.let { cap ->
+                                    effectiveOutputTokens = cap
+                                    emit(ProviderEvent.RequestConfigured(effectiveMaxTokens, constraints.maxOutputTokens, cap, providerOutputCeiling = ProviderRouteCapacity.ceiling(platform), serializedOutputTokens = cap))
+                                }
                                 observedModel = chunk.model?.takeIf(String::isNotBlank) ?: observedModel
                                 observedBackend = chunk.provider?.takeIf(String::isNotBlank) ?: observedBackend
                                 observedReasoning = observedReasoning || chunk.choices.orEmpty().any { !it.effectiveDelta.effectiveReasoning.isNullOrBlank() } || ((chunk.usage?.completionTokensDetails?.get("reasoning_tokens") as? JsonPrimitive)?.intOrNull ?: 0) > 0
@@ -804,12 +817,13 @@ class OpenAICompatibleAdapter @Inject constructor(
                                     roundFailed = true
                                     streamInterrupted = true
                                     lastFailedMessage = error.message
-                                    protocolErrorCode = error.code ?: protocolErrorCode
+                                    protocolErrorCode = error.code ?: error.type ?: protocolErrorCode
                                     canRotate = ApiCredentialRotator.containsQuotaOrRateLimitMessage(error.message)
                                 } ?: chunk.choices.orEmpty().forEach { choice ->
                                     if (choice.finishReason != null) {
                                         terminalReceived = true
                                         lastFinishReason = choice.finishReason
+                                        if (requestConfig.captureGenerationReceipt) emit(ProviderEvent.Usage(finishReason = choice.finishReason))
                                     }
                                     if (!choice.effectiveDelta.content.isNullOrEmpty() || !choice.effectiveDelta.effectiveReasoning.isNullOrEmpty() || !choice.effectiveDelta.toolCalls.isNullOrEmpty()) deliveredPayload = true
                                     if (choice.finishReason == "length") {
@@ -848,9 +862,9 @@ class OpenAICompatibleAdapter @Inject constructor(
                         }
 
                         if (constraints.combined?.role?.finalization == true && !constraints.allowReasoning) {
-                            val actualKey = "$outputLimitKey|served=${observedModel ?: "unreported"}|backend=${observedBackend ?: "unreported"}"
-                            dev.chungjungsoo.gptmobile.data.agent.CombinedWriterObservations.record(actualKey, observedReasoning, if (observedVisible) 1 else 0)
-                            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("CombinedWriter", "REASONING_CONTROL_OBSERVED · model=${observedModel ?: "unreported"} · backend=${observedBackend ?: "unreported"} · disabledRequested=true · reasoningReceived=$observedReasoning · answerBytesReceived=$observedVisible")
+                            val control = request.reasoning?.let { "reasoning.enabled=false" } ?: request.chatTemplateKwargs?.get("enable_thinking")?.let { "chat_template_kwargs.enable_thinking=$it" } ?: request.reasoningEffort?.let { "reasoning_effort=$it" }
+                            dev.chungjungsoo.gptmobile.data.agent.CombinedWriterObservations.recordRoute(outputLimitKey, observedModel, observedBackend, control, observedReasoning)
+                            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("CombinedWriter", "REASONING_CONTROL_OBSERVED · model=${observedModel ?: "unreported"} · backend=${observedBackend ?: "unreported"} · disabledRequested=true · transmittedControl=${control ?: "unverified"} · reasoningReceived=$observedReasoning · answerBytesReceived=$observedVisible")
                         }
                         val learnedCeiling = if (roundFailed && !deliveredPayload && !ceilingRetryUsed) {
                             ProviderOutputLimits.learn(outputLimitKey, lastFailedMessage.orEmpty(), effectiveOutputTokens)

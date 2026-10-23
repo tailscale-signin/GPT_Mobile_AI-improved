@@ -232,11 +232,13 @@ fun PlatformSettingScreen(
                         if (isFreePlatform) {
                             FreeProviderPicker(
                                 apiUrl = platformData.apiUrl,
+                                token = platformData.token,
+                                onTokenSaved = settingViewModel::updateApiToken,
                                 onProviderSelected = settingViewModel::selectFreeProvider,
                                 model = platformData.model,
                                 onModelSelected = { settingViewModel.updatePlatform(platformData.copy(model = it)) },
                                 modifier = Modifier.padding(16.dp),
-                                enabled = platformData.enabled
+                                enabled = true
                             )
                         }
                         if (debugMode) {

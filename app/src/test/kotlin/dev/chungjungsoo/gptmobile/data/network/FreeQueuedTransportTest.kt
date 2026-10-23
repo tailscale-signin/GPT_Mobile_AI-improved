@@ -32,7 +32,37 @@ import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class FreeQueuedTransportTest {
+    @org.junit.Before fun resetHealth() {
+        dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.resetForTest()
+    }
+    private val gradioConfig = javaClass.getResource("/free/gradio/qwen-config.json")!!.readText()
     private val workerCatalog = """[{"name":"koboldcpp/Qwen2.5-7B-Instruct","count":1}]"""
+
+    @Test fun checkingPendingSavedJobUsesOnlyGetAndCannotPublishOverNewWriter() = runBlocking {
+        val key = java.util.UUID.randomUUID().toString()
+        val run = "combined-synthesis:$key"
+        dev.chungjungsoo.gptmobile.data.free.FreeQueueJobs.save(dev.chungjungsoo.gptmobile.data.free.FreeQueueJob(key, "pending-receipt", "QUEUED", chatId = 19, protocol = "HORDE", ownerRunId = run, profileUid = "horde", requestedModel = "horde-text"))
+        val methods = mutableListOf<HttpMethod>()
+        val client = HttpClient(
+            MockEngine { wire ->
+                methods += wire.method
+                assertEquals("/api/v2/generate/text/status/pending-receipt", wire.url.encodedPath)
+                respond("{\"done\":false,\"queue_position\":3}")
+            }
+        ) { install(HttpTimeout) }
+        try {
+            val network = mockk<NetworkClient>()
+            every { network.invoke() } returns client
+            val config = ProviderRequestConfig(FreeAiProvider.AI_HORDE.apiUrl, null, freeProvider = FreeAiProvider.AI_HORDE, profileUid = "horde")
+            val text = OpenAIAPIImpl(network).checkSavedHordeJob(run, 19, config)
+            org.junit.Assert.assertTrue(text.contains("still pending"))
+            assertEquals(listOf(HttpMethod.Get), methods)
+            assertEquals("pending-receipt", dev.chungjungsoo.gptmobile.data.free.FreeQueueJobs.read(key)!!.id)
+            assertEquals("QUEUED", dev.chungjungsoo.gptmobile.data.free.FreeQueueJobs.read(key)!!.state)
+        } finally {
+            client.close()
+        }
+    }
 
     @Test fun gradioSocketFailureRetainsSnapshotAndDoesNotResubmit() = runBlocking {
         val receivedSnapshot = CompletableDeferred<Unit>()
@@ -42,6 +72,7 @@ class FreeQueuedTransportTest {
         val client = HttpClient(
             MockEngine { wire ->
                 when {
+                    wire.url.encodedPath.endsWith("/config") -> respond(gradioConfig)
                     wire.url.encodedPath.endsWith("/info") -> respond("""{"named_endpoints":{"/add_message":{"parameters":[{"parameter_name":"input_value"},{"parameter_name":"settings_form_value"}]}}}""")
                     wire.method == HttpMethod.Post -> {
                         posts++
@@ -106,6 +137,7 @@ class FreeQueuedTransportTest {
         val engine = MockEngine { wire ->
             if (wire.url.encodedPath.endsWith("/status/models")) return@MockEngine respond(workerCatalog)
             val response = when {
+                wire.url.encodedPath.endsWith("/config") -> gradioConfig
                 wire.url.encodedPath.endsWith("/info") -> """{"named_endpoints":{"/add_message":{"parameters":[{"parameter_name":"input_value"},{"parameter_name":"settings_form_value"}]}}}"""
                 wire.method == HttpMethod.Post -> {
                     assertNull(Json.parseToJsonElement((wire.body as HttpTextContent).text).jsonObject["session_hash"])
@@ -134,6 +166,7 @@ class FreeQueuedTransportTest {
         val engine = MockEngine { wire ->
             if (wire.url.encodedPath.endsWith("/status/models")) return@MockEngine respond(workerCatalog)
             val response = when {
+                wire.url.encodedPath.endsWith("/config") -> gradioConfig
                 wire.url.encodedPath.endsWith("/info") -> """{"named_endpoints":{"/add_message":{"parameters":[{"parameter_name":"input_value"},{"parameter_name":"settings_form_value"}]}}}"""
                 wire.method == HttpMethod.Post -> {
                     submissions++
@@ -200,10 +233,12 @@ class FreeQueuedTransportTest {
             "event: error\ndata: null\n\n" to "No more specific reason"
         )
         for ((event, expected) in cases) {
+            dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.resetForTest()
             var posts = 0
             val engine = MockEngine { wire ->
                 if (wire.url.encodedPath.endsWith("/status/models")) return@MockEngine respond(workerCatalog)
                 val body = when {
+                    wire.url.encodedPath.endsWith("/config") -> gradioConfig
                     wire.url.encodedPath.endsWith("/info") -> """{"named_endpoints":{"/add_message":{"parameters":[{"parameter_name":"input_value"},{"parameter_name":"settings_form_value"}]}}}"""
                     wire.method == HttpMethod.Post -> {
                         posts++
@@ -237,6 +272,7 @@ class FreeQueuedTransportTest {
         val client = HttpClient(
             MockEngine { wire ->
                 val response = when {
+                    wire.url.encodedPath.endsWith("/config") -> gradioConfig
                     wire.url.encodedPath.endsWith("/info") -> """{"named_endpoints":{"/add_message":{"parameters":[{"parameter_name":"input_value"},{"parameter_name":"settings_form_value"}]}}}"""
                     wire.method == HttpMethod.Post -> {
                         posts++
@@ -280,7 +316,7 @@ class FreeQueuedTransportTest {
             every { network.invoke() } returns client
             val provider = FreeAiProvider.OPENCODE
             val chunks = OpenAIAPIImpl(network).streamChatCompletion(request(provider.model), 30, ProviderRequestConfig(provider.apiUrl, null, freeProvider = provider)).toList()
-            org.junit.Assert.assertTrue(chunks.last().error!!.message.contains("restricted to use within OpenCode"))
+            org.junit.Assert.assertTrue(chunks.last().error!!.message.contains("restricted to OpenCode’s own apps"))
             assertEquals(0, calls)
         } finally {
             client.close()
@@ -322,6 +358,11 @@ class FreeQueuedTransportTest {
             assertEquals("A cloud folds its silver map.", result.last().choices!!.single().delta.content)
             assertEquals("worker/model", result.last().model)
             assertNull(result.last().usage)
+            // Checking the same persisted generation can reuse its result; Generate again cannot.
+            api.streamChatCompletion(request("automatic"), 30, config).toList()
+            assertEquals(1, posts)
+            api.streamChatCompletion(request("automatic"), 30, config.copy(queueScope = java.util.UUID.randomUUID().toString())).toList()
+            assertEquals(2, posts)
         } finally {
             client.close()
         }

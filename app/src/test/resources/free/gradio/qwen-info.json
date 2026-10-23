@@ -1,0 +1,14 @@
+{
+  "named_endpoints": {
+    "/add_message": {
+      "parameters": [
+        {
+          "parameter_name": "input_value"
+        },
+        {
+          "parameter_name": "settings_form_value"
+        }
+      ]
+    }
+  }
+}

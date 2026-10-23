@@ -130,6 +130,10 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
                     buffer.publishIfDue(onUpdate)
                 }
 
+                is ApiState.TokenUsage -> {
+                    buffer.updateGeneration(chunk)
+                }
+
                 is ApiState.AssistStatus -> {
                     buffer.updateAssist(chunk.status)
                     buffer.publishNow(onUpdate)
@@ -196,6 +200,7 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
                 is ApiState.Error -> {
                     chunk.progressDeadline?.let(buffer::appendProgressDeadline)
                     chunk.recoveryBlock?.let(buffer::appendRecoveryBlock)
+                    chunk.combinedFailure?.let(buffer::appendCombinedFailure)
                     terminalError = chunk.message.ifBlank { "The provider could not complete this response." }
                 }
 
@@ -375,6 +380,22 @@ private class StreamingMessageBuffer(
         flushTimelineText()
         if (facts.isEmpty()) return
         timeline += AssistantTimelineItem(type = AssistantTimelineItemType.NOTICE, recalledFacts = facts)
+        timelineVersion += 1
+    }
+
+    fun updateGeneration(usage: ApiState.TokenUsage) {
+        flushTimelineText()
+        val index = timeline.indexOfLast { it.generation != null }
+        val prior = timeline.getOrNull(index)?.generation
+        val receipt = dev.chungjungsoo.gptmobile.data.database.entity.GenerationReceipt(usage.finishReason ?: prior?.finishReason, usage.outputTokens ?: prior?.outputTokens, usage.outputAllowance ?: prior?.outputAllowance)
+        val item = AssistantTimelineItem(AssistantTimelineItemType.NOTICE, generation = receipt)
+        if (index < 0) timeline += item else timeline[index] = item
+        timelineVersion += 1
+    }
+
+    fun appendCombinedFailure(failure: dev.chungjungsoo.gptmobile.data.agent.CombinedRecoveryFailure) {
+        flushTimelineText()
+        timeline.add(AssistantTimelineItem(AssistantTimelineItemType.NOTICE, combinedFailure = failure))
         timelineVersion += 1
     }
 

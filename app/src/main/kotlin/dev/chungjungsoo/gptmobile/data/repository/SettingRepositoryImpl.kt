@@ -245,13 +245,13 @@ class SettingRepositoryImpl @Inject constructor(
             val legacy = connections.firstOrNull { it.uid == profile.providerConnectionUid }
             val endpoint = if (legacy != null && legacy.uid != catalog.CONNECTION_UID) legacy.apiUrl else profile.apiUrl
             val provider = FreeAiProvider.fromApiUrl(endpoint) ?: return@forEach
-            platformV2Dao.editPlatform(provider.applyTo(profile.copy(apiUrl = endpoint)).copy(providerConnectionUid = unified.uid, enabled = profile.enabled && !(settings.freeCatalogVersion < 2 && provider.isDemo && profile.uid == "builtin-free-porchlm")))
+            platformV2Dao.editPlatform(securePlatform(provider.applyTo(profile.copy(apiUrl = endpoint)).copy(providerConnectionUid = unified.uid, enabled = profile.enabled && !(settings.freeCatalogVersion < 2 && provider.isDemo && profile.uid == "builtin-free-porchlm"))))
         }
-        FreeAiProvider.entries.forEach { provider ->
+        FreeAiProvider.entries.filter { settings.freeCatalogVersion < 2 }.forEach { provider ->
             val uid = "builtin-free-${provider.name.lowercase()}"
             val current = platformV2Dao.getPlatforms()
             if (current.none { it.uid == uid || it.compatibleType == ClientType.FREE && FreeAiProvider.fromApiUrl(it.apiUrl) == provider }) {
-                platformV2Dao.addPlatform(provider.applyTo(PlatformV2(uid = uid, name = provider.displayName, enabled = !provider.isDemo, providerConnectionUid = unified.uid, timeout = 300)))
+                platformV2Dao.addPlatform(provider.applyTo(PlatformV2(uid = uid, name = provider.displayName, enabled = !provider.isDemo && provider.isAvailable, providerConnectionUid = unified.uid, timeout = 300)))
             }
         }
         connections.filter { it.uid != unified.uid }.forEach { connection ->
@@ -328,7 +328,9 @@ class SettingRepositoryImpl @Inject constructor(
             val source = "profile:${platform.uid}"
             try {
                 val connectionUid = platform.providerConnectionUid
-                if (connectionUid != null) {
+                if (platform.compatibleType == ClientType.FREE) {
+                    platformV2Dao.editPlatform(securePlatform(platform))
+                } else if (connectionUid != null) {
                     val connection = providerConnectionDao.getConnection(connectionUid)
                     if (connection != null) {
                         updateProviderConnection(connection, plaintext)
@@ -393,7 +395,7 @@ class SettingRepositoryImpl @Inject constructor(
         val previousSecretRef = previous?.secretRef ?: platform.secretRef
         val securedPlatform = securePlatform(platform)
         platformV2Dao.editPlatform(securedPlatform)
-        if (securedPlatform.providerConnectionUid == null &&
+        if ((securedPlatform.providerConnectionUid == null || securedPlatform.compatibleType == ClientType.FREE) &&
             previousSecretRef != securedPlatform.secretRef
         ) {
             previousSecretRef?.let { secretVault.delete(it) }
@@ -408,7 +410,7 @@ class SettingRepositoryImpl @Inject constructor(
         val providerConnectionUid = persisted?.providerConnectionUid ?: platform.providerConnectionUid
         chatPlatformModelV2Dao.deleteByPlatformUid(platform.uid)
         platformV2Dao.deletePlatform(platform)
-        if (providerConnectionUid == null) {
+        if (providerConnectionUid == null || platform.compatibleType == ClientType.FREE) {
             secretRef?.let { secretVault.delete(it) }
         }
         invalidatePlatformCache()
@@ -632,7 +634,13 @@ class SettingRepositoryImpl @Inject constructor(
             val resolved = platform.copy(apiUrl = if (connection?.uid == dev.chungjungsoo.gptmobile.data.free.FreeModelCatalog.CONNECTION_UID) platform.apiUrl else connection?.apiUrl ?: platform.apiUrl)
             val owner = providerConnectionDao.getConnection(dev.chungjungsoo.gptmobile.data.free.FreeModelCatalog.CONNECTION_UID)
                 ?: addProviderConnection(ProviderConnection(name = "Free Models", compatibleType = ClientType.FREE, apiUrl = FreeAiProvider.default.apiUrl))
-            return FreeAiProvider.requireFor(resolved).applyTo(resolved).copy(providerConnectionUid = owner.uid)
+            val normalized = FreeAiProvider.requireFor(resolved).applyTo(resolved).copy(providerConnectionUid = owner.uid)
+            if (!FreeAiProvider.requireFor(normalized).requiresUserToken) return normalized
+            val secret = normalized.token ?: return normalized
+            if (secret.isBlank()) return normalized.copy(token = null, secretRef = null)
+            val reference = normalized.secretRef ?: profileSecretRef(normalized.uid)
+            storeVerified(reference, secret.trim())
+            return normalized.copy(token = null, secretRef = reference)
         }
         if (platform.providerConnectionUid != null) {
             return platform.copy(token = null, secretRef = null)
@@ -659,7 +667,8 @@ class SettingRepositoryImpl @Inject constructor(
             if (connection != null) {
                 if (platform.compatibleType == ClientType.FREE) {
                     val resolved = platform.copy(apiUrl = if (connection.uid == dev.chungjungsoo.gptmobile.data.free.FreeModelCatalog.CONNECTION_UID) platform.apiUrl else connection.apiUrl)
-                    return FreeAiProvider.requireFor(resolved).applyTo(resolved)
+                    val normalized = FreeAiProvider.requireFor(resolved).applyTo(resolved)
+                    return normalized.copy(token = normalized.token ?: normalized.secretRef?.let { readSecret(it) })
                 }
                 return platform.copy(
                     apiUrl = connection.apiUrl,
@@ -669,7 +678,10 @@ class SettingRepositoryImpl @Inject constructor(
             }
         }
 
-        if (platform.compatibleType == ClientType.FREE) return FreeAiProvider.requireFor(platform).applyTo(platform)
+        if (platform.compatibleType == ClientType.FREE) {
+            val normalized = FreeAiProvider.requireFor(platform).applyTo(platform)
+            return normalized.copy(token = normalized.token ?: normalized.secretRef?.let { readSecret(it) })
+        }
         if (platform.token != null) return platform
         val secretRef = platform.secretRef ?: return platform
         return platform.copy(token = readSecret(secretRef))

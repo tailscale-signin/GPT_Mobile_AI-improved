@@ -44,7 +44,10 @@ internal fun combinedSynthesisInputs(
         }
         val modelName = models[uid] ?: original?.modelName.orEmpty()
         val demo = uid == "builtin-free-porchlm" || names[uid]?.contains("PorchLM", true) == true || modelName.contains("porch", true)
-        val assessment = CombinedContributionUsability.assess(status, content, allowPartial = true, request = currentRequest, demo = demo)
+        val sourceTimeline = if (original?.attemptId != null && original.attemptId != message.currentRunId) message.revisions.firstOrNull { it.runId == original.attemptId }?.timeline.orEmpty() else message.timeline
+        val generation = sourceTimeline.lastOrNull { it.generation != null }?.generation
+        val finishReason = generation?.finishReason ?: original?.nativeFinishReason
+        val assessment = CombinedContributionUsability.assess(status, content, allowPartial = true, request = currentRequest, demo = demo, finishReason = finishReason, outputTokens = generation?.outputTokens, outputAllowance = generation?.outputAllowance ?: 256.takeIf { uid == "builtin-free-ai_horde" })
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("CombinedScreening", "CONTRIBUTION_SCREENED · uid=$uid · admitted=${assessment.admitted} · reason=${assessment.reason} · relevance=${assessment.relevance} · coherence=${assessment.coherence} · completeness=${assessment.completeness}")
         if (!assessment.admitted) return@mapNotNull null
         CombinedModelResponse(
@@ -63,7 +66,10 @@ internal fun combinedSynthesisInputs(
             sourceDigest = dev.chungjungsoo.gptmobile.data.research.researchHash(content),
             ancestryIds = original?.ancestryIds.orEmpty(),
             rawContentDigest = original?.rawContentDigest?.takeIf(String::isNotBlank) ?: dev.chungjungsoo.gptmobile.data.research.researchHash(originalContent),
-            disposition = combinedContributionDisposition(message, original, status)
+            disposition = if (assessment.usablePartial) ContributionDisposition.USABLE_PARTIAL else combinedContributionDisposition(message, original, status),
+            contentCompleteness = assessment.completeness,
+            factualSupport = original?.factualSupport ?: "UNVERIFIED",
+            nativeFinishReason = finishReason
         )
     }
     if (sources.isEmpty()) return null

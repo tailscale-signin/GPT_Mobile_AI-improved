@@ -7,6 +7,7 @@ on:
       - app/build.gradle.kts
 permissions:
   contents: read
+  actions: read
 concurrency:
   group: signed-release
   cancel-in-progress: false
@@ -42,34 +43,12 @@ jobs:
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
-      - name: Validate v2 evidence and narrowly scoped interim release
+      - name: Validate reviewed release scope and truthful milestone evidence
         run: |
           set -euo pipefail
-          # Always verify every v2 task/case reference, receipt, and status.
-          # Its full-completion milestone is a separate qualification from
-          # signed interim 0.9.53.0 / 0.9.54.0 / 0.9.55.0 releases; do not mark unrun tests as passing.
-          # 0.9.55.0 is the owner-requested GGUF/Research/UI repair publication (2026-10-20).
           python3 scripts/check_unified_reliability_v2.py
-          VERSION=$(python3 -c 'import re; print(re.search(r"versionName = \"([^\"]+)\"", open("app/build.gradle.kts").read()).group(1))')
-          if [[ "$VERSION" == "0.9.53.0" || "$VERSION" == "0.9.54.0" || "$VERSION" == "0.9.55.0" ]]; then
-            python3 - <<'PY'
-          import json
-          from pathlib import Path
-          root = Path('docs/implementation/unified-reliability-v2')
-          tasks = json.loads((root / 'tasks.json').read_text())
-          cases = json.loads((root / 'acceptance-tests.json').read_text())
-          incomplete = sum(t['status'] != 'DONE' for t in tasks)
-          unpassed = sum(c['outcome'] != 'PASS' for c in cases)
-          if incomplete or unpassed:
-              notes = Path('RELEASE_NOTES.md').read_text()
-              if 'Unified Reliability v2 is not complete' not in notes:
-                  raise SystemExit('Interim release requires explicit v2 incompletion disclosure')
-              print(f'Interim application release: {incomplete}/48 tasks incomplete, {unpassed}/110 acceptance tests unpassed; no full-v2 claim.')
-          else:
-              print('Full v2 task/case inventory is complete.')
-          PY
-          else
-            # Future releases retain the strict full-completion contract.
+          MODE=$(python3 scripts/check_release_scope.py --commit "$GITHUB_SHA")
+          if [[ "$MODE" == full ]]; then
             python3 scripts/check_unified_reliability_v2.py --require-done
           fi
       - name: Check release version before building
@@ -136,6 +115,7 @@ jobs:
       contents: write
       id-token: write
       attestations: write
+      actions: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -151,6 +131,11 @@ jobs:
           packages: 'platforms;android-37.0 build-tools;37.0.0'
       - name: Install Vulkan shader headers for Android GGUF backend
         run: sudo apt-get update && sudo apt-get install -y glslc libvulkan-dev spirv-headers
+      - name: Require green main checks on this exact candidate
+        if: github.ref_name == 'main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/await_release_checks.py --sha "$GITHUB_SHA" --repository "$GITHUB_REPOSITORY"
       - name: Configure release signing
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
@@ -209,6 +194,7 @@ jobs:
           python3 scripts/check_local_runtime_apk.py release-artifacts/*.apk
           python3 scripts/check_no_telemetry.py release-artifacts/*.apk
           python3 scripts/check_apk_size.py release-artifacts --build-type release --report release-apk-size-report.json
+          python3 scripts/inventory_optional_payloads.py release-artifacts/*.apk --output release-artifacts/optional-payload-inventory.json
           python3 scripts/check_mediapipe_jni.py app/build/outputs/bundle/release/*.aab
           python3 scripts/check_objectbox_jni.py app/build/outputs/bundle/release/*.aab
           python3 scripts/check_play_bundle.py app/build/outputs/bundle/release/*.aab

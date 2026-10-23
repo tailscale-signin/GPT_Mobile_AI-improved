@@ -10,9 +10,10 @@ import dev.chungjungsoo.gptmobile.data.network.FreeAiRequestLimiter
 internal object CombinedProviderEligibility {
     fun unavailableReason(profile: PlatformV2, request: String = "", writer: Boolean = false): String? {
         if (!profile.enabled) return "Profile is disabled."
+        if (writer) CombinedWriterPolicy.unavailableReason(profile, request)?.let { return it }
         if (profile.compatibleType != ClientType.FREE) return null
         val provider = FreeAiProvider.fromApiUrl(profile.apiUrl) ?: return "Unknown Free route."
-        if (!provider.isAvailable) return provider.unavailableReason
+        dev.chungjungsoo.gptmobile.data.network.FreeProviderPreflight.check(profile)?.let { return it.message }
         if (provider in setOf(FreeAiProvider.POLLINATIONS, FreeAiProvider.HUGGING_FACE) || provider == FreeAiProvider.AI_HORDE && profile.model == "horde-image") {
             return "This route does not expose an enforceable text-output bound for Combined mode. Individual chat remains available."
         }

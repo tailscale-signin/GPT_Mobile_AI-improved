@@ -4,7 +4,9 @@ import dev.chungjungsoo.gptmobile.BuildConfig
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import java.net.URI
 
-/** App-owned presets: no credentials, paid routes or automatic provider fallback. */
+enum class ProviderAuthenticationMode { ANONYMOUS, FREE_USER_TOKEN, PAID_API }
+
+/** App-owned free routes; never fall back to a billing-capable route. */
 enum class FreeAiProvider(
     val displayName: String,
     val apiUrl: String,
@@ -17,7 +19,7 @@ enum class FreeAiProvider(
     KILO("Kilo", "https://ai-gateway.kilo.ai/api/v1", "kilo-auto/free", true, 0, 200),
     POLLINATIONS("Pollinations", "https://text.pollinations.ai", "openai-fast", false, 0, 0),
     OVHCLOUD("OVHcloud", "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1", "Mistral-Small-3.2-24B-Instruct-2506", true, 2, 0),
-    LLM7("LLM7", "https://api.llm7.io/v1", "mistral-Nemo-Instruct-2407", false, 10, 60),
+    LLM7("LLM7", "https://api.llm7.io/v1", "mistral-Nemo-Instruct-2407", false, 60, 250),
     BLOCKRUN("BlockRun", "https://blockrun.ai/api/v1", "nvidia/nemotron-3.5-lightning", false, 30, 300, 8192),
     AI_HORDE("AI Horde", "https://aihorde.net/api/v2", "automatic", false, 0, 0, 256),
     VIREONIX("Vireonix", "https://vireonix.ai/v1", "auto", false, 0, 0, 8192),
@@ -32,6 +34,10 @@ enum class FreeAiProvider(
     val enforcedOutputCeiling: Int? get() = if (this == AI_HORDE) 256 else null
     fun outputAllowance(requested: Int?): Int = minOf(requested?.takeIf { it > 0 } ?: defaultOutputTokens, enforcedOutputCeiling ?: Int.MAX_VALUE)
 
+    val authenticationMode: ProviderAuthenticationMode
+        get() = if (this == LLM7) ProviderAuthenticationMode.FREE_USER_TOKEN else ProviderAuthenticationMode.ANONYMOUS
+    val requiresUserToken: Boolean get() = authenticationMode == ProviderAuthenticationMode.FREE_USER_TOKEN
+
     val isDemo: Boolean get() = this == PORCHLM
 
     val isAvailable: Boolean
@@ -39,7 +45,7 @@ enum class FreeAiProvider(
 
     val unavailableReason: String?
         get() = when {
-            this == OPENCODE -> "OpenCode denied this external free route: its free tier is restricted to use within OpenCode. Choose another provider."
+            this == OPENCODE -> "OpenCode’s free models are restricted to OpenCode’s own apps. Choose another provider."
             this == LLM7 && !BuildConfig.FREE_LLM7_APPROVED -> "LLM7 is unavailable pending provider approval."
             else -> null
         }
@@ -51,8 +57,8 @@ enum class FreeAiProvider(
         name = platform.name.takeUnless { it.isBlank() || it == "Free Models" || it == fromApiUrl(platform.apiUrl)?.displayName } ?: displayName,
         compatibleType = ClientType.FREE,
         apiUrl = apiUrl,
-        token = null,
-        secretRef = null,
+        token = platform.token.takeIf { requiresUserToken && fromApiUrl(platform.apiUrl) == this },
+        secretRef = platform.secretRef.takeIf { requiresUserToken && fromApiUrl(platform.apiUrl) == this },
         model = platform.model.takeIf { dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.models(this).any { option -> option.id == it } } ?: model,
         maxTokens = platform.maxTokens?.takeIf { it > 0 }?.let { minOf(it, enforcedOutputCeiling ?: Int.MAX_VALUE) },
         batchMode = false,

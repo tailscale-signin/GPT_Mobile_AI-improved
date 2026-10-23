@@ -4,23 +4,46 @@ import java.util.concurrent.ConcurrentHashMap
 
 /** Observations expire and are scoped to actual endpoint/model/routing, never a provider-wide promise. */
 internal object CombinedWriterObservations {
-    data class Observation(val reasoningDisabled: String, val reasoningOnlyAttempts: Int, val updatedAt: Long)
+    data class Observation(val reasoningDisabled: String, val reasoningOnlyAttempts: Int, val updatedAt: Long, val completedPassages: Int = 0, val malformedAttempts: Int = 0, val emptyAttempts: Int = 0, val queueDelays: Int = 0, val reasoningControl: String = "UNVERIFIED", val servedModel: String? = null, val backend: String? = null, val minimumUsefulOutputAllowance: Int? = null, val stalledOutputAllowance: Int? = null)
+    private val resolved = ConcurrentHashMap<String, String>()
     private val observed = ConcurrentHashMap<String, Observation>()
-    fun get(key: String): Observation? = observed[key]?.takeIf { System.currentTimeMillis() - it.updatedAt < 24 * 60 * 60_000L }
-    fun record(key: String, reasoning: Boolean, visiblePassages: Int) {
+    fun get(key: String): Observation? = observed[resolved[key] ?: key]?.takeIf { System.currentTimeMillis() - it.updatedAt < 24 * 60 * 60_000L }
+    fun record(key: String, reasoning: Boolean, visiblePassages: Int, outputAllowance: Int? = null) {
         if (observed.size >= 256 && !observed.containsKey(key)) observed.clear()
         val previous = get(key)
-        observed[key] = Observation(
+        observed[resolved[key] ?: key] = Observation(
             if (reasoning) {
-                "NOT_HONORED"
+                if (previous?.reasoningControl != null && previous.reasoningControl != "UNVERIFIED") "NOT_HONORED" else "DISABLE_UNVERIFIED"
             } else if (visiblePassages > 0) {
                 "OBSERVED_NO_REASONING"
             } else {
                 "UNKNOWN"
             },
             if (reasoning && visiblePassages == 0) (previous?.reasoningOnlyAttempts ?: 0) + 1 else 0,
-            System.currentTimeMillis()
+            System.currentTimeMillis(),
+            completedPassages = (previous?.completedPassages ?: 0) + visiblePassages,
+            malformedAttempts = previous?.malformedAttempts ?: 0,
+            emptyAttempts = if (!reasoning && visiblePassages == 0) (previous?.emptyAttempts ?: 0) + 1 else 0,
+            queueDelays = previous?.queueDelays ?: 0,
+            reasoningControl = previous?.reasoningControl ?: "UNVERIFIED", servedModel = previous?.servedModel, backend = previous?.backend,
+            minimumUsefulOutputAllowance = if (visiblePassages > 0) listOfNotNull(previous?.minimumUsefulOutputAllowance, outputAllowance).minOrNull() else previous?.minimumUsefulOutputAllowance,
+            stalledOutputAllowance = if (reasoning && visiblePassages == 0) listOfNotNull(previous?.stalledOutputAllowance, outputAllowance).maxOrNull() else previous?.stalledOutputAllowance
         )
+    }
+    fun recordFailure(key: String, category: CombinedRecoveryCategory) {
+        val previous = get(key) ?: Observation("UNKNOWN", 0, System.currentTimeMillis())
+        observed[resolved[key] ?: key] = previous.copy(updatedAt = System.currentTimeMillis(), malformedAttempts = previous.malformedAttempts + if (category == CombinedRecoveryCategory.MALFORMED_RECORD) 2 else 0, queueDelays = previous.queueDelays + if (category == CombinedRecoveryCategory.QUEUE_PENDING) 1 else 0)
+    }
+    fun recordRoute(key: String, model: String?, backend: String?, control: String?, reasoning: Boolean) {
+        if (resolved.size >= 256 && !resolved.containsKey(key)) resolved.clear()
+        val actual = "$key|served=${model ?: "unreported"}|backend=${backend ?: "unreported"}"
+        resolved[key] = actual
+        val prior = observed[actual] ?: Observation("UNKNOWN", 0, System.currentTimeMillis())
+        observed[actual] = prior.copy(updatedAt = System.currentTimeMillis(), reasoningDisabled = if (reasoning && control != null) "NOT_HONORED" else prior.reasoningDisabled, reasoningControl = control ?: "UNVERIFIED", servedModel = model, backend = backend)
+    }
+    internal fun clearForTest() {
+        observed.clear()
+        resolved.clear()
     }
     fun key(profile: dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2): String = "${profile.compatibleType}|${profile.apiUrl}|${profile.model}|${profile.openRouterRouting.orEmpty()}"
 }

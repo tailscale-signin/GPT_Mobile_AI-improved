@@ -44,6 +44,13 @@ class CombinedRetrySelectionTest {
         assertEquals(old.content, preserveCombinedRetrySelection(current, candidate(issues = listOf("INVALID_DELIVERY_RECORD")), run, "COMPLETED").effectiveContent())
     }
 
+    @Test fun lostSelectionWithEmptyLatestRestoresReadableRevision() {
+        val lost = current.copy(activeRevisionIndex = ACTIVE_REVISION_LATEST)
+        val retained = preserveCombinedRetrySelection(lost, lost, run, "FAILED")
+        assertEquals(old.content, retained.effectiveContent())
+        assertEquals(0, retained.activeRevisionIndex)
+    }
+
     @Test fun validatedTerminalReplacementSelectsNewRevision() {
         val accepted = preserveCombinedRetrySelection(current, candidate(), run, "COMPLETED")
         assertEquals(ACTIVE_REVISION_LATEST, accepted.activeRevisionIndex)

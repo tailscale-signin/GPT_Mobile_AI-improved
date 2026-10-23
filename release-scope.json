@@ -1,0 +1,32 @@
+{
+  "version": "0.9.56.0",
+  "versionCode": 126,
+  "qualification": "scoped",
+  "baseCommit": "7ba0abd59afc8d1b606f5ddfe46c5039e2c63ef4",
+  "changes": [
+    "Free provider contract, token access and quota diagnostics",
+    "Combined delivery capacity, recovery and contributor quality",
+    "Repository audit action fixes, compact UI, Research ownership and response swipe navigation",
+    "Explicit release qualification, exact-commit acceptance, performance comparison and payload inventory"
+  ],
+  "limitations": [
+    "Unified Reliability v2 is not complete; its remaining acceptance cases are not represented as passed.",
+    "Physical-device performance and a production baseline profile remain unqualified until measured on a reference device.",
+    "Qwen demo backend availability and live authenticated LLM7 generation are not established by deterministic tests.",
+    "Optional runtime extraction remains a staged packaging project; this release adds a measured payload inventory without claiming APK size savings."
+  ],
+  "requiredWorkflows": [
+    "Build Android APK",
+    "Post-merge correctness",
+    "CodeQL Advanced",
+    "v0.9.50 Android acceptance"
+  ],
+  "allowedPaths": [
+    "app/",
+    ".github/workflows/",
+    "scripts/",
+    "docs/implementation/",
+    "RELEASE_NOTES.md",
+    "release-scope.json"
+  ]
+}

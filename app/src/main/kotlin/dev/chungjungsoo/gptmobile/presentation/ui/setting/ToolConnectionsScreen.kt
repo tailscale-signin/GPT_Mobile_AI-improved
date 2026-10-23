@@ -303,31 +303,22 @@ fun ToolConnectionsScreen(
             Modifier.padding(innerPadding).verticalScroll(scrollState).padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            SettingsHero("YOUR SERVICES", "Plugins & Tools", "One service. All its tools. Choose what each AI can use.")
-            TextButton(onClick = { showAccessAudit = true }) { Text(stringResource(dev.chungjungsoo.gptmobile.R.string.permission_audit_title)) }
             ToolkitControls(search, { search = it }, toolkitFilter, { toolkitFilter = it }, toolkitSort, { toolkitSort = it })
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onMarketplaceClick, modifier = Modifier.weight(1f)) {
-                    Icon(Icons.Rounded.Storefront, null, Modifier.size(18.dp))
-                    Text("Marketplace", Modifier.padding(start = 6.dp))
-                }
-                OutlinedButton(onClick = onAddConnectionClick, modifier = Modifier.weight(1f)) {
-                    Icon(Icons.Rounded.Add, null, Modifier.size(18.dp))
-                    Text("Connect", Modifier.padding(start = 6.dp))
-                }
-            }
-            Text("Plugins run in this app. MCP tools run on a connected remote server. Profile switches are available in AI → Profile → Tools.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (toolkitFilter != ToolkitFilter.PLUGINS) {
-                Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surfaceContainer) {
-                    Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text("Remote MCP", style = MaterialTheme.typography.titleSmall)
-                            Text("Allow connected server tools", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            dev.chungjungsoo.gptmobile.presentation.common.DetailsSection(stringResource(R.string.audit_connections_permissions)) {
+                TextButton(onClick = { showAccessAudit = true }) { Text(stringResource(R.string.permission_audit_title)) }
+                TextButton(onClick = onAddConnectionClick) { Text(stringResource(R.string.audit_add_connection)) }
+                if (toolkitFilter != ToolkitFilter.PLUGINS) {
+                    Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surfaceContainer) {
+                        Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Remote MCP", style = MaterialTheme.typography.titleSmall)
+                                Text("Allow connected server tools", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Switch(checked = features.remoteMcpConnections, onCheckedChange = viewModel::setRemoteMcpEnabled)
                         }
-                        Switch(checked = features.remoteMcpConnections, onCheckedChange = viewModel::setRemoteMcpEnabled)
                     }
+                    TextButton(onClick = { pairingLink = "" }) { Text(stringResource(R.string.pair_server_title)) }
                 }
-                TextButton(onClick = { pairingLink = "" }) { Text(stringResource(R.string.pair_server_title)) }
             }
             val visible = sortedToolServices(services, search, toolkitFilter, toolkitSort, ::serviceEnabled) { it.requiredFields(installations).isNotEmpty() }
             if (visible.isEmpty()) Text("No services match your selection.", style = MaterialTheme.typography.bodyMedium)
@@ -346,7 +337,14 @@ fun ToolConnectionsScreen(
                                 if (!enabled || installations[entry.id]?.ready(entry) == true) marketplaceViewModel.setEnabled(entry, enabled)
                             }
                         },
-                        status = listOfNotNull("In-app plugin".takeIf { service.hasPlugin }, "Remote MCP".takeIf { service.hasMcp }).joinToString(" · "),
+                        status = stringResource(
+                            when {
+                                service.hasMcp && !service.hasPlugin && !features.remoteMcpConnections -> R.string.audit_paused_globally
+                                !ready -> R.string.audit_needs_setup
+                                !serviceEnabled(service) -> R.string.audit_disabled
+                                else -> R.string.audit_ready
+                            }
+                        ),
                         required = required,
                         toggleEnabled = ready || serviceEnabled(service)
                     ) {
@@ -405,6 +403,7 @@ fun ToolConnectionsScreen(
                                         viewModel.probeConnections(listOf(connection), force = true)
                                     }
                                 },
+                                globallyPaused = connection.type == ToolConnectionType.MCP && !features.remoteMcpConnections,
                                 enabled = features.isToolPluginEnabled(ToolPluginId.connection(connection.connectionUid)),
                                 onEnabledChange = { viewModel.setPluginEnabled(ToolPluginId.connection(connection.connectionUid), it) }
                             )
@@ -448,7 +447,8 @@ fun ToolConnectionsScreen(
                 onSave = { viewModel.configurePlugin(plugin.id, it) },
                 onConnection = {
                     pluginSettings = null
-                    connectionManagerPlugin = plugin.id
+                    val connection = uiState.connections.firstOrNull { ToolPluginId.connection(it.connectionUid) == plugin.id }
+                    if (connection != null) onEditConnectionClick(connection.connectionUid) else connectionManagerPlugin = plugin.id
                 },
                 onDismiss = { pluginSettings = null },
                 onRevokePermissions = { viewModel.revokePluginGrants(plugin.id) },
@@ -592,6 +592,7 @@ private fun CollapsibleToolConnectionCard(
     onDeleteClick: () -> Unit,
     health: ToolConnectionHealth?,
     onRefreshHealth: () -> Unit,
+    globallyPaused: Boolean = false,
     enabled: Boolean? = null,
     onEnabledChange: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier
@@ -618,7 +619,11 @@ private fun CollapsibleToolConnectionCard(
                 }
             }
             Text(if (missingEndpoint) "Endpoint required · $credentialStatus" else credentialStatus, color = if (missingCredential || missingEndpoint) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
-            if (connection.type == ToolConnectionType.MCP || health != null) ConnectionHealthLine(health)
+            if (globallyPaused) {
+                Text(stringResource(R.string.audit_paused_globally), color = MaterialTheme.colorScheme.error)
+            } else if (connection.type == ToolConnectionType.MCP || health != null) {
+                ConnectionHealthLine(health)
+            }
             AnimatedVisibility(expanded) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     dev.chungjungsoo.gptmobile.presentation.ui.setting.toolstatistics.ToolStatisticsPanel(ToolPluginId.connection(connection.connectionUid), connection.name, enabled ?: true)

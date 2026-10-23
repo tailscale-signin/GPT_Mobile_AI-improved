@@ -72,10 +72,7 @@ class CombinedSynthesisPlanner @Inject constructor(
                 }
             }
         }
-        val authorizedLead = candidates.filter { sources.none { it.localOnly } || it.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.LITERT_LM }
-            .filter { CombinedProviderEligibility.unavailableReason(it, userMessage.content, writer = true) == null }
-            .sortedBy { CombinedWriterObservations.get(CombinedWriterObservations.key(it))?.reasoningOnlyAttempts ?: 0 }
-            .firstOrNull()
+        val authorizedLead = CombinedWriterPolicy.rank(candidates.filter { sources.none { it.localOnly } || it.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.LITERT_LM }, userMessage.content, pinnedPrimary, dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(sources.joinToString("\n") { it.content })).firstOrNull()
         val leadPlatform = authorizedLead ?: profiles.firstOrNull { it.uid in acceptedUids && it.uid == pinnedPrimary } ?: profiles.firstOrNull { it.uid in acceptedUids }
         if (leadPlatform == null) {
             chatRepository.markCombinedMergeUnavailable(userMessage.chatId, userMessage.id, combined.rootBudgetId)
@@ -216,7 +213,6 @@ class CombinedSynthesisPlanner @Inject constructor(
     suspend fun prepareFallback(chatId: Int, failedRunId: String): AgentRunRequest? {
         val runs = chatRepository.observeAgentRuns(chatId).first()
         val prior = runs.singleOrNull { it.runId == failedRunId } ?: return null
-        if (!permitsCombinedWriterFallback(prior.status, prior.terminalError)) return null
         val raw = prior.synthesisSnapshot ?: return null
         if (dev.chungjungsoo.gptmobile.data.research.researchHash(raw) != prior.synthesisKey) return null
         val original = runCatching { kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromString<CombinedInputSnapshot>(raw) }.getOrNull() ?: return null
@@ -224,14 +220,15 @@ class CombinedSynthesisPlanner @Inject constructor(
         if (!chatRepository.canRetryCombined(policy.rootBudgetId)) return null
         val messages = chatRepository.fetchMessagesV2(chatId)
         val owner = messages.singleOrNull { it.id == prior.assistantMessageId && it.currentRunId == prior.runId && it.ownershipFence == prior.ownershipFence } ?: return null
+        val failure = owner.timeline.lastOrNull { it.combinedFailure != null }?.combinedFailure
+        if (prior.status !in setOf("FAILED", "INTERRUPTED") || !(failure?.rotateWriter ?: permitsCombinedWriterFallback(prior.status, prior.terminalError))) return null
         val user = messages.singleOrNull { it.id == prior.userMessageId && it.platformType == null } ?: return null
         if (user != original.userMessage) return null
         val attempted = runs.filter { it.userMessageId == prior.userMessageId && it.synthesisKey != null }.mapTo(hashSetOf()) { it.profileUid }
         val profiles = settingRepository.fetchPlatformV2s()
-        val next = policy.requested.participantUids.filterNot(attempted::contains).sorted().firstNotNullOfOrNull { uid ->
-            profiles.singleOrNull { it.uid == uid && it.enabled && CombinedProviderEligibility.unavailableReason(it, original.userMessage.content, writer = true) == null }?.let { writer ->
-                runCatching { writer to CombinedSuccessorSnapshot.prepare(original, failedRunId, writer) }.getOrNull()
-            }
+        val next = CombinedWriterPolicy.rank(profiles.filter { it.uid in policy.requested.participantUids && it.uid !in attempted && it.enabled }.map { it.copy(model = policy.requested.requestedModels[it.uid] ?: it.model) }, original.userMessage.content, policy.requested.preferredOwnerUid, dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(original.prompt)).firstNotNullOfOrNull { ranked ->
+            val writer = profiles.single { it.uid == ranked.uid }
+            runCatching { writer to CombinedSuccessorSnapshot.prepare(original, failedRunId, writer) }.getOrNull()
         } ?: return null
         val (writer, successor) = next
         val nextRaw = successor.encode()

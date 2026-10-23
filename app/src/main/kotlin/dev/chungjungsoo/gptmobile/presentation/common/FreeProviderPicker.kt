@@ -44,14 +44,17 @@ fun FreeProviderPicker(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     model: String? = null,
-    onModelSelected: ((String) -> Unit)? = null
+    onModelSelected: ((String) -> Unit)? = null,
+    token: String? = null,
+    onTokenSaved: ((String) -> Unit)? = null
 ) {
     val selected = FreeAiProvider.fromApiUrl(apiUrl)
     val health by dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.status.collectAsState()
     val now by freeProviderClock()
     val scope = rememberCoroutineScope()
+    var tokenDraft by remember(apiUrl, token) { mutableStateOf(token.orEmpty()) }
     var testing by remember { mutableStateOf(false) }
-    var testStatus by remember(apiUrl) { mutableStateOf<dev.chungjungsoo.gptmobile.data.network.ApiKeyValidator.ValidationResult?>(null) }
+    var testStatus by remember(apiUrl, tokenDraft) { mutableStateOf<dev.chungjungsoo.gptmobile.data.network.ApiKeyValidator.ValidationResult?>(null) }
     var expanded by remember { mutableStateOf(false) }
     Card(
         modifier = modifier.fillMaxWidth(),
@@ -65,7 +68,7 @@ fun FreeProviderPicker(
                 }
                 Column {
                     Text(stringResource(R.string.free_ai), style = MaterialTheme.typography.titleLarge)
-                    Text(stringResource(R.string.free_ai_no_account), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(selected?.let { dev.chungjungsoo.gptmobile.data.free.FreeModelCatalog.details(it).authentication } ?: "Free services · access requirements vary", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             ExposedDropdownMenuBox(expanded = expanded && enabled, onExpandedChange = { if (enabled && !testing) expanded = it }) {
@@ -81,6 +84,19 @@ fun FreeProviderPicker(
                 )
                 ExposedDropdownMenu(expanded = expanded && enabled, onDismissRequest = { expanded = false }) {
                     FreeAiProvider.entries.forEach { provider ->
+                        if (provider.requiresUserToken && onTokenSaved != null) {
+                            OutlinedTextField(
+                                value = tokenDraft,
+                                onValueChange = { tokenDraft = it },
+                                label = { Text("LLM7 free API token") },
+                                singleLine = true,
+                                enabled = enabled && !testing,
+                                visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Text("Use a free token from dash.llm7.io. Paid-only models and paid fallback are excluded.", style = MaterialTheme.typography.bodySmall)
+                            androidx.compose.material3.OutlinedButton(enabled = enabled && !testing && tokenDraft != token.orEmpty(), onClick = { onTokenSaved(tokenDraft.trim()) }) { Text(if (tokenDraft.isBlank()) "Remove token" else "Save token") }
+                        }
                         if (provider.isDemo) Text("Demo / Experimental", Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.labelLarge)
                         DropdownMenuItem(
                             enabled = provider.isAvailable && !testing,
@@ -88,7 +104,7 @@ fun FreeProviderPicker(
                                 Column {
                                     Text(provider.displayName)
                                     Text(
-                                        if (provider.isAvailable) freeProviderAvailability(provider, if (provider == selected) model ?: provider.model else provider.model, health[provider], now) ?: dev.chungjungsoo.gptmobile.data.free.FreeModelCatalog.details(provider).limits else stringResource(R.string.free_ai_awaiting_approval),
+                                        if (provider.isAvailable) freeProviderAvailability(provider, if (provider == selected) model ?: provider.model else provider.model, health[provider], now, token.takeIf { provider == selected }) ?: dev.chungjungsoo.gptmobile.data.free.FreeModelCatalog.details(provider).limits else provider.unavailableReason.orEmpty(),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -103,14 +119,31 @@ fun FreeProviderPicker(
                     }
                 }
             }
+            if (selected?.unavailableReason != null) {
+                androidx.compose.material3.OutlinedButton(enabled = !testing, onClick = { expanded = true }) { Text("Choose another provider") }
+            }
             selected?.let { provider ->
-                freeProviderAvailability(provider, model ?: provider.model, health[provider], now)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
+                if (provider.requiresUserToken && token.isNullOrBlank()) Text("Add API token to use this provider.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                freeProviderAvailability(provider, model ?: provider.model, health[provider], now, token.takeIf { provider == selected })?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
+                if (provider.requiresUserToken && onTokenSaved != null) {
+                    OutlinedTextField(
+                        value = tokenDraft,
+                        onValueChange = { tokenDraft = it },
+                        label = { Text("LLM7 free API token") },
+                        singleLine = true,
+                        enabled = enabled && !testing,
+                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Text("Use a free token from dash.llm7.io. Paid-only models and paid fallback are excluded.", style = MaterialTheme.typography.bodySmall)
+                    androidx.compose.material3.OutlinedButton(enabled = enabled && !testing && tokenDraft != token.orEmpty(), onClick = { onTokenSaved(tokenDraft.trim()) }) { Text(if (tokenDraft.isBlank()) "Remove token" else "Save token") }
+                }
                 if (provider.isDemo) Text("Demo / Experimental · transport completion does not verify answer quality. Use evaluation prompts in Benchmarks to assess usefulness.", style = MaterialTheme.typography.bodySmall)
                 if (model != null && onModelSelected != null) {
                     FreeModelPicker(provider, model, onModelSelected, enabled)
                 }
                 Text(
-                    if (provider.isAvailable) dev.chungjungsoo.gptmobile.data.free.FreeModelCatalog.details(provider).privacy else stringResource(R.string.free_ai_approval_description),
+                    if (provider.isAvailable) dev.chungjungsoo.gptmobile.data.free.FreeModelCatalog.details(provider).privacy else provider.unavailableReason.orEmpty(),
                     style = MaterialTheme.typography.bodyMedium,
                     color = if (provider.isAvailable) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error
                 )
@@ -118,11 +151,12 @@ fun FreeProviderPicker(
             }
             androidx.compose.material3.TextButton(enabled = enabled && !testing && selected?.isAvailable == true, onClick = {
                 val testedUrl = apiUrl
+                val testedToken = tokenDraft
                 testing = true
                 testStatus = null
                 scope.launch {
                     try {
-                        testStatus = dev.chungjungsoo.gptmobile.data.network.ApiKeyValidator.validate(dev.chungjungsoo.gptmobile.data.model.ClientType.FREE, testedUrl, "")
+                        testStatus = dev.chungjungsoo.gptmobile.data.network.ApiKeyValidator.validate(dev.chungjungsoo.gptmobile.data.model.ClientType.FREE, testedUrl, testedToken)
                     } finally {
                         testing = false
                     }

@@ -755,6 +755,12 @@ interface AgentPersistenceDao {
             content = resumedPrefix,
             thoughts = "",
             timeline = listOfNotNull(
+                request.run.synthesisKey?.let {
+                    dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(
+                        dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE,
+                        writerIdentity = dev.chungjungsoo.gptmobile.data.database.entity.CombinedWriterIdentity(current.platformType, request.run.profileUid, request.run.modelSnapshot, request.assistantMessage.combinedSources.map { it.platformUid })
+                    )
+                },
                 request.recovery?.let { descriptor ->
                     require(descriptor.generationId == request.run.runId && descriptor.rootWorkId == "${request.userMessage.chatId}:${descriptor.sourceMessageId}")
                     dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(
@@ -825,6 +831,7 @@ interface AgentPersistenceDao {
         updateMessage(selected)
         publishReply(run, selected, status, completedAt ?: System.currentTimeMillis() / 1000)
         updateRunStatus(runId, status, startedAt, completedAt, terminalError)
+        if (run.synthesisKey != null && status != "COMPLETED") restoreCombinedCandidate(runId)
         if (getChatRoom(assistantMessage.chatId)?.isArchived == true) setArchivedWithCompression(assistantMessage.chatId, true)
     }
 
@@ -875,6 +882,7 @@ interface AgentPersistenceDao {
         updateMessage(selected)
         publishReply(run, selected, status, completedAt)
         updateRunStatus(runId, status, run.startedAt, completedAt, terminalError)
+        if (run.synthesisKey != null && status != "COMPLETED") restoreCombinedCandidate(runId)
         cancelActiveToolEvents(runId, completedAt)
         if (getChatRoom(run.chatId)?.isArchived == true) setArchivedWithCompression(run.chatId, true)
         return true

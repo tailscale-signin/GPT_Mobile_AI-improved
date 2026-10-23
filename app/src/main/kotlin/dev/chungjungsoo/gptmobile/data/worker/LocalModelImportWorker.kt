@@ -56,16 +56,8 @@ class LocalModelImportWorker @AssistedInject constructor(
                     setProgressAsync(Data.Builder().putLong(BYTES, bytes).build())
                 }
             }
-            val result = if (folder) {
-                repository.linkSource(uri, true, check, progress)
-            } else {
-                val resolver = applicationContext.contentResolver
-                val name = resolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
-                    if (cursor.moveToFirst()) cursor.getString(0) else null
-                } ?: error("Source filename is unavailable; select the model file again.")
-                val input = resolver.openInputStream(uri) ?: error("Source cannot be read; select the model file again.")
-                input.use { repository.importPersisted(it, name, id.toString(), check, progress) }
-            }
+            val source = dev.chungjungsoo.gptmobile.data.localmodel.LocalModelSource(uri, if (folder) dev.chungjungsoo.gptmobile.data.localmodel.LocalModelSource.Kind.FOLDER else dev.chungjungsoo.gptmobile.data.localmodel.LocalModelSource.Kind.FILE)
+            val result = repository.linkSource(source.uri, source.folder, check, progress)
             when (result) {
                 is LocalModelImportResult.Success -> Result.success(Data.Builder().putString(MESSAGE, applicationContext.getString(R.string.local_ai_import_done)).putString("modelId", result.record.catalogEntryId).build())
                 is LocalModelImportResult.Failure -> {

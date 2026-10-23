@@ -58,11 +58,14 @@ class FreeModelsRenderTest {
             }
         }
         compose.onNodeWithContentDescription("Reachable: Vireonix").assertIsDisplayed()
-        compose.onNodeWithText("Reachable · Catalog reachable · generation not tested").assertIsDisplayed()
+        compose.onNodeWithText("Reachable").assertIsDisplayed()
+        compose.onNodeWithText("Catalog reachable · generation not tested").assertDoesNotExist()
         compose.onNodeWithContentDescription("Online: Vireonix").assertDoesNotExist()
-        compose.onNodeWithText("Profile options").performClick()
+        compose.onNodeWithText("Settings").performClick()
         compose.runOnIdle { assertEquals(profile.uid, opened) }
-        compose.onNodeWithText("Models & details").performClick()
+        compose.onNodeWithText("Choose model").performClick()
+        compose.onNodeWithText("Model for Vireonix").assertIsDisplayed()
+        compose.onNodeWithText("Catalog reachable · generation not tested").assertIsDisplayed()
         compose.onNodeWithText(FreeModelCatalog.details(provider).privacy).assertIsDisplayed()
         val bitmap = compose.onNodeWithTag("free-card", useUnmergedTree = true).captureToImage().asAndroidBitmap()
         val file = File("build/reports/reliability-ui/free-models-dark-large-text.png").apply { parentFile.mkdirs() }

@@ -172,7 +172,7 @@ fun CompleteBackupDialog(
                     if (!restoreOnly) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Rounded.Lock, null, tint = MaterialTheme.colorScheme.primary)
-                            Text("Encrypt backup", Modifier.weight(1f).padding(start = 10.dp))
+                            Text(stringResource(R.string.audit_use_password), Modifier.weight(1f).padding(start = 10.dp))
                             Switch(
                                 checked = state.passwordProtectionEnabled,
                                 onCheckedChange = onPasswordProtectionChange,
@@ -182,7 +182,7 @@ fun CompleteBackupDialog(
                         }
                         if (state.selection.requiresEncryption && !state.passwordProtectionEnabled) {
                             Text(
-                                "Health data, credentials and memory are still encrypted. Save the separate recovery key file to restore without a password.",
+                                stringResource(R.string.audit_recovery_key_notice),
                                 color = MaterialTheme.colorScheme.error,
                                 style = MaterialTheme.typography.bodySmall
                             )

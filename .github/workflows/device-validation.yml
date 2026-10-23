@@ -2,6 +2,10 @@ name: Android device validation
 on:
   workflow_dispatch:
     inputs:
+      performance_baseline:
+        description: Reviewed baseline JSON under docs/implementation/performance-baselines (blank records an unqualified candidate)
+        required: false
+        type: string
       qnn_model_path:
         description: 'Optional app-readable SM8750 AOT .litertlm path for real NPU qualification'
         required: false
@@ -62,6 +66,10 @@ jobs:
         run: adb logcat -d -v threadtime -s QnnQualification LiteRT QnnHtp > device-evidence/qnn-logcat.txt
       - name: Generate Baseline Profile and measure performance
         run: ./gradlew :macrobenchmark:connectedBenchmarkAndroidTest
+      - name: Compare measured performance with a reviewed reference baseline
+        env:
+          PERFORMANCE_BASELINE: ${{ inputs.performance_baseline }}
+        run: python3 scripts/qualify_device_performance.py --baseline "$PERFORMANCE_BASELINE"
       - name: Device evidence
         if: always()
         run: |

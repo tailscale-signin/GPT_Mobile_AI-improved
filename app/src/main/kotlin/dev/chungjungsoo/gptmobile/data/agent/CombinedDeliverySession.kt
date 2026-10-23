@@ -24,6 +24,7 @@ internal class CombinedDeliverySession(
     private val validateAccess: suspend () -> Unit,
     private val onCoverage: suspend (CombinedContentCoverage.Result, Boolean) -> Unit = { _, _ -> },
     private val maxRepairRounds: Int = 1,
+    private val localConversationAnswer: String? = null,
     private val originalRequest: String = "",
     private val evidence: CombinedEvidenceLedger = CombinedEvidenceLedger(),
     private val turnContext: CombinedTurnContext? = null,
@@ -127,7 +128,13 @@ internal class CombinedDeliverySession(
             return@flow
         }
         suspend fun assess(candidate: Candidate): CombinedFinalAssessment = withContext(Dispatchers.Default) {
-            val result = CombinedFinalCheck.check(candidate.text, sources, currentEvidence, policy, candidate.decoder?.passages.orEmpty(), candidate.decoder?.decisions.orEmpty(), currentRevision)
+            // Exact application-generated status text is checked against the frozen receipts.
+            // Provider names with numbers are entity identities, not competing factual quantities.
+            val result = if (localConversationAnswer != null && candidate.text == localConversationAnswer && CurrentRequestContract.from(originalRequest).intent in setOf("GREETING", "TEST", "PROVIDER_TEST")) {
+                CombinedFinalAssessment(listOf(CombinedAnswerCheck("LOCAL_CONVERSATION_RECEIPTS", "DELIVERY", "PASS")), emptyList(), emptyList(), emptyList(), emptyList())
+            } else {
+                CombinedFinalCheck.check(candidate.text, sources, currentEvidence, policy, candidate.decoder?.passages.orEmpty(), candidate.decoder?.decisions.orEmpty(), currentRevision)
+            }
             val checked = result.copy(checks = result.checks + researchQuestionChecks(candidate.text, researchObligations))
             val invalid = checked.receipts.filterNot { CombinedEvidenceVerifier.validateReceipt(candidate.text, currentRevision, currentEvidence, it) }
             if (invalid.isEmpty()) checked else checked.copy(checks = checked.checks + CombinedAnswerCheck("INVALID_REVISION_EVIDENCE_RECEIPT", "PROVENANCE", "FAIL", true, invalid.mapTo(linkedSetOf()) { it.claimId }, "A support receipt did not validate against this answer revision and retained evidence."))
@@ -159,8 +166,9 @@ internal class CombinedDeliverySession(
             }
             return CombinedQualityReport(
                 answerDigest = researchHash(candidate.text),
-                complete = providerComplete && framingValid && !material && violations.isEmpty() && !unresolvedResearch,
+                complete = candidate.text.isNotBlank() && providerComplete && framingValid && !material && violations.isEmpty() && !unresolvedResearch,
                 status = when {
+                    candidate.text.isBlank() -> "FAILED"
                     material -> "CORRECTION_REQUIRED"
                     !providerComplete -> "INTERRUPTED"
                     issues.isEmpty() -> "COMPLETED_UNVERIFIED"
@@ -355,10 +363,10 @@ internal class CombinedDeliverySession(
         validateAccess()
         if (!progressive && !publishedReplacement && accepted.text.isNotBlank()) emit(ProviderEvent.TextDelta(accepted.text))
         emit(ProviderEvent.CombinedQuality(finalReport))
-        if (violations.isNotEmpty()) emit(ProviderEvent.Notice("The answer was delivered with an unmet instruction check.", persistent = true))
+        if (violations.isNotEmpty()) emit(ProviderEvent.Notice(if (accepted.text.isBlank()) "Final assembly did not deliver answer text. Saved contributions and recovery actions remain available." else "The retained draft has an unmet instruction check.", persistent = true))
         if (correctionRequired) emit(ProviderEvent.Notice("The retained draft requires correction; it is not a checked final answer.", persistent = true))
         if (accepted.text.isBlank()) {
-            emit(accepted.terminal as? ProviderEvent.Failed ?: ProviderEvent.Failed("Combined synthesis produced no usable answer records."))
+            emit(accepted.terminal as? ProviderEvent.Failed ?: ProviderEvent.Failed("Combined synthesis produced no usable answer records.", errorCode = if (finalReport.issues.any { it in COMBINED_FRAMING_FAILURES }) "INVALID_DELIVERY_RECORD" else "COMBINED_PARTIAL"))
         } else if (!finalReport.complete || finalReport.deliveredScopeStatus == "PARTIAL") {
             emit(accepted.terminal as? ProviderEvent.Failed ?: ProviderEvent.Failed("COMBINED_PARTIAL: The retained answer has unfinished delivery or required checks."))
         } else {

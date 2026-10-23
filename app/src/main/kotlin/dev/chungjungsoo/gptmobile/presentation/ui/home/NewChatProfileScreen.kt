@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Sort
@@ -163,12 +164,13 @@ internal fun NewChatProfileScreen(
         if (labelKey != null && labels.none { it.key == labelKey }) labelKey = null
     }
 
+    var optionsOpen by rememberSaveable { mutableStateOf(false) }
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             Column {
                 CenterAlignedTopAppBar(
-                    title = { Text("Select AI Profiles") },
+                    title = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.audit_choose_ai)) },
                     navigationIcon = {
                         IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") }
                     },
@@ -178,42 +180,6 @@ internal fun NewChatProfileScreen(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                     verticalArrangement = Arrangement.spacedBy(7.dp)
                 ) {
-                    Text("STEP 2 OF 2 · " + kind.title, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium)
-                    if (kind == NewChatType.RESEARCH) {
-                        Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = MaterialTheme.shapes.medium) {
-                            Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text("Deep Research · On by default", color = MaterialTheme.colorScheme.onPrimaryContainer, fontWeight = FontWeight.SemiBold)
-                                Text(
-                                    "Web research · Depth " + researchDepth + "% · " + if (combined) "Combined" else "Combined when 2+ are selected",
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    style = MaterialTheme.typography.bodySmall
-                                )
-                                TextButton(onClick = { researchExpanded = !researchExpanded }) {
-                                    Text(if (researchExpanded) "Hide research settings" else "Adjust research depth")
-                                }
-                                if (researchExpanded) {
-                                    Slider(
-                                        value = researchDepth.toFloat(),
-                                        onValueChange = { viewModel.setResearchDepth(it.toInt()) },
-                                        valueRange = 1f..100f,
-                                        steps = 98
-                                    )
-                                    Text("Web only until Papers & Studies are explicitly permitted.", style = MaterialTheme.typography.bodySmall)
-                                }
-                            }
-                        }
-                    } else {
-                        Text(
-                            when (kind) {
-                                NewChatType.SINGLE -> "Select exactly one profile."
-                                NewChatType.MULTI_CHAT -> "Select two or more profiles for independent chats."
-                                NewChatType.COMBINED -> "Select two or more models for a comprehensive answer."
-                                else -> ""
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
                     ProfileSearchField(query, { query = it }, Modifier.testTag("new_chat_search"))
                     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         ProfileFilter.entries.forEach { option ->
@@ -224,64 +190,15 @@ internal fun NewChatProfileScreen(
                             )
                         }
                     }
-                    if (labels.isNotEmpty()) {
-                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            labels.forEach { label ->
-                                ProfileLabelChip(label, labelKey == label.key, { labelKey = if (labelKey == label.key) null else label.key })
-                            }
-                            TextButton(onClick = { labelKey = null }) { Text("Clear labels") }
-                        }
-                    }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        Text(visible.size.toString() + " profiles", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium)
-                        Column {
-                            TextButton(onClick = { sortOpen = true }) {
-                                Icon(Icons.Rounded.Sort, null)
-                                Text(sort.title, Modifier.padding(start = 6.dp))
-                            }
-                            DropdownMenu(expanded = sortOpen, onDismissRequest = { sortOpen = false }) {
-                                ProfileSort.entries.forEach { option ->
-                                    DropdownMenuItem(
-                                        text = { Text(option.title) },
-                                        onClick = {
-                                            sortName = option.name
-                                            sortOpen = false
-                                        }
-                                    )
-                                }
-                            }
-                        }
-                    }
+                    TextButton(onClick = { optionsOpen = true }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.audit_options)) }
                 }
             }
         },
         bottomBar = {
             Surface(color = MaterialTheme.colorScheme.surfaceContainerLow, tonalElevation = 3.dp) {
                 Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(currentSelection.size.toString() + " selected · " + selectedModeLabel, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                    if (selectedNames.isNotEmpty()) {
-                        Text(selectedNames.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
-                    }
+                    Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.audit_selected, currentSelection.size), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                     if (hiddenCount > 0) Text(hiddenCount.toString() + " selected profile(s) hidden by filters", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelSmall)
-                    if (combined && currentSelection.size >= 2) {
-                        Column {
-                            TextButton(onClick = { primaryOpen = true }) {
-                                Text("Synthesis lead: " + (profiles.firstOrNull { it.uid == primary }?.name ?: selectedNames.firstOrNull().orEmpty()))
-                            }
-                            DropdownMenu(expanded = primaryOpen, onDismissRequest = { primaryOpen = false }) {
-                                currentSelection.forEach { uid ->
-                                    val name = profiles.firstOrNull { it.uid == uid }?.name ?: uid
-                                    DropdownMenuItem(
-                                        text = { Text(name) },
-                                        onClick = {
-                                            viewModel.setPrimary(uid)
-                                            primaryOpen = false
-                                        }
-                                    )
-                                }
-                            }
-                        }
-                    }
                     if (kind == NewChatType.RESEARCH && blockers.isNotEmpty()) {
                         Text(blockers.joinToString("\n"), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, maxLines = 4)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -331,12 +248,94 @@ internal fun NewChatProfileScreen(
                     onFavorite = { viewModel.toggleFavorite(profile.uid) },
                     onInsights = { detailsUid = profile.uid }
                 )
-                Text(
-                    if (isLocalOrSelfHosted(profile)) "Local / self-hosted" else "Remote provider",
-                    modifier = Modifier.padding(start = 12.dp),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+            }
+        }
+    }
+    if (optionsOpen) {
+        dev.chungjungsoo.gptmobile.presentation.common.FadingModalBottomSheet(onDismissRequest = { optionsOpen = false }) {
+            Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                if (kind == NewChatType.RESEARCH) {
+                    Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = MaterialTheme.shapes.medium) {
+                        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.audit_research_depth), color = MaterialTheme.colorScheme.onPrimaryContainer, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                "Web research · Depth " + researchDepth + "% · " + if (combined) "Combined" else "Combined when 2+ are selected",
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                            TextButton(onClick = { researchExpanded = !researchExpanded }) {
+                                Text(if (researchExpanded) "Hide research settings" else "Adjust research depth")
+                            }
+                            if (researchExpanded) {
+                                Slider(
+                                    value = researchDepth.toFloat(),
+                                    onValueChange = { viewModel.setResearchDepth(it.toInt()) },
+                                    valueRange = 1f..100f,
+                                    steps = 98
+                                )
+                                Text("Web only until Papers & Studies are explicitly permitted.", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                } else {
+                    Text(
+                        when (kind) {
+                            NewChatType.SINGLE -> "Select exactly one profile."
+                            NewChatType.MULTI_CHAT -> "Select two or more profiles for independent chats."
+                            NewChatType.COMBINED -> "Select two or more models for a comprehensive answer."
+                            else -> ""
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                if (labels.isNotEmpty()) {
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        labels.forEach { label ->
+                            ProfileLabelChip(label, labelKey == label.key, { labelKey = if (labelKey == label.key) null else label.key })
+                        }
+                        TextButton(onClick = { labelKey = null }) { Text("Clear labels") }
+                    }
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text(visible.size.toString() + " profiles", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium)
+                    Column {
+                        TextButton(onClick = { sortOpen = true }) {
+                            Icon(Icons.Rounded.Sort, null)
+                            Text(sort.title, Modifier.padding(start = 6.dp))
+                        }
+                        DropdownMenu(expanded = sortOpen, onDismissRequest = { sortOpen = false }) {
+                            ProfileSort.entries.forEach { option ->
+                                DropdownMenuItem(
+                                    text = { Text(option.title) },
+                                    onClick = {
+                                        sortName = option.name
+                                        sortOpen = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+                if (combined && currentSelection.size >= 2) {
+                    Column {
+                        TextButton(onClick = { primaryOpen = true }) {
+                            Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.audit_final_writer) + ": " + (profiles.firstOrNull { it.uid == primary }?.name ?: selectedNames.firstOrNull().orEmpty()))
+                        }
+                        DropdownMenu(expanded = primaryOpen, onDismissRequest = { primaryOpen = false }) {
+                            currentSelection.forEach { uid ->
+                                val name = profiles.firstOrNull { it.uid == uid }?.name ?: uid
+                                DropdownMenuItem(
+                                    text = { Text(name) },
+                                    onClick = {
+                                        viewModel.setPrimary(uid)
+                                        primaryOpen = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
     }

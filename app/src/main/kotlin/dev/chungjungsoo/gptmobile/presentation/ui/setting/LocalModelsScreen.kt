@@ -1,7 +1,5 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -73,6 +71,9 @@ internal fun LocalMarketplaceScreen(
     viewModel: LocalModelsViewModel = hiltViewModel(),
     runtimeViewModel: LocalRuntimeSettingsViewModel = hiltViewModel(),
     onOpenProfile: (String) -> Unit = {},
+    embedded: Boolean = false,
+    onLinkFile: () -> Unit = {},
+    onLinkFolder: () -> Unit = {},
     onNavigationClick: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -84,10 +85,11 @@ internal fun LocalMarketplaceScreen(
     val requestDownload = rememberLocalModelDownloader(viewModel::onDownloadClick)
     val context = LocalContext.current
     var filtersOpen by rememberSaveable { mutableStateOf(false) }
-    var runtime by rememberSaveable { mutableStateOf("All") }
-    var processor by rememberSaveable { mutableStateOf("Any") }
-    var capability by rememberSaveable { mutableStateOf("Any") }
-    var everyModel by rememberSaveable { mutableStateOf(false) }
+    val filters by viewModel.filters.collectAsStateWithLifecycle()
+    val runtime = filters.runtime
+    val processor = filters.processor
+    val capability = filters.capability
+    val everyModel = filters.everyModel
     var family by rememberSaveable { mutableStateOf<String?>(null) }
     var why by rememberSaveable { mutableStateOf(false) }
     val geniex = dev.chungjungsoo.gptmobile.BuildConfig.GENIEX_ENABLED
@@ -114,20 +116,28 @@ internal fun LocalMarketplaceScreen(
             }
     }
     val families = visible.groupBy { it.entry.familyId.ifBlank { it.entry.id } }.entries.sortedBy { (_, variants) -> if (variants.any { it.entry.id in recommended }) 0 else 1 }.associate { it.key to it.value }
-    val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) viewModel.importCustomModel(context.contentResolver, uri) }
-    Scaffold(modifier = modifier, topBar = {
-        androidx.compose.material3.TopAppBar(title = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_local_models_8e4bf)) }, navigationIcon = { IconButton(onClick = onNavigationClick) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") } }, actions = {
-            IconButton(onClick = { importer.launch(arrayOf("*/*")) }) { Icon(Icons.Rounded.Add, "Link a model at its existing location") }
-            IconButton(onClick = viewModel::refreshCatalog) { Icon(Icons.Rounded.Refresh, "Refresh catalog") }
-        })
+    Scaffold(modifier = modifier, contentWindowInsets = if (embedded) androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0) else androidx.compose.material3.ScaffoldDefaults.contentWindowInsets, topBar = {
+        if (!embedded) {
+            androidx.compose.material3.TopAppBar(title = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_local_models_8e4bf)) }, navigationIcon = { IconButton(onClick = onNavigationClick) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") } }, actions = {
+                IconButton(onClick = onLinkFile) { Icon(Icons.Rounded.Add, "Link a model at its existing location") }
+                IconButton(onClick = viewModel::refreshCatalog) { Icon(Icons.Rounded.Refresh, "Refresh catalog") }
+            })
+        }
     }) { insets ->
         Column(Modifier.fillMaxSize().padding(insets)) {
+            androidx.compose.foundation.layout.FlowRow {
+                TextButton(onClick = onLinkFile) { Text(stringResource(R.string.audit_link_file)) }
+                TextButton(onClick = onLinkFolder) { Text(stringResource(R.string.audit_link_folder)) }
+                IconButton(onClick = viewModel::refreshCatalog) { Icon(Icons.Rounded.Refresh, stringResource(R.string.refresh)) }
+            }
             OutlinedTextField(uiState.searchQuery, viewModel::updateSearchQuery, label = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_search_models_10421)) }, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), singleLine = true, trailingIcon = { TextButton(onClick = { filtersOpen = true }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_filters_546eb)) } })
             LazyColumn(Modifier.weight(1f), contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 catalogStatus?.let { snapshot ->
                     item {
-                        Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_4ddf1cb511, snapshot.source, snapshot.revision, snapshot.entries.size), style = MaterialTheme.typography.labelSmall)
-                        snapshot.upstream?.let { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_dd3b98874b, it.artifactCount, it.familyCount, it.retrievedAt), style = MaterialTheme.typography.labelSmall) }
+                        dev.chungjungsoo.gptmobile.presentation.common.DetailsSection(stringResource(R.string.audit_catalog_details)) {
+                            Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_4ddf1cb511, snapshot.source, snapshot.revision, snapshot.entries.size), style = MaterialTheme.typography.labelSmall)
+                            snapshot.upstream?.let { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_dd3b98874b, it.artifactCount, it.familyCount, it.retrievedAt), style = MaterialTheme.typography.labelSmall) }
+                        }
                         snapshot.refreshError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     }
                 }
@@ -135,10 +145,10 @@ internal fun LocalMarketplaceScreen(
                 item {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_show_every_listed_model_355b0), Modifier.weight(1f))
-                        androidx.compose.material3.Switch(everyModel, { everyModel = it })
+                        androidx.compose.material3.Switch(everyModel, { value -> viewModel.updateFilters { it.copy(everyModel = value) } })
                     }
                 }
-                item { Row { LocalModelSource.entries.forEach { source -> FilterChip(uiState.source == source, { viewModel.updateModelSource(source) }, label = { Text(source.title) }) } } }
+                item { androidx.compose.foundation.layout.FlowRow { LocalModelSource.entries.forEach { source -> FilterChip(uiState.source == source, { viewModel.updateModelSource(source) }, label = { Text(source.title) }) } } }
                 if (uiState.source == LocalModelSource.HUGGING_FACE) {
                     item {
                         HuggingFaceAccountSection(hasToken = uiState.hasHuggingFaceToken, onAddToken = viewModel::openAccessTokenDialog, onRemoveToken = viewModel::removeHuggingFaceAccessToken)
@@ -157,7 +167,7 @@ internal fun LocalMarketplaceScreen(
 
                 item {
                     Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_6e1ee292ad, ModelCatalogParser.formatDownloadSize(uiState.totalStorageBytes)))
-                    androidx.compose.foundation.layout.FlowRow { LocalModelFilter.entries.forEach { value -> TextButton(onClick = { viewModel.updateFilter(value) }) { Text(value.title) } } }
+                    androidx.compose.foundation.layout.FlowRow { LocalModelFilter.entries.forEach { value -> FilterChip(uiState.filter == value, onClick = { viewModel.updateFilter(value) }, label = { Text(value.title) }) } }
                 }
 
                 if (uiState.isLoading) item { CircularProgressIndicator() }
@@ -165,11 +175,7 @@ internal fun LocalMarketplaceScreen(
                     item {
                         Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_no_models_match_these_filters_c5178))
                         TextButton(onClick = {
-                            viewModel.updateFilter(LocalModelFilter.ALL)
-                            everyModel = true
-                            runtime = "All"
-                            processor = "Any"
-                            capability = "Any"
+                            viewModel.resetFilters(showAll = true)
                         }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_show_the_full_catalog_46ecc)) }
                     }
                 }
@@ -220,8 +226,8 @@ internal fun LocalMarketplaceScreen(
                             decision.reasons.forEach { Text(it, color = MaterialTheme.colorScheme.error) }
                             if (item.status == LocalModelItemStatus.READY && item.entry.supportedAccelerators.isEmpty()) {
                                 TextButton(onClick = { runtimeViewModel.createProfile(item.entry, onOpenProfile) }) { Text(stringResource(R.string.local_ai_needs_verification)) }
-                                TextButton(onClick = { viewModel.onDeleteClick(item.entry) }) { Text(stringResource(R.string.delete)) }
                             }
+                            if (item.status == LocalModelItemStatus.READY) TextButton(onClick = { viewModel.onDeleteClick(item.entry) }) { Text(stringResource(if (item.entry.id.startsWith("linked_")) R.string.audit_unlink_model else R.string.audit_remove_download)) }
                             if (decision.action == dev.chungjungsoo.gptmobile.data.catalog.CatalogAction.VIEW_BUILD) Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_the_geniex_apk_is_a_separate_installation_its_dedfc))
                         } else {
                             LocalModelItem(
@@ -238,8 +244,10 @@ internal fun LocalMarketplaceScreen(
                         if (item.entry.sourceUrl.startsWith("https://")) androidx.compose.foundation.text.BasicText(item.entry.sourceUrl, modifier = Modifier.padding(vertical = 8.dp))
                         if (item.entry.licenseUrl.isNotBlank()) Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_3e8818e968, item.entry.licenseUrl))
                         if (item.entry.redistributionRestricted) Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_6604b1934b))
-                        item.entry.discoveryAssets.forEach { asset -> Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_0391683a30, asset.role, asset.path, asset.sizeInBytes, asset.sha256.ifBlank { androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_f068c5abb9) }), style = MaterialTheme.typography.bodySmall) }
-                        Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_3133ea6d87, item.entry.id, item.entry.upstreamRevision.ifBlank { androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_f068c5abb9) }, item.entry.sha256.ifBlank { androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_f068c5abb9) }), style = MaterialTheme.typography.bodySmall)
+                        dev.chungjungsoo.gptmobile.presentation.common.DetailsSection(stringResource(R.string.audit_technical_details)) {
+                            item.entry.discoveryAssets.forEach { asset -> Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_0391683a30, asset.role, asset.path, asset.sizeInBytes, asset.sha256.ifBlank { androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_f068c5abb9) }), style = MaterialTheme.typography.bodySmall) }
+                            Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_3133ea6d87, item.entry.id, item.entry.upstreamRevision.ifBlank { androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_f068c5abb9) }, item.entry.sha256.ifBlank { androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_f068c5abb9) }), style = MaterialTheme.typography.bodySmall)
+                        }
                     }
                 }
             }
@@ -249,26 +257,21 @@ internal fun LocalMarketplaceScreen(
         androidx.compose.material3.AlertDialog(onDismissRequest = { filtersOpen = false }, title = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_model_filters_d4bb9)) }, text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_runtime_10931))
-                androidx.compose.foundation.layout.FlowRow { listOf("All", "LiteRT-LM", "llama.cpp", "GenieX").forEach { value -> TextButton(onClick = { runtime = value }) { Text(if (runtime == value) "✓ $value" else value) } } }
+                androidx.compose.foundation.layout.FlowRow { listOf("All", "LiteRT-LM", "llama.cpp", "GenieX").forEach { value -> TextButton(onClick = { viewModel.updateFilters { it.copy(runtime = value) } }) { Text(if (runtime == value) "✓ $value" else value) } } }
                 Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_processor_54aac))
-                Row {
+                androidx.compose.foundation.layout.FlowRow {
                     listOf("Any", "CPU", "GPU", "NPU").forEach { value ->
                         TextButton(onClick = {
-                            processor = value
-                            viewModel.setNpuOnly(value == "NPU")
+                            viewModel.updateFilters { it.copy(processor = value) }
                         }) { Text(if (processor == value) "✓ $value" else value) }
                     }
                 }
                 Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_capabilities_advertised_not_execution_proof_6761c))
-                Column { listOf("Any", "Images", "Tools", "Thinking", "MTP").forEach { value -> TextButton(onClick = { capability = value }) { Text(if (capability == value) "✓ $value" else value) } } }
+                Column { listOf("Any", "Images", "Tools", "Thinking", "MTP").forEach { value -> TextButton(onClick = { viewModel.updateFilters { it.copy(capability = value) } }) { Text(if (capability == value) "✓ $value" else value) } } }
             }
         }, confirmButton = { TextButton(onClick = { filtersOpen = false }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_done_11a67)) } }, dismissButton = {
             TextButton(onClick = {
-                runtime = "All"
-                processor = "Any"
-                capability = "Any"
-                everyModel = false
-                viewModel.setNpuOnly(false)
+                viewModel.resetFilters()
             }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_reset_filters_10afa)) }
         })
     }
@@ -276,7 +279,7 @@ internal fun LocalMarketplaceScreen(
         androidx.compose.material3.AlertDialog(onDismissRequest = { why = false }, title = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_why_these_models_6954d)) }, text = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_these_are_curated_evaluation_candidates_with__5dd8b)) }, confirmButton = {
             TextButton(onClick = {
                 why = false
-                everyModel = true
+                viewModel.updateFilters { it.copy(everyModel = true) }
             }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_all_models_0f589)) }
         })
     }

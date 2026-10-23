@@ -23,7 +23,7 @@ internal object CombinedContributionUsability {
         Regex("(?is)<\\|(?:tool_call|function_call|im_start)\\|>")
     )
 
-    fun assess(status: String?, rawContent: String, allowPartial: Boolean = false, request: String? = null, demo: Boolean = false): CombinedContributionAssessment {
+    fun assess(status: String?, rawContent: String, allowPartial: Boolean = false, request: String? = null, demo: Boolean = false, finishReason: String? = null, outputTokens: Int? = null, outputAllowance: Int? = null): CombinedContributionAssessment {
         val content = dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(rawContent).trim()
         val terminalFailure = status in setOf(AgentRunStatus.FAILED, AgentRunStatus.CANCELED, AgentRunStatus.INTERRUPTED)
         if (terminalFailure && (!allowPartial || status == AgentRunStatus.CANCELED)) return CombinedContributionAssessment(false, 0, "terminal_provider_failure")
@@ -52,7 +52,17 @@ internal object CombinedContributionUsability {
             content.length >= 48 && usableWords >= 8 -> 70
             else -> 45
         }
-        return CombinedContributionAssessment(true, score, "usable_partial_contribution".takeIf { terminalFailure }, terminalFailure, if (task?.subjectConfidence == "EXPLICIT") "ANCHORED" else "UNCERTAIN", "NO_CLEAR_DEFECT_DETECTED", if (terminalFailure) "PARTIAL" else "RESPONSE_RECEIVED_UNVERIFIED")
+        val prose = !content.contains("```") && !content.lines().all { it.isBlank() || it.trimStart().startsWith('-') || it.trimStart().startsWith('*') }
+        val unfinishedSyntax = prose && usableWords >= 12 && (content.endsWith(',') || Regex("(?i)\\b(?:a|an|the|and|or|of|to|by|with|were|was|defeated|including)$").containsMatchIn(content))
+        val nearCap = outputAllowance != null && (outputTokens?.let { it >= outputAllowance * 0.9 } == true || content.length / 4 >= outputAllowance * 0.85)
+        val clipped = finishReason in setOf("length", "max_tokens", "MAX_TOKENS") || unfinishedSyntax && (nearCap || task?.historicalSurvey == true)
+        val partial = terminalFailure || clipped
+        val completeness = when {
+            partial -> "PARTIAL"
+            finishReason in setOf("stop", "end_turn", "STOP") -> "COMPLETE"
+            else -> "UNKNOWN"
+        }
+        return CombinedContributionAssessment(true, score, "usable_partial_contribution".takeIf { partial }, partial, if (task?.subjectConfidence == "EXPLICIT") "ANCHORED" else "UNCERTAIN", "NO_CLEAR_DEFECT_DETECTED", completeness)
     }
 }
 
@@ -73,7 +83,7 @@ internal object CombinedContributionQuality {
         val greeting = Regex("(?i)^(?:(?:hi|hello|hey)(?: there| again)?|welcome(?: back)?|good (?:morning|afternoon|evening)|(?:thank you|thanks)(?: very much)?|you(?:'|’)re welcome)[!,. ]*$|^(?:how|what) can I (?:help|assist)(?: you)?(?: with)?(?: today)?[?!,. ]*$")
         val test = Regex("(?i)^(?:(?:test|testing|message|connection)(?: message| test)? (?:received|acknowledged|successful|works|working|is working|is active)|(?:I(?:'|’)m|I am) (?:here|ready)|ready|working|connected|received|test successful)[!,. ]*$")
         return clean.split(Regex("(?<=[.!?])\\s+|\\n+")).map(String::trim)
-            .filter { it.length <= 240 && (greeting.matches(it) || intent == "TEST" && test.matches(it)) }
+            .filter { it.length <= 240 && (greeting.matches(it) || intent in setOf("TEST", "PROVIDER_TEST") && test.matches(it)) }
             .joinToString(" ").take(1200)
     }
 

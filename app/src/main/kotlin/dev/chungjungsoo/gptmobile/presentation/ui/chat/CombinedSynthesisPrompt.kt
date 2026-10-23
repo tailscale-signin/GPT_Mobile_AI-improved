@@ -67,6 +67,21 @@ internal fun combinedSynthesisPrompt(
     val packetEvidence = evidence.copy(records = packetRecords, supportEdges = evidence.supportEdges.filter { edge -> packetRecords.any { it.id == edge.evidenceId } })
     put("available_evidence_records", evidence.records.size)
     put("evidence_ledger", if (combined == null) kotlinx.serialization.json.Json.encodeToJsonElement(dev.chungjungsoo.gptmobile.data.agent.CombinedEvidenceLedger.serializer(), evidence) else dev.chungjungsoo.gptmobile.data.agent.compactEditorialEvidence(packetEvidence))
+    put(
+        "contributor_limitations",
+        JsonArray(
+            sources.mapIndexed { index, source ->
+                buildJsonObject {
+                    put("contributor", "C${index + 1}")
+                    put("transport_status", source.completionStatus)
+                    put("content_completeness", source.contentCompleteness)
+                    put("disposition", source.disposition.name)
+                    put("factual_support", source.factualSupport)
+                    source.nativeFinishReason?.let { put("native_finish_reason", it) }
+                }
+            }
+        )
+    )
     put("candidate_inventory_total", allClaims.size)
     put("editorial_inventory_selected", inventory.size)
     put("inventory_expansion", inventoryExpansion)
@@ -81,6 +96,11 @@ internal fun combinedSynthesisPrompt(
             }
         )
     )
+    if (answerContract.task?.historicalSurvey == true) {
+        val supported = inventory.filter { dev.chungjungsoo.gptmobile.data.agent.CombinedHistoryOutline.substantive(it.proposition) }.flatMap { dev.chungjungsoo.gptmobile.data.agent.CombinedHistoryOutline.periods(it.proposition) }.toSet()
+        put("outline_support_gaps", JsonArray(dev.chungjungsoo.gptmobile.data.agent.CombinedHistoryOutline.labels.indices.filterNot { it in supported }.map { JsonPrimitive(dev.chungjungsoo.gptmobile.data.agent.CombinedHistoryOutline.labels[it]) }))
+        put("outline_support_instruction", "The listed gaps have no substantive retained claim. Do not imply contributor or source support for them. Use authorized verification when available, otherwise disclose material gaps or clearly distinguish background knowledge.")
+    }
     val collectionBias = combined?.requested?.settings?.collectionBias ?: 25
     val effort = combined?.requested?.settings?.effort ?: 50
     put("requested_policy_digest", combined?.requested?.requestedPolicyDigest.orEmpty())

@@ -104,6 +104,8 @@ interface ChatRepository {
     suspend fun searchChatsV2(query: String): List<ChatRoomV2>
     suspend fun updateDraft(chatId: Int, draftText: String?, timestamp: Long?)
     suspend fun saveComposerDraft(chatId: Int, text: String?, attachments: String, timestamp: Long?) = updateDraft(chatId, text, timestamp)
+    suspend fun checkCombinedQueuedJob(runId: String): String
+
     suspend fun prepareCombinedRetry(runId: String, platform: PlatformV2): dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot? = null
 
     suspend fun fetchDebugRecords(chatId: Int): kotlinx.serialization.json.JsonObject = kotlinx.serialization.json.JsonObject(emptyMap())

@@ -1,0 +1,32 @@
+{
+  "version": "5.27.0",
+  "components": [
+    {
+      "id": 1,
+      "type": "state"
+    },
+    {
+      "id": 33,
+      "type": "antdxsender"
+    },
+    {
+      "id": 38,
+      "type": "antdform"
+    },
+    {
+      "id": 60,
+      "type": "state"
+    }
+  ],
+  "dependencies": [
+    {
+      "api_name": "add_message",
+      "inputs": [
+        33,
+        38,
+        60,
+        1
+      ]
+    }
+  ]
+}

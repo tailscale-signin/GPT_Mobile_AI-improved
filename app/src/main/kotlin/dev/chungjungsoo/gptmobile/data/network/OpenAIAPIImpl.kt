@@ -49,6 +49,8 @@ class OpenAIAPIImpl @Inject constructor(
 ) : OpenAIAPI {
     private val requestPreparation = ModelRequestPreparation(networkClient)
 
+    override suspend fun checkSavedHordeJob(runId: String, chatId: Int, config: ProviderRequestConfig): String = FreeQueuedTransport(networkClient(), requestPreparation).checkSavedHordeJob(runId, chatId, config)
+
     override suspend fun uploadFile(
         filePath: String,
         fileName: String,
@@ -110,14 +112,15 @@ class OpenAIAPIImpl @Inject constructor(
         var receivedTerminal = false
         var resolvedFreeModel: String? = null
         var contextCorrected = false
+        var recoveryCheck = false
         var transportRetries = 0
         val transportStartedNs = System.nanoTime()
         try {
             val free = config.freeProvider
             if (free != null) {
-                check(free.isAvailable) { free.unavailableReason.orEmpty() }
+                FreeProviderPreflight.require(config, request.model)
+                recoveryCheck = dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.beginGeneration(free, request.model)
             }
-            free?.let { dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.requireGenerationReady(it, request.model) }
             var freeModel = free?.let { dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.requireModel(it, request.model) }
             if (free == FreeAiProvider.PORCHLM && request.model == "automatic") {
                 dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.refresh(free)
@@ -130,6 +133,7 @@ class OpenAIAPIImpl @Inject constructor(
             } else {
                 request.copy(
                     model = requireNotNull(freeModel).id,
+                    stream = request.stream && freeModel?.streaming == true,
                     maxTokens = free.outputAllowance(request.maxTokens),
                     maxCompletionTokens = null,
                     tools = request.tools.takeIf { freeModel?.tools == true },
@@ -138,7 +142,7 @@ class OpenAIAPIImpl @Inject constructor(
                     provider = null,
                     plugins = null,
                     topK = null,
-                    reasoningEffort = request.reasoningEffort.takeIf { free == FreeAiProvider.KILO },
+                    reasoningEffort = request.reasoningEffort.takeIf { free in setOf(FreeAiProvider.KILO, FreeAiProvider.BLOCKRUN) },
                     reasoning = request.reasoning.takeIf { free == FreeAiProvider.KILO },
                     options = null,
                     transforms = null,
@@ -154,6 +158,7 @@ class OpenAIAPIImpl @Inject constructor(
                 val legacyResponse = pollinationsCompletion {
                     FreeAiRequestLimiter.shared.withRequest(free) {
                         val admittedUrl = requestPreparation.preparePollinationsGet(prompt, config)
+                        config.freeDiagnostics?.requestSent = true
                         networkClient().prepareGet(admittedUrl) {
                             timeout { requestTimeoutMillis = timeoutSeconds.coerceIn(15, 120) * 1_000L }
                             accept(ContentType.Text.Plain)
@@ -174,25 +179,27 @@ class OpenAIAPIImpl @Inject constructor(
                 ProviderCooldown.await(config)
                 config.freeDiagnostics?.stage = "preparation"
                 val admittedPayload = requestPreparation.prepare(NetworkClient.openAIJson.encodeToString(preparedRequest), config, preparedRequest.model, null)
+                if (config.captureGenerationReceipt || config.requestRole == "synthesis") config.freeDiagnostics?.admission?.outputTokens?.toInt()?.let { emit(ChatCompletionChunk(serializedOutputTokens = it)) }
                 config.freeDiagnostics?.stage = "dispatch"
+                config.freeDiagnostics?.requestSent = true
                 networkClient().preparePost(endpoint) {
                     applyPlatformStreamingTimeout(timeoutSeconds, workerBudget)
                     contentType(ContentType.Application.Json)
                     setBody(admittedPayload)
-                    accept(if (request.stream) ContentType.Text.EventStream else ContentType.Application.Json)
-                    config.token?.takeIf { it.isNotBlank() && free == null }?.let { bearerAuth(it) }
+                    accept(if (preparedRequest.stream) ContentType.Text.EventStream else ContentType.Application.Json)
+                    config.token?.takeIf { it.isNotBlank() && (free == null || free.requiresUserToken) }?.let { bearerAuth(it) }
                     config.extraHeaders.forEach { (key, value) -> header(key, value) }
                     if (LocalEndpointConnectionPolicy.freshConnection(endpoint)) header(HttpHeaders.Connection, "close")
                 }.execute { response ->
                     if (!response.status.isSuccess()) {
                         val errorBody = if (free != null) readFreeErrorBody(response) else response.body<String>()
                         if (free != null) {
-                            val retrySeconds = if (response.status.value == 429) FreeAiRequestLimiter.shared.defer(free, response.headers[HttpHeaders.RetryAfter], preparedRequest.model) else null
-                            val retryAt = retrySeconds?.let { FreeAiRequestLimiter.shared.cooldownUntilMillis(free, preparedRequest.model) }
-                            val detail = dev.chungjungsoo.gptmobile.data.network.error.ProviderFailure.parse(response.status.value, errorBody).message()
+                            val retryAt = retainFreeHttpFailure(config, preparedRequest.model, response.status.value, errorBody) { response.headers[it] }
+                            val retrySeconds = retryAt?.let { ((it - System.currentTimeMillis() + 999) / 1000).coerceAtLeast(1) }
+                            val detail = providerErrorDetails(errorBody, dev.chungjungsoo.gptmobile.data.network.error.ProviderFailure.parse(response.status.value, errorBody).message(), config.token)
                             dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.recordHttpFailure(free, response.status.value, detail, retryAt, preparedRequest.model, errorBody)
                             dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.record(config, preparedRequest.model, detail, response.status.value, errorBody, { response.headers[it] }, retryAt)
-                            if (retrySeconds != null) throw FreeAiRateLimitException(free, retrySeconds, providerErrorDetails(errorBody, detail))
+                            if (retrySeconds != null) throw FreeAiRateLimitException(free, retrySeconds, cooldown = config.freeDiagnostics?.cooldown, localBlock = false)
                             val contextLimit = rejectedFreeContextLimit(response.status.value, errorBody)
                             if (contextLimit != null && !contextCorrected && !receivedAssistantPayload && !receivedGatewayToolActivity) {
                                 dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.learnContextLimit(free, preparedRequest.model, contextLimit)
@@ -219,7 +226,7 @@ class OpenAIAPIImpl @Inject constructor(
                         throwIfToolDefinitionsRejected(response.status.value, !request.tools.isNullOrEmpty(), errorBody)
 
                         val errorMessage = if (free != null) {
-                            freeHttpErrorMessage(response.status.value, errorBody)
+                            freeHttpErrorMessage(response.status.value, errorBody, config.token)
                         } else if (response.status.value in setOf(401, 402, 403)) {
                             dev.chungjungsoo.gptmobile.data.network.error.ProviderFailure.parse(response.status.value, errorBody).message()
                         } else {
@@ -234,8 +241,8 @@ class OpenAIAPIImpl @Inject constructor(
                         emit(
                             ChatCompletionChunk(
                                 error = ErrorDetail(
-                                    message = if (response.status.value in setOf(401, 402, 403)) errorMessage else config.readableProviderError(errorMessage, response.status.value.toString()),
-                                    type = "http_error",
+                                    message = if (free?.requiresUserToken == true || response.status.value !in setOf(401, 402, 403)) config.readableProviderError(errorMessage, response.status.value.toString()) else errorMessage,
+                                    type = config.freeDiagnostics?.category?.name ?: "http_error",
                                     code = response.status.value.toString()
                                 )
                             )
@@ -281,7 +288,7 @@ class OpenAIAPIImpl @Inject constructor(
                     // llama.cpp and other compatible providers return choices[].message for stream=false.
                     val responseType = response.contentType()
                     if (responseType?.match(ContentType.Application.Json) == true ||
-                        (!request.stream && responseType?.match(ContentType.Text.EventStream) != true)
+                        (!preparedRequest.stream && responseType?.match(ContentType.Text.EventStream) != true)
                     ) {
                         val decoded = NetworkClient.openAIJson.decodeFromString<ChatCompletionChunk>(response.body<String>())
                         val chunk = decoded.copy(
@@ -404,11 +411,11 @@ class OpenAIAPIImpl @Inject constructor(
             }
             if (free != null) {
                 try {
-                    FreeAiRequestLimiter.shared.withRequest(free, preparedRequest.model, executeRequest)
+                    FreeAiRequestLimiter.shared.withRequest(free, preparedRequest.model, freeCredentialIdentity(free, config.token), executeRequest)
                 } catch (_: FreeContextRetry) {
                     config.freeDiagnostics?.recorded = false
                     emit(ChatCompletionChunk(applicationNotice = "${free.displayName}: adjusting output to the model's context window and retrying once."))
-                    FreeAiRequestLimiter.shared.withRequest(free, preparedRequest.model, executeRequest)
+                    FreeAiRequestLimiter.shared.withRequest(free, preparedRequest.model, freeCredentialIdentity(free, config.token), executeRequest)
                 }
             } else {
                 ResilientStreamingClient.executeWithRetry(
@@ -440,17 +447,21 @@ class OpenAIAPIImpl @Inject constructor(
                     e.message ?: "Unknown network error"
                 }
             }
+            config.freeDiagnostics?.apply {
+                if (category == null) category = freeFailureCategory(e)
+                if (e is FreeAiRateLimitException) cooldown = e.cooldown
+            }
             config.freeProvider?.let { provider ->
                 if (config.freeDiagnostics?.recorded != true) {
                     val networkFailure = e is java.io.IOException || e is java.nio.channels.UnresolvedAddressException
-                    val cooldown = FreeAiRequestLimiter.shared.cooldownUntilMillis(provider, request.model)
+                    val cooldown = FreeAiRequestLimiter.shared.cooldownUntilMillis(provider, request.model, freeCredentialIdentity(provider, config.token))
                     val readiness = when {
                         e is FreeAiRateLimitException -> dev.chungjungsoo.gptmobile.data.free.FreeGenerationReadiness.RATE_LIMITED
                         networkFailure -> dev.chungjungsoo.gptmobile.data.free.FreeGenerationReadiness.UNREACHABLE
                         config.freeDiagnostics?.stage == "preparation" -> dev.chungjungsoo.gptmobile.data.free.FreeGenerationReadiness.INVALID_REQUEST
                         else -> dev.chungjungsoo.gptmobile.data.free.FreeGenerationReadiness.GENERATION_FAILED
                     }
-                    if (e !is dev.chungjungsoo.gptmobile.data.free.FreeGenerationUnavailableException) dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.recordFailure(provider, errorMessage, readiness, if (networkFailure) false else null, cooldown, request.model)
+                    if (e !is FreeProviderException) dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.recordFailure(provider, errorMessage, readiness, if (networkFailure) false else null, cooldown, request.model)
                     dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.record(config, request.model, errorMessage, retryAt = cooldown, terminal = config.freeDiagnostics?.terminal ?: false.takeIf { config.freeDiagnostics?.jobId != null })
                 }
             }
@@ -458,10 +469,12 @@ class OpenAIAPIImpl @Inject constructor(
                 ChatCompletionChunk(
                     error = ErrorDetail(
                         message = errorMessage,
-                        type = "network_error"
+                        type = if (config.freeProvider != null) (config.freeDiagnostics?.category ?: freeFailureCategory(e)).name else "network_error"
                     )
                 )
             )
+        } finally {
+            if (recoveryCheck) config.freeProvider?.let { dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.endGeneration(it) }
         }
     }.normalizeFreeTextBlocks(config.freeProvider).recordOpenRouterReceipts(config.openRouterReceipt, openRouterReceipts).flowOn(Dispatchers.IO)
 
@@ -494,6 +507,7 @@ class OpenAIAPIImpl @Inject constructor(
                 config.freeDiagnostics?.stage = "preparation"
                 val admittedPayload = requestPreparation.prepare(NetworkClient.openAIJson.encodeToString(preparedRequest), config, preparedRequest.model, null)
                 config.freeDiagnostics?.stage = "dispatch"
+                config.freeDiagnostics?.requestSent = true
                 networkClient().preparePost(endpoint) {
                     applyPlatformStreamingTimeout(timeoutSeconds, workerBudget)
                     contentType(ContentType.Application.Json)

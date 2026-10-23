@@ -93,6 +93,9 @@ class ResearchRecoveryRenderTest {
                 }
             }
         }
+        compose.onNodeWithText("1 of 12 read", useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithText("1 readable source", useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithText("Details").performClick()
         compose.onNodeWithText("1 readable source", useUnmergedTree = true).assertIsDisplayed()
         compose.onNodeWithText("1 claim checked against passages", useUnmergedTree = true).assertIsDisplayed()
         compose.onNodeWithText("0 independently reviewed", useUnmergedTree = true).assertIsDisplayed()
@@ -108,7 +111,7 @@ class ResearchRecoveryRenderTest {
         val file = File("build/reports/reliability-ui/research-recovery-dark.png").apply { parentFile.mkdirs() }
         file.outputStream().use { assertTrue(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) }
         compose.runOnIdle { writing = true }
-        compose.onNodeWithText("Writing from saved evidence", useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithText("Writing answer", useUnmergedTree = true).assertIsDisplayed()
         compose.onNodeWithText("Retry writing").assertDoesNotExist()
         compose.onNodeWithText("Continue research").assertDoesNotExist()
         compose.onNodeWithText("Cancel writing").performClick()
@@ -123,17 +126,21 @@ class ResearchRecoveryRenderTest {
         compose.setContent {
             GPTMobileTheme(themeMode = ThemeMode.LIGHT) {
                 Surface {
-                    ResearchProgressCard(listOf(session), emptySet(), {}, deliveryReceipt = receipt, deliveryRevisionText = displayed)
+                    ResearchProgressCard(listOf(session), emptySet(), {}, writerFailure = "An earlier writer failed", onRecovery = {}, deliveryReceipt = receipt, deliveryRevisionText = displayed)
                 }
             }
         }
-        compose.onNodeWithText("Research report ready").assertIsDisplayed()
+        compose.onNodeWithText("Research complete").assertIsDisplayed()
+        compose.onNodeWithText("Retry writing").assertDoesNotExist()
+        compose.onNodeWithText("Details").performClick()
         compose.onNodeWithText("Report accepted").assertIsDisplayed()
         compose.runOnIdle { displayed = "$report\nAn unchecked addition." }
         compose.onNodeWithText("Current report not checked").assertIsDisplayed()
-        compose.onNodeWithText("Research report ready").assertDoesNotExist()
+        compose.onNodeWithText("Research complete").assertDoesNotExist()
+        compose.onNodeWithText("Retry writing").assertIsDisplayed()
         compose.onNodeWithText("Report accepted").assertDoesNotExist()
         compose.runOnIdle { displayed = report }
         compose.onNodeWithText("Report accepted").assertIsDisplayed()
+        compose.onNodeWithText("Retry writing").assertDoesNotExist()
     }
 }

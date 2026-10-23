@@ -58,6 +58,7 @@ data class CombinedTaskContract(
                 Regex("(?i)\\b(?:compare|comparison|versus)\\b").containsMatchIn(text) -> "COMPARE"
                 Regex("(?i)\\b(?:poem|fiction|fictional|imagine|lyrics|creative)\\b").containsMatchIn(text) -> "CREATIVE"
                 Regex("(?i)\\b(?:implement|debug|code|fix)\\b").containsMatchIn(text) -> "IMPLEMENT"
+                text.lowercase().trimEnd('.', '!', '?') in setOf("test all providers", "test selected providers", "test my providers", "check provider connections") -> "CONVERSATION"
                 text.lowercase().trimEnd('.', '!', '?') in setOf("hi", "hello", "hey", "test", "testing", "thanks") -> "CONVERSATION"
                 else -> "ANSWER"
             }
@@ -105,20 +106,23 @@ internal object CombinedHistoryOutline {
         Regex("(?i)\\b(?:world war|weimar|nazi|holocaust|cold war|salazar|carnation|twentieth)\\w*\\b"),
         Regex("(?i)\\b(?:reunification|european union|eurozone|contemporary|twenty.first|present|today|recent|modern democracy)\\b")
     )
-    fun periods(text: String): Set<Int> = buildSet {
-        cues.forEachIndexed { index, cue -> if (cue.containsMatchIn(text)) add(index) }
-        Regex("\\b([12][0-9]{3})\\b").findAll(text).forEach { match ->
-            val year = match.value.toInt()
-            add(
-                when {
-                    year < 1500 -> 1
-                    year < 1800 -> 2
-                    year < 1900 -> 3
-                    year < 1990 -> 4
-                    else -> 5
-                }
-            )
-        }
+    fun periods(text: String): Set<Int> = CombinedContentCoverage.sentences(text).flatMap { eventPeriods(it) }.toSet()
+    private fun eventPeriods(text: String): Set<Int> {
+        if (Regex("(?i)\\b[0-9]+\\s*(?:bce|bc)\\b").containsMatchIn(text)) return setOf(0)
+        val dated = Regex("\\b([1-9][0-9]{2,3})\\b").findAll(text).map { it.value.toInt() }.filter { it <= 2100 }.map { year ->
+            when {
+                year < 500 -> 0
+                year < 1500 -> 1
+                year < 1800 -> 2
+                year < 1900 -> 3
+                year < 1990 -> 4
+                else -> 5
+            }
+        }.toSet()
+        // Dates identify the described event more reliably than a background mention of Rome or Napoleon.
+        if (dated.isNotEmpty()) return dated
+        if (Regex("(?i)\\b(?:after|following)\\b.{0,45}\\b(?:rome|roman|collapse)\\b|\\b(?:fall|collapse) of (?:rome|the roman empire)\\b").containsMatchIn(text)) return setOf(1)
+        return cues.indices.filter { cues[it].containsMatchIn(text) }.toSet()
     }
     fun substantive(text: String): Boolean = CombinedWordCounter.count(text) >= 6 &&
         !Regex("(?i)^(?:#+\\s*)?(?:introduction|conclusion|in conclusion|in summary|the history of .{1,40} is (?:rich|complex|fascinating))\\b").containsMatchIn(text.trim())

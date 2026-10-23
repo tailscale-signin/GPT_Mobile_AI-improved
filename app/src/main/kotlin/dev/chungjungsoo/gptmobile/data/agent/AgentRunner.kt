@@ -133,13 +133,15 @@ class AgentRunner(
                 if (!finalResponseRequested) {
                     finalResponseRequested = true
                     val reserve = limits.finalResponseToolCallReserve.coerceAtLeast(0)
-                    emit(
-                        AgentRunEvent.Notice(
-                            "Tool-call limit reached ($toolCallCount/$executionToolCallLimit executable calls; " +
-                                "${limits.maxToolCalls} configured, $reserve reserved). Generating a final response with completed results.",
-                            persistent = true
+                    if (limits.maxToolCalls > 0) {
+                        emit(
+                            AgentRunEvent.Notice(
+                                "Tool-call limit reached ($toolCallCount/$executionToolCallLimit executable calls; " +
+                                    "${limits.maxToolCalls} configured, $reserve reserved). Generating a final response with completed results.",
+                                persistent = true
+                            )
                         )
-                    )
+                    }
                 }
             } else if (ToolBudgetPolicy.shouldEmitWrapUpNotice(executionToolCallLimit, limits, toolCallCount, wrapUpNoticeEmitted)) {
                 wrapUpNoticeEmitted = true

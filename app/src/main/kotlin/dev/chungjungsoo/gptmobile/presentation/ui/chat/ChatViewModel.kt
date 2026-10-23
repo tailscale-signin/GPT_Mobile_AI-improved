@@ -434,6 +434,34 @@ class ChatViewModel @Inject constructor(
     private var pendingMessageGrouping = 0
     private val platformMembershipMutex = Mutex()
 
+    // Keep instance state above startup: Main.immediate can run collectors and
+    // restoration inline, before the constructor returns. Later initializers can
+    // otherwise expose null backing fields or reset flags already set by recovery.
+    private var unlockingAllTools = false
+
+    val pendingReplies = generationCompletionStore.items
+
+    private val conversationDelegationMutex = Mutex()
+
+    private val _combinedFailures = MutableStateFlow<List<CombinedProfileFailure>>(emptyList())
+    val combinedFailures = _combinedFailures.asStateFlow()
+
+    private val _queuedJobInspection = MutableStateFlow<String?>(null)
+    val queuedJobInspection = _queuedJobInspection.asStateFlow()
+
+    private val _branchNavigation = MutableStateFlow<Int?>(null)
+    val branchNavigation = _branchNavigation.asStateFlow()
+    private var branching = false
+    val regenerateBranch = savedStateHandle.get<Boolean>("regenerate") ?: false
+    private var branchResumed = false
+
+    private var leavingConversation = false
+    private var exitOwnsDiagnosticPrivacy = false
+
+    private var composerRestored = false
+    private var modelsRestored = false
+    private val draftMutex = Mutex()
+
     init {
         fetchChatRoom()
         viewModelScope.launch {
@@ -817,8 +845,6 @@ class ChatViewModel @Inject constructor(
     fun openChatToolSheet() = _isChatToolSheetOpen.update { true }
     fun closeChatToolSheet() = _isChatToolSheetOpen.update { false }
 
-    private var unlockingAllTools = false
-
     fun toggleChatTool(toolId: String) {
         val config = _chatToolConfig.value
         if (config.isToolEnabled(toolId)) {
@@ -875,8 +901,6 @@ class ChatViewModel @Inject constructor(
         _pendingFreeToolConsent.value = null
     }
 
-    val pendingReplies = generationCompletionStore.items
-
     fun acknowledgeDisplayedReplies(displayed: List<MessageV2>, captured: List<dev.chungjungsoo.gptmobile.data.chat.CompletedGeneration>) {
         val byId = displayed.associateBy { it.id }
         viewModelScope.launch {
@@ -885,8 +909,6 @@ class ChatViewModel @Inject constructor(
             }
         }
     }
-
-    private val conversationDelegationMutex = Mutex()
 
     fun setConversationResearch(value: dev.chungjungsoo.gptmobile.data.model.MultiSearchResearchSelection) {
         _chatToolConfig.update { it.copy(research = value.normalized()) }
@@ -1276,9 +1298,6 @@ class ChatViewModel @Inject constructor(
         row.indices.filter { row[it].platformType in _activePlatformUids.value && row[it].platformType !in _disabledPlatformUids.value }.forEach { index -> retryChat(turnIndex, index, action) }
     }
 
-    private val _combinedFailures = MutableStateFlow<List<CombinedProfileFailure>>(emptyList())
-    val combinedFailures = _combinedFailures.asStateFlow()
-
     private fun refreshCombinedFailures() {
         if (_chatRoom.value.conversationMode != ConversationMode.COMBINED) {
             _combinedFailures.value = emptyList()
@@ -1311,8 +1330,6 @@ class ChatViewModel @Inject constructor(
         if (index >= 0) retryChat(turnIndex, index, dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.RETRY_WRITING)
     }
 
-    private val _queuedJobInspection = MutableStateFlow<String?>(null)
-    val queuedJobInspection = _queuedJobInspection.asStateFlow()
     fun dismissQueuedJobInspection() {
         _queuedJobInspection.value = null
     }
@@ -1715,12 +1732,6 @@ class ChatViewModel @Inject constructor(
         _attachmentNotice.update { "Failed to copy attachment." }
     }
 
-    private val _branchNavigation = MutableStateFlow<Int?>(null)
-    val branchNavigation = _branchNavigation.asStateFlow()
-    private var branching = false
-    val regenerateBranch = savedStateHandle.get<Boolean>("regenerate") ?: false
-    private var branchResumed = false
-
     fun consumeBranchNavigation() {
         _branchNavigation.value = null
     }
@@ -1772,9 +1783,6 @@ class ChatViewModel @Inject constructor(
             _attachmentNotice.value = "Memories learned from this conversation were removed."
         }
     }
-
-    private var leavingConversation = false
-    private var exitOwnsDiagnosticPrivacy = false
 
     fun leaveConversation(done: () -> Unit) {
         if (leavingConversation) return
@@ -2418,10 +2426,6 @@ class ChatViewModel @Inject constructor(
         val profiles: List<PlatformV2>,
         val features: dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
     )
-
-    private var composerRestored = false
-    private var modelsRestored = false
-    private val draftMutex = Mutex()
 
     @OptIn(kotlinx.coroutines.FlowPreview::class)
     private fun observeComposerDraft() {

@@ -42,7 +42,11 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
 class ArticleExaminationRecoveryTest {
-    @Test fun failedAppraiserResumesSavedEvidenceWithoutClaimingAnEmptyAssessmentComplete() = runBlocking {
+    @Test fun failedAppraiserResumesSavedEvidenceWithoutClaimingAnEmptyAssessmentComplete() = verifySavedRecovery(false)
+
+    @Test fun reexaminationResumesItsExactJobAndRejectsChangedAuthority() = verifySavedRecovery(true)
+
+    private fun verifySavedRecovery(reexamine: Boolean) = runBlocking {
         val app = ApplicationProvider.getApplicationContext<Context>()
         val directory = kotlin.io.path.createTempDirectory("article-recovery").toFile()
         val context = object : ContextWrapper(app) {
@@ -82,7 +86,7 @@ class ArticleExaminationRecoveryTest {
             }
             coordinator = ArticleExaminationCoordinator(archive, settings, chats, academic, models, Provider { error("No gateway authorized") }, sessions)
             val request = ExaminationRequest(original.workId, profile.uid, versionId = original.versionId)
-            jobId = coordinator.userExamine(request)
+            jobId = coordinator.userExamine(request.copy(reexamine = reexamine))
             suspend fun awaitStage(expected: ExaminationStage): ExaminationJob = withTimeout(15000) {
                 while (true) {
                     val row = requireNotNull(database.research().job(requireNotNull(jobId)))
@@ -93,6 +97,11 @@ class ArticleExaminationRecoveryTest {
                 error("Unreachable")
             }
             val failed = awaitStage(ExaminationStage.FAILED)
+            if (reexamine) {
+                val invalid = runCatching { requireNotNull(coordinator).userExamine(request.copy(authority = "other-authority", resumeJobId = jobId)) }.exceptionOrNull()
+                assertTrue(invalid?.message.orEmpty().contains("Saved examination identity"))
+                assertEquals(failed.lease, requireNotNull(database.research().job(requireNotNull(jobId))).lease)
+            }
             val saved = Json.decodeFromString<ExaminationCheckpoint>(failed.checkpointJson)
             assertNotNull(saved.versionId)
             assertEquals(failed.terminalReason, listOf("physical-1"), saved.invocationIds)
@@ -100,7 +109,7 @@ class ArticleExaminationRecoveryTest {
                 // Terminal state is persisted before the old coroutine releases ownership.
                 do {
                     delay(10)
-                    assertEquals(jobId, requireNotNull(coordinator).userExamine(request))
+                    assertEquals(jobId, requireNotNull(coordinator).userExamine(request.copy(versionId = if (reexamine) saved.versionId else request.versionId, resumeJobId = jobId.takeIf { reexamine })))
                 } while (requireNotNull(database.research().job(requireNotNull(jobId))).lease <= previous.lease)
             }
             resume(failed)

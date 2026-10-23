@@ -79,7 +79,7 @@ data class IndependentAppraisalReport(val appraisalId: String, val artifactHash:
 data class SourceValidationReceipt(val schemaVersion: Int = 1, val versionId: String, val contentHash: String, val retrievedAt: Long, val status: String, val owner: String, val providerReceiptIds: List<String> = emptyList())
 
 @Serializable
-data class ExaminationRequest(val workId: String, val profileUid: String = "", val chatId: Int = 0, val versionId: String? = null, val authority: String = "public", val origin: ExaminationOrigin = ExaminationOrigin.AUTHORIZED_RESEARCH, val rootWorkId: String? = null, val parentRunId: String? = null, val reexamine: Boolean = false)
+data class ExaminationRequest(val workId: String, val profileUid: String = "", val chatId: Int = 0, val versionId: String? = null, val authority: String = "public", val origin: ExaminationOrigin = ExaminationOrigin.AUTHORIZED_RESEARCH, val rootWorkId: String? = null, val parentRunId: String? = null, val reexamine: Boolean = false, val resumeJobId: String? = null)
 
 internal fun examinationAdmission(features: AppFeatureSettings, profile: PlatformV2, request: ExaminationRequest, tools: ChatMcpToolConfig): String? {
     val options = features.delegationFor(profile.uid).deepResearch
@@ -176,7 +176,7 @@ class ArticleExaminationCoordinator @Inject constructor(
             val budget = (combinedBudgets ?: dev.chungjungsoo.gptmobile.data.agent.CombinedTurnBudgetStore.installedOrNull())?.open(combined)?.snapshot()
             if (budget == null || budget.cancelled || budget.closed) return null
         }
-        return submit(ExaminationRequest(job.workId, job.profileUid, job.chatId, job.requestedVersionId, job.authority, job.origin, checkpoint.rootWorkId, checkpoint.parentRunId), { tools.copy(combined = checkpoint.combined) }, automaticRetry = true)
+        return submit(ExaminationRequest(job.workId, job.profileUid, job.chatId, job.requestedVersionId, job.authority, job.origin, checkpoint.rootWorkId, checkpoint.parentRunId, resumeJobId = job.jobId), { tools.copy(combined = checkpoint.combined) }, automaticRetry = true)
     }
 
     private suspend fun submit(request: ExaminationRequest, currentTools: () -> ChatMcpToolConfig, automaticRetry: Boolean = false): String {
@@ -225,6 +225,14 @@ class ArticleExaminationCoordinator @Inject constructor(
                 check(!changed) { "Accepted examination policy changed; use explicit Examine / Resume to reauthorize the destination and readers" }
             }
             val baseKey = researchHash("${request.workId}|${source.versionId}|${request.authority}|${request.chatId}|${profile.uid}|$policy|${request.origin}$acceptedRoot")
+            val selectedResume = request.resumeJobId?.let { id ->
+                require(!request.reexamine) { "Choose either Resume or Examine again." }
+                val prior = requireNotNull(archive.dao.job(id)) { "Saved examination is no longer available." }
+                val saved = Json.decodeFromString<ExaminationCheckpoint>(prior.checkpointJson)
+                require(prior.workId == request.workId && prior.chatId == request.chatId && prior.profileUid == profile.uid && prior.authority == request.authority && prior.origin == request.origin && (prior.requestedVersionId == source.versionId || saved.versionId == source.versionId) && saved.rootWorkId == request.rootWorkId && saved.parentRunId == request.parentRunId && saved.combined == acceptedCombined) { "Saved examination identity or authority changed." }
+                // A user can reauthorize changed permissions, but old execution checkpoints must not cross that policy boundary.
+                prior.takeIf { it.policyHash == policy }
+            }
             val running = archive.dao.allJobs().firstOrNull {
                 it.workId == request.workId &&
                     it.chatId == request.chatId &&
@@ -239,7 +247,8 @@ class ArticleExaminationCoordinator @Inject constructor(
             }
             if (running != null && !request.reexamine && archive.dao.deleted("archive:${request.workId}") == null) return@withLock running.jobId
             val explicitReadd = request.origin == ExaminationOrigin.USER_EXAMINE && (archive.dao.deleted("archive:${request.workId}") != null || archive.dao.membership(request.workId) == null)
-            val dedup = if (request.reexamine || explicitReadd) researchHash("$baseKey|${UUID.randomUUID()}") else baseKey
+            if (selectedResume?.stage in COMPLETE && !explicitReadd) return@withLock requireNotNull(selectedResume).jobId
+            val dedup = if (request.reexamine || explicitReadd || request.resumeJobId != null && selectedResume == null) researchHash("$baseKey|${UUID.randomUUID()}") else selectedResume?.dedupKey ?: baseKey
             val old = archive.dao.jobForKey(dedup)
             if (old != null && (active[old.jobId]?.isActive == true || old.stage in COMPLETE && Json.decodeFromString<ExaminationCheckpoint>(old.checkpointJson).pendingReviews.isNotEmpty())) return@withLock old.jobId
             val checkpoint = old?.checkpointJson?.let { saved -> Json.encodeToString(Json.decodeFromString<ExaminationCheckpoint>(saved).let { if (automaticRetry) it else it.copy(failure = null, retryAttempt = 0) }) } ?: Json.encodeToString(

@@ -21,6 +21,7 @@ import dev.chungjungsoo.gptmobile.presentation.common.DetailsSection
 @Composable
 internal fun StartupRecoveryScreen(detail: String, retry: () -> Unit) {
     val context = LocalContext.current
+    val exportTitle = stringResource(R.string.audit_export_details)
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text(stringResource(R.string.audit_startup_failed), style = MaterialTheme.typography.headlineSmall)
         Text(stringResource(R.string.audit_recovery_preserved))
@@ -29,7 +30,7 @@ internal fun StartupRecoveryScreen(detail: String, retry: () -> Unit) {
             Text(detail, style = MaterialTheme.typography.bodySmall)
             TextButton(onClick = {
                 val intent = android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain").putExtra(android.content.Intent.EXTRA_TEXT, detail)
-                context.startActivity(android.content.Intent.createChooser(intent, context.getString(R.string.audit_export_details)))
+                context.startActivity(android.content.Intent.createChooser(intent, exportTitle))
             }) { Text(stringResource(R.string.audit_export_details)) }
         }
     }

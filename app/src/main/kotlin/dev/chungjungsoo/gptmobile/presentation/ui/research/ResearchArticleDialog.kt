@@ -137,8 +137,9 @@ fun ResearchArticleDialog(workId: String, versionId: String? = null, authority: 
                             }
                         }
                         examinationBlocker?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error) }
-                        val completed = relevantJobs.any { it.stage in setOf(ExaminationStage.COMPLETE_FULL, ExaminationStage.COMPLETE_PARTIAL, ExaminationStage.ABSTRACT_ONLY) }
-                        androidx.compose.material3.Button(onClick = { viewModel.examine(ExaminationRequest(workId, profileUid, chatId, version.versionId, authority, reexamine = completed), currentTools) }, modifier = Modifier.fillMaxWidth(), enabled = examinationBlocker == null && !examinationActive && !admitting) {
+                        val selection = androidx.compose.runtime.remember(relevantJobs, profileUid, version.versionId) { examinationPrimarySelection(relevantJobs, profileUid, version.versionId) }
+                        val completed = selection.action == ExaminationPrimaryAction.EXAMINE_AGAIN
+                        androidx.compose.material3.Button(onClick = { viewModel.examine(ExaminationRequest(workId, profileUid, chatId, version.versionId, authority, reexamine = completed, resumeJobId = selection.resumeJobId), currentTools) }, modifier = Modifier.fillMaxWidth(), enabled = examinationBlocker == null && !examinationActive && !admitting) {
                             Text(
                                 if (admitting) {
                                     "Starting examination…"
@@ -148,7 +149,7 @@ fun ResearchArticleDialog(workId: String, versionId: String? = null, authority: 
                                     androidx.compose.ui.res.stringResource(
                                         if (completed) {
                                             dev.chungjungsoo.gptmobile.R.string.audit_examine_again
-                                        } else if (relevantJobs.isNotEmpty()) {
+                                        } else if (selection.action == ExaminationPrimaryAction.RESUME) {
                                             dev.chungjungsoo.gptmobile.R.string.audit_resume
                                         } else {
                                             dev.chungjungsoo.gptmobile.R.string.audit_examine

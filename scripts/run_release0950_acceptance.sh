@@ -75,6 +75,8 @@ timeout 240s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.p
 swipe_status=${PIPESTATUS[0]}
 timeout 240s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.ui.setting.AuditActionsInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/audit-actions-instrumentation.txt"
 audit_status=${PIPESTATUS[0]}
+timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.data.localmodel.NativeModelSourceInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/model-source-instrumentation.txt"
+model_source_status=${PIPESTATUS[0]}
 set -e
 adb logcat -d > "$acceptance_output/logcat.txt"
 settings_home_artifact_status=0
@@ -94,6 +96,7 @@ for conversation_theme in light dark; do
     adb exec-out run-as dev.melo.gptmobile.improved cat "files/conversation-glass-$conversation_state-$conversation_theme.png" > "$acceptance_output/conversation-glass-$conversation_state-$conversation_theme.png"
   done
 done
+if [ "$model_source_status" -ne 0 ]; then exit "$model_source_status"; fi
 if [ "$swipe_status" -ne 0 ]; then exit "$swipe_status"; fi
 if [ "$audit_status" -ne 0 ]; then exit "$audit_status"; fi
 if [ "$settings_home_display_status" -ne 0 ]; then exit "$settings_home_display_status"; fi
@@ -120,9 +123,12 @@ from pathlib import Path
 sys.path.insert(0, 'scripts')
 from check_native_memory_smoke import check_instrumentation
 folder = Path('app/build/acceptance-0950')
+for test in ('readableDescriptorWithDeniedPathCanBeExplicitlyImported', 'compatibleSourceRemainsInPlaceAndProbeDoesNotOwnItsDescriptor', 'oversizedFileIsRejectedInsteadOfOfferingAnImpossibleCopy'):
+    check_instrumentation(folder / 'model-source-instrumentation.txt', 'dev.chungjungsoo.gptmobile.data.localmodel.NativeModelSourceInstrumentedTest', test)
 for test in ('horizontalSwipeSwitchesProfilesAndVerticalScrollDoesNot', 'rtlSwipeUsesReadingDirectionAndDoesNotWrap'):
     check_instrumentation(folder / 'response-swipe-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.chat.ResponseSwipeInstrumentedTest', test)
 check_instrumentation(folder / 'audit-actions-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.setting.AuditActionsInstrumentedTest', 'modelPickerKeepsTheChosenProfileAfterReordering')
+check_instrumentation(folder / 'audit-actions-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.setting.AuditActionsInstrumentedTest', 'localModelCopyIsExplicitAndRestrictedSourcesExplainStorage')
 check_instrumentation(folder / 'editor-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.setting.Release0950InstrumentedTest', 'planEditorAppliesStepsAtCompactWidthLargeFontAndRtl')
 check_instrumentation(folder / 'performance-instrumentation.txt', 'dev.chungjungsoo.gptmobile.data.telemetry.tool.StatisticsPerformanceInstrumentedTest', 'catalogParseAndStatisticsOverheadProduceMeasuredEvidence')
 for test in ('encryptedCutoverPreservesIdentityAndRejectsStaleWrites', 'portableRestoreUsesNewKeyAndCannotResurrectDeletedFacts'):

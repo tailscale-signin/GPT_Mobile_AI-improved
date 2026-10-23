@@ -48,6 +48,7 @@ class LocalModelImportWorker @AssistedInject constructor(
                 check(!isStopped) { "Import stopped" }
             }
             val folder = inputData.getBoolean(FOLDER, false)
+            val mode = dev.chungjungsoo.gptmobile.data.localmodel.localModelImportMode(inputData.getString(MODE), inputData.getBoolean(COPY_TO_APP, false))
             var lastUpdate = 0L
             val progress: (Long) -> Unit = { bytes ->
                 val now = System.nanoTime() / 1_000_000
@@ -56,8 +57,8 @@ class LocalModelImportWorker @AssistedInject constructor(
                     setProgressAsync(Data.Builder().putLong(BYTES, bytes).build())
                 }
             }
-            val source = dev.chungjungsoo.gptmobile.data.localmodel.LocalModelSource(uri, if (folder) dev.chungjungsoo.gptmobile.data.localmodel.LocalModelSource.Kind.FOLDER else dev.chungjungsoo.gptmobile.data.localmodel.LocalModelSource.Kind.FILE, inputData.getBoolean(COPY_TO_APP, false))
-            val result = dev.chungjungsoo.gptmobile.data.localmodel.importLocalModelSource(repository, applicationContext.contentResolver, source, id.toString(), check, progress)
+            val source = dev.chungjungsoo.gptmobile.data.localmodel.LocalModelSource(uri, if (folder) dev.chungjungsoo.gptmobile.data.localmodel.LocalModelSource.Kind.FOLDER else dev.chungjungsoo.gptmobile.data.localmodel.LocalModelSource.Kind.FILE, mode)
+            val result = dev.chungjungsoo.gptmobile.data.localmodel.LocalModelSourceImport.execute(applicationContext, repository, source, id.toString(), check, progress)
             when (result) {
                 is LocalModelImportResult.Success -> Result.success(Data.Builder().putString(MESSAGE, applicationContext.getString(R.string.local_ai_import_done)).putString("modelId", result.record.catalogEntryId).build())
                 is LocalModelImportResult.Failure -> {
@@ -86,6 +87,7 @@ class LocalModelImportWorker @AssistedInject constructor(
         const val WORK = "local-model-import"
         const val SOURCE = "source"
         const val FOLDER = "folder"
+        const val MODE = "mode"
         const val COPY_TO_APP = "copyToApp"
         const val OWNS_GRANT = "ownsGrant"
         const val BYTES = "bytes"

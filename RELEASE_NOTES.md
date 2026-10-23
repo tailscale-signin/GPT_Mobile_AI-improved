@@ -1,14 +1,13 @@
-# GPT Mobile AI 0.9.56.0 (build 126)
+# GPT Mobile AI 0.9.56.1 (build 127)
 
-This scoped repair release improves Free-provider integration, Combined answer delivery, and everyday navigation.
+Local model selection now checks whether Android can open the selected document in place before starting installation.
 
-- Hugging Face raw Gradio contracts and terminal diagnostics; LLM7 token access and preserved quota origins; clear OpenCode eligibility.
-- Combined writers selected using actual capacity and observed delivery, with bounded typed recovery and retained replies.
-- Swipe left or right on AI responses to switch profiles in Multi-chat and Combined; accessible next/previous actions and RTL support.
-- Correct profile targeting, model file/folder linking, local filter reset/removal and consistent local navigation.
-- Consumed notification navigation, serialized startup recovery, turn-bound Research status and separate answer/error content.
-- Compact New Chat, provider, plugin, Research, Examine, backup and Settings views with technical information behind Details.
-- Explicit release scope, exact-commit green checks, physical-device comparison wiring and optional-payload size inventory.
+- If the file provider prevents native path access, the review offers **Import copy** with a clear storage notice. This uses the granted document stream and preserves the original file.
+- Compatible files still link in place by default. Copying is always an explicit choice; saved link requests never silently change into copies.
+- File and manifest-folder copies reuse validation, hashes, cancellation cleanup and durable import jobs. Folder import temporarily needs about twice the model size.
+- Added an Android regression covering a readable descriptor whose path cannot be reopened, plus copy/link dispatch and UI coverage.
+
+After updating, select the model again and confirm **Import copy** if it cannot be linked. Model-format and device/runtime compatibility checks still apply.
 
 ## Qualification limits
 

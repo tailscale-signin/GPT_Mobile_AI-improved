@@ -2,10 +2,7 @@ package dev.chungjungsoo.gptmobile.data.localmodel
 
 import android.content.Context
 import android.net.Uri
-import android.provider.DocumentsContract
 import android.provider.OpenableColumns
-import android.system.Os
-import android.system.OsConstants
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalModelValidator
 import dev.chungjungsoo.gptmobile.data.localruntime.ModelValidationResult
 import java.io.File
@@ -41,26 +38,7 @@ internal object LocalModelReferenceInstaller {
             }
             val name: String
             if (folder) {
-                val root = DocumentsContract.getTreeDocumentId(source)
-                val children = mutableMapOf<String, Map<String, String>>()
-                fun document(path: String): Uri {
-                    ModelArtifactManifest.safeFile(File(context.cacheDir, "reference-path-check"), path)
-                    var current = root
-                    path.split('/').forEach { segment ->
-                        current = children.getOrPut(current) {
-                            val query = DocumentsContract.buildChildDocumentsUriUsingTree(source, current)
-                            context.contentResolver.query(query, arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME, DocumentsContract.Document.COLUMN_DOCUMENT_ID), null, null, null)?.use { cursor ->
-                                buildMap {
-                                    while (cursor.moveToNext()) {
-                                        checkCurrent()
-                                        require(size < 1024 && put(cursor.getString(0), cursor.getString(1)) == null) { "Folder has too many or ambiguous entries" }
-                                    }
-                                }
-                            } ?: error("Folder access was lost. Select it again.")
-                        }[segment] ?: error("Missing declared model asset: $path")
-                    }
-                    return DocumentsContract.buildDocumentUriUsingTree(source, current)
-                }
+                val document = ModelFolderArchive.documents(context.contentResolver, source, checkCurrent)
                 val bytes = context.contentResolver.openInputStream(document("manifest.json"))?.use { readModelReferenceMetadata(it) } ?: error("Cannot read model manifest")
                 require(bytes.size <= 262_144) { "Model manifest is oversized" }
                 val declared = json.decodeFromString<ModelArtifactManifest>(bytes.decodeToString())
@@ -71,7 +49,7 @@ internal object LocalModelReferenceInstaller {
                 declared.files.forEach { asset ->
                     require(asset.sizeBytes in 1..16_000_000_000L && asset.sha256.matches(Regex("[a-fA-F0-9]{64}"))) { "Assets need a size and SHA-256" }
                     val uri = document(asset.path)
-                    withSeekableSource(context, uri, asset.path.substringAfterLast('/')) { file ->
+                    NativeModelSource.withFile(context, uri, asset.path.substringAfterLast('/')) { file ->
                         require(file.length() == asset.sizeBytes) { "Truncated model asset: ${asset.path}" }
                         val actual = digest(file)
                         require(actual.equals(asset.sha256, true)) { "Model asset checksum mismatch: ${asset.path}" }
@@ -82,7 +60,7 @@ internal object LocalModelReferenceInstaller {
             } else {
                 name = context.contentResolver.query(source, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { if (it.moveToFirst()) it.getString(0) else null } ?: error("Source filename is unavailable")
                 require(LocalModelDownloadPaths.isValidPathSegment(name) && (name.endsWith(".litertlm", true) || name.endsWith(".gguf", true))) { "Link a .litertlm or .gguf file. Extract ZIP/.localmodel packages and select their model folder; local weights are not copied." }
-                withSeekableSource(context, source, name) { file ->
+                NativeModelSource.withFile(context, source, name) { file ->
                     if (name.endsWith(".litertlm", true)) require(LocalModelValidator.validate(file.path) is ModelValidationResult.Valid) { "Invalid or incomplete LiteRT-LM model" }
                     val described = if (name.endsWith(".gguf", true)) GgufImportAdapter.describe(file, "pending-linked-id", "0".repeat(64), checkCurrent) else null
                     val hash = digest(file)
@@ -123,37 +101,7 @@ internal object LocalModelReferenceInstaller {
                 LinkedModelSources.forget(it)
                 it.deleteRecursively()
             }
-            return LocalModelImportResult.Failure(LocalModelImportResult.Failure.Reason.INVALID_MODEL, failure.message ?: "Could not link this model location")
-        }
-    }
-
-    /** Reject pipes and cloud streams that cannot be memory-mapped; do not fall back to a copy. */
-    private fun <T> withSeekableSource(context: Context, uri: Uri, name: String, block: (File) -> T): T {
-        val descriptor = context.contentResolver.openFileDescriptor(uri, "r") ?: error("Source access was lost. Select it again.")
-        descriptor.use {
-            val stat = Os.fstat(it.fileDescriptor)
-            require(OsConstants.S_ISREG(stat.st_mode) && stat.st_size in 1..16_000_000_000L) { "This source cannot be linked. Select the model file again and enable Copy to app, or choose another on-device location." }
-            val directory = File(context.cacheDir, "model-link-check-${java.util.UUID.randomUUID()}").apply { check(mkdirs()) }
-            val alias = File(directory, name)
-            try {
-                Os.symlink("/proc/self/fd/${it.fd}", alias.path)
-                try {
-                    alias.inputStream().channel.use { channel ->
-                        channel.map(java.nio.channels.FileChannel.MapMode.READ_ONLY, 0, minOf(4096L, stat.st_size)).get(0)
-                    }
-                } catch (failure: Exception) {
-                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
-                        "LocalImport",
-                        "LINK_NATIVE_PATH_UNAVAILABLE · provider=${uri.authority} · exception=${failure.javaClass.simpleName} · cause=${failure.cause?.javaClass?.simpleName.orEmpty()} · copyAvailable=true",
-                        "W"
-                    )
-                    throw IllegalStateException("This file provider does not support model linking. Select the model file again and enable Copy to app. No copy was created.", failure)
-                }
-                return block(alias)
-            } finally {
-                alias.delete()
-                directory.delete()
-            }
+            return LocalModelImportResult.Failure(if (failure is NativeModelSource.CannotLink) LocalModelImportResult.Failure.Reason.LINK_UNSUPPORTED else LocalModelImportResult.Failure.Reason.INVALID_MODEL, failure.message ?: "Could not link this model location")
         }
     }
 }

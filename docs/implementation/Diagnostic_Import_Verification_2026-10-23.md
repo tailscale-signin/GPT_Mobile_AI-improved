@@ -12,7 +12,7 @@ Source: `app-diagnostics-3229024066493516407.jsonl`, app 0.9.56.0 (126), commit 
 
 ## Regression coverage
 
-- Default link routing without opening a stream; explicit stream-only LiteRT copy through the real installer; source checksum preservation; progress and staging cleanup; GGUF routing; stream closure and cancellation propagation; unsafe filenames and unsupported folder copying.
+- Default link routing without opening a stream; explicit stream-only LiteRT copy through the real installer; source checksum preservation; progress and staging cleanup; GGUF routing; stream closure and cancellation propagation; unsafe filenames; manifest-folder copying, cancellation, and interrupted-job staging cleanup.
 - FTS4 selection from registered modules, portable LIKE fallback, and unavailable module diagnostics.
 - Combined verifier and structured-role transport requirements, while retaining ordinary delegate recovery behavior.
 
@@ -21,3 +21,7 @@ Source: `app-diagnostics-3229024066493516407.jsonl`, app 0.9.56.0 (126), commit 
 Local validation: 154 Python script tests passed; resource/icon/QNN-provenance preflight, Android regex checks, reliability inventory checks, Kotlin formatting, and whitespace checks passed. Full Android unit tests/build/lint are delegated to PR CI because the local Gradle distribution download is unavailable.
 
 The log also records BridgeNode/Kilo/AI Horde DNS failures, Cehpoint 429s, a Hugging Face hosted `NoneType.choices` failure, Vireonix 502, and frame skips. This change does not claim to restore external services or establish the cause of the frame skips. Test both link and copy on the affected phone/provider, then use **Verify load** for native execution. Existing GGUF architecture/runtime restrictions still apply. No release or device validation is claimed.
+
+## PR integration
+
+The reconciled import flow retains the native-access precheck and explicit file/folder copy support from PR #734, together with the bounded stream import, memory-search capability detection, and Combined verifier transport handling from PR #733. Worker input accepts the newer mode string and the earlier copyToApp boolean so already-queued copy choices remain intact. Explicit mode strings take precedence. Regression tests from both branches are retained; folder copying is covered by the folder staging tests rather than rejected.

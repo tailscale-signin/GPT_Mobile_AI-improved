@@ -9,7 +9,7 @@ import java.util.zip.ZipOutputStream
 
 /** A supported folder is a manifest plus its exact declared data assets, never arbitrary code. */
 internal object ModelFolderArchive {
-    fun copy(resolver: ContentResolver, tree: Uri, target: File, checkCurrent: () -> Unit) {
+    fun documents(resolver: ContentResolver, tree: Uri, checkCurrent: () -> Unit = {}): (String) -> Uri {
         val root = DocumentsContract.getTreeDocumentId(tree)
         fun children(parent: String): Map<String, String> {
             val uri = DocumentsContract.buildChildDocumentsUriUsingTree(tree, parent)
@@ -24,12 +24,17 @@ internal object ModelFolderArchive {
             } ?: error("Folder permission lost; select it again")
         }
         val childCache = mutableMapOf<String, Map<String, String>>()
-        fun open(path: String): java.io.InputStream {
+        return { path ->
             require(path.split('/').all { it.isNotBlank() && it != "." && it != ".." && !it.contains('\\') }) { "Unsafe manifest path" }
             var id = root
             path.split('/').forEach { segment -> id = childCache.getOrPut(id) { children(id) }[segment] ?: error("Missing declared file: $path") }
-            return resolver.openInputStream(DocumentsContract.buildDocumentUriUsingTree(tree, id)) ?: error("Could not read $path")
+            DocumentsContract.buildDocumentUriUsingTree(tree, id)
         }
+    }
+
+    fun copy(resolver: ContentResolver, tree: Uri, target: File, checkCurrent: () -> Unit, progress: (Long) -> Unit = {}) {
+        val document = documents(resolver, tree, checkCurrent)
+        fun open(path: String) = resolver.openInputStream(document(path)) ?: error("Could not read $path")
         val manifestBytes = open("manifest.json").use { input ->
             val buffer = ByteArray(262_145)
             var count = 0
@@ -46,12 +51,13 @@ internal object ModelFolderArchive {
         require(manifest.files.size in 1..256 && manifest.files.map { it.path }.distinct().size == manifest.files.size)
         require(manifest.files.all { it.path != "manifest.json" && it.sizeBytes in 1..16_000_000_000L })
         val total = manifest.files.sumOf { it.sizeBytes }
-        require(total <= 32_000_000_000L && total + 8_388_608 < target.parentFile!!.usableSpace) { "Insufficient staging space" }
+        require(total <= 32_000_000_000L && 2 * total + 16_777_216 < target.parentFile!!.usableSpace) { "Insufficient staging space" }
         ZipOutputStream(target.outputStream()).use { zip ->
             zip.setLevel(0)
             zip.putNextEntry(ZipEntry("manifest.json"))
             zip.write(manifestBytes)
             zip.closeEntry()
+            var totalCopied = 0L
             val buffer = ByteArray(262_144)
             manifest.files.forEach { asset ->
                 checkCurrent()
@@ -65,6 +71,8 @@ internal object ModelFolderArchive {
                         copied += count
                         require(copied <= asset.sizeBytes) { "File exceeds declared size: ${asset.path}" }
                         zip.write(buffer, 0, count)
+                        totalCopied += count
+                        progress(totalCopied)
                     }
                 }
                 require(copied == asset.sizeBytes) { "Truncated file: ${asset.path}" }

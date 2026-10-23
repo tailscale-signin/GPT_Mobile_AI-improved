@@ -1,13 +1,11 @@
 {
-  "version": "0.9.56.0",
-  "versionCode": 126,
+  "version": "0.9.56.1",
+  "versionCode": 127,
   "qualification": "scoped",
-  "baseCommit": "7ba0abd59afc8d1b606f5ddfe46c5039e2c63ef4",
+  "baseCommit": "d9db21d0823e03b547c42d1b52f012ec17af42a3",
   "changes": [
-    "Free provider contract, token access and quota diagnostics",
-    "Combined delivery capacity, recovery and contributor quality",
-    "Repository audit action fixes, compact UI, Research ownership and response swipe navigation",
-    "Explicit release qualification, exact-commit acceptance, performance comparison and payload inventory"
+    "Explicit local model copy import for document providers that cannot support native loading in place",
+    "Native file access preflight, persisted import mode and Android descriptor permission regression coverage"
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; its remaining acceptance cases are not represented as passed.",

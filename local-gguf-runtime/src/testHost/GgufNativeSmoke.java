@@ -87,6 +87,18 @@ public final class GgufNativeSmoke {
             GgufNative.cancelOperation(engine, duringPrefill); // Delayed cancel must not hit the new operation.
             long[] freshResult = GgufNative.generatePrepared(engine, new String[]{"user"}, new byte[][]{"Once upon a time".getBytes(StandardCharsets.UTF_8)}, 16, 1, 1f, 0f, bytes -> true, null, fresh);
             check(freshResult[1] > 0 && freshResult[4] != 2, "Stale cancellation stopped a fresh operation");
+            long budgetOperation = GgufNative.nextOperationId();
+            GgufNative.prepareOperation(engine, budgetOperation);
+            var actualBudget = new java.util.concurrent.atomic.AtomicInteger();
+            long[] boundedReply = GgufNative.generatePrepared(engine, new String[]{"user"},
+                new byte[][]{"Once upon a time".getBytes(StandardCharsets.UTF_8)},
+                8192, 1, 1f, 0f, bytes -> false,
+                (phase,total,processed,sampled,elapsed,code) -> {
+                    if (phase.equals("OUTPUT_BUDGET_ADJUSTED")) actualBudget.set(code);
+                }, budgetOperation);
+            check(actualBudget.get() > 0 && actualBudget.get() < 512, "Exact tokenizer did not reserve reply headroom");
+            check(boundedReply[0] + actualBudget.get() == GgufNative.allocationObservation(engine)[0], "Native reply allocation exceeds context");
+            check(boundedReply[1] == 1 && boundedReply[4] == 2, "Fitting input was rejected because of an oversized output preference");
             try {
                 GgufNative.generate(engine, new String[]{"user"}, new byte[][]{"x ".repeat(1000).getBytes(StandardCharsets.UTF_8)}, 64, 1, 1f, 0f, bytes -> true);
                 throw new AssertionError("Oversized prompt admitted");

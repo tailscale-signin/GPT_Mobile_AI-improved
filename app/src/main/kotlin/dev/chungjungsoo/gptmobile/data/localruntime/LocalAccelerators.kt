@@ -51,6 +51,14 @@ object LocalAccelerators {
             SocVariantResolver.hasMatchingVariant(socToModelFiles, deviceSocModel)
     }
 
+    /** Start portable GGUF imports on CPU until the user selects a tested GPU route. */
+    fun defaultFor(entry: dev.chungjungsoo.gptmobile.data.catalog.CatalogEntry, deviceSocModel: String = ""): String =
+        if (entry.variantLabel == "LLAMA_CPP" && entry.supportedAccelerators.any { it.equals(CPU, true) }) {
+            CPU
+        } else {
+            defaultFrom(entry.supportedAccelerators, entry.socToModelFiles, deviceSocModel)
+        }
+
     fun defaultFrom(
         supported: List<String>,
         socToModelFiles: Map<String, *> = emptyMap<String, Any>(),

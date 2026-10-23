@@ -258,7 +258,16 @@ extern "C" JNIEXPORT jlongArray JNICALL Java_dev_melo_gguf_GgufNative_generatePr
         report("TOKENIZE_BEGIN", -1, -1, 0);
         const auto vocab = llama_model_get_vocab(engine->model);
         const int tokenCount = -llama_tokenize(vocab, prompt.data(), prompt.size(), nullptr, 0, true, true);
-        if (tokenCount <= 0 || static_cast<uint64_t>(tokenCount) + outputLimit > llama_n_ctx(engine->context)) throw std::runtime_error("GGUF context limit: shorten input or select a larger compatible context");
+        const auto capacity = llama_n_ctx(engine->context);
+        if (tokenCount <= 0 || static_cast<uint64_t>(tokenCount) >= capacity) {
+            throw std::runtime_error("GGUF context limit: rendered input=" + std::to_string(tokenCount) +
+                " tokens, capacity=" + std::to_string(capacity) + "; input retained; select a larger compatible context");
+        }
+        // Kotlin estimates cannot know a model's exact tokenizer/template cost.
+        // Output is a maximum, so reduce only that allowance after tokenization;
+        // never reject a prompt that fits merely because its requested reply does not.
+        const int effectiveOutputLimit = std::min<int>(outputLimit, capacity - tokenCount);
+        if (effectiveOutputLimit != outputLimit) report("OUTPUT_BUDGET_ADJUSTED", tokenCount, 0, 0, effectiveOutputLimit);
         std::vector<llama_token> tokens(tokenCount);
         if (llama_tokenize(vocab, prompt.data(), prompt.size(), tokens.data(), tokens.size(), true, true) != tokenCount) throw std::runtime_error("GGUF tokenization failed");
         report("TOKENIZE_END", tokenCount, 0, 0);
@@ -306,7 +315,7 @@ extern "C" JNIEXPORT jlongArray JNICALL Java_dev_melo_gguf_GgufNative_generatePr
         const jlong prefillMs = elapsed(start);
         const auto decodeStart = Clock::now();
         report("PREFILL_END", tokenCount, input, output, static_cast<int>(stop));
-        if (input == tokenCount) for (int i = 0; i < outputLimit && !engine->stop; ++i) {
+        if (input == tokenCount) for (int i = 0; i < effectiveOutputLimit && !engine->stop; ++i) {
             const auto token = llama_sampler_sample(sampler.get(), engine->context, -1);
             if (i == 0) report("FIRST_SAMPLE", tokenCount, input, output);
             if (llama_vocab_is_eog(vocab, token)) { stop = 0; break; }

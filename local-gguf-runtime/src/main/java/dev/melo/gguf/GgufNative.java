@@ -2,7 +2,7 @@ package dev.melo.gguf;
 
 /** The sole JNI boundary. Model bytes and prompts never leave the inference process. */
 public final class GgufNative {
-    public static final String REVISION = "4413a192410fad1f054e9216114087a3e01527a0";
+    public static final String REVISION = "620d2225cc436ab0b001e3200e590e3b286ef9ab";
     static { System.loadLibrary("gptmobile_gguf"); }
     private GgufNative() {}
     private static final java.util.concurrent.atomic.AtomicLong OPERATIONS = new java.util.concurrent.atomic.AtomicLong();

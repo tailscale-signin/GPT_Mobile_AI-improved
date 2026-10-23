@@ -24,11 +24,7 @@ fun localSamplingDefaults(
     deviceSocModel: String = "",
     deviceRamGb: Long = 8L
 ): LocalSamplingDefaults {
-    val accelerator = LocalAccelerators.defaultFrom(
-        supported = entry.supportedAccelerators,
-        socToModelFiles = entry.socToModelFiles,
-        deviceSocModel = deviceSocModel
-    )
+    val accelerator = LocalAccelerators.defaultFor(entry, deviceSocModel)
 
     val baseMaxTokens = entry.defaultConfig.maxTokens
     val resolvedMaxTokens = when {

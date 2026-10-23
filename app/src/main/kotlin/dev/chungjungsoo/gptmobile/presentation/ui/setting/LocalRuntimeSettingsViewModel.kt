@@ -231,7 +231,7 @@ class LocalRuntimeSettingsViewModel @Inject constructor(
             name = entry.displayName,
             compatibleType = ClientType.LITERT_LM,
             model = entry.id,
-            accelerator = LocalAccelerators.defaultFrom(inspected.supportedAccelerators, inspected.socToModelFiles, soc),
+            accelerator = LocalAccelerators.defaultFor(inspected, soc),
             maxTokens = minOf(entry.defaultConfig.maxTokens, capabilities?.contextTokens ?: entry.defaultConfig.maxTokens).coerceAtLeast(1),
             temperature = entry.defaultConfig.temperature,
             topP = entry.defaultConfig.topP,

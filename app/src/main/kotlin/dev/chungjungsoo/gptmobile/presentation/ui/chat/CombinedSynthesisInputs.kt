@@ -42,7 +42,10 @@ internal fun combinedSynthesisInputs(
         } else {
             runs[message.currentRunId]?.status ?: original?.completionStatus ?: AgentRunStatus.COMPLETED
         }
-        val assessment = CombinedContributionUsability.assess(status, content, allowPartial = true)
+        val modelName = models[uid] ?: original?.modelName.orEmpty()
+        val demo = uid == "builtin-free-porchlm" || names[uid]?.contains("PorchLM", true) == true || modelName.contains("porch", true)
+        val assessment = CombinedContributionUsability.assess(status, content, allowPartial = true, request = currentRequest, demo = demo)
+        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("CombinedScreening", "CONTRIBUTION_SCREENED · uid=$uid · admitted=${assessment.admitted} · reason=${assessment.reason} · relevance=${assessment.relevance} · coherence=${assessment.coherence} · completeness=${assessment.completeness}")
         if (!assessment.admitted) return@mapNotNull null
         CombinedModelResponse(
             platformUid = uid,

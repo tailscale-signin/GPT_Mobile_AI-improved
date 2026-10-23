@@ -21,13 +21,15 @@ data class CombinedAnswerPolicy(
     val requestedLanguage: String? = null,
     val requiredTopics: List<String> = emptyList(),
     val comparative: Boolean = false,
-    val noSearch: Boolean = false
+    val noSearch: Boolean = false,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val task: CombinedTaskContract? = null
 ) {
     companion object {
         private val words = Regex("(?i)(?:(at least|minimum(?: of)?|more than|over|under|fewer than|less than|at most|no more than|up to|maximum(?: of)?|max[.:]?)\\s+)?([1-9][0-9,]{0,6})\\s*[-–]?\\s*words?\\b")
         private val itemCount = Regex("(?i)\\b(?:(?:exactly|give|list|provide|tell me|show me)\\s+)?(one|two|three|four|five|six|seven|eight|nine|ten|[1-9][0-9]{0,3})\\s+(?:random\\s+|historical\\s+|history\\s+)?(?:facts?|examples?|events?|stories|jokes?|reasons?|benefits?|items?|options?)\\b")
         private val namedNumbers = listOf("zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten")
-        fun from(request: String): CombinedAnswerPolicy {
+        fun from(request: String, previousRequest: String? = null): CombinedAnswerPolicy {
             val goal = words.findAll(request).lastOrNull()
             val count = goal?.groupValues?.get(2)?.replace(",", "")?.toIntOrNull()?.takeIf { it in 1..100_000 }
             val qualifier = goal?.groupValues?.get(1)?.lowercase().orEmpty()
@@ -47,6 +49,8 @@ data class CombinedAnswerPolicy(
             // Only explicit topic clauses are compiled. Guessing a topic from every noun would impose new work.
             val topicClause = Regex("(?i)\\b(?:cover|include|address)\\s+(?:these|the following)\\s+topics?\\s*:\\s*([^\\n.!?]+)").find(request)?.groupValues?.get(1)
             return CombinedAnswerPolicy(
+                version = 3,
+                task = CombinedTaskContract.from(request, previousRequest),
                 maximumWords = count?.let {
                     when {
                         minimum -> null
@@ -71,6 +75,7 @@ data class CombinedAnswerPolicy(
     }
 
     fun violations(answer: String): List<String> = buildList {
+        addAll(task?.violations(answer).orEmpty())
         val count = visibleWordCount(answer)
         minimumWords?.let { if (count < it) add("WORD_MINIMUM_UNMET:$count/$it") }
         maximumWords?.let { if (count > it) add("WORD_LIMIT_EXCEEDED:$count/$it") }

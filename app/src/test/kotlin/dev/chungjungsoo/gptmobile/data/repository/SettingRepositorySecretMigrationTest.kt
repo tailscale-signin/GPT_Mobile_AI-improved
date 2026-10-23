@@ -28,7 +28,7 @@ class SettingRepositorySecretMigrationTest {
         val repository = SettingRepositoryImpl(settings, profiles, connections, FakeChatPlatformModelV2Dao(), FakeSecretVault())
         repository.ensureFreeModels()
         assertEquals(12, profiles.platforms.size)
-        assertTrue(profiles.platforms.all { it.enabled && it.compatibleType == ClientType.FREE && it.name == FreeAiProvider.requireFor(it).displayName })
+        assertTrue(profiles.platforms.all { it.enabled == !FreeAiProvider.requireFor(it).isDemo && it.compatibleType == ClientType.FREE && it.name == FreeAiProvider.requireFor(it).displayName })
         assertEquals(1, connections.getConnections().size)
         assertEquals("Free Models", connections.getConnections().single().name)
         val removed = profiles.platforms.first()

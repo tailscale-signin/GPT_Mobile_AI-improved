@@ -63,9 +63,10 @@ object CombinedPolicyResolver {
         val visibleGuide = explicitWords?.let { (it * 2L + 128).coerceAtMost(Int.MAX_VALUE.toLong()) } ?: defaultFinal.toLong()
         // PASSAGES_V3 includes decision and framing records in the provider output cap.
         // This capacity never changes the visible word contract or an explicit caller cap.
-        val recordAllowance = requested.participantUids.size * 512L + (requested.acceptedResearch?.sourceGoal ?: 0L) * 128L
+        val recordAllowance = maxOf(512L, visibleGuide / 3) + minOf(1024L, (requested.acceptedResearch?.sourceGoal ?: 0L) * 64L)
+        val reasoningReserve = 2048L
         val requestedFinal = requiredOutputTokens?.coerceAtLeast(1)
-            ?: Math.addExact(visibleGuide, recordAllowance).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+            ?: Math.addExact(visibleGuide, recordAllowance + reasoningReserve).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
         val input = estimatedInputTokens.toLong().coerceAtLeast(256)
         val availableOutput = hardLimits.generatedTokens ?: Long.MAX_VALUE
         val finalTokens = minOf(requestedFinal.toLong(), availableOutput).coerceAtLeast(0)

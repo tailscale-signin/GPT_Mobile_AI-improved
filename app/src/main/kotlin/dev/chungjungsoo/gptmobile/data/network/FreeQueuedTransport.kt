@@ -25,7 +25,7 @@ import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import io.ktor.utils.io.readAvailable
-import io.ktor.utils.io.readLineStrict
+import io.ktor.utils.io.readUTF8Line
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.TimeoutCancellationException
@@ -52,17 +52,37 @@ internal class FreeQueuedTransport(private val client: HttpClient, private val p
         val context = currentCoroutineContext()
         context[RequestAuthorizationGuard]?.validate?.invoke()
         val prompt = textPrompt(request)
-        val payload = if (provider == FreeAiProvider.AI_HORDE) hordePayload(request, prompt) else gradioPayload(request, prompt)
+        // Keep the stable cache identity independent of worker selection. A retry must find
+        // the accepted receipt even when volunteer availability changes.
+        val identityPayload = if (provider == FreeAiProvider.AI_HORDE) hordePayload(request, prompt) else gradioPayload(request, prompt)
+        var payload = identityPayload
         // Scope isolates conversations/accepted turns; payload and permission changes cannot reuse jobs.
         val scope = config.queueScope ?: context[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.queueScope ?: java.util.UUID.randomUUID().toString()
-        val key = researchHash("$scope|${config.profileUid}|${config.permissionRevision}|${provider.name}|${config.queuePersistent}|$payload")
+        val key = researchHash("$scope|${config.profileUid}|${config.permissionRevision}|${provider.name}|${config.queuePersistent}|$identityPayload")
         FreeQueueJobs.withJob(key) {
             var job = FreeQueueJobs.read(key, config.queuePersistent)
+            job?.let { saved ->
+                config.freeDiagnostics?.apply {
+                    jobId = saved.id
+                    progress = saved.state
+                    terminal = if (saved.state in setOf("READING", "DISCONNECTED")) null else saved.state in setOf("FAILED", "EXPIRED", "CANCELLED", "REJECTED")
+                    stage = if (saved.state == "FAILED") "generation" else "queue_recovery"
+                }
+            }
             // A definite rejection created no remote job. An explicit retry may submit again.
-            if (job?.state == "REJECTED") job = null
+            if (job?.state == "REJECTED") {
+                job = null
+                config.freeDiagnostics?.apply {
+                    jobId = null
+                    terminal = null
+                }
+            }
             if (job != null) {
                 check(System.currentTimeMillis() - job.createdAt < 20 * 60_000) { "Queued job expired. Start a new generation; the previous submission will not be repeated." }
-                check(job.state !in setOf("SUBMITTING", "CANCELLED", "FAILED", "EXPIRED")) { "Queued submission is ${job.state.lowercase()}. It cannot be resumed; start a new generation." }
+                check(job.state !in setOf("SUBMITTING", "CANCELLED", "FAILED", "EXPIRED", "READING", "DISCONNECTED")) { "QUEUE_RECEIPT_NOT_RESUMABLE: Queued submission is ${job.state.lowercase()}. It cannot be resumed; explicitly start a new generation." }
+                check(provider != FreeAiProvider.HUGGING_FACE || job.answer != null || job.protocol == "GRADIO_CALL_V2") {
+                    "QUEUE_RECEIPT_NOT_RESUMABLE: The saved Space receipt uses the previous session protocol. Explicitly start a new generation."
+                }
                 if (job.answer != null) {
                     deliver(requireNotNull(job.answer), job.servedModel, provider, emit)
                     return@withJob
@@ -71,9 +91,24 @@ internal class FreeQueuedTransport(private val client: HttpClient, private val p
             try {
                 withTimeout(timeoutSeconds.coerceIn(15, 1200) * 1000L) {
                     if (job == null) {
-                        if (provider == FreeAiProvider.HUGGING_FACE) validateGradioSchema()
-                        val actualPayload = if (provider == FreeAiProvider.HUGGING_FACE) JsonObject(payload + ("session_hash" to JsonPrimitive(key))) else payload
-                        val wire = preparation.prepareQueued(actualPayload.toString(), config, request.model, if (provider == FreeAiProvider.AI_HORDE && request.model != "horde-image") request.maxTokens else null)
+                        if (provider == FreeAiProvider.HUGGING_FACE) {
+                            config.freeDiagnostics?.stage = "schema_validation"
+                            validateGradioSchema(config, request.model)
+                        }
+                        if (provider == FreeAiProvider.AI_HORDE && request.model != "horde-image") {
+                            config.freeDiagnostics?.stage = "worker_selection"
+                            val catalog = checkedJsonArray(client.get("${provider.apiUrl}/status/models?type=text"), config, request.model)
+                            val selected = HordeTextPolicy.select(catalog, request.model)
+                                ?: error("QUEUE_WORKERS_UNAVAILABLE: No active worker with a supported non-reasoning instruction template. Choose another provider or refresh later.")
+                            val workerRequest = request.copy(model = selected)
+                            payload = hordePayload(workerRequest, HordeTextPolicy.prompt(workerRequest))
+                            emit(ChatCompletionChunk(applicationNotice = "AI Horde selected $selected with its instruction template; anonymous output remains capped at 256 tokens."))
+                        }
+                        // The simplified /call result route uses event_id as its session key.
+                        // Supplying our cache key as session_hash makes Gradio 5.27 return 404.
+                        val actualPayload = payload
+                        val wire = preparation.prepareQueued(actualPayload.toString(), config, request.model, if (provider == FreeAiProvider.AI_HORDE && request.model != "horde-image") ((actualPayload["params"] as? JsonObject)?.get("max_length") as? JsonPrimitive)?.intOrNull else null)
+                        config.freeDiagnostics?.stage = "submission"
                         val response = FreeAiRequestLimiter.shared.withRequest(provider, request.model) {
                             FreeQueueJobs.save(FreeQueueJob(key, chatId = scope.substringBefore(':').toIntOrNull()), config.queuePersistent)
                             client.post(if (provider == FreeAiProvider.AI_HORDE) hordeBase(request.model) + "/async" else "${provider.apiUrl}/gradio_api/call/add_message") {
@@ -88,16 +123,30 @@ internal class FreeQueuedTransport(private val client: HttpClient, private val p
                         }
                         // A timeout (408) can arrive after enqueueing; keep its uncertain receipt.
                         if (response.status.value in setOf(400, 401, 402, 403, 404, 405, 413, 415, 422, 429)) FreeQueueJobs.save(FreeQueueJob(key, state = "REJECTED", chatId = scope.substringBefore(':').toIntOrNull()), config.queuePersistent)
-                        val root = checkedJson(response, provider)
+                        val root = checkedJson(response, config, request.model)
                         val id = root.text(if (provider == FreeAiProvider.AI_HORDE) "id" else "event_id")
                         check(id != null && id.matches(Regex("[A-Za-z0-9-]{1,128}"))) { "Queue accepted no usable job ID. The submission will not be repeated." }
-                        job = FreeQueueJob(key, id, "QUEUED", chatId = scope.substringBefore(':').toIntOrNull())
+                        job = FreeQueueJob(key, id, "QUEUED", chatId = scope.substringBefore(':').toIntOrNull(), protocol = if (provider == FreeAiProvider.HUGGING_FACE) "GRADIO_CALL_V2" else "HORDE")
                         FreeQueueJobs.save(requireNotNull(job), config.queuePersistent)
                     }
+                    FreeCatalogState.recordAccepted(provider)
+                    config.freeDiagnostics?.apply {
+                        jobId = job!!.id
+                        terminal = false
+                        stage = "generation"
+                        progress = "queued"
+                    }
                     emit(ChatCompletionChunk(applicationNotice = "${provider.displayName}: queued · job ${job!!.id}"))
-                    val result = if (provider == FreeAiProvider.AI_HORDE) pollHorde(requireNotNull(job!!.id), request.model, emit) else readGradio(requireNotNull(job!!.id), emit)
+                    if (provider == FreeAiProvider.AI_HORDE && request.model != "horde-image") emit(ChatCompletionChunk(applicationNotice = "AI Horde anonymous output allowance: up to ${(payload["params"] as? JsonObject)?.get("max_length")} tokens. The provider may reduce it further; the accepted allowance is not reported."))
+                    if (provider == FreeAiProvider.HUGGING_FACE) {
+                        // This Gradio protocol cleans the event on SSE disconnect and offers no replay cursor.
+                        // Persist before opening the stream so process death cannot resubmit or promise resume.
+                        job = job!!.copy(state = "READING")
+                        FreeQueueJobs.save(requireNotNull(job), config.queuePersistent)
+                    }
+                    val result = if (provider == FreeAiProvider.AI_HORDE) pollHorde(requireNotNull(job!!.id), request.model, config, emit) else readGradio(requireNotNull(job!!.id), config, request.model, emit)
                     val usable = dev.chungjungsoo.gptmobile.presentation.ui.thinking.ThinkingParser.parse(result.first).displayContent
-                    if (usable.isBlank()) throw QueueTerminalFailure("${provider.displayName} completed without a usable final answer (reasoning-only or empty output). Start a new generation; this job cannot resume.")
+                    if (usable.isBlank()) throw QueueTerminalFailure("${provider.displayName} completed with ${if (result.first.isBlank()) "empty output" else "reasoning-only output"}. Start a new generation; this job cannot resume.")
                     job = job!!.copy(state = "COMPLETED", answer = usable, servedModel = result.second)
                     FreeQueueJobs.save(requireNotNull(job), config.queuePersistent)
                     deliver(usable, result.second, provider, emit)
@@ -113,38 +162,64 @@ internal class FreeQueuedTransport(private val client: HttpClient, private val p
                                     header("Client-Agent", HORDE_CLIENT)
                                 }
                             }
-                            if (provider == FreeAiProvider.HUGGING_FACE && job?.id != null) {
-                                client.post("${provider.apiUrl}/gradio_api/call/cancel") {
-                                    contentType(ContentType.Application.Json)
-                                    setBody(
-                                        buildJsonObject {
-                                            put("data", JsonArray(emptyList()))
-                                            put("session_hash", key)
-                                        }.toString()
-                                    )
-                                }
-                            }
+                            // Gradio's SSE disconnect cleans this event. /call/cancel is a generation
+                            // endpoint, not cancellation; do not enqueue a second request to stop it.
                         }
                     }
                 }
                 if (cancelled is TimeoutCancellationException && context[kotlinx.coroutines.Job]?.isActive == true) {
-                    error(if (job?.id != null) "${provider.displayName} is still queued or generating. Its job ID was saved; retry this request to resume it." else "${provider.displayName} timed out before a job ID was confirmed. No resumable job is available; any uncertain submission will not be repeated automatically.")
+                    if (provider == FreeAiProvider.HUGGING_FACE && job?.id != null) {
+                        FreeQueueJobs.save(job!!.copy(state = "DISCONNECTED"), config.queuePersistent)
+                        throw QueueTerminalFailure("QUEUE_STREAM_DISCONNECTED: Space result retrieval timed out. The receipt is retained; this protocol does not guarantee reconnect. Explicitly start a new generation.", remoteTerminal = null)
+                    }
+                    error(if (job?.id != null) "QUEUE_JOB_PENDING: ${provider.displayName} is still queued or generating. Its job ID was saved; retry the unchanged request to check that job." else "QUEUE_SUBMISSION_UNCERTAIN: ${provider.displayName} timed out before a job ID was confirmed. No resumable job is available; any uncertain submission will not be repeated automatically.")
                 }
                 throw cancelled
             } catch (failed: QueueTerminalFailure) {
-                job?.let { FreeQueueJobs.save(it.copy(state = "FAILED"), config.queuePersistent) }
+                config.freeDiagnostics?.terminal = failed.remoteTerminal
+                job?.let { FreeQueueJobs.save(it.copy(state = if (failed.remoteTerminal == true) "FAILED" else "DISCONNECTED"), config.queuePersistent) }
+                FreeCatalogState.recordFailure(provider, failed.message.orEmpty())
+                if (config.freeDiagnostics?.recorded != true) dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.record(config, request.model, failed.message.orEmpty(), terminal = failed.remoteTerminal)
                 throw failed
+            } catch (failed: Exception) {
+                if (provider == FreeAiProvider.HUGGING_FACE && job?.state == "READING") {
+                    FreeQueueJobs.save(job!!.copy(state = "DISCONNECTED"), config.queuePersistent)
+                    config.freeDiagnostics?.terminal = null
+                    val message = "QUEUE_STREAM_DISCONNECTED: Space result retrieval failed. The accepted receipt is retained; replay is not supported. Explicitly start a new generation. ${failed.message.orEmpty().take(500)}"
+                    dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.record(config, request.model, message, terminal = null)
+                    throw QueueTerminalFailure(message, remoteTerminal = null)
+                }
+                throw IllegalStateException("QUEUE_REQUEST_FAILED: ${failed.message.orEmpty()}. No automatic continuation was attempted; any accepted or uncertain receipt is retained. Retry only the unchanged request to inspect its status.", failed)
             }
         }
     }
 
-    private suspend fun deliver(answer: String, model: String?, provider: FreeAiProvider, emit: suspend (ChatCompletionChunk) -> Unit) {
-        FreeCatalogState.recordResponse(provider, model)
-        emit(ChatCompletionChunk(model = model, choices = listOf(Choice(delta = Delta(content = answer), finishReason = "stop"))))
+    private suspend fun checkedJsonArray(response: HttpResponse, config: ProviderRequestConfig, model: String): JsonArray {
+        if (!response.status.isSuccess()) checkedJson(response, config, model)
+        return readQueueJson(response) as? JsonArray ?: error("QUEUE_WORKERS_UNAVAILABLE: Invalid worker catalog")
     }
 
-    private suspend fun checkedJson(response: HttpResponse, provider: FreeAiProvider): JsonObject {
-        if (response.status.value == 429) throw FreeAiRateLimitException(provider, FreeAiRequestLimiter.shared.defer(provider, response.headers["Retry-After"]))
+    private suspend fun deliver(answer: String, model: String?, provider: FreeAiProvider, emit: suspend (ChatCompletionChunk) -> Unit) {
+        FreeCatalogState.recordResponse(provider, model)
+        emit(ChatCompletionChunk(model = model, choices = listOf(Choice(delta = Delta(content = answer), finishReason = "queue_complete"))))
+    }
+
+    private suspend fun checkedJson(response: HttpResponse, config: ProviderRequestConfig, model: String): JsonObject {
+        val provider = requireNotNull(config.freeProvider)
+        if (!response.status.isSuccess()) {
+            val body = readFreeErrorBody(response)
+            val seconds = if (response.status.value == 429) FreeAiRequestLimiter.shared.defer(provider, response.headers["Retry-After"], model) else null
+            val retryAt = seconds?.let { FreeAiRequestLimiter.shared.cooldownUntilMillis(provider, model) }
+            val message = freeHttpErrorMessage(response.status.value, body)
+            FreeCatalogState.recordHttpFailure(provider, response.status.value, message, retryAt, model, body)
+            dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.record(config, model, message, response.status.value, body, { response.headers[it] }, retryAt)
+            if (seconds != null) throw FreeAiRateLimitException(provider, seconds, message)
+            error("${provider.displayName}: $message No automatic resubmission was attempted.")
+        }
+        return readQueueJson(response) as? JsonObject ?: error("Invalid queue response")
+    }
+
+    private suspend fun readQueueJson(response: HttpResponse): JsonElement {
         val channel = response.bodyAsChannel()
         val output = java.io.ByteArrayOutputStream()
         val buffer = ByteArray(8192)
@@ -155,14 +230,10 @@ internal class FreeQueuedTransport(private val client: HttpClient, private val p
         }
         check(output.size() <= 2_000_000) { "Queue response exceeds supported size" }
         val body = output.toString(Charsets.UTF_8.name())
-        check(response.status.isSuccess()) {
-            val failure = dev.chungjungsoo.gptmobile.data.network.error.ProviderFailure.parse(response.status.value, body)
-            "${provider.displayName}: ${failure.message()} No automatic resubmission was attempted."
-        }
-        return Json.parseToJsonElement(body) as? JsonObject ?: error("Invalid queue response")
+        return Json.parseToJsonElement(body)
     }
 
-    private suspend fun pollHorde(id: String, model: String, emit: suspend (ChatCompletionChunk) -> Unit): Pair<String, String?> {
+    private suspend fun pollHorde(id: String, model: String, config: ProviderRequestConfig, emit: suspend (ChatCompletionChunk) -> Unit): Pair<String, String?> {
         val image = model == "horde-image"
         while (true) {
             currentCoroutineContext()[RequestAuthorizationGuard]?.validate?.invoke()
@@ -171,11 +242,12 @@ internal class FreeQueuedTransport(private val client: HttpClient, private val p
                     header("Client-Agent", HORDE_CLIENT)
                     timeout { requestTimeoutMillis = 15_000 }
                 },
-                FreeAiProvider.AI_HORDE
+                config,
+                model
             )
             if (result.flag("faulted") == true) throw QueueTerminalFailure("AI Horde job failed. Start a new generation; this job cannot resume.")
             if (result.flag("done") == true) {
-                if (image) result = checkedJson(client.get("${hordeBase(model)}/status/$id"), FreeAiProvider.AI_HORDE)
+                if (image) result = checkedJson(client.get("${hordeBase(model)}/status/$id"), config, model)
                 val generation = (result["generations"] as? JsonArray)?.firstOrNull() as? JsonObject ?: error("AI Horde completed with no generation")
                 val answer = if (image) {
                     val url = requireNotNull(generation.text("img"))
@@ -192,31 +264,43 @@ internal class FreeQueuedTransport(private val client: HttpClient, private val p
         }
     }
 
-    private suspend fun validateGradioSchema() {
-        val root = checkedJson(client.get("${FreeAiProvider.HUGGING_FACE.apiUrl}/gradio_api/info"), FreeAiProvider.HUGGING_FACE)
+    private suspend fun validateGradioSchema(config: ProviderRequestConfig, model: String) {
+        val root = checkedJson(client.get("${FreeAiProvider.HUGGING_FACE.apiUrl}/gradio_api/info"), config, model)
         val endpoint = (root["named_endpoints"] as? JsonObject)?.get("/add_message") as? JsonObject
         val parameters = (endpoint?.get("parameters") as? JsonArray)?.map { (it as? JsonObject)?.text("parameter_name") }
         check(parameters == listOf("input_value", "settings_form_value")) { "The Qwen Space API changed. No prompt was sent; update its adapter." }
     }
 
-    private suspend fun readGradio(id: String, emit: suspend (ChatCompletionChunk) -> Unit): Pair<String, String?> {
+    // Bounded, lenient EOF: readLine has no size limit; readLineStrict rejects the final partial line.
+    @Suppress("DEPRECATION")
+    private suspend fun readGradio(id: String, config: ProviderRequestConfig, model: String, emit: suspend (ChatCompletionChunk) -> Unit): Pair<String, String?> {
         var final: String? = null
         var snapshot: String? = null
+        var retrievalFailure: java.io.IOException? = null
         client.prepareGet("${FreeAiProvider.HUGGING_FACE.apiUrl}/gradio_api/call/add_message/$id") {
             timeout {
                 requestTimeoutMillis = null
                 socketTimeoutMillis = 60_000
             }
         }.execute { response ->
-            check(response.status.isSuccess()) { "Space queue is unavailable (HTTP ${response.status.value})" }
+            config.freeDiagnostics?.stage = "stream_retrieval"
+            if (!response.status.isSuccess()) checkedJson(response, config, model)
             val channel = response.bodyAsChannel()
             var event = ""
             val data = StringBuilder()
             var lastNotice = 0L
             while (true) {
                 currentCoroutineContext()[RequestAuthorizationGuard]?.validate?.invoke()
-                if (channel.isClosedForRead) break
-                val line = channel.readLineStrict(2_000_000) ?: break
+                val nextLine = try {
+                    channel.readUTF8Line(2_000_000)
+                } catch (failure: java.io.IOException) {
+                    // Preserve already parsed output on a socket failure as well as EOF.
+                    // Only read errors are intercepted; consumer failures and Stop propagate.
+                    retrievalFailure = failure
+                    break
+                }
+                if (nextLine == null && event.isEmpty() && data.isEmpty()) break
+                val line = nextLine ?: ""
                 check(line.length < 2_000_000) { "Space output exceeds supported size" }
                 if (line.startsWith("event:")) event = line.substringAfter(':').trim()
                 if (line.startsWith("data:")) {
@@ -224,8 +308,15 @@ internal class FreeQueuedTransport(private val client: HttpClient, private val p
                     data.append(line.substringAfter(':').trimStart())
                     check(data.length <= 2_000_000) { "Space event exceeds supported size" }
                 }
-                if (line.isBlank() && data.isNotEmpty()) {
-                    if (event == "error") throw QueueTerminalFailure("Space generation failed on the provider. This job cannot resume; start a new generation later or choose another Free provider.")
+                if (line.isBlank() && (data.isNotEmpty() || event == "error")) {
+                    if (event == "error") {
+                        config.freeDiagnostics?.stage = "generation"
+                        val detail = gradioErrorDetails(data.toString())
+                        val message = "Space generation failed: $detail This job cannot resume; start a new generation later or choose another Free provider."
+                        dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.record(config, model, message, body = gradioErrorEnvelope(data.toString()).takeUnless { it == "{}" } ?: data.toString(), event = event, terminal = true)
+                        throw QueueTerminalFailure(message)
+                    }
+                    config.freeDiagnostics?.progress = event.take(40)
                     if (event in setOf("generating", "complete")) {
                         val record = Json.parseToJsonElement(data.toString())
                         gradioAnswerOrNull(record)?.let { snapshot = it }
@@ -241,9 +332,15 @@ internal class FreeQueuedTransport(private val client: HttpClient, private val p
                     data.clear()
                     event = ""
                 }
+                if (nextLine == null) break
             }
         }
-        return requireNotNull(final) { "Space stream ended before a complete record. Retry can resume the saved job." } to "Qwen/qwen3-235b-a22b"
+        if (final == null) {
+            snapshot?.takeIf { it.isNotBlank() }?.let { emit(ChatCompletionChunk(choices = listOf(Choice(delta = Delta(content = it))))) }
+            retrievalFailure?.let { throw it }
+            throw QueueTerminalFailure("QUEUE_STREAM_DISCONNECTED: Space stream ended before completion. Any partial answer and the receipt are retained. This protocol cannot guarantee reconnect; explicitly start a new generation.", remoteTerminal = null)
+        }
+        return requireNotNull(final) to "Qwen/qwen3-235b-a22b"
     }
 
     companion object {
@@ -254,6 +351,7 @@ internal class FreeQueuedTransport(private val client: HttpClient, private val p
         } + "\n\nassistant:"
         internal fun hordePayload(request: ChatCompletionRequest, prompt: String): JsonObject = buildJsonObject {
             put("prompt", prompt)
+            if (request.model != "horde-image") put("allow_downgrade", true)
             put(
                 "params",
                 buildJsonObject {
@@ -263,7 +361,7 @@ internal class FreeQueuedTransport(private val client: HttpClient, private val p
                         put("height", 512)
                         put("steps", 20)
                     } else {
-                        val tokens = (request.maxTokens ?: 512).coerceAtMost(1024)
+                        val tokens = (request.maxTokens ?: 256).coerceAtMost(256)
                         require(tokens >= 16) { "AI Horde requires at least 16 output tokens" }
                         require(dev.chungjungsoo.gptmobile.data.context.RequestAdmission.estimate(prompt).promptTokens + tokens <= 32768) { "AI Horde prompt exceeds the supported queued context; shorten the conversation." }
                         put("max_length", tokens)
@@ -315,4 +413,4 @@ internal class FreeQueuedTransport(private val client: HttpClient, private val p
     }
 }
 
-private class QueueTerminalFailure(message: String) : IllegalStateException(message)
+private class QueueTerminalFailure(message: String, val remoteTerminal: Boolean? = true) : IllegalStateException("QUEUE_TERMINAL: $message")

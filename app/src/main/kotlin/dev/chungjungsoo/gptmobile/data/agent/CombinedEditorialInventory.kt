@@ -3,7 +3,7 @@ package dev.chungjungsoo.gptmobile.data.agent
 /** A request-focused editor view. The frozen snapshot retains every original claim and owner. */
 internal object CombinedEditorialInventory {
     private val requestNoise = setOf("rank", "ranking", "best", "top", "list", "find", "give", "show", "compare", "please", "write", "answer", "words", "word", "using", "about")
-    fun select(records: List<CombinedClaimRecord>, request: String, policy: CombinedAnswerPolicy): List<CombinedClaimRecord> {
+    fun select(records: List<CombinedClaimRecord>, request: String, policy: CombinedAnswerPolicy, expansion: Int = 0): List<CombinedClaimRecord> {
         val groups = mutableListOf<CombinedClaimRecord>()
         records.forEach { claim ->
             val index = groups.indexOfFirst { prior ->
@@ -18,22 +18,44 @@ internal object CombinedEditorialInventory {
                 groups[index] = prior.copy(occurrences = prior.occurrences + claim.occurrences, profileUids = prior.profileUids + claim.profileUids, ancestryIds = prior.ancestryIds + claim.ancestryIds)
             }
         }
-        val focused = policy.singleExample || policy.maximumWords != null || policy.targetWords != null || Regex("(?i)\\b(?:rank(?:ed|ing)?|top \\d+|best|compare)\\b").containsMatchIn(request)
-        if (!focused) return groups
+        val task = policy.task ?: CombinedTaskContract.from(request)
+        val focused = policy.singleExample || policy.maximumWords != null || policy.targetWords != null
         val terms = CombinedClaimMatcher.fingerprint(request).terms - requestNoise
-        // A generic request such as "Compare evidence" cannot identify an irrelevant topic.
-        if (terms.size < 2) return groups
-        fun relevance(claim: CombinedClaimRecord) = CombinedClaimMatcher.fingerprint(claim.proposition).terms.intersect(terms).size
-        val relevant = groups.filter { relevance(it) >= minOf(2, terms.size.coerceAtLeast(1)) }.ifEmpty { groups }
-        val limit = if (policy.singleExample) 24 else 96
+        fun relevance(claim: CombinedClaimRecord): Int {
+            val substantive = CombinedHistoryOutline.substantive(claim.proposition)
+            val periods = if (task.historicalSurvey) CombinedHistoryOutline.periods(claim.proposition).size else 0
+            return (if (substantive) 12 else -12) + periods * 6 +
+                CombinedClaimMatcher.fingerprint(claim.proposition).terms.intersect(terms).size * 2 +
+                (if (claim.qualifiers.uncertainty.isNotEmpty()) 3 else 0)
+        }
+        // Contributors are screened at admission. An event need not repeat the country name
+        // to belong to that contribution's subject (e.g. "The Bastille fell in 1789").
+        // A ranking has a comparison domain. Keep related qualifications without filling
+        // spare slots with unrelated domains; historical events use coverage instead.
+        val ranking = task.action != "HISTORY" && Regex("(?i)\\b(?:rank|ranking|best|top|recommend)\\b").containsMatchIn(request)
+        val aligned = if (ranking) groups.filter { CombinedClaimMatcher.fingerprint(it.proposition).terms.intersect(terms).isNotEmpty() } else emptyList()
+        val domainTerms = aligned.flatMap { CombinedClaimMatcher.fingerprint(it.proposition).terms }.toSet() - requestNoise
+        val relevant = if (aligned.isEmpty()) groups else groups.filter { it in aligned || CombinedClaimMatcher.fingerprint(it.proposition).terms.intersect(domainTerms).size >= 2 }
         val ranked = relevant.sortedWith(compareByDescending<CombinedClaimRecord> { relevance(it) }.thenBy { it.semanticId })
+        val limit = when {
+            policy.singleExample -> 12
+            focused -> ((policy.targetWords ?: policy.maximumWords ?: 500) / 20).coerceIn(12, 72)
+            else -> 72
+        }
+        val expandedLimit = (limit * (expansion.coerceIn(0, 2) + 1)).coerceAtMost(216)
         val selected = linkedSetOf<CombinedClaimRecord>()
-        // Include eligible information from each contributor, without treating model count as evidence.
-        ranked.flatMap { it.profileUids }.distinct().forEach { uid -> ranked.firstOrNull { uid in it.profileUids }?.let(selected::add) }
-        ranked.forEach { if (selected.size < limit) selected += it }
+        if (task.historicalSurvey) {
+            CombinedHistoryOutline.labels.indices.forEach { period ->
+                ranked.filter { CombinedHistoryOutline.substantive(it.proposition) && period in CombinedHistoryOutline.periods(it.proposition) }.take(2).forEach(selected::add)
+            }
+        }
+        ranked.flatMap { it.profileUids }.distinct().forEach { uid ->
+            if (selected.size < expandedLimit) ranked.firstOrNull { uid in it.profileUids && CombinedHistoryOutline.substantive(it.proposition) }?.let(selected::add)
+        }
+        ranked.forEach { if (selected.size < expandedLimit) selected += it }
         val selectedTerms = selected.map { CombinedClaimMatcher.fingerprint(it.proposition).terms }
-        // Do not remove an applicable minority caution merely because the view is compact.
-        relevant.filter { it.qualifiers.uncertainty.isNotEmpty() || it.qualifiers.outcome in setOf("NULL_EFFECT", "INSUFFICIENT_EVIDENCE") }.forEach { caution ->
+        // Qualifications remain attached even when they exceed the discretionary claim target.
+        groups.filter { it.qualifiers.uncertainty.isNotEmpty() || it.qualifiers.outcome in setOf("NULL_EFFECT", "INSUFFICIENT_EVIDENCE") }.forEach { caution ->
             val cautionTerms = CombinedClaimMatcher.fingerprint(caution.proposition).terms
             if (selectedTerms.any { it.intersect(cautionTerms).size >= 3 }) selected += caution
         }

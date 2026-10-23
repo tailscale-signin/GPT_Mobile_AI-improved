@@ -223,6 +223,11 @@ fun ChatModelDialog(
                     if (section == firstSection) {
                         if (combinedMode) {
                             CombinedSettingsControls(combinedDraft.settings, { combinedDraft = combinedDraft.copy(settings = it) }, enabled = !saving)
+                            FilledTonalButton(onClick = {
+                                val eligible = dev.chungjungsoo.gptmobile.data.agent.CombinedProviderEligibility.recommended(delegationProfiles.filter { it.uid in platformOrder && it.uid !in disabledPlatformUids }.map { it.copy(model = models[it.uid] ?: it.model) })
+                                if (eligible.isNotEmpty()) combinedDraft = combinedDraft.copy(participantUids = eligible)
+                            }, enabled = !saving && delegationProfiles.isNotEmpty()) { Text("Auto-select available contributors") }
+                            Text("Selects up to four distinct models with supported Combined requests. You can adjust participation below.", style = MaterialTheme.typography.bodySmall)
                         } else {
                             ConversationDelegationCard(
                                 settings = delegationSettings,

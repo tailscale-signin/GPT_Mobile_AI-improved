@@ -19,7 +19,7 @@ enum class FreeAiProvider(
     OVHCLOUD("OVHcloud", "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1", "Mistral-Small-3.2-24B-Instruct-2506", true, 2, 0),
     LLM7("LLM7", "https://api.llm7.io/v1", "mistral-Nemo-Instruct-2407", false, 10, 60),
     BLOCKRUN("BlockRun", "https://blockrun.ai/api/v1", "nvidia/nemotron-3.5-lightning", false, 30, 300, 8192),
-    AI_HORDE("AI Horde", "https://aihorde.net/api/v2", "automatic", false, 0, 0, 1024),
+    AI_HORDE("AI Horde", "https://aihorde.net/api/v2", "automatic", false, 0, 0, 256),
     VIREONIX("Vireonix", "https://vireonix.ai/v1", "auto", false, 0, 0, 8192),
     OPENCODE("OpenCode", "https://opencode.ai/inference/openai/v1", "glm-5.3-flash-free", false, 0, 0, 8192),
     HUGGING_FACE("Hugging Face Spaces", "https://qwen-qwen3-demo.hf.space", "qwen3-235b-a22b", false, 0, 0, 2048),
@@ -27,8 +27,22 @@ enum class FreeAiProvider(
     CEHPOINT("Cehpoint", "https://ai-api.cehpoint.co.in/v1", "cehpoint-ai", false, 0, 0, 4096),
     PORCHLM("PorchLM", "https://guythatlives.net/v1", "automatic", false, 0, 0);
 
+    // Preset values are defaults, not verified per-model server ceilings.
+    val defaultOutputTokens: Int get() = maxOutputTokens
+    val enforcedOutputCeiling: Int? get() = if (this == AI_HORDE) 256 else null
+    fun outputAllowance(requested: Int?): Int = minOf(requested?.takeIf { it > 0 } ?: defaultOutputTokens, enforcedOutputCeiling ?: Int.MAX_VALUE)
+
+    val isDemo: Boolean get() = this == PORCHLM
+
     val isAvailable: Boolean
-        get() = this != LLM7 || BuildConfig.FREE_LLM7_APPROVED
+        get() = unavailableReason == null
+
+    val unavailableReason: String?
+        get() = when {
+            this == OPENCODE -> "OpenCode denied this external free route: its free tier is restricted to use within OpenCode. Choose another provider."
+            this == LLM7 && !BuildConfig.FREE_LLM7_APPROVED -> "LLM7 is unavailable pending provider approval."
+            else -> null
+        }
 
     val chatCompletionsUrl: String
         get() = if (this == POLLINATIONS) "$apiUrl/openai" else "$apiUrl/chat/completions"
@@ -40,7 +54,7 @@ enum class FreeAiProvider(
         token = null,
         secretRef = null,
         model = platform.model.takeIf { dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.models(this).any { option -> option.id == it } } ?: model,
-        maxTokens = (platform.maxTokens ?: maxOutputTokens).coerceIn(1, maxOutputTokens),
+        maxTokens = platform.maxTokens?.takeIf { it > 0 }?.let { minOf(it, enforcedOutputCeiling ?: Int.MAX_VALUE) },
         batchMode = false,
         batchApiUrl = null,
         openRouterRouting = null,

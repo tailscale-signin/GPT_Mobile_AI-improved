@@ -69,14 +69,16 @@ jobs:
           # In-process Kotlin/KSP and R8 retain their analysis heap until Gradle exits.
           # Release it before ApkFlinger allocates its packaging buffers.
           ./gradlew :app:minifyNativeSmokeWithR8 -PnativeMemorySmoke=true --no-daemon --max-workers=1 --console=plain --stacktrace '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m'
+      # ApkFlinger uses the common pool, independently of --max-workers. Serialize
+      # native-library compression so simultaneous byte buffers cannot exhaust the heap.
       - name: Package the minified native test app in a fresh process
         run: |
-          ./gradlew :app:assembleNativeSmoke -PnativeMemorySmoke=true --no-daemon --max-workers=1 --console=plain --stacktrace '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m'
+          ./gradlew :app:assembleNativeSmoke -PnativeMemorySmoke=true --no-daemon --max-workers=1 --console=plain --stacktrace '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -Djava.util.concurrent.ForkJoinPool.common.parallelism=1'
       - name: Build the native instrumentation APK in a fresh process
         run: |
           # KAPT stalled after R8 in the combined invocation. Release the app
           # compiler/optimizer process before compiling the test application.
-          ./gradlew :app:assembleNativeSmokeAndroidTest -PnativeMemorySmoke=true --no-daemon --max-workers=1 --console=plain --info --stacktrace '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m'
+          ./gradlew :app:assembleNativeSmokeAndroidTest -PnativeMemorySmoke=true --no-daemon --max-workers=1 --console=plain --info --stacktrace '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -Djava.util.concurrent.ForkJoinPool.common.parallelism=1'
       - name: Verify the minified native package
         run: |
           python3 scripts/check_local_runtime_apk.py app/build/outputs/apk/nativeSmoke/*.apk

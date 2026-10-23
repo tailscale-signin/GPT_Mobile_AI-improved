@@ -47,6 +47,8 @@ fun FreeProviderPicker(
     onModelSelected: ((String) -> Unit)? = null
 ) {
     val selected = FreeAiProvider.fromApiUrl(apiUrl)
+    val health by dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.status.collectAsState()
+    val now by freeProviderClock()
     val scope = rememberCoroutineScope()
     var testing by remember { mutableStateOf(false) }
     var testStatus by remember(apiUrl) { mutableStateOf<dev.chungjungsoo.gptmobile.data.network.ApiKeyValidator.ValidationResult?>(null) }
@@ -79,13 +81,14 @@ fun FreeProviderPicker(
                 )
                 ExposedDropdownMenu(expanded = expanded && enabled, onDismissRequest = { expanded = false }) {
                     FreeAiProvider.entries.forEach { provider ->
+                        if (provider.isDemo) Text("Demo / Experimental", Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.labelLarge)
                         DropdownMenuItem(
                             enabled = provider.isAvailable && !testing,
                             text = {
                                 Column {
                                     Text(provider.displayName)
                                     Text(
-                                        if (provider.isAvailable) dev.chungjungsoo.gptmobile.data.free.FreeModelCatalog.details(provider).limits else stringResource(R.string.free_ai_awaiting_approval),
+                                        if (provider.isAvailable) freeProviderAvailability(provider, if (provider == selected) model ?: provider.model else provider.model, health[provider], now) ?: dev.chungjungsoo.gptmobile.data.free.FreeModelCatalog.details(provider).limits else stringResource(R.string.free_ai_awaiting_approval),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -101,6 +104,8 @@ fun FreeProviderPicker(
                 }
             }
             selected?.let { provider ->
+                freeProviderAvailability(provider, model ?: provider.model, health[provider], now)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
+                if (provider.isDemo) Text("Demo / Experimental · transport completion does not verify answer quality. Use evaluation prompts in Benchmarks to assess usefulness.", style = MaterialTheme.typography.bodySmall)
                 if (model != null && onModelSelected != null) {
                     FreeModelPicker(provider, model, onModelSelected, enabled)
                 }

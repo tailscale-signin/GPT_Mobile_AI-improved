@@ -24,6 +24,7 @@ internal class ModelRequestPreparation(client: NetworkClient) {
         val runtime = RuntimeFingerprint(config.profileUid ?: "unbound", "sha256:${researchHash(config.apiUrl)}", "anonymous", model, model, "unverified", "queued-native-v1", "unverified")
         val capacity = CapacitySnapshot(runtime, config.contextCeiling?.takeIf { it > 0 && it < Int.MAX_VALUE }?.toLong(), provenance = CapacityProvenance.UNKNOWN)
         val prepared = RequestAdmission.prepare(payload, config.requestRole, capacity, RequestAdmission.estimate(payload), outputTokens?.toLong(), revision, config.requireKnownCapacity, "queued-native-v1")
+        config.freeDiagnostics?.admission = prepared.receipt
         val wire = prepared.dispatchPayload(runtime, revision)
         val attempt = dev.chungjungsoo.gptmobile.data.context.PhysicalAttemptBoundary.dispatch(prepared.receipt)
         context[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.serialized(wire, prepared.receipt.copy(physicalAttemptId = attempt))
@@ -53,12 +54,13 @@ internal class ModelRequestPreparation(client: NetworkClient) {
         dev.chungjungsoo.gptmobile.data.context.ProviderMessageValidator.validate(payload, config.intentionalAssistantPrefill)
         val discovered = if (config.providerType == "LLAMA") llama.discover(config, model) else null
         val catalog = OpenRouterCatalogLimits.forRequest(config.providerType.orEmpty(), config.apiUrl, model)
+        val freeModel = config.freeProvider?.let { dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.model(it, model) }
         val declared = config.contextCeiling?.takeIf { it > 0 && it < Int.MAX_VALUE }?.toLong()
-        val context = listOfNotNull(discovered?.contextTokens, catalog?.context?.toLong(), declared).minOrNull()
+        val context = listOfNotNull(discovered?.contextTokens, catalog?.context?.toLong(), freeModel?.contextTokens?.toLong(), declared).minOrNull()
         val snapshot = discovered?.copy(contextTokens = context) ?: CapacitySnapshot(
             RuntimeFingerprint(config.profileUid ?: "unbound", "sha256:${researchHash(config.apiUrl)}", researchHash(config.token.orEmpty()), model, model, "unverified", "unverified", "unverified"),
             context,
-            outputTokens = catalog?.output?.toLong(),
+            outputTokens = listOfNotNull(catalog?.output?.toLong(), freeModel?.outputTokens?.toLong()).minOrNull(),
             provenance = if (context != null) CapacityProvenance.DECLARED else CapacityProvenance.UNKNOWN
         )
         // Read the actual serialized value as the final authority, not a profile DTO's default.
@@ -101,6 +103,7 @@ internal class ModelRequestPreparation(client: NetworkClient) {
             "Admission",
             "FINAL_REQUEST · role=${config.requestRole} · prompt=${prepared.receipt.promptTokens} · output=${prepared.receipt.outputTokens ?: "unknown"} · safety=${prepared.receipt.safetyTokens} · context=${prepared.receipt.contextTokens ?: "unknown"} · measurement=${prepared.receipt.measurement} · capacity=${prepared.receipt.capacityProvenance} · checked=${prepared.receipt.capacityChecked} · reasoningRequested=${reasoning?.requested} · reasoningEffective=${reasoning?.effective} · reasoningControl=${reasoning?.transmittedControl} · reasoningObserved=unknown"
         )
+        config.freeDiagnostics?.admission = prepared.receipt
         val wire = prepared.dispatchPayload(snapshot.fingerprint, permissionRevision)
         val attemptId = dev.chungjungsoo.gptmobile.data.context.PhysicalAttemptBoundary.dispatch(prepared.receipt)
         kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.serialized(wire, prepared.receipt.copy(physicalAttemptId = attemptId))

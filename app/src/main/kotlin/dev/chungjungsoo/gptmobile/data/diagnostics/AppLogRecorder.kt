@@ -201,6 +201,7 @@ object AppLogRecorder {
     fun clear() {
         scope.launch {
             RunDiagnostics.journal?.clear()
+            dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.clear()
             synchronized(fileLock) {
                 while (queue.tryReceive().isSuccess) Unit
                 recent.clear()
@@ -237,6 +238,10 @@ object AppLogRecorder {
                 if (structured) output.appendLine(structuredDiagnosticLine("${Instant.now()} I/Export: version=${BuildConfig.VERSION_NAME} · build=${BuildConfig.VERSION_CODE} · package=${BuildConfig.APPLICATION_ID} · appCommit=${BuildConfig.APP_COMMIT} · variant=${BuildConfig.BUILD_TYPE} · droppedRecords=${droppedRecords.get()} · vendor_log_available=false · process=${Process.myPid()}"))
                 historicalExitMetadata(context).forEach { line ->
                     output.appendLine(if (structured) structuredDiagnosticLine(line, "android_exit_history") else line)
+                }
+                dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.snapshot().forEach { failure ->
+                    val line = "${Instant.ofEpochMilli(failure.time)} W/FreeProviderFailure: " + kotlinx.serialization.json.Json.encodeToString(dev.chungjungsoo.gptmobile.data.free.FreeProviderFailureRecord.serializer(), failure)
+                    output.appendLine(if (structured) structuredDiagnosticLine(line, "provider_failure") else line)
                 }
                 val seen = mutableSetOf<String>()
                 val incidents = DiagnosticIncidentTracker()

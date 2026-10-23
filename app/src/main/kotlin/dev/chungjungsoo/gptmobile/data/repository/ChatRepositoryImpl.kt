@@ -1433,6 +1433,14 @@ class ChatRepositoryImpl(
             emit(ApiState.Done)
             return@flow
         }
+        if (boundStage == null && chatToolConfig?.combined == null && userMessages.lastOrNull()?.attachments.isNullOrEmpty()) {
+            dev.chungjungsoo.gptmobile.data.agent.DeviceDateAnswer.answer(userMessages.lastOrNull()?.content.orEmpty())?.let { answer ->
+                emit(ApiState.Notice("Answered from the device clock; no provider request was sent.", persistent = false))
+                emit(ApiState.Success(answer))
+                emit(ApiState.Done)
+                return@flow
+            }
+        }
         if (platform.compatibleType == ClientType.LITERT_LM) {
             try {
                 val selection = localModelRepository.resolveLocalModelSelection(platform.model, platform.accelerator)
@@ -2146,7 +2154,7 @@ class ChatRepositoryImpl(
     private fun PlatformV2.withSystemPrompt(systemPrompt: String) = copy(systemPrompt = systemPrompt)
 
     private fun validateFreeRequest(platform: PlatformV2, users: List<MessageV2>, assistants: List<List<MessageV2>>) {
-        check(FreeAiProvider.requireFor(platform).isAvailable) { "LLM7 is awaiting provider approval for app integration. Choose another Free provider." }
+        check(FreeAiProvider.requireFor(platform).isAvailable) { FreeAiProvider.requireFor(platform).unavailableReason.orEmpty() }
         require(users.all { it.attachments.isEmpty() } && assistants.flatten().all { it.attachments.isEmpty() }) {
             "Free profiles support public text only. Start a chat without attachments, or select another platform."
         }
@@ -3125,6 +3133,12 @@ class ChatRepositoryImpl(
         val resumeDescriptor = input.resumeDescriptor
         val stage = input.stage
         val chatToolConfig = input.chatToolConfig
+        if (chatToolConfig?.combined != null) {
+            dev.chungjungsoo.gptmobile.data.agent.CombinedProviderEligibility.unavailableReason(platform, chatToolConfig.combined.requested.userPrompt, chatToolConfig.combined.role.finalization)?.let { reason ->
+                emit(ApiState.Error("COMBINED_PROVIDER_UNAVAILABLE: $reason"))
+                return null
+            }
+        }
         if (platform.compatibleType == ClientType.FREE) {
             validateFreeRequest(platform, effectiveUserMessages, assistantMessages)
             emit(ApiState.Notice("Free provider · Memory off. Use public prompts only.", persistent = true))
@@ -3341,6 +3355,8 @@ class ChatRepositoryImpl(
         )
         val cacheObservation = dev.chungjungsoo.gptmobile.data.readiness.ReadinessCacheObservation()
         fun deferredToolDirectory(): List<ResolvedAgentTool> {
+            val task = effectiveUserMessages.lastOrNull()?.content.orEmpty()
+            if (dev.chungjungsoo.gptmobile.data.agent.CombinedTaskContract.from(task).historicalSurvey && !sourceAcquisitionRequested && !Regex("(?i)\\b(?:search|sources|citations|tools|verify|latest|current|today)\\b").containsMatchIn(task)) return emptyList()
             val acquired = java.util.concurrent.ConcurrentHashMap<String, ResolvedAgentTool>()
             val directory = dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog(emptyList(), effectiveUserMessages.lastOrNull()?.content.orEmpty(), acquireCold = { _, _ ->
                 val fresh = resolveAuthorizedTools(cachedOnly = false)
@@ -3430,11 +3446,11 @@ class ChatRepositoryImpl(
         researchReport: Boolean
     ): String {
         if (platform.compatibleType == ClientType.FREE && !synthesisRun && !researchReport && dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.model(FreeAiProvider.requireFor(platform), platform.model)?.tools != true) {
-            return freeTextSystemPrompt(platform.systemPrompt)
+            return freeTextSystemPrompt(platform.systemPrompt, dev.chungjungsoo.gptmobile.data.agent.CombinedTurnContext.capture(latestUser?.createdAt ?: java.time.Instant.now().epochSecond), projectInstructions)
         }
         val recoveryInstruction = taskRecovery?.let { "\nRecovery action: ${it.action.name}. Resume unfinished stages using saved evidence; preserve prior constraints and verify unknown action outcomes before retrying." }.orEmpty()
         val progressInstruction = if (hasTools) {
-            "\nBefore the first tool call and after every 10 completed tool calls, " +
+            "\nAnswer ordinary general-knowledge and writing requests directly when tools add no needed evidence. Do not call discover_available_tools just to check what exists.\nBefore the first tool call and after every 10 completed tool calls, " +
                 dev.chungjungsoo.gptmobile.data.agent.ToolProgressTracker.SUMMARY_INSTRUCTION
         } else {
             ""
@@ -3461,7 +3477,12 @@ class ChatRepositoryImpl(
             "\nYou are one accepted contributor to a Combined answer. Produce a compact, useful contribution with about ${accepted.plan?.initialDraftOutputTokens ?: 2048} tokens available per draft request. " +
                 "Cover the decisive facts, alternatives and material qualifiers within the original user scope. Preserve negative findings and distinguish inspected evidence from your own inference. " +
                 "A separate final writer will enforce the requested final word and example counts; do not pad this intermediate contribution to that final length. " +
-                "Use only authorized, useful tool work and the shared evidence. Do not repeat acquisition simply to match another profile or exhaust an allowance."
+                "Use only authorized, useful tool work and the shared evidence. Do not repeat acquisition simply to match another profile or exhaust an allowance." +
+                "\nComplementary assignment: " + when (accepted.requested.participantUids.indexOf(accepted.profileUid).coerceAtLeast(0) % 3) {
+                    0 -> "Give an ordered outline and decisive milestones across the full requested scope."
+                    1 -> "Focus on causes, consequences and connections between the main developments; include specific supporting facts."
+                    else -> "Check omissions, later developments, competing interpretations and material qualifications."
+                } + " Supply concise factual notes for a shared writer, without repeated introductions or conclusions."
         }.orEmpty()
         val turnContextInstruction = latestUser?.let {
             dev.chungjungsoo.gptmobile.data.agent.CombinedTurnContext.capture(it.createdAt).instruction()
@@ -3762,7 +3783,8 @@ class ChatRepositoryImpl(
                     if (!validateSavedEvidence()) throw dev.chungjungsoo.gptmobile.data.agent.SavedEvidenceAccessDenied()
                     factVault?.validateRecall(recalled, latestUser?.chatId ?: 0, platform.isPrivateDestination())
                 },
-                save = store::save
+                save = store::save,
+                observeAttempt = { reasoning, passages -> dev.chungjungsoo.gptmobile.data.agent.CombinedWriterObservations.record(capKey, reasoning, passages) }
             ) { checkpoint, recovery ->
                 val continued = dev.chungjungsoo.gptmobile.data.queue.appendFollowUpContext(
                     turns(),
@@ -3771,7 +3793,7 @@ class ChatRepositoryImpl(
                     emptyList()
                 )
                 val plan = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.planFullInput(continued, requestPlatform.systemPrompt.orEmpty(), limits)
-                openPrimarySession(plan.turns, kind, textOnly = true, combinedOverride = execution)
+                openPrimarySession(plan.turns, kind, textOnly = true, combinedOverride = execution, extraInstruction = if (recovery.startsWith("WRITER_RECOVERY_DIRECT:")) "Produce the next complete answer passage now. Keep analysis minimal; the task outline and evidence are already prepared. Do not emit planning or duplicate decisions." else "")
             }
         }
         val continuedSession = if (frozenResume?.deliveryProtocol == "PASSAGES_V3") {
@@ -3819,7 +3841,11 @@ class ChatRepositoryImpl(
                     failedChecks = repair.failedChecks,
                     evidence = repair.evidence,
                     missingClaims = repair.missingClaims,
-                    frozenEnvelope = frozen.prompt,
+                    frozenEnvelope = if (repair.failedChecks.any { it.startsWith("TASK_") || it.startsWith("WORD_TARGET_UNDERSHOT") }) {
+                        dev.chungjungsoo.gptmobile.presentation.ui.chat.combinedSynthesisPrompt(frozen.userMessage.content, frozen.sources, evidence = repair.evidence, turnContext = frozen.turnContext, combined = frozen.combined, answerContract = repair.answerContract, deliveryProtocol = frozen.deliveryProtocol, targetRevisionId = repair.targetRevisionId, inventoryExpansion = 1)
+                    } else {
+                        frozen.prompt
+                    },
                     previousRevisionId = repair.revisionId,
                     targetRevisionId = repair.targetRevisionId
                 )
@@ -3960,6 +3986,28 @@ class ChatRepositoryImpl(
                         frozen.combined
                     )
                 )
+            }
+        } else if (chatToolConfig?.combined == null && chatToolConfig?.research?.researchToggle != true) {
+            dev.chungjungsoo.gptmobile.data.agent.AnswerValidationSession(
+                continuedSession,
+                latestUser?.content.orEmpty(),
+                maximumCharacters = budgetSettings.responseCharacterLimit,
+                save = { draft, satisfied -> checkpoint?.save(draft, 0, resolvedOutputCap, if (satisfied) "COMPLETED" else "PARTIAL") },
+                replaceDraft = { digest, text ->
+                    dispatchAuthority.validate()
+                    val handoff = ApiState.ResearchReplacement(digest, text)
+                    send(handoff)
+                    handoff.acknowledgement.await()
+                }
+            ) { draft, failures, exchanges ->
+                val turns = dev.chungjungsoo.gptmobile.data.queue.appendFollowUpContext(
+                    contextPlan.turns,
+                    "Rewrite the complete answer to satisfy the current request. Replace the draft in full; do not append a continuation. Correct these checks: ${failures.joinToString()}. Preserve supported facts and completed evidence, remove repetition, and finish the answer. Do not repeat any tool action.",
+                    draft,
+                    exchanges
+                )
+                val admitted = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.plan(turns, requestPlatform.systemPrompt.orEmpty(), emptyList(), limits)
+                openPrimarySession(admitted.turns, "answer_contract_rewrite", textOnly = true, extraInstruction = "Write the answer directly. Do not spend the output allowance on analysis.")
             }
         } else {
             continuedSession

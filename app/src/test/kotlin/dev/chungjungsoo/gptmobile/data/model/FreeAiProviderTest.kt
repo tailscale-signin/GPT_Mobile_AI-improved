@@ -37,7 +37,7 @@ class FreeAiProviderTest {
         assertEquals(profile.uid, free.uid)
         assertEquals("My profile", free.name)
         assertEquals(FreeAiProvider.KILO.model, free.model)
-        assertEquals(2048, free.maxTokens)
+        assertEquals(9000, free.maxTokens)
         assertNull(free.token)
         assertNull(free.secretRef)
         assertFalse(free.batchMode)
@@ -48,6 +48,7 @@ class FreeAiProviderTest {
         assertFalse(FreeAiProvider.LLM7.supportsTools)
         assertTrue(FreeAiProvider.KILO.supportsTools)
     }
+
     @Test
     fun `only exact approved endpoints resolve to Free providers`() {
         assertEquals(FreeAiProvider.KILO, FreeAiProvider.fromApiUrl(" ${FreeAiProvider.KILO.apiUrl}/ "))

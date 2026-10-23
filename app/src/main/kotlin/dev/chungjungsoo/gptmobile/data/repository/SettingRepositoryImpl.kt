@@ -245,13 +245,13 @@ class SettingRepositoryImpl @Inject constructor(
             val legacy = connections.firstOrNull { it.uid == profile.providerConnectionUid }
             val endpoint = if (legacy != null && legacy.uid != catalog.CONNECTION_UID) legacy.apiUrl else profile.apiUrl
             val provider = FreeAiProvider.fromApiUrl(endpoint) ?: return@forEach
-            platformV2Dao.editPlatform(provider.applyTo(profile.copy(apiUrl = endpoint)).copy(providerConnectionUid = unified.uid))
+            platformV2Dao.editPlatform(provider.applyTo(profile.copy(apiUrl = endpoint)).copy(providerConnectionUid = unified.uid, enabled = profile.enabled && !(settings.freeCatalogVersion < 2 && provider.isDemo && profile.uid == "builtin-free-porchlm")))
         }
         FreeAiProvider.entries.forEach { provider ->
             val uid = "builtin-free-${provider.name.lowercase()}"
             val current = platformV2Dao.getPlatforms()
             if (current.none { it.uid == uid || it.compatibleType == ClientType.FREE && FreeAiProvider.fromApiUrl(it.apiUrl) == provider }) {
-                platformV2Dao.addPlatform(provider.applyTo(PlatformV2(uid = uid, name = provider.displayName, enabled = true, providerConnectionUid = unified.uid, timeout = 300)))
+                platformV2Dao.addPlatform(provider.applyTo(PlatformV2(uid = uid, name = provider.displayName, enabled = !provider.isDemo, providerConnectionUid = unified.uid, timeout = 300)))
             }
         }
         connections.filter { it.uid != unified.uid }.forEach { connection ->

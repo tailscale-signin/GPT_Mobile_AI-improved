@@ -35,7 +35,9 @@ internal object CombinedRecoverySnapshot {
             snapshot.acceptedTools?.combined?.let { toolsContext ->
                 require(toolsContext.rootBudgetId == snapshot.combined?.rootBudgetId && toolsContext.requested.requestedPolicyDigest == accepted.requestedPolicyDigest) { "The accepted tools belong to a different Combined turn." }
             }
-            require(snapshot.answerContract != null && snapshot.answerContract == CombinedAnswerPolicy.from(snapshot.userMessage.content)) { "The saved answer contract changed." }
+            val compiledContract = CombinedAnswerPolicy.from(snapshot.userMessage.content, snapshot.history.takeIf { it.isNotEmpty() }?.joinToString("\n") { it.content })
+            val compatibleContract = if (snapshot.answerContract?.version == 2) compiledContract.copy(version = 2, task = null) else compiledContract
+            require(snapshot.answerContract != null && snapshot.answerContract == compatibleContract) { "The saved answer contract changed." }
         }
         require((modern || primaryUid == snapshot.profileUid) && platform.enabled && platform.uid == snapshot.profileUid && platform.model == snapshot.model && benchmarkConfigKey(platform) == snapshot.configKey) { "Restore the saved Combined owner and its accepted configuration before resuming." }
         require(snapshot.sources.none { it.localOnly } || platform.compatibleType == ClientType.LITERT_LM) { "Local-only contributions require an authorized local synthesis owner." }

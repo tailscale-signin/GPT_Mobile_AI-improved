@@ -14,6 +14,26 @@ import org.junit.Test
 class FreeAiRequestLimiterTest {
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     @Test
+    fun shortOvhWindowWaitsAndCancellationDoesNotConsumeTheNextSlot() = kotlinx.coroutines.test.runTest {
+        val limiter = FreeAiRequestLimiter { testScheduler.currentTime }
+        repeat(2) { limiter.reserve(FreeAiProvider.OVHCLOUD, "model") }
+        testScheduler.advanceTimeBy(55_000)
+        var calls = 0
+        val waiting = async { limiter.withRequest(FreeAiProvider.OVHCLOUD, "model") { calls++ } }
+        testScheduler.runCurrent()
+        assertFalse(waiting.isCompleted)
+        waiting.cancelAndJoin()
+        assertEquals(0, calls)
+        limiter.withRequest(FreeAiProvider.OVHCLOUD, "model") { calls++ }
+        assertEquals(60_000L, testScheduler.currentTime)
+        assertEquals(1, calls)
+        limiter.defer(FreeAiProvider.OVHCLOUD, "5", "model")
+        assertEquals(true, runCatching { limiter.withRequest(FreeAiProvider.OVHCLOUD, "model") { calls++ } }.exceptionOrNull() is FreeAiRateLimitException)
+        assertEquals(1, calls)
+    }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test
     fun `LLM7 rapid requests are spaced before reaching the provider`() = kotlinx.coroutines.test.runTest {
         val limiter = FreeAiRequestLimiter { testScheduler.currentTime }
         val starts = mutableListOf<Long>()

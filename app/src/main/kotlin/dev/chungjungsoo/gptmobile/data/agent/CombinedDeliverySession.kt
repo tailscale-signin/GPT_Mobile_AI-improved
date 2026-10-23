@@ -45,7 +45,7 @@ internal class CombinedDeliverySession(
         var currentEvidence = evidence
         var currentRevision = revisionId.ifBlank { UUID.randomUUID().toString() }
         val coverage = withContext(Dispatchers.Default) { CombinedContentCoverage(sources, originalRequest) }
-        val constrained = policy.maximumWords != null || policy.minimumWords != null || policy.targetWords != null || policy.singleExample || policy.requiresCurrentEvidence || policy.requiredFormat != null
+        val constrained = policy.maximumWords != null || policy.minimumWords != null || policy.targetWords != null || policy.singleExample || policy.requiresCurrentEvidence || policy.requiredFormat != null || policy.task?.subjectConfidence == "EXPLICIT"
         val progressive = structured && !constrained && committedPrefix.isEmpty()
         AppLogRecorder.record(
             "CombinedSynthesis",
@@ -219,7 +219,7 @@ internal class CombinedDeliverySession(
                 if (!correctionRequired && assessment.verificationNeeds.isNotEmpty() && assessment.verificationNeeds.size < previousNeeds) continue
             }
             val coverageRepair = repairs == 0 && policy.targetWords != null && !policy.singleExample && coverageResult.missing.isNotEmpty()
-            val semanticRepair = combined != null && (assessment.requiredFailures.isNotEmpty() || assessment.verificationNeeds.isNotEmpty())
+            val semanticRepair = assessment.requiredFailures.isNotEmpty() || combined != null && assessment.verificationNeeds.isNotEmpty()
             val framingRepair = accepted.decoder?.issues.orEmpty().any { it in COMBINED_FRAMING_FAILURES }
             if (violations.isEmpty() && !coverageRepair && !semanticRepair && !framingRepair && !correctionRequired) {
                 repairSkippedReason = "NO_REMAINING_REQUIRED_CORRECTION"
@@ -281,10 +281,10 @@ internal class CombinedDeliverySession(
                 rewrittenViolations.isEmpty() &&
                 protocolFailures.isEmpty() &&
                 !newMaterial &&
-                !addedVerificationNeeds &&
+                (!addedVerificationNeeds || "TASK_SUBJECT_MISMATCH" in previousFailures) &&
                 rewrittenChecks != null &&
                 rewrittenChecks.hardFailures.none { it !in previousFailures } &&
-                rewrittenChecks.verificationNeeds.size <= assessment.verificationNeeds.size
+                (rewrittenChecks.verificationNeeds.size <= assessment.verificationNeeds.size || "TASK_SUBJECT_MISMATCH" in previousFailures)
             if (canAccept && rewritten != null && rewrittenChecks != null) {
                 val nextCoverage = withContext(Dispatchers.Default) { coverage.check(rewritten.text) }
                 val priorCorrection = correctionRequired

@@ -856,6 +856,22 @@ class ChatRepositoryImplTest {
     }
 
     @Test
+    fun `date only question uses device clock without loading a local model`() = runBlocking {
+        val runtime = FakeLocalRuntime()
+        val repository = createRepository(localRuntime = runtime)
+        val states = repository.completeChat(
+            userMessages = listOf(MessageV2(content = "What is today's date?", platformType = null)),
+            assistantMessages = emptyList(),
+            platform = localPlatform(),
+            runId = "device-date"
+        ).toList()
+        assertTrue(states.filterIsInstance<ApiState.Success>().single().textChunk.contains("according to your device clock"))
+        assertEquals(ApiState.Done, states.last())
+        assertTrue(runtime.sendMessageCalls.isEmpty())
+        assertTrue(runtime.loadEngineCalls.isEmpty())
+    }
+
+    @Test
     fun `litert lm tool capable run records engine owned tool calls on the timeline`() = runBlocking {
         val dateTool = dev.chungjungsoo.gptmobile.data.agent.tool.CurrentDateTool()
         val resolver = mockk<AgentToolResolver>()
@@ -890,7 +906,7 @@ class ChatRepositoryImplTest {
         )
 
         val states = repository.completeChat(
-            userMessages = listOf(MessageV2(content = "What is today's date?", platformType = null)),
+            userMessages = listOf(MessageV2(content = "Use the current_date tool to confirm today's date.", platformType = null)),
             assistantMessages = emptyList(),
             platform = localPlatform().copy(maxTokens = 2048),
             runId = "run-local-tool"

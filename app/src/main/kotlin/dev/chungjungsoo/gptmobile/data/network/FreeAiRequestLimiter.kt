@@ -4,9 +4,11 @@ import dev.chungjungsoo.gptmobile.data.model.FreeAiProvider
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.util.ArrayDeque
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.serialization.encodeToString
 
 /** Shared across profiles and tool rounds. An IP's other apps can still consume its quota. */
 class FreeAiRequestLimiter(
@@ -18,6 +20,39 @@ class FreeAiRequestLimiter(
         var retryAt = 0L
     }
 
+    private var storage: java.io.File? = null
+    private var restored = false
+
+    @Synchronized fun initialize(file: java.io.File) {
+        storage = file
+    }
+
+    private fun restore() {
+        if (restored) return
+        restored = true
+        runCatching {
+            storage?.takeIf { it.isFile && it.length() <= 64_000 }?.let { file ->
+                val saved = kotlinx.serialization.json.Json.decodeFromString<Map<String, Long>>(file.readText())
+                saved.forEach { (key, until) ->
+                    val provider = FreeAiProvider.entries.firstOrNull { it.name == key.substringBefore('|') } ?: return@forEach
+                    if (until > nowMillis()) bucket(provider, key.substringAfter('|', "")).retryAt = until
+                }
+            }
+        }
+    }
+
+    private fun persist() {
+        runCatching {
+            storage?.let { target ->
+                val values = buckets.entries.filter { it.value.retryAt > nowMillis() }.associate { (key, value) -> "${key.first.name}|${key.second}" to value.retryAt }
+                target.parentFile?.mkdirs()
+                val temporary = java.io.File(target.path + ".tmp")
+                temporary.writeText(kotlinx.serialization.json.Json.encodeToString(values))
+                java.nio.file.Files.move(temporary.toPath(), target.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE)
+            }
+        }
+    }
+
     private val buckets = java.util.concurrent.ConcurrentHashMap<Pair<FreeAiProvider, String>, Bucket>()
     private fun bucket(provider: FreeAiProvider, model: String = ""): Bucket = buckets.computeIfAbsent(provider to if (provider == FreeAiProvider.OVHCLOUD) model else "") { Bucket() }
 
@@ -27,19 +62,27 @@ class FreeAiRequestLimiter(
         bucket(provider, model).permit.withPermit {
             // Short local spacing is scheduling, not an exhausted provider quota.
             // Keep the permit while waiting so parallel profiles cannot race the next slot.
-            delay(spacingDelayMillis(provider))
+            val wait = schedulingDelayMillis(provider, model)
+            if (wait > 0) {
+                currentCoroutineContext()[ProviderWaitContext]?.notifyRemaining?.invoke(wait)
+                delay(wait)
+            }
             reserve(provider, model)
             request()
         }
 
     @Synchronized
-    private fun spacingDelayMillis(provider: FreeAiProvider): Long {
-        val previous = bucket(provider).requests.peekLast() ?: return 0L
-        return if (provider == FreeAiProvider.LLM7) (previous + 1000 - nowMillis()).coerceIn(0, 1000) else 0L
+    private fun schedulingDelayMillis(provider: FreeAiProvider, model: String): Long {
+        restore()
+        val now = nowMillis()
+        // A server Retry-After is never converted into an automatic local wait.
+        if (bucket(provider, model).retryAt > now) return 0L
+        return ((cooldownUntilMillis(provider, model) ?: now) - now).takeIf { it in 1..60_000 } ?: 0L
     }
 
     @Synchronized
     internal fun reserve(provider: FreeAiProvider, model: String = "") {
+        restore()
         val bucket = bucket(provider, model)
         val now = nowMillis()
         while (bucket.requests.isNotEmpty() && bucket.requests.first <= now - HOUR_MS) bucket.requests.removeFirst()
@@ -54,24 +97,30 @@ class FreeAiRequestLimiter(
         if (provider.requestsPerHour > 0 && bucket.requests.size >= provider.requestsPerHour) {
             retryAt = maxOf(retryAt, bucket.requests.first + HOUR_MS)
         }
-        if (retryAt > now) throw FreeAiRateLimitException(provider, (retryAt - now + 999) / 1000)
+        if (retryAt > now) {
+            // Local windows are scheduling state, not a persisted provider quota.
+            throw FreeAiRateLimitException(provider, (retryAt - now + 999) / 1000)
+        }
         bucket.requests.addLast(now)
     }
 
     @Synchronized
     fun defer(provider: FreeAiProvider, retryAfter: String?, model: String = ""): Long {
+        restore()
         val now = nowMillis()
         val seconds = retryAfter?.toLongOrNull()?.coerceAtLeast(1)
         val date = runCatching { ZonedDateTime.parse(retryAfter, DateTimeFormatter.RFC_1123_DATE_TIME).toInstant().toEpochMilli() }.getOrNull()
         val wait = (seconds?.coerceAtMost(86400)?.times(1000) ?: date?.minus(now) ?: MINUTE_MS).coerceIn(1000, 86400000)
         val bucket = bucket(provider, model)
         bucket.retryAt = maxOf(bucket.retryAt, now + wait)
+        persist()
         return (bucket.retryAt - now + 999) / 1000
     }
 
     /** Return the known provider/local quota cooldown without reserving a request. */
     @Synchronized
     fun cooldownUntilMillis(provider: FreeAiProvider, model: String = ""): Long? {
+        restore()
         val now = nowMillis()
         val bucket = bucket(provider, model)
         while (bucket.requests.isNotEmpty() && bucket.requests.first <= now - HOUR_MS) bucket.requests.removeFirst()
@@ -96,7 +145,7 @@ class FreeAiRequestLimiter(
     }
 }
 
-class FreeAiRateLimitException(provider: FreeAiProvider, retrySeconds: Long) :
+class FreeAiRateLimitException(provider: FreeAiProvider, retrySeconds: Long, detail: String? = null) :
     IllegalStateException(
-        "${provider.displayName} is rate limited. Retry no earlier than ${java.time.Instant.ofEpochMilli(System.currentTimeMillis() + retrySeconds * 1000)} (in $retrySeconds seconds), or select another Free provider. This cooldown does not guarantee the provider's allowance has reset."
+        "${provider.displayName} is rate limited. Retry no earlier than ${java.time.Instant.ofEpochMilli(System.currentTimeMillis() + retrySeconds * 1000)} (in $retrySeconds seconds), or select another Free provider. This cooldown does not guarantee the provider's allowance has reset." + (detail?.let { " $it" } ?: "")
     )

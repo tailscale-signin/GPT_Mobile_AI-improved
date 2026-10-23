@@ -54,7 +54,14 @@ internal object CombinedFinalCheck {
         val needs = mutableListOf<CombinedVerificationNeed>()
         val contracts = policy.violations(answer)
         checks += CombinedAnswerCheck("ANSWER_CONTRACT", "REQUEST", if (contracts.isEmpty()) "PASS" else "FAIL", message = contracts.joinToString(", "))
-        checks += contracts.map { CombinedAnswerCheck(it, "REQUEST", "FAIL") }
+        checks += contracts.map { CombinedAnswerCheck(it, "REQUEST", "FAIL", material = it == "TASK_SUBJECT_MISMATCH") }
+        if (policy.task?.historicalSurvey == true && (policy.targetWords ?: policy.maximumWords ?: 500) >= 150) {
+            val available = sources.flatMap { CombinedContentCoverage.sentences(it.content) }.filter(CombinedHistoryOutline::substantive).flatMap { CombinedHistoryOutline.periods(it) }.toSet()
+            val covered = CombinedHistoryOutline.periods(answer)
+            (available - covered).forEach { period ->
+                checks += CombinedAnswerCheck("TASK_COVERAGE_UNMET:${CombinedHistoryOutline.labels[period]}", "SCOPE", "FAIL", true, message = "Retained contributions cover this requested historical period, but the answer does not.")
+            }
+        }
         val inventory = CombinedClaimSemantics.records(sources)
         val byId = inventory.flatMap { claim -> claim.candidateIds.map { it to claim } }.toMap()
         val destinations = if (passages.isEmpty()) sentencesWithSpans(answer) else passages.filter { it.matches(answer) }.flatMap { sentencesWithSpans(answer, it.start, it.end) }

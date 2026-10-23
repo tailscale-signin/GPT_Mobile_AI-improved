@@ -11,6 +11,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DelegatedChildResultTest {
+    @Test fun `Combined verifier does not report recovered search output as completed verification`() {
+        assertTrue(requiresCompleteDelegatedResponse("combined-verifier"))
+        val result = resolveDelegatedChildResult("", listOf("Search results and a reader receipt"), false, "DNS could not resolve host", requireCompleteTransport = true, transportComplete = false)
+        assertEquals(DelegatedChildStatus.FAILED, result.status)
+        assertEquals("Search results and a reader receipt", result.text)
+    }
+
+    @Test fun `structured roles require transport completion even with visible output`() {
+        for (role in listOf("reviewer", "assist", "research-extraction", "combined-verifier")) {
+            assertTrue(requiresCompleteDelegatedResponse(role))
+            assertEquals(DelegatedChildStatus.FAILED, resolveDelegatedChildResult("{}", emptyList(), false, null, requiresCompleteDelegatedResponse(role), false).status)
+            assertEquals(DelegatedChildStatus.COMPLETED, resolveDelegatedChildResult("{}", emptyList(), false, null, requiresCompleteDelegatedResponse(role), true).status)
+        }
+        assertFalse(requiresCompleteDelegatedResponse("delegate"))
+        assertFalse(requiresCompleteDelegatedResponse("follow_up"))
+    }
+
     @Test fun `DNS failures do not invent input usage but received content retains the estimate`() {
         assertEquals(0L, estimateDelegatedInputTokens(2464, "Network error: Unable to resolve host.", receivedResponse = false))
         assertEquals(2464L, estimateDelegatedInputTokens(2464, "Network error: Unable to resolve host.", receivedResponse = true))

@@ -33,6 +33,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
@@ -114,7 +115,8 @@ fun LocalModelsScreen(
         }
     }
     if (pendingUri != null) {
-        val source = dev.chungjungsoo.gptmobile.data.localmodel.LocalModelSource(android.net.Uri.parse(requireNotNull(pendingUri)), if (pendingFolder) dev.chungjungsoo.gptmobile.data.localmodel.LocalModelSource.Kind.FOLDER else dev.chungjungsoo.gptmobile.data.localmodel.LocalModelSource.Kind.FILE)
+        var copyToApp by rememberSaveable(pendingUri) { mutableStateOf(false) }
+        val source = dev.chungjungsoo.gptmobile.data.localmodel.LocalModelSource(android.net.Uri.parse(requireNotNull(pendingUri)), if (pendingFolder) dev.chungjungsoo.gptmobile.data.localmodel.LocalModelSource.Kind.FOLDER else dev.chungjungsoo.gptmobile.data.localmodel.LocalModelSource.Kind.FILE, copyToApp)
         var inspectionFailure by remember(pendingUri) { mutableStateOf<Exception?>(null) }
         val preview by produceState<dev.chungjungsoo.gptmobile.data.localmodel.LocalImportPreview?>(null, pendingUri) {
             value = null
@@ -141,7 +143,13 @@ fun LocalModelsScreen(
                         details.installedBytes?.let { Text(stringResource(R.string.local_ai_installed_size, dev.chungjungsoo.gptmobile.data.catalog.ModelCatalogParser.formatDownloadSize(it))) }
                         if (details.backends.isNotEmpty()) Text(stringResource(R.string.local_ai_declared_processors, details.backends.joinToString().uppercase()))
                         details.contextTokens?.let { Text(stringResource(R.string.local_ai_import_context, it, details.assets)) }
-                        Text(stringResource(R.string.local_ai_file_review))
+                        if (!pendingFolder) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(stringResource(R.string.local_ai_copy_to_app), Modifier.weight(1f))
+                                Switch(checked = copyToApp, onCheckedChange = { copyToApp = it }, modifier = Modifier.testTag("local_model_copy_to_app"))
+                            }
+                        }
+                        Text(stringResource(if (copyToApp) R.string.local_ai_copy_description else R.string.local_ai_link_description))
                         Text(stringResource(R.string.local_ai_import_verification), style = MaterialTheme.typography.bodySmall)
                     }
                 }
@@ -150,7 +158,7 @@ fun LocalModelsScreen(
                 TextButton(enabled = preview != null && !importActive, onClick = {
                     viewModel.importCustomModel(context.contentResolver, source)
                     pendingUri = null
-                }) { Text(stringResource(R.string.local_ai_import)) }
+                }) { Text(stringResource(if (copyToApp) R.string.local_ai_copy_to_app else R.string.local_ai_import)) }
             },
             dismissButton = { TextButton(onClick = { pendingUri = null }) { Text(stringResource(R.string.cancel)) } }
         )

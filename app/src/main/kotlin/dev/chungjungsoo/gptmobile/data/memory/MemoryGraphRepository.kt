@@ -269,9 +269,14 @@ class MemoryGraphRepository @Inject constructor(
             AppLogRecorder.record("Memory", "SEARCH_INDEX_READY · engine=${if (usable) engine else "LIKE"} · rebuild=false")
             return usable
         }
-        // Compile diagnostics are optional. Unknown support still needs one actual
-        // creation attempt; only a populated options list can rule out built-in FTS5.
-        val supportsFts5 = runCatching {
+        // module_list also covers dynamically registered modules and builds with
+        // compile-option diagnostics disabled. Empty/unsupported PRAGMAs remain unknown.
+        val modules = runCatching {
+            readable.query("PRAGMA module_list").use { cursor ->
+                buildSet { while (cursor.moveToNext()) add(cursor.getString(0).lowercase()) }
+            }
+        }.getOrNull()?.takeIf { it.isNotEmpty() }
+        val supportsFts5 = modules?.contains("fts5") ?: runCatching {
             readable.query("PRAGMA compile_options").use { cursor ->
                 var hasOptions = false
                 var supported = false
@@ -284,7 +289,7 @@ class MemoryGraphRepository @Inject constructor(
         }.getOrNull()
         val definitions = listOfNotNull(
             "fts5(entity_id UNINDEXED, scope UNINDEXED, text, tokenize='unicode61 remove_diacritics 2')".takeIf { supportsFts5 != false },
-            "fts4(entity_id, scope, text, notindexed=entity_id, notindexed=scope, tokenize=unicode61)"
+            "fts4(entity_id, scope, text, notindexed=entity_id, notindexed=scope, tokenize=unicode61)".takeIf { modules == null || "fts4" in modules }
         )
         var available = false
         for (definition in definitions) {

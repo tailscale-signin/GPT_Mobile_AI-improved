@@ -1004,7 +1004,7 @@
     <string name="local_ai_import_copy">Import copy</string>
     <string name="local_ai_copy_option">Store a copy in the app</string>
     <string name="local_ai_link_unavailable">Android can read this document, but the model runtime cannot open it in place. Import a copy to use this model.</string>
-    <string name="local_ai_copy_review">Creates an app-managed copy using the model size shown above. The original stays unchanged. Removing the model deletes only the app copy.</string>
+    <string name="local_ai_copy_review">Creates a full app-managed copy and needs additional storage. The original stays unchanged. Removing the model deletes only the app copy.</string>
     <string name="local_ai_copy_folder_review">Folder import temporarily needs about twice the model size. The temporary archive is removed when the import finishes or is canceled.</string>
     <string name="local_ai_file_review">Uses the model at its current location. Keep the original files.</string>
     <string name="insights_local_recorded">Recorded device configuration. These measurements are not a cloud capability score or verification of your current runtime configuration.</string>

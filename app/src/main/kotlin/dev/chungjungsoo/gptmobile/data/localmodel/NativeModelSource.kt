@@ -36,6 +36,7 @@ internal object NativeModelSource {
     fun <T> withDescriptor(cache: File, descriptor: ParcelFileDescriptor, name: String, block: (File) -> T): T {
         require(LocalModelDownloadPaths.isValidPathSegment(name))
         val stat = Os.fstat(descriptor.fileDescriptor)
+        require(stat.st_size <= 16_000_000_000L) { "This model exceeds the supported 16 GB file limit." }
         if (!OsConstants.S_ISREG(stat.st_mode) || stat.st_size !in 1..16_000_000_000L) throw CannotLink("non-seekable or unsupported size")
         val directory = File(cache, "model-link-check-${java.util.UUID.randomUUID()}").apply { check(mkdirs()) }
         val alias = File(directory, name)

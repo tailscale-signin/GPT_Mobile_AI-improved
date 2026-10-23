@@ -66,4 +66,22 @@ class NativeModelSourceInstrumentedTest {
             root.deleteRecursively()
         }
     }
+
+    @Test fun oversizedFileIsRejectedInsteadOfOfferingAnImpossibleCopy() {
+        val root = File(context.cacheDir, "saf-size-${java.util.UUID.randomUUID()}").apply { check(mkdirs()) }
+        val original = File(root, "oversized.litertlm")
+        try {
+            // Sparse file: exercise 64-bit size admission without allocating model weights.
+            RandomAccessFile(original, "rw").use { it.setLength(16_000_000_001L) }
+            ParcelFileDescriptor.open(original, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
+                val failure = assertThrows(IllegalArgumentException::class.java) {
+                    NativeModelSource.withDescriptor(root, descriptor, original.name) { error("Oversized model admitted") }
+                }
+                assertTrue(failure.message.orEmpty().contains("16 GB"))
+                assertEquals(listOf(original), root.listFiles()!!.toList())
+            }
+        } finally {
+            root.deleteRecursively()
+        }
+    }
 }

@@ -123,7 +123,7 @@ from pathlib import Path
 sys.path.insert(0, 'scripts')
 from check_native_memory_smoke import check_instrumentation
 folder = Path('app/build/acceptance-0950')
-for test in ('readableDescriptorWithDeniedPathCanBeExplicitlyImported', 'compatibleSourceRemainsInPlaceAndProbeDoesNotOwnItsDescriptor'):
+for test in ('readableDescriptorWithDeniedPathCanBeExplicitlyImported', 'compatibleSourceRemainsInPlaceAndProbeDoesNotOwnItsDescriptor', 'oversizedFileIsRejectedInsteadOfOfferingAnImpossibleCopy'):
     check_instrumentation(folder / 'model-source-instrumentation.txt', 'dev.chungjungsoo.gptmobile.data.localmodel.NativeModelSourceInstrumentedTest', test)
 for test in ('horizontalSwipeSwitchesProfilesAndVerticalScrollDoesNot', 'rtlSwipeUsesReadingDirectionAndDoesNotWrap'):
     check_instrumentation(folder / 'response-swipe-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.chat.ResponseSwipeInstrumentedTest', test)

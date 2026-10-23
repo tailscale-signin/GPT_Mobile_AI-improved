@@ -59,7 +59,7 @@ class AuditActionsInstrumentedTest {
             }
         }
         compose.onNodeWithTag("local_model_copy_choice").assertIsOff().performClick().assertIsOn()
-        compose.onNodeWithText("Creates an app-managed copy", substring = true).performScrollTo()
+        compose.onNodeWithText("Creates a full app-managed copy", substring = true).performScrollTo()
         compose.onNodeWithText("Folder import temporarily needs about twice", substring = true).performScrollTo()
         compose.runOnIdle {
             copy = false
@@ -67,6 +67,6 @@ class AuditActionsInstrumentedTest {
         }
         compose.onNodeWithTag("local_model_copy_choice").assertDoesNotExist()
         compose.onNodeWithText("Android can read this document", substring = true).performScrollTo()
-        compose.onNodeWithText("Creates an app-managed copy", substring = true).performScrollTo()
+        compose.onNodeWithText("Creates a full app-managed copy", substring = true).performScrollTo()
     }
 }

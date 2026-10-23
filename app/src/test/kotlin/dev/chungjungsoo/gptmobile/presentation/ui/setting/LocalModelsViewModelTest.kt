@@ -35,6 +35,17 @@ class LocalModelsViewModelTest {
         Dispatchers.resetMain()
     }
 
+    @Test fun resetClearsDisplayedAndDiscoveryFiltersTogether() = runTest {
+        val vm = localModelsViewModel()
+        vm.updateSearchQuery("restricted model")
+        vm.updateFilter(LocalModelFilter.FAILED)
+        vm.updateFilters { it.copy(processor = "NPU", runtime = "GenieX", capability = "Thinking") }
+        vm.resetFilters(showAll = true)
+        assertEquals(LocalDiscoveryFilters(everyModel = true), vm.filters.value)
+        assertEquals(LocalModelFilter.ALL, vm.uiState.value.filter)
+        assertEquals("", vm.uiState.value.searchQuery)
+    }
+
     @Test
     fun `access token save and remove round-trip through the store`() = runTest {
         val vault = MapSecretVault()

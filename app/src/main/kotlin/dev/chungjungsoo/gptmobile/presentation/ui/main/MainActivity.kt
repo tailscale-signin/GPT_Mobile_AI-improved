@@ -11,10 +11,9 @@ import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.viewModels
 import androidx.browser.auth.AuthTabIntent
 import androidx.browser.customtabs.CustomTabsIntent
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.unit.dp
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -33,8 +32,6 @@ import dev.chungjungsoo.gptmobile.presentation.common.SetupNavGraph
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeSettingProvider
 import dev.chungjungsoo.gptmobile.presentation.theme.GPTMobileTheme
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.ToolConnectionsViewModel
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 @AndroidEntryPoint
@@ -46,7 +43,6 @@ class MainActivity : dev.chungjungsoo.gptmobile.presentation.ui.main.ProtectedAc
     private var lastOAuthCallback: String? = null
     private var lastOAuthLaunchUri: String? = null
     private var lastOAuthLaunchTime: Long = 0L
-    private val pendingDeepLinkEvents = MutableSharedFlow<Intent>(replay = 1)
 
     @Volatile
     private var keepSplashOnScreen = true
@@ -70,7 +66,7 @@ class MainActivity : dev.chungjungsoo.gptmobile.presentation.ui.main.ProtectedAc
             val startupError by mainViewModel.startupError.collectAsStateWithLifecycle()
             LaunchedEffect(startupError) { if (startupError != null) keepSplashOnScreen = false }
 
-            ThemeSettingProvider {
+            ThemeSettingProvider(enabled = isReady) {
                 GPTMobileTheme(
                     dynamicTheme = LocalDynamicTheme.current,
                     themeMode = LocalThemeMode.current,
@@ -78,7 +74,9 @@ class MainActivity : dev.chungjungsoo.gptmobile.presentation.ui.main.ProtectedAc
                     customPalette = dev.chungjungsoo.gptmobile.presentation.common.LocalCustomPalette.current
                 ) {
                     if (startupError != null) {
-                        androidx.compose.material3.Text(requireNotNull(startupError), modifier = androidx.compose.ui.Modifier.padding(24.dp))
+                        StartupRecoveryScreen(requireNotNull(startupError), mainViewModel::retryStartup)
+                    } else if (!isReady) {
+                        androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.Center) { androidx.compose.material3.CircularProgressIndicator() }
                     } else if (isReady) {
                         dev.chungjungsoo.gptmobile.presentation.common.GlassBackdropHost {
                             SetupNavGraph(
@@ -99,7 +97,7 @@ class MainActivity : dev.chungjungsoo.gptmobile.presentation.ui.main.ProtectedAc
             }
         }
         dispatchOAuthIntent(intent)
-        handleNotificationIntent(intent)
+        if (savedInstanceState == null || intent?.hasExtra(EXTRA_NOTIFICATION_EVENT_ID) == true) handleNotificationIntent(intent)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -111,41 +109,27 @@ class MainActivity : dev.chungjungsoo.gptmobile.presentation.ui.main.ProtectedAc
 
     private fun handleNotificationIntent(intent: Intent?) {
         if (intent == null) return
-        val hasChatRoom = intent.hasExtra(EXTRA_CHAT_ROOM_ID) || intent.hasExtra("conversation_id")
-        if (hasChatRoom || intent.getBooleanExtra(dev.chungjungsoo.gptmobile.presentation.service.BenchmarkForegroundService.EXTRA_OPEN_BENCHMARKS, false)) {
-            pendingDeepLinkEvents.tryEmit(intent)
+        val eventId = intent.getStringExtra(EXTRA_NOTIFICATION_EVENT_ID)?.takeIf { it.matches(Regex("[a-f0-9-]{36}")) } ?: java.util.UUID.randomUUID().toString()
+        if (intent.getBooleanExtra(dev.chungjungsoo.gptmobile.presentation.service.BenchmarkForegroundService.EXTRA_OPEN_BENCHMARKS, false)) {
+            mainViewModel.enqueueNavigation(Route.PROFILE_BENCHMARKS.replace("{profileUid}", "all"), eventId)
+            return
         }
+        val chatId = if (intent.hasExtra(EXTRA_CHAT_ROOM_ID)) intent.getIntExtra(EXTRA_CHAT_ROOM_ID, 0) else intent.getStringExtra("conversation_id")?.toIntOrNull() ?: 0
+        val messageId = if (intent.hasExtra(EXTRA_TARGET_MESSAGE_ID)) intent.getIntExtra(EXTRA_TARGET_MESSAGE_ID, -1) else intent.getStringExtra("message_id")?.toIntOrNull() ?: -1
+        if (chatId <= 0) return
+        var route = "chat_room/$chatId"
+        if (messageId > 0) route += "?targetMessageId=$messageId"
+        intent.getStringExtra("incomingShare")?.takeIf { it.matches(Regex("[a-f0-9-]{36}")) }?.let { route += (if ('?' in route) "&" else "?") + "incomingShare=$it" }
+        mainViewModel.enqueueNavigation(route, eventId)
     }
 
     private fun NavHostController.observeNotificationDeepLinks() {
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.RESUMED) {
-                pendingDeepLinkEvents.collectLatest { intent ->
-                    if (intent.getBooleanExtra(dev.chungjungsoo.gptmobile.presentation.service.BenchmarkForegroundService.EXTRA_OPEN_BENCHMARKS, false)) {
-                        navigate(Route.PROFILE_BENCHMARKS.replace("{profileUid}", "all")) { launchSingleTop = true }
-                        return@collectLatest
-                    }
-                    val chatRoomId = when {
-                        intent.hasExtra(EXTRA_CHAT_ROOM_ID) -> intent.getIntExtra(EXTRA_CHAT_ROOM_ID, 0)
-                        intent.hasExtra("conversation_id") -> intent.getStringExtra("conversation_id")?.toIntOrNull() ?: 0
-                        else -> 0
-                    }
-                    val targetMessageId = when {
-                        intent.hasExtra(EXTRA_TARGET_MESSAGE_ID) -> intent.getIntExtra(EXTRA_TARGET_MESSAGE_ID, -1)
-                        intent.hasExtra("message_id") -> intent.getStringExtra("message_id")?.toIntOrNull() ?: -1
-                        else -> -1
-                    }
-
-                    if (chatRoomId > 0) {
-                        val route = if (targetMessageId > 0) {
-                            "chat_room/$chatRoomId?targetMessageId=$targetMessageId"
-                        } else {
-                            "chat_room/$chatRoomId"
-                        }
-                        val share = intent.getStringExtra("incomingShare")?.takeIf { it.matches(Regex("[a-f0-9-]{36}")) }
-                        navigate(route + (share?.let { "&incomingShare=$it".let { suffix -> if ('?' in route) suffix else suffix.replaceFirst('&', '?') } } ?: "")) {
-                            launchSingleTop = true
-                        }
+                mainViewModel.pendingNavigation.collect { events ->
+                    events.firstOrNull()?.let { event ->
+                        navigate(event.substringAfter('|')) { launchSingleTop = true }
+                        mainViewModel.consumeNavigation(event)
                     }
                 }
             }
@@ -208,6 +192,7 @@ class MainActivity : dev.chungjungsoo.gptmobile.presentation.ui.main.ProtectedAc
     }
 
     companion object {
+        const val EXTRA_NOTIFICATION_EVENT_ID = "notificationEventId"
         const val EXTRA_CHAT_ROOM_ID = "chatRoomId"
         const val EXTRA_TARGET_MESSAGE_ID = "targetMessageId"
         private const val OAUTH_LAUNCH_DEBOUNCE_MS = 1000L

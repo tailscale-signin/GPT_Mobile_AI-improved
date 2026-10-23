@@ -366,6 +366,7 @@ class AgentRunForegroundService : Service() {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
             if (chatId != null && chatId > 0) {
                 putExtra(MainActivity.EXTRA_CHAT_ROOM_ID, chatId)
+                putExtra(MainActivity.EXTRA_NOTIFICATION_EVENT_ID, java.util.UUID.randomUUID().toString())
             }
             if (targetMessageId != null && targetMessageId > 0) {
                 putExtra(MainActivity.EXTRA_TARGET_MESSAGE_ID, targetMessageId)

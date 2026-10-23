@@ -113,7 +113,7 @@ fun LocalModelDownloadDialogHost(
         is LocalModelsDialog.DeleteConfirm -> {
             ConfirmDialog(
                 title = stringResource(R.string.local_model_delete),
-                text = if (dialog.entry.id.startsWith("linked_")) "Remove this model link and its app metadata? The original model files stay at their existing location." else stringResource(R.string.local_model_delete_confirmation),
+                text = (if (dialog.entry.id.startsWith("linked_")) "Remove this model link and its app metadata? The original model files stay at their existing location." else stringResource(R.string.local_model_delete_confirmation)) + "\n" + stringResource(R.string.audit_remove_profile_effect),
                 confirmLabel = stringResource(R.string.delete),
                 onConfirm = onConfirmDelete,
                 onDismiss = onDismissDialog

@@ -7,6 +7,29 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class GPTMobileAppTest {
+    @Test fun failedRecoveryRetriesOnlyUnfinishedStepsAndSerializesRetryClicks() = runTest {
+        val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.test.StandardTestDispatcher(testScheduler))
+        var migrations = 0
+        var reads = 0
+        var fail = true
+        StartupRecoveryGate.start(scope) {
+            StartupRecoveryGate.step("migration") { migrations++ }
+            StartupRecoveryGate.step("profiles") {
+                reads++
+                if (fail) error("read failed")
+            }
+        }
+        org.junit.Assert.assertTrue(runCatching { StartupRecoveryGate.await() }.isFailure)
+        fail = false
+        StartupRecoveryGate.retry()
+        StartupRecoveryGate.retry()
+        StartupRecoveryGate.await()
+        assertEquals(1, migrations)
+        assertEquals(2, reads)
+        org.junit.Assert.assertTrue(StartupRecoveryGate.ready)
+        scope.coroutineContext[kotlinx.coroutines.Job]?.cancel()
+    }
+
     @Test fun immediateDispatcherCannotObserveThePreviousGateDuringStartup() = runTest {
         StartupRecoveryGate.start(this) {}
         StartupRecoveryGate.await()

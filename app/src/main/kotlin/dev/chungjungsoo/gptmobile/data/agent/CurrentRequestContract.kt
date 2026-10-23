@@ -6,6 +6,7 @@ import kotlinx.serialization.Serializable
 data class CurrentRequestContract(val intent: String, val originalRequestDigest: String, val answerPolicy: CombinedAnswerPolicy) {
     fun instruction(): String = when (intent) {
         "GREETING" -> "Answer the current greeting briefly. Prior topics do not create a new request."
+        "PROVIDER_TEST" -> "Acknowledge this provider connection test briefly. The application will summarize observed results across selected providers. Do not continue an earlier topic."
         "TEST" -> "Acknowledge this connection test briefly. Do not continue an earlier topic."
         else -> "Answer the current user request and preserve its explicit answer constraints."
     }
@@ -13,6 +14,7 @@ data class CurrentRequestContract(val intent: String, val originalRequestDigest:
         fun from(request: String): CurrentRequestContract {
             val text = request.trim().lowercase(java.util.Locale.ROOT).trimEnd('.', '!', '?')
             val intent = when {
+                text in setOf("test all providers", "test selected providers", "test my providers", "check provider connections") -> "PROVIDER_TEST"
                 text in setOf("test", "testing", "connection test", "test connection") -> "TEST"
                 dev.chungjungsoo.gptmobile.data.research.isResearchConversationOnly(request) -> "GREETING"
                 else -> "SUBSTANTIVE"

@@ -48,6 +48,7 @@ class NotificationManager @Inject constructor(
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
             if (chatId > 0) {
                 putExtra(EXTRA_CHAT_ROOM_ID, chatId)
+                putExtra(dev.chungjungsoo.gptmobile.presentation.ui.main.MainActivity.EXTRA_NOTIFICATION_EVENT_ID, java.util.UUID.randomUUID().toString())
             }
             if (targetMsgId > 0) {
                 putExtra(EXTRA_TARGET_MESSAGE_ID, targetMsgId)

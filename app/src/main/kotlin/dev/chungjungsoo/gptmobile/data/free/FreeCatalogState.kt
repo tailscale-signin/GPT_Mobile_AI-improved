@@ -36,7 +36,8 @@ enum class FreeGenerationReadiness(val label: String) {
     UNREACHABLE("Unreachable")
 }
 
-data class FreeServiceStatus(val readiness: FreeGenerationReadiness = FreeGenerationReadiness.UNTESTED, val retryAt: Long? = null, val deniedModel: String? = null, val denialCount: Int = 0, val reachable: Boolean? = null, val checking: Boolean = false, val checkedAt: Long = 0, val message: String = "Not checked", val servedModel: String? = null, val remaining: String? = null)
+@kotlinx.serialization.Serializable
+data class FreeServiceStatus(val catalogCheckSucceeded: Boolean = false, val generationFailures: Int = 0, val failureSignature: String? = null, val readiness: FreeGenerationReadiness = FreeGenerationReadiness.UNTESTED, val retryAt: Long? = null, val deniedModel: String? = null, val denialCount: Int = 0, val reachable: Boolean? = null, val checking: Boolean = false, val checkedAt: Long = 0, val message: String = "Not checked", val servedModel: String? = null, val remaining: String? = null)
 
 object FreeCatalogState {
     private val _status = MutableStateFlow<Map<FreeAiProvider, FreeServiceStatus>>(emptyMap())
@@ -47,29 +48,105 @@ object FreeCatalogState {
     private val parallelChecks = Semaphore(3)
     private val disk = Mutex()
     private var cache: File? = null
+    private var healthCache: File? = null
+    private val recovering = mutableSetOf<FreeAiProvider>()
 
     suspend fun initialize(context: Context) = withContext(Dispatchers.IO) {
         cache = File(context.filesDir, "free-model-catalog-v1.json")
+        healthCache = File(context.filesDir, "free-generation-health-v1.json")
+        runCatching {
+            val file = healthCache!!
+            if (file.isFile && file.length() <= 64_000) {
+                val saved = Json { ignoreUnknownKeys = true }.decodeFromString<Map<String, FreeServiceStatus>>(file.readText())
+                _status.value = saved.mapNotNull { (name, state) -> FreeAiProvider.entries.firstOrNull { it.name == name }?.let { it to state.copy(checking = false) } }.toMap()
+            }
+        }
         runCatching {
             val saved = Json.decodeFromString<Map<String, List<FreeModelOption>>>(cache!!.readText())
             _catalog.value = saved.mapNotNull { (name, models) ->
                 FreeAiProvider.entries.firstOrNull { it.name == name }?.let { provider ->
-                    provider to models.filter { FreeModelCatalog.acceptsDiscovered(provider, it.id, true) }.take(256)
+                    provider to models.filter { (provider != FreeAiProvider.LLM7 || it.freeAllowance) && FreeModelCatalog.acceptsDiscovered(provider, it.id, true) }.take(256)
                 }
             }.toMap()
         }
     }
 
-    fun models(provider: FreeAiProvider): List<FreeModelOption> = (_catalog.value[provider].orEmpty().map { mergeLimits(it, FreeModelCatalog.defaults(provider).firstOrNull { known -> known.id == it.id }) } + FreeModelCatalog.defaults(provider)).distinctBy { it.id }
+    fun models(provider: FreeAiProvider): List<FreeModelOption> = if (provider == FreeAiProvider.LLM7 && _catalog.value.containsKey(provider)) _catalog.value[provider].orEmpty() else (_catalog.value[provider].orEmpty().map { mergeLimits(it, FreeModelCatalog.defaults(provider).firstOrNull { known -> known.id == it.id }) } + FreeModelCatalog.defaults(provider)).distinctBy { it.id }
     fun model(provider: FreeAiProvider, id: String): FreeModelOption? = models(provider).firstOrNull { it.id == id }
     fun requireModel(provider: FreeAiProvider, id: String): FreeModelOption = requireNotNull(model(provider, id)) { "This model is not in ${provider.displayName}'s free catalog. Refresh models in Free Models settings." }
 
     fun recordAccepted(provider: FreeAiProvider) {
-        _status.update { current -> current + (provider to (current[provider] ?: FreeServiceStatus()).copy(reachable = true, readiness = FreeGenerationReadiness.UNTESTED, checkedAt = System.currentTimeMillis(), message = "Request accepted · generation pending", denialCount = 0, deniedModel = null, retryAt = null)) }
+        _status.update { current -> current + (provider to (current[provider] ?: FreeServiceStatus()).copy(reachable = true, checkedAt = System.currentTimeMillis(), message = "Request accepted · generation pending")) }
     }
 
     fun recordResponse(provider: FreeAiProvider, model: String?, remaining: String? = null) {
-        _status.update { current -> current + (provider to (current[provider] ?: FreeServiceStatus()).copy(readiness = FreeGenerationReadiness.RESPONSE_RECEIVED, retryAt = null, denialCount = 0, deniedModel = null, reachable = true, checkedAt = System.currentTimeMillis(), message = "Response received · answer quality not verified", servedModel = model, remaining = remaining)) }
+        _status.update { current -> current + (provider to (current[provider] ?: FreeServiceStatus()).copy(readiness = FreeGenerationReadiness.RESPONSE_RECEIVED, generationFailures = 0, failureSignature = null, retryAt = null, denialCount = 0, deniedModel = null, reachable = true, checkedAt = System.currentTimeMillis(), message = "Response received · answer quality not verified", servedModel = model, remaining = remaining)) }
+        saveHealth()
+    }
+
+    @Synchronized
+    private fun saveHealth() {
+        runCatching {
+            healthCache?.let { target ->
+                val temporary = File(target.path + ".tmp")
+                temporary.writeText(Json.encodeToString(_status.value.mapKeys { it.key.name }))
+                java.nio.file.Files.move(temporary.toPath(), target.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE)
+            }
+        }
+    }
+
+    @Synchronized
+    fun recordTerminalFailure(provider: FreeAiProvider, model: String, message: String, observedAt: Long = System.currentTimeMillis()) {
+        val signature = dev.chungjungsoo.gptmobile.data.research.researchHash(message.take(600))
+        _status.update { current ->
+            val old = current[provider] ?: FreeServiceStatus()
+            val count = if (old.failureSignature == signature && old.deniedModel == model) old.generationFailures + 1 else 1
+            current + (
+                provider to old.copy(
+                    readiness = FreeGenerationReadiness.GENERATION_FAILED,
+                    reachable = true,
+                    generationFailures = count,
+                    failureSignature = signature,
+                    deniedModel = model,
+                    retryAt = if (count >= 2) observedAt + (60_000L * count).coerceAtMost(300_000L) else null,
+                    checkedAt = observedAt,
+                    message = message.take(240)
+                )
+                )
+        }
+        saveHealth()
+    }
+
+    @Synchronized
+    fun generationUnavailableReason(provider: FreeAiProvider, model: String): String? {
+        val state = _status.value[provider] ?: return null
+        if (provider in recovering) return "${provider.displayName}: a generation recovery check is already running. Choose another provider or wait for its result."
+        if (state.deniedModel == model &&
+            (state.retryAt ?: 0) > System.currentTimeMillis() &&
+            (state.readiness == FreeGenerationReadiness.ACCESS_DENIED || state.generationFailures >= 2)
+        ) {
+            return "${provider.displayName} is temporarily unavailable after repeated ${if (state.generationFailures >= 2) "generation failures" else "access denials"}. Next eligible retry: ${java.time.Instant.ofEpochMilli(state.retryAt!!)}. Choose another provider."
+        }
+        return null
+    }
+
+    @Synchronized
+    fun beginGeneration(provider: FreeAiProvider, model: String): Boolean {
+        requireGenerationReady(provider, model)
+        val recovery = (_status.value[provider]?.generationFailures ?: 0) >= 2
+        if (recovery) recovering += provider
+        return recovery
+    }
+
+    @Synchronized
+    fun endGeneration(provider: FreeAiProvider) {
+        recovering -= provider
+    }
+
+    internal fun resetForTest() {
+        _status.value = emptyMap()
+        recovering.clear()
+        healthCache = null
     }
 
     fun recordFailure(provider: FreeAiProvider, message: String, readiness: FreeGenerationReadiness = FreeGenerationReadiness.GENERATION_FAILED, reachable: Boolean? = true, retryAt: Long? = null, model: String? = null) {
@@ -100,22 +177,23 @@ object FreeCatalogState {
     )
 
     fun requireGenerationReady(provider: FreeAiProvider, model: String) {
-        val state = _status.value[provider] ?: return
-        if (state.readiness == FreeGenerationReadiness.ACCESS_DENIED && state.deniedModel == model && (state.retryAt ?: 0) > System.currentTimeMillis()) {
-            throw FreeGenerationUnavailableException("${provider.displayName} is temporarily unavailable after repeated access denials. Choose another Free provider or retry after ${java.time.Instant.ofEpochMilli(state.retryAt!!)}.")
-        }
+        generationUnavailableReason(provider, model)?.let { throw FreeGenerationUnavailableException(it) }
     }
 
-    suspend fun refresh(provider: FreeAiProvider, force: Boolean = false) = checks.getValue(provider).withLock {
+    suspend fun refresh(provider: FreeAiProvider, force: Boolean = false, token: String? = null) = checks.getValue(provider).withLock {
+        if (!provider.isAvailable || provider.requiresUserToken && token.isNullOrBlank()) {
+            _status.update { it + (provider to (it[provider] ?: FreeServiceStatus()).copy(catalogCheckSucceeded = false, message = provider.unavailableReason ?: "Add API token in an LLM7 profile to check its catalog.")) }
+            return@withLock
+        }
         if (!force && System.currentTimeMillis() - (_status.value[provider]?.checkedAt ?: 0) < 300_000) return@withLock
-        _status.update { it + (provider to (it[provider] ?: FreeServiceStatus()).copy(checking = true)) }
+        _status.update { it + (provider to (it[provider] ?: FreeServiceStatus()).copy(checking = true, catalogCheckSucceeded = false)) }
         try {
             parallelChecks.withPermit {
-                val payload = withContext(Dispatchers.IO) { readCatalog(provider) }
+                val payload = withContext(Dispatchers.IO) { readCatalog(provider, token) }
                 val models = decodeModels(provider, payload)
-                check(models.isNotEmpty() || provider == FreeAiProvider.HUGGING_FACE && (payload as? JsonObject)?.containsKey("named_endpoints") == true) { "Service responded without a compatible model catalog" }
+                check(provider == FreeAiProvider.LLM7 && (payload as? JsonObject)?.get("data") is JsonArray || models.isNotEmpty() || provider == FreeAiProvider.HUGGING_FACE && (payload as? JsonObject)?.containsKey("named_endpoints") == true) { "Service responded without a compatible model catalog" }
                 _catalog.update { old ->
-                    val reviewedIds = FreeModelCatalog.defaults(provider).map { it.id }.toSet()
+                    val reviewedIds = if (provider == FreeAiProvider.LLM7) emptySet() else FreeModelCatalog.defaults(provider).map { it.id }.toSet()
                     val merged = models.map { mergeLimits(it, old[provider]?.firstOrNull { previous -> previous.id == it.id }) }
                     old + (provider to (merged + old[provider].orEmpty().filter { it.id in reviewedIds }).distinctBy { it.id })
                 }
@@ -134,12 +212,18 @@ object FreeCatalogState {
                         }
                     }
                 }
-                _status.update { it + (provider to (it[provider] ?: FreeServiceStatus()).copy(reachable = true, checkedAt = System.currentTimeMillis(), message = (it[provider]?.message?.takeIf { _ -> it[provider]?.readiness != FreeGenerationReadiness.UNTESTED } ?: "Catalog reachable · generation not tested"))) }
+                _status.update { it + (provider to (it[provider] ?: FreeServiceStatus()).copy(catalogCheckSucceeded = true, reachable = true, checkedAt = System.currentTimeMillis(), message = (it[provider]?.message?.takeIf { _ -> it[provider]?.readiness != FreeGenerationReadiness.UNTESTED } ?: "Catalog reachable · generation not tested"))) }
             }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
-            if (error is CatalogHttpFailure) recordHttpFailure(provider, error.status, "Catalog returned HTTP ${error.status}") else recordFailure(provider, error.message ?: "Service unreachable from this device", if (error is java.io.IOException) FreeGenerationReadiness.UNREACHABLE else FreeGenerationReadiness.INVALID_REQUEST, reachable = error !is java.io.IOException)
+            if ((_status.value[provider]?.generationFailures ?: 0) >= 2) {
+                _status.update { it + (provider to it.getValue(provider).copy(message = "Catalog check failed; generation remains unavailable")) }
+            } else if (error is CatalogHttpFailure) {
+                recordHttpFailure(provider, error.status, if (provider.requiresUserToken && error.status in setOf(401, 403)) "Check API token: catalog returned HTTP ${error.status}" else "Catalog returned HTTP ${error.status}")
+            } else {
+                recordFailure(provider, error.message ?: "Service unreachable from this device", if (error is java.io.IOException) FreeGenerationReadiness.UNREACHABLE else FreeGenerationReadiness.INVALID_REQUEST, reachable = error !is java.io.IOException)
+            }
         } finally {
             _status.update { it + (provider to (it[provider] ?: FreeServiceStatus()).copy(checking = false)) }
         }
@@ -152,13 +236,14 @@ object FreeCatalogState {
         else -> "${provider.apiUrl}/models"
     }
 
-    private fun readCatalog(provider: FreeAiProvider): kotlinx.serialization.json.JsonElement {
-        val connection = URL(catalogUrl(provider)).openConnection() as HttpURLConnection
+    internal fun readCatalog(provider: FreeAiProvider, token: String?, openConnection: (URL) -> HttpURLConnection = { it.openConnection() as HttpURLConnection }): kotlinx.serialization.json.JsonElement {
+        val connection = openConnection(URL(catalogUrl(provider)))
         try {
             connection.instanceFollowRedirects = false
             connection.connectTimeout = 8000
             connection.readTimeout = 8000
             connection.setRequestProperty("Accept", "application/json")
+            if (provider.requiresUserToken && !token.isNullOrBlank()) connection.setRequestProperty("Authorization", "Bearer $token")
             if (connection.responseCode !in 200..299) throw CatalogHttpFailure(connection.responseCode)
             val body = connection.inputStream.use { input ->
                 val output = java.io.ByteArrayOutputStream()
@@ -184,17 +269,19 @@ object FreeCatalogState {
             val id = ((item["id"] ?: item["name"]) as? JsonPrimitive)?.contentOrNull ?: return@mapNotNull null
             val pricing = item["pricing"] as? JsonObject
             val prices = pricing?.filterKeys { it in setOf("prompt", "completion", "input", "output", "request") }?.values.orEmpty()
-            if (prices.any { ((it as? JsonPrimitive)?.doubleOrNull ?: 0.0) > 0.0 }) return@mapNotNull null
-            val free = prices.size >= 2 && prices.all { (it as? JsonPrimitive)?.doubleOrNull == 0.0 }
+            if (provider != FreeAiProvider.LLM7 && prices.any { ((it as? JsonPrimitive)?.doubleOrNull ?: 0.0) > 0.0 }) return@mapNotNull null
+            val llm7Free = (item["model_type"] as? JsonPrimitive)?.contentOrNull == "chat" && (item["tier"] as? JsonPrimitive)?.contentOrNull == "turbo" && (item["usage_based_only"] as? JsonPrimitive)?.booleanOrNull == false
+            if (provider == FreeAiProvider.LLM7 && !llm7Free) return@mapNotNull null
+            val free = llm7Free || prices.size >= 2 && prices.all { (it as? JsonPrimitive)?.doubleOrNull == 0.0 }
             if (!FreeModelCatalog.acceptsDiscovered(provider, id, free || (item["isFree"] as? JsonPrimitive)?.booleanOrNull == true || (item["billing_mode"] as? JsonPrimitive)?.contentOrNull == "free")) return@mapNotNull null
             if (provider == FreeAiProvider.OVHCLOUD && ((item["context_length"] as? JsonPrimitive)?.doubleOrNull ?: 0.0) <= 0) return@mapNotNull null
             val parameters = (item["supported_parameters"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }.orEmpty()
             val known = FreeModelCatalog.defaults(provider).firstOrNull { it.id == id }
             val topProvider = item["top_provider"] as? JsonObject
             fun capacity(vararg fields: String): Int? = fields.mapNotNull { field ->
-                ((item[field] ?: topProvider?.get(field)) as? JsonPrimitive)?.contentOrNull?.toIntOrNull()?.takeIf { it in 1..100_000_000 }
+                ((item[field] as? JsonObject)?.get("tokens") as? JsonPrimitive ?: (item[field] ?: topProvider?.get(field)) as? JsonPrimitive)?.contentOrNull?.toIntOrNull()?.takeIf { it in 1..100_000_000 }
             }.minOrNull()
-            mergeLimits(FreeModelOption(id, (item["name"] as? JsonPrimitive)?.contentOrNull ?: id, tools = if (provider == FreeAiProvider.KILO) "tools" in parameters else known?.tools == true, privacy = known?.privacy, streaming = provider !in setOf(FreeAiProvider.AI_HORDE, FreeAiProvider.HUGGING_FACE, FreeAiProvider.POLLINATIONS), contextTokens = capacity("context_length", "context_window", "max_model_len"), outputTokens = capacity("max_output_tokens", "max_completion_tokens", "max_output_length")), known)
+            mergeLimits(FreeModelOption(id, (item["name"] as? JsonPrimitive)?.contentOrNull ?: id, tools = if (provider == FreeAiProvider.KILO) "tools" in parameters else known?.tools == true, privacy = known?.privacy, freeAllowance = llm7Free, streaming = if (provider == FreeAiProvider.LLM7) (item["stream"] as? JsonPrimitive)?.booleanOrNull == true else provider !in setOf(FreeAiProvider.AI_HORDE, FreeAiProvider.HUGGING_FACE, FreeAiProvider.POLLINATIONS), contextTokens = capacity("context_length", "context_window", "max_model_len"), outputTokens = capacity("max_output_tokens", "max_completion_tokens", "max_output_length")), known)
         }.distinctBy { it.id }.take(256)
     }
     internal fun mergeLimits(model: FreeModelOption, previous: FreeModelOption?): FreeModelOption = model.copy(
@@ -230,4 +317,4 @@ object FreeCatalogState {
 
 private class CatalogHttpFailure(val status: Int) : IllegalStateException("Catalog HTTP $status")
 
-internal class FreeGenerationUnavailableException(message: String) : IllegalStateException(message)
+internal class FreeGenerationUnavailableException(message: String) : dev.chungjungsoo.gptmobile.data.network.FreeProviderException(dev.chungjungsoo.gptmobile.data.network.FreeFailureCategory.PROVIDER_UNAVAILABLE, message)

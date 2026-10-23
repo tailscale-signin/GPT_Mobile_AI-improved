@@ -21,7 +21,7 @@ object ApiKeyValidator {
     }
 
     suspend fun validate(clientType: ClientType, apiUrl: String, apiKey: String): ValidationResult = withContext(Dispatchers.IO) {
-        if (clientType == ClientType.FREE) return@withContext validateFreeProvider(apiUrl)
+        if (clientType == ClientType.FREE) return@withContext validateFreeProvider(apiUrl, apiKey)
         val keyFreeGateway = apiKey.isBlank() && clientType in setOf(ClientType.LLAMA, ClientType.CUSTOM) && apiUrl.isNotBlank()
         if (apiKey.isBlank() && !keyFreeGateway && clientType != ClientType.OLLAMA && clientType != ClientType.LITERT_LM) {
             return@withContext ValidationResult.Error("API key cannot be empty")
@@ -114,12 +114,13 @@ object ApiKeyValidator {
             ValidationResult.Error("Connection error: ${e.localizedMessage ?: "Unable to reach server"}")
         }
     }
-    private suspend fun validateFreeProvider(apiUrl: String): ValidationResult {
+    private suspend fun validateFreeProvider(apiUrl: String, apiKey: String): ValidationResult {
         val provider = dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.fromApiUrl(apiUrl)
             ?: return ValidationResult.Error("Choose a Free service first.")
-        if (!provider.isAvailable) return ValidationResult.Error("This service requires provider approval for this build.")
-        dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.refresh(provider, true)
+        if (!provider.isAvailable) return ValidationResult.Error(provider.unavailableReason.orEmpty())
+        if (provider.requiresUserToken && apiKey.isBlank()) return ValidationResult.Error("Add API token in this AI profile’s settings.")
+        dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.refresh(provider, true, apiKey)
         val status = dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.status.value[provider]
-        return if (status?.reachable == true) ValidationResult.Success(status.message) else ValidationResult.Error(status?.message ?: "Service unavailable")
+        return if (status?.catalogCheckSucceeded == true) ValidationResult.Success("Catalog reachable; generation has not been verified by this check.") else ValidationResult.Error(status?.message ?: "Service unavailable")
     }
 }

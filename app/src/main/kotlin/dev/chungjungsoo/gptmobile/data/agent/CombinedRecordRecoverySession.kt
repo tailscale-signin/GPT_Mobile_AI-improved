@@ -96,7 +96,7 @@ internal class CombinedRecordRecoverySession(
                 // Only this exact parser sentinel can enter bounded reconstruction. Collector,
                 // persistence and authorization failures must propagate without further emission.
                 if (error !== rejectedRecord) throw error
-                failure = ProviderEvent.Failed(error.message.orEmpty())
+                failure = ProviderEvent.Failed(error.message.orEmpty(), errorCode = error.message)
             }
             val after = protocol.checkpoint()
             val passagesAdded = after.records.drop(before.records.size).count { record ->
@@ -113,7 +113,15 @@ internal class CombinedRecordRecoverySession(
             val recoverable = protocol.canRecoverMalformed || outputLimit || (failure == null && complete && !after.ended)
             noProgress = if (passagesAdded == 0) noProgress + 1 else 0
             if (!recoverable || continuations >= maxContinuations || noProgress >= 2 || after.failure != null && !protocol.canRecoverMalformed) {
-                emit(if (reasoningObserved && passagesAdded == 0 && (noProgress >= 2 || continuations >= maxContinuations)) ProviderEvent.Failed("COMBINED_WRITER_STALLED: Reasoning consumed the allowance without completed answer passages. Retained contributions remain available; use another authorized writer.") else failure ?: ProviderEvent.Failed("COMBINED_PARTIAL: Structured delivery paused at record ${after.lastSequence + 1}. Committed passages and the unfinished record are saved."))
+                emit(
+                    if (reasoningObserved && passagesAdded == 0 && (noProgress >= 2 || continuations >= maxContinuations)) {
+                        ProviderEvent.Failed("COMBINED_WRITER_STALLED: Reasoning consumed the allowance without completed answer passages. Retained contributions remain available; use another authorized writer.", errorCode = "COMBINED_WRITER_STALLED")
+                    } else if (failure == null && passagesAdded == 0 && after.records.isEmpty() && after.pending.isBlank()) {
+                        ProviderEvent.Failed("COMBINED_EMPTY_OUTPUT: The writer repeatedly returned no answer records.", errorCode = "COMBINED_EMPTY_OUTPUT")
+                    } else {
+                        failure ?: ProviderEvent.Failed("COMBINED_PARTIAL: Structured delivery paused at record ${after.lastSequence + 1}. Committed passages and the unfinished record are saved.")
+                    }
+                )
                 return@flow
             }
             validateAccess()

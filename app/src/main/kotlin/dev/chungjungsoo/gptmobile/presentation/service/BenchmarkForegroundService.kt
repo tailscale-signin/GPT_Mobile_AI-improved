@@ -97,7 +97,7 @@ class BenchmarkForegroundService : Service() {
         val openApp = PendingIntent.getActivity(
             this,
             0,
-            Intent(this, MainActivity::class.java).putExtra(EXTRA_OPEN_BENCHMARKS, true).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            Intent(this, MainActivity::class.java).putExtra(MainActivity.EXTRA_NOTIFICATION_EVENT_ID, java.util.UUID.randomUUID().toString()).putExtra(EXTRA_OPEN_BENCHMARKS, true).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val stop = PendingIntent.getService(

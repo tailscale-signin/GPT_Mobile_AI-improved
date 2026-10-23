@@ -254,6 +254,21 @@ fun ChatScreen(
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     var showExportOptions by remember { mutableStateOf(false) }
     var showProfileManagement by rememberSaveable { mutableStateOf(false) }
+    val freeProviderNotice by chatViewModel.freeProviderNotice.collectAsStateWithLifecycle()
+    freeProviderNotice?.let { notice ->
+        AlertDialog(
+            onDismissRequest = chatViewModel::dismissFreeProviderNotice,
+            title = { Text("Provider unavailable") },
+            text = { Text(notice) },
+            confirmButton = {
+                androidx.compose.material3.Button(onClick = {
+                    chatViewModel.dismissFreeProviderNotice()
+                    showProfileManagement = true
+                }) { Text("Choose another provider") }
+            },
+            dismissButton = { TextButton(onClick = chatViewModel::dismissFreeProviderNotice) { Text("Keep draft") } }
+        )
+    }
     var showOutline by rememberSaveable { mutableStateOf(false) }
     var pendingJumpKey by rememberSaveable { mutableStateOf<String?>(null) }
     val isLoaded by chatViewModel.isLoaded.collectAsStateWithLifecycle()
@@ -300,6 +315,10 @@ fun ChatScreen(
     val followUpProgress by chatViewModel.followUpProgress.collectAsStateWithLifecycle()
     val queuedPromptCount by chatViewModel.queuedPromptCount.collectAsStateWithLifecycle()
     val attachmentNotice by chatViewModel.attachmentNotice.collectAsStateWithLifecycle()
+    val queuedJobInspection by chatViewModel.queuedJobInspection.collectAsStateWithLifecycle()
+    queuedJobInspection?.let { result ->
+        androidx.compose.material3.AlertDialog(onDismissRequest = chatViewModel::dismissQueuedJobInspection, title = { Text("Saved queued job") }, text = { androidx.compose.foundation.text.selection.SelectionContainer { Text(result) } }, confirmButton = { TextButton(onClick = chatViewModel::dismissQueuedJobInspection) { Text("Close") } })
+    }
     val needsLocalNetworkAccess by chatViewModel.needsLocalNetworkAccess.collectAsStateWithLifecycle()
     val appEnabledPlatforms by chatViewModel.enabledPlatformsInApp.collectAsStateWithLifecycle()
     val appAllPlatforms by chatViewModel.platformsInApp.collectAsStateWithLifecycle()
@@ -708,6 +727,9 @@ fun ChatScreen(
                         onSelectText = chatViewModel::openSelectTextSheet,
                         onRetry = chatViewModel::retryChat,
                         onRetryCombinedMerge = chatViewModel::retryCombinedMerge,
+                        onTryAnotherCombinedWriter = chatViewModel::tryAnotherCombinedWriter,
+                        onCheckCombinedQueuedJob = chatViewModel::checkCombinedQueuedJob,
+                        onCheckQueuedRun = chatViewModel::checkQueuedJob,
                         onUseCombinedReply = chatViewModel::useCombinedReply,
                         onInspectContext = onInspectContext?.let { inspect ->
                             { run -> inspect(chatRoom.id, run) }
@@ -721,6 +743,40 @@ fun ChatScreen(
                         onContinueClick = { chatViewModel.sendContinueResponse() },
                         onActionClick = { prompt -> chatViewModel.sendPromptResponse(prompt) }
                     )
+                    val chatResearch = researchSessions.values.filter { session ->
+                        session.chatId == chatRoom.id && (session.turnId.substringAfterLast(':').toIntOrNull() ?: agentRunsById[session.runId]?.userMessageId) == message.id
+                    }
+                    if (chatResearch.isNotEmpty()) {
+                        val turnRuns = agentRunsById.values.filter { it.chatId == chatRoom.id && it.userMessageId == message.id }
+                        val turnRow = groupedMessages.assistantMessages.getOrNull(index).orEmpty()
+                        val selectedUid = inspectedCombinedProfileUid.takeIf { inspectedCombinedTurn == chatMessagePairKey(message, index) }
+                        val owner = if (selectedUid != null) {
+                            combinedResponseProfiles(responses = turnRow, platformUids = chatViewModel.enabledPlatformsInChat, profileNames = appAllPlatforms.associate { it.uid to it.name }, participatingUids = activePlatformUids.toSet(), preparing = false, runsById = agentRunsById).firstOrNull { it.uid == selectedUid }?.message
+                        } else if (chatRoom.conversationMode == ConversationMode.COMBINED) {
+                            turnRow.firstOrNull { it.isCombinedSynthesis() }
+                        } else {
+                            turnRow.getOrNull(indexStates.getOrElse(index) { 0 })
+                        }
+                        val displayedTimeline = owner?.effectiveTimeline().orEmpty()
+                        val receipt = displayedTimeline.lastOrNull { it.researchDeliveryReceipt != null }?.researchDeliveryReceipt
+                        val accepted = receipt?.displayValidityFor(owner?.effectiveContent()) == dev.chungjungsoo.gptmobile.data.research.delivery.ResearchReportValidity.ACCEPTED
+                        val combinedQuality = displayedTimeline.lastOrNull { it.combinedQuality != null }?.combinedQuality
+                        val combinedComplete = combinedQuality?.let { it.complete && !it.correctionRequired && it.answerDigest == dev.chungjungsoo.gptmobile.data.research.researchHash(owner?.effectiveContent().orEmpty()) && it.deliveredScopeStatus in setOf("COMPLETED", "COMPLETED_WITH_LIMITS") }
+                        val failure = if (accepted || combinedComplete == true) null else displayedTimeline.lastOrNull { it.runError != null }?.runError ?: owner?.takeUnless { it.hasHistoricalRevisionSelected() }?.currentRunId?.let(agentRunsById::get)?.takeIf { it.status == "FAILED" }?.terminalError
+                        ResearchProgressCard(
+                            chatResearch,
+                            turnRuns.filter { it.runId in activeAgentRuns }.mapTo(mutableSetOf()) { it.runId },
+                            chatViewModel::stopResearch,
+                            writerFailure = failure,
+                            onRecovery = { action -> chatViewModel.recoverResearch(message.id, action) },
+                            deliveryReceipt = receipt,
+                            cancelWriting = { chatViewModel.cancelResearchWriting(message.id) },
+                            deliveryRevisionText = owner?.effectiveContent(),
+                            profileStatistics = researchProfileStatistics[chatResearch.first().turnId].orEmpty(),
+                            profileNames = appAllPlatforms.associate { it.uid to it.name } + turnRuns.associate { run -> run.runId to (appAllPlatforms.firstOrNull { it.uid == run.profileUid }?.name ?: run.profileUid) },
+                            deliveryComplete = combinedComplete
+                        )
+                    }
                 }
                 if (recoveryBlock != null && blockedResponse != null) {
                     item(key = "research-recovery-access") {
@@ -734,38 +790,6 @@ fun ChatScreen(
                                 }) { Text("Review setup") }
                             }
                         }
-                    }
-                }
-                val allChatResearch = researchSessions.values.filter { it.chatId == chatRoom.id && (it.runId in agentRunsById || it.runId in activeAgentRuns) }
-                val shownResearch = allChatResearch.maxWithOrNull(compareBy<dev.chungjungsoo.gptmobile.data.research.ResearchSession> { it.turnId.substringAfterLast(':').toIntOrNull() ?: agentRunsById[it.runId]?.userMessageId ?: 0 }.thenBy { it.snapshot.updatedAt })
-                val shownUserId = shownResearch?.turnId?.substringAfterLast(':')?.toIntOrNull() ?: shownResearch?.runId?.let { agentRunsById[it]?.userMessageId }
-                val chatResearch = allChatResearch.filter { it.turnId == shownResearch?.turnId }
-                val researchTurnRuns = agentRunsById.values.filter { it.chatId == chatRoom.id && it.userMessageId == shownUserId }
-                if (chatResearch.isNotEmpty() && shownUserId != null) {
-                    item(key = "research-progress") {
-                        val turnRow = groupedMessages.assistantMessages.getOrNull(groupedMessages.userMessages.indexOfFirst { it.id == shownUserId }).orEmpty()
-                        val receiptOwner = turnRow.sortedByDescending { message -> message.currentRunId?.let { agentRunsById[it]?.synthesisKey != null } == true }.firstOrNull { message -> message.effectiveTimeline().any { it.researchDeliveryReceipt != null } }
-                        ResearchProgressCard(
-                            chatResearch,
-                            researchTurnRuns.filter { it.runId in activeAgentRuns }.mapTo(mutableSetOf()) { it.runId },
-                            chatViewModel::stopResearch,
-                            writerFailure = researchTurnRuns.filter { it.status == "FAILED" }.maxByOrNull { it.createdAt }?.terminalError,
-                            onRecovery = { action -> chatViewModel.recoverResearch(shownUserId, action) },
-                            deliveryReceipt = receiptOwner?.effectiveTimeline()?.lastOrNull { it.researchDeliveryReceipt != null }?.researchDeliveryReceipt,
-                            cancelWriting = { chatViewModel.cancelResearchWriting(shownUserId) },
-                            deliveryRevisionText = receiptOwner?.effectiveContent(),
-                            profileStatistics = researchProfileStatistics[shownResearch?.turnId].orEmpty(),
-                            profileNames = appAllPlatforms.associate { it.uid to it.name },
-                            deliveryComplete = if (chatRoom.conversationMode == ConversationMode.COMBINED) {
-                                val finalRun = researchTurnRuns.filter { it.synthesisKey != null }.maxByOrNull { it.createdAt }
-                                val finalMessage = turnRow.firstOrNull { it.currentRunId == finalRun?.runId }
-                                finalRun?.status == "COMPLETED" &&
-                                    researchTurnRuns.filter { it.synthesisKey == null }.groupBy { it.profileUid }.values.all { attempts -> attempts.maxBy { it.createdAt }.status == "COMPLETED" } &&
-                                    finalMessage?.effectiveTimeline()?.lastOrNull { it.combinedQuality != null }?.combinedQuality?.let { report -> report.complete && !report.correctionRequired && report.answerDigest == dev.chungjungsoo.gptmobile.data.research.researchHash(finalMessage.effectiveContent()) && report.deliveredScopeStatus in setOf("COMPLETED", "COMPLETED_WITH_LIMITS") } == true
-                            } else {
-                                null
-                            }
-                        )
                     }
                 }
                 items(pendingPrompts.size, key = { "queued-${pendingPrompts[it].id}" }) { index ->
@@ -1159,6 +1183,9 @@ private fun ChatMessagePair(
     onSelectText: (String) -> Unit,
     onRetry: (Int, Int) -> Unit,
     onRetryCombinedMerge: (Int) -> Unit = {},
+    onTryAnotherCombinedWriter: (Int) -> Unit = {},
+    onCheckCombinedQueuedJob: (Int) -> Unit = {},
+    onCheckQueuedRun: (String) -> Unit = {},
     onUseCombinedReply: (Int, String) -> Unit = { _, _ -> },
     onInspectContext: ((String) -> Unit)? = null,
     onFavoriteClick: (Int, Int) -> Unit,
@@ -1315,33 +1342,52 @@ private fun ChatMessagePair(
                 isFavorite = selectedAssistantMessage?.isFavorite ?: false,
                 modifier = Modifier
                     .fillMaxWidth()
-
+                    .responseProfileSwipe(
+                        count = if (hasCombinedTabs) combinedProfiles.size + 1 else enabledPlatformsInChat.size,
+                        selected = if (hasCombinedTabs) combinedProfiles.indexOfFirst { it.uid == selectedCombinedProfileUid } + 1 else displayPlatformIndex,
+                        select = { next -> if (hasCombinedTabs) onCombinedProfileClick(combinedProfiles.getOrNull(next - 1)?.uid) else onPlatformClick(messageIndex, next) }
+                    )
             ) {
                 if (!hasCombinedTabs) {
                     GPTMobileIcon(loading = shouldShowReplyLoadingIndicator(isActiveMessage, loadingStates))
+                }
+                if (isCombinedConversation) {
+                    dev.chungjungsoo.gptmobile.presentation.common.DetailsSection {
+                        selectedAssistantMessage?.currentRunId?.let(agentRunsById::get)?.let { writer ->
+                            Text("Writer: ${combinedProfiles.firstOrNull { it.uid == writer.profileUid }?.name ?: writer.profileUid} · ${writer.modelSnapshot}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
                 }
                 if (hasCombinedTabs && combinedStatus != CombinedResponseStatus.GENERATING) {
                     val retained = combinedProfiles.count { it.message?.effectiveContent()?.isNotBlank() == true }
                     if (combinedStatus == CombinedResponseStatus.FAILED || isSourceResponse) {
                         androidx.compose.material3.Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
                             Column(Modifier.padding(12.dp)) {
-                                Text(if (isSourceResponse) "Saved model reply" else "Combined writing needs attention", style = MaterialTheme.typography.titleSmall)
-                                Text("$retained replies retained for this request", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                androidx.compose.foundation.layout.Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
-                                    if (combinedSynthesisIndex >= 0 && combinedStatus == CombinedResponseStatus.FAILED) TextButton(onClick = { onRetryCombinedMerge(messageIndex) }, enabled = isIdle && canUseChat) { Text("Retry merge") }
+                                Text(stringResource(if (isSourceResponse) R.string.audit_saved_reply else R.string.audit_combining_failed), style = MaterialTheme.typography.titleSmall)
+                                Text(stringResource(R.string.audit_replies_saved), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                selectedAssistantMessage?.timeline?.lastOrNull { it.combinedFailure != null }?.combinedFailure?.let { failure ->
+                                    Text(if (failure.remoteJobStatus == "PENDING") "The local wait ended; the remote job is still pending. Its receipt is saved. Use Check queued job to inspect it without submitting again." else "Final delivery: ${failure.category.name.lowercase().replace('_', ' ')}", style = MaterialTheme.typography.bodySmall)
+                                }
+                                Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(4.dp)) {
+                                    if (combinedSynthesisIndex >= 0 && combinedStatus == CombinedResponseStatus.FAILED) TextButton(onClick = { onRetryCombinedMerge(messageIndex) }, enabled = isIdle && canUseChat) { Text(stringResource(R.string.audit_retry_combining)) }
+                                    if (combinedSynthesisIndex >= 0 && combinedStatus == CombinedResponseStatus.FAILED) TextButton(onClick = { onTryAnotherCombinedWriter(messageIndex) }, enabled = isIdle && canUseChat) { Text("Try another writer") }
+                                    if (agentRunsById.values.any { it.userMessageId == message.id && it.terminalError?.contains("QUEUE_JOB_PENDING") == true }) TextButton(onClick = { onCheckCombinedQueuedJob(messageIndex) }, enabled = isIdle && canUseChat) { Text("Check queued job") }
                                     if (!isSourceResponse) {
                                         androidx.compose.material3.FilledTonalButton(onClick = {
                                             val useful = combinedProfiles.firstOrNull { profile ->
                                                 CombinedContributionUsability.assess(null, profile.message?.effectiveContent().orEmpty(), allowPartial = true, request = message.content, demo = profile.name.contains("PorchLM", true)).admitted
                                             } ?: combinedProfiles.firstOrNull()
                                             useful?.let { onCombinedProfileClick(it.uid) }
-                                        }) { Text("View retained draft") }
+                                        }) { Text(stringResource(R.string.audit_view_replies)) }
                                     }
                                     if (isSourceResponse && combinedSynthesisIndex >= 0 && assistantContent.isNotBlank()) TextButton(onClick = { onUseCombinedReply(messageIndex, selectedProfile!!.uid) }, enabled = isIdle && canUseChat) { Text("Use reply") }
                                 }
                             }
                         }
                     }
+                }
+                if (hasCombinedTabs && combinedStatus == CombinedResponseStatus.COMPLETED && agentRunsById.values.any { it.userMessageId == message.id && it.terminalError?.contains("QUEUE_JOB_PENDING") == true }) {
+                    TextButton(onClick = { onCheckCombinedQueuedJob(messageIndex) }, enabled = isIdle && canUseChat) { Text("Check earlier queued job") }
                 }
                 if (hasCombinedTabs && selectedProfile == null) {
                     if (selectedAssistantMessage?.hasHistoricalRevisionSelected() == true && selectedAssistantMessage.effectiveCombinedSources().isEmpty()) {
@@ -1393,7 +1439,7 @@ private fun ChatMessagePair(
                     retryLabel = if (isCombinedConversation) {
                         stringResource(if (combinedStatus == CombinedResponseStatus.FAILED) R.string.combined_retry else R.string.combined_regenerate)
                     } else {
-                        null
+                        stringResource(R.string.audit_generate_again)
                     },
                     isLoading = if (hasCombinedTabs) {
                         isCurrentPlatformLoading
@@ -1481,6 +1527,14 @@ private fun ChatMessagePair(
                     onContinueClick = onContinueClick.takeIf { smartSuggestionsEnabled && !isSourceResponse },
                     onActionClick = onActionClick.takeIf { smartSuggestionsEnabled && !isSourceResponse }
                 )
+                assistantTimeline.lastOrNull { it.runError != null }?.runError?.let { error ->
+                    Column(Modifier.fillMaxWidth().padding(12.dp)) {
+                        Text(stringResource(R.string.audit_response_interrupted), style = MaterialTheme.typography.titleSmall)
+                        dev.chungjungsoo.gptmobile.presentation.common.DetailsSection { Text(error, style = MaterialTheme.typography.bodySmall) }
+                        if (error.contains("QUEUE_") && selectedRunId != null) TextButton(onClick = { onCheckQueuedRun(selectedRunId) }) { Text(stringResource(R.string.audit_check_status)) }
+                        if (!hasCombinedTabs) TextButton(onClick = { onRetry(messageIndex, displayPlatformIndex) }, enabled = isIdle && canUseChat) { Text(stringResource(R.string.audit_generate_again)) }
+                    }
+                }
             }
         }
     }
@@ -1734,7 +1788,7 @@ fun ChatDropdownMenu(
 private suspend fun exportChat(context: Context, chatViewModel: ChatViewModel, format: ChatExportFormat) {
     try {
         val file = if (format == ChatExportFormat.DEBUG) {
-            chatViewModel.exportDebugFile(context.getExternalFilesDir(null) ?: context.filesDir)
+            withContext(Dispatchers.IO) { chatViewModel.exportDebugFile(context.getExternalFilesDir(null) ?: context.filesDir) }
         } else {
             val (fileName, fileContent) = chatViewModel.exportChat(format)
             if (fileContent.isBlank()) {
@@ -1753,7 +1807,7 @@ private suspend fun exportChat(context: Context, chatViewModel: ChatViewModel, f
                 }
             }
         }
-        val uri = getUriForFile(context, "${context.packageName}.fileprovider", file)
+        val uri = withContext(Dispatchers.IO) { getUriForFile(context, "${context.packageName}.fileprovider", file) }
         val shareIntent = Intent(Intent.ACTION_SEND).apply {
             type = format.mimeType
             putExtra(Intent.EXTRA_STREAM, uri)

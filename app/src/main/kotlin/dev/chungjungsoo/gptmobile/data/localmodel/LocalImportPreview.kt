@@ -2,7 +2,6 @@ package dev.chungjungsoo.gptmobile.data.localmodel
 
 import java.io.File
 import java.io.InputStream
-import java.util.zip.ZipInputStream
 import kotlinx.serialization.json.Json
 
 data class LocalImportPreview(
@@ -41,11 +40,7 @@ data class LocalImportPreview(
                     LocalImportPreview(name, if (gguf) "GGUF · llama.cpp" else "GenieX · GGUF", size, size, if (gguf) dev.chungjungsoo.gptmobile.data.localruntime.RuntimeCapabilityRegistry.gguf(android.os.Build.SUPPORTED_ABIS?.toList().orEmpty()).backends.sorted() else emptyList())
                 }
                 header[0] == 0x50.toByte() && header[1] == 0x4b.toByte() -> {
-                    require(name.endsWith(".zip", true) || name.endsWith(".localmodel", true)) { "Choose a .localmodel or manifest ZIP package." }
-                    ZipInputStream(stream).use { archive ->
-                        require(archive.nextEntry?.name == "manifest.json") { "Bundle must begin with manifest.json." }
-                        manifest(archive, name, size, geniex, gguf)
-                    }
+                    error("Extract the ZIP/.localmodel package first, then choose Link model folder. Compressed packages cannot be linked.")
                 }
                 else -> error("Unsupported chat model. Choose a LiteRT-LM container or a supported GenieX package; raw TFLite and task files are not chat containers.")
             }

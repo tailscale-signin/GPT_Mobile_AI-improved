@@ -90,15 +90,26 @@ fun ResearchArticleDialog(workId: String, versionId: String? = null, authority: 
                         if (work.retracted == true) Text("Retraction reported", color = MaterialTheme.colorScheme.error)
                     }
                 }
+                item {
+                    val review = state.reviews.firstOrNull()
+                    val artifact = review?.let { runCatching { Json.decodeFromString<dev.chungjungsoo.gptmobile.data.research.feature.StudyReviewArtifact>(it.artifactJson) }.getOrNull() }
+                    Text(androidx.compose.ui.res.stringResource(if (review == null) dev.chungjungsoo.gptmobile.R.string.audit_not_examined else dev.chungjungsoo.gptmobile.R.string.audit_current_assessment), style = MaterialTheme.typography.titleMedium)
+                    artifact?.let {
+                        Text(it.conclusion)
+                        Text(it.limitation, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
                 state.version?.let { version ->
                     item {
                         if (originalVersionId != null && originalVersionId != versionId) OutlinedButton(onClick = { showingOriginal = !showingOriginal }) { Text(if (showingOriginal) "View updated assessment" else "View original cited version") }
                         Text("Coverage: ${version.coverage.name.lowercase().replace('_', ' ')}")
-                        Text("Captured ${java.time.Instant.ofEpochMilli(version.retrievedAt)} · ${version.textBytes} UTF-8 bytes", style = MaterialTheme.typography.bodySmall)
-                        Text("Version ${version.versionId.take(16)} · ${if (state.bodyAvailable) "Body integrity verified" else "Body unavailable or incomplete; historical metadata retained"}")
-                        Text("Source capture, AI appraisal, publication review and independent review are separate.")
-                        state.validations.firstOrNull()?.let { validation -> Text("Capture validation: ${validation.kind.lowercase().replace('_', ' ')} · ${validation.workKind.lowercase().replace('_', ' ')}", style = MaterialTheme.typography.bodySmall) }
-                        if (state.relationships.any { it.disposition == "PROVEN_PUBLIC_IDENTITY_LINKED" }) Text("Related public captures share a verified identifier; their versions and assessment histories remain available.", style = MaterialTheme.typography.bodySmall)
+                        dev.chungjungsoo.gptmobile.presentation.common.DetailsSection {
+                            Text("Captured ${java.time.Instant.ofEpochMilli(version.retrievedAt)} · ${version.textBytes} UTF-8 bytes", style = MaterialTheme.typography.bodySmall)
+                            Text("Version ${version.versionId.take(16)} · ${if (state.bodyAvailable) "Body integrity verified" else "Body unavailable or incomplete; historical metadata retained"}")
+                            Text("Source capture, AI appraisal, publication review and independent review are separate.")
+                            state.validations.firstOrNull()?.let { validation -> Text("Capture validation: ${validation.kind.lowercase().replace('_', ' ')} · ${validation.workKind.lowercase().replace('_', ' ')}", style = MaterialTheme.typography.bodySmall) }
+                            if (state.relationships.any { it.disposition == "PROVEN_PUBLIC_IDENTITY_LINKED" }) Text("Related public captures share a verified identifier; their versions and assessment histories remain available.", style = MaterialTheme.typography.bodySmall)
+                        }
                         val conflicts = state.relationships.filter { it.disposition == "IDENTITY_REVIEW_REQUIRED" }
                         if (conflicts.isNotEmpty()) {
                             Text("Identity review required", style = MaterialTheme.typography.titleMedium)
@@ -111,46 +122,59 @@ fun ResearchArticleDialog(workId: String, versionId: String? = null, authority: 
                     }
                     item {
                         dev.chungjungsoo.gptmobile.presentation.ui.setting.DelegateModelDropdown(profiles = profiles.filter { it.enabled }, selectedProfileUid = profileUid, enabled = true, onSelected = { profileUid = it?.uid.orEmpty() }, automaticLabel = "Choose Examiner", roleLabel = "Examiner")
-                        if (profileUid.isNotBlank()) OutlinedButton(onClick = { profileUid = "" }) { Text("Clear Examiner selection") }
-                        examinationBlocker?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error) }
-                        if (chatId > 0) {
-                            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                OutlinedButton(onClick = { viewModel.saveCrawlerForChat(chatId, profileUid, currentTools()) }, enabled = selectedProfile != null) { Text("Use this Examiner for this chat") }
-                                if (features.conversationResearch[chatId]?.crawlerProfileUid != null) {
-                                    OutlinedButton(onClick = {
-                                        viewModel.saveCrawlerForChat(chatId, "", currentTools())
-                                        profileUid = ""
-                                    }) { Text("Clear chat override") }
+                        dev.chungjungsoo.gptmobile.presentation.common.DetailsSection(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.audit_examiner_settings)) {
+                            if (profileUid.isNotBlank()) OutlinedButton(onClick = { profileUid = "" }) { Text("Clear Examiner selection") }
+                            if (chatId > 0) {
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    OutlinedButton(onClick = { viewModel.saveCrawlerForChat(chatId, profileUid, currentTools()) }, enabled = selectedProfile != null) { Text("Use this Examiner for this chat") }
+                                    if (features.conversationResearch[chatId]?.crawlerProfileUid != null) {
+                                        OutlinedButton(onClick = {
+                                            viewModel.saveCrawlerForChat(chatId, "", currentTools())
+                                            profileUid = ""
+                                        }) { Text("Clear chat override") }
+                                    }
                                 }
                             }
                         }
-                        androidx.compose.material3.Button(onClick = { viewModel.examine(ExaminationRequest(workId, profileUid, chatId, version.versionId, authority), currentTools) }, modifier = Modifier.fillMaxWidth(), enabled = examinationBlocker == null && !examinationActive && !admitting) {
+                        examinationBlocker?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error) }
+                        val selection = androidx.compose.runtime.remember(relevantJobs, profileUid, version.versionId) { examinationPrimarySelection(relevantJobs, profileUid, version.versionId) }
+                        val completed = selection.action == ExaminationPrimaryAction.EXAMINE_AGAIN
+                        androidx.compose.material3.Button(onClick = { viewModel.examine(ExaminationRequest(workId, profileUid, chatId, version.versionId, authority, reexamine = completed, resumeJobId = selection.resumeJobId), currentTools) }, modifier = Modifier.fillMaxWidth(), enabled = examinationBlocker == null && !examinationActive && !admitting) {
                             Text(
                                 if (admitting) {
                                     "Starting examination…"
                                 } else if (examinationActive) {
                                     "Examination in progress"
                                 } else {
-                                    "Examine / Resume"
+                                    androidx.compose.ui.res.stringResource(
+                                        if (completed) {
+                                            dev.chungjungsoo.gptmobile.R.string.audit_examine_again
+                                        } else if (selection.action == ExaminationPrimaryAction.RESUME) {
+                                            dev.chungjungsoo.gptmobile.R.string.audit_resume
+                                        } else {
+                                            dev.chungjungsoo.gptmobile.R.string.audit_examine
+                                        }
+                                    )
                                 }
                             )
                         }
-                        OutlinedButton(onClick = { viewModel.examine(ExaminationRequest(workId, profileUid, chatId, version.versionId, authority, reexamine = true), currentTools) }, enabled = examinationBlocker == null && !examinationActive && !admitting && relevantJobs.any { it.stage in setOf(ExaminationStage.COMPLETE_FULL, ExaminationStage.COMPLETE_PARTIAL, ExaminationStage.ABSTRACT_ONLY) }) { Text("Re-examine as a new revision") }
                         Text("Uses the selected model and permitted article reader. Provider usage may be billable. Research Depth remains unchanged; all paper and profile permissions still apply.", style = MaterialTheme.typography.bodySmall)
                     }
                 }
                 state.reviews.forEachIndexed { index, review ->
                     item(key = "review:${review.reviewId}") {
-                        val artifact = runCatching { Json.decodeFromString<dev.chungjungsoo.gptmobile.data.research.feature.StudyReviewArtifact>(review.artifactJson) }.getOrNull()
-                        Text(if (index == 0) "Current assessment · ${artifact?.outcomeKey.orEmpty()}" else "Assessment history · ${artifact?.outcomeKey.orEmpty()}", style = MaterialTheme.typography.titleMedium)
-                        Text(artifact?.conclusion.orEmpty())
-                        Text(artifact?.limitation.orEmpty(), style = MaterialTheme.typography.bodySmall)
-                        Text(if (state.work?.retracted == true) "Retraction reported · score suspended" else "${review.status} · AI review score ${review.overallScore ?: "Pending"}")
-                        Text("Reliability ${review.reliabilityScore ?: "Pending"} · Summary accuracy ${review.accuracyScore ?: "Pending"} · Rubric ${review.rubricVersion}")
-                        Text("${review.model} · ${java.time.Instant.ofEpochMilli(review.createdAt)}", style = MaterialTheme.typography.bodySmall)
-                        (artifact?.reliability.orEmpty() + artifact?.accuracy.orEmpty()).forEach { domain ->
-                            Text("${domain.domain.replace('_', ' ')}: ${domain.grade ?: "Unknown"} · ${domain.rationale}", style = MaterialTheme.typography.bodySmall)
-                            state.passages.filter { it.passageId in domain.passageIds }.forEach { Text("${it.locator}: ${it.quote}", style = MaterialTheme.typography.bodySmall) }
+                        dev.chungjungsoo.gptmobile.presentation.common.DetailsSection(androidx.compose.ui.res.stringResource(if (index == 0) dev.chungjungsoo.gptmobile.R.string.audit_assessment_details else dev.chungjungsoo.gptmobile.R.string.audit_assessment_history)) {
+                            val artifact = runCatching { Json.decodeFromString<dev.chungjungsoo.gptmobile.data.research.feature.StudyReviewArtifact>(review.artifactJson) }.getOrNull()
+                            Text(if (index == 0) "Current assessment · ${artifact?.outcomeKey.orEmpty()}" else "Assessment history · ${artifact?.outcomeKey.orEmpty()}", style = MaterialTheme.typography.titleMedium)
+                            Text(artifact?.conclusion.orEmpty())
+                            Text(artifact?.limitation.orEmpty(), style = MaterialTheme.typography.bodySmall)
+                            Text(if (state.work?.retracted == true) "Retraction reported · score suspended" else "${review.status} · AI review score ${review.overallScore ?: "Pending"}")
+                            Text("Reliability ${review.reliabilityScore ?: "Pending"} · Summary accuracy ${review.accuracyScore ?: "Pending"} · Rubric ${review.rubricVersion}")
+                            Text("${review.model} · ${java.time.Instant.ofEpochMilli(review.createdAt)}", style = MaterialTheme.typography.bodySmall)
+                            (artifact?.reliability.orEmpty() + artifact?.accuracy.orEmpty()).forEach { domain ->
+                                Text("${domain.domain.replace('_', ' ')}: ${domain.grade ?: "Unknown"} · ${domain.rationale}", style = MaterialTheme.typography.bodySmall)
+                                state.passages.filter { it.passageId in domain.passageIds }.forEach { Text("${it.locator}: ${it.quote}", style = MaterialTheme.typography.bodySmall) }
+                            }
                         }
                     }
                 }

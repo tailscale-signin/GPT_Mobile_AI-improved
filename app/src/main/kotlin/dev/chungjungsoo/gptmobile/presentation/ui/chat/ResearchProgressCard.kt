@@ -75,70 +75,73 @@ internal fun ResearchProgressCard(
                 Column(Modifier.weight(1f)) {
                     Text(
                         when {
-                            collecting -> "Research · ${snapshot.phase}"
-                            writing -> "Writing from saved evidence"
-                            complete -> "Research report ready"
+                            collecting -> androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.audit_reading_sources)
+                            writing -> androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.audit_writing_answer)
+                            complete -> androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.audit_research_complete)
                             else -> "Research evidence retained"
                         },
                         style = MaterialTheme.typography.titleMedium
                     )
-                    Text("$readable of ${snapshot.targetSources} readable · $saved discovered", style = MaterialTheme.typography.bodySmall)
+                    if (!complete || readable < snapshot.targetSources) Text("${if (sessions.size > 1) (profileNames[latest.runId] ?: "Latest profile") + ": " else ""}$readable of ${snapshot.targetSources} read", style = MaterialTheme.typography.bodySmall)
+                    if (complete && readable < snapshot.targetSources) Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.audit_limited_coverage), style = MaterialTheme.typography.bodySmall)
                 }
                 if (active) androidx.compose.material3.CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
             }
-            androidx.compose.material3.LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
-            profileStatistics.forEach { stats ->
-                Column(Modifier.fillMaxWidth()) {
-                    Text(profileNames[stats.profileUid] ?: stats.profileUid, style = MaterialTheme.typography.titleSmall)
-                    Text("${stats.sources} sources · ${stats.uniqueSources} unique · ${stats.sourcesRead} read · ${stats.studiesExamined} studies examined", style = MaterialTheme.typography.bodySmall)
-                    Text("${stats.inputTokens + stats.outputTokens} ${if (stats.estimatedTokens) "estimated tokens" else "tokens"} (${stats.inputTokens} input / ${stats.outputTokens} output) · ${stats.modelRequests} model requests", style = MaterialTheme.typography.bodySmall)
-                    if (stats.examinationsPending > 0) Text("${stats.examinationsPending} examinations pending", style = MaterialTheme.typography.bodySmall)
+            if (active) androidx.compose.material3.LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
+            dev.chungjungsoo.gptmobile.presentation.common.DetailsSection {
+                profileStatistics.forEach { stats ->
+                    Column(Modifier.fillMaxWidth()) {
+                        Text(profileNames[stats.profileUid] ?: stats.profileUid, style = MaterialTheme.typography.titleSmall)
+                        Text("${stats.sources} sources · ${stats.uniqueSources} unique · ${stats.sourcesRead} read · ${stats.studiesExamined} studies examined", style = MaterialTheme.typography.bodySmall)
+                        Text("${stats.inputTokens + stats.outputTokens} ${if (stats.estimatedTokens) "estimated tokens" else "tokens"} (${stats.inputTokens} input / ${stats.outputTokens} output) · ${stats.modelRequests} model requests", style = MaterialTheme.typography.bodySmall)
+                        if (stats.examinationsPending > 0) Text("${stats.examinationsPending} examinations pending", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                if (profileStatistics.isNotEmpty()) Text("Unique sources were found by only this profile among the selected profiles. Shared evidence retains its original attribution; older records without attribution are not assigned to a profile.", style = MaterialTheme.typography.labelSmall)
+                val checked = snapshot.claims.count { claim ->
+                    val source = snapshot.sources.firstOrNull { it.id == claim.sourceId }
+                    claim.exactQuoteVerified &&
+                        source?.readable == true &&
+                        claim.quote.isNotBlank() &&
+                        source.passage.contains(claim.quote) &&
+                        claim.reviewedSourceVersion == dev.chungjungsoo.gptmobile.data.research.capturedResearchVersion(source)
+                }
+                val independent = snapshot.claims.count { claim ->
+                    val source = snapshot.sources.firstOrNull { it.id == claim.sourceId }
+                    claim.independentReview &&
+                        claim.exactQuoteVerified &&
+                        source?.readable == true &&
+                        claim.quote.isNotBlank() &&
+                        source.passage.contains(claim.quote) &&
+                        claim.reviewedSourceVersion == dev.chungjungsoo.gptmobile.data.research.capturedResearchVersion(source)
+                }
+                androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("$readable readable ${if (readable == 1) "source" else "sources"}", style = MaterialTheme.typography.labelMedium)
+                    Text("$checked ${if (checked == 1) "claim" else "claims"} checked against passages", style = MaterialTheme.typography.labelMedium)
+                    Text("$independent independently reviewed", style = MaterialTheme.typography.labelMedium)
+                    Text(
+                        when (displayedValidity) {
+                            dev.chungjungsoo.gptmobile.data.research.delivery.ResearchReportValidity.ACCEPTED -> "Report accepted"
+                            dev.chungjungsoo.gptmobile.data.research.delivery.ResearchReportValidity.EVIDENCE_ONLY -> "Evidence only · report not accepted"
+                            dev.chungjungsoo.gptmobile.data.research.delivery.ResearchReportValidity.REJECTED -> "Report needs correction"
+                            dev.chungjungsoo.gptmobile.data.research.delivery.ResearchReportValidity.INCOMPLETE -> "Report incomplete"
+                            null -> when {
+                                writing -> "Report writing"
+                                deliveryReceipt != null -> "Current report not checked"
+                                else -> "Report not yet accepted"
+                            }
+                        },
+                        style = MaterialTheme.typography.labelMedium
+                    )
                 }
             }
-            if (profileStatistics.isNotEmpty()) Text("Unique sources were found by only this profile among the selected profiles. Shared evidence retains its original attribution; older records without attribution are not assigned to a profile.", style = MaterialTheme.typography.labelSmall)
-            val checked = snapshot.claims.count { claim ->
-                val source = snapshot.sources.firstOrNull { it.id == claim.sourceId }
-                claim.exactQuoteVerified &&
-                    source?.readable == true &&
-                    claim.quote.isNotBlank() &&
-                    source.passage.contains(claim.quote) &&
-                    claim.reviewedSourceVersion == dev.chungjungsoo.gptmobile.data.research.capturedResearchVersion(source)
-            }
-            val independent = snapshot.claims.count { claim ->
-                val source = snapshot.sources.firstOrNull { it.id == claim.sourceId }
-                claim.independentReview &&
-                    claim.exactQuoteVerified &&
-                    source?.readable == true &&
-                    claim.quote.isNotBlank() &&
-                    source.passage.contains(claim.quote) &&
-                    claim.reviewedSourceVersion == dev.chungjungsoo.gptmobile.data.research.capturedResearchVersion(source)
-            }
-            androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("$readable readable ${if (readable == 1) "source" else "sources"}", style = MaterialTheme.typography.labelMedium)
-                Text("$checked ${if (checked == 1) "claim" else "claims"} checked against passages", style = MaterialTheme.typography.labelMedium)
-                Text("$independent independently reviewed", style = MaterialTheme.typography.labelMedium)
-                Text(
-                    when (displayedValidity) {
-                        dev.chungjungsoo.gptmobile.data.research.delivery.ResearchReportValidity.ACCEPTED -> "Report accepted"
-                        dev.chungjungsoo.gptmobile.data.research.delivery.ResearchReportValidity.EVIDENCE_ONLY -> "Evidence only · report not accepted"
-                        dev.chungjungsoo.gptmobile.data.research.delivery.ResearchReportValidity.REJECTED -> "Report needs correction"
-                        dev.chungjungsoo.gptmobile.data.research.delivery.ResearchReportValidity.INCOMPLETE -> "Report incomplete"
-                        null -> when {
-                            writing -> "Report writing"
-                            deliveryReceipt != null -> "Current report not checked"
-                            else -> "Report not yet accepted"
-                        }
-                    },
-                    style = MaterialTheme.typography.labelMedium
-                )
-            }
-            if (!active && (writerFailure != null || deliveryReceipt?.retryEligible == true)) {
+            if (!active && !complete && (writerFailure != null || deliveryReceipt?.retryEligible == true)) {
                 Text("Evidence retained · writing needs attention", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.error)
             }
             androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 androidx.compose.material3.FilledTonalButton(onClick = { expanded = true }) {
                     androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Rounded.Description, contentDescription = null)
-                    Text("Evidence", modifier = Modifier.padding(start = 6.dp))
+                    Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.audit_sources), modifier = Modifier.padding(start = 6.dp))
                 }
                 if (collecting) {
                     OutlinedButton(onClick = { activeSessions.forEach { stop(it.runId) } }) {
@@ -147,7 +150,7 @@ internal fun ResearchProgressCard(
                     }
                 }
                 if (writing && cancelWriting != null) OutlinedButton(onClick = cancelWriting) { Text("Cancel writing") }
-                if (!active && onRecovery != null) {
+                if (!active && !complete && onRecovery != null) {
                     if (writerFailure != null || deliveryReceipt?.retryEligible == true) OutlinedButton(onClick = { onRecovery("Retry writing") }) { Text("Retry writing") }
                     if (!snapshot.complete || readable < snapshot.targetSources) OutlinedButton(onClick = { onRecovery("Continue research") }) { Text("Continue research") }
                 }

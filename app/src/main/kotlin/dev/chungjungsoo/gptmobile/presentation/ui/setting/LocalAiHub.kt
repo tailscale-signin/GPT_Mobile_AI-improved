@@ -87,11 +87,12 @@ fun LocalModelsScreen(
             }
         )
     }
-    var marketplace by rememberSaveable { mutableStateOf(false) }
+
     var query by rememberSaveable { mutableStateOf("") }
     val ui by viewModel.uiState.collectAsStateWithLifecycle()
     val importActive by viewModel.importActive.collectAsStateWithLifecycle()
     var pendingUri by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingFolder by rememberSaveable { mutableStateOf(false) }
     val importStatus by viewModel.importStatus.collectAsStateWithLifecycle()
     val importedModelId by viewModel.importedModelId.collectAsStateWithLifecycle()
     val runtimeStatus by runtimeViewModel.status.collectAsStateWithLifecycle()
@@ -102,16 +103,23 @@ fun LocalModelsScreen(
     val context = LocalContext.current
     val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
+            pendingFolder = false
+            pendingUri = uri.toString()
+        }
+    }
+    val folderImporter = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) {
+            pendingFolder = true
             pendingUri = uri.toString()
         }
     }
     if (pendingUri != null) {
-        val sourceUri = requireNotNull(pendingUri)
+        val source = dev.chungjungsoo.gptmobile.data.localmodel.LocalModelSource(android.net.Uri.parse(requireNotNull(pendingUri)), if (pendingFolder) dev.chungjungsoo.gptmobile.data.localmodel.LocalModelSource.Kind.FOLDER else dev.chungjungsoo.gptmobile.data.localmodel.LocalModelSource.Kind.FILE)
         var inspectionFailure by remember(pendingUri) { mutableStateOf<Exception?>(null) }
         val preview by produceState<dev.chungjungsoo.gptmobile.data.localmodel.LocalImportPreview?>(null, pendingUri) {
             value = null
             try {
-                value = viewModel.inspectImport(android.net.Uri.parse(sourceUri), false)
+                value = viewModel.inspectImport(source)
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
@@ -140,7 +148,7 @@ fun LocalModelsScreen(
             },
             confirmButton = {
                 TextButton(enabled = preview != null && !importActive, onClick = {
-                    pendingUri?.let { viewModel.importCustomModel(context.contentResolver, android.net.Uri.parse(it)) }
+                    viewModel.importCustomModel(context.contentResolver, source)
                     pendingUri = null
                 }) { Text(stringResource(R.string.local_ai_import)) }
             },
@@ -148,35 +156,41 @@ fun LocalModelsScreen(
         )
     }
     val listState = rememberLazyListState()
-    BackHandler(marketplace || tab != LocalAiTab.MODELS) { if (marketplace) marketplace = false else tab = LocalAiTab.MODELS }
-    if (marketplace) {
-        LocalMarketplaceScreen(viewModel = viewModel, runtimeViewModel = runtimeViewModel, onOpenProfile = onOpenProfile, onNavigationClick = { marketplace = false })
-        return
-    }
+    val navigateBack = { if (tab != LocalAiTab.MODELS) tab = LocalAiTab.MODELS else onNavigationClick() }
+    BackHandler(tab != LocalAiTab.MODELS) { navigateBack() }
     Scaffold(modifier = modifier, topBar = {
-        TopAppBar(title = { Text(stringResource(R.string.local_ai_title)) }, navigationIcon = { IconButton(onClick = onNavigationClick) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.go_back)) } }, actions = {
+        TopAppBar(title = { Text(stringResource(R.string.local_ai_title)) }, navigationIcon = { IconButton(onClick = navigateBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.go_back)) } }, actions = {
             IconButton(onClick = { tab = LocalAiTab.SETTINGS }) { Icon(Icons.Rounded.MoreVert, "Local model settings") }
             SettingsHelpIcon(stringResource(R.string.local_ai_help), title = stringResource(R.string.local_ai_title))
         })
     }) { insets ->
         Column(Modifier.fillMaxSize().padding(insets)) {
-            TabRow(if (tab == LocalAiTab.MARKETPLACE) 1 else 0) {
-                listOf(LocalAiTab.MODELS, LocalAiTab.MARKETPLACE).forEach { value ->
+            TabRow(tab.ordinal) {
+                LocalAiTab.entries.forEach { value ->
                     Tab(tab == value, onClick = { tab = value }, text = {
                         Text(
-                            if (value == LocalAiTab.MARKETPLACE) "Marketplace" else "My models"
+                            stringResource(
+                                when (value) {
+                                    LocalAiTab.MODELS -> R.string.audit_my_models
+                                    LocalAiTab.MARKETPLACE -> R.string.audit_marketplace
+                                    LocalAiTab.SETTINGS -> R.string.audit_settings
+                                }
+                            )
                         )
                     }, modifier = Modifier.testTag("local_ai_${value.name}"))
                 }
             }
             when (tab) {
-                LocalAiTab.MARKETPLACE -> LocalMarketplaceScreen(viewModel = viewModel, runtimeViewModel = runtimeViewModel, onOpenProfile = onOpenProfile, onNavigationClick = { tab = LocalAiTab.MODELS })
+                LocalAiTab.MARKETPLACE -> LocalMarketplaceScreen(viewModel = viewModel, runtimeViewModel = runtimeViewModel, onOpenProfile = onOpenProfile, embedded = true, onLinkFile = { importer.launch(arrayOf("*/*")) }, onLinkFolder = { folderImporter.launch(null) }, onNavigationClick = navigateBack)
                 LocalAiTab.SETTINGS -> LocalAiSettingsScreen(viewModel, runtimeViewModel, onDownloads = {
-                    marketplace = true
+                    tab = LocalAiTab.MARKETPLACE
                     viewModel.updateFilter(LocalModelFilter.DOWNLOADING)
                 })
                 LocalAiTab.MODELS -> LazyColumn(state = listState, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    item(key = "import") { LocalAiActionCard(Icons.Rounded.FileOpen, stringResource(R.string.local_ai_import), stringResource(R.string.local_ai_import_description), { importer.launch(arrayOf("*/*")) }) }
+                    item(key = "import") {
+                        LocalAiActionCard(Icons.Rounded.FileOpen, stringResource(R.string.audit_link_file), stringResource(R.string.local_ai_file_review), { importer.launch(arrayOf("*/*")) })
+                        TextButton(onClick = { folderImporter.launch(null) }) { Text(stringResource(R.string.audit_link_folder)) }
+                    }
                     runtimeStatus?.let { status -> item(key = "runtime-status") { Text(status) } }
                     activeRuntime.fallbackReason?.takeIf { activeRuntime.lifecycle == "FAILED" }?.let { reason ->
                         item(key = "runtime-recovery") {
@@ -206,7 +220,7 @@ fun LocalModelsScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(stringResource(R.string.local_ai_profiles), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
                             IconButton(onClick = {
-                                marketplace = true
+                                tab = LocalAiTab.MARKETPLACE
                                 viewModel.updateFilter(LocalModelFilter.READY)
                             }) { Icon(Icons.Rounded.Add, stringResource(R.string.local_ai_create)) }
                         }
@@ -216,7 +230,7 @@ fun LocalModelsScreen(
                         item {
                             Text(stringResource(R.string.local_ai_empty))
                             TextButton(onClick = {
-                                marketplace = true
+                                tab = LocalAiTab.MARKETPLACE
                                 viewModel.updateFilter(LocalModelFilter.READY)
                             }) { Text(stringResource(R.string.local_ai_create)) }
                         }
@@ -281,7 +295,7 @@ fun LocalModelsScreen(
                                     if (installed) {
                                         onUseProfile(profile.uid)
                                     } else {
-                                        marketplace = true
+                                        tab = LocalAiTab.MARKETPLACE
                                         viewModel.updateSearchQuery(profile.model)
                                     }
                                 }, enabled = !ui.isLoading && (profile.enabled || !installed)) { Text(stringResource(if (installed) R.string.local_ai_use else R.string.local_ai_repair)) }
@@ -300,7 +314,7 @@ fun LocalModelsScreen(
                     if (active > 0) {
                         item {
                             LocalAiActionCard(Icons.Rounded.Download, stringResource(R.string.local_ai_downloads), "$active", {
-                                marketplace = true
+                                tab = LocalAiTab.MARKETPLACE
                                 viewModel.updateFilter(LocalModelFilter.DOWNLOADING)
                             })
                         }

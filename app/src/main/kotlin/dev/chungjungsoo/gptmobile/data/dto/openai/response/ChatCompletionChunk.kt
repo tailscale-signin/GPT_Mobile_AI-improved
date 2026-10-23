@@ -45,7 +45,8 @@ data class ChatCompletionChunk(
     val streamFinished: Boolean = false,
     @Transient val retryDurationMs: Long? = null,
     @Transient val retryAttempts: Int? = null,
-    @Transient val applicationNotice: String? = null
+    @Transient val applicationNotice: String? = null,
+    @Transient val serializedOutputTokens: Int? = null
 )
 
 @Serializable

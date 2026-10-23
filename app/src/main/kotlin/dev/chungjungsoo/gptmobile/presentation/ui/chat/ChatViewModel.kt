@@ -353,6 +353,11 @@ class ChatViewModel @Inject constructor(
 
     private val _attachmentNotice = MutableStateFlow<String?>(null)
     val attachmentNotice = _attachmentNotice.asStateFlow()
+    private val _freeProviderNotice = MutableStateFlow<String?>(null)
+    val freeProviderNotice = _freeProviderNotice.asStateFlow()
+    fun dismissFreeProviderNotice() {
+        _freeProviderNotice.value = null
+    }
 
     private val _runNoticesById = MutableStateFlow<Map<String, List<ChatRunNotice>>>(emptyMap())
     val runNoticesById = _runNoticesById.asStateFlow()
@@ -503,6 +508,13 @@ class ChatViewModel @Inject constructor(
         submitOrQueueQuestion(questionText, _selectedAttachments.value)
     }
 
+    private fun rejectUnavailableFreeProfile(profile: PlatformV2): Boolean {
+        val outcome = dev.chungjungsoo.gptmobile.data.network.FreeProviderPreflight.check(profile) ?: return false
+        dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.recordPreflight(profile, outcome, _chatRoom.value.id, !_chatRoom.value.isTemporary)
+        _freeProviderNotice.value = "${profile.name}: ${outcome.message} Your draft and conversation are kept."
+        return true
+    }
+
     private fun submitOrQueueQuestion(questionText: String, attachments: List<ChatAttachmentDraft>) {
         if (_combinedSettingsSaveState.value.isCommitting) {
             _attachmentNotice.value = "Saving the Combined setup. Your message draft is kept."
@@ -521,6 +533,8 @@ class ChatViewModel @Inject constructor(
         }
         val acceptedProfiles = acceptedTools.combined?.requested?.participantUids ?: oneMessageUid?.let(::listOf) ?: _activePlatformUids.value
         val acceptedModels = acceptedTools.combined?.requested?.requestedModels ?: _chatPlatformModels.value
+        val unavailable = _platformsInApp.value.filter { it.uid in acceptedProfiles && (acceptedTools.combined != null || it.uid !in _disabledPlatformUids.value) }.map { it.copy(model = acceptedModels[it.uid] ?: it.model) }.filter { rejectUnavailableFreeProfile(it) }
+        if (unavailable.isNotEmpty()) return
         if (isGenerationBusy() || !hasUnpausedProfile() || _pendingPrompts.value.isNotEmpty()) {
             if (durablePromptQueue != null) {
                 if (queueSubmissionPending) return
@@ -577,7 +591,11 @@ class ChatViewModel @Inject constructor(
         if (room.conversationMode != ConversationMode.COMBINED) return tools.copy(combined = null)
         val recovery = dev.chungjungsoo.gptmobile.data.agent.resolveTaskRecovery(_groupedMessages.value.userMessages + MessageV2(chatId = room.id, content = text, platformType = null))
         val available = _activePlatformUids.value.filterNot { it in _disabledPlatformUids.value }
-        val selected = if (recovery?.primaryOnly == true) {
+        val conversational = dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(text).intent in setOf("GREETING", "TEST")
+        val selected = if (conversational && recovery == null) {
+            val eligible = _platformsInApp.value.filter { it.uid in available && dev.chungjungsoo.gptmobile.data.agent.CombinedProviderEligibility.unavailableReason(it, text) == null }
+            listOfNotNull(eligible.firstOrNull { it.uid == room.combinedPrimaryUid } ?: eligible.firstOrNull()).map { it.uid }
+        } else if (recovery?.primaryOnly == true) {
             val primary = room.combinedPrimaryUid ?: room.activePlatform.firstOrNull()
             require(primary != null && primary in available) { "The designated primary is unavailable. Enable it or select an approved primary before continuing." }
             listOf(primary)
@@ -1258,6 +1276,39 @@ class ChatViewModel @Inject constructor(
         if (index >= 0) retryChat(turnIndex, index, dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.RETRY_WRITING)
     }
 
+    private val _queuedJobInspection = MutableStateFlow<String?>(null)
+    val queuedJobInspection = _queuedJobInspection.asStateFlow()
+    fun dismissQueuedJobInspection() {
+        _queuedJobInspection.value = null
+    }
+    fun checkCombinedQueuedJob(turnIndex: Int) {
+        val userId = _groupedMessages.value.userMessages.getOrNull(turnIndex)?.id ?: return
+        val run = _agentRunsById.value.values.filter { it.userMessageId == userId && it.terminalError?.contains("QUEUE_JOB_PENDING") == true }.maxByOrNull { it.createdAt } ?: return
+        checkQueuedJob(run.runId)
+    }
+    fun checkQueuedJob(runId: String) {
+        if (_agentRunsById.value[runId]?.chatId != _chatRoom.value.id) return
+        viewModelScope.launch {
+            try {
+                _queuedJobInspection.value = chatRepository.checkCombinedQueuedJob(runId)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                _queuedJobInspection.value = failure.message ?: "The saved job could not be checked."
+            }
+        }
+    }
+
+    fun tryAnotherCombinedWriter(turnIndex: Int) {
+        if (isGenerationBusy()) return
+        val owner = _groupedMessages.value.assistantMessages.getOrNull(turnIndex).orEmpty().firstOrNull { it.currentRunId?.let { id -> _agentRunsById.value[id]?.synthesisKey != null } == true } ?: return
+        viewModelScope.launch {
+            if (!agentRunCoordinator.tryAnotherCombinedWriter(owner.chatId, requireNotNull(owner.currentRunId))) {
+                _attachmentNotice.value = "No untried selected writer currently meets the capacity, availability and saved-input requirements. Retained replies remain available."
+            }
+        }
+    }
+
     fun cancelResearchWriting(sourceMessageId: Int) {
         val active = agentRunCoordinator.activeRuns.value.keys
         agentRunCoordinator.cancelRuns(_agentRunsById.value.values.filter { it.userMessageId == sourceMessageId && it.chatId == _chatRoom.value.id && it.runId in active }.mapTo(mutableSetOf()) { it.runId })
@@ -1305,6 +1356,7 @@ class ChatViewModel @Inject constructor(
                 temperature = if (accepted != null) accepted.context.requested.temperatureFor(current.uid, current.temperature) else current.temperature
             )
         }
+        if (rejectUnavailableFreeProfile(platformWithChatModel)) return
         val retryTools = accepted?.tools?.copy(combined = accepted.context.forRole(dev.chungjungsoo.gptmobile.data.agent.CombinedRunRole.CONTRIBUTOR, platform.uid)) ?: _chatToolConfig.value
         if (currentAssistantMessage.currentRunId?.startsWith(COMBINED_RUN_PREFIX) == true) {
             retryFrozenCombined(turnIndex, platformIndex, currentAssistantMessage, platformWithChatModel)
@@ -1888,6 +1940,10 @@ class ChatViewModel @Inject constructor(
                             )
                         )
                     }
+                if (platforms.any { rejectUnavailableFreeProfile(it.value) }) {
+                    _loadingStates.update { List(enabledPlatformsInChat.size) { LoadingState.Idle } }
+                    return@launch
+                }
                 val unavailableIndexes = enabledPlatformsInChat.indices - platforms.mapTo(mutableSetOf()) { it.index }
                 _loadingStates.update { states ->
                     states.toMutableList().apply {
@@ -2665,8 +2721,7 @@ class ChatViewModel @Inject constructor(
                 }
             }
         }
-        val leadPlatform = candidates.filter { sources.none { it.localOnly } || it.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.LITERT_LM }
-            .firstOrNull { dev.chungjungsoo.gptmobile.data.agent.CombinedProviderEligibility.unavailableReason(it, userMessage.content, writer = true) == null }
+        val leadPlatform = dev.chungjungsoo.gptmobile.data.agent.CombinedWriterPolicy.rank(candidates.filter { sources.none { it.localOnly } || it.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.LITERT_LM }, userMessage.content, pinnedPrimary, dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(sources.joinToString("\n") { it.content })).firstOrNull()
         if (leadPlatform == null) {
             combined?.let { chatRepository.markCombinedMergeUnavailable(userMessage.chatId, userMessage.id, it.rootBudgetId) }
             if (sources.any { it.localOnly }) {

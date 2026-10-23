@@ -26,5 +26,7 @@ interface OpenAIAPI {
         config: ProviderRequestConfig
     ): UploadedProviderFile
 
+    suspend fun checkSavedHordeJob(runId: String, chatId: Int, config: ProviderRequestConfig): String = "Queue inspection is unavailable for this client."
+
     suspend fun isFileAvailable(fileId: String, config: ProviderRequestConfig): Boolean
 }

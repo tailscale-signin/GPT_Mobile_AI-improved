@@ -65,13 +65,6 @@ internal fun NewChatTypeScreen(
                 contentPadding = PaddingValues(horizontal = 20.dp, vertical = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                item {
-                    Column(Modifier.fillMaxWidth().padding(bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("STEP 1 OF 2", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                        Text("What would you like to do?", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold)
-                        Text("Choose how your AI models will work together.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f))
-                    }
-                }
                 val options = dev.chungjungsoo.gptmobile.data.model.availableNewChatTypes(features)
                 items(options, key = { it.name }) { option ->
                     if (option == options.firstOrNull { it.requiredPluginId != null }) {
@@ -107,11 +100,31 @@ internal fun NewChatTypeScreen(
                                 )
                             }
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Text(option.title, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                                Text(option.explanation, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f))
-                                if (option == NewChatType.RESEARCH) {
-                                    Text("Deep Research on by default · Combined with 2+ profiles", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                                }
+                                Text(
+                                    androidx.compose.ui.res.stringResource(
+                                        when (option) {
+                                            NewChatType.SINGLE -> dev.chungjungsoo.gptmobile.R.string.audit_single
+                                            NewChatType.MULTI_CHAT -> dev.chungjungsoo.gptmobile.R.string.audit_multi
+                                            NewChatType.COMBINED -> dev.chungjungsoo.gptmobile.R.string.audit_combined
+                                            NewChatType.RESEARCH -> dev.chungjungsoo.gptmobile.R.string.audit_research
+                                        }
+                                    ),
+                                    color = MaterialTheme.colorScheme.primary,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    androidx.compose.ui.res.stringResource(
+                                        when (option) {
+                                            NewChatType.SINGLE -> dev.chungjungsoo.gptmobile.R.string.audit_single_description
+                                            NewChatType.MULTI_CHAT -> dev.chungjungsoo.gptmobile.R.string.audit_multi_description
+                                            NewChatType.COMBINED -> dev.chungjungsoo.gptmobile.R.string.audit_combined_description
+                                            NewChatType.RESEARCH -> dev.chungjungsoo.gptmobile.R.string.audit_research_description
+                                        }
+                                    ),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+                                )
                             }
                         }
                     }

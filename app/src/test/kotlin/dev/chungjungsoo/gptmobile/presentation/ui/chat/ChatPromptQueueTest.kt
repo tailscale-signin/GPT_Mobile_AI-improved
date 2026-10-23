@@ -90,6 +90,20 @@ class ChatPromptQueueTest {
         Dispatchers.resetMain()
     }
 
+    @Test fun unavailableSavedFreeProfileKeepsTheDraftAndCreatesNoRunOrQueuedPrompt() = runTest(dispatcher) {
+        val model = createViewModel(freeProvider = dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.OPENCODE)
+        runCurrent()
+        completePersistedRuns()
+        activeRuns.value = emptyMap()
+        runCurrent()
+        send(model, "Keep this draft")
+        assertTrue(submissions.isEmpty())
+        assertTrue(starts.isEmpty())
+        assertEquals(0, model.queuedPromptCount.value)
+        assertEquals("Keep this draft", model.question.text.toString())
+        assertTrue(model.freeProviderNotice.value!!.contains("restricted to OpenCode’s own apps"))
+    }
+
     @Test
     fun `queue drains when coordinator releases completed run and keeps the current draft`() = runTest(dispatcher) {
         val model = createViewModel()
@@ -406,7 +420,7 @@ class ChatPromptQueueTest {
         }
     }
 
-    private fun createViewModel(combined: Boolean = false, availableProfileCount: Int = if (combined) 2 else 1, groupingDispatcher: CoroutineDispatcher = dispatcher, paletteGate: CompletableDeferred<Unit>? = null): ChatViewModel {
+    private fun createViewModel(combined: Boolean = false, availableProfileCount: Int = if (combined) 2 else 1, groupingDispatcher: CoroutineDispatcher = dispatcher, paletteGate: CompletableDeferred<Unit>? = null, freeProvider: dev.chungjungsoo.gptmobile.data.model.FreeAiProvider? = null): ChatViewModel {
         val profiles = (1..availableProfileCount).map { index ->
             PlatformV2(
                 uid = "profile-$index",
@@ -415,7 +429,7 @@ class ChatPromptQueueTest {
                 compatibleType = ClientType.OPENROUTER,
                 apiUrl = "https://openrouter.ai/api/v1",
                 model = "model-$index"
-            )
+            ).let { freeProvider?.applyTo(it) ?: it }
         }
         val members = profiles.take(if (combined) 2 else 1)
         val room = ChatRoomV2(

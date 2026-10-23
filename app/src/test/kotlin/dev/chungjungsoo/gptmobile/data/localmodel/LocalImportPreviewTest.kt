@@ -30,7 +30,7 @@ class LocalImportPreviewTest {
         assertThrows(IllegalArgumentException::class.java) { LocalImportPreview.inspect(ByteArray(262_145).inputStream(), "folder", null, true, folder = true) }
     }
 
-    @Test fun singleFileBundlePreviewAcceptsPackagedAssetsWithoutFolderSelection() {
+    @Test fun compressedPackagesAreRejectedBeforeLinkingWithAnActionableFolderInstruction() {
         val manifest = ModelArtifactManifest(familyId = "model", artifactId = "id", runtime = ArtifactRuntime.GENIEX_LLAMA_CPP, format = "gguf", entryFile = "model.gguf", files = listOf(ArtifactFile("model.gguf", 100, "a".repeat(64))), contextTokens = 4096, supportedBackends = setOf("cpu"))
         val bytes = ByteArrayOutputStream()
         ZipOutputStream(bytes).use { zip ->
@@ -42,10 +42,8 @@ class LocalImportPreviewTest {
             zip.closeEntry()
         }
         for (extension in listOf("zip", "localmodel")) {
-            val preview = LocalImportPreview.inspect(bytes.toByteArray().inputStream(), "model.$extension", bytes.size().toLong(), true)
-            assertEquals(100L, preview.installedBytes)
-            assertEquals(1, preview.assets)
-            assertEquals(4096, preview.contextTokens)
+            val failure = assertThrows(IllegalStateException::class.java) { LocalImportPreview.inspect(bytes.toByteArray().inputStream(), "model.$extension", bytes.size().toLong(), true) }
+            org.junit.Assert.assertTrue(failure.message.orEmpty().contains("Link model folder"))
         }
     }
 
@@ -56,6 +54,6 @@ class LocalImportPreviewTest {
             zip.write(byteArrayOf(1))
             zip.closeEntry()
         }
-        assertThrows(IllegalArgumentException::class.java) { LocalImportPreview.inspect(bytes.toByteArray().inputStream(), "model.zip", bytes.size().toLong(), true) }
+        assertThrows(IllegalStateException::class.java) { LocalImportPreview.inspect(bytes.toByteArray().inputStream(), "model.zip", bytes.size().toLong(), true) }
     }
 }

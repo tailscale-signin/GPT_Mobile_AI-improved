@@ -78,6 +78,16 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 class ProviderAdaptersTest {
+    @Test fun llm7TokenReachesTheCompatibleAdapterWhileAnonymousTokensAreStripped() = runBlocking {
+        for (provider in listOf(dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.LLM7, dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.KILO)) {
+            val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(flowOf(ChatCompletionChunk(choices = listOf(Choice(delta = Delta(content = "OK"), finishReason = "stop")))))))
+            val profile = provider.applyTo(platform(ClientType.FREE).copy(apiUrl = provider.apiUrl, token = "synthetic-token"))
+            OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder()).openSession(turns(), profile).streamRound(emptyList(), emptyList()).toList()
+            assertEquals(if (provider.requiresUserToken) "synthetic-token" else null, api.configs.single().token)
+            assertEquals(provider, api.configs.single().freeProvider)
+        }
+    }
+
     @Test fun groqRetainsUsageAfterTheFinishedChoiceAndStopsAtTransportDone() = runBlocking {
         for (usageJson in listOf(
             """{"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":7,"total_tokens":17}}""",

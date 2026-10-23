@@ -197,7 +197,7 @@ fun AddPlatformScreen(
                         labels = encodeProfileLabels(profileLabels),
                         providerConnectionUid = if (createNewConnection) null else selectedConnectionUid
                     ).let { profile ->
-                        if (clientType == ClientType.FREE) FreeAiProvider.fromApiUrl(apiUrl)!!.applyTo(profile).copy(maxToolCalls = 50) else profile
+                        if (clientType == ClientType.FREE) FreeAiProvider.fromApiUrl(apiUrl)!!.applyTo(profile.copy(apiUrl = apiUrl, token = formattedApiKey)).copy(maxToolCalls = 50) else profile
                     }
                     apiTokens.clear()
                     apiTokens.add("")
@@ -305,6 +305,11 @@ fun AddPlatformScreen(
                 if (clientType == ClientType.FREE) {
                     FreeProviderPicker(
                         apiUrl = apiUrl,
+                        token = apiTokens.firstOrNull(),
+                        onTokenSaved = { value ->
+                            apiTokens.clear()
+                            apiTokens.add(value)
+                        },
                         onProviderSelected = { provider ->
                             if (platformName.isBlank() || platformName == "Free Models" || platformName == FreeAiProvider.fromApiUrl(apiUrl)?.displayName) {
                                 platformName = provider.displayName

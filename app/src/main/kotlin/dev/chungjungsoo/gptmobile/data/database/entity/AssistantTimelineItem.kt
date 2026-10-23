@@ -36,6 +36,14 @@ data class AssistantTimelineItem(
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
     val combinedFallback: dev.chungjungsoo.gptmobile.data.agent.CombinedFallbackReceipt? = null,
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val combinedFailure: dev.chungjungsoo.gptmobile.data.agent.CombinedRecoveryFailure? = null,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val generation: GenerationReceipt? = null,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val writerIdentity: CombinedWriterIdentity? = null,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val runError: String? = null,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
     val researchDeliveryReceipt: dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryReceipt? = null
 )
 
@@ -86,3 +94,10 @@ internal fun hasUnavailableAssistantOrder(
     hasToolEvents: Boolean
 ): Boolean = timeline.any { it.type == AssistantTimelineItemType.LEGACY_ORDER } ||
     (timeline.isEmpty() && (hasToolEvents || (content.isNotBlank() && thoughts.isNotBlank())))
+
+/** Transport completion is independent of content completeness or factual support. */
+@Serializable
+data class GenerationReceipt(val finishReason: String? = null, val outputTokens: Int? = null, val outputAllowance: Int? = null)
+
+@Serializable
+data class CombinedWriterIdentity(val answerSlotProfileUid: String?, val writerProfileUid: String, val writerModel: String, val contributorProfileUids: List<String>)

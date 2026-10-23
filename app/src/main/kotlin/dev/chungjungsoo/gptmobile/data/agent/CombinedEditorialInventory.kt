@@ -7,7 +7,8 @@ internal object CombinedEditorialInventory {
         val groups = mutableListOf<CombinedClaimRecord>()
         records.forEach { claim ->
             val index = groups.indexOfFirst { prior ->
-                prior.qualifiers == claim.qualifiers &&
+                CombinedHistoricalEvent.sameEvent(prior, claim) ||
+                    prior.qualifiers == claim.qualifiers &&
                     CombinedClaimMatcher.match(prior.proposition, claim.proposition) >= CombinedClaimMatcher.Match.PARAPHRASE &&
                     CombinedClaimMatcher.match(claim.proposition, prior.proposition) >= CombinedClaimMatcher.Match.PARAPHRASE
             }
@@ -45,8 +46,11 @@ internal object CombinedEditorialInventory {
         val expandedLimit = (limit * (expansion.coerceIn(0, 2) + 1)).coerceAtMost(216)
         val selected = linkedSetOf<CombinedClaimRecord>()
         if (task.historicalSurvey) {
-            CombinedHistoryOutline.labels.indices.forEach { period ->
-                ranked.filter { CombinedHistoryOutline.substantive(it.proposition) && period in CombinedHistoryOutline.periods(it.proposition) }.take(2).forEach(selected::add)
+            // Cover every supported period before giving any period a second slot.
+            repeat(2) {
+                CombinedHistoryOutline.labels.indices.forEach { period ->
+                    if (selected.size < expandedLimit) ranked.firstOrNull { it !in selected && CombinedHistoryOutline.substantive(it.proposition) && CombinedHistoryOutline.periods(it.proposition).minOrNull() == period }?.let(selected::add)
+                }
             }
         }
         ranked.flatMap { it.profileUids }.distinct().forEach { uid ->
@@ -59,6 +63,6 @@ internal object CombinedEditorialInventory {
             val cautionTerms = CombinedClaimMatcher.fingerprint(caution.proposition).terms
             if (selectedTerms.any { it.intersect(cautionTerms).size >= 3 }) selected += caution
         }
-        return selected.toList()
+        return if (task.historicalSurvey) selected.sortedBy { CombinedHistoryOutline.periods(it.proposition).minOrNull() ?: Int.MAX_VALUE } else selected.toList()
     }
 }

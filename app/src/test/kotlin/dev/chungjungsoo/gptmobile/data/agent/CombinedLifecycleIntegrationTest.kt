@@ -91,6 +91,7 @@ class CombinedLifecycleIntegrationTest {
     private var answer: suspend FlowCollector<ChatCompletionChunk>.(ChatCompletionRequest) -> Unit = { emitText("Ready.") }
 
     @Before fun setup() {
+        CombinedWriterObservations.clearForTest()
         context = object : ContextWrapper(RuntimeEnvironment.getApplication()) {
             override fun getFilesDir(): File = files.root
             override fun getNoBackupFilesDir(): File = files.root
@@ -185,7 +186,7 @@ class CombinedLifecycleIntegrationTest {
         val outcome = repository.completeChat(request.userMessages, request.assistantMessages, request.platform, request.runId, request.chatToolConfig, request.stage)
             .collectApiStateUpdates(
                 onUpdate = { content, thoughts, timeline ->
-                    current = current.copy(content = content, thoughts = thoughts, timeline = request.assistantMessage.timeline.filter { it.combinedTurn != null } + timeline)
+                    current = current.copy(content = content, thoughts = thoughts, timeline = request.assistantMessage.timeline.filter { it.combinedTurn != null || it.writerIdentity != null } + timeline)
                     repository.updateAgentMessage(current)
                 },
                 onCombinedReplacement = { candidate ->
@@ -235,7 +236,7 @@ class CombinedLifecycleIntegrationTest {
             assertEquals(1, db.agentRunDao().getByChatId(1).count { it.userMessageId == accepted.userMessage.id && it.synthesisKey != null })
             assertNull(planner().prepare(1, accepted.userMessage.id, root(accepted).rootBudgetId))
         }
-        assertTrue(db.invocationDao().forChat(1).size >= 18)
+        assertEquals("Two short acknowledgments require no final provider invocation", 16, db.invocationDao().forChat(1).size)
     }
 
     @Test fun fiveFailedButUsableContributionsProduceOneOwnerAndPreserveFirstWriterFailure() = runBlocking {
@@ -258,6 +259,48 @@ class CombinedLifecycleIntegrationTest {
         assertNull(listOf(selected).canonicalCombinedAssistant())
         val current = MessageV2(id = 99, chatId = 1, content = "hi", platformType = null)
         assertEquals(listOf(current), ContextBuilder().build(listOf(accepted.userMessage, current), listOf(listOf(selected), emptyList()), profiles.first()).map { it.userMessage })
+    }
+
+    @Test fun explicitProviderTestSummarizesSelectedAttemptsWithoutWriterRequest() = runBlocking {
+        val accepted = turn("test all providers", "Test received.")
+        val before = requests.size
+        val request = finalRequest(accepted)
+        assertEquals(ApiStateFlowOutcome.Completed, execute(request))
+        assertEquals(before, requests.size)
+        val content = repository.fetchMessagesV2(1).single { it.id == request.assistantMessage.id }.effectiveContent()
+        assertTrue(content.contains("Provider test results"))
+        profiles.forEach { assertTrue(content.contains(it.name)) }
+        assertFalse(content.contains("France"))
+    }
+
+    @Test fun toolFreeFreeContributorReceivesRoleAndProviderAdjustedAllowance() = runBlocking {
+        profiles = listOf(dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.AI_HORDE.applyTo(profiles.first()).copy(model = "horde-text"))
+        val accepted = turn("History of France in 250 words", "France developed through monarchy, revolution and republican government.")
+        val wire = requests.single()
+        assertEquals(256, wire.maxTokens)
+        val text = wire.messages.toString()
+        assertTrue(text.contains("contributor to a Combined answer"))
+        assertTrue(text.contains("256 generation tokens"))
+        assertTrue(text.contains("Complementary assignment"))
+        assertEquals(1, accepted.runs.size)
+    }
+
+    @Test fun repeatedMalformedRecordsRotateAndPreserveValidatedPassageAcrossRestart() = runBlocking {
+        val accepted = turn("Summarize this finding", "The retained finding is useful.")
+        val first = finalRequest(accepted)
+        val initial = frozen(first.runId)
+        val invalid = "{\"type\":\"passage\",\"seq\":2,\"id\":\"P2\",\"text\":[],\"claims\":[],\"contributors\":[],\"evidence\":[]}"
+        var calls = 0
+        answer = { emitText(if (calls++ == 0) record(initial, "The retained finding is useful.", end = false) + invalid else invalid) }
+        assertTrue(execute(first) is ApiStateFlowOutcome.Failed)
+        restart()
+        val second = requireNotNull(planner().prepareFallback(1, first.runId))
+        answer = { emitText("{\"type\":\"end\",\"seq\":2,\"id\":\"END\",\"lastSeq\":1}") }
+        assertEquals(ApiStateFlowOutcome.Completed, execute(second))
+        val saved = repository.fetchMessagesV2(1).single { it.id == second.assistantMessage.id }
+        assertEquals("The retained finding is useful.", saved.effectiveContent())
+        assertEquals(second.platform.uid, saved.timeline.firstNotNullOf { it.writerIdentity }.writerProfileUid)
+        assertFalse(repository.commitAgentRun(first.assistantMessage.copy(content = "late result"), first.runId, "COMPLETED", 4, null))
     }
 
     @Test fun providerFailureCreatesOneAuthorizedSuccessorWithoutReplacingOriginalSnapshotOrTask() = runBlocking {

@@ -22,6 +22,7 @@ data class ProviderRequestConfig(
     val reasoningMode: dev.chungjungsoo.gptmobile.data.context.ReasoningMode = dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO,
     val allowReasoning: Boolean = true,
     val intentionalAssistantPrefill: Boolean = false,
+    val captureGenerationReceipt: Boolean = false,
     internal val freeDiagnostics: dev.chungjungsoo.gptmobile.data.free.FreeRequestDiagnostics? = null
 ) {
     /**
@@ -73,6 +74,7 @@ internal fun ProviderRequestConfig.readableProviderError(message: String, code: 
         return "POLICY_RESTRICTED: OpenRouter has no endpoint for this model under your current data policy. Choose a model/provider endpoint compatible with your privacy settings. $message"
     }
     if (code != "401" && code != "403") return message
+    if (freeProvider?.requiresUserToken == true) return "${freeProvider.displayName}: Check API token in this AI profile’s settings (HTTP $code). The token may be rejected or lack permission."
     if (freeProvider != null) return "${freeProvider.displayName} is not accepting anonymous requests (HTTP $code). Try later or choose another Free provider."
     val host = runCatching { java.net.URI(apiUrl.trim()).host }.getOrNull()
     val provider = if (host.equals("openrouter.ai", ignoreCase = true)) "OpenRouter" else "The AI provider"

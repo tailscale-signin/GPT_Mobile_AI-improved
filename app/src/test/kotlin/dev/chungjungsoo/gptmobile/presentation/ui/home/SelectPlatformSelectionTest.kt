@@ -14,6 +14,15 @@ class SelectPlatformSelectionTest {
         assertEquals(listOf("b"), confirmedProfileUids(profiles.drop(1), selected))
     }
 
+    @Test fun savedOpenCodeSelectionIsUnavailableBeforeConfirmationWithoutChangingHistoryIdentity() {
+        val provider = dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.OPENCODE
+        val profile = provider.applyTo(PlatformV2(uid = "existing-history-owner", name = "Saved OpenCode"))
+        assertEquals(emptySet<String>(), selectedProfileUids(listOf(profile), listOf(true)))
+        assertEquals(emptyList<String>(), confirmedProfileUids(listOf(profile), setOf(profile.uid)))
+        assertEquals("existing-history-owner", profile.uid)
+        assertEquals("PROVIDER_CLIENT_RESTRICTED", dev.chungjungsoo.gptmobile.data.network.FreeProviderPreflight.check(profile)!!.category.name)
+    }
+
     @Test fun shortLegacySelectionAndDisableAreSafe() {
         val profiles = listOf(PlatformV2(uid = "a", name = "Fixture"), PlatformV2(uid = "b", name = "Fixture"))
         assertEquals(setOf("a"), selectedProfileUids(profiles, listOf(true)))

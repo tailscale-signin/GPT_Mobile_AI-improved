@@ -79,13 +79,12 @@ internal fun SettingsHomePanel(points: List<SettingsHomePoint>, onClick: (() -> 
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Icon(Icons.Rounded.Home, null, tint = MaterialTheme.colorScheme.primary)
                 Column(Modifier.weight(1f)) {
-                    Text("Home tab", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                    Text("Your selected information", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.audit_overview), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 }
                 Icon(if (onClick == null) Icons.Rounded.Tune else Icons.AutoMirrored.Rounded.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.primary)
             }
             if (points.isEmpty()) {
-                Text(if (onClick == null) "Choose up to five items from the list below." else "Choose up to five items to show here. Tap to configure Home tab.", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("settings_home_empty"))
+                Text(if (onClick == null) "Choose up to five items from the list below." else "Choose up to five items to show here.", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("settings_home_empty"))
             } else {
                 BoxWithConstraints(Modifier.fillMaxWidth()) {
                     val columns = if (maxWidth >= 320.dp && LocalDensity.current.fontScale < 1.4f) 2 else 1
@@ -120,7 +119,7 @@ internal fun HomeSubjectsDialog(point: SettingsHomePoint, onDismiss: () -> Unit,
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onConfigure) { Text("Choose items") } },
+        confirmButton = { TextButton(onClick = onConfigure) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.audit_customize)) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } }
     )
 }
@@ -188,7 +187,7 @@ internal fun SettingsHomeScreen(
     )
     val connection = homeWalletConnection(selected, providerConnections)
     Scaffold(topBar = {
-        TopAppBar(title = { Text("Home tab") }, navigationIcon = {
+        TopAppBar(title = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.audit_overview)) }, navigationIcon = {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to Settings") }
         })
     }) { padding ->
@@ -196,8 +195,8 @@ internal fun SettingsHomeScreen(
             item { SettingsHomePanel(points, onClick = null) }
             item {
                 Text("Show in Settings", style = MaterialTheme.typography.titleMedium)
-                Text("${selected.selectedItems.size} of ${SettingsHomeConfiguration.MAX_ITEMS} categories selected. Changes save immediately. Turn one off to make room for another.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("home_selection_count"))
-                Text("A green Enabled or red Disabled indicator shows each selected profile’s switch. Its request result is separate, with unknown and stale states; no background test requests are sent.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.audit_selected_limit, selected.selectedItems.size, SettingsHomeConfiguration.MAX_ITEMS), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("home_selection_count"))
+                dev.chungjungsoo.gptmobile.presentation.common.DetailsSection { Text("A green Enabled or red Disabled indicator shows each selected profile’s switch. Its request result is separate, with unknown and stale states; no background test requests are sent.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 saveError?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("home_save_error")) }
             }
             items(options, key = { it.id }) { option ->

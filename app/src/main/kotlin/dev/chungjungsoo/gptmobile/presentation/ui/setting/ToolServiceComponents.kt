@@ -112,7 +112,7 @@ internal fun toolServiceItems(connections: List<ToolConnection>, installations: 
     }
 }
 
-internal enum class ToolkitFilter(val label: String) { ALL("All"), PLUGINS("Plugins"), MCP("Remote MCP") }
+internal enum class ToolkitFilter(val label: String) { ALL("All"), ENABLED("Enabled"), PLUGINS("Plugins"), MCP("Remote MCP") }
 internal enum class ToolkitSort(val label: String) { NAME("Name A–Z"), ENABLED("Enabled first"), SETUP("Needs setup first") }
 
 internal fun sortedToolServices(
@@ -125,7 +125,7 @@ internal fun sortedToolServices(
 ): List<ToolServiceItem> {
     val words = query.trim()
     val matching = services.filter { service ->
-        (filter == ToolkitFilter.ALL || (filter == ToolkitFilter.PLUGINS && service.hasPlugin) || (filter == ToolkitFilter.MCP && service.hasMcp)) &&
+        (filter == ToolkitFilter.ALL || (filter == ToolkitFilter.ENABLED && enabled(service)) || (filter == ToolkitFilter.PLUGINS && service.hasPlugin) || (filter == ToolkitFilter.MCP && service.hasMcp)) &&
             (words.isEmpty() || (listOf(service.definition.name, service.definition.description) + service.connections.map { "${it.name} ${it.alias}" } + service.packages.flatMap { it.preset.toolCapabilities }).any { it.contains(words, true) })
     }
     val names = compareBy<ToolServiceItem> { it.definition.name.lowercase(Locale.ROOT) }.thenBy { it.id }
@@ -151,7 +151,7 @@ internal fun ToolkitControls(
         OutlinedTextField(
             query,
             onQueryChange,
-            label = { Text("Find a service or tool") },
+            label = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.audit_search_plugins)) },
             leadingIcon = { Icon(Icons.Rounded.Search, null) },
             singleLine = true,
             shape = RoundedCornerShape(18.dp),
@@ -159,23 +159,25 @@ internal fun ToolkitControls(
         )
         if (showFilters) {
             FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ToolkitFilter.entries.forEach { option ->
+                listOf(ToolkitFilter.ALL, ToolkitFilter.ENABLED).forEach { option ->
                     FilterChip(selected = option == filter, onClick = { onFilterChange(option) }, label = { Text(option.label) })
                 }
             }
         }
-        Box {
-            OutlinedButton(onClick = { menu = true }) {
-                Icon(Icons.Rounded.Sort, null, Modifier.size(18.dp))
-                Text(sort.label, Modifier.padding(horizontal = 8.dp))
-                Icon(Icons.Rounded.ExpandMore, null, Modifier.size(18.dp))
-            }
-            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                ToolkitSort.entries.forEach { option ->
-                    DropdownMenuItem(text = { Text(option.label) }, onClick = {
-                        onSortChange(option)
-                        menu = false
-                    })
+        dev.chungjungsoo.gptmobile.presentation.common.DetailsSection(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.audit_sort_filter)) {
+            Box {
+                OutlinedButton(onClick = { menu = true }) {
+                    Icon(Icons.Rounded.Sort, null, Modifier.size(18.dp))
+                    Text(sort.label, Modifier.padding(horizontal = 8.dp))
+                    Icon(Icons.Rounded.ExpandMore, null, Modifier.size(18.dp))
+                }
+                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                    ToolkitSort.entries.forEach { option ->
+                        DropdownMenuItem(text = { Text(option.label) }, onClick = {
+                            onSortChange(option)
+                            menu = false
+                        })
+                    }
                 }
             }
         }
@@ -241,14 +243,14 @@ internal fun ToolServiceCard(
             }
             Row(Modifier.fillMaxWidth().clickable { expanded = !expanded }, verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    if (expanded) "Hide details" else service.definition.description,
+                    androidx.compose.ui.res.stringResource(if (expanded) dev.chungjungsoo.gptmobile.R.string.audit_close else dev.chungjungsoo.gptmobile.R.string.audit_settings),
                     Modifier.weight(1f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                IconButton(onClick = { expanded = !expanded }, modifier = Modifier.size(32.dp)) {
+                IconButton(onClick = { expanded = !expanded }, modifier = Modifier.size(48.dp)) {
                     Icon(if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, if (expanded) "Collapse ${service.definition.name}" else "Expand ${service.definition.name}")
                 }
             }

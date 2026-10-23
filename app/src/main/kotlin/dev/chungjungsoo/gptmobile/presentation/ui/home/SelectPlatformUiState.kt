@@ -8,10 +8,10 @@ import dev.chungjungsoo.gptmobile.data.pricing.formatRate
 import dev.chungjungsoo.gptmobile.data.pricing.priceContextKey
 
 internal fun selectedProfileUids(profiles: List<PlatformV2>, selected: List<Boolean>): Set<String> =
-    profiles.mapIndexedNotNull { index, profile -> profile.uid.takeIf { profile.enabled && selected.getOrElse(index) { false } } }.toSet()
+    profiles.mapIndexedNotNull { index, profile -> profile.uid.takeIf { profile.enabled && dev.chungjungsoo.gptmobile.data.network.FreeProviderPreflight.check(profile) == null && selected.getOrElse(index) { false } } }.toSet()
 
 internal fun confirmedProfileUids(profiles: List<PlatformV2>, selected: Set<String>): List<String> =
-    profiles.filter { it.enabled && it.uid in selected }.map { it.uid }
+    profiles.filter { it.enabled && it.uid in selected && dev.chungjungsoo.gptmobile.data.network.FreeProviderPreflight.check(it) == null }.map { it.uid }
 
 internal fun ProfileInsight.matches(profile: PlatformV2): Boolean =
     this.profile.uid == profile.uid && priceContextKey(this.profile) == priceContextKey(profile)

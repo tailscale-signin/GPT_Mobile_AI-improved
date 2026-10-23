@@ -14,6 +14,10 @@ import kotlinx.serialization.json.contentOrNull
 
 /** Per-flow state. No prompt, response, tools or credentials are retained. */
 class FreeRequestDiagnostics {
+    internal val failureId = java.util.UUID.randomUUID().toString()
+    internal var requestSent = false
+    internal var category: dev.chungjungsoo.gptmobile.data.network.FreeFailureCategory? = null
+    internal var cooldown: dev.chungjungsoo.gptmobile.data.network.FreeCooldown? = null
     internal val startedAt = System.currentTimeMillis()
     internal var admission: RequestAdmissionReceipt? = null
     internal var recorded = false
@@ -26,6 +30,11 @@ class FreeRequestDiagnostics {
 @Serializable
 data class FreeProviderFailureRecord(
     val time: Long,
+    val failureId: String? = null,
+    val category: String? = null,
+    val action: String? = null,
+    val requestSent: Boolean? = null,
+    val cooldownOrigin: dev.chungjungsoo.gptmobile.data.network.FreeCooldown? = null,
     val provider: String,
     val endpoint: String,
     val model: String,
@@ -104,6 +113,29 @@ object FreeProviderDiagnostics {
         }
     }
 
+    fun recordPreflight(profile: dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2, outcome: dev.chungjungsoo.gptmobile.data.network.FreePreflightOutcome, chatId: Int?, persistent: Boolean) {
+        val provider = dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.fromApiUrl(profile.apiUrl) ?: return
+        val diagnostics = FreeRequestDiagnostics().apply {
+            category = outcome.category
+            cooldown = outcome.cooldown
+            stage = "preflight"
+        }
+        record(
+            ProviderRequestConfig(
+                profile.apiUrl,
+                profile.token,
+                freeProvider = provider,
+                profileUid = profile.uid,
+                queueScope = chatId?.toString(),
+                queuePersistent = persistent,
+                freeDiagnostics = diagnostics
+            ),
+            profile.model,
+            outcome.message,
+            retryAt = outcome.retryAt
+        )
+    }
+
     @Synchronized internal fun record(config: ProviderRequestConfig, model: String, message: String, status: Int? = null, body: String = "", header: (String) -> String? = { null }, retryAt: Long? = null, event: String? = null, terminal: Boolean? = null) {
         val provider = config.freeProvider ?: return
         val state = config.freeDiagnostics
@@ -121,6 +153,8 @@ object FreeProviderDiagnostics {
         val receipt = state?.admission
         val record = FreeProviderFailureRecord(
             time = System.currentTimeMillis(),
+            failureId = state?.failureId, category = state?.category?.name, action = state?.category?.action,
+            requestSent = state?.requestSent, cooldownOrigin = state?.cooldown,
             provider = provider.name, endpoint = provider.apiUrl, model = model.take(256), profileUid = config.profileUid,
             chatId = config.queueScope?.substringBefore(':')?.toIntOrNull(), stage = state?.stage ?: "unknown", status = status,
             contentType = contentType,

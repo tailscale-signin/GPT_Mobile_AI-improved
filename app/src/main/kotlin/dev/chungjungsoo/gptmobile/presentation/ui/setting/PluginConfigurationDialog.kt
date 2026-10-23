@@ -56,7 +56,7 @@ internal fun PluginConfigurationDialog(
         title = { Text(name) },
         text = {
             Column(Modifier.heightIn(max = 560.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                dev.chungjungsoo.gptmobile.presentation.ui.setting.toolstatistics.ToolStatisticsPanel(id, name, features.isToolPluginEnabled(id))
+                dev.chungjungsoo.gptmobile.presentation.common.DetailsSection(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.audit_activity)) { dev.chungjungsoo.gptmobile.presentation.ui.setting.toolstatistics.ToolStatisticsPanel(id, name, features.isToolPluginEnabled(id)) }
                 if (id.startsWith("connection:")) {
                     TextButton(onClick = onConnection) { Text("Manage connection") }
                 }

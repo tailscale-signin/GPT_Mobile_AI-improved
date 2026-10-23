@@ -53,11 +53,27 @@ internal class CombinedRecordStore private constructor(
             } else {
                 null
             }
-            val retained = existing ?: previous
-            val state = retained?.let { Json.decodeFromString<CombinedRecordCheckpoint>(it.stateJson) }
-                ?: CombinedRecordCheckpoint(snapshotDigest = frozen.inputDigest, revisionId = revisionId)
+            val predecessor = if (existing == null && previous == null && resume && frozen.predecessorRunId != null) {
+                val priorRun = requireNotNull(dao.recoveryRun(requireNotNull(frozen.predecessorRunId)))
+                val raw = requireNotNull(priorRun.synthesisSnapshot)
+                require(researchHash(raw) == priorRun.synthesisKey) { "COMBINED_CHECKPOINT_INTEGRITY" }
+                val original = Json { ignoreUnknownKeys = true }.decodeFromString<CombinedInputSnapshot>(raw)
+                CombinedSuccessorSnapshot.validate(original, frozen, priorRun.runId)
+                dao.combinedDeliveryCheckpoint(priorRun.runId, original.liveRevisionId(priorRun.runId))?.also {
+                    require(it.snapshotDigest == original.inputDigest && it.snapshotJson == raw) { "COMBINED_CHECKPOINT_INTEGRITY" }
+                }
+            } else {
+                null
+            }
+            val retained = existing ?: previous ?: predecessor
+            val savedState = retained?.let { Json.decodeFromString<CombinedRecordCheckpoint>(it.stateJson) }
+            require(retained == null || retained.snapshotDigest == savedState?.snapshotDigest && retained.revisionId == savedState.revisionId)
+            val state = if (predecessor != null) {
+                requireNotNull(savedState).copy(snapshotDigest = frozen.inputDigest, revisionId = revisionId, recoveryAttempts = 0, malformedRecoveryAttempts = 0)
+            } else {
+                savedState ?: CombinedRecordCheckpoint(snapshotDigest = frozen.inputDigest, revisionId = revisionId)
+            }
             require(state.snapshotDigest == frozen.inputDigest)
-            require(retained == null || retained.snapshotDigest == state.snapshotDigest && retained.revisionId == state.revisionId)
             val renderer = CombinedPassageDecoder(frozen.sources, frozen.evidence, maxCharacters, strictRecords = true)
             val protocol = withContext(Dispatchers.Default) {
                 val protocol = CombinedRecordProtocol(

@@ -12,7 +12,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 @Serializable
-internal data class FreeQueueJob(val key: String, val id: String? = null, val state: String = "SUBMITTING", val createdAt: Long = System.currentTimeMillis(), val answer: String? = null, val servedModel: String? = null, val chatId: Int? = null, val protocol: String = "LEGACY")
+internal data class FreeQueueJob(val key: String, val id: String? = null, val state: String = "SUBMITTING", val createdAt: Long = System.currentTimeMillis(), val answer: String? = null, val servedModel: String? = null, val chatId: Int? = null, val protocol: String = "LEGACY", val ownerRunId: String? = null, val profileUid: String? = null, val requestedModel: String? = null)
 
 /** No prompt storage. An unknown submission is never blindly repeated. Locks cover only one request. */
 internal object FreeQueueJobs {
@@ -42,6 +42,10 @@ internal object FreeQueueJobs {
         } else {
             null
         }
+    }
+    suspend fun forRun(runId: String, chatId: Int, profileUid: String, persistent: Boolean): FreeQueueJob? = withContext(Dispatchers.IO) {
+        val stored = if (persistent && directory != null) directory?.listFiles()?.filter { it.extension == "json" }?.mapNotNull { file -> runCatching { Json.decodeFromString<FreeQueueJob>(AtomicFile(file).readFully().decodeToString()) }.getOrNull() }.orEmpty() else memory.values.toList()
+        stored.filter { it.ownerRunId == runId && it.chatId == chatId && it.profileUid == profileUid }.maxByOrNull { it.createdAt }
     }
     suspend fun save(job: FreeQueueJob, persistent: Boolean = false) = withContext(Dispatchers.IO) {
         check(job.createdAt > (job.chatId?.let { revokedChats[it] } ?: Long.MIN_VALUE)) { "Queued conversation was deleted or made temporary" }

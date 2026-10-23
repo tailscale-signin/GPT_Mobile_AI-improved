@@ -17,7 +17,8 @@ class FreeAiRequestLimiter(
     private class Bucket {
         val permit = Semaphore(1)
         val requests = ArrayDeque<Long>()
-        var retryAt = 0L
+        var cooldown: FreeCooldown? = null
+        val retryAt: Long get() = cooldown?.retryAt ?: 0L
     }
 
     private var storage: java.io.File? = null
@@ -25,6 +26,8 @@ class FreeAiRequestLimiter(
 
     @Synchronized fun initialize(file: java.io.File) {
         storage = file
+        restored = false
+        buckets.clear()
     }
 
     private fun restore() {
@@ -32,10 +35,17 @@ class FreeAiRequestLimiter(
         restored = true
         runCatching {
             storage?.takeIf { it.isFile && it.length() <= 64_000 }?.let { file ->
-                val saved = kotlinx.serialization.json.Json.decodeFromString<Map<String, Long>>(file.readText())
-                saved.forEach { (key, until) ->
+                val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+                val saved = json.parseToJsonElement(file.readText()) as? kotlinx.serialization.json.JsonObject ?: return@let
+                saved.forEach { (key, value) ->
+                    val cooldown = if (value is kotlinx.serialization.json.JsonPrimitive) {
+                        value.content.toLongOrNull()?.let { FreeCooldown(it) }
+                    } else {
+                        runCatching { json.decodeFromString<FreeCooldown>(value.toString()) }.getOrNull()
+                    }
+                    if (cooldown == null) return@forEach
                     val provider = FreeAiProvider.entries.firstOrNull { it.name == key.substringBefore('|') } ?: return@forEach
-                    if (until > nowMillis()) bucket(provider, key.substringAfter('|', "")).retryAt = until
+                    if (cooldown.retryAt > nowMillis()) buckets.computeIfAbsent(provider to key.substringAfter('|', "")) { Bucket() }.cooldown = cooldown
                 }
             }
         }
@@ -44,7 +54,7 @@ class FreeAiRequestLimiter(
     private fun persist() {
         runCatching {
             storage?.let { target ->
-                val values = buckets.entries.filter { it.value.retryAt > nowMillis() }.associate { (key, value) -> "${key.first.name}|${key.second}" to value.retryAt }
+                val values = buckets.entries.filter { it.value.retryAt > nowMillis() }.associate { (key, value) -> "${key.first.name}|${key.second}" to value.cooldown!! }
                 target.parentFile?.mkdirs()
                 val temporary = java.io.File(target.path + ".tmp")
                 temporary.writeText(kotlinx.serialization.json.Json.encodeToString(values))
@@ -54,40 +64,46 @@ class FreeAiRequestLimiter(
     }
 
     private val buckets = java.util.concurrent.ConcurrentHashMap<Pair<FreeAiProvider, String>, Bucket>()
-    private fun bucket(provider: FreeAiProvider, model: String = ""): Bucket = buckets.computeIfAbsent(provider to if (provider == FreeAiProvider.OVHCLOUD) model else "") { Bucket() }
+    private fun bucket(provider: FreeAiProvider, model: String = "", credentialIdentity: String = "unknown"): Bucket = buckets.computeIfAbsent(
+        provider to when {
+            provider == FreeAiProvider.OVHCLOUD -> model
+            provider.requiresUserToken && credentialIdentity != "unknown" -> "credential:$credentialIdentity"
+            else -> ""
+        }
+    ) { Bucket() }
 
-    suspend fun <T> withRequest(provider: FreeAiProvider, request: suspend () -> T): T = withRequest(provider, "", request)
+    suspend fun <T> withRequest(provider: FreeAiProvider, request: suspend () -> T): T = withRequest(provider, "", request = request)
 
-    suspend fun <T> withRequest(provider: FreeAiProvider, model: String, request: suspend () -> T): T =
-        bucket(provider, model).permit.withPermit {
+    suspend fun <T> withRequest(provider: FreeAiProvider, model: String, credentialIdentity: String = "unknown", request: suspend () -> T): T =
+        bucket(provider, model, credentialIdentity).permit.withPermit {
             // Short local spacing is scheduling, not an exhausted provider quota.
             // Keep the permit while waiting so parallel profiles cannot race the next slot.
-            val wait = schedulingDelayMillis(provider, model)
+            val wait = schedulingDelayMillis(provider, model, credentialIdentity)
             if (wait > 0) {
                 currentCoroutineContext()[ProviderWaitContext]?.notifyRemaining?.invoke(wait)
                 delay(wait)
             }
-            reserve(provider, model)
+            reserve(provider, model, credentialIdentity)
             request()
         }
 
     @Synchronized
-    private fun schedulingDelayMillis(provider: FreeAiProvider, model: String): Long {
+    private fun schedulingDelayMillis(provider: FreeAiProvider, model: String, credentialIdentity: String): Long {
         restore()
         val now = nowMillis()
         // A server Retry-After is never converted into an automatic local wait.
-        if (bucket(provider, model).retryAt > now) return 0L
-        return ((cooldownUntilMillis(provider, model) ?: now) - now).takeIf { it in 1..60_000 } ?: 0L
+        if (savedCooldown(provider, model, credentialIdentity) != null) return 0L
+        return ((cooldownUntilMillis(provider, model, credentialIdentity) ?: now) - now).takeIf { it in 1..60_000 } ?: 0L
     }
 
     @Synchronized
-    internal fun reserve(provider: FreeAiProvider, model: String = "") {
+    internal fun reserve(provider: FreeAiProvider, model: String = "", credentialIdentity: String = "unknown") {
         restore()
-        val bucket = bucket(provider, model)
+        val bucket = bucket(provider, model, credentialIdentity)
         val now = nowMillis()
         while (bucket.requests.isNotEmpty() && bucket.requests.first <= now - HOUR_MS) bucket.requests.removeFirst()
         val minuteRequests = bucket.requests.filter { it > now - MINUTE_MS }
-        var retryAt = bucket.retryAt
+        var retryAt = savedCooldown(provider, model, credentialIdentity)?.retryAt ?: 0L
         if (provider == FreeAiProvider.LLM7 && bucket.requests.isNotEmpty()) {
             retryAt = maxOf(retryAt, bucket.requests.last + 1000)
         }
@@ -99,33 +115,46 @@ class FreeAiRequestLimiter(
         }
         if (retryAt > now) {
             // Local windows are scheduling state, not a persisted provider quota.
-            throw FreeAiRateLimitException(provider, (retryAt - now + 999) / 1000)
+            throw FreeAiRateLimitException(provider, (retryAt - now + 999) / 1000, cooldown = savedCooldown(provider, model, credentialIdentity), retryAt = retryAt)
         }
         bucket.requests.addLast(now)
     }
 
     @Synchronized
-    fun defer(provider: FreeAiProvider, retryAfter: String?, model: String = ""): Long {
+    fun defer(provider: FreeAiProvider, retryAfter: String?, model: String = "", credentialIdentity: String = "unknown", evidence: FreeCooldown? = null): Long {
         restore()
         val now = nowMillis()
-        val seconds = retryAfter?.toLongOrNull()?.coerceAtLeast(1)
+        val seconds = retryAfter?.trim()?.toLongOrNull()?.takeIf { it >= 0 }
+        val numericDeadline = seconds?.let { runCatching { Math.addExact(now, Math.multiplyExact(it, 1000L)) }.getOrNull() }
         val date = runCatching { ZonedDateTime.parse(retryAfter, DateTimeFormatter.RFC_1123_DATE_TIME).toInstant().toEpochMilli() }.getOrNull()
-        val wait = (seconds?.coerceAtMost(86400)?.times(1000) ?: date?.minus(now) ?: MINUTE_MS).coerceIn(1000, 86400000)
-        val bucket = bucket(provider, model)
-        bucket.retryAt = maxOf(bucket.retryAt, now + wait)
+        val deadline = numericDeadline ?: date?.takeIf { it >= now } ?: (now + MINUTE_MS)
+        val scopedIdentity = if (evidence != null && evidence.quotaScope.lowercase() !in setOf("token", "credential", "api_key")) "unknown" else credentialIdentity
+        val bucket = bucket(provider, model, scopedIdentity)
+        if (deadline >= bucket.retryAt) {
+            bucket.cooldown = (evidence ?: FreeCooldown(deadline)).copy(
+                retryAt = deadline,
+                observedAt = now,
+                credentialIdentity = credentialIdentity,
+                deadlineSource = when {
+                    numericDeadline != null -> "retry_after_seconds"
+                    date != null && date >= now -> "retry_after_http_date"
+                    else -> "local_estimate"
+                }
+            )
+        }
         persist()
         return (bucket.retryAt - now + 999) / 1000
     }
 
     /** Return the known provider/local quota cooldown without reserving a request. */
     @Synchronized
-    fun cooldownUntilMillis(provider: FreeAiProvider, model: String = ""): Long? {
+    fun cooldownUntilMillis(provider: FreeAiProvider, model: String = "", credentialIdentity: String = "unknown"): Long? {
         restore()
         val now = nowMillis()
-        val bucket = bucket(provider, model)
+        val bucket = bucket(provider, model, credentialIdentity)
         while (bucket.requests.isNotEmpty() && bucket.requests.first <= now - HOUR_MS) bucket.requests.removeFirst()
         val minuteRequests = bucket.requests.filter { it > now - MINUTE_MS }
-        var retryAt = bucket.retryAt
+        var retryAt = savedCooldown(provider, model, credentialIdentity)?.retryAt ?: 0L
         if (provider == FreeAiProvider.LLM7 && bucket.requests.isNotEmpty()) {
             retryAt = maxOf(retryAt, bucket.requests.last + 1000)
         }
@@ -138,6 +167,15 @@ class FreeAiRequestLimiter(
         return retryAt.takeIf { it > now }
     }
 
+    @Synchronized
+    fun savedCooldown(provider: FreeAiProvider, model: String = "", credentialIdentity: String = "unknown"): FreeCooldown? {
+        restore()
+        // Old deadlines have unknown scope. Preserve them across credential changes rather
+        // than claiming that a new key bypasses an IP/account-wide quota.
+        return listOfNotNull(bucket(provider, model, credentialIdentity).cooldown, bucket(provider, model).cooldown)
+            .filter { it.retryAt > nowMillis() }.maxByOrNull { it.retryAt }
+    }
+
     companion object {
         val shared = FreeAiRequestLimiter()
         private const val MINUTE_MS = 60_000L
@@ -145,7 +183,4 @@ class FreeAiRequestLimiter(
     }
 }
 
-class FreeAiRateLimitException(provider: FreeAiProvider, retrySeconds: Long, detail: String? = null) :
-    IllegalStateException(
-        "${provider.displayName} is rate limited. Retry no earlier than ${java.time.Instant.ofEpochMilli(System.currentTimeMillis() + retrySeconds * 1000)} (in $retrySeconds seconds), or select another Free provider. This cooldown does not guarantee the provider's allowance has reset." + (detail?.let { " $it" } ?: "")
-    )
+class FreeAiRateLimitException(provider: FreeAiProvider, retrySeconds: Long, detail: String? = null, val cooldown: FreeCooldown? = null, retryAt: Long = cooldown?.retryAt ?: System.currentTimeMillis() + retrySeconds * 1000, localBlock: Boolean = true) : IllegalStateException(cooldown?.takeIf { localBlock }?.blockedMessage(provider) ?: "${provider.displayName} is rate limited. Next eligible retry: ${java.time.Instant.ofEpochMilli(retryAt)} (in $retrySeconds seconds). This does not guarantee the provider’s allowance has reset." + ((detail ?: cooldown?.message)?.let { " $it" } ?: ""))

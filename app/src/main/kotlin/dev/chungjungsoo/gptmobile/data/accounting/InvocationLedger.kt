@@ -283,7 +283,7 @@ class InvocationLedger @Inject constructor(
                                 actualRuntime = event.actualRuntime ?: actualRuntime
                                 dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
                                     "Model",
-                                    "Configured ${record.id} · parentRunId=$parentRunId · requestKind=$kind · profileType=${event.configuredProfileType ?: "not_reported"} · actualRuntime=${event.actualRuntime ?: "not_reported"} · artifactRuntime=${event.artifactRuntime ?: "not_reported"} · actualAccelerator=${event.actualAccelerator ?: "not_reported"} · profileOutputCap=${event.configuredProfileOutputTokens ?: "unset"} · requestedOutputCap=${event.requestedOutputTokens ?: "unset"} · effectiveOutputCap=${event.effectiveOutputTokens ?: "unset"}"
+                                    "Configured ${record.id} · parentRunId=$parentRunId · requestKind=$kind · profileType=${event.configuredProfileType ?: "not_reported"} · actualRuntime=${event.actualRuntime ?: "not_reported"} · artifactRuntime=${event.artifactRuntime ?: "not_reported"} · actualAccelerator=${event.actualAccelerator ?: "not_reported"} · profileOutputCap=${event.configuredProfileOutputTokens ?: "unset"} · requestedOutputCap=${event.requestedOutputTokens ?: "unset"} · providerOutputCeiling=${event.providerOutputCeiling ?: "unknown"} · serializedOutputCap=${event.serializedOutputTokens ?: "pending"} · effectiveOutputCap=${event.effectiveOutputTokens ?: "unset"}"
                                 )
                             }
                             is ProviderEvent.Usage -> {

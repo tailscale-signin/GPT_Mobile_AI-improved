@@ -27,7 +27,7 @@ class AgentRunCoordinatorTest {
         val terminal = terminalAgentMessage(partial, "Provider disconnected", 42)
         assertEquals("Saved chapter", terminal.content)
         assertEquals(AssistantTimelineItemType.NOTICE, terminal.timeline.last().type)
-        assertTrue(terminal.timeline.last().content.contains("Provider disconnected"))
+        assertEquals("Provider disconnected", terminal.timeline.last().runError)
     }
 
     @Test
@@ -118,16 +118,16 @@ class AgentRunCoordinatorTest {
 
         val terminal = terminalAgentMessage(partial, "Provider failed.", completedAt = 42L)
 
-        assertEquals("Partial\n\n[Response stopped: Provider failed.]", terminal.content)
+        assertEquals("Partial", terminal.content)
         assertEquals(
-            AssistantTimelineItem(AssistantTimelineItemType.TEXT, content = "\n\n[Response stopped: Provider failed.]"),
+            AssistantTimelineItem(AssistantTimelineItemType.NOTICE, runError = "Provider failed."),
             terminal.timeline.last()
         )
         assertEquals(42L, terminal.createdAt)
     }
 
     @Test
-    fun `coordinator terminal failure merges error into a trailing text item`() {
+    fun `coordinator terminal failure keeps error separate from a trailing text item`() {
         val partial = MessageV2(
             content = "Partial",
             timeline = listOf(AssistantTimelineItem(AssistantTimelineItemType.TEXT, content = "Partial")),
@@ -136,11 +136,11 @@ class AgentRunCoordinatorTest {
 
         val terminal = terminalAgentMessage(partial, "Provider failed.", completedAt = 42L)
 
-        assertEquals("Partial\n\n[Response stopped: Provider failed.]", terminal.content)
-        assertEquals(1, terminal.timeline.size)
+        assertEquals("Partial", terminal.content)
+        assertEquals(2, terminal.timeline.size)
         assertEquals(
-            AssistantTimelineItem(AssistantTimelineItemType.TEXT, content = "Partial\n\n[Response stopped: Provider failed.]"),
-            terminal.timeline.single()
+            AssistantTimelineItem(AssistantTimelineItemType.NOTICE, runError = "Provider failed."),
+            terminal.timeline.last()
         )
         assertEquals(42L, terminal.createdAt)
     }
@@ -156,8 +156,8 @@ class AgentRunCoordinatorTest {
 
         val terminal = terminalAgentMessage(partial, "Provider failed.", completedAt = 42L)
 
-        assertEquals("Error: Provider failed.", terminal.content)
-        assertTrue(terminal.timeline.single().content.endsWith("Error: Provider failed."))
+        assertEquals(whitespace, terminal.content)
+        assertEquals("Provider failed.", terminal.timeline.last().runError)
     }
 
     @Test
@@ -168,9 +168,9 @@ class AgentRunCoordinatorTest {
             completedAt = 42L
         )
 
-        assertEquals("Error: Service start failed.", terminal.content)
+        assertEquals("", terminal.content)
         assertEquals(
-            listOf(AssistantTimelineItem(AssistantTimelineItemType.TEXT, content = "Error: Service start failed.")),
+            listOf(AssistantTimelineItem(AssistantTimelineItemType.NOTICE, runError = "Service start failed.")),
             terminal.timeline
         )
     }

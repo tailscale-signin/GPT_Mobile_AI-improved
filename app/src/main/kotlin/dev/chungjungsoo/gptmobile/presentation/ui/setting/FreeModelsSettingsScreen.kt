@@ -15,7 +15,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -38,7 +37,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.contentDescription
@@ -60,22 +58,13 @@ fun FreeModelsSettingsScreen(viewModel: SettingViewModelV2, onBack: () -> Unit, 
     val states by FreeCatalogState.status.collectAsState()
     val catalog by FreeCatalogState.catalog.collectAsState()
     val scope = rememberCoroutineScope()
-    LaunchedEffect(Unit) { FreeAiProvider.entries.forEach { provider -> launch { FreeCatalogState.refresh(provider) } } }
+    LaunchedEffect(Unit) { FreeAiProvider.entries.forEach { provider -> launch { FreeCatalogState.refresh(provider, token = profiles.firstOrNull { FreeAiProvider.fromApiUrl(it.apiUrl) == provider && !it.token.isNullOrBlank() }?.token) } } }
     Scaffold(modifier = modifier.fillMaxSize(), topBar = {
         TopAppBar(title = { Text(FreeModelCatalog.NAME) }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") } }, actions = {
-            IconButton(enabled = states.values.none { it.checking }, onClick = { FreeAiProvider.entries.forEach { provider -> scope.launch { FreeCatalogState.refresh(provider, true) } } }) { Icon(Icons.Rounded.Refresh, "Refresh service status and models") }
+            IconButton(enabled = states.values.none { it.checking }, onClick = { FreeAiProvider.entries.forEach { provider -> scope.launch { FreeCatalogState.refresh(provider, true, profiles.firstOrNull { FreeAiProvider.fromApiUrl(it.apiUrl) == provider && !it.token.isNullOrBlank() }?.token) } } }) { Icon(Icons.Rounded.Refresh, "Refresh service status and models") }
         })
     }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            item {
-                Column(Modifier.fillMaxWidth().background(Brush.linearGradient(listOf(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.tertiaryContainer)), RoundedCornerShape(28.dp)).padding(24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Icon(Icons.Rounded.AutoAwesome, null, Modifier.size(32.dp))
-                    Text("Ready to explore", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                    Text("${FreeAiProvider.entries.size} services · ${FreeAiProvider.entries.sumOf { FreeCatalogState.models(it).size }} model options", style = MaterialTheme.typography.titleMedium)
-                    Text("Profiles are included from the start. Choose a service and model; no paid route is selected automatically.", style = MaterialTheme.typography.bodyMedium)
-                    Text("Public services: automatic memory and personal attachment sharing stay off. Limits can be shared with other users on your IP.", style = MaterialTheme.typography.bodySmall)
-                }
-            }
             items(FreeAiProvider.entries, key = { it.name }) { provider ->
                 // Read catalog state to recompose model options after a refresh.
                 val models = remember(provider, catalog) { FreeCatalogState.models(provider) }
@@ -83,16 +72,12 @@ fun FreeModelsSettingsScreen(viewModel: SettingViewModelV2, onBack: () -> Unit, 
                 if (provider.isDemo) Text("Demo / Experimental", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(bottom = 12.dp))
                 FreeServiceCard(provider, states[provider] ?: FreeServiceStatus(), children, models, onOpenProfile, viewModel::updatePlatform)
             }
-            item { Text("Your own hardware", style = MaterialTheme.typography.titleLarge) }
-            item { Text("Local servers keep their local transport, memory and privacy settings. On a phone, localhost means the phone—not your PC.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            items(listOf("llama.cpp / llama-server" to 8080, "Ollama" to 11434, "LM Studio" to 1234, "KoboldCpp" to 5001, "LocalAI" to 8080), key = { it.first }) { (name, port) ->
-                LocalFreeServerCard(name, port, viewModel)
-            }
             item {
-                Card {
-                    Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("WebLLM", style = MaterialTheme.typography.titleMedium)
-                        Text("Browser WebGPU runtime · native Android integration is not available. It cannot be used as an HTTP profile.", style = MaterialTheme.typography.bodySmall)
+                var showServers by remember { mutableStateOf(false) }
+                TextButton(onClick = { showServers = !showServers }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.audit_connect_server)) }
+                if (showServers) {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        listOf("llama.cpp / llama-server" to 8080, "Ollama" to 11434, "LM Studio" to 1234, "KoboldCpp" to 5001, "LocalAI" to 8080).forEach { (name, port) -> LocalFreeServerCard(name, port, viewModel) }
                     }
                 }
             }
@@ -100,13 +85,15 @@ fun FreeModelsSettingsScreen(viewModel: SettingViewModelV2, onBack: () -> Unit, 
     }
 }
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 internal fun FreeServiceCard(provider: FreeAiProvider, status: FreeServiceStatus, profiles: List<PlatformV2>, models: List<dev.chungjungsoo.gptmobile.data.free.FreeModelOption>, onOpenProfile: (String) -> Unit, update: (PlatformV2) -> Unit) {
-    var expanded by remember(provider) { mutableStateOf(false) }
+    var selectedProfileUid by androidx.compose.runtime.saveable.rememberSaveable(provider) { mutableStateOf<String?>(null) }
+    val selectedProfile = profiles.firstOrNull { it.uid == selectedProfileUid }
     val details = remember(provider) { FreeModelCatalog.details(provider) }
     val uri = LocalUriHandler.current
     val now by dev.chungjungsoo.gptmobile.presentation.common.freeProviderClock()
-    val availability = dev.chungjungsoo.gptmobile.presentation.common.freeProviderAvailability(provider, profiles.firstOrNull()?.model ?: provider.model, status, now)
+    val availability = dev.chungjungsoo.gptmobile.presentation.common.freeProviderAvailability(provider, profiles.firstOrNull()?.model ?: provider.model, status, now, profiles.firstOrNull()?.token)
     val stale = status.checkedAt == 0L || System.currentTimeMillis() - status.checkedAt > 600_000
     val label = when {
         status.checking -> "Checking…"
@@ -133,28 +120,27 @@ internal fun FreeServiceCard(provider: FreeAiProvider, status: FreeServiceStatus
                 }
                 Box(Modifier.size(12.dp).background(color, CircleShape).semantics { contentDescription = "$label: ${provider.displayName}" })
             }
-            Text("$label · ${status.message}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (status.checkedAt > 0) Text("Checked ${java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date(status.checkedAt))}", style = MaterialTheme.typography.labelSmall)
-            Text(details.authentication, style = MaterialTheme.typography.labelLarge)
-            Text(details.limits, style = MaterialTheme.typography.bodyMedium)
-            if (provider.isDemo) Text("Opt-in educational demo. Connection success and answer quality are separate; use Benchmarks for evaluated tasks.", style = MaterialTheme.typography.bodySmall)
+            Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             profiles.forEach { profile ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text(profile.name, style = MaterialTheme.typography.titleSmall)
-                        if (dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.model(provider, profile.model)?.tools != true) Text("Native tools unavailable · app-assisted search when authorized", style = MaterialTheme.typography.labelSmall)
                         Text(profile.model, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-                        dev.chungjungsoo.gptmobile.presentation.common.freeProviderAvailability(provider, profile.model, status, now)?.let { Text(it, style = MaterialTheme.typography.labelSmall) }
+                        dev.chungjungsoo.gptmobile.presentation.common.freeProviderAvailability(provider, profile.model, status, now, profile.token)?.let { Text(it, style = MaterialTheme.typography.labelSmall) }
                     }
                     Switch(checked = profile.enabled, onCheckedChange = { update(profile.copy(enabled = it)) }, modifier = Modifier.semantics { contentDescription = "Enable ${profile.name}" })
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(onClick = { onOpenProfile(profile.uid) }) { Text("Profile options") }
-                    TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Hide details" else "Models & details") }
+                androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = { onOpenProfile(profile.uid) }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.audit_settings)) }
+                    TextButton(onClick = { selectedProfileUid = if (selectedProfileUid == profile.uid) null else profile.uid }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.audit_choose_model)) }
                 }
             }
             if (profiles.isEmpty()) Text("Profile removed · add this service from AI profiles to use it again.", style = MaterialTheme.typography.bodySmall)
-            if (expanded || profiles.isEmpty()) {
+            if (selectedProfile != null) {
+                Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.audit_model_for, selectedProfile.name), style = MaterialTheme.typography.titleMedium)
+                if (status.message.isNotBlank()) Text(status.message, style = MaterialTheme.typography.bodySmall)
+                Text(details.authentication, style = MaterialTheme.typography.bodySmall)
+                Text(details.limits, style = MaterialTheme.typography.bodySmall)
                 Text(details.transport, style = MaterialTheme.typography.titleSmall)
                 Text(details.privacy, style = MaterialTheme.typography.bodySmall)
                 Text(details.notice, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -169,7 +155,7 @@ internal fun FreeServiceCard(provider: FreeAiProvider, status: FreeServiceStatus
                             Text("Client tools: ${if (model.tools) "advertised" else "off / unverified"} · Streaming: ${if (model.streaming) "supported by transport" else "queued or buffered"}", style = MaterialTheme.typography.bodySmall)
                             Text("Context: ${model.contextTokens?.toString() ?: "unverified"} · Output capacity: ${model.outputTokens?.toString() ?: "unverified"}", style = MaterialTheme.typography.labelSmall)
                             model.privacy?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-                            profiles.firstOrNull()?.let { profile -> TextButton(onClick = { update(profile.copy(model = model.id)) }, enabled = profile.model != model.id) { Text(if (profile.model == model.id) "Selected" else "Use this model") } }
+                            profiles.firstOrNull { it.uid == selectedProfileUid }?.let { profile -> TextButton(onClick = { update(profile.copy(model = model.id)) }, enabled = profile.model != model.id) { Text(if (profile.model == model.id) "Selected" else "Use this model") } }
                         }
                     }
                 }

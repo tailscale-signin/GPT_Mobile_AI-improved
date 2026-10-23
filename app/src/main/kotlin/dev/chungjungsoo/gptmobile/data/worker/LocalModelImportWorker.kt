@@ -34,10 +34,10 @@ class LocalModelImportWorker @AssistedInject constructor(
         try {
             dev.chungjungsoo.gptmobile.presentation.StartupRecoveryGate.await()
             val notifications = applicationContext.getSystemService(NotificationManager::class.java)
-            notifications.createNotificationChannel(NotificationChannel(CHANNEL, applicationContext.getString(R.string.local_ai_import), NotificationManager.IMPORTANCE_LOW))
+            notifications.createNotificationChannel(NotificationChannel(CHANNEL, applicationContext.getString(R.string.local_ai_import_review), NotificationManager.IMPORTANCE_LOW))
             val notification = NotificationCompat.Builder(applicationContext, CHANNEL)
                 .setSmallIcon(android.R.drawable.stat_sys_download)
-                .setContentTitle(applicationContext.getString(R.string.local_ai_import))
+                .setContentTitle(applicationContext.getString(R.string.local_ai_import_review))
                 .setContentText(applicationContext.getString(R.string.local_ai_import_working))
                 .setProgress(0, 0, true).setOngoing(true)
                 .addAction(android.R.drawable.ic_delete, applicationContext.getString(R.string.cancel), androidx.work.WorkManager.getInstance(applicationContext).createCancelPendingIntent(id)).build()
@@ -56,8 +56,8 @@ class LocalModelImportWorker @AssistedInject constructor(
                     setProgressAsync(Data.Builder().putLong(BYTES, bytes).build())
                 }
             }
-            val source = dev.chungjungsoo.gptmobile.data.localmodel.LocalModelSource(uri, if (folder) dev.chungjungsoo.gptmobile.data.localmodel.LocalModelSource.Kind.FOLDER else dev.chungjungsoo.gptmobile.data.localmodel.LocalModelSource.Kind.FILE)
-            val result = repository.linkSource(source.uri, source.folder, check, progress)
+            val source = dev.chungjungsoo.gptmobile.data.localmodel.LocalModelSource(uri, if (folder) dev.chungjungsoo.gptmobile.data.localmodel.LocalModelSource.Kind.FOLDER else dev.chungjungsoo.gptmobile.data.localmodel.LocalModelSource.Kind.FILE, inputData.getBoolean(COPY_TO_APP, false))
+            val result = dev.chungjungsoo.gptmobile.data.localmodel.importLocalModelSource(repository, applicationContext.contentResolver, source, id.toString(), check, progress)
             when (result) {
                 is LocalModelImportResult.Success -> Result.success(Data.Builder().putString(MESSAGE, applicationContext.getString(R.string.local_ai_import_done)).putString("modelId", result.record.catalogEntryId).build())
                 is LocalModelImportResult.Failure -> {
@@ -86,6 +86,7 @@ class LocalModelImportWorker @AssistedInject constructor(
         const val WORK = "local-model-import"
         const val SOURCE = "source"
         const val FOLDER = "folder"
+        const val COPY_TO_APP = "copyToApp"
         const val OWNS_GRANT = "ownsGrant"
         const val BYTES = "bytes"
         const val MESSAGE = "message"

@@ -132,7 +132,7 @@ internal object LocalModelReferenceInstaller {
         val descriptor = context.contentResolver.openFileDescriptor(uri, "r") ?: error("Source access was lost. Select it again.")
         descriptor.use {
             val stat = Os.fstat(it.fileDescriptor)
-            require(OsConstants.S_ISREG(stat.st_mode) && stat.st_size in 1..16_000_000_000L) { "This source cannot be read in place. Choose an on-device, seekable model file." }
+            require(OsConstants.S_ISREG(stat.st_mode) && stat.st_size in 1..16_000_000_000L) { "This source cannot be linked. Select the model file again and enable Copy to app, or choose another on-device location." }
             val directory = File(context.cacheDir, "model-link-check-${java.util.UUID.randomUUID()}").apply { check(mkdirs()) }
             val alias = File(directory, name)
             try {
@@ -142,7 +142,12 @@ internal object LocalModelReferenceInstaller {
                         channel.map(java.nio.channels.FileChannel.MapMode.READ_ONLY, 0, minOf(4096L, stat.st_size)).get(0)
                     }
                 } catch (failure: Exception) {
-                    throw IllegalStateException("This provider cannot supply a native-readable model in place. Choose an on-device file in Documents or Downloads; no model copy was created.", failure)
+                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
+                        "LocalImport",
+                        "LINK_NATIVE_PATH_UNAVAILABLE · provider=${uri.authority} · exception=${failure.javaClass.simpleName} · cause=${failure.cause?.javaClass?.simpleName.orEmpty()} · copyAvailable=true",
+                        "W"
+                    )
+                    throw IllegalStateException("This file provider does not support model linking. Select the model file again and enable Copy to app. No copy was created.", failure)
                 }
                 return block(alias)
             } finally {

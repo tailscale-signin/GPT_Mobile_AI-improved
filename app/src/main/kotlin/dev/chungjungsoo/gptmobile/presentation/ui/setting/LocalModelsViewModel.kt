@@ -403,9 +403,9 @@ class LocalModelsViewModel @Inject constructor(
         importContext?.let { androidx.work.WorkManager.getInstance(it).cancelUniqueWork(dev.chungjungsoo.gptmobile.data.worker.LocalModelImportWorker.WORK) }
     }
 
-    fun importCustomModel(contentResolver: ContentResolver, source: dev.chungjungsoo.gptmobile.data.localmodel.LocalModelSource) = importCustomModel(contentResolver, source.uri, source.folder)
+    fun importCustomModel(contentResolver: ContentResolver, source: dev.chungjungsoo.gptmobile.data.localmodel.LocalModelSource) = importCustomModel(contentResolver, source.uri, source.folder, source.copyToApp)
 
-    fun importCustomModel(contentResolver: ContentResolver, uri: Uri, folder: Boolean = false) {
+    fun importCustomModel(contentResolver: ContentResolver, uri: Uri, folder: Boolean = false, copyToApp: Boolean = false) {
         val context = importContext ?: return
         if (importActive.value) return
         importScheduling.value = true
@@ -418,7 +418,7 @@ class LocalModelsViewModel @Inject constructor(
                     ownsGrant = contentResolver.persistedUriPermissions.none { it.uri == uri && it.isReadPermission }
                     contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     val request = androidx.work.OneTimeWorkRequestBuilder<dev.chungjungsoo.gptmobile.data.worker.LocalModelImportWorker>()
-                        .setInputData(androidx.work.Data.Builder().putString("source", uri.toString()).putBoolean("folder", folder).putBoolean(dev.chungjungsoo.gptmobile.data.worker.LocalModelImportWorker.OWNS_GRANT, ownsGrant).build()).build()
+                        .setInputData(androidx.work.Data.Builder().putString("source", uri.toString()).putBoolean("folder", folder).putBoolean(dev.chungjungsoo.gptmobile.data.worker.LocalModelImportWorker.COPY_TO_APP, copyToApp).putBoolean(dev.chungjungsoo.gptmobile.data.worker.LocalModelImportWorker.OWNS_GRANT, ownsGrant).build()).build()
                     check(
                         context.getSharedPreferences("local-import-job", android.content.Context.MODE_PRIVATE).edit()
                             .putString("latest", request.id.toString()).putString("source", uri.toString()).putBoolean("ownsGrant", ownsGrant).commit()

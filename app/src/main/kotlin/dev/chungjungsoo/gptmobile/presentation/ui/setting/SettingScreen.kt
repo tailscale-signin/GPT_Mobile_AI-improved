@@ -91,6 +91,8 @@ fun SettingScreen(
     modifier: Modifier = Modifier,
     homeViewModel: SettingsHomeViewModel = hiltViewModel()
 ) {
+    val activationRequest by settingViewModel.pendingProviderActivation.collectAsStateWithLifecycle()
+    activationRequest?.let { ProviderActivationDialog(it, settingViewModel::confirmProviderActivation, settingViewModel::dismissProviderActivation) }
     val platforms by settingViewModel.platformState.collectAsStateWithLifecycle()
     val providerConnections by settingViewModel.providerConnections.collectAsStateWithLifecycle()
     val dialogState by settingViewModel.dialogState.collectAsStateWithLifecycle()

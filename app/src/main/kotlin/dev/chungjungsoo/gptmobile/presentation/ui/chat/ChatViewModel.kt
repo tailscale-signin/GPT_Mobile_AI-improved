@@ -146,7 +146,8 @@ class ChatViewModel @Inject constructor(
         val profileUid: String,
         val profileName: String,
         val toolId: String,
-        val toolName: String
+        val toolName: String,
+        val profileSnapshot: dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2? = null
     )
     private val _pendingFreeToolConsent = MutableStateFlow<FreeToolConsentRequest?>(null)
     val pendingFreeToolConsent = _pendingFreeToolConsent.asStateFlow()
@@ -977,7 +978,7 @@ class ChatViewModel @Inject constructor(
         }
 
         val available = _availableChatTools.value.firstOrNull { it.id == toolId }
-        if (available?.source != "MCP") {
+        if (!dev.chungjungsoo.gptmobile.data.permissions.FreeToolDataPolicy.requiresPersonalPermission(toolId)) {
             _chatToolConfig.update { it.withToolEnabled(toolId) }
             return
         }
@@ -988,16 +989,19 @@ class ChatViewModel @Inject constructor(
                     it.uid in _activePlatformUids.value &&
                         it.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.FREE &&
                         !it.disableAllTools &&
-                        !freeModelToolConsentStore.isGranted(it.uid, toolId)
+                        !freeModelToolConsentStore.isGranted(it, toolId)
                 }
             if (freeProfile == null) {
                 _chatToolConfig.update { it.withToolEnabled(toolId) }
+            } else if (dev.chungjungsoo.gptmobile.data.permissions.ProviderPrivacyPolicy.forProfile(freeProfile)?.personalDataAllowed != true) {
+                _attachmentNotice.value = "Personal tools are unavailable for this provider route. Public web tools remain available."
             } else {
                 _pendingFreeToolConsent.value = FreeToolConsentRequest(
                     profileUid = freeProfile.uid,
                     profileName = freeProfile.name,
                     toolId = toolId,
-                    toolName = available.name
+                    toolName = available?.name ?: toolId,
+                    profileSnapshot = freeProfile
                 )
             }
         }
@@ -1005,13 +1009,13 @@ class ChatViewModel @Inject constructor(
 
     fun confirmFreeToolConsent() {
         val request = _pendingFreeToolConsent.value ?: return
-        runCatching { freeModelToolConsentStore.grant(request.profileUid, request.toolId) }
+        runCatching { freeModelToolConsentStore.grant(requireNotNull(request.profileSnapshot), request.toolId) }
             .onSuccess {
                 _pendingFreeToolConsent.value = null
                 if (unlockingAllTools) {
                     enableAllChatTools()
                 } else {
-                    // This saved tool permission now applies to every active model.
+                    // Continue collecting consent separately for each actual recipient.
                     toggleChatTool(request.toolId)
                 }
             }
@@ -1151,19 +1155,23 @@ class ChatViewModel @Inject constructor(
     fun enableAllChatTools() {
         viewModelScope.launch {
             val profiles = settingRepository.fetchPlatformV2s().filter {
-                it.uid in _activePlatformUids.value && it.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.FREE && !it.disableAllTools && !it.disableRemoteTools
+                it.uid in _activePlatformUids.value && (it.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.FREE || dev.chungjungsoo.gptmobile.data.permissions.ProviderPrivacyPolicy.forProfile(it) != null) && !it.disableAllTools && !it.disableRemoteTools
             }
-            for (tool in _availableChatTools.value.filter { it.source == "MCP" }) {
-                val profile = profiles.firstOrNull { !freeModelToolConsentStore.isGranted(it.uid, tool.id) }
+            for (tool in _availableChatTools.value.filter { dev.chungjungsoo.gptmobile.data.permissions.FreeToolDataPolicy.requiresPersonalPermission(it.id) }) {
+                val profile = profiles.firstOrNull { dev.chungjungsoo.gptmobile.data.permissions.ProviderPrivacyPolicy.forProfile(it)?.personalDataAllowed == true && !freeModelToolConsentStore.isGranted(it, tool.id) }
                 if (profile != null) {
                     unlockingAllTools = true
-                    _pendingFreeToolConsent.value = FreeToolConsentRequest(profile.uid, profile.name, tool.id, tool.name)
+                    _pendingFreeToolConsent.value = FreeToolConsentRequest(profile.uid, profile.name, tool.id, tool.name, profile)
                     return@launch
                 }
             }
             unlockingAllTools = false
             _chatToolConfig.update { config ->
-                config.copy(disabledToolIds = emptySet(), enabledToolIds = _availableChatTools.value.map { it.id }.toSet(), allToolsDisabled = false)
+                val allowed = _availableChatTools.value.filter { tool ->
+                    !dev.chungjungsoo.gptmobile.data.permissions.FreeToolDataPolicy.requiresPersonalPermission(tool.id) ||
+                        profiles.all { freeModelToolConsentStore.isGranted(it, tool.id) }
+                }.mapTo(hashSetOf()) { it.id }
+                config.copy(disabledToolIds = _availableChatTools.value.map { it.id }.toSet() - allowed, enabledToolIds = allowed, allToolsDisabled = false)
             }
         }
     }
@@ -1213,15 +1221,14 @@ class ChatViewModel @Inject constructor(
                 )
                 _availableChatTools.value = available + builtIn
 
-                // Free profiles may use every tool, but a new profile must explicitly
-                // acknowledge external MCP data sharing once per tool before it is active.
-                val freeProfiles = profiles.filter { it.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.FREE }
+                // Personal tools require a recipient-scoped grant and a route that permits them.
+                val freeProfiles = profiles.filter { it.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.FREE || dev.chungjungsoo.gptmobile.data.permissions.ProviderPrivacyPolicy.forProfile(it) != null }
                 if (freeProfiles.isNotEmpty()) {
-                    val lockedMcpIds = available
+                    val lockedMcpIds = (available + builtIn)
                         .filter { tool ->
-                            tool.source == "MCP" &&
+                            dev.chungjungsoo.gptmobile.data.permissions.FreeToolDataPolicy.requiresPersonalPermission(tool.id) &&
                                 freeProfiles.any { profile ->
-                                    !freeModelToolConsentStore.isGranted(profile.uid, tool.id)
+                                    !freeModelToolConsentStore.isGranted(profile, tool.id)
                                 }
                         }
                         .mapTo(mutableSetOf()) { it.id }
@@ -3398,7 +3405,7 @@ private inline fun pruneTransientChatRunNoticesWithStatusLookup(
     getStatus: (String) -> String?
 ): Map<String, List<ChatRunNotice>> = noticesByRunId.mapValues { (runId, notices) ->
     val status = getStatus(runId)
-    val isActive = runId in activeRunIds || status == AgentRunStatus.QUEUED || status == AgentRunStatus.RUNNING
+    val isActive = runId in activeRunIds || status == AgentRunStatus.QUEUED || status == AgentRunStatus.RUNNING || status == AgentRunStatus.WAITING_PROVIDER_LIMIT
     if (isActive) notices else notices.filter { it.persistent }
 }.filterValues { it.isNotEmpty() }
 
@@ -3421,7 +3428,7 @@ internal fun loadingStatesForLatestAssistant(
 ): List<ChatViewModel.LoadingState> = List(platformCount) { platformIndex ->
     val runId = latestAssistantRow?.getOrNull(platformIndex)?.currentRunId
     val status = runId?.let(runsById::get)?.status
-    if (runId in activeRunIds || status == AgentRunStatus.QUEUED || status == AgentRunStatus.RUNNING) {
+    if (runId in activeRunIds || status == AgentRunStatus.QUEUED || status == AgentRunStatus.RUNNING || status == AgentRunStatus.WAITING_PROVIDER_LIMIT) {
         ChatViewModel.LoadingState.Loading
     } else {
         ChatViewModel.LoadingState.Idle
@@ -3433,20 +3440,23 @@ internal fun groupPersistedMessages(
     enabledPlatformsInChat: List<String>,
     chatId: Int
 ): ChatViewModel.GroupedMessages {
-    val userMessages = mutableListOf<MessageV2>()
-    val assistantMessages = mutableListOf<MutableList<MessageV2>>()
+    val userMessages = messages.filter { it.platformType == null }
+    // Explicit links keep a late dedicated final with its original turn. Old imports
+    // without links retain the chronological grouping used before dedicated finals.
+    val byTurn = mutableMapOf<Int, MutableList<MessageV2>>()
+    var latestUserId: Int? = null
     messages.forEach { message ->
         if (message.platformType == null) {
-            userMessages += message
-            assistantMessages += mutableListOf<MessageV2>()
+            latestUserId = message.id
         } else {
-            assistantMessages.lastOrNull()?.add(message)
+            val userId = message.linkedMessageId.takeIf { it > 0 } ?: latestUserId
+            if (userId != null) byTurn.getOrPut(userId) { mutableListOf() } += message
         }
     }
     return ChatViewModel.GroupedMessages(
         userMessages = userMessages,
-        assistantMessages = assistantMessages.map { row ->
-            normalizeAssistantRow(row, enabledPlatformsInChat, chatId)
+        assistantMessages = userMessages.map { user ->
+            normalizeAssistantRow(byTurn[user.id].orEmpty(), enabledPlatformsInChat, chatId)
         }
     )
 }
@@ -3568,7 +3578,7 @@ internal fun normalizeAssistantRow(
 
     val consumedIndexes = mutableSetOf<Int>()
     val normalizedMessages = enabledPlatformsInChat.map { platformUid ->
-        val matchedIndex = assistantMessages.indices.firstOrNull { index ->
+        val matchedIndex = assistantMessages.indices.sortedByDescending { assistantMessages[it].isCombinedSynthesis() }.firstOrNull { index ->
             index !in consumedIndexes && assistantMessages[index].platformType == platformUid
         }
 

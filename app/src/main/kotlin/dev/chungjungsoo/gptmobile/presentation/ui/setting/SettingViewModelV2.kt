@@ -223,9 +223,29 @@ class SettingViewModelV2 @Inject constructor(
         }
     }
 
+    private val _pendingProviderActivation = MutableStateFlow<PlatformV2?>(null)
+    val pendingProviderActivation = _pendingProviderActivation.asStateFlow()
+
+    fun dismissProviderActivation() {
+        _pendingProviderActivation.value = null
+    }
+
+    fun confirmProviderActivation() {
+        val profile = _pendingProviderActivation.value ?: return
+        viewModelScope.launch {
+            settingRepository.acceptProviderActivation(profile)
+            settingRepository.updatePlatformV2(profile)
+            _pendingProviderActivation.value = null
+        }
+    }
+
     fun updatePlatform(platform: PlatformV2) {
         viewModelScope.launch {
-            settingRepository.updatePlatformV2(platform)
+            if (platform.enabled && settingRepository.providerActivationRequired(platform)) {
+                _pendingProviderActivation.value = platform
+            } else {
+                settingRepository.updatePlatformV2(platform)
+            }
         }
     }
 

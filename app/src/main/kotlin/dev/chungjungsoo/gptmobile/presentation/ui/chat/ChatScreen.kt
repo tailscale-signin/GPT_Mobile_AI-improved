@@ -1296,6 +1296,7 @@ private fun ChatMessagePair(
     val synthesisStarted = isCombinedConversation && combinedSynthesisIndex >= 0
     val rawAssistantContent = dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(selectedAssistantMessage?.effectiveContent().orEmpty())
     val assistantContent = when {
+        rawAssistantContent.isBlank() && (isCombinedConversation && combinedStatus == CombinedResponseStatus.PAUSED || selectedAssistantMessage?.currentRunId?.let(agentRunsById::get)?.status == AgentRunStatus.WAITING_PROVIDER_LIMIT) -> stringResource(R.string.provider_wait_saved)
         isCombinedConversation && !synthesisStarted && combinedStatus == CombinedResponseStatus.FAILED -> stringResource(R.string.combined_all_profiles_failed)
         isCombinedConversation && !synthesisStarted -> ""
         isSourceResponse && selectedProfile.status == CombinedResponseStatus.FAILED && selectedAssistantMessage?.content.isNullOrBlank() -> stringResource(R.string.combined_profile_no_response)

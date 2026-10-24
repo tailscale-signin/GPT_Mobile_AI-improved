@@ -44,12 +44,15 @@ enum class FreeAiProvider(
 
     val isDemo: Boolean get() = this == PORCHLM
 
+    /** Keep identities for historical chats and imports, never for executable catalogs. */
+    val isRetired: Boolean get() = this == PORCHLM || this == OPENCODE
+
     val isAvailable: Boolean
         get() = unavailableReason == null
 
     val unavailableReason: String?
         get() = when {
-            this == OPENCODE -> "OpenCode’s free models are restricted to OpenCode’s own apps. Choose another provider."
+            isRetired -> "$displayName has been removed. Saved conversations remain available."
             this == LLM7 && !BuildConfig.FREE_LLM7_APPROVED -> "LLM7 is unavailable pending provider approval."
             else -> null
         }
@@ -57,29 +60,52 @@ enum class FreeAiProvider(
     val chatCompletionsUrl: String
         get() = if (this == POLLINATIONS) "$apiUrl/openai" else "$apiUrl/chat/completions"
 
-    fun applyTo(platform: PlatformV2): PlatformV2 = platform.copy(
-        name = platform.name.takeUnless { it.isBlank() || it == "Free Models" || it == fromApiUrl(platform.apiUrl)?.displayName } ?: displayName,
-        compatibleType = ClientType.FREE,
-        apiUrl = apiUrl,
-        token = platform.token.takeIf { acceptsUserToken && fromApiUrl(platform.apiUrl) == this },
-        secretRef = platform.secretRef.takeIf { acceptsUserToken && fromApiUrl(platform.apiUrl) == this },
-        model = platform.model.takeIf { dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.models(this).any { option -> option.id == it } } ?: model,
-        maxTokens = platform.maxTokens?.takeIf { it > 0 }?.let { minOf(it, enforcedOutputCeiling ?: Int.MAX_VALUE) },
-        batchMode = false,
-        batchApiUrl = null,
-        openRouterRouting = null,
-        ollamaOptions = null,
-        topK = null
-    )
+    fun applyTo(platform: PlatformV2): PlatformV2 = if (isRetired) {
+        platform.copy(enabled = false)
+    } else {
+        platform.copy(
+            name = platform.name.takeUnless { it.isBlank() || it == "Free Models" || it == fromApiUrl(platform.apiUrl)?.displayName } ?: displayName,
+            compatibleType = ClientType.FREE,
+            apiUrl = apiUrl,
+            token = platform.token.takeIf { acceptsUserToken && fromApiUrl(platform.apiUrl) == this },
+            secretRef = platform.secretRef.takeIf { acceptsUserToken && fromApiUrl(platform.apiUrl) == this },
+            model = platform.model.takeIf { dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.models(this).any { option -> option.id == it } } ?: model,
+            maxTokens = platform.maxTokens?.takeIf { it > 0 }?.let { minOf(it, enforcedOutputCeiling ?: Int.MAX_VALUE) },
+            batchMode = false,
+            batchApiUrl = null,
+            openRouterRouting = null,
+            ollamaOptions = null,
+            topK = null
+        )
+    }
 
     companion object {
         val default = KILO
+        val active: List<FreeAiProvider> get() = entries.filterNot { it.isRetired }
 
         fun fromApiUrl(url: String): FreeAiProvider? {
-            val normalized = url.trim().trimEnd('/')
+            // Recognize retired hosts even in manually imported HTTP/credential-bearing aliases.
+            // They must be blocked before a generic compatible client can execute them.
+            val retired = runCatching {
+                val uri = URI(url.trim())
+                entries.firstOrNull { candidate ->
+                    val route = URI(candidate.apiUrl)
+                    candidate.isRetired &&
+                        uri.host.equals(route.host, true) &&
+                        uri.path.trimEnd('/') in setOf(route.path, route.path + "/chat/completions")
+                }
+            }.getOrNull()
+            if (retired != null) return retired
+            val normalized = normalizedRoute(url) ?: return null
             if (normalized in setOf("https://api.kilo.ai/api/gateway", "https://api.kilo.ai/api/gateway/chat/completions")) return KILO
             return entries.firstOrNull { it.apiUrl == normalized || it.chatCompletionsUrl == normalized }
         }
+
+        private fun normalizedRoute(url: String): String? = runCatching {
+            val uri = URI(url.trim())
+            if (!uri.scheme.equals("https", true) || uri.rawUserInfo != null || uri.port !in setOf(-1, 443)) return null
+            "https://${uri.host.lowercase()}${uri.path.trimEnd('/')}"
+        }.getOrNull()
 
         fun requireFor(platform: PlatformV2): FreeAiProvider = requireNotNull(fromApiUrl(platform.apiUrl)) {
             "Choose a Free provider in the AI profile settings."

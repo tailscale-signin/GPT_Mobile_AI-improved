@@ -13,6 +13,9 @@ import kotlinx.coroutines.flow.flowOf
 
 interface SettingRepository {
     fun invalidatePlatformCache() {}
+    suspend fun providerActivationRequired(profile: PlatformV2): Boolean = false
+    suspend fun acceptProviderActivation(profile: PlatformV2) = Unit
+    suspend fun providerPermissionRevision(profile: PlatformV2): String = "legacy"
 
     suspend fun fetchPlatforms(): List<Platform>
     suspend fun fetchPlatformV2s(): List<PlatformV2>

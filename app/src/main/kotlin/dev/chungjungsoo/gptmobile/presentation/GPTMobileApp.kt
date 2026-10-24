@@ -136,6 +136,7 @@ class GPTMobileApp :
             dev.chungjungsoo.gptmobile.data.free.FreeQueueJobs.initialize(this@GPTMobileApp)
             StartupRecoveryGate.step("platform-migration") { combinedSettings.migrateToPlatformV2() }
             combinedSettings.ensureFreeModels()
+            startup.agentRunCoordinator().reconcileProviderWaits()
             val rooms = conversationDatabase.get().chatRoomDao()
             val existingConversationIds = (rooms.getChatRooms() + rooms.getArchivedChatRooms()).mapTo(hashSetOf()) { it.id }
             combinedSettings.recoverConversationCombinedDeletions(existingConversationIds)

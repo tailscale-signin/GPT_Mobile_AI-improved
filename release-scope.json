@@ -1,17 +1,23 @@
 {
-  "version": "0.9.56.1",
-  "versionCode": 127,
+  "version": "0.9.60.0",
+  "versionCode": 128,
   "qualification": "scoped",
-  "baseCommit": "d9db21d0823e03b547c42d1b52f012ec17af42a3",
+  "baseCommit": "de1e67b8536971fda4c1b3401db232e241b544bc",
   "changes": [
-    "Explicit local model copy import for document providers that cannot support native loading in place",
-    "Native file access preflight, persisted import mode and Android descriptor permission regression coverage"
+    "Device-local provider activation, scoped personal-tool consent and retired endpoint enforcement",
+    "Persistent rolling quotas, durable never-dispatched provider waits and paused-work UI",
+    "Dedicated Combined final identity, exact source accounting, final staging and on-device assembly",
+    "Room 46 migration, bounded source indexing and integration regression coverage"
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; its remaining acceptance cases are not represented as passed.",
     "Physical-device performance and a production baseline profile remain unqualified until measured on a reference device.",
     "Qwen demo backend availability and live authenticated LLM7 generation are not established by deterministic tests.",
-    "Optional runtime extraction remains a staged packaging project; this release adds a measured payload inventory without claiming APK size savings."
+    "Optional runtime extraction remains a staged packaging project; this release adds a measured payload inventory without claiming APK size savings.",
+    "Automatic provider resume covers never-dispatched requests; stage-specific continuation after transmitted failures remains incomplete.",
+    "Optional append continuations, complete transfer authorization and derived-query taint, and daily token quota reconciliation remain incomplete.",
+    "Durable block manifests and virtualized long-answer rendering remain incomplete; final staging currently uses memory.",
+    "The three 2026-10-24 design documents are only partially implemented; this integration remains a draft pending the documented design and qualification gates."
   ],
   "requiredWorkflows": [
     "Build Android APK",
@@ -21,9 +27,9 @@
   ],
   "allowedPaths": [
     "app/",
-    ".github/workflows/",
-    "scripts/",
-    "docs/implementation/",
+    "docs/releases/",
+    "docs/validation/",
+    "CHANGELOG.md",
     "RELEASE_NOTES.md",
     "release-scope.json"
   ]

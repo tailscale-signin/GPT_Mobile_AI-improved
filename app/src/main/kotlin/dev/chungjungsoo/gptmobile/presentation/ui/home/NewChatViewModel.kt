@@ -177,6 +177,12 @@ class NewChatViewModel @Inject constructor(
                 require(selected.all { uid -> available.any { it.uid == uid } }) {
                     "A selected AI profile was disabled or deleted. Check your selection."
                 }
+                selected.forEach { uid ->
+                    val profile = available.first { it.uid == uid }
+                    val block = dev.chungjungsoo.gptmobile.data.network.FreeProviderPreflight.check(profile)
+                    require(block == null) { block?.message.orEmpty() }
+                    require(!settings.providerActivationRequired(profile)) { "Review ${profile.name}'s data policy in AI profile settings before starting." }
+                }
                 if (choice == NewChatType.RESEARCH) {
                     val liveSettings = settings.getFeatureSettings()
                     val selection = researchSelection()

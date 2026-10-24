@@ -19,35 +19,39 @@ data class FreeServiceDetails(
 
 object FreeModelCatalog {
     const val CONNECTION_UID = "builtin-free-models"
-    const val VERSION = 4
+    const val VERSION = 5
     const val NAME = "Free Models"
     const val AUTOMATIC = "automatic"
 
-    fun defaults(provider: FreeAiProvider): List<FreeModelOption> = when (provider) {
-        FreeAiProvider.KILO -> listOf(FreeModelOption("kilo-auto/free", tools = true), FreeModelOption("minimax/minimax-m3.1-flash:free", tools = true), FreeModelOption("nvidia/nemotron-3.5-super-vl:free", tools = true), FreeModelOption("recursive/flint-v1.0:free", tools = true), FreeModelOption("xingchen-agi/xing4.0-29b-a4b:free", tools = true), FreeModelOption("dots-studio/dots-3-note-preview:free", tools = true), FreeModelOption("liquid/lfm-2.5-2.6b:free", tools = true), FreeModelOption("nvidia/nemotron-3.5-lightning:free", tools = true), FreeModelOption("poolside/laguna-s-2.1:free", tools = true), FreeModelOption("poolside/laguna-xs-2.1:free", tools = true), FreeModelOption("cohere/north-mini-code:free", tools = true), FreeModelOption("nvidia/nemotron-3.5-content-safety:free", tools = false), FreeModelOption("nvidia/nemotron-3-ultra-550b-a55b:free", tools = true), FreeModelOption("nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", tools = true), FreeModelOption("nvidia/nemotron-3-super-120b-a12b:free", tools = true))
-        FreeAiProvider.OVHCLOUD -> listOf(FreeModelOption("Qwen3.5-397B-A17B", tools = false), FreeModelOption("Qwen3.5-9B", tools = false), FreeModelOption("gpt-oss-120b", tools = false), FreeModelOption("Mistral-Small-3.2-24B-Instruct-2506", tools = true), FreeModelOption("Qwen3.6-27B", tools = false), FreeModelOption("Qwen3.8-27B", tools = false), FreeModelOption("gpt-oss-20b", tools = false), FreeModelOption("Qwen3Guard-Gen-8B", tools = false), FreeModelOption("Qwen3Guard-Gen-0.6B", tools = false), FreeModelOption("Qwen2.5-VL-72B-Instruct", tools = false), FreeModelOption("Meta-Llama-3_3-70B-Instruct", tools = true), FreeModelOption("Mistral-Nemo-Instruct-2407", tools = false))
-        FreeAiProvider.BLOCKRUN -> listOf("nvidia/nemotron-3.5-lightning", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning", "nvidia/llama-3.2-11b-vision", "nvidia/nemotron-3-ultra-550b", "cohere/north-mini-code", "poolside/laguna-xs-2.1", "nvidia/muse-glimmer-30b").map(::FreeModelOption)
-        FreeAiProvider.AI_HORDE -> listOf(FreeModelOption(AUTOMATIC, "Available text workers", streaming = false), FreeModelOption("horde-image", "Image generation · available workers", streaming = false))
-        FreeAiProvider.OPENCODE -> listOf("glm-5.3-flash-free", "deepseek-v4.1-flash-free", "minimax-m3.1-flash-free", "beam-free", "flint-40b-free", "longcat-2.5-preview-free", "exo-free", "mimo-v2.6-flash-free", "mimo-v2.5-free", "nemotron-3-ultra-free", "nemotron-3.5-lightning-free", "nemotron-3.5-super-vl-free", "big-pickle").map {
-            FreeModelOption(
-                it,
-                privacy = when {
-                    it.startsWith("glm-") || it.startsWith("deepseek-") || it.startsWith("minimax-") || it.startsWith("longcat-") -> "Provider documents no training and zero retention for this route."
-                    it == "beam-free" -> "Security retention up to 30 days; regional restrictions apply."
-                    it.startsWith("nemotron-") -> "NVIDIA trial access; prompts may be logged. Do not send confidential information."
-                    else -> "Prompts and outputs may be used to improve or train models."
-                }
-            )
+    fun defaults(provider: FreeAiProvider): List<FreeModelOption> = if (provider.isRetired) {
+        emptyList()
+    } else {
+        when (provider) {
+            FreeAiProvider.KILO -> listOf(FreeModelOption("kilo-auto/free", tools = true), FreeModelOption("minimax/minimax-m3.1-flash:free", tools = true), FreeModelOption("nvidia/nemotron-3.5-super-vl:free", tools = true), FreeModelOption("recursive/flint-v1.0:free", tools = true), FreeModelOption("xingchen-agi/xing4.0-29b-a4b:free", tools = true), FreeModelOption("dots-studio/dots-3-note-preview:free", tools = true), FreeModelOption("liquid/lfm-2.5-2.6b:free", tools = true), FreeModelOption("nvidia/nemotron-3.5-lightning:free", tools = true), FreeModelOption("poolside/laguna-s-2.1:free", tools = true), FreeModelOption("poolside/laguna-xs-2.1:free", tools = true), FreeModelOption("cohere/north-mini-code:free", tools = true), FreeModelOption("nvidia/nemotron-3.5-content-safety:free", tools = false), FreeModelOption("nvidia/nemotron-3-ultra-550b-a55b:free", tools = true), FreeModelOption("nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", tools = true), FreeModelOption("nvidia/nemotron-3-super-120b-a12b:free", tools = true))
+            FreeAiProvider.OVHCLOUD -> listOf(FreeModelOption("Qwen3.5-397B-A17B", tools = false), FreeModelOption("Qwen3.5-9B", tools = false), FreeModelOption("gpt-oss-120b", tools = false), FreeModelOption("Mistral-Small-3.2-24B-Instruct-2506", tools = true), FreeModelOption("Qwen3.6-27B", tools = false), FreeModelOption("Qwen3.8-27B", tools = false), FreeModelOption("gpt-oss-20b", tools = false), FreeModelOption("Qwen3Guard-Gen-8B", tools = false), FreeModelOption("Qwen3Guard-Gen-0.6B", tools = false), FreeModelOption("Qwen2.5-VL-72B-Instruct", tools = false), FreeModelOption("Meta-Llama-3_3-70B-Instruct", tools = true), FreeModelOption("Mistral-Nemo-Instruct-2407", tools = false))
+            FreeAiProvider.BLOCKRUN -> listOf("nvidia/nemotron-3.5-lightning", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning", "nvidia/llama-3.2-11b-vision", "nvidia/nemotron-3-ultra-550b", "cohere/north-mini-code", "poolside/laguna-xs-2.1", "nvidia/muse-glimmer-30b").map(::FreeModelOption)
+            FreeAiProvider.AI_HORDE -> listOf(FreeModelOption(AUTOMATIC, "Available text workers", streaming = false), FreeModelOption("horde-image", "Image generation · available workers", streaming = false))
+            FreeAiProvider.OPENCODE -> listOf("glm-5.3-flash-free", "deepseek-v4.1-flash-free", "minimax-m3.1-flash-free", "beam-free", "flint-40b-free", "longcat-2.5-preview-free", "exo-free", "mimo-v2.6-flash-free", "mimo-v2.5-free", "nemotron-3-ultra-free", "nemotron-3.5-lightning-free", "nemotron-3.5-super-vl-free", "big-pickle").map {
+                FreeModelOption(
+                    it,
+                    privacy = when {
+                        it.startsWith("glm-") || it.startsWith("deepseek-") || it.startsWith("minimax-") || it.startsWith("longcat-") -> "Provider documents no training and zero retention for this route."
+                        it == "beam-free" -> "Security retention up to 30 days; regional restrictions apply."
+                        it.startsWith("nemotron-") -> "NVIDIA trial access; prompts may be logged. Do not send confidential information."
+                        else -> "Prompts and outputs may be used to improve or train models."
+                    }
+                )
+            }
+            // Observed route capacity, not the upstream model's advertised training window.
+            FreeAiProvider.BRIDGENODE -> listOf("gpt-oss-20b", "gpt-oss-120b", "glm-4.7-flash", "glm-4.5-flash", "glm-4.6v-flash").map { FreeModelOption(it, contextTokens = if (it == "gpt-oss-20b") 8000 else null) }
+            // This is an app-side choice, never a model ID sent to LLM7. Live free-allowance
+            // metadata must resolve it before generation; no historical model is trusted.
+            FreeAiProvider.LLM7 -> listOf(FreeModelOption(AUTOMATIC, "Automatic · current free-allowance model"))
+            FreeAiProvider.POLLINATIONS -> listOf(FreeModelOption(provider.model, "GPT-OSS 20B · Pollinations Classic", outputTokens = provider.fixedOutputTokens))
+            FreeAiProvider.HUGGING_FACE -> listOf(FreeModelOption("qwen3-235b-a22b", "Qwen3 · Qwen/Qwen3-Demo", streaming = false))
+            FreeAiProvider.PORCHLM -> listOf(FreeModelOption(AUTOMATIC, "Discover the service's current model"))
+            else -> listOf(FreeModelOption(provider.model))
         }
-        // Observed route capacity, not the upstream model's advertised training window.
-        FreeAiProvider.BRIDGENODE -> listOf("gpt-oss-20b", "gpt-oss-120b", "glm-4.7-flash", "glm-4.5-flash", "glm-4.6v-flash").map { FreeModelOption(it, contextTokens = if (it == "gpt-oss-20b") 8000 else null) }
-        // This is an app-side choice, never a model ID sent to LLM7. Live free-allowance
-        // metadata must resolve it before generation; no historical model is trusted.
-        FreeAiProvider.LLM7 -> listOf(FreeModelOption(AUTOMATIC, "Automatic · current free-allowance model"))
-        FreeAiProvider.POLLINATIONS -> listOf(FreeModelOption(provider.model, "GPT-OSS 20B · Pollinations Classic", outputTokens = provider.fixedOutputTokens))
-        FreeAiProvider.HUGGING_FACE -> listOf(FreeModelOption("qwen3-235b-a22b", "Qwen3 · Qwen/Qwen3-Demo", streaming = false))
-        FreeAiProvider.PORCHLM -> listOf(FreeModelOption(AUTOMATIC, "Discover the service's current model"))
-        else -> listOf(FreeModelOption(provider.model))
     }
 
     fun details(provider: FreeAiProvider): FreeServiceDetails = when (provider) {
@@ -65,12 +69,13 @@ object FreeModelCatalog {
         FreeAiProvider.PORCHLM -> FreeServiceDetails(limits = "Home-hosted educational model · no uptime guarantee", lifecycle = "Demonstration", privacy = "Public educational service; unreliable factual answers.", documentation = "https://guythatlives.net/terms", notice = "Not suitable for research or important decisions. Model discovery must succeed before generation.")
     }
 
-    fun acceptsDiscovered(provider: FreeAiProvider, id: String, explicitlyFree: Boolean): Boolean = when (provider) {
-        FreeAiProvider.KILO -> id == provider.model || id.endsWith(":free") && explicitlyFree
-        FreeAiProvider.OPENCODE -> defaults(provider).any { it.id == id } || id.endsWith("-free") && explicitlyFree && !id.startsWith("jev-")
-        FreeAiProvider.BLOCKRUN, FreeAiProvider.BRIDGENODE -> defaults(provider).any { it.id == id } && explicitlyFree
-        FreeAiProvider.LLM7 -> explicitlyFree && id.isNotBlank() && id.length <= 256
-        FreeAiProvider.OVHCLOUD, FreeAiProvider.AI_HORDE, FreeAiProvider.PORCHLM -> id.isNotBlank() && id.length <= 256
-        else -> defaults(provider).any { it.id == id }
-    }
+    fun acceptsDiscovered(provider: FreeAiProvider, id: String, explicitlyFree: Boolean): Boolean = !provider.isRetired &&
+        when (provider) {
+            FreeAiProvider.KILO -> id == provider.model || id.endsWith(":free") && explicitlyFree
+            FreeAiProvider.OPENCODE -> defaults(provider).any { it.id == id } || id.endsWith("-free") && explicitlyFree && !id.startsWith("jev-")
+            FreeAiProvider.BLOCKRUN, FreeAiProvider.BRIDGENODE -> defaults(provider).any { it.id == id } && explicitlyFree
+            FreeAiProvider.LLM7 -> explicitlyFree && id.isNotBlank() && id.length <= 256
+            FreeAiProvider.OVHCLOUD, FreeAiProvider.AI_HORDE, FreeAiProvider.PORCHLM -> id.isNotBlank() && id.length <= 256
+            else -> defaults(provider).any { it.id == id }
+        }
 }

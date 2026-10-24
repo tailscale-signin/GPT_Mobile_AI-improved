@@ -1171,4 +1171,6 @@
     <string name="audit_assessment_details">Assessment details</string>
     <string name="audit_assessment_history">Assessment history</string>
     <string name="audit_remove_profile_effect">Profiles using this model remain saved and will need a model before running.</string>
+    <string name="combined_profile_paused">Paused: provider limit</string>
+    <string name="provider_wait_saved">Paused: provider limit. Your work is saved and eligibility will be checked again after the cooldown.</string>
 </resources>

@@ -457,6 +457,18 @@ private class FakeAgentRunDao :
 private class FakeAgentPersistenceDao :
     AgentPersistenceDao,
     UnusedPolicySnapshotAccess {
+    override suspend fun combinedFinalMessage(chatId: Int, userId: Int): dev.chungjungsoo.gptmobile.data.database.entity.CombinedFinalMessage? = null
+    override suspend fun insertCombinedFinalMessage(row: dev.chungjungsoo.gptmobile.data.database.entity.CombinedFinalMessage) {
+        error("Not used in tool recorder tests")
+    }
+    override suspend fun providerWaits(): List<dev.chungjungsoo.gptmobile.data.agent.ProviderWait> = emptyList()
+    override suspend fun saveProviderWait(row: dev.chungjungsoo.gptmobile.data.agent.ProviderWait) {
+        error("Not used in tool recorder tests")
+    }
+    override suspend fun markProviderWaiting(runId: String, fence: Long): Int = 0
+    override suspend fun claimProviderWait(runId: String, fence: Long): Int = 0
+    override suspend fun blockProviderWait(runId: String, reason: String): Int = 0
+
     override suspend fun rawSynthesisRunsForTurn(chatId: Int, userId: Int): List<AgentRun> = synthesisRunsForTurn(chatId, userId)
     override suspend fun rawGetCompletedRuns(chatId: Int): List<AgentRun> = getCompletedRuns(chatId)
     override suspend fun rawGetIncompleteRuns(chatId: Int, userMessageIds: List<Int>): List<AgentRun> = getIncompleteRuns(chatId, userMessageIds)

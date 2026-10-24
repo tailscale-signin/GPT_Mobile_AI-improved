@@ -28,6 +28,9 @@ internal object ConfiguredDispatchAuthority {
     }
 
     private suspend fun captureOnce(settings: SettingRepository, platform: PlatformV2, chatId: Int?): RequestAuthorizationGuard {
+        check(dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.fromApiUrl(platform.apiUrl)?.isRetired != true) { "PROVIDER_RETIRED: Choose another profile. Saved conversations remain available." }
+        check(!settings.providerActivationRequired(platform)) { "PROVIDER_ACTIVATION_REQUIRED: Review this provider's data policy in AI profile settings before sending." }
+        val privacyRevision = settings.providerPermissionRevision(platform)
         val inherited = currentCoroutineContext()[RequestAuthorizationGuard]
         val matches = settings.fetchPlatformV2s().filter { it.uid == platform.uid }
         check(matches.size <= 1) { "PROFILE_IDENTITY_AMBIGUOUS: multiple profiles use the same identity." }
@@ -43,6 +46,7 @@ internal object ConfiguredDispatchAuthority {
         val revision = researchHash("$capturedProfileRevision|$capturedPolicyRevision|${inherited?.revision}")
         return RequestAuthorizationGuard("configured:$revision") {
             inherited?.validate?.invoke()
+            check(!settings.providerActivationRequired(platform) && settings.providerPermissionRevision(platform) == privacyRevision) { "DISPATCH_POLICY_CHANGED: Data permissions changed; prepare a new request." }
             val currentMatches = settings.fetchPlatformV2s().filter { it.uid == platform.uid }
             check(currentMatches.size <= 1) { "PROFILE_IDENTITY_AMBIGUOUS: multiple profiles use the same identity." }
             val current = currentMatches.singleOrNull()

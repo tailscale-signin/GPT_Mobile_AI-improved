@@ -368,8 +368,11 @@ class ChatRepositoryImpl(
         val run = agentPersistenceDao.recoveryRun(runId) ?: return false
         val accepted = dev.chungjungsoo.gptmobile.data.agent.CombinedAcceptedTurn.context(run.synthesisSnapshot) ?: return false
         if (isCombinedTurnCancelled(accepted.rootBudgetId)) return false
-        val published = agentPersistenceDao.publishCombinedFallback(runId, run.ownershipFence) ?: return false
-        settleCombinedStage(runId, published, AgentRunStatus.FAILED, "NO_AUTHORIZED_WRITER")
+        val snapshot = run.synthesisSnapshot?.let { kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromString<dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot>(it) }
+        val local = snapshot?.localAssemblyReason != null
+        val published = if (local) agentPersistenceDao.publishLocalCombinedAssembly(runId, run.ownershipFence) else agentPersistenceDao.publishCombinedFallback(runId, run.ownershipFence)
+        if (published == null) return false
+        settleCombinedStage(runId, published, if (local) AgentRunStatus.COMPLETED else AgentRunStatus.FAILED, snapshot?.localAssemblyReason ?: "NO_AUTHORIZED_WRITER")
         return true
     }
 
@@ -4063,6 +4066,9 @@ class ChatRepositoryImpl(
                 localConversationAnswer = conversational?.answer,
                 maxCharacters = budgetSettings.responseCharacterLimit.takeIf { it > 0 } ?: 1_048_576,
                 committedPrefix = restoredDraft,
+                preserveSourceContent = runCatching {
+                    (kotlinx.serialization.json.Json.parseToJsonElement(frozen.prompt) as? kotlinx.serialization.json.JsonObject)?.get("source_preservation")?.toString() == "\"FULL_SPANS_V1\""
+                }.getOrDefault(false),
                 originalRequest = frozen.userMessage.content,
                 evidence = combinedRecoveryEvidence(frozen, runId) {
                     dispatchAuthority.validate()

@@ -83,7 +83,9 @@ object FreeCatalogState {
         }
     }
 
-    fun models(provider: FreeAiProvider): List<FreeModelOption> = if (provider == FreeAiProvider.LLM7) {
+    fun models(provider: FreeAiProvider): List<FreeModelOption> = if (provider.isRetired) {
+        emptyList()
+    } else if (provider == FreeAiProvider.LLM7) {
         (FreeModelCatalog.defaults(provider) + _catalog.value[provider].orEmpty().filter { it.freeAllowance }).distinctBy { it.id }
     } else {
         (_catalog.value[provider].orEmpty().map { mergeLimits(it, FreeModelCatalog.defaults(provider).firstOrNull { known -> known.id == it.id }) } + FreeModelCatalog.defaults(provider)).distinctBy { it.id }
@@ -199,6 +201,7 @@ object FreeCatalogState {
     }
 
     suspend fun refresh(provider: FreeAiProvider, force: Boolean = false, token: String? = null, catalogReader: (suspend () -> kotlinx.serialization.json.JsonElement)? = null) = checks.getValue(provider).withLock {
+        if (provider.isRetired) return@withLock FreeCatalogRefreshResult(emptyList(), false, message = provider.unavailableReason.orEmpty())
         if (!provider.isAvailable || provider.requiresUserToken && token.isNullOrBlank()) {
             val message = provider.unavailableReason ?: "Add API token in an LLM7 profile to check its catalog."
             _status.update { it + (provider to (it[provider] ?: FreeServiceStatus()).copy(catalogCheckSucceeded = false, message = message)) }

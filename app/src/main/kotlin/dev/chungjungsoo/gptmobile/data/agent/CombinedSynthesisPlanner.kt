@@ -29,7 +29,7 @@ class CombinedSynthesisPlanner @Inject constructor(
         val messages = chatRepository.fetchMessagesV2(chatId)
         val userMessage = messages.singleOrNull { it.id == userId && it.platformType == null } ?: return null
         val runs = chatRepository.observeAgentRuns(chatId).first().associateBy { it.runId }
-        val allResponses = messages.filter { it.linkedMessageId == userId && it.platformType != null }
+        val allResponses = messages.filter { it.linkedMessageId == userId && it.platformType != null && (it.currentRunId != null || it.content.isNotBlank()) }
         if (allResponses.any { it.currentRunId?.startsWith(COMBINED_RUN_PREFIX) == true }) return null
         val acceptedRecords = allResponses.mapNotNull { runs[it.currentRunId] }.mapNotNull { CombinedAcceptedTurn.decode(it.synthesisSnapshot) }
         val accepted = acceptedRecords.firstOrNull { it.context.rootBudgetId == rootBudgetId } ?: return null
@@ -52,8 +52,22 @@ class CombinedSynthesisPlanner @Inject constructor(
             ).mapNotNull { it.attemptId }.toSet()
             if (collectionDecisions.pending(rootBudgetId, failures).isNotEmpty()) return null
         }
-        val sources = combinedSynthesisInputs(responses, runs, profiles.associate { it.uid to it.name }, accepted.context.requested.requestedModels, userMessage.content, requireComplete = false)
-            ?: emptyList()
+        val turnRuns = runs.values.filter { it.chatId == userMessage.chatId && it.userMessageId == userMessage.id && !it.runId.startsWith(COMBINED_RUN_PREFIX) }
+        val turnRunIds = turnRuns.mapTo(hashSetOf()) { it.runId }
+        val turnEvents = chatRepository.observeToolEvents(userMessage.chatId).first().filter { it.runId in turnRunIds }
+        // Consent to one recipient is not consent to a later writer. Private tool
+        // results stay local unless a separate transfer authority is introduced.
+        val privateRuns = turnEvents.filter { event ->
+            event.status == "COMPLETED" &&
+                !event.isError &&
+                !event.result.isNullOrBlank() &&
+                (event.connectionUidSnapshot != null || event.toolName.startsWith("health_") || event.toolName in setOf("memory", "device_location", "query_health_data", "query_memory", "search_memory", "read_memory", "read_file", "read_file_slice", "health_query", "health_read_records"))
+        }.mapTo(hashSetOf()) { it.runId }
+        val privateProfiles = turnRuns.filter { it.runId in privateRuns }.mapTo(hashSetOf()) { it.profileUid }
+        val sources = (
+            combinedSynthesisInputs(responses, runs, profiles.associate { it.uid to it.name }, accepted.context.requested.requestedModels, userMessage.content, requireComplete = false)
+                ?: emptyList()
+            ).map { source -> source.copy(localOnly = source.localOnly || source.platformUid in privateProfiles) }
         val retainedPublicEvidence = if (sources.isEmpty() && accepted.context.requested.acceptedResearch != null) {
             researchSessionStore.exportTurn(chatId, setOf("$chatId:$userId")).any { session ->
                 session.turnId == "$chatId:$userId" && dev.chungjungsoo.gptmobile.data.research.researchHash(session.snapshot.task.trim()) == dev.chungjungsoo.gptmobile.data.research.researchHash(userMessage.content.trim()) && session.snapshot.sources.any { it.readable && it.publicCapture && it.retrievalReceipt.isNotBlank() }
@@ -96,7 +110,8 @@ class CombinedSynthesisPlanner @Inject constructor(
         } else {
             CombinedWriterPolicy.rank(authorizedCandidates, userMessage.content, pinnedPrimary).firstOrNull()
         }
-        if (combined.requested.singlePass && authorizedLead == null) {
+        var localAssemblyReason: String? = "PRIVATE_SOURCES_LOCAL_ASSEMBLY".takeIf { sources.any { it.localOnly } && authorizedLead == null }
+        if (combined.requested.singlePass && authorizedLead == null && localAssemblyReason == null) {
             chatRepository.markCombinedMergeUnavailable(chatId, userId, rootBudgetId, "The selected primary is unavailable for final writing. Review the primary selection; saved contributions remain available.")
             return null
         }
@@ -126,10 +141,6 @@ class CombinedSynthesisPlanner @Inject constructor(
         val sharedEvidence = dev.chungjungsoo.gptmobile.data.research.ResearchCorpus.freezeAll(
             dev.chungjungsoo.gptmobile.data.research.authorizedResearchTransfer(turnSessions, leadAuthority)
         )
-        val turnRuns = runs.values.filter { it.chatId == userMessage.chatId && it.userMessageId == userMessage.id && !it.runId.startsWith(COMBINED_RUN_PREFIX) }
-        val turnRunIds = turnRuns.mapTo(hashSetOf()) { it.runId }
-        // Read the committed event rows rather than racing the UI's asynchronous tool-event snapshot.
-        val turnEvents = chatRepository.observeToolEvents(userMessage.chatId).first().filter { it.runId in turnRunIds }
         val evidenceLedger = withContext(Dispatchers.Default) {
             dev.chungjungsoo.gptmobile.data.agent.CombinedEvidenceLedger.freeze(sharedEvidence, turnEvents, turnRuns.associate { it.runId to it.profileUid })
         }
@@ -145,6 +156,11 @@ class CombinedSynthesisPlanner @Inject constructor(
         val historicalReplies = historicalUsers.map { prior -> fullHistory.filter { it.linkedMessageId == prior.id && it.platformType != null } }
         val selectedUids = acceptedUids
         val answerContract = dev.chungjungsoo.gptmobile.data.agent.CombinedAnswerPolicy.from(userMessage.content, historicalUsers.takeIf { it.isNotEmpty() }?.joinToString("\n") { it.content })
+        val permitsLocalAssembly = sources.isNotEmpty() && answerContract.maximumWords == null && answerContract.minimumWords == null && answerContract.targetWords == null && !answerContract.singleExample && answerContract.requiredFormat == null && answerContract.requestedItems == null
+        if (localAssemblyReason != null && !permitsLocalAssembly) {
+            chatRepository.markCombinedMergeUnavailable(chatId, userId, rootBudgetId, "Saved personal sources remain on this device. A local source assembly cannot satisfy the requested output constraints.")
+            return null
+        }
         val editorialContext = combined.forRole(dev.chungjungsoo.gptmobile.data.agent.CombinedRunRole.SYNTHESIS, leadUid)
         val targetRevisionId = UUID.randomUUID().toString()
         val deliveryProtocol = "PASSAGES_V3"
@@ -163,17 +179,23 @@ class CombinedSynthesisPlanner @Inject constructor(
             withContext(Dispatchers.Default) {
                 val basePrompt = combinedSynthesisPrompt(userMessage.content, attributedSources, sharedEvidence, evidenceLedger, turnContext, combined = editorialContext, answerContract = answerContract, deliveryProtocol = deliveryProtocol, targetRevisionId = targetRevisionId)
                 val prompt = writerContext?.bindPrompt(basePrompt, userMessage) ?: basePrompt
-                val writerPlan = if (combined.requested.singlePass) {
-                    CombinedWriterRequestPlan.freeze(
-                        leadPlatform, userMessage.content, prompt,
-                        combinedWriterSystemPrompt(leadPlatform.systemPrompt, deliveryProtocol, userMessage.content),
-                        writerContext?.historyText() ?: combinedWriterHistory(historicalUsers, historicalReplies, leadPlatform.uid),
-                        deliveryProtocol,
-                        editorialContext.plan?.finalOutputTokens ?: 0,
-                        outputSettings?.outputTokens,
-                        listOfNotNull(outputSettings?.contextTokens, outputSettings?.profileContextCeilings?.get(leadUid)).minOrNull(),
-                        writerContext
-                    )
+                val writerPlan = if (combined.requested.singlePass && localAssemblyReason == null) {
+                    try {
+                        CombinedWriterRequestPlan.freeze(
+                            leadPlatform, userMessage.content, prompt,
+                            combinedWriterSystemPrompt(leadPlatform.systemPrompt, deliveryProtocol, userMessage.content),
+                            writerContext?.historyText() ?: combinedWriterHistory(historicalUsers, historicalReplies, leadPlatform.uid),
+                            deliveryProtocol,
+                            editorialContext.plan?.finalOutputTokens ?: 0,
+                            outputSettings?.outputTokens,
+                            listOfNotNull(outputSettings?.contextTokens, outputSettings?.profileContextCeilings?.get(leadUid)).minOrNull(),
+                            writerContext
+                        )
+                    } catch (capacity: CombinedInputCapacityException) {
+                        if (!permitsLocalAssembly) throw capacity
+                        localAssemblyReason = "WRITER_CONTEXT_CAPACITY_LOCAL_ASSEMBLY"
+                        null
+                    }
                 } else {
                     null
                 }
@@ -210,7 +232,8 @@ class CombinedSynthesisPlanner @Inject constructor(
                     contributionsTransferable = attributedSources.none { it.localOnly } && turnSessions.all { session -> session.snapshot.sources.all { it.publicCapture && it.retrievalReceipt.isNotBlank() } },
                     writerRequestPlan = writerPlan,
                     acknowledgedFailureAttempts = acknowledgedFailures,
-                    writerContext = writerContext
+                    writerContext = writerContext,
+                    localAssemblyReason = localAssemblyReason
                 ).seal().encode()
             }
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
@@ -254,7 +277,7 @@ class CombinedSynthesisPlanner @Inject constructor(
         )
 
         val frozen = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromString<CombinedInputSnapshot>(synthesisSnapshot)
-        if (authorizedLead == null) {
+        if (authorizedLead == null || frozen.localAssemblyReason != null) {
             chatRepository.publishCombinedEvidenceFallback(persisted.run.runId)
             return null
         }

@@ -12,15 +12,21 @@ import kotlinx.serialization.encodeToString
 
 /** Shared across profiles and tool rounds. An IP's other apps can still consume its quota. */
 class FreeAiRequestLimiter(
+    elapsedMillis: (() -> Long)? = null,
     private val nowMillis: () -> Long = { System.currentTimeMillis() }
 ) {
+    private val elapsedMillis: () -> Long = elapsedMillis ?: nowMillis
     private class Bucket {
         val permit = Semaphore(1)
         val requests = ArrayDeque<Long>()
         var cooldown: FreeCooldown? = null
         var nextLocalSlotAt: Long = 0
+        var elapsedRetryAt: Long = 0
         val retryAt: Long get() = cooldown?.retryAt ?: 0L
     }
+
+    @kotlinx.serialization.Serializable
+    private data class SavedBucket(val cooldown: FreeCooldown? = null, val requests: List<Long> = emptyList(), val nextLocalSlotAt: Long = 0)
 
     private var storage: java.io.File? = null
     private var restored = false
@@ -35,18 +41,22 @@ class FreeAiRequestLimiter(
         if (restored) return
         restored = true
         runCatching {
-            storage?.takeIf { it.isFile && it.length() <= 64_000 }?.let { file ->
+            storage?.takeIf { it.isFile && it.length() <= 1_048_576 }?.let { file ->
                 val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
                 val saved = json.parseToJsonElement(file.readText()) as? kotlinx.serialization.json.JsonObject ?: return@let
                 saved.forEach { (key, value) ->
-                    val cooldown = if (value is kotlinx.serialization.json.JsonPrimitive) {
-                        value.content.toLongOrNull()?.let { FreeCooldown(it) }
-                    } else {
-                        runCatching { json.decodeFromString<FreeCooldown>(value.toString()) }.getOrNull()
-                    }
-                    if (cooldown == null) return@forEach
                     val provider = FreeAiProvider.entries.firstOrNull { it.name == key.substringBefore('|') } ?: return@forEach
-                    if (cooldown.retryAt > nowMillis()) buckets.computeIfAbsent(provider to key.substringAfter('|', "")) { Bucket() }.cooldown = cooldown
+                    val snapshot = if (value is kotlinx.serialization.json.JsonObject && listOf("requests", "cooldown", "nextLocalSlotAt").any { it in value }) {
+                        runCatching { json.decodeFromString<SavedBucket>(value.toString()) }.getOrNull()
+                    } else {
+                        val legacy = if (value is kotlinx.serialization.json.JsonPrimitive) value.content.toLongOrNull()?.let { FreeCooldown(it) } else runCatching { json.decodeFromString<FreeCooldown>(value.toString()) }.getOrNull()
+                        legacy?.let { SavedBucket(cooldown = it) }
+                    } ?: return@forEach
+                    val bucket = buckets.computeIfAbsent(provider to key.substringAfter('|', "")) { Bucket() }
+                    bucket.cooldown = snapshot.cooldown?.takeIf { it.retryAt > nowMillis() }
+                    bucket.requests.addAll(snapshot.requests.filter { it > nowMillis() - HOUR_MS }.sorted())
+                    bucket.nextLocalSlotAt = snapshot.nextLocalSlotAt
+                    bucket.elapsedRetryAt = elapsedMillis() + ((bucket.cooldown?.retryAt ?: 0) - nowMillis()).coerceAtLeast(0)
                 }
             }
         }
@@ -55,7 +65,7 @@ class FreeAiRequestLimiter(
     private fun persist() {
         runCatching {
             storage?.let { target ->
-                val values = buckets.entries.filter { it.value.retryAt > nowMillis() }.associate { (key, value) -> "${key.first.name}|${key.second}" to value.cooldown!! }
+                val values = buckets.entries.filter { it.value.retryAt > nowMillis() || it.value.elapsedRetryAt > elapsedMillis() || it.value.nextLocalSlotAt > nowMillis() || it.value.requests.any { at -> at > nowMillis() - HOUR_MS } }.associate { (key, value) -> "${key.first.name}|${key.second}" to SavedBucket(value.cooldown?.let { it.copy(retryAt = maxOf(it.retryAt, nowMillis() + (value.elapsedRetryAt - elapsedMillis()).coerceAtLeast(0))) }, value.requests.filter { it > nowMillis() - HOUR_MS }, value.nextLocalSlotAt) }
                 target.parentFile?.mkdirs()
                 val temporary = java.io.File(target.path + ".tmp")
                 temporary.writeText(kotlinx.serialization.json.Json.encodeToString(values))
@@ -97,6 +107,7 @@ class FreeAiRequestLimiter(
         // Classic's IP interval begins after the active response finishes, including
         // a cancelled stream. Cancellation releases the permit but not this spacing.
         bucket(FreeAiProvider.POLLINATIONS, model, credentialIdentity).nextLocalSlotAt = nowMillis() + 30_000
+        persist()
     }
 
     @Synchronized
@@ -131,32 +142,37 @@ class FreeAiRequestLimiter(
         }
         bucket.requests.addLast(now)
         if (provider == FreeAiProvider.POLLINATIONS) bucket.nextLocalSlotAt = now + 30_000
+        persist()
     }
 
     @Synchronized
-    fun defer(provider: FreeAiProvider, retryAfter: String?, model: String = "", credentialIdentity: String = "unknown", evidence: FreeCooldown? = null): Long {
+    fun defer(provider: FreeAiProvider, retryAfter: String?, model: String = "", credentialIdentity: String = "unknown", evidence: FreeCooldown? = null, serverDate: String? = null): Long {
         restore()
         val now = nowMillis()
         val seconds = retryAfter?.trim()?.toLongOrNull()?.takeIf { it >= 0 }
         val numericDeadline = seconds?.let { runCatching { Math.addExact(now, Math.multiplyExact(it, 1000L)) }.getOrNull() }
         val date = runCatching { ZonedDateTime.parse(retryAfter, DateTimeFormatter.RFC_1123_DATE_TIME).toInstant().toEpochMilli() }.getOrNull()
-        val deadline = numericDeadline ?: date?.takeIf { it >= now } ?: (now + MINUTE_MS)
+        val serverNow = runCatching { ZonedDateTime.parse(serverDate, DateTimeFormatter.RFC_1123_DATE_TIME).toInstant().toEpochMilli() }.getOrNull()
+        val adjustedDate = date?.let { if (serverNow != null) runCatching { Math.addExact(now, (it - serverNow).coerceAtLeast(0)) }.getOrNull() else it }
+        val deadline = numericDeadline ?: adjustedDate?.takeIf { it >= now } ?: (now + MINUTE_MS)
         val scopedIdentity = if (evidence != null && evidence.quotaScope.lowercase() !in setOf("token", "credential", "api_key")) "unknown" else credentialIdentity
         val bucket = bucket(provider, model, scopedIdentity)
-        if (deadline >= bucket.retryAt) {
+        val previousDeadline = savedCooldown(provider, model, scopedIdentity)?.retryAt ?: bucket.retryAt
+        if (deadline >= previousDeadline) {
+            bucket.elapsedRetryAt = elapsedMillis() + (deadline - now).coerceAtLeast(0)
             bucket.cooldown = (evidence ?: FreeCooldown(deadline)).copy(
                 retryAt = deadline,
                 observedAt = now,
                 credentialIdentity = credentialIdentity,
                 deadlineSource = when {
                     numericDeadline != null -> "retry_after_seconds"
-                    date != null && date >= now -> "retry_after_http_date"
+                    adjustedDate != null && adjustedDate >= now -> if (serverNow != null) "retry_after_http_date_server_clock" else "retry_after_http_date"
                     else -> "local_estimate"
                 }
             )
         }
         persist()
-        return (bucket.retryAt - now + 999) / 1000
+        return (maxOf(bucket.retryAt, previousDeadline) - now + 999) / 1000
     }
 
     /** Return the known provider/local quota cooldown without reserving a request. */
@@ -185,12 +201,14 @@ class FreeAiRequestLimiter(
         restore()
         // Old deadlines have unknown scope. Preserve them across credential changes rather
         // than claiming that a new key bypasses an IP/account-wide quota.
-        return listOfNotNull(bucket(provider, model, credentialIdentity).cooldown, bucket(provider, model).cooldown)
+        return listOf(bucket(provider, model, credentialIdentity), bucket(provider, model)).mapNotNull { bucket ->
+            bucket.cooldown?.let { cooldown -> cooldown.copy(retryAt = maxOf(cooldown.retryAt, nowMillis() + (bucket.elapsedRetryAt - elapsedMillis()).coerceAtLeast(0))) }
+        }
             .filter { it.retryAt > nowMillis() }.maxByOrNull { it.retryAt }
     }
 
     companion object {
-        val shared = FreeAiRequestLimiter()
+        val shared = FreeAiRequestLimiter(elapsedMillis = { System.nanoTime() / 1_000_000 })
         private const val MINUTE_MS = 60_000L
         private const val HOUR_MS = 3_600_000L
     }

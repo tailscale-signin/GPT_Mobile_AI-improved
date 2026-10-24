@@ -49,12 +49,14 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
         ChatRoomV2::class,
         dev.chungjungsoo.gptmobile.data.workspace.WorkspaceRecord::class,
         MessageV2::class,
+        dev.chungjungsoo.gptmobile.data.database.entity.CombinedFinalMessage::class,
         dev.chungjungsoo.gptmobile.data.database.entity.MessageSearch::class,
         PlatformV2::class,
         ChatPlatformModelV2::class,
         ToolConnection::class,
         AgentToolBinding::class,
         AgentRun::class,
+        dev.chungjungsoo.gptmobile.data.agent.ProviderWait::class,
         dev.chungjungsoo.gptmobile.data.database.entity.RunPolicySnapshot::class,
         dev.chungjungsoo.gptmobile.data.database.entity.AgentRunPolicyRef::class,
         dev.chungjungsoo.gptmobile.data.chat.ReplyPublication::class,
@@ -75,7 +77,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
         dev.chungjungsoo.gptmobile.data.memory.MemoryGraphObservationRecord::class,
         dev.chungjungsoo.gptmobile.data.memory.MemoryGraphRelationRecord::class
     ],
-    version = 45,
+    version = 46,
     exportSchema = true
 )
 @TypeConverters(

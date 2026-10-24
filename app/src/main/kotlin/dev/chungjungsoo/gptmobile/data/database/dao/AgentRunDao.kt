@@ -31,7 +31,7 @@ interface AgentRunDao : RunPolicySnapshotAccess {
     @Query("SELECT DISTINCT r.* FROM agent_runs r LEFT JOIN agent_run_policy_refs policy_ref ON policy_ref.runId = r.run_id LEFT JOIN run_policy_snapshots policy ON policy.chatId = policy_ref.chatId AND policy.digest = policy_ref.digest WHERE r.chat_id = :chatId ORDER BY r.created_at, r.run_id")
     fun rawObserveByChatId(chatId: Int): Flow<List<AgentRun>>
 
-    @Query("SELECT DISTINCT r.* FROM agent_runs r LEFT JOIN agent_run_policy_refs policy_ref ON policy_ref.runId = r.run_id LEFT JOIN run_policy_snapshots policy ON policy.chatId = policy_ref.chatId AND policy.digest = policy_ref.digest WHERE r.status IN ('QUEUED', 'RUNNING')")
+    @Query("SELECT DISTINCT r.* FROM agent_runs r LEFT JOIN agent_run_policy_refs policy_ref ON policy_ref.runId = r.run_id LEFT JOIN run_policy_snapshots policy ON policy.chatId = policy_ref.chatId AND policy.digest = policy_ref.digest WHERE r.status IN ('QUEUED', 'RUNNING', 'WAITING_PROVIDER_LIMIT')")
     fun rawObserveActive(): Flow<List<AgentRun>>
 
     @Query("SELECT DISTINCT r.* FROM agent_runs r LEFT JOIN agent_run_policy_refs policy_ref ON policy_ref.runId = r.run_id LEFT JOIN run_policy_snapshots policy ON policy.chatId = policy_ref.chatId AND policy.digest = policy_ref.digest ORDER BY r.created_at DESC, r.run_id DESC LIMIT :limit")
@@ -89,7 +89,7 @@ interface AgentRunDao : RunPolicySnapshotAccess {
 
     @Query(
         "UPDATE agent_runs SET status = :status, completed_at = :completedAt, terminal_error = :terminalError " +
-            "WHERE run_id = :runId AND status IN ('QUEUED', 'RUNNING') AND EXISTS (SELECT 1 FROM messages_v2 m WHERE m.message_id = agent_runs.assistant_message_id AND m.current_run_id = agent_runs.run_id AND m.ownership_fence = agent_runs.ownership_fence)"
+            "WHERE run_id = :runId AND status IN ('QUEUED', 'RUNNING', 'WAITING_PROVIDER_LIMIT') AND EXISTS (SELECT 1 FROM messages_v2 m WHERE m.message_id = agent_runs.assistant_message_id AND m.current_run_id = agent_runs.run_id AND m.ownership_fence = agent_runs.ownership_fence)"
     )
     suspend fun finishActive(
         runId: String,

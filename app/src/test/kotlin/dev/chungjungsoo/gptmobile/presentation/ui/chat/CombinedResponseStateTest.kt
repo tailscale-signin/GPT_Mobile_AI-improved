@@ -253,4 +253,11 @@ class CombinedResponseStateTest {
         modelSnapshot = "test",
         status = status
     )
+
+    @org.junit.Test fun durableProviderWaitIsPausedRatherThanAFailedOrGeneratingAnswer() {
+        val message = dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(id = 2, chatId = 1, content = "", platformType = "p", currentRunId = "waiting")
+        val run = dev.chungjungsoo.gptmobile.data.database.entity.AgentRun("waiting", 1, 1, 2, "p", "FREE", "model", status = "WAITING_PROVIDER_LIMIT")
+        org.junit.Assert.assertEquals(CombinedResponseStatus.PAUSED, combinedResponseStatus(message, run))
+        org.junit.Assert.assertTrue(combinedProfileFailures(1, "Question", listOf(message), mapOf(run.runId to run), emptyMap(), emptyMap()).isEmpty())
+    }
 }

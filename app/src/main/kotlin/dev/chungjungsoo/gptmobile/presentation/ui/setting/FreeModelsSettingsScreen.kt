@@ -43,6 +43,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.free.FreeCatalogState
 import dev.chungjungsoo.gptmobile.data.free.FreeModelCatalog
@@ -54,18 +55,20 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FreeModelsSettingsScreen(viewModel: SettingViewModelV2, onBack: () -> Unit, onOpenProfile: (String) -> Unit, modifier: Modifier = Modifier) {
+    val activationRequest by viewModel.pendingProviderActivation.collectAsStateWithLifecycle()
+    activationRequest?.let { ProviderActivationDialog(it, viewModel::confirmProviderActivation, viewModel::dismissProviderActivation) }
     val profiles by viewModel.platformState.collectAsState()
     val states by FreeCatalogState.status.collectAsState()
     val catalog by FreeCatalogState.catalog.collectAsState()
     val scope = rememberCoroutineScope()
-    LaunchedEffect(Unit) { FreeAiProvider.entries.forEach { provider -> launch { FreeCatalogState.refresh(provider, token = profiles.firstOrNull { FreeAiProvider.fromApiUrl(it.apiUrl) == provider && !it.token.isNullOrBlank() }?.token) } } }
+    LaunchedEffect(Unit) { FreeAiProvider.active.forEach { provider -> launch { FreeCatalogState.refresh(provider, token = profiles.firstOrNull { FreeAiProvider.fromApiUrl(it.apiUrl) == provider && !it.token.isNullOrBlank() }?.token) } } }
     Scaffold(modifier = modifier.fillMaxSize(), topBar = {
         TopAppBar(title = { Text(FreeModelCatalog.NAME) }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") } }, actions = {
-            IconButton(enabled = states.values.none { it.checking }, onClick = { FreeAiProvider.entries.forEach { provider -> scope.launch { FreeCatalogState.refresh(provider, true, profiles.firstOrNull { FreeAiProvider.fromApiUrl(it.apiUrl) == provider && !it.token.isNullOrBlank() }?.token) } } }) { Icon(Icons.Rounded.Refresh, "Refresh service status and models") }
+            IconButton(enabled = states.values.none { it.checking }, onClick = { FreeAiProvider.active.forEach { provider -> scope.launch { FreeCatalogState.refresh(provider, true, profiles.firstOrNull { FreeAiProvider.fromApiUrl(it.apiUrl) == provider && !it.token.isNullOrBlank() }?.token) } } }) { Icon(Icons.Rounded.Refresh, "Refresh service status and models") }
         })
     }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            items(FreeAiProvider.entries, key = { it.name }) { provider ->
+            items(FreeAiProvider.active, key = { it.name }) { provider ->
                 // Read catalog state to recompose model options after a refresh.
                 val models = remember(provider, catalog) { FreeCatalogState.models(provider) }
                 val children = profiles.filter { it.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.FREE && FreeAiProvider.fromApiUrl(it.apiUrl) == provider }

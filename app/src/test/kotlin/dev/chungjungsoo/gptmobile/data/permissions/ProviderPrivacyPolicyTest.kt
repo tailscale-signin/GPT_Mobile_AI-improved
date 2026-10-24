@@ -29,6 +29,7 @@ class ProviderPrivacyPolicyTest {
         assertTrue(store.required(profile.copy(uid = "clone")))
         assertTrue(store.required(profile.copy(model = "different-model")))
         assertTrue(store.required(profile.copy(token = "different-credential")))
+        assertTrue(store.required(profile.copy(apiUrl = "${profile.apiUrl}?route=changed")))
         store.revoke(profile.uid)
         assertTrue(store.required(profile))
     }
@@ -41,6 +42,7 @@ class ProviderPrivacyPolicyTest {
         assertTrue(store.isGranted(ovh, "device_location"))
         assertFalse(store.isGranted(ovh.copy(model = "new"), "device_location"))
         assertFalse(store.isGranted(ovh.copy(uid = "clone"), "device_location"))
+        assertFalse(store.isGranted(ovh.copy(apiUrl = "${ovh.apiUrl}?route=changed"), "device_location"))
         assertFalse(store.isGranted(ovh, "health"))
         val kilo = profile(FreeAiProvider.KILO)
         assertThrows(IllegalStateException::class.java) { store.grant(kilo, "device_location") }

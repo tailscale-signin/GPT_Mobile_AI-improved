@@ -33,6 +33,6 @@ data class ProviderPrivacyPolicy(
         }
 
         /** Changing a model, credential, endpoint or policy never inherits a prior grant. */
-        fun scope(profile: PlatformV2): String = researchHash("${profile.uid}|${FreeAiProvider.fromApiUrl(profile.apiUrl)?.apiUrl ?: profile.apiUrl}|${profile.model}|${researchHash(profile.token.orEmpty())}|${forProfile(profile)?.digest}")
+        fun scope(profile: PlatformV2): String = researchHash("${profile.uid}|${profile.apiUrl.trim()}|${profile.model}|${researchHash(profile.token.orEmpty())}|${forProfile(profile)?.digest}")
     }
 }

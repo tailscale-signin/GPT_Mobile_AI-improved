@@ -4,17 +4,45 @@ Prepared on 2026-10-24 from `fix/research-free-provider-hf-2026-10-24` (`de1e67b
 
 ## Automated checks
 
-The final unit, lint and APK results are being verified. The environment uses the existing JDK 21.0.8, Gradle 9.8.0 and Android SDK installation; no toolchain or dependency versions were changed for this release.
+The environment uses JDK 21.0.8, Gradle 9.8.0 and the installed Android SDK. No repository toolchain or dependency versions were changed for this release.
 
-The first complete integration run executed 4,397 tests with 22 failures and 2 deliberately skipped heap-gate tests. It exposed legacy-policy compatibility, local-publication and fixture issues, which were corrected before final verification. Generated AGP compile and runtime artifacts also contained older classes than the compiled source (confirmed by inspecting the enum and Research circuit bytecode). The generated debug class transforms and both bundle JARs were removed before rebuilding without the build cache. A focused run then passed 83 of 86 tests; the remaining three UI assertions exposed mismatched packaged resource IDs, confirmed with the rendered semantics tree and `aapt2`. The final verification therefore starts with `:app:clean` so bytecode, resource tables and test APK resources are generated together. Earlier failed attempts are not counted as successful validation.
+| Check | Result |
+|---|---|
+| Clean complete unit suite on integration commit `66d009f` | 4,401 discovered; 4,399 passed, zero failures/errors, two intentionally reserved for the separate heap gate |
+| Final endpoint-consent hardening: eight affected test classes | 71 passed; zero failures/errors/skips |
+| Dedicated 256 MiB recovery/export gate | Passed in GitHub PR Validation on `66d009f` |
+| Android lint | Passed in GitHub PR Validation on `66d009f`; local duplicate stopped at the workspace memory ceiling |
+| Review APK, packaged-runtime verification and unsigned-release build | Passed in the separate GitHub UI Review APK and Build Unsigned Release workflows on `66d009f` |
+| Python script suite | 158 passed |
+| Resource, regex and icon preflights | Passed: 29 XML files, 832 literal patterns; 51 dynamic regex patterns intentionally skipped |
+| QNN packaged provenance metadata | Passed; this is not a device-execution result |
+| Kotlin formatting, whitespace and exported Room schemas | Passed |
 
-Independent preflights passed: 158 Python script tests; Android resources (29 XML files); Android regex compatibility (832 literal patterns, 51 dynamic patterns skipped); icon resource consistency; QNN packaged provenance metadata. The latter does not establish device execution. Kotlin formatting and whitespace checks are repeated on the final staged diff.
+The final focused tests cover activation and personal-tool grants after changing the endpoint query, dispatch authority, personal-data guards, tool resolution, credential migration, backup consent exclusion and provider-wait ownership/cancellation. The complete clean suite ran before this last scope-hardening change; its result is not presented as a second full-suite run on the final patch.
+
+Earlier generated test bytecode and packaged resource IDs were inconsistent. A clean rebuild regenerated them together and passed the full unit suite. Both the combined invocation and a separate local lint attempt were interrupted when memory reached this workspace's 8 GiB ceiling. Local APK assembly reached native configuration and exposed missing Vulkan headers; the CI-equivalent headers were then obtained in the temporary toolchain, without disabling a runtime backend. A successful final local APK build is not claimed. The completed GitHub lint, heap, APK and release-build checks provide the integration-commit results above. Interrupted or failed attempts are not counted as passing validation.
+
+Reproduction uses the repository's standard Gradle wrapper with JDK 21. Run compilation/tests and lint in separate invocations on memory-constrained machines:
+
+```sh
+./gradlew :app:clean :app:testDebugUnitTest --no-build-cache
+./gradlew :app:assembleDebug --no-build-cache
+./gradlew :app:lintDebug --no-build-cache
+./gradlew -I scripts/heap-stress.init.gradle :app:testDebugUnitTest \
+  --tests '*ResearchSessionStoreHeapTest' --tests '*StreamingDebugBundleTest'
+python3 scripts/check_local_runtime_apk.py app/build/outputs/apk/debug/*.apk
+python3 scripts/check_no_telemetry.py app/build/outputs/apk/debug/*.apk
+```
+
+The initial [PR Validation run](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/40117585643) passed unit tests, exported schemas, Android lint and the heap gate. A PR-description edit triggered its configured `edited` event and superseded that run during its later APK step; it was not a failing test result. The independent [UI Review APK](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/40117585686) and [Build Unsigned Release](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/40117585713) workflows passed. CodeQL, Kotlin lint, Android acceptance, native-memory smoke, marketplace contracts, build downloads, diagnostic audit and GenieX preview validation also passed on `66d009f`.
+
+GitHub Actions reruns against the final published PR head. Those exact-head workflows remain pending at handoff; integration-commit results are not represented as final-head completion. No release-qualification gate is waived.
 
 ## Requirement-to-regression map
 
 | Behavior | Implementation | Regression coverage |
 |---|---|---|
-| Activation must not follow a changed model, credential or cloned UID | `ProviderPrivacyPolicy`, `ProviderActivationStore`, `ConfiguredDispatchAuthority` | `ProviderPrivacyPolicyTest` |
+| Activation must not follow a changed endpoint, model, credential or cloned UID | `ProviderPrivacyPolicy`, `ProviderActivationStore`, `ConfiguredDispatchAuthority` | `ProviderPrivacyPolicyTest` |
 | Personal consent cannot unlock prohibited routes or other recipients | `FreeModelToolConsentStore`, `PersonalDataGuardedTool`, `AgentToolResolver` | `ProviderPrivacyPolicyTest`, `FreeModelToolConsentStoreTest`, `PersonalDataGuardedToolTest`, `AgentToolResolverTest` |
 | Backups are not informed consent | `CompleteBackupPreferences` | `ProviderConsentBackupTest` |
 | Retired routes cannot re-enter catalog or generic dispatch | `FreeAiProvider`, `FreeModelCatalog`, `ProviderRequestConfig` | `FreeAiProviderTest`, `FreeModelCatalogTest` |

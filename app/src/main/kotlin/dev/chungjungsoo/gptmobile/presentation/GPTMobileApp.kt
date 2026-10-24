@@ -94,6 +94,7 @@ class GPTMobileApp :
         super.onCreate()
         dev.chungjungsoo.gptmobile.data.localmodel.LinkedModelSources.initialize(this)
         if (dev.chungjungsoo.gptmobile.data.localruntime.isInferenceProcess()) return
+        dev.chungjungsoo.gptmobile.data.security.DevicePrivacySettings.initialize(this)
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.initialize(this)
         dev.chungjungsoo.gptmobile.data.network.FreeAiRequestLimiter.shared.initialize(java.io.File(noBackupFilesDir, "free-provider-cooldowns.json"))
         dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.initialize(java.io.File(noBackupFilesDir, "free-provider-failures.json"))
@@ -131,6 +132,7 @@ class GPTMobileApp :
             }
             val combinedSettings = startup.settingRepository()
             dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.initialize(this@GPTMobileApp)
+            dev.chungjungsoo.gptmobile.data.network.DeviceNetworkDiagnostics.initialize(this@GPTMobileApp)
             dev.chungjungsoo.gptmobile.data.free.FreeQueueJobs.initialize(this@GPTMobileApp)
             StartupRecoveryGate.step("platform-migration") { combinedSettings.migrateToPlatformV2() }
             combinedSettings.ensureFreeModels()

@@ -63,6 +63,47 @@ class CombinedDeliveryRepairTest {
         assertEquals("real-model-2", CombinedWriterObservations.get(key)!!.servedModel)
     }
 
+    @Test fun visiblePassagesAloneNeverCalibrateACompleteAnswer() {
+        val p = profile("calibration")
+        val key = CombinedWriterObservations.key(p)
+        CombinedWriterObservations.record(key, false, 4, 3688)
+        assertEquals(0, CombinedWriterObservations.get(key)?.completedPassages)
+        assertEquals(4, CombinedWriterObservations.get(key)?.observedPassages)
+        assertEquals(null, CombinedWriterObservations.get(key)?.minimumUsefulOutputAllowance)
+        val partial = CombinedQualityReport(answerDigest = "partial", complete = false, deliveredScopeStatus = "PARTIAL", finalAssessment = true)
+        CombinedWriterObservations.recordDelivery(key, partial, 3688)
+        assertEquals(0, CombinedWriterObservations.get(key)?.completeAnswers)
+        assertEquals(1, CombinedWriterObservations.get(key)?.incompleteAnswers)
+        assertEquals(null, CombinedWriterObservations.get(key)?.minimumUsefulOutputAllowance)
+        CombinedWriterObservations.recordDelivery(key, partial.copy(answerDigest = "complete", complete = true, deliveredScopeStatus = "COMPLETED", lengthCompliance = "MET", topicCoverage = "LOCAL_CHECKS_PASSED"), 6200)
+        assertEquals(1, CombinedWriterObservations.get(key)?.completeAnswers)
+        assertEquals(6200, CombinedWriterObservations.get(key)?.minimumUsefulOutputAllowance)
+    }
+
+    @Test fun reasoningUsageIsReservedAndCannotBeErasedByVisibleText() {
+        val p = profile("reasoning")
+        val key = CombinedWriterObservations.key(p)
+        CombinedWriterObservations.recordUsage(key, 2878)
+        CombinedWriterObservations.record(key, false, 3, 3688)
+        assertEquals("NOT_HONORED", CombinedWriterObservations.get(key)?.reasoningDisabled)
+        assertTrue(CombinedWriterPolicy.requiredOutput("History of Portugal in 500 words", p) > 500 * 2.2 + 512 + 2878)
+        val limited = p.copy(maxTokens = 4096)
+        assertNotNull(CombinedWriterPolicy.unavailableReason(limited, "History of Portugal in 500 words"))
+        assertEquals(listOf(profile("compatible")), CombinedWriterPolicy.rank(listOf(limited, profile("compatible")), "History of Portugal in 500 words", limited.uid))
+    }
+
+    @Test fun outputLimitWithVisibleProgressRaisesTheNextBudgetWithoutCalibratingSuccess() {
+        val writer = profile("partial-limit")
+        val key = CombinedWriterObservations.key(writer)
+        CombinedWriterObservations.recordUsage(key, null, "length", 6200)
+        CombinedWriterObservations.record(key, false, 3, 6200)
+        CombinedWriterObservations.recordDelivery(key, CombinedQualityReport(answerDigest = "partial", deliveredScopeStatus = "PARTIAL", finalAssessment = true), 6200)
+        assertEquals(6200, CombinedWriterObservations.get(key)?.stalledOutputAllowance)
+        assertEquals(null, CombinedWriterObservations.get(key)?.minimumUsefulOutputAllowance)
+        assertEquals(0, CombinedWriterObservations.get(key)?.completedPassages)
+        assertTrue(CombinedWriterPolicy.requiredOutput(france, writer) > 6200)
+    }
+
     @Test fun typedRecoveryRotatesMalformedAndPendingButStopsAuthorityFailures() {
         for (code in listOf("INVALID_DELIVERY_RECORD:reason", "QUEUE_JOB_PENDING", "COMBINED_WRITER_STALLED", "NETWORK_ERROR")) {
             assertTrue(code, CombinedRecoveryFailure.from(ProviderEvent.Failed("provider detail", errorCode = code)).rotateWriter)

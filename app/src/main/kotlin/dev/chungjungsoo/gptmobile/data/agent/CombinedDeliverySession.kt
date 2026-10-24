@@ -153,7 +153,7 @@ internal class CombinedDeliverySession(
         var noProgress = 0
         var repairSkippedReason: String? = if (singlePass) "SINGLE_PASS_LOCAL_CHECKS_ONLY" else null
 
-        fun report(candidate: Candidate, checked: CombinedFinalAssessment, final: Boolean): CombinedQualityReport {
+        suspend fun report(candidate: Candidate, checked: CombinedFinalAssessment, final: Boolean): CombinedQualityReport {
             val unresolvedResearch = checked.checks.any { it.category == "RESEARCH_SCOPE" && it.result != "PASS" }
             val providerComplete = candidate.terminal == ProviderEvent.Completed
             val material = correctionRequired || checked.correctionRequired
@@ -165,6 +165,8 @@ internal class CombinedDeliverySession(
                 issues.any { it != "LEXICAL_COVERAGE_UNRESOLVED_HINTS" } || checked.verificationNeeds.isNotEmpty() -> "COMPLETED_WITH_LIMITS"
                 else -> "COMPLETED"
             }
+            val wording = withContext(Dispatchers.Default) { combinedWordingSpans(candidate.text, sources) }
+            val represented = wording.flatMapTo(linkedSetOf()) { it.profileUids } + candidate.decoder?.passages.orEmpty().filter { it.matches(candidate.text) && it.semanticLinkStatus == "CONSERVATIVE_LINK_CHECKED" }.flatMapTo(linkedSetOf()) { it.profileUids }
             return CombinedQualityReport(
                 answerDigest = researchHash(candidate.text),
                 complete = candidate.text.isNotBlank() && providerComplete && framingValid && !material && violations.isEmpty() && !unresolvedResearch,
@@ -172,6 +174,7 @@ internal class CombinedDeliverySession(
                     candidate.text.isBlank() -> "FAILED"
                     material -> "CORRECTION_REQUIRED"
                     !providerComplete -> "INTERRUPTED"
+                    delivered == "PARTIAL" -> "PARTIAL"
                     issues.isEmpty() -> "COMPLETED_UNVERIFIED"
                     else -> "COMPLETED_WITH_ISSUES"
                 },
@@ -190,7 +193,7 @@ internal class CombinedDeliverySession(
                     "CHECKING"
                 },
                 verificationStatus = when {
-                    material -> "CORRECTION_REQUIRED"
+                    checked.checks.any { it.material && it.result == "FAIL" && it.category !in setOf("REQUEST", "SCOPE", "RESEARCH_SCOPE") } -> "CORRECTION_REQUIRED"
                     checked.verificationNeeds.isNotEmpty() -> "NEEDS_VERIFICATION"
                     checked.receipts.any { it.evidenceIds.isNotEmpty() } -> "PASSAGES_CHECKED_WITH_LIMITS"
                     else -> "UNVERIFIED"
@@ -201,7 +204,12 @@ internal class CombinedDeliverySession(
                 repairRejections = rejections.toList(), consideredProfileUids = sources.mapTo(linkedSetOf()) { it.platformUid },
                 requestedPolicyDigest = combined?.requested?.requestedPolicyDigest.orEmpty(), effectivePlanDigest = combined?.plan?.effectivePlanDigest.orEmpty(),
                 includedProfileUids = if (singlePass) sources.mapTo(linkedSetOf()) { it.platformUid } else emptySet(),
-                representedProfileUids = candidate.decoder?.passages.orEmpty().filter { it.matches(candidate.text) && it.semanticLinkStatus == "CONSERVATIVE_LINK_CHECKED" }.flatMapTo(linkedSetOf()) { it.profileUids }
+                representedProfileUids = represented,
+                finalAssessment = final,
+                lengthCompliance = if (violations.any { it.contains("WORD") || it.contains("LENGTH") }) "UNMET" else "MET",
+                topicCoverage = if (checked.checks.any { it.category in setOf("SCOPE", "RESEARCH_SCOPE") && it.result != "PASS" }) "UNRESOLVED" else "LOCAL_CHECKS_PASSED",
+                sourceLinkStatus = if (represented.isEmpty()) "UNESTABLISHED" else "PARTIAL_TEXT_MATCHES",
+                sourceLinkRejections = checked.checks.filter { it.id.startsWith("UNESTABLISHED_FINAL_CLAIM_LINK") }.groupingBy { "CLAIM_OR_QUALIFIER_NOT_ALIGNED" }.eachCount()
             )
         }
 
@@ -365,6 +373,8 @@ internal class CombinedDeliverySession(
         AppLogRecorder.record("CombinedSynthesis", "SYNTHESIS_QUALITY · status=${finalReport.status} · delivered=${finalReport.deliveredScopeStatus} · verification=${finalReport.verificationStatus} · revision=${finalReport.revisionId} · wordCounter=${finalReport.wordCounterVersion} · words=${finalReport.wordCount} · repairs=$repairs · accepted=$repairAccepted · rejected=$repairRejected · rejectionReasons=${rejections.joinToString(";")} · stoppingReason=$repairSkippedReason · semanticCoverageVerified=false · factualAccuracyVerified=false")
         validateAccess()
         if (!progressive && !publishedReplacement && accepted.text.isNotBlank()) emit(ProviderEvent.TextDelta(accepted.text))
+        val linkedPassages = finalReport.passages.filter { it.semanticLinkStatus == "CONSERVATIVE_LINK_CHECKED" }
+        AppLogRecorder.record("CombinedSynthesis", "SYNTHESIS_CHECK_DETAILS · revision=${finalReport.revisionId} · failedChecks=${assessment.checks.filter { it.result != "PASS" }.map { it.id }.take(32)} · issues=${finalReport.issues.take(32)} · included=${sources.map { it.platformUid }.take(32)} · represented=${finalReport.representedProfileUids.take(32)} · uniquePassages=${linkedPassages.count { it.profileUids.size == 1 }} · sharedPassages=${linkedPassages.count { it.profileUids.size > 1 }} · unlinkedPassages=${finalReport.passages.size - linkedPassages.size} · sourceRejections=${finalReport.sourceLinkRejections.entries.take(32).associate { it.toPair() }} · length=${finalReport.lengthCompliance} · scope=${finalReport.topicCoverage} · delivery=${finalReport.deliveredScopeStatus} · facts=${finalReport.verificationStatus}")
         emit(ProviderEvent.CombinedQuality(finalReport))
         if (violations.isNotEmpty()) emit(ProviderEvent.Notice(if (accepted.text.isBlank()) "Final assembly did not deliver answer text. Saved contributions and recovery actions remain available." else "The retained draft has an unmet instruction check.", persistent = true))
         if (correctionRequired) emit(ProviderEvent.Notice("The retained draft requires correction; it is not a checked final answer.", persistent = true))

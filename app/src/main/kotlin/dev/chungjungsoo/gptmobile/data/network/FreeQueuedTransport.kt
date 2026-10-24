@@ -113,7 +113,7 @@ internal class FreeQueuedTransport(private val client: HttpClient, private val p
                         config.freeDiagnostics?.stage = "submission"
                         val response = FreeAiRequestLimiter.shared.withRequest(provider, request.model) {
                             FreeQueueJobs.save(submission, config.queuePersistent)
-                            config.freeDiagnostics?.requestSent = true
+                            config.freeDiagnostics?.attempted()
                             client.post(if (provider == FreeAiProvider.AI_HORDE) hordeBase(request.model) + "/async" else "${provider.apiUrl}/gradio_api/call/add_message") {
                                 contentType(ContentType.Application.Json)
                                 if (provider == FreeAiProvider.AI_HORDE) {
@@ -124,6 +124,7 @@ internal class FreeQueuedTransport(private val client: HttpClient, private val p
                                 timeout { requestTimeoutMillis = 30_000 }
                             }
                         }
+                        config.freeDiagnostics?.responded()
                         // A timeout (408) can arrive after enqueueing; keep its uncertain receipt.
                         if (response.status.value in setOf(400, 401, 402, 403, 404, 405, 413, 415, 422, 429)) FreeQueueJobs.save(submission.copy(state = "REJECTED"), config.queuePersistent)
                         val root = checkedJson(response, config, request.model)
@@ -331,6 +332,7 @@ internal class FreeQueuedTransport(private val client: HttpClient, private val p
                 socketTimeoutMillis = 60_000
             }
         }.execute { response ->
+            config.freeDiagnostics?.responded()
             config.freeDiagnostics?.stage = "stream_retrieval"
             if (!response.status.isSuccess()) checkedJson(response, config, model)
             val channel = response.bodyAsChannel()

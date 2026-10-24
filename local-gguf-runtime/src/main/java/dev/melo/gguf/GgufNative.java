@@ -11,6 +11,7 @@ public final class GgufNative {
     public interface Progress { void onProgress(String phase, long promptTokens, long processedTokens, long sampledTokens, long elapsedMs, int nativeCode); }
     public static native void prepareOperation(long handle, long operationId);
     public static native void cancelOperation(long handle, long operationId);
+    /** Fraction -1 denotes an indeterminate initialization stage; 0..1 denotes measured load progress. */
     public interface LoadProgress { void onProgress(String phase, float fraction, long elapsedMs); }
     public static native long loadConfiguredProgress(byte[] path, int contextTokens, int threads, int gpuLayers, long operationId, int promptThreads, int batchTokens, int microBatchTokens, LoadProgress progress);
     /** Effective context/batch/microbatch, host model/context/compute, device model/context/compute, tensor bytes. */

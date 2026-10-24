@@ -9,7 +9,8 @@ internal object NativeExitEvidence {
     fun journal(context: Context, directory: File): NativeOperationJournal = NativeOperationJournal(directory, { since, pid ->
         val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
         val exit = runCatching { manager?.getHistoricalProcessExitReasons(context.packageName, pid, 8)?.firstOrNull { it.timestamp >= since && it.processName.endsWith(":local_inference") } }.getOrNull()
-        val category = when (exit?.reason) {
+        val termination = exit?.takeIf { it.reason == ApplicationExitInfo.REASON_SIGNALED && it.status == android.system.OsConstants.SIGKILL }?.let { NativeWorkerTermination.matched(File(context.noBackupFilesDir, "native-worker"), pid, since, it.timestamp) }
+        val category = termination ?: when (exit?.reason) {
             ApplicationExitInfo.REASON_CRASH_NATIVE -> "NATIVE_CRASH"
             ApplicationExitInfo.REASON_LOW_MEMORY -> "LOW_MEMORY"
             ApplicationExitInfo.REASON_USER_REQUESTED -> "USER_REQUESTED"

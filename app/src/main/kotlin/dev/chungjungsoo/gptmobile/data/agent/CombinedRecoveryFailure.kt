@@ -19,11 +19,11 @@ data class CombinedRecoveryFailure(
         fun from(event: ProviderEvent.Failed): CombinedRecoveryFailure = fromCode(event.errorCode?.substringBefore(':') ?: event.message.substringBefore(':').takeIf { it.matches(Regex("[A-Z][A-Z0-9_]+")) })
         fun fromCode(code: String?): CombinedRecoveryFailure {
             val category = when (code) {
-                "COMBINED_WRITER_STALLED" -> CombinedRecoveryCategory.REASONING_STALL
-                "COMBINED_EMPTY_OUTPUT" -> CombinedRecoveryCategory.EMPTY_OUTPUT
+                "COMBINED_WRITER_STALLED", "REASONING_BUDGET_EXHAUSTED", "reasoning_budget_exhausted" -> CombinedRecoveryCategory.REASONING_STALL
+                "COMBINED_EMPTY_OUTPUT", "NO_VISIBLE_ANSWER", "no_visible_answer" -> CombinedRecoveryCategory.EMPTY_OUTPUT
                 "INVALID_DELIVERY_RECORD", "COMBINED_PROTOCOL_UNSUITABLE" -> CombinedRecoveryCategory.MALFORMED_RECORD
                 "QUEUE_JOB_PENDING" -> CombinedRecoveryCategory.QUEUE_PENDING
-                "NETWORK_ERROR", "network_error", "QUEUE_STREAM_DISCONNECTED", "408", "500", "502", "503", "504" -> CombinedRecoveryCategory.NETWORK_TRANSIENT
+                "NETWORK_ERROR", "network_error", "DNS_RESOLUTION_FAILED", "QUEUE_STREAM_DISCONNECTED", "408", "500", "502", "503", "504" -> CombinedRecoveryCategory.NETWORK_TRANSIENT
                 "COMBINED_PROVIDER_UNAVAILABLE", "PROVIDER_UNAVAILABLE", "HOSTED_GENERATION_FAILED", "LOCAL_COOLDOWN_ACTIVE", "PROVIDER_RATE_LIMITED", "429" -> CombinedRecoveryCategory.PROVIDER_UNAVAILABLE
                 "COMBINED_PARTIAL", "COMBINED_RECORD_RECOVERY_LIMIT" -> CombinedRecoveryCategory.INCOMPLETE_RECORD
                 "AUTHENTICATION_REQUIRED", "AUTHENTICATION_REJECTED", "PROVIDER_CLIENT_RESTRICTED", "401", "403", "COMBINED_STAGE_IDENTITY_REJECTED", "COMBINED_SUCCESSOR_AUTHORITY_CHANGED", "COMBINED_SUCCESSOR_TRANSFER_DENIED", "COMBINED_SUCCESSOR_CORPUS_CHANGED" -> CombinedRecoveryCategory.AUTHORITY_REJECTED

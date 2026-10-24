@@ -201,6 +201,7 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
                     chunk.progressDeadline?.let(buffer::appendProgressDeadline)
                     chunk.recoveryBlock?.let(buffer::appendRecoveryBlock)
                     chunk.combinedFailure?.let(buffer::appendCombinedFailure)
+                    buffer.appendProfileFailure(chunk.message, chunk.progressDeadline != null || chunk.recoveryBlock != null || chunk.combinedFailure != null)
                     terminalError = chunk.message.ifBlank { "The provider could not complete this response." }
                 }
 
@@ -391,6 +392,18 @@ private class StreamingMessageBuffer(
         val item = AssistantTimelineItem(AssistantTimelineItemType.NOTICE, generation = receipt)
         if (index < 0) timeline += item else timeline[index] = item
         timelineVersion += 1
+    }
+
+    fun appendProfileFailure(message: String, attachToTypedFailure: Boolean) {
+        flushTimelineText()
+        val failure = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.classify(message)
+        val index = if (attachToTypedFailure) timeline.indexOfLast { it.progressDeadline != null || it.recoveryBlock != null || it.combinedFailure != null } else -1
+        if (index >= 0) {
+            timeline[index] = timeline[index].copy(profileFailure = failure)
+        } else {
+            timeline.add(AssistantTimelineItem(AssistantTimelineItemType.NOTICE, profileFailure = failure))
+        }
+        timelineVersion++
     }
 
     fun appendCombinedFailure(failure: dev.chungjungsoo.gptmobile.data.agent.CombinedRecoveryFailure) {

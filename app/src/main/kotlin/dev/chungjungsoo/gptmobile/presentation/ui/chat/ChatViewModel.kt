@@ -434,6 +434,34 @@ class ChatViewModel @Inject constructor(
     private var pendingMessageGrouping = 0
     private val platformMembershipMutex = Mutex()
 
+    // Keep instance state above startup: Main.immediate can run collectors and
+    // restoration inline, before the constructor returns. Later initializers can
+    // otherwise expose null backing fields or reset flags already set by recovery.
+    private var unlockingAllTools = false
+
+    val pendingReplies = generationCompletionStore.items
+
+    private val conversationDelegationMutex = Mutex()
+
+    private val _combinedFailures = MutableStateFlow<List<CombinedProfileFailure>>(emptyList())
+    val combinedFailures = _combinedFailures.asStateFlow()
+
+    private val _queuedJobInspection = MutableStateFlow<String?>(null)
+    val queuedJobInspection = _queuedJobInspection.asStateFlow()
+
+    private val _branchNavigation = MutableStateFlow<Int?>(null)
+    val branchNavigation = _branchNavigation.asStateFlow()
+    private var branching = false
+    val regenerateBranch = savedStateHandle.get<Boolean>("regenerate") ?: false
+    private var branchResumed = false
+
+    private var leavingConversation = false
+    private var exitOwnsDiagnosticPrivacy = false
+
+    private var composerRestored = false
+    private var modelsRestored = false
+    private val draftMutex = Mutex()
+
     init {
         fetchChatRoom()
         viewModelScope.launch {
@@ -817,8 +845,6 @@ class ChatViewModel @Inject constructor(
     fun openChatToolSheet() = _isChatToolSheetOpen.update { true }
     fun closeChatToolSheet() = _isChatToolSheetOpen.update { false }
 
-    private var unlockingAllTools = false
-
     fun toggleChatTool(toolId: String) {
         val config = _chatToolConfig.value
         if (config.isToolEnabled(toolId)) {
@@ -875,8 +901,6 @@ class ChatViewModel @Inject constructor(
         _pendingFreeToolConsent.value = null
     }
 
-    val pendingReplies = generationCompletionStore.items
-
     fun acknowledgeDisplayedReplies(displayed: List<MessageV2>, captured: List<dev.chungjungsoo.gptmobile.data.chat.CompletedGeneration>) {
         val byId = displayed.associateBy { it.id }
         viewModelScope.launch {
@@ -885,8 +909,6 @@ class ChatViewModel @Inject constructor(
             }
         }
     }
-
-    private val conversationDelegationMutex = Mutex()
 
     fun setConversationResearch(value: dev.chungjungsoo.gptmobile.data.model.MultiSearchResearchSelection) {
         _chatToolConfig.update { it.copy(research = value.normalized()) }
@@ -1276,9 +1298,6 @@ class ChatViewModel @Inject constructor(
         row.indices.filter { row[it].platformType in _activePlatformUids.value && row[it].platformType !in _disabledPlatformUids.value }.forEach { index -> retryChat(turnIndex, index, action) }
     }
 
-    private val _combinedFailures = MutableStateFlow<List<CombinedProfileFailure>>(emptyList())
-    val combinedFailures = _combinedFailures.asStateFlow()
-
     private fun refreshCombinedFailures() {
         if (_chatRoom.value.conversationMode != ConversationMode.COMBINED) {
             _combinedFailures.value = emptyList()
@@ -1288,7 +1307,6 @@ class ChatViewModel @Inject constructor(
         _combinedFailures.value = grouped.userMessages.indices.flatMap { index ->
             val user = grouped.userMessages[index]
             val row = grouped.assistantMessages.getOrNull(index).orEmpty()
-            if (row.any { it.isCombinedSynthesis() }) return@flatMap emptyList()
             val accepted = acceptedCombinedTurn(user.id) ?: return@flatMap emptyList()
             if (!accepted.context.requested.singlePass) return@flatMap emptyList()
             val activeRows = row.filter { it.platformType in _activePlatformUids.value && it.platformType in accepted.context.requested.participantUids }
@@ -1299,11 +1317,27 @@ class ChatViewModel @Inject constructor(
 
     fun retryCombinedProfile(userId: Int, profileUid: String) {
         val failure = _combinedFailures.value.firstOrNull { it.userMessageId == userId && it.profileUid == profileUid } ?: return
-        if (!failure.retryAllowed || profileUid !in _activePlatformUids.value) return
+        if (!failure.retryAllowed || (failure.retryAfterMillis ?: 0) > System.currentTimeMillis() || profileUid !in _activePlatformUids.value) return
+        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("CombinedRetry", "RETRY_REQUESTED · initiator=USER · userMessageId=$userId · profileUid=$profileUid · priorAttempt=${failure.attemptId} · category=${failure.category}")
         val turn = _groupedMessages.value.userMessages.indexOfFirst { it.id == userId }
         val index = _groupedMessages.value.assistantMessages.getOrNull(turn).orEmpty().indexOfFirst { it.platformType == profileUid }
         if (turn < 0 || index < 0) return
         retryChat(turn, index, dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.RETRY_FAILED_STAGE)
+    }
+
+    fun canCombineAvailable(userId: Int): Boolean {
+        val grouped = _groupedMessages.value
+        val index = grouped.userMessages.indexOfFirst { it.id == userId }
+        val user = grouped.userMessages.getOrNull(index) ?: return false
+        val row = grouped.assistantMessages.getOrNull(index).orEmpty().filter { it.platformType in _activePlatformUids.value }
+        return combinedSynthesisInputs(row, _agentRunsById.value, _platformsInApp.value.associate { it.uid to it.name }, _chatPlatformModels.value, user.content) != null
+    }
+
+    fun combineAvailableResults(userId: Int) {
+        if (!canCombineAvailable(userId)) return
+        val accepted = acceptedCombinedTurn(userId) ?: return
+        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("CombinedSynthesis", "COMBINE_AVAILABLE · initiator=USER · userMessageId=$userId")
+        viewModelScope.launch { agentRunCoordinator.resumeCombinedCollection(_chatRoom.value.id, userId, accepted.context.rootBudgetId, "USER_COMBINE_AVAILABLE") }
     }
 
     fun retryCombinedMerge(turnIndex: Int) {
@@ -1311,8 +1345,6 @@ class ChatViewModel @Inject constructor(
         if (index >= 0) retryChat(turnIndex, index, dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.RETRY_WRITING)
     }
 
-    private val _queuedJobInspection = MutableStateFlow<String?>(null)
-    val queuedJobInspection = _queuedJobInspection.asStateFlow()
     fun dismissQueuedJobInspection() {
         _queuedJobInspection.value = null
     }
@@ -1715,12 +1747,6 @@ class ChatViewModel @Inject constructor(
         _attachmentNotice.update { "Failed to copy attachment." }
     }
 
-    private val _branchNavigation = MutableStateFlow<Int?>(null)
-    val branchNavigation = _branchNavigation.asStateFlow()
-    private var branching = false
-    val regenerateBranch = savedStateHandle.get<Boolean>("regenerate") ?: false
-    private var branchResumed = false
-
     fun consumeBranchNavigation() {
         _branchNavigation.value = null
     }
@@ -1772,9 +1798,6 @@ class ChatViewModel @Inject constructor(
             _attachmentNotice.value = "Memories learned from this conversation were removed."
         }
     }
-
-    private var leavingConversation = false
-    private var exitOwnsDiagnosticPrivacy = false
 
     fun leaveConversation(done: () -> Unit) {
         if (leavingConversation) return
@@ -2419,10 +2442,6 @@ class ChatViewModel @Inject constructor(
         val features: dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
     )
 
-    private var composerRestored = false
-    private var modelsRestored = false
-    private val draftMutex = Mutex()
-
     @OptIn(kotlinx.coroutines.FlowPreview::class)
     private fun observeComposerDraft() {
         viewModelScope.launch {
@@ -2878,7 +2897,7 @@ class ChatViewModel @Inject constructor(
         }
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
             "CombinedSynthesis",
-            "SYNTHESIS_INPUT_FROZEN · runId=$synthesisRunId · sourceCount=${attributedSources.size} · profileUids=${attributedSources.map { it.platformUid }.distinct().joinToString(",")} · candidateUnits=${dev.chungjungsoo.gptmobile.data.agent.CombinedContentCoverage(attributedSources).units.size} · promptChars=${synthesisPrompt.length} · protocol=PASSAGES_V2"
+            "SYNTHESIS_INPUT_FROZEN · trigger=LEGACY_STATE_HANDOFF · runId=$synthesisRunId · sourceCount=${attributedSources.size} · profileUids=${attributedSources.map { it.platformUid }.distinct().joinToString(",")} · candidateUnits=${dev.chungjungsoo.gptmobile.data.agent.CombinedClaimSemantics.records(attributedSources).size} · promptChars=${synthesisPrompt.length} · protocol=PASSAGES_V2"
         )
         val run = AgentRunDraft(
             runId = synthesisRunId,

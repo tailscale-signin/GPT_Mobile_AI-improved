@@ -10,8 +10,11 @@ import android.os.SystemClock
 import android.view.View
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.security.AndroidAppLock
+import kotlinx.coroutines.launch
 
 /** UI privacy only: background generation follows the separate background-work setting. */
 open class ProtectedActivity : ComponentActivity() {
@@ -20,6 +23,14 @@ open class ProtectedActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        window.decorView.visibility = View.INVISIBLE
+        dev.chungjungsoo.gptmobile.data.security.DevicePrivacySettings.initialize(this)
+        lifecycleScope.launch {
+            repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.RESUMED) {
+                dev.chungjungsoo.gptmobile.data.security.DevicePrivacySettings.state.collect { applyPrivacy(it) }
+            }
+        }
         if (Build.VERSION.SDK_INT >= 34) overrideActivityTransition(OVERRIDE_TRANSITION_CLOSE, R.anim.back_fade_in, R.anim.back_fade_out)
     }
 
@@ -31,9 +42,17 @@ open class ProtectedActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        val preferences = getSharedPreferences("device_privacy", MODE_PRIVATE)
-        if (preferences.getBoolean("secure_screen", false) || preferences.getBoolean("app_lock", false)) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE) else window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        if (!preferences.getBoolean("app_lock", false)) {
+        applyPrivacy(dev.chungjungsoo.gptmobile.data.security.DevicePrivacySettings.state.value)
+    }
+
+    private fun applyPrivacy(privacy: dev.chungjungsoo.gptmobile.data.security.DevicePrivacySnapshot?) {
+        if (privacy == null) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            window.decorView.visibility = View.INVISIBLE
+            return
+        }
+        if (privacy.secureScreen || privacy.appLock) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE) else window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        if (!privacy.appLock) {
             authenticated = false
             window.decorView.visibility = View.VISIBLE
             return

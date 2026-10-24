@@ -1,0 +1,18 @@
+# The pinned registry eagerly probes every compiled accelerator. Keep CPU startup
+# independent of vendor drivers; JNI explicitly registers only the selected GPU.
+set(registry "${SOURCE_DIR}/ggml/src/ggml-backend-reg.cpp")
+file(READ "${registry}" original)
+set(patched "${original}")
+foreach(backend vk opencl)
+    set(needle "register_backend(ggml_backend_${backend}_reg());")
+    set(replacement "/* GPTMobile: explicit ${backend} registration in JNI. */")
+    string(FIND "${patched}" "${needle}" found)
+    string(FIND "${patched}" "${replacement}" already_patched)
+    if(found EQUAL -1 AND already_patched EQUAL -1)
+        message(FATAL_ERROR "Pinned backend registry changed: ${backend}")
+    endif()
+    string(REPLACE "${needle}" "${replacement}" patched "${patched}")
+endforeach()
+if(NOT patched STREQUAL original)
+    file(WRITE "${registry}" "${patched}")
+endif()

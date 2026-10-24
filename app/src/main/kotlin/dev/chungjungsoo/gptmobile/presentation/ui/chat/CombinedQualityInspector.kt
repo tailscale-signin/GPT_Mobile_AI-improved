@@ -56,6 +56,9 @@ internal fun CombinedQualityInspector(report: CombinedQualityReport, answer: Str
         Column(Modifier.padding(12.dp)) {
             Text("Combined quality · " + report.status, style = MaterialTheme.typography.titleSmall)
             Text("Delivery: ${report.deliveredScopeStatus} · evidence checks: ${report.verificationStatus}", style = MaterialTheme.typography.labelSmall)
+            Text("Contributions supplied: ${report.includedProfileUids.size} · profiles with established text links: ${report.representedProfileUids.size}", style = MaterialTheme.typography.labelSmall)
+            Text("Length: ${report.lengthCompliance} · required topics: ${report.topicCoverage} · source links: ${report.sourceLinkStatus}", style = MaterialTheme.typography.labelSmall)
+            Text("Uncertain source links are not evidence that material was omitted.", style = MaterialTheme.typography.labelSmall)
             Text("Revision: ${report.revisionId} · word counter: ${report.wordCounterVersion}", style = MaterialTheme.typography.labelSmall)
             Text("${report.wordCount} words · ${report.repairRounds} repair attempts · ${report.repairAccepted} accepted · ${report.repairRejected} rejected · ${report.duplicatePassagesRemoved} duplicates removed", style = MaterialTheme.typography.labelSmall)
             Text("${report.lexicalMissing}/${report.sourceUnits} unresolved lexical hints · semantic/factual verification: not certified", style = MaterialTheme.typography.labelSmall)

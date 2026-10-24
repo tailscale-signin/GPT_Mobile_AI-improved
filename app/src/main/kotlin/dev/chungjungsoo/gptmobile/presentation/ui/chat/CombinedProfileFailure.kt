@@ -15,7 +15,8 @@ data class CombinedProfileFailure(
     val details: String,
     val retryAllowed: Boolean,
     val applicationFailure: Boolean = false,
-    val retryAfterMillis: Long? = null
+    val retryAfterMillis: Long? = null,
+    val category: String = "INCOMPLETE"
 )
 
 internal fun combinedProfileFailures(
@@ -36,9 +37,11 @@ internal fun combinedProfileFailures(
     val assessed = CombinedContributionUsability.assess(run.status, content, allowPartial = true, request = request, demo = demo, finishReason = generation?.finishReason, outputTokens = generation?.outputTokens, outputAllowance = generation?.outputAllowance ?: 256.takeIf { uid == "builtin-free-ai_horde" })
     if (run.status == AgentRunStatus.COMPLETED && assessed.admitted && !assessed.usablePartial) return@mapNotNull null
     val details = run.terminalError ?: assessed.reason ?: "Incomplete contribution"
-    val appFailure = details.contains("ForegroundService", true) || details.contains("mAllowStartForeground", true) || details.startsWith("APP_EXECUTION_")
-    val incompatible = details.contains("enforceable", true) || details.contains("unsupported", true) || details.contains("budget-blocked", true)
-    val retryAt = Regex("(?i)rate limited until ([0-9]{10,16})").find(details)?.groupValues?.get(1)?.toLongOrNull()
+    val classified = message.timeline.lastOrNull { it.profileFailure != null }?.profileFailure
+        ?.takeUnless { demo } ?: dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.classify(details, demoExcluded = demo)
+    val appFailure = classified.category == "APP_EXECUTION"
+    val incompatible = !classified.retryAllowed
+    val retryAt = classified.retryAfterMillis
     val reason = when {
         appFailure -> "App execution paused. Open the app to resume."
         incompatible -> "This model or configuration is incompatible. Change it before retrying."
@@ -53,5 +56,5 @@ internal fun combinedProfileFailures(
         assessed.usablePartial -> "The answer is incomplete."
         else -> details.take(180)
     }
-    CombinedProfileFailure(userMessageId, uid, names[uid] ?: uid, models[uid] ?: run.modelSnapshot, message.currentRunId, reason, details, !incompatible, appFailure, retryAt)
+    CombinedProfileFailure(userMessageId, uid, names[uid] ?: uid, models[uid] ?: run.modelSnapshot, message.currentRunId, reason, details, !incompatible, appFailure, retryAt, classified.category)
 }

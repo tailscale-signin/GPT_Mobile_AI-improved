@@ -31,6 +31,7 @@ class LocalModelImportWorker @AssistedInject constructor(
 ) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val uri = inputData.getString(SOURCE)?.let(Uri::parse) ?: return@withContext Result.failure()
+        var retainForCopy = false
         try {
             dev.chungjungsoo.gptmobile.presentation.StartupRecoveryGate.await()
             val notifications = applicationContext.getSystemService(NotificationManager::class.java)
@@ -63,7 +64,8 @@ class LocalModelImportWorker @AssistedInject constructor(
                 is LocalModelImportResult.Success -> Result.success(Data.Builder().putString(MESSAGE, applicationContext.getString(R.string.local_ai_import_done)).putString("modelId", result.record.catalogEntryId).build())
                 is LocalModelImportResult.Failure -> {
                     dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("LocalImport", "IMPORT_FAILED · reason=${result.reason} · detail=${result.message.take(1000)}", "E")
-                    Result.failure(Data.Builder().putString(MESSAGE, result.message.take(1000)).build())
+                    retainForCopy = mode == dev.chungjungsoo.gptmobile.data.localmodel.LocalModelSource.Mode.LINK && result.reason == LocalModelImportResult.Failure.Reason.LINK_UNSUPPORTED
+                    Result.failure(Data.Builder().putString(MESSAGE, result.message.take(1000)).putBoolean(COPY_AVAILABLE, retainForCopy).build())
                 }
             }
         } catch (cancelled: CancellationException) {
@@ -73,7 +75,7 @@ class LocalModelImportWorker @AssistedInject constructor(
             Result.failure(Data.Builder().putString(MESSAGE, failure.message?.take(1000) ?: "Import could not finish; choose the source again.").build())
         } finally {
             // Cleanup must also run when the UI has closed or this job is canceled.
-            if (inputData.getBoolean(OWNS_GRANT, false)) {
+            if (inputData.getBoolean(OWNS_GRANT, false) && !retainForCopy) {
                 withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) {
                     dev.chungjungsoo.gptmobile.data.localmodel.LinkedModelSources.initialize(applicationContext)
                     if (!dev.chungjungsoo.gptmobile.data.localmodel.LinkedModelSources.usesGrant(uri)) {
@@ -88,6 +90,7 @@ class LocalModelImportWorker @AssistedInject constructor(
         const val SOURCE = "source"
         const val FOLDER = "folder"
         const val MODE = "mode"
+        const val COPY_AVAILABLE = "copyAvailable"
         const val COPY_TO_APP = "copyToApp"
         const val OWNS_GRANT = "ownsGrant"
         const val BYTES = "bytes"

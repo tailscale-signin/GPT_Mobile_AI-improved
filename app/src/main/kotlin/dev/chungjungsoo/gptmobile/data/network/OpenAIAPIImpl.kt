@@ -93,6 +93,7 @@ class OpenAIAPIImpl @Inject constructor(
                 config.token?.let { bearerAuth(it) }
                 config.extraHeaders.forEach { (key, value) -> header(key, value) }
             }.execute { response ->
+                config.freeDiagnostics?.responded()
                 response.status.isSuccess()
             }
         } catch (_: Exception) {
@@ -158,11 +159,12 @@ class OpenAIAPIImpl @Inject constructor(
                 val legacyResponse = pollinationsCompletion {
                     FreeAiRequestLimiter.shared.withRequest(free) {
                         val admittedUrl = requestPreparation.preparePollinationsGet(prompt, config)
-                        config.freeDiagnostics?.requestSent = true
+                        config.freeDiagnostics?.attempted()
                         networkClient().prepareGet(admittedUrl) {
                             timeout { requestTimeoutMillis = timeoutSeconds.coerceIn(15, 120) * 1_000L }
                             accept(ContentType.Text.Plain)
                         }.execute { response ->
+                            config.freeDiagnostics?.responded()
                             PollinationsResponse(response.status.value, response.body<String>(), response.headers[HttpHeaders.ContentType], response.headers[HttpHeaders.RetryAfter])
                         }
                     }
@@ -181,7 +183,7 @@ class OpenAIAPIImpl @Inject constructor(
                 val admittedPayload = requestPreparation.prepare(NetworkClient.openAIJson.encodeToString(preparedRequest), config, preparedRequest.model, null)
                 if (config.captureGenerationReceipt || config.requestRole == "synthesis") config.freeDiagnostics?.admission?.outputTokens?.toInt()?.let { emit(ChatCompletionChunk(serializedOutputTokens = it)) }
                 config.freeDiagnostics?.stage = "dispatch"
-                config.freeDiagnostics?.requestSent = true
+                config.freeDiagnostics?.attempted()
                 networkClient().preparePost(endpoint) {
                     applyPlatformStreamingTimeout(timeoutSeconds, workerBudget)
                     contentType(ContentType.Application.Json)
@@ -191,6 +193,7 @@ class OpenAIAPIImpl @Inject constructor(
                     config.extraHeaders.forEach { (key, value) -> header(key, value) }
                     if (LocalEndpointConnectionPolicy.freshConnection(endpoint)) header(HttpHeaders.Connection, "close")
                 }.execute { response ->
+                    config.freeDiagnostics?.responded()
                     if (!response.status.isSuccess()) {
                         val errorBody = if (free != null) readFreeErrorBody(response) else response.body<String>()
                         if (free != null) {
@@ -305,8 +308,9 @@ class OpenAIAPIImpl @Inject constructor(
                             if (usable) {
                                 dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.recordResponse(free, chunk.model, response.headers["X-RateLimit-Remaining"] ?: response.headers["X-RateLimit-Remaining-Output"])
                             } else {
-                                dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.recordFailure(free, chunk.error?.message ?: "No visible answer received")
-                                dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.record(config, preparedRequest.model, chunk.error?.message ?: "No visible answer received", status = 200, terminal = true)
+                                if (chunk.error == null) config.freeDiagnostics?.category = noVisibleAnswerCategory(chunk.choices.orEmpty().any { !it.effectiveDelta.effectiveReasoning.isNullOrBlank() }, chunk.choices.orEmpty().any { it.finishReason == "length" })
+                                dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.recordTerminalFailure(free, preparedRequest.model, config.freeDiagnostics?.category?.name ?: chunk.error?.message ?: "No visible answer received")
+                                dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.record(config, preparedRequest.model, chunk.error?.message ?: "No visible answer received", status = 200, retryAt = dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.status.value[free]?.retryAt, terminal = true)
                             }
                         }
                         if (free != null && !chunk.model.isNullOrBlank()) dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("FreeProvider", "MODEL_RESOLVED · profile=${config.profileUid} · requested=${request.model} · resolved=${chunk.model} · capabilityVerification=unverified")
@@ -317,7 +321,8 @@ class OpenAIAPIImpl @Inject constructor(
                                 chunk.choices.orEmpty().any { !it.effectiveDelta.content.isNullOrBlank() },
                                 chunk.choices.orEmpty().any { !it.effectiveDelta.toolCalls.isNullOrEmpty() },
                                 chunk.error != null,
-                                chunk.choices.orEmpty().any { it.finishReason == "length" }
+                                chunk.choices.orEmpty().any { it.finishReason == "length" },
+                                chunk.choices.orEmpty().any { !it.effectiveDelta.effectiveReasoning.isNullOrBlank() }
                             )?.let { emit(it) }
                         }
                         return@execute
@@ -327,6 +332,7 @@ class OpenAIAPIImpl @Inject constructor(
                     var firstChunk = true
                     var receivedToolCalls = false
                     var receivedAnswer = false
+                    var receivedReasoning = false
                     var receivedError = false
                     var reachedOutputLimit = false
                     var parseFailures = 0
@@ -374,6 +380,7 @@ class OpenAIAPIImpl @Inject constructor(
                         }
                         receivedTerminal = receivedTerminal || chunk.error != null || chunk.choices.orEmpty().any { it.finishReason != null }
                         if (receivedTerminal) terminalDrain.markTerminal()
+                        receivedReasoning = receivedReasoning || chunk.choices.orEmpty().any { !it.effectiveDelta.effectiveReasoning.isNullOrBlank() }
                         receivedAnswer = receivedAnswer || chunk.choices.orEmpty().any { !it.effectiveDelta.content.isNullOrBlank() }
                         receivedError = receivedError || chunk.error != null
                         if (free != null && chunk.error != null) dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.record(config, preparedRequest.model, chunk.error.message, status = 200, body = data, event = "error", terminal = true)
@@ -394,14 +401,15 @@ class OpenAIAPIImpl @Inject constructor(
                     if (parseFailures > 0 && !receivedAssistantPayload && !receivedError) {
                         emit(ChatCompletionChunk(error = ErrorDetail("STREAM_PARSE_FAILURE: $parseFailures response chunks could not be decoded", "stream_parse_error")))
                     }
-                    if (free != null) freeResponseOutcome(free, receivedAnswer, receivedToolCalls, receivedError, reachedOutputLimit)?.let { emit(it) }
                     if (free != null) {
                         if (!receivedError && (receivedAnswer || receivedToolCalls)) {
                             dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.recordResponse(free, resolvedFreeModel, response.headers["X-RateLimit-Remaining"] ?: response.headers["X-RateLimit-Remaining-Output"])
                         } else {
-                            dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.recordFailure(free, if (receivedError) "Provider returned an error" else "No visible answer received")
-                            if (config.freeDiagnostics?.recorded != true) dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.record(config, preparedRequest.model, if (receivedError) "Provider returned an error" else "No visible answer received", status = 200, terminal = true)
+                            if (!receivedError) config.freeDiagnostics?.category = noVisibleAnswerCategory(receivedReasoning, reachedOutputLimit)
+                            dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.recordTerminalFailure(free, preparedRequest.model, config.freeDiagnostics?.category?.name ?: "Provider returned an error")
+                            if (config.freeDiagnostics?.recorded != true) dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.record(config, preparedRequest.model, if (receivedError) "Provider returned an error" else "No visible answer received", status = 200, retryAt = dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.status.value[free]?.retryAt, terminal = true)
                         }
+                        freeResponseOutcome(free, receivedAnswer, receivedToolCalls, receivedError, reachedOutputLimit, receivedReasoning)?.let { emit(it) }
                     }
                     // If no chunks were emitted but metadata was present, emit a metadata chunk
                     if (firstChunk && gatewayMetadata != null) {
@@ -449,11 +457,12 @@ class OpenAIAPIImpl @Inject constructor(
             }
             config.freeDiagnostics?.apply {
                 if (category == null) category = freeFailureCategory(e)
+                if (category == FreeFailureCategory.DNS_RESOLUTION_FAILED) dnsFailed(runCatching { java.net.URI(config.apiUrl).host }.getOrNull().orEmpty())
                 if (e is FreeAiRateLimitException) cooldown = e.cooldown
             }
             config.freeProvider?.let { provider ->
                 if (config.freeDiagnostics?.recorded != true) {
-                    val networkFailure = e is java.io.IOException || e is java.nio.channels.UnresolvedAddressException
+                    val networkFailure = e is java.io.IOException || e is java.nio.channels.UnresolvedAddressException || config.freeDiagnostics?.category == FreeFailureCategory.DNS_RESOLUTION_FAILED
                     val cooldown = FreeAiRequestLimiter.shared.cooldownUntilMillis(provider, request.model, freeCredentialIdentity(provider, config.token))
                     val readiness = when {
                         e is FreeAiRateLimitException -> dev.chungjungsoo.gptmobile.data.free.FreeGenerationReadiness.RATE_LIMITED
@@ -507,7 +516,7 @@ class OpenAIAPIImpl @Inject constructor(
                 config.freeDiagnostics?.stage = "preparation"
                 val admittedPayload = requestPreparation.prepare(NetworkClient.openAIJson.encodeToString(preparedRequest), config, preparedRequest.model, null)
                 config.freeDiagnostics?.stage = "dispatch"
-                config.freeDiagnostics?.requestSent = true
+                config.freeDiagnostics?.attempted()
                 networkClient().preparePost(endpoint) {
                     applyPlatformStreamingTimeout(timeoutSeconds, workerBudget)
                     contentType(ContentType.Application.Json)
@@ -516,6 +525,7 @@ class OpenAIAPIImpl @Inject constructor(
                     config.token?.let { bearerAuth(it) }
                     config.extraHeaders.forEach { (key, value) -> header(key, value) }
                 }.execute { response ->
+                    config.freeDiagnostics?.responded()
                     if (!response.status.isSuccess()) {
                         val errorBody = response.body<String>()
                         val parameter = rejectedSamplingParameter(errorBody)
@@ -646,9 +656,16 @@ private data class OpenAIFileResponse(
     val mimeType: String? = null
 )
 
-internal fun freeResponseOutcome(provider: FreeAiProvider, hasAnswer: Boolean, hasTools: Boolean, hasError: Boolean, limited: Boolean): ChatCompletionChunk? = when {
+internal fun noVisibleAnswerCategory(hasReasoning: Boolean, limited: Boolean): FreeFailureCategory =
+    if (hasReasoning && limited) FreeFailureCategory.REASONING_BUDGET_EXHAUSTED else FreeFailureCategory.NO_VISIBLE_ANSWER
+
+internal fun freeResponseOutcome(provider: FreeAiProvider, hasAnswer: Boolean, hasTools: Boolean, hasError: Boolean, limited: Boolean, hasReasoning: Boolean = false): ChatCompletionChunk? = when {
     hasError || hasTools -> null
+    !hasAnswer -> {
+        val category = noVisibleAnswerCategory(hasReasoning, limited)
+        val retry = dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.status.value[provider]?.retryAt?.takeIf { it > System.currentTimeMillis() }?.let { " Next eligible retry: ${java.time.Instant.ofEpochMilli(it)}." }.orEmpty()
+        ChatCompletionChunk(error = ErrorDetail(message = "${category.name}: ${provider.displayName} returned ${if (hasReasoning) "reasoning without a visible answer" else "no visible answer"}. ${category.action}.$retry", type = category.name.lowercase()))
+    }
     limited -> ChatCompletionChunk(model = provider.model, applicationNotice = "This model reached its response limit. Would you like me to continue?", choices = listOf(Choice(delta = Delta(content = null), finishReason = "length")))
-    !hasAnswer -> ChatCompletionChunk(error = ErrorDetail(message = "${provider.displayName} returned no answer. Retry later or choose another Free provider.", type = "empty_response"))
     else -> null
 }

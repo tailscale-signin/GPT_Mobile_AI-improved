@@ -1,10 +1,5 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -26,9 +21,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.repeatOnLifecycle
 import dev.chungjungsoo.gptmobile.data.agent.displayResult
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
@@ -41,6 +35,14 @@ import dev.chungjungsoo.gptmobile.presentation.ui.thinking.ThinkingParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+
+internal data class PreparedAssistantDisplay(val thinking: String = "", val citationText: String = "", val response: String = "")
+
+internal fun prepareAssistantDisplay(raw: String, combined: Boolean): PreparedAssistantDisplay {
+    val parsed = ThinkingParser.extractThinking(raw)
+    val citationText = dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(parsed.response)
+    return PreparedAssistantDisplay(parsed.thinking.orEmpty(), citationText, if (combined) citationText else answerWithoutSourceLists(citationText))
+}
 
 private data class PreparedResearchBlocks(
     val response: String,
@@ -122,17 +124,17 @@ internal fun AssistantChronologicalContent(
                         Text(item.content, Modifier.padding(vertical = 8.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     AssistantTimelineItemType.TEXT -> {
-                        val parsed = androidx.compose.runtime.remember(item.content) { ThinkingParser.extractThinking(item.content) }
-                        if (expanded && showReasoning && !parsed.thinking.isNullOrBlank()) {
-                            Text(parsed.thinking.orEmpty(), Modifier.padding(vertical = 8.dp), style = MaterialTheme.typography.bodySmall)
+                        // Retain the previous committed display while the next streamed
+                        // snapshot is prepared. A message key prevents cross-message reuse.
+                        val preparedDisplay by produceState(PreparedAssistantDisplay(), item.content, combinedWording != null) {
+                            if (isLoading) delay(32)
+                            value = withContext(Dispatchers.Default) { prepareAssistantDisplay(item.content, combinedWording != null) }
                         }
-                        // Resolve cards from the complete source-bearing text before display cleanup.
-                        val citationText = dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.text(item.content)
-                        val response = remember(parsed.response, combinedWording != null) {
-                            // Combined citations belong to explicit passage provenance, not the
-                            // separate profile/source footer. Keep their clickable URLs intact.
-                            if (combinedWording != null) citationText else answerWithoutSourceLists(citationText)
+                        if (expanded && showReasoning && preparedDisplay.thinking.isNotBlank()) {
+                            Text(preparedDisplay.thinking, Modifier.padding(vertical = 8.dp), style = MaterialTheme.typography.bodySmall)
                         }
+                        val citationText = preparedDisplay.citationText
+                        val response = preparedDisplay.response
                         if (response.isNotBlank()) {
                             if (isError) {
                                 Text(citationText, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(vertical = 8.dp))
@@ -206,13 +208,16 @@ internal fun isContextDiagnostic(value: String): Boolean = value.startsWith("Con
 private fun GenerationStatusText(toolEvents: List<ToolEvent>, timeline: List<AssistantTimelineItem>) {
     var dots by remember { mutableIntStateOf(1) }
     var phase by remember { mutableIntStateOf(0) }
-    LaunchedEffect(Unit) {
-        var ticks = 0
-        while (true) {
-            delay(500)
-            dots = dots % 3 + 1
-            ticks++
-            if (ticks % 10 == 0) phase++
+    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(lifecycle) {
+        lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+            var ticks = 0
+            while (true) {
+                delay(500)
+                dots = dots % 3 + 1
+                ticks++
+                if (ticks % 10 == 0) phase++
+            }
         }
     }
 
@@ -233,25 +238,10 @@ private fun GenerationStatusText(toolEvents: List<ToolEvent>, timeline: List<Ass
     }
     val suffix = ".".repeat(dots)
 
-    val transition = rememberInfiniteTransition(label = "generationStatusGradient")
-    val sweep by transition.animateFloat(
-        initialValue = -250f,
-        targetValue = 900f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1800),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "generationStatusSweep"
-    )
-    val primary = MaterialTheme.colorScheme.primary
-    val brush = Brush.linearGradient(
-        colors = listOf(primary.copy(alpha = 0.35f), primary, primary.copy(alpha = 0.35f)),
-        start = Offset(sweep, 0f),
-        end = Offset(sweep + 300f, 0f)
-    )
     Text(
         text = base.removeSuffix("...").removeSuffix(".") + suffix,
-        style = MaterialTheme.typography.labelSmall.copy(brush = brush),
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.primary,
         modifier = Modifier.padding(bottom = 8.dp)
     )
 }

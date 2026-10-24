@@ -17,6 +17,9 @@ enum class FreeFailureCategory(val action: String) {
     PROVIDER_UNAVAILABLE("Choose another provider"),
     REQUEST_INVALID("Review the request settings"),
     QUEUE_JOB_PENDING("Check the saved job or choose another provider"),
+    REASONING_BUDGET_EXHAUSTED("Choose a writer with verified reasoning controls or change the output settings"),
+    NO_VISIBLE_ANSWER("Retry with different model settings or choose another provider"),
+    DNS_RESOLUTION_FAILED("Check the current network, DNS or VPN and retry"),
     NETWORK_ERROR("Check your connection and retry")
 }
 
@@ -72,6 +75,12 @@ internal fun freeFailureCategory(error: Exception): FreeFailureCategory = when (
     is FreeProviderException -> error.category
     is FreeAiRateLimitException -> FreeFailureCategory.LOCAL_COOLDOWN_ACTIVE
     is QueueTerminalFailure -> if (error.remoteTerminal == true) FreeFailureCategory.HOSTED_GENERATION_FAILED else FreeFailureCategory.NETWORK_ERROR
-    is java.io.IOException, is java.nio.channels.UnresolvedAddressException, is io.ktor.client.plugins.HttpRequestTimeoutException -> FreeFailureCategory.NETWORK_ERROR
-    else -> if (error.cause is java.io.IOException) FreeFailureCategory.NETWORK_ERROR else FreeFailureCategory.REQUEST_INVALID
+    else -> {
+        val causes = generateSequence<Throwable>(error) { it.cause }.take(8).toList()
+        when {
+            causes.any { it is java.net.UnknownHostException || it is java.nio.channels.UnresolvedAddressException } -> FreeFailureCategory.DNS_RESOLUTION_FAILED
+            causes.any { it is java.io.IOException || it is io.ktor.client.plugins.HttpRequestTimeoutException } -> FreeFailureCategory.NETWORK_ERROR
+            else -> FreeFailureCategory.REQUEST_INVALID
+        }
+    }
 }

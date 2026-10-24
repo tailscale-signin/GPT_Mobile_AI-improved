@@ -30,6 +30,17 @@ internal class NativeOperationJournal(
         durableWrite(metadata, listOf(System.currentTimeMillis(), processId(), stage.take(64), requestId.take(128), generation.take(128)).joinToString("\n"))
     }
 
+    /** Advance the same operation; before() would mistake it for an interruption. */
+    @Synchronized
+    fun stage(stage: String, operationId: Long) {
+        check(pending.isFile) { "Native operation has not been journaled" }
+        val fields = metadata.readLines().toMutableList()
+        while (fields.size < 6) fields += ""
+        fields[2] = stage.take(64)
+        fields[5] = operationId.toString()
+        durableWrite(metadata, fields.joinToString("\n"))
+    }
+
     private fun recoverInterrupted() {
         if (pending.isFile) {
             val interrupted = pending.readText()
@@ -43,11 +54,17 @@ internal class NativeOperationJournal(
             durableWrite(File(directory, "last-interruption"), listOf(interrupted, exitEvidence).joinToString("\n"))
             dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
                 "NativeRuntime",
-                "NATIVE_OPERATION_INTERRUPTED · stage=${fields.getOrNull(2)?.take(40) ?: "unknown"} · exit=$exitEvidence · quarantined=${cause !in setOf("LOW_MEMORY", "USER_REQUESTED", "USER_STOPPED")} · exactTupleHash=${interrupted.take(12)}",
+                "NATIVE_OPERATION_INTERRUPTED · stage=${fields.getOrNull(2)?.take(40) ?: "unknown"} · operation=${fields.getOrNull(5) ?: "unknown"} · exit=$exitEvidence · quarantined=${cause !in setOf("LOW_MEMORY", "USER_REQUESTED", "USER_STOPPED")} · exactTupleHash=${interrupted.take(12)}",
                 if (cause == "LOW_MEMORY") "W" else "E"
             )
             check(pending.delete())
         }
+    }
+
+    @Synchronized
+    fun isQuarantined(tuple: String): Boolean {
+        recoverInterrupted()
+        return blocked(digest(tuple)).exists()
     }
 
     @Synchronized

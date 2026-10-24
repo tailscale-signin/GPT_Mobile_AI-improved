@@ -71,6 +71,15 @@ object FreeCatalogState {
         }
     }
 
+    /** A new network invalidates reachability, without clearing provider cooldowns. */
+    fun networkChanged() {
+        _status.update { current ->
+            current.mapValues { (_, state) ->
+                if (state.readiness == FreeGenerationReadiness.UNREACHABLE) state.copy(readiness = FreeGenerationReadiness.UNTESTED, reachable = null, message = "Network changed · reachability not checked") else state
+            }
+        }
+    }
+
     fun models(provider: FreeAiProvider): List<FreeModelOption> = if (provider == FreeAiProvider.LLM7 && _catalog.value.containsKey(provider)) _catalog.value[provider].orEmpty() else (_catalog.value[provider].orEmpty().map { mergeLimits(it, FreeModelCatalog.defaults(provider).firstOrNull { known -> known.id == it.id }) } + FreeModelCatalog.defaults(provider)).distinctBy { it.id }
     fun model(provider: FreeAiProvider, id: String): FreeModelOption? = models(provider).firstOrNull { it.id == id }
     fun requireModel(provider: FreeAiProvider, id: String): FreeModelOption = requireNotNull(model(provider, id)) { "This model is not in ${provider.displayName}'s free catalog. Refresh models in Free Models settings." }

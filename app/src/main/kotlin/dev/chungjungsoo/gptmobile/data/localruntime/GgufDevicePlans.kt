@@ -18,7 +18,7 @@ internal data class GgufDeviceSample(
     val benchmark: Boolean
 )
 
-/** Key includes artifact, runtime/app build, firmware, driver, context and batch configuration. */
+/** Key includes artifact, runtime/app build, firmware, context and batch configuration. */
 internal class GgufDevicePlans(private val directory: File) {
     fun read(key: String): List<GgufDeviceSample> = runCatching {
         val file = File(directory, "$key.json")

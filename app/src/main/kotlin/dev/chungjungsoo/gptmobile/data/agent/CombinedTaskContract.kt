@@ -120,8 +120,19 @@ internal object CombinedHistoryOutline {
                 else -> 5
             }
         }.toSet()
-        // Dates identify the described event more reliably than a background mention of Rome or Napoleon.
-        if (dated.isNotEmpty()) return dated
+        val centuries = Regex("(?i)\\b([1-9][0-9]?)(?:st|nd|rd|th)(?=(?:\\s*(?:and|to|[-–])\\s*(?:(?:early|mid|late)\\s+)?[1-9][0-9]?(?:st|nd|rd|th))?\\s+centur(?:y|ies)\\b)")
+            .findAll(text).map { it.groupValues[1].toInt() }.filter { it <= 21 }.map { century ->
+                when {
+                    century <= 5 -> 0
+                    century <= 15 -> 1
+                    century <= 18 -> 2
+                    century == 19 -> 3
+                    century == 20 -> 4
+                    else -> 5
+                }
+            }.toSet()
+        // Explicit centuries are scope markers even when the same sentence names a later event.
+        if (dated.isNotEmpty() || centuries.isNotEmpty()) return dated + centuries
         if (Regex("(?i)\\b(?:after|following)\\b.{0,45}\\b(?:rome|roman|collapse)\\b|\\b(?:fall|collapse) of (?:rome|the roman empire)\\b").containsMatchIn(text)) return setOf(1)
         return cues.indices.filter { cues[it].containsMatchIn(text) }.toSet()
     }

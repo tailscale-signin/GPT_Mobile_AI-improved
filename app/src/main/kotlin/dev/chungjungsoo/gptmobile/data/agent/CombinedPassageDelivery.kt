@@ -41,7 +41,7 @@ data class CombinedClaimReview(
 /** Completion, textual accounting, evidence support and semantic truth are separate dimensions. */
 @Serializable
 data class CombinedQualityReport(
-    val version: Int = 4,
+    val version: Int = 5,
     val answerDigest: String = "",
     val complete: Boolean = false,
     val status: String = "WRITING",
@@ -73,7 +73,12 @@ data class CombinedQualityReport(
     val requestedPolicyDigest: String = "",
     val effectivePlanDigest: String = "",
     val includedProfileUids: Set<String> = emptySet(),
-    val representedProfileUids: Set<String> = emptySet()
+    val representedProfileUids: Set<String> = emptySet(),
+    val finalAssessment: Boolean = false,
+    val lengthCompliance: String = "NOT_ASSESSED",
+    val topicCoverage: String = "NOT_ASSESSED",
+    val sourceLinkStatus: String = "NOT_ASSESSED",
+    val sourceLinkRejections: Map<String, Int> = emptyMap()
 )
 
 /** One NDJSON record per paragraph permits progressive delivery without leaking protocol data. */

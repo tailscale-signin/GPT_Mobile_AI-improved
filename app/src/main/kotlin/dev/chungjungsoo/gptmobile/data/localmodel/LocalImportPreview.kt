@@ -12,7 +12,8 @@ data class LocalImportPreview(
     val backends: List<String> = emptyList(),
     val contextTokens: Int? = null,
     val assets: Int = 1,
-    val linkProblem: String? = null
+    val linkProblem: String? = null,
+    val availableBytes: Long? = null
 ) {
     companion object {
         private val json = Json { ignoreUnknownKeys = true }

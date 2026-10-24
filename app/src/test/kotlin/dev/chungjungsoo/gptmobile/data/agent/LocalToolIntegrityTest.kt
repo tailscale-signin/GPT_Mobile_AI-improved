@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.agent
 
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -89,7 +90,7 @@ class LocalToolIntegrityTest {
     }
 
     @Test
-    fun timeoutAfterDispatchRemainsUnknown() = runBlocking {
+    fun timeoutAfterDispatchRemainsUnknown() = runTest {
         var executions = 0
         val tool = object : AgentTool {
             override val definition = AgentToolDefinition("send", "Mutation fixture", buildJsonObject { put("type", "object") })
@@ -99,11 +100,19 @@ class LocalToolIntegrityTest {
                 return AgentToolResult(callId, ToolResultContent.Text("done"), false)
             }
         }
-        val result = ToolExecutionBudget(AgentRunLimits(toolTimeoutMillis = 1)).bind(tool).execute("write", JsonObject(emptyMap()))
+        // Virtual time guarantees dispatch happens before the deadline, even on a busy CI runner.
+        val bound = ToolExecutionBudget(AgentRunLimits(toolTimeoutMillis = 1)).bind(tool)
+        val arguments = JsonObject(emptyMap())
+        val result = bound.execute("write", arguments)
         assertEquals(1, executions)
         assertEquals("TIMEOUT_OUTCOME_UNKNOWN", result.errorCode)
         assertTrue(result.dispatched)
         assertTrue(ToolResultEnvelope.encode("send", result).contains("unknown"))
+
+        val retry = bound.execute("write-retry", arguments)
+        assertEquals("RECONCILIATION_REQUIRED", retry.errorCode)
+        assertFalse(retry.dispatched)
+        assertEquals(1, executions)
     }
 
     @Test

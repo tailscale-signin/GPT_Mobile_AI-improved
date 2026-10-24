@@ -4,7 +4,7 @@ import java.util.concurrent.ConcurrentHashMap
 
 /** Observations expire and are scoped to actual endpoint/model/routing, never a provider-wide promise. */
 internal object CombinedWriterObservations {
-    data class Observation(val reasoningDisabled: String, val reasoningOnlyAttempts: Int, val updatedAt: Long, val completedPassages: Int = 0, val malformedAttempts: Int = 0, val emptyAttempts: Int = 0, val queueDelays: Int = 0, val reasoningControl: String = "UNVERIFIED", val servedModel: String? = null, val backend: String? = null, val minimumUsefulOutputAllowance: Int? = null, val stalledOutputAllowance: Int? = null)
+    data class Observation(val reasoningDisabled: String, val reasoningOnlyAttempts: Int, val updatedAt: Long, val completedPassages: Int = 0, val malformedAttempts: Int = 0, val emptyAttempts: Int = 0, val queueDelays: Int = 0, val reasoningControl: String = "UNVERIFIED", val servedModel: String? = null, val backend: String? = null, val minimumUsefulOutputAllowance: Int? = null, val stalledOutputAllowance: Int? = null, val reasoningTokensHighWater: Int = 0, val completeAnswers: Int = 0, val incompleteAnswers: Int = 0, val observedPassages: Int = 0)
     private val resolved = ConcurrentHashMap<String, String>()
     private val observed = ConcurrentHashMap<String, Observation>()
     fun get(key: String): Observation? = observed[resolved[key] ?: key]?.takeIf { System.currentTimeMillis() - it.updatedAt < 24 * 60 * 60_000L }
@@ -12,7 +12,9 @@ internal object CombinedWriterObservations {
         if (observed.size >= 256 && !observed.containsKey(key)) observed.clear()
         val previous = get(key)
         observed[resolved[key] ?: key] = Observation(
-            if (reasoning) {
+            if ((previous?.reasoningTokensHighWater ?: 0) > 0) {
+                "NOT_HONORED"
+            } else if (reasoning) {
                 if (previous?.reasoningControl != null && previous.reasoningControl != "UNVERIFIED") "NOT_HONORED" else "DISABLE_UNVERIFIED"
             } else if (visiblePassages > 0) {
                 "OBSERVED_NO_REASONING"
@@ -21,13 +23,38 @@ internal object CombinedWriterObservations {
             },
             if (reasoning && visiblePassages == 0) (previous?.reasoningOnlyAttempts ?: 0) + 1 else 0,
             System.currentTimeMillis(),
-            completedPassages = (previous?.completedPassages ?: 0) + visiblePassages,
+            completedPassages = previous?.completedPassages ?: 0,
+            observedPassages = (previous?.observedPassages ?: 0) + visiblePassages,
             malformedAttempts = previous?.malformedAttempts ?: 0,
             emptyAttempts = if (!reasoning && visiblePassages == 0) (previous?.emptyAttempts ?: 0) + 1 else 0,
             queueDelays = previous?.queueDelays ?: 0,
             reasoningControl = previous?.reasoningControl ?: "UNVERIFIED", servedModel = previous?.servedModel, backend = previous?.backend,
-            minimumUsefulOutputAllowance = if (visiblePassages > 0) listOfNotNull(previous?.minimumUsefulOutputAllowance, outputAllowance).minOrNull() else previous?.minimumUsefulOutputAllowance,
-            stalledOutputAllowance = if (reasoning && visiblePassages == 0) listOfNotNull(previous?.stalledOutputAllowance, outputAllowance).maxOrNull() else previous?.stalledOutputAllowance
+            minimumUsefulOutputAllowance = previous?.minimumUsefulOutputAllowance,
+            stalledOutputAllowance = if (reasoning && visiblePassages == 0) listOfNotNull(previous?.stalledOutputAllowance, outputAllowance).maxOrNull() else previous?.stalledOutputAllowance,
+            reasoningTokensHighWater = previous?.reasoningTokensHighWater ?: 0, completeAnswers = previous?.completeAnswers ?: 0, incompleteAnswers = previous?.incompleteAnswers ?: 0
+        )
+    }
+    fun recordUsage(key: String, reasoningTokens: Int?, finishReason: String? = null, outputAllowance: Int? = null) {
+        val limited = finishReason?.lowercase() in setOf("length", "max_tokens", "output_limit")
+        if ((reasoningTokens ?: 0) <= 0 && !limited) return
+        val previous = get(key) ?: Observation("UNKNOWN", 0, System.currentTimeMillis())
+        observed[resolved[key] ?: key] = previous.copy(
+            updatedAt = System.currentTimeMillis(),
+            reasoningDisabled = if ((reasoningTokens ?: 0) > 0) "NOT_HONORED" else previous.reasoningDisabled,
+            reasoningTokensHighWater = maxOf(previous.reasoningTokensHighWater, reasoningTokens ?: 0),
+            stalledOutputAllowance = if (limited) listOfNotNull(previous.stalledOutputAllowance, outputAllowance?.takeIf { it > 0 }).maxOrNull() else previous.stalledOutputAllowance
+        )
+    }
+    fun recordDelivery(key: String, report: CombinedQualityReport, outputAllowance: Int?) {
+        if (!report.finalAssessment || report.answerDigest.isBlank() || report.deliveredScopeStatus in setOf("CHECKING", "PENDING")) return
+        val previous = get(key) ?: Observation("UNKNOWN", 0, System.currentTimeMillis())
+        val complete = report.complete && !report.correctionRequired && report.deliveredScopeStatus in setOf("COMPLETED", "COMPLETED_WITH_LIMITS") && report.lengthCompliance == "MET" && report.topicCoverage == "LOCAL_CHECKS_PASSED"
+        observed[resolved[key] ?: key] = previous.copy(
+            updatedAt = System.currentTimeMillis(),
+            completeAnswers = previous.completeAnswers + if (complete) 1 else 0,
+            completedPassages = previous.completedPassages + if (complete) report.passages.size else 0,
+            incompleteAnswers = previous.incompleteAnswers + if (complete) 0 else 1,
+            minimumUsefulOutputAllowance = if (complete) listOfNotNull(previous.minimumUsefulOutputAllowance, outputAllowance).minOrNull() else previous.minimumUsefulOutputAllowance
         )
     }
     fun recordFailure(key: String, category: CombinedRecoveryCategory) {

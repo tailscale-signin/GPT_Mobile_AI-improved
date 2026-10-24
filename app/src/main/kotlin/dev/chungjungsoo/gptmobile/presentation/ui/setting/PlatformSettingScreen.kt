@@ -122,6 +122,8 @@ fun PlatformSettingScreen(
     initialFocus: String = "",
     onNavigateToMcpTools: () -> Unit = {}
 ) {
+    val activationRequest by settingViewModel.pendingProviderActivation.collectAsStateWithLifecycle()
+    activationRequest?.let { ProviderActivationDialog(it, settingViewModel::confirmProviderActivation, settingViewModel::dismissProviderActivation) }
     val features by settingViewModel.featureSettings.collectAsStateWithLifecycle()
     val behavior = features.profileBehavior[settingViewModel.platformUid] ?: dev.chungjungsoo.gptmobile.data.model.ProfileBehaviorSettings()
     var profileTab by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableIntStateOf(initialTab.coerceIn(0, 2)) }

@@ -151,7 +151,7 @@ class AgentToolResolver @Inject constructor(
             return emptyList()
         }
 
-        val freeProfile = platform?.compatibleType == ClientType.FREE
+        val freeProfile = platform?.let { it.compatibleType == ClientType.FREE || dev.chungjungsoo.gptmobile.data.permissions.ProviderPrivacyPolicy.forProfile(it) != null } == true
         val disableRemote = platform?.disableRemoteTools == true
         val disableLocal = platform?.disableLocalTools == true
         val featureSettings = settingRepository.getFeatureSettings()
@@ -621,6 +621,14 @@ class AgentToolResolver @Inject constructor(
         onConnectionError: (String) -> Unit,
         nativeGitHubAlternatives: List<ResolvedAgentTool> = emptyList()
     ): List<ResolvedAgentTool> {
+        fun implicitlyPublic(tool: ResolvedAgentTool): Boolean {
+            if (tool.connectionUid == null) return !dev.chungjungsoo.gptmobile.data.permissions.FreeToolDataPolicy.requiresPersonalPermission(tool.realToolName)
+            // A remote schema or a tool named "web_search" is not a public-data grant.
+            return tool.isWebSearchEngine() &&
+                bindings.any { binding ->
+                    binding.binding.connectionUid == tool.connectionUid && binding.connection?.type in ToolConnectionType.WEB_SEARCH_TYPES
+                }
+        }
         val collisions = resolved.groupBy { it.modelToolName }.filterValues { group -> group.map { it.connectionUid to it.realToolName }.distinct().size > 1 }.keys
         if (collisions.isNotEmpty()) onConnectionError("Ambiguous tool aliases excluded: " + collisions.sorted().joinToString(", "))
         val callable = resolved.filterForToolPolicy("AMBIGUOUS_MODEL_ALIAS") { it.modelToolName !in collisions }.distinctBy { it.modelToolName }
@@ -648,13 +656,11 @@ class AgentToolResolver @Inject constructor(
                 }
             }
             .filterForToolPolicy("FREE_PROFILE_CONSENT_REQUIRED") { tool ->
-                // Discovery stays visible, but runtime consent cannot be bypassed by
-                // Select all, imported chat options or a restored pending prompt.
+                val publicTool = implicitlyPublic(tool)
                 !freeProfile ||
-                    chatToolConfig == null ||
-                    tool.connectionUid == null ||
-                    bindings.none { it.connection?.type == ToolConnectionType.MCP && it.connection?.connectionUid == tool.connectionUid } ||
-                    freeModelToolConsentStore?.isGranted(profileUid, "${tool.connectionUid}:${tool.realToolName}") == true
+                    publicTool ||
+                    platform != null &&
+                    freeModelToolConsentStore?.isGranted(platform, tool.connectionUid?.let { "$it:${tool.realToolName}" } ?: tool.realToolName) == true
             }
             .filterForToolPolicy("CHAT_TOOL_SELECTION") { tool ->
                 if (chatToolConfig == null) {
@@ -760,6 +766,27 @@ class AgentToolResolver @Inject constructor(
                         settingRepository.getFeatureSettings().isToolPluginEnabledForProfile(profileUid, ToolPluginId.connection(connection)) &&
                         previousCheck?.invoke() != false
                 })
+            }
+            .map { resolved ->
+                if (!freeProfile ||
+                    platform == null ||
+                    implicitlyPublic(resolved)
+                ) {
+                    return@map resolved
+                }
+                val id = resolved.connectionUid?.let { "$it:${resolved.realToolName}" } ?: resolved.realToolName
+                val previous = resolved.canReuseResult
+                val permitted: suspend () -> Boolean = {
+                    val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
+                    current != null &&
+                        current.enabled &&
+                        dev.chungjungsoo.gptmobile.data.permissions.ProviderPrivacyPolicy.scope(current) == dev.chungjungsoo.gptmobile.data.permissions.ProviderPrivacyPolicy.scope(platform) &&
+                        freeModelToolConsentStore?.isGranted(current, id) == true
+                }
+                resolved.copy(
+                    tool = dev.chungjungsoo.gptmobile.data.permissions.PersonalDataGuardedTool(resolved.tool, permitted),
+                    canReuseResult = { permitted() && previous?.invoke() != false }
+                )
             }
             .map { resolved -> if (statistics == null) resolved else resolved.copy(tool = observedChild(resolved.tool, resolved.realToolName, resolved.connectionUid)) }
             .sortedBy { it.modelToolName }

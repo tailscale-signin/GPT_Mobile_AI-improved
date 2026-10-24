@@ -30,6 +30,34 @@ interface AgentPersistenceDao : RunPolicySnapshotAccess {
     @Insert
     suspend fun insertChatRoom(chatRoom: ChatRoomV2): Long
 
+    @Query("SELECT * FROM combined_final_messages WHERE chatId = :chatId AND userMessageId = :userId")
+    suspend fun combinedFinalMessage(chatId: Int, userId: Int): dev.chungjungsoo.gptmobile.data.database.entity.CombinedFinalMessage?
+
+    @Insert
+    suspend fun insertCombinedFinalMessage(row: dev.chungjungsoo.gptmobile.data.database.entity.CombinedFinalMessage)
+
+    @Query("SELECT w.* FROM provider_waits w JOIN agent_runs r ON r.run_id = w.runId WHERE r.status IN ('WAITING_PROVIDER_LIMIT', 'QUEUED', 'RUNNING')")
+    suspend fun providerWaits(): List<dev.chungjungsoo.gptmobile.data.agent.ProviderWait>
+
+    @Upsert
+    suspend fun saveProviderWait(row: dev.chungjungsoo.gptmobile.data.agent.ProviderWait)
+
+    @Query("UPDATE agent_runs SET status = 'WAITING_PROVIDER_LIMIT', terminal_error = NULL WHERE run_id = :runId AND ownership_fence = :fence AND status = 'QUEUED' AND started_at IS NULL AND EXISTS (SELECT 1 FROM messages_v2 m WHERE m.message_id = agent_runs.assistant_message_id AND m.current_run_id = agent_runs.run_id AND m.ownership_fence = :fence)")
+    suspend fun markProviderWaiting(runId: String, fence: Long): Int
+
+    @Transaction
+    suspend fun deferProvider(row: dev.chungjungsoo.gptmobile.data.agent.ProviderWait): Boolean {
+        if (markProviderWaiting(row.runId, row.fence) != 1) return false
+        saveProviderWait(row)
+        return true
+    }
+
+    @Query("UPDATE agent_runs SET status = 'QUEUED' WHERE run_id = :runId AND ownership_fence = :fence AND status = 'WAITING_PROVIDER_LIMIT' AND EXISTS (SELECT 1 FROM messages_v2 m WHERE m.message_id = agent_runs.assistant_message_id AND m.current_run_id = agent_runs.run_id AND m.ownership_fence = :fence)")
+    suspend fun claimProviderWait(runId: String, fence: Long): Int
+
+    @Query("UPDATE agent_runs SET status = 'INTERRUPTED', terminal_error = :reason WHERE run_id = :runId AND status = 'WAITING_PROVIDER_LIMIT'")
+    suspend fun blockProviderWait(runId: String, reason: String): Int
+
     @Update
     suspend fun updateChatRoom(chatRoom: ChatRoomV2)
 
@@ -323,6 +351,45 @@ interface AgentPersistenceDao : RunPolicySnapshotAccess {
         }
         updateMessage(restored)
         return restored
+    }
+
+    @Transaction
+    suspend fun publishLocalCombinedAssembly(runId: String, expectedFence: Long): MessageV2? {
+        val run = recoveryRun(runId) ?: return null
+        val current = recoveryMessage(run.assistantMessageId) ?: return null
+        if (run.status != "QUEUED" || current.currentRunId != runId || current.ownershipFence != expectedFence || run.ownershipFence != expectedFence) return null
+        val raw = run.synthesisSnapshot ?: return null
+        if (run.synthesisKey != dev.chungjungsoo.gptmobile.data.research.researchHash(raw)) return null
+        val snapshot = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromString<dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot>(raw)
+        if (snapshot.localAssemblyReason == null || snapshot.version < 6 || snapshot.inputDigest != snapshot.contentDigest() || snapshot.sources.isEmpty()) return null
+        if (recoveryMessage(run.userMessageId) != snapshot.userMessage) return null
+        val assembled = dev.chungjungsoo.gptmobile.data.agent.CombinedSourcePreservation.assemble("", snapshot.sources)
+        val owners = snapshot.sources.mapTo(hashSetOf()) { it.platformUid }
+        val report = dev.chungjungsoo.gptmobile.data.agent.CombinedQualityReport(
+            answerDigest = dev.chungjungsoo.gptmobile.data.research.researchHash(assembled.text), complete = true,
+            status = "COMPLETED_WITH_ISSUES", deliveredScopeStatus = "COMPLETED_WITH_LIMITS", finalAssessment = true,
+            issues = listOf(snapshot.localAssemblyReason, "SOURCE_FRAGMENTS_RETAINED_UNVERIFIED"), passages = assembled.passages,
+            sourceDispositions = assembled.dispositions, sourceAccountingStatus = "COMPLETE", retainedFragments = assembled.fragments,
+            consideredProfileUids = owners, includedProfileUids = owners, representedProfileUids = owners,
+            revisionId = snapshot.revisionId, displayableDraft = true, sourceLinkStatus = "EXACT_SOURCE_FRAGMENTS"
+        )
+        val published = current.copy(
+            content = assembled.text,
+            timeline = listOf(
+                dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.TEXT, content = assembled.text),
+                dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE, content = "Assembled from saved sources on this device; no writer request was sent.", combinedQuality = report)
+            )
+        )
+        // Local completion never marks a provider attempt as started. Publish under
+        // the queued owner's transaction instead of the network-running contract.
+        if (!validCombinedPublication(run)) return null
+        val at = System.currentTimeMillis() / 1000
+        preserveCombinedPrefix(published)
+        updateMessage(published)
+        publishReply(run, published, "COMPLETED", at)
+        updateRunStatus(runId, "COMPLETED", run.startedAt, at, null)
+        if (getChatRoom(run.chatId)?.isArchived == true) setArchivedWithCompression(run.chatId, true)
+        return published
     }
 
     @Transaction
@@ -663,12 +730,13 @@ interface AgentPersistenceDao : RunPolicySnapshotAccess {
         val user = requireNotNull(messages.singleOrNull { it.id == userMessage.id && it.platformType == null })
         require(user.content == userMessage.content && user.attachments == userMessage.attachments) { "The original question changed before regeneration." }
         val rows = messages.filter { it.linkedMessageId == user.id && it.platformType != null }
+        val finalId = combinedFinalMessage(room.id, user.id)?.finalMessageId
         val owner = requireNotNull(rows.singleOrNull { it.id == expectedOwner.id })
         require(owner.currentRunId == expectedOwner.currentRunId && owner.ownershipFence == expectedOwner.ownershipFence) { "The answer changed before regeneration." }
-        require(rows.none { row -> row.currentRunId?.let { recoveryRun(it)?.status } in setOf("RUNNING", "QUEUED") }) { "Stop all current contributors before regenerating." }
+        require(rows.none { row -> row.currentRunId?.let { recoveryRun(it)?.status } in setOf("RUNNING", "QUEUED", "WAITING_PROVIDER_LIMIT") }) { "Stop all current contributors before regenerating." }
         require(drafts.all { it.profileUid in room.activePlatform }) { "Combined participants changed before regeneration." }
         val selected = drafts.mapTo(hashSetOf()) { it.profileUid }
-        rows.filter { it.platformType !in selected }.forEach { old ->
+        rows.filter { it.platformType !in selected || it.id == finalId }.forEach { old ->
             updateMessage(
                 old.copy(
                     content = "", thoughts = "", timeline = emptyList(), combinedSources = emptyList(), attachments = emptyList(),
@@ -680,7 +748,7 @@ interface AgentPersistenceDao : RunPolicySnapshotAccess {
         }
         val record = accepted.encode()
         val created = drafts.map { draft ->
-            val prior = rows.singleOrNull { it.platformType == draft.profileUid } ?: MessageV2(
+            val prior = rows.singleOrNull { it.platformType == draft.profileUid && it.id != finalId } ?: MessageV2(
                 chatId = room.id,
                 platformType = draft.profileUid,
                 linkedMessageId = user.id,
@@ -702,6 +770,30 @@ interface AgentPersistenceDao : RunPolicySnapshotAccess {
         require(request.userMessage.id > 0 && request.assistantMessage.id > 0)
         require(request.userMessage.chatId == request.assistantMessage.chatId)
 
+        if (request.freezeCombinedSources && request.run.synthesisKey != null) {
+            var identity = combinedFinalMessage(request.userMessage.chatId, request.userMessage.id)
+            if (identity == null) {
+                val original = requireNotNull(recoveryMessage(request.assistantMessage.id))
+                val historical = original.combinedSources.isNotEmpty() || original.currentRunId?.let { recoveryRun(it)?.synthesisKey } != null
+                val slot = if (historical) {
+                    original
+                } else {
+                    MessageV2(
+                        chatId = original.chatId,
+                        linkedMessageId = request.userMessage.id,
+                        platformType = request.run.profileUid,
+                        content = "",
+                        createdAt = original.createdAt
+                    ).let { it.copy(id = insertMessage(it).toInt()) }
+                }
+                identity = dev.chungjungsoo.gptmobile.data.database.entity.CombinedFinalMessage(original.chatId, request.userMessage.id, slot.id)
+                insertCombinedFinalMessage(identity)
+            }
+            if (identity.finalMessageId != request.assistantMessage.id) {
+                val slot = requireNotNull(recoveryMessage(identity.finalMessageId))
+                return persistAgentRetry(request.copy(assistantMessage = slot.copy(combinedSources = request.assistantMessage.combinedSources)))
+            }
+        }
         val current = requireNotNull(recoveryMessage(request.assistantMessage.id)) { "The answer slot was deleted." }
         val previousRun = current.currentRunId?.let { recoveryRun(it) }
         if (request.run.synthesisKey != null) {
@@ -713,7 +805,7 @@ interface AgentPersistenceDao : RunPolicySnapshotAccess {
                     val expected = incoming.combined?.requested?.participantUids.orEmpty().filter { it in membership }.toSet()
                     val included = incoming.sources.map { it.platformUid }.toSet()
                     require(included.size == incoming.sources.size && included.all { it in expected }) { "COMBINED_MEMBERSHIP_CHANGED: Recheck the remaining input before dispatch." }
-                    val rows = rawGetMessages(current.chatId).filter { it.linkedMessageId == request.userMessage.id && it.platformType != null }
+                    val rows = rawGetMessages(current.chatId).filter { it.linkedMessageId == request.userMessage.id && it.platformType != null && it.id != combinedFinalMessage(current.chatId, request.userMessage.id)?.finalMessageId }
                     (expected - included).forEach { uid ->
                         val omitted = requireNotNull(rows.singleOrNull { it.platformType == uid }) { "A Combined contributor changed." }
                         val omittedRun = omitted.currentRunId?.let { recoveryRun(it) }
@@ -765,7 +857,7 @@ interface AgentPersistenceDao : RunPolicySnapshotAccess {
             }
         }
         if (request.freezeCombinedSources) {
-            val rows = rawGetMessages(current.chatId).filter { it.linkedMessageId == request.userMessage.id && it.platformType != null }
+            val rows = rawGetMessages(current.chatId).filter { it.linkedMessageId == request.userMessage.id && it.platformType != null && it.id != combinedFinalMessage(current.chatId, request.userMessage.id)?.finalMessageId }
             require(request.assistantMessage.combinedSources.isNotEmpty()) { "Combined sources are missing." }
             request.assistantMessage.combinedSources.forEach { source ->
                 val row = requireNotNull(rows.singleOrNull { it.platformType == source.platformUid }) { "A Combined contributor changed." }

@@ -37,7 +37,7 @@ class CombinedSingleDispatchPersistenceTest {
             val requested = CombinedPolicyResolver.accept(ConversationCombinedSettings(), listOf("p", "q"), mapOf("p" to "model", "q" to "model"), user.content, singlePass = true)
             val context = CombinedExecutionContext(requested, CombinedPolicyResolver.resolve(requested), "root", profileUid = "p")
             val sources = listOf(CombinedModelResponse("p", "Primary", content = primary.content))
-            val snapshot = CombinedInputSnapshot(userMessage = user, history = emptyList(), replies = emptyList(), sources = sources, prompt = "Frozen input", profileUid = "p", model = "model", systemPrompt = "", configKey = "config", combined = context, dispatchIdentity = "stable-identity")
+            val snapshot = CombinedInputSnapshot(version = 6, snapshotId = "local-snapshot", localAssemblyReason = "WRITER_CONTEXT_CAPACITY_LOCAL_ASSEMBLY", userMessage = user, history = emptyList(), replies = emptyList(), sources = sources, prompt = "Frozen input", profileUid = "p", model = "model", systemPrompt = "", configKey = "config", combined = context, dispatchIdentity = "stable-identity").seal()
             fun request(id: String, input: CombinedInputSnapshot): PersistAgentRetryRequest {
                 val raw = input.encode()
                 return PersistAgentRetryRequest(user, primary.copy(combinedSources = input.sources), AgentRunDraft(id, "p", "CUSTOM", "model", synthesisKey = researchHash(raw), synthesisSnapshot = raw), freezeCombinedSources = true)
@@ -48,9 +48,22 @@ class CombinedSingleDispatchPersistenceTest {
             val results = (1..8).map { async { dao.persistAgentRetry(request("combined-synthesis:$it", snapshot)) } }.awaitAll()
             assertEquals(1, results.map { it.run.runId }.distinct().size)
             assertEquals(1, dao.synthesisRunsForTurn(1, 2).size)
-            assertEquals(listOf("p"), dao.recoveryMessage(3)?.combinedSources?.map { it.platformUid })
+            val finalId = requireNotNull(dao.combinedFinalMessage(1, 2)).finalMessageId
+            assertTrue(finalId != 3 && finalId != 4)
+            assertEquals(finalId, results.singleOrNull()?.assistantMessage?.id ?: results.first().assistantMessage.id)
+            assertEquals(listOf("p"), dao.recoveryMessage(finalId)?.combinedSources?.map { it.platformUid })
+            assertEquals("Primary answer.", dao.recoveryMessage(3)?.content)
+            assertTrue(dao.recoveryMessage(3)!!.combinedSources.isEmpty())
             assertEquals(listOf("p"), dao.getChatRoom(1)?.activePlatform)
             assertEquals("Removed answer.", dao.recoveryMessage(4)?.content)
+            val finalRun = results.first().run
+            val local = requireNotNull(dao.publishLocalCombinedAssembly(finalRun.runId, finalRun.ownershipFence))
+            assertTrue(local.content.contains(primary.content))
+            assertEquals("COMPLETE", local.timeline.mapNotNull { it.combinedQuality }.single().sourceAccountingStatus)
+            assertEquals("COMPLETED", dao.recoveryRun(finalRun.runId)?.status)
+            assertEquals(null, dao.recoveryRun(finalRun.runId)?.startedAt)
+            assertEquals(null, dao.publishLocalCombinedAssembly(finalRun.runId, finalRun.ownershipFence))
+            assertEquals("Primary answer.", dao.recoveryMessage(3)?.content)
         } finally {
             db.close()
         }

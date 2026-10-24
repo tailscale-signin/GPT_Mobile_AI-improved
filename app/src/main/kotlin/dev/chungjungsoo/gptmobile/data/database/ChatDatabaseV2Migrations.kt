@@ -474,6 +474,19 @@ object ChatDatabaseV2Migrations {
         }
     }
 
+    val MIGRATION_45_46 = object : Migration(45, 46) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS `combined_final_messages` (`chatId` INTEGER NOT NULL, `userMessageId` INTEGER NOT NULL, `finalMessageId` INTEGER NOT NULL, PRIMARY KEY(`chatId`, `userMessageId`), FOREIGN KEY(`chatId`) REFERENCES `chats_v2`(`chat_id`) ON UPDATE NO ACTION ON DELETE CASCADE, FOREIGN KEY(`userMessageId`) REFERENCES `messages_v2`(`message_id`) ON UPDATE NO ACTION ON DELETE CASCADE, FOREIGN KEY(`finalMessageId`) REFERENCES `messages_v2`(`message_id`) ON UPDATE NO ACTION ON DELETE CASCADE)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_combined_final_messages_userMessageId` ON `combined_final_messages` (`userMessageId`)")
+            db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_combined_final_messages_finalMessageId` ON `combined_final_messages` (`finalMessageId`)")
+            db.execSQL("CREATE TABLE IF NOT EXISTS `provider_waits` (`runId` TEXT NOT NULL, `fence` INTEGER NOT NULL, `scope` TEXT NOT NULL, `retryAt` INTEGER NOT NULL, `checkpoint` TEXT NOT NULL, PRIMARY KEY(`runId`), FOREIGN KEY(`runId`) REFERENCES `agent_runs`(`run_id`) ON UPDATE NO ACTION ON DELETE CASCADE)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_provider_waits_scope` ON `provider_waits` (`scope`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_provider_waits_retryAt` ON `provider_waits` (`retryAt`)")
+            // Historical bodies and revisions remain byte-for-byte unchanged.
+            db.execSQL("INSERT OR IGNORE INTO combined_final_messages (chatId, userMessageId, finalMessageId) SELECT chat_id, user_message_id, assistant_message_id FROM agent_runs WHERE synthesis_key IS NOT NULL ORDER BY created_at DESC, run_id DESC")
+        }
+    }
+
     val ALL_MIGRATIONS: Array<Migration> = arrayOf(
         MIGRATION_10_11,
         MIGRATION_11_12,
@@ -509,7 +522,8 @@ object ChatDatabaseV2Migrations {
         MIGRATION_41_42,
         MIGRATION_42_43,
         MIGRATION_43_44,
-        MIGRATION_44_45
+        MIGRATION_44_45,
+        MIGRATION_45_46
     )
     private fun columns(db: SupportSQLiteDatabase, table: String): Set<String> = db.query("PRAGMA table_info(`$table`)").use { cursor -> buildSet { while (cursor.moveToNext()) add(cursor.getString(1)) } }
     private fun addColumnIfMissing(db: SupportSQLiteDatabase, table: String, column: String, definition: String) {

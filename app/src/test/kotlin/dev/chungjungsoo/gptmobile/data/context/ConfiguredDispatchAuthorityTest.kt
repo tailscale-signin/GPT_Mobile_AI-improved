@@ -36,6 +36,8 @@ class ConfiguredDispatchAuthorityTest {
     @Test
     fun policyCaptureRetriesOnlyPreparationWhenRevisionSettles() = runTest {
         val settings = mockk<SettingRepository>()
+        coEvery { settings.providerActivationRequired(any()) } returns false
+        coEvery { settings.providerPermissionRevision(any()) } returns "initial"
         val profile = PlatformV2(uid = "ephemeral", name = "Benchmark")
         coEvery { settings.fetchPlatformV2s() } returns emptyList()
         var reads = 0
@@ -51,6 +53,8 @@ class ConfiguredDispatchAuthorityTest {
     @Test
     fun queuedProfileCredentialChangeAndDeletionBlockEveryNewPhysicalAttempt() = runTest {
         val settings = mockk<SettingRepository>()
+        coEvery { settings.providerActivationRequired(any()) } returns false
+        coEvery { settings.providerPermissionRevision(any()) } returns "initial"
         val profile = PlatformV2(id = 3, uid = "profile", name = "Primary", token = "old")
         var profiles = listOf(profile)
         coEvery { settings.fetchPlatformV2s() } answers { profiles }
@@ -70,6 +74,8 @@ class ConfiguredDispatchAuthorityTest {
     @Test
     fun displayAndDeadlineEditsDoNotInvalidateButPermissionChangesDo() = runTest {
         val settings = mockk<SettingRepository>()
+        coEvery { settings.providerActivationRequired(any()) } returns false
+        coEvery { settings.providerPermissionRevision(any()) } returns "initial"
         val profile = PlatformV2(uid = "ephemeral", name = "Benchmark")
         var features = AppFeatureSettings()
         coEvery { settings.fetchPlatformV2s() } returns emptyList()
@@ -84,6 +90,8 @@ class ConfiguredDispatchAuthorityTest {
     @Test
     fun childRetainsParentSourceAuthorityBeforeItsOwnDispatch() = runTest {
         val settings = mockk<SettingRepository>()
+        coEvery { settings.providerActivationRequired(any()) } returns false
+        coEvery { settings.providerPermissionRevision(any()) } returns "initial"
         val profile = PlatformV2(uid = "helper", name = "Helper")
         coEvery { settings.fetchPlatformV2s() } returns emptyList()
         coEvery { settings.getFeatureSettings() } returns AppFeatureSettings()
@@ -95,6 +103,25 @@ class ConfiguredDispatchAuthorityTest {
         val allowance = PhysicalAttemptBoundary { charged = true }
         val rejected = withContext(child + allowance) { runCatching { PhysicalAttemptBoundary.dispatch() }.isFailure }
         assertTrue(rejected)
+        assertFalse(charged)
+    }
+
+    @Test
+    fun consentRevocationAfterPreparationBlocksDispatchWithoutCharging() = runTest {
+        val settings = mockk<SettingRepository>()
+        val profile = PlatformV2(uid = "profile", name = "Primary")
+        var permission = "accepted"
+        coEvery { settings.providerActivationRequired(any()) } returns false
+        coEvery { settings.providerPermissionRevision(any()) } answers { permission }
+        coEvery { settings.fetchPlatformV2s() } returns emptyList()
+        coEvery { settings.getFeatureSettings() } returns AppFeatureSettings()
+        val guard = ConfiguredDispatchAuthority.capture(settings, profile)
+        permission = "revoked"
+        var charged = false
+        val result = withContext(guard + PhysicalAttemptBoundary { charged = true }) {
+            runCatching { PhysicalAttemptBoundary.dispatch() }
+        }
+        assertTrue(result.isFailure)
         assertFalse(charged)
     }
 }

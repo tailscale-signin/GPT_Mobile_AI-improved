@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.60.0] - 2026-10-24
+
+- Integrate Research reliability fixes with free-provider activation and recipient-scoped personal-tool consent.
+- Retire PorchLM/OpenCode executable routes while retaining historical conversations.
+- Persist shared request quota windows and fenced pre-dispatch provider waits across restarts.
+- Preserve Combined contributor rows, dedicate one final identity per turn, and retain all source spans with attribution and on-device capacity fallback.
+- Add Room schema 46, migration coverage and regression tests. See [release scope and remaining qualification](docs/releases/0.9.60.0.md).
+
 ## [0.9.52.0] - 2026-10-13
 
 - Repair delegation admission, durable evidence recovery, coverage/review states and scoped permissions.

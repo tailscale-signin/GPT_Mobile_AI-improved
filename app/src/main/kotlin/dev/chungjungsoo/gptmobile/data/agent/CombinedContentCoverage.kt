@@ -12,7 +12,7 @@ import java.util.Locale
  * paraphrases count as represented, but semantic entailment / source truth is not certified.
  * Ambiguous wording stays pending, never silently accepted as full coverage.
  */
-internal class CombinedContentCoverage(sources: List<CombinedModelResponse>, request: String = "") {
+internal class CombinedContentCoverage(sources: List<CombinedModelResponse>, request: String = "", preserveAll: Boolean = false) {
     private val scoped = sources.any { it.claimExtractionVersion >= 2 }
     data class Unit(val text: String, val profileUids: Set<String>)
     data class Result(
@@ -20,13 +20,16 @@ internal class CombinedContentCoverage(sources: List<CombinedModelResponse>, req
         val missing: List<Unit>,
         val exactMatches: Int = 0,
         val paraphraseMatches: Int = 0,
-        val tentativeMatches: Int = 0
+        val tentativeMatches: Int = 0,
+        val evaluated: Boolean = true
     ) {
-        val accepted: Boolean get() = total > 0 && missing.isEmpty()
+        val accepted: Boolean get() = evaluated && total > 0 && missing.isEmpty()
     }
 
     val units: List<Unit> = if (request.isNotBlank() && CurrentRequestContract.from(request).intent in setOf("GREETING", "TEST", "PROVIDER_TEST")) {
         emptyList()
+    } else if (preserveAll) {
+        CombinedClaimSemantics.records(sources).map { Unit(it.proposition, it.profileUids) }
     } else if (request.isNotBlank()) {
         CombinedEditorialInventory.select(CombinedClaimSemantics.records(sources), request, CombinedAnswerPolicy.from(request)).map { Unit(it.proposition, it.profileUids) }
     } else if (scoped) {
@@ -47,7 +50,7 @@ internal class CombinedContentCoverage(sources: List<CombinedModelResponse>, req
             val normalized = normalized(it)
             normalized to CombinedClaimMatcher.fingerprint(it)
         }
-        if (units.size.toLong() * candidates.size > 1_000_000L) return Result(units.size, units)
+        if (units.size.toLong() * candidates.size > 1_000_000L) return Result(units.size, emptyList(), evaluated = false)
         val missing = mutableListOf<Unit>()
         var exact = 0
         var paraphrases = 0

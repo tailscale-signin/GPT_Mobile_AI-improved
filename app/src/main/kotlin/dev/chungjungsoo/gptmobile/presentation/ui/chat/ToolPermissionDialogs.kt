@@ -12,18 +12,15 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CheckCircle
-import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -124,61 +121,18 @@ internal fun FreeToolConsentDialog(
     onAccept: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    var progress by remember(request.profileUid, request.toolId) { mutableFloatStateOf(0f) }
-    val unlocked = progress >= 0.95f
+    val policy = request.profileSnapshot?.let(dev.chungjungsoo.gptmobile.data.permissions.ProviderPrivacyPolicy::forProfile)
     AlertDialog(
         onDismissRequest = onDismiss,
-        icon = {
-            Surface(
-                shape = MaterialTheme.shapes.extraLarge,
-                color = if (unlocked) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.secondaryContainer
-            ) {
-                Icon(
-                    imageVector = if (unlocked) Icons.Rounded.CheckCircle else Icons.Rounded.Lock,
-                    contentDescription = null,
-                    modifier = Modifier.padding(14.dp).size(30.dp),
-                    tint = if (unlocked) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSecondaryContainer
-                )
-            }
-        },
-        title = { Text(if (unlocked) "Tool unlocked" else "Unlock external tool data") },
+        title = { Text("Share personal data with this provider?") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(
-                    "${request.profileName} is a free AI profile. Using ${request.toolName} can send the tool request and returned data to that free model provider.",
-                    style = MaterialTheme.typography.bodyMedium
-                )
-                Text(
-                    "Data tracking is on at the free provider: requests and tool results may be logged under its data policy. You can revoke this permission in Plugins/Tools at any time.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodySmall
-                )
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = MaterialTheme.shapes.large,
-                    color = MaterialTheme.colorScheme.surfaceContainerLow
-                ) {
-                    Column(Modifier.padding(14.dp)) {
-                        Text("Slide to acknowledge data sharing", style = MaterialTheme.typography.labelLarge)
-                        Slider(
-                            value = progress,
-                            onValueChange = { progress = it },
-                            valueRange = 0f..1f
-                        )
-                        Text(
-                            if (unlocked) "Acknowledged. This tool permission will be remembered for all models." else "Move the slider fully to the right to continue.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
+                Text("${request.toolName} may send its arguments and returned data to ${policy?.recipients?.joinToString() ?: request.profileName}.")
+                Text(policy?.disclosure ?: "Retention of prompts and tool results has not been verified.")
+                Text("Permission applies only to this profile, model and tool. Revoke it in Plugins & Tools.")
             }
         },
-        confirmButton = {
-            FilledTonalButton(onClick = onAccept, enabled = unlocked) {
-                Text("Accept & unlock")
-            }
-        },
-        dismissButton = { OutlinedButton(onClick = onDismiss) { Text("Not now") } }
+        confirmButton = { FilledTonalButton(onClick = onAccept) { Text("Allow for this profile") } },
+        dismissButton = { OutlinedButton(onClick = onDismiss) { Text("Keep personal tools off") } }
     )
 }

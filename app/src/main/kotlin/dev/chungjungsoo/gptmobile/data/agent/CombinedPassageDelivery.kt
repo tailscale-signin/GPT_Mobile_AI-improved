@@ -103,7 +103,13 @@ data class CombinedQualityReport(
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
     val identityLinkStatus: String = "NOT_ASSESSED",
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
-    val semanticSupportStatus: String = "NOT_ASSESSED"
+    val semanticSupportStatus: String = "NOT_ASSESSED",
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val sourceDispositions: List<CombinedSourceDisposition> = emptyList(),
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val sourceAccountingStatus: String = "NOT_ASSESSED",
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val retainedFragments: Int = 0
 )
 
 /** One NDJSON record per paragraph permits progressive delivery without leaking protocol data. */

@@ -316,7 +316,7 @@ class FreeQueuedTransportTest {
             every { network.invoke() } returns client
             val provider = FreeAiProvider.OPENCODE
             val chunks = OpenAIAPIImpl(network).streamChatCompletion(request(provider.model), 30, ProviderRequestConfig(provider.apiUrl, null, freeProvider = provider)).toList()
-            org.junit.Assert.assertTrue(chunks.last().error!!.message.contains("restricted to OpenCode’s own apps"))
+            org.junit.Assert.assertTrue(chunks.last().error!!.message.contains("removed"))
             assertEquals(0, calls)
         } finally {
             client.close()

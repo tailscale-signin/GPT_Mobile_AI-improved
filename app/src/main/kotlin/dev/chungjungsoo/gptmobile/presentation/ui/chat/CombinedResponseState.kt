@@ -15,6 +15,7 @@ import java.text.Normalizer
 
 internal enum class CombinedResponseStatus {
     GENERATING,
+    PAUSED,
     COMPLETED,
     FAILED
 }
@@ -43,6 +44,7 @@ internal fun combinedResponseStatus(
     preparing: Boolean = false
 ): CombinedResponseStatus = when {
     run?.status in setOf(AgentRunStatus.FAILED, AgentRunStatus.CANCELED, AgentRunStatus.INTERRUPTED) -> CombinedResponseStatus.FAILED
+    run?.status == AgentRunStatus.WAITING_PROVIDER_LIMIT -> CombinedResponseStatus.PAUSED
     run?.status in setOf(AgentRunStatus.QUEUED, AgentRunStatus.RUNNING) || preparing -> CombinedResponseStatus.GENERATING
     message?.content.isNullOrBlank() || isAssistantErrorMessage(message.content) -> CombinedResponseStatus.FAILED
     else -> CombinedResponseStatus.COMPLETED
@@ -88,7 +90,7 @@ internal fun combinedResponseProfiles(
         (platformUids + responses.mapNotNull { it.platformType } + sources.keys).distinct()
     }
     return uids.filter { it in participatingUids }.mapIndexedNotNull { order, uid ->
-        val index = responses.indexOfFirst { it.platformType == uid }
+        val index = responses.indexOfFirst { it.platformType == uid && !it.isCombinedSynthesis() }.takeIf { it >= 0 } ?: responses.indexOfFirst { it.platformType == uid }
         val original = responses.getOrNull(index)
         val source = sources[uid]
         val hasResponse = original?.let {
@@ -126,6 +128,7 @@ internal fun combinedAnswerStatus(
     runsById: Map<String, AgentRun>
 ): CombinedResponseStatus {
     if (synthesis != null) return combinedResponseStatus(synthesis, synthesis.currentRunId?.let(runsById::get))
+    if (profiles.any { it.status == CombinedResponseStatus.PAUSED } && profiles.none { it.status == CombinedResponseStatus.GENERATING }) return CombinedResponseStatus.PAUSED
     return if (profiles.any { runsById[it.message?.currentRunId]?.status == AgentRunStatus.CANCELED } || profiles.isNotEmpty() && profiles.all { it.status == CombinedResponseStatus.FAILED }) {
         CombinedResponseStatus.FAILED
     } else {

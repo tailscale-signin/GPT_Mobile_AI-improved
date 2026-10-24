@@ -21,7 +21,7 @@ internal fun combinedSynthesisInputs(
 ): List<CombinedModelResponse>? {
     if (responses.any { message ->
             val status = runs[message.currentRunId]?.status
-            status in setOf(AgentRunStatus.QUEUED, AgentRunStatus.RUNNING) ||
+            status in setOf(AgentRunStatus.QUEUED, AgentRunStatus.RUNNING, AgentRunStatus.WAITING_PROVIDER_LIMIT) ||
                 (message.currentRunId != null && status == null) ||
                 (message.currentRunId == null && message.content.isBlank())
         }

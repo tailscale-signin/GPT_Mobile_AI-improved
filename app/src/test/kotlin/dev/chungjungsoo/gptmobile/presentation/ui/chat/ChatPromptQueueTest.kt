@@ -101,7 +101,7 @@ class ChatPromptQueueTest {
         assertTrue(starts.isEmpty())
         assertEquals(0, model.queuedPromptCount.value)
         assertEquals("Keep this draft", model.question.text.toString())
-        assertTrue(model.freeProviderNotice.value!!.contains("restricted to OpenCode’s own apps"))
+        assertTrue(model.freeProviderNotice.value!!.contains("removed"))
     }
 
     @Test
@@ -429,7 +429,14 @@ class ChatPromptQueueTest {
                 compatibleType = ClientType.OPENROUTER,
                 apiUrl = "https://openrouter.ai/api/v1",
                 model = "model-$index"
-            ).let { freeProvider?.applyTo(it) ?: it }
+            ).let { profile ->
+                if (freeProvider?.isRetired == true) {
+                    // Model an existing saved route; retired providers cannot create a new one.
+                    profile.copy(compatibleType = ClientType.FREE, apiUrl = freeProvider.apiUrl, model = freeProvider.model)
+                } else {
+                    freeProvider?.applyTo(profile) ?: profile
+                }
+            }
         }
         val members = profiles.take(if (combined) 2 else 1)
         val room = ChatRoomV2(

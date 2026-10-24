@@ -145,6 +145,7 @@ private fun CombinedProfileBubble(
     val selection by animateFloatAsState(if (selected) 1f else 0f, tween(220), label = "Profile selection")
     val dotColor by animateColorAsState(
         when (status) {
+            CombinedResponseStatus.PAUSED -> colors.onSurfaceVariant
             CombinedResponseStatus.GENERATING -> Color(0xFFFFD54F)
             CombinedResponseStatus.COMPLETED -> Color(0xFF39FF88)
             CombinedResponseStatus.FAILED -> Color(0xFFFF5252)
@@ -154,6 +155,7 @@ private fun CombinedProfileBubble(
     )
     val statusText = stringResource(
         when (status) {
+            CombinedResponseStatus.PAUSED -> R.string.combined_profile_paused
             CombinedResponseStatus.GENERATING -> R.string.combined_profile_generating
             CombinedResponseStatus.COMPLETED -> R.string.combined_profile_completed
             CombinedResponseStatus.FAILED -> R.string.combined_profile_failed

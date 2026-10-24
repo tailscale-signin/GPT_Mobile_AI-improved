@@ -38,7 +38,9 @@ class SettingRepositoryImpl @Inject constructor(
     private val providerConnectionDao: ProviderConnectionDao,
     private val chatPlatformModelV2Dao: ChatPlatformModelV2Dao,
     private val secretVault: SecretVault,
-    private val walletLocal: dev.chungjungsoo.gptmobile.data.openrouter.account.OpenRouterWalletLocalStore? = null
+    private val walletLocal: dev.chungjungsoo.gptmobile.data.openrouter.account.OpenRouterWalletLocalStore? = null,
+    private val providerActivation: dev.chungjungsoo.gptmobile.data.permissions.ProviderActivationStore? = null,
+    private val personalToolConsent: dev.chungjungsoo.gptmobile.data.permissions.FreeModelToolConsentStore? = null
 ) : SettingRepository {
 
     private val jsonSerializer = Json {
@@ -52,6 +54,15 @@ class SettingRepositoryImpl @Inject constructor(
 
     // High-performance thread-safe in-memory cache for resolved PlatformV2 list
     private val platformV2Cache = AtomicReference<List<PlatformV2>?>(null)
+
+    override suspend fun providerActivationRequired(profile: PlatformV2): Boolean = providerActivation?.required(profile) ?: false
+
+    override suspend fun acceptProviderActivation(profile: PlatformV2) {
+        requireNotNull(providerActivation).accept(profile)
+    }
+
+    override suspend fun providerPermissionRevision(profile: PlatformV2): String =
+        "${providerActivationRequired(profile)}:${personalToolConsent?.revision() ?: 0}"
 
     override fun invalidatePlatformCache() {
         platformV2Cache.set(null)
@@ -236,6 +247,19 @@ class SettingRepositoryImpl @Inject constructor(
     override suspend fun ensureFreeModels() = connectionMutation.withLock {
         val catalog = dev.chungjungsoo.gptmobile.data.free.FreeModelCatalog
         val settings = settingDataSource.getFeatureSettings()
+        // Run independently of the version marker: restores must not revive retired routes.
+        platformV2Dao.getPlatforms().filter { it.enabled }.forEach { stored ->
+            val resolved = try {
+                resolvePlatformToken(stored)
+            } catch (_: IllegalArgumentException) {
+                platformV2Dao.editPlatform(stored.copy(enabled = false))
+                return@forEach
+            }
+            if (FreeAiProvider.fromApiUrl(resolved.apiUrl)?.isRetired == true || providerActivation?.required(resolved) == true) {
+                platformV2Dao.editPlatform(stored.copy(enabled = false))
+            }
+        }
+        invalidatePlatformCache()
         if (settings.freeCatalogVersion >= catalog.VERSION) return@withLock
         val connections = providerConnectionDao.getConnections().filter { it.compatibleType == ClientType.FREE }
         val unified = ProviderConnection(uid = catalog.CONNECTION_UID, name = catalog.NAME, compatibleType = ClientType.FREE, apiUrl = FreeAiProvider.default.apiUrl)
@@ -247,11 +271,11 @@ class SettingRepositoryImpl @Inject constructor(
             val provider = FreeAiProvider.fromApiUrl(endpoint) ?: return@forEach
             platformV2Dao.editPlatform(securePlatform(provider.applyTo(profile.copy(apiUrl = endpoint)).copy(providerConnectionUid = unified.uid, enabled = profile.enabled && !(settings.freeCatalogVersion < 2 && provider.isDemo && profile.uid == "builtin-free-porchlm"))))
         }
-        FreeAiProvider.entries.filter { settings.freeCatalogVersion < 2 }.forEach { provider ->
+        FreeAiProvider.active.filter { settings.freeCatalogVersion < 2 }.forEach { provider ->
             val uid = "builtin-free-${provider.name.lowercase()}"
             val current = platformV2Dao.getPlatforms()
             if (current.none { it.uid == uid || it.compatibleType == ClientType.FREE && FreeAiProvider.fromApiUrl(it.apiUrl) == provider }) {
-                platformV2Dao.addPlatform(provider.applyTo(PlatformV2(uid = uid, name = provider.displayName, enabled = !provider.isDemo && provider.isAvailable, providerConnectionUid = unified.uid, timeout = 300)))
+                platformV2Dao.addPlatform(provider.applyTo(PlatformV2(uid = uid, name = provider.displayName, enabled = dev.chungjungsoo.gptmobile.data.permissions.ProviderPrivacyPolicy.forProvider(provider).enabledByDefault && provider.isAvailable, providerConnectionUid = unified.uid, timeout = 300)))
             }
         }
         connections.filter { it.uid != unified.uid }.forEach { connection ->
@@ -385,7 +409,7 @@ class SettingRepositoryImpl @Inject constructor(
     }
 
     override suspend fun addPlatformV2(platform: PlatformV2) {
-        platformV2Dao.addPlatform(securePlatform(platform))
+        platformV2Dao.addPlatform(securePlatform(platform.copy(enabled = platform.enabled && FreeAiProvider.fromApiUrl(platform.apiUrl)?.isRetired != true && !providerActivationRequired(platform))))
         invalidatePlatformCache()
     }
 
@@ -393,7 +417,8 @@ class SettingRepositoryImpl @Inject constructor(
         dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.advance()
         val previous = platform.id.takeIf { it > 0 }?.let { platformV2Dao.getPlatform(it) }
         val previousSecretRef = previous?.secretRef ?: platform.secretRef
-        val securedPlatform = securePlatform(platform)
+        if (!platform.enabled) providerActivation?.revoke(platform.uid)
+        val securedPlatform = securePlatform(platform.copy(enabled = platform.enabled && FreeAiProvider.fromApiUrl(platform.apiUrl)?.isRetired != true && !providerActivationRequired(platform)))
         platformV2Dao.editPlatform(securedPlatform)
         if ((securedPlatform.providerConnectionUid == null || securedPlatform.compatibleType == ClientType.FREE) &&
             previousSecretRef != securedPlatform.secretRef

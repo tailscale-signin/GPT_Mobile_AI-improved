@@ -106,7 +106,7 @@ data class CombinedWriterRequestPlan(
             }.toString()
             val measured = RequestAdmission.estimate(envelope)
             val total = Math.addExact(Math.addExact(measured.promptTokens, measured.uncertaintyTokens), output.toLong())
-            require(context == null || total <= context) { "The complete frozen input, safety margin and final answer need approximately $total tokens; the selected writer's accepted context is $context. Saved contributions remain available." }
+            if (context != null && total > context) throw CombinedInputCapacityException("The complete frozen input, safety margin and final answer need approximately $total tokens; the selected writer's accepted context is $context. Saved contributions remain available.")
             val digest = combinedDigest(envelope + "|" + protocol + "|" + ProviderRouteCapacity.key(profile))
             return CombinedWriterRequestPlan(
                 planId = digest,
@@ -128,6 +128,8 @@ data class CombinedWriterRequestPlan(
         }
     }
 }
+
+internal class CombinedInputCapacityException(message: String) : IllegalArgumentException(message)
 
 /** Propagates through invocation wrappers to both local and remote physical dispatch. */
 internal class CombinedWriterDispatchGuard(val plan: CombinedWriterRequestPlan) : AbstractCoroutineContextElement(Key) {

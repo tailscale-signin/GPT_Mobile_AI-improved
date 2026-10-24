@@ -85,7 +85,7 @@ fun FreeProviderPicker(
                     singleLine = true
                 )
                 ExposedDropdownMenu(expanded = expanded && enabled, onDismissRequest = { expanded = false }) {
-                    FreeAiProvider.entries.forEach { provider ->
+                    FreeAiProvider.active.forEach { provider ->
                         if (provider.isDemo) Text("Demo / Experimental", Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.labelLarge)
                         DropdownMenuItem(
                             enabled = provider.isAvailable && !testing,

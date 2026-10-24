@@ -103,7 +103,8 @@ class AgentRunCoordinator @Inject constructor(
     private val settingRepository: SettingRepository,
     private val completionStore: GenerationCompletionStore,
     private val synthesisPlanner: CombinedSynthesisPlanner? = null,
-    private val researchSessions: dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore? = null
+    private val researchSessions: dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore? = null,
+    private val providerWaits: ProviderWaitStore? = null
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val jobs = ConcurrentHashMap<String, Job>()
@@ -159,7 +160,7 @@ class AgentRunCoordinator @Inject constructor(
 
     suspend fun removeCombinedProfile(chatId: Int, profileUid: String) {
         val ids = _activeRuns.value.values.filter { it.chatId == chatId && it.profileUid == profileUid }.mapTo(hashSetOf()) { it.runId } + deferredStarts.values.filter { it.chatId == chatId && it.platform.uid == profileUid }.map { it.runId }
-        terminalizeAndCancel(ids, false, dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.SUPERSEDED_GENERATION)
+        terminalizeAndCancel(ids + providerWaits?.pendingIds(chatId, profileUid).orEmpty(), false, dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.SUPERSEDED_GENERATION)
     }
 
     suspend fun tryAnotherCombinedWriter(chatId: Int, runId: String): Boolean = withChatGate(chatId) {
@@ -191,7 +192,31 @@ class AgentRunCoordinator @Inject constructor(
         }
     }
 
-    private suspend fun startUnlocked(requests: List<AgentRunRequest>) {
+    suspend fun reconcileProviderWaits() {
+        providerWaits?.reconcile()
+    }
+
+    suspend fun resumeProviderRequests(requests: List<AgentRunRequest>) = withChatGate(requests.map { it.chatId }) {
+        val eligible = requests.filter { request ->
+            val root = request.chatToolConfig?.combined?.rootBudgetId
+            if (root != null && chatRepository.isCombinedTurnCancelled(root)) {
+                chatRepository.finishActiveAgentRun(request.runId, AgentRunStatus.CANCELED, currentEpochSeconds(), "TURN_CANCELLED")
+                false
+            } else {
+                true
+            }
+        }
+        startUnlocked(eligible)
+    }
+
+    private suspend fun startUnlocked(incoming: List<AgentRunRequest>) {
+        val participantsBeforeWait = incoming.groupBy { rootWorkId(it.userMessages, it.runId) }.mapValues { (_, runs) -> runs.map { it.platform.uid }.distinct() }
+        val requests = incoming.map { it.copy(researchParticipantUids = it.researchParticipantUids.ifEmpty { participantsBeforeWait[rootWorkId(it.userMessages, it.runId)].orEmpty() }) }.filter { request ->
+            val cooldown = dev.chungjungsoo.gptmobile.data.network.FreeProviderPreflight.check(request.platform)
+            val deadline = cooldown?.retryAt
+            val deferred = deadline != null && deadline > System.currentTimeMillis() && providerWaits?.defer(request, deadline) == true
+            !deferred
+        }
         if (requests.isNotEmpty() && !AgentRunForegroundService.canStartNow() && runCatching { settingRepository.getFeatureSettings().backgroundGeneration }.getOrDefault(true)) {
             deferUntilForeground(requests)
             return
@@ -267,15 +292,15 @@ class AgentRunCoordinator @Inject constructor(
         val runIds = _activeRuns.value.values
             .filter { it.chatId == chatId }
             .mapTo(mutableSetOf(), ActiveAgentRun::runId) + deferredStarts.values.filter { it.chatId == chatId }.map { it.runId }
-        requestCancellation(runIds, isInterrupted = false)
+        scope.launch { terminalizeAndCancel(runIds + providerWaits?.pendingIds(chatId).orEmpty(), isInterrupted = false) }
     }
 
     fun cancelRuns(runIds: Set<String>) {
-        requestCancellation(runIds.filterTo(mutableSetOf()) { jobs.containsKey(it) || deferredStarts.containsKey(it) }, isInterrupted = false)
+        requestCancellation(runIds, isInterrupted = false)
     }
 
     fun cancelAll() {
-        requestCancellation(jobs.keys.toSet() + deferredStarts.keys, isInterrupted = false)
+        scope.launch { terminalizeAndCancel(jobs.keys.toSet() + deferredStarts.keys + providerWaits?.pendingIds().orEmpty(), isInterrupted = false) }
     }
 
     fun interruptAll() {
@@ -287,7 +312,7 @@ class AgentRunCoordinator @Inject constructor(
             .filter { it.chatId == chatId }
             .mapTo(mutableSetOf(), ActiveAgentRun::runId) + deferredStarts.values.filter { it.chatId == chatId }.map { it.runId }
         withContext(NonCancellable) {
-            terminalizeAndCancel(runIds, isInterrupted = false, origin = origin)
+            terminalizeAndCancel(runIds + providerWaits?.pendingIds(chatId).orEmpty(), isInterrupted = false, origin = origin)
         }
     }
 
@@ -324,7 +349,7 @@ class AgentRunCoordinator @Inject constructor(
                 dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.PERMISSION_REVOKED
             )
         cancelCombinedRootsAndRuns(
-            roots = if (cancelCombined) runIds.mapNotNull { combinedRoots[it] ?: deferredStarts[it]?.chatToolConfig?.combined?.rootBudgetId } else emptyList(),
+            roots = if (cancelCombined) runIds.mapNotNull { combinedRoots[it] ?: deferredStarts[it]?.chatToolConfig?.combined?.rootBudgetId } + providerWaits?.combinedRoots(runIds).orEmpty() else emptyList(),
             cancelRoot = chatRepository::cancelCombinedTurn,
             onRootFailure = { root, failure -> AppLogRecorder.record("Combined", "CANCELLATION_JOURNAL_FAILED · root=$root · reason=${failure.javaClass.simpleName}", "W") }
         ) {
@@ -563,7 +588,7 @@ class AgentRunCoordinator @Inject constructor(
             val accepted = execution.accepted
             val ownedIds = execution.attempt.dispatchedRunIds + execution.receipts.filter { it.attemptId == lifecycle.attempt.attemptId && it.generation == lifecycle.attempt.generation }.mapNotNull { it.runId }
             val turnRuns = chatRepository.observeAgentRuns(request.chatId).first().filter { it.userMessageId == accepted.originatingUserMessageId || it.runId in ownedIds }
-            val active = turnRuns.any { it.runId != request.runId && it.status in setOf(AgentRunStatus.QUEUED, AgentRunStatus.RUNNING, "STOPPING") }
+            val active = turnRuns.any { it.runId != request.runId && it.status in setOf(AgentRunStatus.QUEUED, AgentRunStatus.RUNNING, AgentRunStatus.WAITING_PROVIDER_LIMIT, "STOPPING") }
             val currentRuns = turnRuns.filter { it.runId in ownedIds }
             val allBlocked = currentRuns.isNotEmpty() &&
                 currentRuns.all { run ->

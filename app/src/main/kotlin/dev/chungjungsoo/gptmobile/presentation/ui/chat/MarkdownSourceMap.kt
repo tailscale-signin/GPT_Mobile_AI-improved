@@ -73,12 +73,12 @@ data class MarkdownSourceMap(
             }
         }
         val scopedMapped = links.filter { link ->
-            link.profileUids.size == 1 && links.none { other -> other.start < link.end && other.end > link.start && other.profileUids != link.profileUids }
+            link.profileUids.isNotEmpty() && (includeShared || link.profileUids.size == 1) && links.none { other -> other.start < link.end && other.end > link.start && other.profileUids != link.profileUids }
         }.flatMap { link ->
             runs.mapNotNull { run ->
                 val start = maxOf(link.start - requireNotNull(fullAnswerOffset), run.sourceStart)
                 val end = minOf(link.end - fullAnswerOffset, run.sourceEnd)
-                if (start >= end) null else MappedProfileSpan(run.transformedStart + start - run.sourceStart, run.transformedStart + end - run.sourceStart, link.profileUids.single())
+                if (start >= end) null else MappedProfileSpan(run.transformedStart + start - run.sourceStart, run.transformedStart + end - run.sourceStart, link.profileUids.sorted().first(), link.profileUids)
             }
         }
         // Math placeholders and removed metadata have no prose source run. Mask those
@@ -87,7 +87,15 @@ data class MarkdownSourceMap(
         runs.forEach { run -> original.toCharArray(prose, run.sourceStart, run.sourceStart, run.sourceEnd) }
         val wording = combinedWordingSpans(String(prose), sources)
         val spans = wording.filter { span ->
-            if (scoped.any { it.start < (fullAnswerOffset ?: 0) + span.end && it.end > (fullAnswerOffset ?: 0) + span.start }) return@filter false
+            val absoluteStart = (fullAnswerOffset ?: 0) + span.start
+            val absoluteEnd = (fullAnswerOffset ?: 0) + span.end
+            if (links.any { it.start < absoluteEnd && it.end > absoluteStart }) return@filter false
+            if (scoped.any { it.start < absoluteEnd && it.end > absoluteStart }) {
+                // Only exact source identity can fill a protocol gap. Lexical resemblance
+                // remains a diagnostic hint and never manufactures an exclusive owner.
+                val exactOwners = dev.chungjungsoo.gptmobile.data.agent.combinedVerbatimProfiles(original.substring(span.start, span.end), sources)
+                if (exactOwners != span.profileUids) return@filter false
+            }
             val owner = span.profileUids.singleOrNull() ?: return@filter includeShared
             val start = (fullAnswerOffset ?: 0) + span.start
             val end = (fullAnswerOffset ?: 0) + span.end

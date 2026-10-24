@@ -93,7 +93,7 @@ internal object CompleteBackupDatabase {
         if ("amazon_check_events" in tables(destination)) destination.execSQL("DELETE FROM amazon_check_events")
         pauseRestoredAmazon(destination)
         // History is portable; active jobs must never be replayed by service recovery.
-        if ("agent_runs" in tables(destination)) destination.execSQL("UPDATE agent_runs SET status = 'INTERRUPTED', terminal_error = 'BACKUP_RESTORED' WHERE status IN ('QUEUED', 'RUNNING')")
+        if ("agent_runs" in tables(destination)) destination.execSQL("UPDATE agent_runs SET status = 'INTERRUPTED', terminal_error = 'BACKUP_RESTORED' WHERE status IN ('QUEUED', 'RUNNING', 'WAITING_PROVIDER_LIMIT')")
         if ("tool_events" in tables(destination)) destination.execSQL("UPDATE tool_events SET status = 'CANCELED', error = 'BACKUP_RESTORED' WHERE status IN ('PENDING', 'RUNNING')")
     }
 
@@ -155,7 +155,7 @@ internal object CompleteBackupDatabase {
             RunPolicySnapshotDatabase.normalizeInlineRecords(destination)
             destination.execSQL(
                 "UPDATE agent_runs SET status = 'INTERRUPTED', terminal_error = 'BACKUP_RESTORED' " +
-                    "WHERE status IN ('QUEUED', 'RUNNING')"
+                    "WHERE status IN ('QUEUED', 'RUNNING', 'WAITING_PROVIDER_LIMIT')"
             )
             destination.execSQL(
                 "UPDATE tool_events SET status = 'CANCELED', error = 'BACKUP_RESTORED' " +
@@ -212,6 +212,7 @@ internal object CompleteBackupDatabase {
                 add("agent_run_policy_refs")
                 add("answer_segments")
                 add("combined_delivery_checkpoints")
+                add("combined_final_messages")
                 add("tool_events")
                 add("tool_approvals")
                 add("model_invocations")

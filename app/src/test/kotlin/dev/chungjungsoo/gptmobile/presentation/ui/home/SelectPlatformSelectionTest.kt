@@ -16,7 +16,7 @@ class SelectPlatformSelectionTest {
 
     @Test fun savedOpenCodeSelectionIsUnavailableBeforeConfirmationWithoutChangingHistoryIdentity() {
         val provider = dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.OPENCODE
-        val profile = provider.applyTo(PlatformV2(uid = "existing-history-owner", name = "Saved OpenCode"))
+        val profile = PlatformV2(uid = "existing-history-owner", name = "Saved OpenCode", compatibleType = dev.chungjungsoo.gptmobile.data.model.ClientType.FREE, apiUrl = provider.apiUrl, model = provider.model)
         assertEquals(emptySet<String>(), selectedProfileUids(listOf(profile), listOf(true)))
         assertEquals(emptyList<String>(), confirmedProfileUids(listOf(profile), setOf(profile.uid)))
         assertEquals("existing-history-owner", profile.uid)

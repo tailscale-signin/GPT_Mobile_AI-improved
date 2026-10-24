@@ -38,7 +38,8 @@ internal fun retainFreeHttpFailure(config: ProviderRequestConfig, model: String,
             message = message,
             quotaScope = field("quota_scope") ?: field("scope") ?: header("X-RateLimit-Scope")?.takeIf { it.matches(Regex("[A-Za-z0-9_.:/ -]{1,80}")) } ?: "unknown",
             originatingFailureId = config.freeDiagnostics?.failureId
-        )
+        ),
+        serverDate = header("Date")
     )
     val cooldown = FreeAiRequestLimiter.shared.savedCooldown(provider, model, identity)
     config.freeDiagnostics?.cooldown = cooldown

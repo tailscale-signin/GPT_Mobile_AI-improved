@@ -23,7 +23,7 @@ class FreeAiProviderTest {
             assertTrue(profile.copy(model = it).excludesMemory())
         }
         FreeAiProvider.entries.forEach { provider ->
-            assertTrue(provider.applyTo(profile).excludesMemory())
+            if (!provider.isRetired) assertTrue(provider.applyTo(profile).excludesMemory())
             assertTrue(profile.copy(apiUrl = provider.apiUrl, model = provider.model).excludesMemory())
         }
         assertFalse(profile.copy(model = "paid-model").excludesMemory())
@@ -70,5 +70,23 @@ class FreeAiProviderTest {
         assertEquals(FreeAiProvider.KILO, FreeAiProvider.fromApiUrl(FreeAiProvider.KILO.chatCompletionsUrl))
         assertNull(FreeAiProvider.fromApiUrl("${FreeAiProvider.KILO.apiUrl}.example"))
         assertNull(FreeAiProvider.fromApiUrl("http://api.kilo.ai/api/gateway"))
+    }
+
+    @Test fun retiredManualAliasesAreRecognizedAndCannotConstructADispatchEndpoint() {
+        listOf(FreeAiProvider.PORCHLM, FreeAiProvider.OPENCODE).forEach { retired ->
+            val original = PlatformV2(uid = "historical", name = "Saved", apiUrl = retired.apiUrl, model = "historical-model", enabled = true)
+            val disabled = retired.applyTo(original)
+            assertFalse(disabled.enabled)
+            assertEquals(original.model, disabled.model)
+            assertEquals(original.uid, disabled.uid)
+            listOf(retired.apiUrl, retired.chatCompletionsUrl + "/?tracking=1", retired.apiUrl.replace("https://", "http://user@")).forEach { route ->
+                assertEquals(retired, FreeAiProvider.fromApiUrl(route))
+                org.junit.Assert.assertThrows(IllegalStateException::class.java) {
+                    dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig(route, null).buildEndpoint("chat/completions")
+                }
+            }
+            assertTrue(dev.chungjungsoo.gptmobile.data.free.FreeModelCatalog.defaults(retired).isEmpty())
+            assertFalse(retired in FreeAiProvider.active)
+        }
     }
 }

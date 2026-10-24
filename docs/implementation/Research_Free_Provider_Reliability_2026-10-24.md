@@ -409,4 +409,3 @@ The following links pin the inspected baseline. The implementation branch contai
 - H4: [Gradio 5.27 routes](https://github.com/gradio-app/gradio/blob/gradio%405.27.0/gradio/routes.py) and [Space README](https://huggingface.co/spaces/Qwen/Qwen3-Demo/blob/main/README.md). Version-specific session and stream behavior.
 - H5: [Alibaba Model Studio text generation guide](https://www.alibabacloud.com/help/en/model-studio/text-generation). Reference for checking DashScope response status before accessing successful output.
 - P1: Synthetic live probe record, 24 October 2026, 11:00 to 11:02 Toronto time. Public config/info responses and SSE results retained as analysis evidence; no user prompt content was transmitted.
-

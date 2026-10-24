@@ -96,7 +96,13 @@ internal fun combinedResponseProfiles(
         } == true
         if (source == null && !hasResponse && !(preparing && uid in participatingUids)) return@mapIndexedNotNull null
         val response = source?.let { sourceMessage(original, it) }
-            ?: original?.copy(activeRevisionIndex = ACTIVE_REVISION_LATEST)
+            ?: original?.let { latest ->
+                if (latest.currentRunId?.let { runsById[it]?.status } in setOf(AgentRunStatus.FAILED, AgentRunStatus.INTERRUPTED, AgentRunStatus.CANCELED)) {
+                    selectCombinedContribution(latest, runsById, null).message.copy(activeRevisionIndex = ACTIVE_REVISION_LATEST)
+                } else {
+                    latest.copy(activeRevisionIndex = ACTIVE_REVISION_LATEST)
+                }
+            }
         val run = response?.currentRunId?.let(runsById::get)
         CombinedResponseProfile(
             uid = uid,

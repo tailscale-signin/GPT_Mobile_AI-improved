@@ -27,6 +27,28 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AndroidResearchWorkflowTest {
+    @Test fun requiredIntentCannotBeWaivedByInitialPlannerRepairOrConversationHeuristic() = runBlocking {
+        val saved = Journal()
+        val journal = object : ResearchJournal by saved {
+            override fun scoped(authority: String, sharePublicEvidence: Boolean): ResearchJournal = this
+            override suspend fun requiresEvidence() = true
+        }
+        var planningCalls = 0
+        val result = AndroidResearchWorkflow(config(1), listOf(search(), reader()), { prompt, tokens ->
+            if (prompt.startsWith("Plan public-web") || prompt.startsWith("Repair the planner")) {
+                planningCalls++
+                """{"schemaVersion":1,"questions":[],"queries":[],"noResearchNeeded":true}"""
+            } else {
+                model(prompt, tokens)
+            }
+        }, journal).run("Explain a simple concept", "required-intent")
+        assertEquals(2, planningCalls)
+        assertTrue(requireNotNull(saved.snapshot).questionPlan.isNotEmpty())
+        assertEquals("Deterministic fallback", saved.snapshot?.planningStatus)
+        assertTrue(result.pagesRead > 0)
+        assertFalse(result.outcome == LocalResearchOutcome.NO_RESEARCH_NEEDED)
+    }
+
     @Test fun emptyContributorConsumesSharedAcceptedPlanWithoutRepeatingPlanning() = runBlocking {
         val saved = Journal()
         val shared = dev.chungjungsoo.gptmobile.data.research.ResearchPlanContract(

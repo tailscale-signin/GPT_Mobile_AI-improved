@@ -82,7 +82,12 @@ internal fun preserveCombinedRetrySelection(current: MessageV2, candidate: Messa
     if (terminalStatus != null) {
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
             "CombinedRevision",
-            "REVISION_PROMOTION · runId=${run.runId} · promoted=$promote · terminal=$terminalStatus · priorWords=${priorCombined?.content?.let(CombinedWordCounter::count) ?: 0} · candidateWords=${CombinedWordCounter.count(candidate.content)} · reason=${if (promote) "LOCAL_CHECKS_ACCEPTED" else "RETAIN_BETTER_REVISION"}"
+            "REVISION_PROMOTION · runId=${run.runId} · promoted=$promote · terminal=$terminalStatus · protocolComplete=${report?.complete == true} · displayableDraft=${candidate.content.isNotBlank()} · priorWords=${priorCombined?.content?.let(CombinedWordCounter::count) ?: 0} · candidateWords=${CombinedWordCounter.count(candidate.content)} · reason=${when {
+                accepted -> "COMPLETED_REVISION_ACCEPTED"
+                explicitReply -> "USER_SELECTED_REPLY"
+                promote -> "DISPLAYABLE_PARTIAL_RETAINED"
+                else -> "RETAIN_BETTER_REVISION"
+            }}"
         )
     }
     return candidate.copy(activeRevisionIndex = if (promote) ACTIVE_REVISION_LATEST else selectedIndex)

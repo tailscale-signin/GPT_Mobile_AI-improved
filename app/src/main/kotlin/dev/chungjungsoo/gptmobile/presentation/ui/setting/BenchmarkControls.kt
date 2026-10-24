@@ -15,7 +15,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.BarChart
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.CheckCircle
-import androidx.compose.material.icons.rounded.CompareArrows
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Hub
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -39,15 +38,17 @@ import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 
 @Composable
 internal fun BenchmarkNavigation(selected: Int, debugMode: Boolean = false, onSelect: (Int) -> Unit) {
-    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        listOf(
-            Triple(0, "Run", Icons.Rounded.PlayArrow),
-            Triple(2, "Scoreboard", Icons.Rounded.BarChart),
-            Triple(5, "Compare", Icons.Rounded.CompareArrows),
-            Triple(4, "Delegation", Icons.Rounded.Hub),
-            Triple(3, "History", Icons.Rounded.History),
-            Triple(6, "Settings", Icons.Rounded.Science)
-        ).let { if (debugMode) it + Triple(7, "Debug", Icons.Rounded.Science) else it }.forEach { (id, label, icon) -> BenchmarkAction(label, icon, selected == id, { onSelect(id) }) }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(Triple(0, "Queue", Icons.Rounded.PlayArrow), Triple(5, "Results", Icons.Rounded.BarChart), Triple(3, "History", Icons.Rounded.History)).forEach { (id, label, icon) -> BenchmarkAction(label, icon, selected == id, { onSelect(id) }) }
+        }
+        dev.chungjungsoo.gptmobile.presentation.common.DetailsSection {
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(Triple(2, "Scoreboard", Icons.Rounded.BarChart), Triple(4, "Delegation", Icons.Rounded.Hub), Triple(6, "Export", Icons.Rounded.Science))
+                    .let { if (debugMode) it + Triple(7, "Debug", Icons.Rounded.Science) else it }
+                    .forEach { (id, label, icon) -> BenchmarkAction(label, icon, selected == id, { onSelect(id) }) }
+            }
+        }
     }
 }
 

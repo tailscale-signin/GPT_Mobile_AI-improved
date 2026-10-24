@@ -61,12 +61,13 @@ internal object CombinedWriterObservations {
         val previous = get(key) ?: Observation("UNKNOWN", 0, System.currentTimeMillis())
         observed[resolved[key] ?: key] = previous.copy(updatedAt = System.currentTimeMillis(), malformedAttempts = previous.malformedAttempts + if (category == CombinedRecoveryCategory.MALFORMED_RECORD) 2 else 0, queueDelays = previous.queueDelays + if (category == CombinedRecoveryCategory.QUEUE_PENDING) 1 else 0)
     }
-    fun recordRoute(key: String, model: String?, backend: String?, control: String?, reasoning: Boolean) {
+    fun recordRoute(key: String, model: String?, backend: String?, control: String?, reasoning: Boolean): String {
         if (resolved.size >= 256 && !resolved.containsKey(key)) resolved.clear()
         val actual = "$key|served=${model ?: "unreported"}|backend=${backend ?: "unreported"}"
         resolved[key] = actual
         val prior = observed[actual] ?: Observation("UNKNOWN", 0, System.currentTimeMillis())
         observed[actual] = prior.copy(updatedAt = System.currentTimeMillis(), reasoningDisabled = if (reasoning && control != null) "NOT_HONORED" else prior.reasoningDisabled, reasoningControl = control ?: "UNVERIFIED", servedModel = model, backend = backend)
+        return actual
     }
     internal fun clearForTest() {
         observed.clear()

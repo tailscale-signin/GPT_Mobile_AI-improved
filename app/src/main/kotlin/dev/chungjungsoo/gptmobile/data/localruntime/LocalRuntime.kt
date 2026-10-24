@@ -218,6 +218,15 @@ class LocalNpuPackageException private constructor(message: String, cause: Throw
 
 interface LocalRuntime {
     val isBusy: Boolean get() = false
+
+    /**
+     * Native work or unacknowledged worker teardown, without an outer admission lease.
+     * A caller that already owns the measurement/resource lease uses this after close to
+     * distinguish its own reservation from an operation that can still affect a successor.
+     * This is an observation, never permission to bypass admission or the generation lock.
+     */
+    val isNativeOperationBusy: Boolean get() = isBusy
+    val executionIdentity: LocalRuntimeExecutionIdentity get() = LocalRuntimeExecutionIdentity()
     val handlesEngineFallback: Boolean get() = false
     val ownsEngineSwitching: Boolean get() = false
     val state: StateFlow<LocalRuntimeState> get() = EMPTY_RUNTIME_STATE
@@ -285,6 +294,15 @@ interface LocalRuntime {
         block(this@LocalRuntime).collect { emit(it) }
     }
 }
+
+/** Observed runtime identifiers only. Configured GPU layers are not actual offload evidence. */
+data class LocalRuntimeExecutionIdentity(
+    val workerGenerationId: String? = null,
+    val conversationId: String? = null,
+    val engineInstanceId: String? = null,
+    val driverIdentity: String? = null,
+    val actualOffloadLayers: Int? = null
+)
 
 /** Ends a native callback loop without replaying any dispatched action. */
 internal class LocalToolLimitException(val code: String) : IllegalStateException("Local tool execution stopped: $code")

@@ -78,6 +78,45 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 class ProviderAdaptersTest {
+    @Test fun compatibleWriterBindsServedRouteBeforePublishingUsage() = runBlocking {
+        val profile = platform(ClientType.CUSTOM).copy(model = "auto-route", maxTokens = 8192)
+        val key = dev.chungjungsoo.gptmobile.data.agent.CombinedWriterObservations.key(profile)
+        dev.chungjungsoo.gptmobile.data.agent.CombinedWriterObservations.clearForTest()
+        try {
+            dev.chungjungsoo.gptmobile.data.agent.CombinedWriterObservations.recordRoute(key, "previous", "old-backend", null, false)
+            val chunk = NetworkClient.json.decodeFromString<ChatCompletionChunk>("""{"model":"current","provider":"new-backend","choices":[{"delta":{"content":"A complete answer."},"finish_reason":"stop"}],"usage":{"completion_tokens":200,"completion_tokens_details":{"reasoning_tokens":145}}}""")
+            val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(flowOf(chunk))))
+            val combined = dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext(
+                dev.chungjungsoo.gptmobile.data.agent.CombinedRequestedPolicy(),
+                rootBudgetId = "observation-test",
+                role = dev.chungjungsoo.gptmobile.data.agent.CombinedRunRole.SYNTHESIS
+            )
+            val events = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+                .openSession(turns(), profile, RequestConstraints(maxOutputTokens = 4096, allowTools = false, allowReasoning = false, combined = combined))
+                .streamRound(emptyList(), emptyList()).toList()
+            val usage = events.filterIsInstance<ProviderEvent.Usage>().single { it.reasoningTokens == 145 }
+            assertTrue(usage.writerObservationKey != null)
+            val observed = dev.chungjungsoo.gptmobile.data.agent.CombinedWriterObservations.get(requireNotNull(usage.writerObservationKey))
+            assertEquals("current", observed?.servedModel)
+            assertEquals("new-backend", observed?.backend)
+        } finally {
+            dev.chungjungsoo.gptmobile.data.agent.CombinedWriterObservations.clearForTest()
+        }
+    }
+
+    @Test fun compatibleAdapterPreservesTypedPayloadFailureInsteadOfLegacyProviderCode() = runBlocking {
+        val error = dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail(
+            "TOOL_CHOICE_MISMATCH: tool use was disabled",
+            "tool_choice_mismatch",
+            "tool_use_failed"
+        )
+        val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(flowOf(ChatCompletionChunk(error = error)))))
+        val events = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+            .openSession(turns(), platform(ClientType.CUSTOM))
+            .streamRound(emptyList(), emptyList()).toList()
+        assertEquals("TOOL_CHOICE_MISMATCH", events.filterIsInstance<ProviderEvent.Failed>().last().errorCode)
+    }
+
     @Test fun llm7TokenReachesTheCompatibleAdapterWhileAnonymousTokensAreStripped() = runBlocking {
         for (provider in listOf(dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.LLM7, dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.KILO)) {
             val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(flowOf(ChatCompletionChunk(choices = listOf(Choice(delta = Delta(content = "OK"), finishReason = "stop")))))))

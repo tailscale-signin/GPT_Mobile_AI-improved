@@ -192,7 +192,10 @@ class ResearchEvidenceManifestTest {
         store.deleteChat(1)
         assertFalse(current.retainDeliveryReceipt(receipt))
         assertNull(current.retainPartial("EXTRACT", "p1", "after deletion"))
-        assertTrue(File(files.root, "research-history").listFiles().orEmpty().isEmpty())
+        val retained = File(files.root, "research-history").listFiles().orEmpty()
+        assertEquals(listOf(researchHash("deleted-chat:1") + ".deleted-chat"), retained.map { it.name })
+        assertEquals("deleted", retained.single().readText())
+        assertNull(ResearchSessionStore(context).acceptedTask(root))
     }
 
     @Test fun deliveryWrapperCannotEmitAcceptedNoticeOrCompletionWhenCapturedJournalRejectsReceipt() = runBlocking {

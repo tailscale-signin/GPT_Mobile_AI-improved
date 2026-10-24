@@ -144,6 +144,9 @@ class LocalEngineHolder(
 
     override val isBusy: Boolean get() = mutex.isLocked || delegate.isBusy || InferenceAdmission.isExclusiveBusy
 
+    override val isNativeOperationBusy: Boolean get() = mutex.isLocked || delegate.isNativeOperationBusy
+    override val executionIdentity get() = delegate.executionIdentity
+
     override suspend fun <T> tryRunExclusive(block: suspend LocalRuntime.() -> T): T? = InferenceAdmission.tryShared {
         if (coroutineContext[GenerationLock] != null || !mutex.tryLock()) return@tryShared null
         try {

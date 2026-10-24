@@ -29,7 +29,11 @@ data class CombinedClaimOccurrence(
     val bodyDigest: String,
     val sourceSpan: CombinedCoverageLink? = null,
     val attemptId: String? = null,
-    val createdAt: Long? = null
+    val createdAt: Long? = null,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val occurrenceId: String = "",
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val tableCells: List<CombinedTableCellAddress> = emptyList()
 )
 
 @Serializable
@@ -47,6 +51,7 @@ data class CombinedClaimRecord(
     val extractionMethod: String = "CONSERVATIVE_PROPOSITION_V1"
 ) {
     val candidateIds: Set<String> get() = occurrences.mapTo(linkedSetOf()) { it.candidateId }
+    val canonicalId: String get() = "claim:$semanticId"
 }
 
 /**
@@ -130,6 +135,10 @@ internal object CombinedClaimSemantics {
 
     fun lostQualifiers(source: CombinedClaimQualifiers, target: CombinedClaimQualifiers): List<String> = buildList {
         addAll(applicabilityConflicts(source, target))
+        if (!target.times.containsAll(source.times)) add("TIME_SCOPE_OMITTED")
+        if (!target.units.containsAll(source.units)) add("UNIT_OMITTED")
+        if (!target.entities.containsAll(source.entities)) add("ENTITY_OMITTED")
+        if (!target.restrictions.containsAll(source.restrictions)) add("RESTRICTION_OMITTED")
         if (source.routes.isNotEmpty() && !target.routes.containsAll(source.routes)) add("INTERVENTION_ROUTE_OMITTED")
         if (source.populations.isNotEmpty() && !target.populations.containsAll(source.populations)) add("POPULATION_OMITTED")
         if (source.studyTypes.isNotEmpty() && !target.studyTypes.containsAll(source.studyTypes)) add("STUDY_TYPE_OMITTED")
@@ -148,8 +157,11 @@ internal object CombinedClaimSemantics {
             var cursor = 0
             val digest = researchHash(source.content)
             val spans = CombinedTextSpanIndex(source.content)
-            CombinedContentCoverage.sentences(CombinedContentCoverage.sourceCoverageText(source.content)).mapIndexed { index, text ->
-                val sourceSpan = spans.find(text, cursor)
+            val extracted = if (source.claimExtractionVersion >= 2) CombinedSourceClaims.units(source.content, source.contentCompleteness == "PARTIAL") else null
+            val texts = extracted?.map { it.text } ?: CombinedContentCoverage.sentences(CombinedContentCoverage.sourceCoverageText(source.content))
+            texts.mapIndexed { index, text ->
+                val unit = extracted?.get(index)
+                val sourceSpan = unit?.let { CombinedSourceClaims.span(source.content, it) } ?: spans.find(text, cursor)
                 if (sourceSpan != null) cursor = sourceSpan.endUtf16
                 val qualifiers = qualifiers(text)
                 val id = "C${sourceIndex + 1}.${index + 1}"
@@ -163,9 +175,21 @@ internal object CombinedClaimSemantics {
                     predicate = split?.value.orEmpty(),
                     objectOrOutcome = split?.let { text.substring(it.range.last + 1).trim() }.orEmpty(),
                     qualifiers = qualifiers,
-                    occurrences = listOf(CombinedClaimOccurrence(id, source.platformUid, digest, sourceSpan, source.attemptId, source.createdAt)),
+                    occurrences = listOf(
+                        CombinedClaimOccurrence(
+                            id,
+                            source.platformUid,
+                            digest,
+                            sourceSpan,
+                            source.attemptId,
+                            source.createdAt,
+                            occurrenceId = if (source.claimExtractionVersion >= 2) researchHash("${source.platformUid}|$digest|${source.attemptId}|${sourceSpan?.startUtf16}|${sourceSpan?.endUtf16}|$semanticId") else "",
+                            tableCells = unit?.cells.orEmpty()
+                        )
+                    ),
                     profileUids = setOf(source.platformUid),
-                    ancestryIds = source.ancestryIds.ifEmpty { setOf("contribution:$digest") }
+                    ancestryIds = source.ancestryIds.ifEmpty { setOf("contribution:$digest") },
+                    extractionMethod = if (source.claimExtractionVersion >= 2) "SCOPED_PROPOSITION_V2" else "CONSERVATIVE_PROPOSITION_V1"
                 )
             }
         }

@@ -55,6 +55,8 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
         ToolConnection::class,
         AgentToolBinding::class,
         AgentRun::class,
+        dev.chungjungsoo.gptmobile.data.database.entity.RunPolicySnapshot::class,
+        dev.chungjungsoo.gptmobile.data.database.entity.AgentRunPolicyRef::class,
         dev.chungjungsoo.gptmobile.data.chat.ReplyPublication::class,
         dev.chungjungsoo.gptmobile.data.database.entity.AnswerSegment::class,
         dev.chungjungsoo.gptmobile.data.database.entity.CombinedDeliveryCheckpoint::class,
@@ -73,7 +75,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
         dev.chungjungsoo.gptmobile.data.memory.MemoryGraphObservationRecord::class,
         dev.chungjungsoo.gptmobile.data.memory.MemoryGraphRelationRecord::class
     ],
-    version = 44,
+    version = 45,
     exportSchema = true
 )
 @TypeConverters(

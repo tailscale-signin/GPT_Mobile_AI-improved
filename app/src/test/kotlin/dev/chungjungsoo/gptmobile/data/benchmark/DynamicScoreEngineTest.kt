@@ -6,6 +6,16 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DynamicScoreEngineTest {
+    @Test fun estimatedProviderCountsNeverReplaceReferenceDeliveryMeasurements() {
+        val original = run("profile", 150)
+        val estimates = original.copy(samples = original.samples.map { it.copy(outputTokens = 999999, inputTokenSource = "unknown", outputTokenSource = "estimated", outputTokenConfidence = "estimated", estimatedTokens = true) })
+        val before = DynamicScoreEngine.snapshot(listOf(original), 1, 2000).rows.single()
+        val after = DynamicScoreEngine.snapshot(listOf(estimates), 2, 2000).rows.single()
+        assertEquals(before.speed, after.speed)
+        assertEquals(before.overall, after.overall)
+        assertEquals(before.metrics.single { it.id == "reference_decode_rate" }.value, after.metrics.single { it.id == "reference_decode_rate" }.value)
+    }
+
     private fun run(id: String, speed: Int, local: Boolean = false, failed: Boolean = false): BenchmarkRun {
         val suite = benchmarkSuite(BenchmarkMode.FULL)
         return BenchmarkRun(
@@ -13,7 +23,7 @@ class DynamicScoreEngineTest {
             samples = suite.map { case ->
                 BenchmarkSample(
                     case.id, case.label, case.category, if (failed && case.category != "speed") BenchmarkOutcome.FAILED else BenchmarkOutcome.PASSED,
-                    durationMs = 1100, firstTextMs = 100, lastTextMs = 1100, chunks = 2, outputTokens = speed, referenceTokens = speed + 1, referenceDecodeTokens = speed, tokenBasis = ReferenceTextTokenizer.VERSION, warmup = case.warmup, workload = case.workload
+                    durationMs = 1100, firstTextMs = 100, lastTextMs = 1100, chunks = 2, outputTokens = speed, outputCharacters = speed * 4, requestDispatched = true, referenceTokens = speed + 1, referenceDecodeTokens = speed, tokenBasis = ReferenceTextTokenizer.VERSION, warmup = case.warmup, workload = case.workload
                 )
             },
             suiteVersion = dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkSuiteRegistry.VERSION, measurementVersion = 2, plannedTrials = suite.size, device = "fixture-device"
@@ -85,21 +95,21 @@ class DynamicScoreEngineTest {
     @Test
     fun unsupportedAgentToolsKeepTextScoresAndFullCoverage() {
         val base = run("local", 100, true)
-        val samples = base.samples.map { if (it.category == "tools") it.copy(outcome = BenchmarkOutcome.UNSUPPORTED) else it }
+        val samples = base.samples.map { if (it.category == "tools") it.copy(outcome = BenchmarkOutcome.UNSUPPORTED, requestDispatched = false, chunks = 0, outputCharacters = 0) else it }
         val row = DynamicScoreEngine.snapshot(listOf(base.copy(samples = samples)), 1, 2000).rows.single()
         assertTrue(row.verified)
         assertEquals(100.0, row.reliability!!, .0001)
-        assertEquals(100.0, row.overall!!, .0001)
+        assertNull(row.overall)
         assertEquals(setOf("tools"), row.unsupportedCategories)
         assertEquals(setOf("task", "json"), row.accuracyByCategory.keys)
     }
 
     @Test
-    fun failedCorrectnessRequestsReceiveScoresAndContextTiersStaySeparate() {
+    fun executionFailuresHaveUnknownAccuracyAndContextTiersStaySeparate() {
         val failed = run("failed", 100).let { block -> block.copy(samples = block.samples.map { if (it.category == "speed") it else it.copy(outcome = BenchmarkOutcome.ERROR) }) }
         val row = DynamicScoreEngine.snapshot(listOf(failed), 1, 2000).rows.single()
-        assertEquals(0.0, row.quality!!, .0001)
-        assertEquals(0.0, row.overall!!, .0001)
+        assertNull(row.quality)
+        assertNull(row.overall)
         assertTrue(DynamicScoreEngine.cohort(run("a", 100, true).copy(fixtureContextTokens = 4096)) != DynamicScoreEngine.cohort(run("b", 100, true).copy(fixtureContextTokens = 8192)))
         assertEquals(100, benchmarkScoreDimensions(row, false).sumOf { it.weight })
     }
@@ -132,7 +142,7 @@ class DynamicScoreEngineTest {
         assertEquals(setOf("speed", "task", "json", "tools", "intelligence"), quick.map { it.category }.toSet())
         assertEquals(quick.size, quick.map { it.id }.toSet().size)
         val full = benchmarkSuite(BenchmarkMode.FULL)
-        assertEquals(mapOf("speed" to 18, "task" to 8, "json" to 6, "tools" to 12, "intelligence" to 6), full.groupingBy { it.category }.eachCount())
+        assertEquals(mapOf("speed" to 18, "task" to 10, "json" to 6, "tools" to 10, "intelligence" to 6), full.groupingBy { it.category }.eachCount())
         assertEquals(50, full.map { it.id }.toSet().size)
         val base = run("old", 100)
         assertEquals(72, benchmarkSuiteForRun(base.copy(suiteVersion = 5)).size)

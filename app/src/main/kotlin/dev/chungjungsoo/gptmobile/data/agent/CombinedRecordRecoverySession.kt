@@ -16,6 +16,7 @@ internal class CombinedRecordRecoverySession(
     private val validateAccess: suspend () -> Unit,
     private val save: suspend (CombinedRecordCheckpoint) -> Unit,
     private val observeAttempt: (Boolean, Int) -> Unit = { _, _ -> },
+    private val observeRoute: (String) -> Unit = {},
     private val continuation: suspend (CombinedRecordCheckpoint, String) -> AgentProviderSession
 ) : AgentProviderSession {
     override val handlesToolsInternally = false
@@ -75,6 +76,7 @@ internal class CombinedRecordRecoverySession(
                             emit(event)
                         }
                         is ProviderEvent.Usage -> {
+                            event.writerObservationKey?.let(observeRoute)
                             reasoningObserved = reasoningObserved || (event.reasoningTokens ?: 0) > 0
                             finishReason = event.finishReason ?: finishReason
                             emit(event)
@@ -96,7 +98,7 @@ internal class CombinedRecordRecoverySession(
                 // Only this exact parser sentinel can enter bounded reconstruction. Collector,
                 // persistence and authorization failures must propagate without further emission.
                 if (error !== rejectedRecord) throw error
-                failure = ProviderEvent.Failed(error.message.orEmpty(), errorCode = error.message)
+                failure = ProviderEvent.Failed("OUTPUT_PROTOCOL_INVALID: ${error.message.orEmpty()}", errorCode = "OUTPUT_PROTOCOL_INVALID")
             }
             val after = protocol.checkpoint()
             val passagesAdded = after.records.drop(before.records.size).count { record ->
@@ -118,6 +120,8 @@ internal class CombinedRecordRecoverySession(
                         ProviderEvent.Failed("COMBINED_WRITER_STALLED: Reasoning consumed the allowance without completed answer passages. Retained contributions remain available; an explicit user retry is required.", errorCode = "COMBINED_WRITER_STALLED")
                     } else if (failure == null && passagesAdded == 0 && after.records.isEmpty() && after.pending.isBlank()) {
                         ProviderEvent.Failed("COMBINED_EMPTY_OUTPUT: The writer returned no answer records.", errorCode = "COMBINED_EMPTY_OUTPUT")
+                    } else if (failure == null && complete && !outputLimit && (!after.ended || after.pending.isNotBlank())) {
+                        ProviderEvent.Failed("OUTPUT_PROTOCOL_INVALID: The writer ended without a valid final record. Committed passages and unfinished bytes are saved.", errorCode = "OUTPUT_PROTOCOL_INVALID")
                     } else {
                         failure ?: ProviderEvent.Failed("COMBINED_PARTIAL: Structured delivery paused at record ${after.lastSequence + 1}. Committed passages and the unfinished record are saved.")
                     }

@@ -216,6 +216,7 @@ internal fun Flow<ProviderEvent>.withSummedRequestUsage(): Flow<ProviderEvent> =
                 retryDurationMs = event.retryDurationMs ?: previous?.retryDurationMs,
                 retryAttempts = event.retryAttempts ?: previous?.retryAttempts,
                 actualRuntime = event.actualRuntime ?: previous?.actualRuntime,
+                writerObservationKey = event.writerObservationKey ?: previous?.writerObservationKey,
                 effectiveSettingsConfirmed = event.effectiveSettingsConfirmed || previous?.effectiveSettingsConfirmed == true
             )
             input.accept(event.inputTokens, event.cumulative, event.inputSource, event.phase)

@@ -251,7 +251,7 @@ class OutputLimitRecoverySessionTest {
     @Test fun finishAndRetryMetadataSurviveCumulativeUsageReduction() = runTest {
         val wrapper = OutputLimitRecoverySession(
             session {
-                emit(ProviderEvent.Usage(outputTokens = 12, retryDurationMs = 5000, retryAttempts = 1, actualRuntime = "fixture", reasoningTokens = 9))
+                emit(ProviderEvent.Usage(outputTokens = 12, retryDurationMs = 5000, retryAttempts = 1, actualRuntime = "fixture", reasoningTokens = 9, writerObservationKey = "served-route"))
                 emit(ProviderEvent.Usage(outputTokens = 24, finishReason = "stop"))
                 emit(ProviderEvent.Completed)
             }
@@ -263,5 +263,6 @@ class OutputLimitRecoverySessionTest {
         assertEquals(1, usage.retryAttempts)
         assertEquals("fixture", usage.actualRuntime)
         assertEquals(9, usage.reasoningTokens)
+        assertEquals("served-route", usage.writerObservationKey)
     }
 }

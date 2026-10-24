@@ -1,7 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.benchmark
 
 internal data class BenchmarkRetest(val current: BenchmarkScoreRow, val previous: BenchmarkScoreRow?)
-internal fun BenchmarkScoreRow.retestKey(): String = "$profileUid|$revision|$cohort"
+internal fun BenchmarkScoreRow.retestKey(): String = resultId.ifBlank { "$profileUid|$revision|$cohort|$backend|$accelerator" }
 
 /** Score individual runs against the same current cohort anchors, never a rolling average. */
 internal fun benchmarkRetests(history: List<BenchmarkRun>, now: Long = System.currentTimeMillis()): List<BenchmarkRetest> {
@@ -16,7 +16,7 @@ internal fun benchmarkRetests(history: List<BenchmarkRun>, now: Long = System.cu
     val byId = complete.associateBy { it.id }
     val isolated = complete.map { it.copy(profileUid = it.id, configKey = it.id) }
     val rows = DynamicScoreEngine.snapshot(isolated, 0, now).rows.mapNotNull { row ->
-        byId[row.sourceRunIds.firstOrNull()]?.let { run -> row.copy(profileUid = run.profileUid, revision = run.configKey) }
+        byId[row.sourceRunIds.firstOrNull()]?.let { run -> row.copy(profileUid = run.profileUid, revision = run.configKey, resultId = benchmarkResultId(run)) }
     }
     return rows.groupBy { it.retestKey() }.values.map { group ->
         val ordered = group.sortedByDescending { row -> byId[row.sourceRunIds.firstOrNull()]?.startedAt ?: 0 }

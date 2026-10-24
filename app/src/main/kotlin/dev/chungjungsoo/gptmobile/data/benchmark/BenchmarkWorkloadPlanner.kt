@@ -4,11 +4,11 @@ package dev.chungjungsoo.gptmobile.data.benchmark
 internal object BenchmarkWorkloadPlanner {
     fun contextTier(tokens: Int): Int = Integer.highestOneBit(tokens.coerceIn(256, 32768))
 
-    fun adapt(suite: List<BenchmarkCase>, contextTokens: Int?): List<BenchmarkCase> {
+    fun adapt(suite: List<BenchmarkCase>, contextTokens: Int?, reserveTokens: Int = 1024): List<BenchmarkCase> {
         if (contextTokens == null) return suite
         // Match LocalContextPlanner's UTF-8 bytes / 2 estimate. Leave room for
-        // output (512), chat template (256), system/capability instructions and slack.
-        val promptBudget = (contextTier(contextTokens) - 1024).coerceAtLeast(128)
+        // output, chat template, system/capability instructions and slack. Historical suites retain their original reserve.
+        val promptBudget = (contextTier(contextTokens) - reserveTokens).coerceAtLeast(128)
         return suite.map { test ->
             val budget = when (test.workload) {
                 "short" -> maxOf(128, promptBudget / 4)

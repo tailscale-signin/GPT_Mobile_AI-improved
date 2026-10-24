@@ -31,6 +31,7 @@ class CombinedSynthesisPlannerTest {
     private val planner = CombinedSynthesisPlanner(chats, settings, research)
 
     private fun fixture(helperState: String = "RUNNING") {
+        coEvery { settings.getFeatureSettings() } returns dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings()
         coEvery { chats.fetchMessagesV2(1) } returns listOf(user, primary, helper)
         every { chats.observeAgentRuns(1) } returns flowOf(
             listOf(

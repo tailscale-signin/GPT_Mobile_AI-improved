@@ -69,6 +69,8 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
     override val state = mutableState.asStateFlow()
     override val handlesEngineFallback = true
     override val isBusy get() = pending.isNotEmpty() || quarantinedBinder?.isBinderAlive == true
+    override val executionIdentity: LocalRuntimeExecutionIdentity
+        get() = LocalRuntimeExecutionIdentity(workerGenerationId = generation.takeIf { it.isNotBlank() }, conversationId = sessionId.takeIf { it.isNotBlank() })
 
     @Volatile override var processPssBytes: Long? = null
         private set

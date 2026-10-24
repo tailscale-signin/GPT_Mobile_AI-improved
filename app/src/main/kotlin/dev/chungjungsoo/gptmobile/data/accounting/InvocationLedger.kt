@@ -206,11 +206,17 @@ class InvocationLedger @Inject constructor(
             try {
                 if (retainAccounting) dao.reserve(record, totalLimit, spend)
             } catch (error: SpendAllowanceReached) {
-                emit(ProviderEvent.TextDelta("\n\n${error.message} No model request was sent."))
-                emit(ProviderEvent.Completed)
+                if (kind == "benchmark") {
+                    emit(ProviderEvent.Failed("${error.message} No model request was sent.", errorCode = "POLICY_BLOCKED"))
+                } else {
+                    emit(ProviderEvent.TextDelta("\n\n${error.message} No model request was sent."))
+                    emit(ProviderEvent.Completed)
+                }
                 return@flow
             } catch (_: TokenAllowanceReached) {
-                if (combined != null) {
+                if (kind == "benchmark") {
+                    emit(ProviderEvent.Failed("The benchmark reached its configured token allowance before dispatch. No model request was sent.", errorCode = "POLICY_BLOCKED"))
+                } else if (combined != null) {
                     emit(ProviderEvent.Failed("The accepted Combined turn reached its configured total token ceiling before dispatch. Completed evidence is retained."))
                 } else {
                     emit(ProviderEvent.TextDelta("\n\nThe response reached its total token allowance. I have paused further model and tool work. Would you like to continue in a new response?"))

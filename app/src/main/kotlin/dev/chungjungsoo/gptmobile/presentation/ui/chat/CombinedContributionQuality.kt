@@ -55,7 +55,9 @@ internal object CombinedContributionUsability {
         val prose = !content.contains("```") && !content.lines().all { it.isBlank() || it.trimStart().startsWith('-') || it.trimStart().startsWith('*') }
         val unfinishedSyntax = prose && usableWords >= 12 && (content.endsWith(',') || Regex("(?i)\\b(?:a|an|the|and|or|of|to|by|with|were|was|defeated|including)$").containsMatchIn(content))
         val nearCap = outputAllowance != null && (outputTokens?.let { it >= outputAllowance * 0.9 } == true || content.length / 4 >= outputAllowance * 0.85)
-        val clipped = finishReason in setOf("length", "max_tokens", "MAX_TOKENS") || unfinishedSyntax && (nearCap || task?.historicalSurvey == true)
+        val dangling = Regex("(?i)\\b(?:a|an|the|and|or|of|to|by|with|were|was|including|because|such as)$").containsMatchIn(content)
+        val queueTail = finishReason == "queue_complete" && prose && usableWords >= 12 && !Regex("[.!?][\"'’”)\\]]*$").containsMatchIn(content)
+        val clipped = finishReason in setOf("length", "max_tokens", "MAX_TOKENS") || dangling || queueTail || unfinishedSyntax && (nearCap || task?.historicalSurvey == true)
         val requestedItems = request?.let { dev.chungjungsoo.gptmobile.data.agent.CombinedAnswerPolicy.from(it).requestedItems }
         val actualItems = Regex("(?m)^ {0,3}(?:[0-9]+[.)]|[-*+])\\s+\\S").findAll(content).count()
         val incompleteItems = requestedItems != null && requestedItems > 1 && actualItems < requestedItems
@@ -65,7 +67,7 @@ internal object CombinedContributionUsability {
             finishReason in setOf("stop", "end_turn", "STOP") -> "COMPLETE"
             else -> "UNKNOWN"
         }
-        return CombinedContributionAssessment(true, score, "usable_partial_contribution".takeIf { partial }, partial, if (task?.subjectConfidence == "EXPLICIT") "ANCHORED" else "UNCERTAIN", "NO_CLEAR_DEFECT_DETECTED", completeness)
+        return CombinedContributionAssessment(true, if (partial) minOf(score, 70) else score, "usable_partial_contribution".takeIf { partial }, partial, if (task?.subjectConfidence == "EXPLICIT") "ANCHORED" else "UNCERTAIN", "NO_CLEAR_DEFECT_DETECTED", completeness)
     }
 }
 

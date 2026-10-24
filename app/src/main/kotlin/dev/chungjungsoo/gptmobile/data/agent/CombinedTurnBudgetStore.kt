@@ -96,6 +96,19 @@ class CombinedTurnBudgetStore private constructor(private val directory: File?) 
         open(CombinedExecutionContext(snapshot.plan.requested, snapshot.plan, snapshot.rootBudgetId, chatId = snapshot.chatId)).cancel()
     }
 
+    /** Independent metadata lets deletion revoke decisions even if a run policy is unreadable. */
+    suspend fun rootsForConversation(chatId: Int): Set<String> = mutex.withLock {
+        val roots = budgets.filterValues { it.snapshot().chatId == chatId }.keys.toMutableSet()
+        roots += shared.progress.value.filterValues { it.chatId == chatId }.keys
+        withContext(Dispatchers.IO) {
+            directory?.listFiles { file -> file.extension == "json" }?.forEach { file ->
+                val saved = read(file)
+                if (saved.chatId == chatId) roots += saved.rootBudgetId
+            }
+        }
+        roots
+    }
+
     /** Stop first, then remove retained state. An in-flight holder remains cancelled. */
     suspend fun deleteConversation(chatId: Int) = mutex.withLock {
         val active = budgets.filterValues { it.snapshot().chatId == chatId }
@@ -105,7 +118,11 @@ class CombinedTurnBudgetStore private constructor(private val directory: File?) 
         shared.progress.update { rows -> rows.filterValues { it.chatId != chatId } }
         withContext(Dispatchers.IO) {
             directory?.listFiles { file -> file.extension == "json" }?.forEach { file ->
-                if (read(file).chatId == chatId) check(file.delete()) { "Could not remove Combined budget journal." }
+                val saved = read(file)
+                if (saved.chatId == chatId) {
+                    shared.deletedRoots += saved.rootBudgetId
+                    check(file.delete()) { "Could not remove Combined budget journal." }
+                }
             }
         }
     }

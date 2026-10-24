@@ -62,7 +62,7 @@ private val wordingWords = Regex("[\\p{L}\\p{N}]+(?:[’'][\\p{L}\\p{N}]+)?")
 
 private fun wordingLine(line: String, corpus: WordingCorpus): List<CombinedWordingSpan> = buildList {
     for (clause in CombinedClaimClauses.spans(line)) {
-        if (clause.text.length < 24) continue
+        if (clause.text.length < 24 || !CombinedSourceClaims.material(clause.text)) continue
         val claim = CombinedClaimMatcher.fingerprint(clause.text)
         val words = wordingWords.findAll(clause.text).toList()
         val wordPrints = words.map { CombinedClaimMatcher.fingerprint(it.value) }
@@ -103,7 +103,8 @@ private fun wordingLine(line: String, corpus: WordingCorpus): List<CombinedWordi
         val boundaries = aligned.flatMap { listOf(it.start, it.end) }.distinct().sorted()
         boundaries.zipWithNext().forEach { (start, end) ->
             val owners = aligned.filter { it.start <= start && it.end >= end }.flatMapTo(linkedSetOf()) { it.profileUids }
-            if (owners.isNotEmpty()) {
+            // A generic word left between overlap boundaries is no independent claim.
+            if (owners.isNotEmpty() && CombinedSourceClaims.material(line.substring(start, end))) {
                 val previous = lastOrNull()
                 if (previous?.end == start && previous.profileUids == owners) {
                     this[lastIndex] = previous.copy(end = end)

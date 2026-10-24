@@ -117,7 +117,8 @@ class ChatViewModel @Inject constructor(
     private val conversationExitWork: dev.chungjungsoo.gptmobile.data.chat.ConversationExitWork,
     @dev.chungjungsoo.gptmobile.di.DefaultDispatcher private val messageGroupingDispatcher: kotlinx.coroutines.CoroutineDispatcher,
     private val memoryPreview: dev.chungjungsoo.gptmobile.data.readiness.MemoryPreviewCoordinator? = null,
-    private val researchDatabase: dev.chungjungsoo.gptmobile.data.research.feature.ResearchDatabase? = null
+    private val researchDatabase: dev.chungjungsoo.gptmobile.data.research.feature.ResearchDatabase? = null,
+    private val combinedCollectionDecisions: dev.chungjungsoo.gptmobile.data.agent.CombinedCollectionDecisionStore? = null
 ) : ViewModel() {
     private val diagnosticPrivacyOwner = java.util.UUID.randomUUID().toString()
     private val visibleHistoryTurns = MutableStateFlow(if (savedStateHandle.get<Int>("targetMessageId") != null) Int.MAX_VALUE else 40)
@@ -234,6 +235,9 @@ class ChatViewModel @Inject constructor(
     )
     val chatRoom = _chatRoom.asStateFlow()
     val researchSessions = researchSessionStore?.sessions ?: MutableStateFlow<Map<String, dev.chungjungsoo.gptmobile.data.research.ResearchSession>>(emptyMap()).asStateFlow()
+    val researchExecutionState = researchSessionStore?.executionState ?: MutableStateFlow<Map<String, dev.chungjungsoo.gptmobile.data.research.ResearchExecutionRecord>>(emptyMap()).asStateFlow()
+    private val _interruptedResearchReview = MutableStateFlow<ResearchInterruptedReview?>(null)
+    internal val interruptedResearchReview = _interruptedResearchReview.asStateFlow()
     fun stopResearch(runId: String) {
         researchSessionStore?.stop(runId)
     }
@@ -353,6 +357,8 @@ class ChatViewModel @Inject constructor(
 
     private val _attachmentNotice = MutableStateFlow<String?>(null)
     val attachmentNotice = _attachmentNotice.asStateFlow()
+    private val _removedCombinedProfile = MutableStateFlow<Pair<String, String>?>(null)
+    val removedCombinedProfile = _removedCombinedProfile.asStateFlow()
     private val _freeProviderNotice = MutableStateFlow<String?>(null)
     val freeProviderNotice = _freeProviderNotice.asStateFlow()
     fun dismissFreeProviderNotice() {
@@ -445,6 +451,10 @@ class ChatViewModel @Inject constructor(
 
     private val _combinedFailures = MutableStateFlow<List<CombinedProfileFailure>>(emptyList())
     val combinedFailures = _combinedFailures.asStateFlow()
+    private val pendingCombinedRetries = mutableSetOf<String>()
+    private val pendingResearchRecoveries = mutableSetOf<String>()
+    private var reviewingCombinedPrimaryTurn: Int? = null
+    private var reviewingCombinedFailureTurn: Int? = null
 
     private val _queuedJobInspection = MutableStateFlow<String?>(null)
     val queuedJobInspection = _queuedJobInspection.asStateFlow()
@@ -463,6 +473,10 @@ class ChatViewModel @Inject constructor(
     private val draftMutex = Mutex()
 
     init {
+        viewModelScope.launch {
+            combinedCollectionDecisions?.load()
+            combinedCollectionDecisions?.decisions?.collect { refreshCombinedFailures() }
+        }
         fetchChatRoom()
         viewModelScope.launch {
             combine(
@@ -628,6 +642,16 @@ class ChatViewModel @Inject constructor(
         }
         val profiles = _platformsInApp.value.filter { it.enabled }.associateBy { it.uid }
         require(selected.isNotEmpty() && selected.all { it in profiles }) { "Select an available profile before sending." }
+        selected.forEach { uid ->
+            val profile = resolvePlatformModel(profiles.getValue(uid))
+            val reason = dev.chungjungsoo.gptmobile.data.agent.CombinedProviderEligibility.unavailableReason(profile, recovery?.originalRequest ?: text)
+            require(reason == null) { "${profile.name} cannot contribute to this Combined request: $reason Review the selected profiles; your draft is kept." }
+        }
+        room.combinedPrimaryUid?.takeIf { it in selected }?.let { uid ->
+            val primary = resolvePlatformModel(profiles.getValue(uid))
+            val reason = dev.chungjungsoo.gptmobile.data.agent.CombinedProviderEligibility.unavailableReason(primary, recovery?.originalRequest ?: text, writer = true)
+            require(reason == null) { "${primary.name} cannot write this Combined answer: $reason Review the primary selection; your draft is kept." }
+        }
         val preferences = featureSettings.value.conversationCombined[room.id]
             ?: dev.chungjungsoo.gptmobile.data.model.ConversationCombinedSettings()
         val requested = dev.chungjungsoo.gptmobile.data.agent.CombinedPolicyResolver.accept(
@@ -715,7 +739,17 @@ class ChatViewModel @Inject constructor(
         advancePendingGeneration()
     }
 
-    fun setPlatformMembership(platformUid: String, active: Boolean) {
+    fun removeCombinedFailureProfile(platformUid: String) = updatePlatformMembership(platformUid, false, offerUndo = true)
+
+    fun finishRemovedProfileNotice(undo: Boolean) {
+        val removed = _removedCombinedProfile.value ?: return
+        _removedCombinedProfile.value = null
+        if (undo) setPlatformMembership(removed.first, true)
+    }
+
+    fun setPlatformMembership(platformUid: String, active: Boolean) = updatePlatformMembership(platformUid, active, offerUndo = false)
+
+    private fun updatePlatformMembership(platformUid: String, active: Boolean, offerUndo: Boolean) {
         // Reserve the change before launching: a queued turn must not dispatch with
         // membership that has not yet been persisted or given a stable response slot.
         pendingRunDispatches += 1
@@ -737,6 +771,7 @@ class ChatViewModel @Inject constructor(
                     }
                     _chatRoom.value = updatedRoom
                     applyChatPlatformState(updatedRoom)
+                    if (!active && offerUndo) _removedCombinedProfile.value = platformUid to (platform?.name ?: "Profile")
                     if (!active && updatedRoom.conversationMode == ConversationMode.COMBINED) {
                         agentRunCoordinator.removeCombinedProfile(updatedRoom.id, platformUid)
                         _groupedMessages.value.userMessages.forEach { user ->
@@ -775,6 +810,91 @@ class ChatViewModel @Inject constructor(
 
     fun cancelActiveRuns() {
         _chatRoom.value.id.takeIf { it > 0 }?.let(agentRunCoordinator::cancelChat)
+    }
+
+    fun stopResearchAttempt(rootWorkId: String) {
+        val record = researchExecutionState.value[rootWorkId]?.takeIf { it.accepted.chatId == _chatRoom.value.id && !it.attempt.state.terminal } ?: return
+        viewModelScope.launch {
+            researchSessionStore?.updateExecution(rootWorkId, record.attempt, dev.chungjungsoo.gptmobile.data.research.ResearchAttemptState.CANCELLED, !_chatRoom.value.isTemporary, reason = "USER_STOP")
+            agentRunCoordinator.cancelChat(record.accepted.chatId)
+        }
+    }
+
+    fun retryResearch(rootWorkId: String) {
+        val record = researchExecutionState.value[rootWorkId]?.takeIf { it.accepted.chatId == _chatRoom.value.id } ?: return
+        if (record.attempt.nextAction == dev.chungjungsoo.gptmobile.data.research.ResearchNextAction.RECONCILE_REQUESTS) return
+        resumeResearchAttempt(record)
+    }
+
+    fun reviewInterruptedResearch(rootWorkId: String) {
+        val record = researchExecutionState.value[rootWorkId]?.takeIf { it.accepted.chatId == _chatRoom.value.id } ?: return
+        if (!record.attempt.state.terminal || record.attempt.nextAction != dev.chungjungsoo.gptmobile.data.research.ResearchNextAction.RECONCILE_REQUESTS) return
+        if (record.attempt.attemptId in pendingResearchRecoveries) return
+        _interruptedResearchReview.value = ResearchInterruptedReview.capture(
+            record,
+            "reviewed-research-attempt:${record.attempt.attemptId}:${java.util.UUID.randomUUID()}",
+            _agentRunsById.value,
+            _platformsInApp.value.associate { it.uid to it.name },
+            _groupedMessages.value.assistantMessages.flatten()
+        )
+    }
+
+    fun dismissInterruptedResearchReview() {
+        _interruptedResearchReview.value = null
+    }
+
+    fun authorizeReviewedResearchAttempt(actionId: String) {
+        val review = _interruptedResearchReview.value?.takeIf { it.actionId == actionId && it.execution.accepted.chatId == _chatRoom.value.id } ?: return
+        val current = researchExecutionState.value[review.execution.accepted.rootWorkId]
+        if (current?.attempt != review.execution.attempt) {
+            _interruptedResearchReview.compareAndSet(review, null)
+            _attachmentNotice.value = "This research attempt changed. Review its current requests before starting another attempt."
+            return
+        }
+        if (!_interruptedResearchReview.compareAndSet(review, null)) return
+        resumeResearchAttempt(review.execution, review)
+    }
+
+    private fun resumeResearchAttempt(record: dev.chungjungsoo.gptmobile.data.research.ResearchExecutionRecord, reviewed: ResearchInterruptedReview? = null) {
+        val needsReview = record.attempt.nextAction == dev.chungjungsoo.gptmobile.data.research.ResearchNextAction.RECONCILE_REQUESTS
+        if (needsReview && reviewed?.execution != record) return
+        if (!record.attempt.state.terminal && record.attempt.state != dev.chungjungsoo.gptmobile.data.research.ResearchAttemptState.BLOCKED_CONFIGURATION) return
+        val turn = _groupedMessages.value.userMessages.indexOfFirst { it.id == record.accepted.originatingUserMessageId }
+        if (turn < 0 || !pendingResearchRecoveries.add(record.attempt.attemptId)) return
+        viewModelScope.launch {
+            try {
+                val responses = _groupedMessages.value.assistantMessages.getOrNull(turn).orEmpty()
+                val deliveryRetry = record.attempt.nextAction == dev.chungjungsoo.gptmobile.data.research.ResearchNextAction.RETRY_DELIVERY || (needsReview && responses.any { it.isCombinedSynthesis() })
+                val targets = responses.indices.filter { index ->
+                    val response = responses[index]
+                    response.platformType in record.accepted.participantUids && !response.isCombinedSynthesis() && response.currentRunId?.let { _agentRunsById.value[it]?.status } in setOf(AgentRunStatus.FAILED, AgentRunStatus.INTERRUPTED, AgentRunStatus.CANCELED)
+                }
+                if (!deliveryRetry && targets.isEmpty() && record.attempt.state == dev.chungjungsoo.gptmobile.data.research.ResearchAttemptState.BLOCKED_CONFIGURATION) {
+                    _attachmentNotice.value = "Review the selected profiles, then regenerate this research request. Saved evidence is retained."
+                    openChatModelDialog()
+                    return@launch
+                }
+                val resumed = researchSessionStore?.resumeExecution(
+                    record.accepted.rootWorkId,
+                    reviewed?.actionId ?: "user-research-retry:${record.attempt.attemptId}",
+                    !_chatRoom.value.isTemporary,
+                    reconciled = needsReview && reviewed != null,
+                    expectedAttempt = record.attempt
+                ) ?: return@launch
+                if (resumed.attempt.generation != record.attempt.generation + 1 || resumed.attempt.state.terminal) return@launch
+                when {
+                    deliveryRetry && responses.any { it.isCombinedSynthesis() } -> retryCombinedMerge(turn)
+                    deliveryRetry -> combineAvailableResults(record.accepted.originatingUserMessageId)
+                    targets.isEmpty() || record.attempt.state == dev.chungjungsoo.gptmobile.data.research.ResearchAttemptState.CANCELLED -> regenerateWithSelectedPrimary(turn)
+                    else -> targets.forEach { retryChat(turn, it, dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.RETRY_FAILED_STAGE) }
+                }
+            } catch (failure: Exception) {
+                if (failure is CancellationException) throw failure
+                _attachmentNotice.value = failure.message ?: "Research could not resume. Saved evidence is retained."
+            } finally {
+                pendingResearchRecoveries.remove(record.attempt.attemptId)
+            }
+        }
     }
 
     fun refreshLocalNetworkRequirement() {
@@ -1189,6 +1309,21 @@ class ChatViewModel @Inject constructor(
     }
 
     /** The first tab commits only its owned settings; immediate Tools/Privacy edits have separate revisions. */
+    fun reviewCombinedPrimary(userMessageId: Int) {
+        reviewingCombinedPrimaryTurn = userMessageId
+        openChatModelDialog()
+    }
+
+    private suspend fun resumeResearchForUserTurn(userMessageId: Int, action: String) {
+        val index = _groupedMessages.value.userMessages.indexOfFirst { it.id == userMessageId }
+        val source = dev.chungjungsoo.gptmobile.data.agent.resolveTaskRecovery(_groupedMessages.value.userMessages.take(index + 1))?.sourceMessageId ?: userMessageId
+        val root = "${_chatRoom.value.id}:$source"
+        val execution = researchSessionStore?.execution(root, !_chatRoom.value.isTemporary) ?: return
+        if (execution.accepted.targetSources > 0 && (execution.attempt.state.terminal || execution.attempt.state == dev.chungjungsoo.gptmobile.data.research.ResearchAttemptState.BLOCKED_CONFIGURATION)) {
+            researchSessionStore.resumeExecution(root, "$action:${execution.attempt.attemptId}", !_chatRoom.value.isTemporary)
+        }
+    }
+
     fun saveCombinedChatSettings(draft: dev.chungjungsoo.gptmobile.data.model.CombinedChatSettingsDraft) {
         if (_combinedSettingsSaveState.value.isCommitting || _chatRoom.value.conversationMode != ConversationMode.COMBINED) return
         _combinedSettingsSaveState.value = dev.chungjungsoo.gptmobile.data.model.CombinedSettingsSaveUiState(dev.chungjungsoo.gptmobile.data.model.CombinedSettingsSavePhase.VALIDATING)
@@ -1227,6 +1362,26 @@ class ChatViewModel @Inject constructor(
                 _combinedSettingsSaveState.value = dev.chungjungsoo.gptmobile.data.model.CombinedSettingsSaveUiState(dev.chungjungsoo.gptmobile.data.model.CombinedSettingsSavePhase.COMMITTED)
                 _isChatModelDialogOpen.value = false
                 loadAvailableChatTools()
+                val selectedTurn = reviewingCombinedPrimaryTurn
+                reviewingCombinedPrimaryTurn = null
+                if (selectedTurn != null && next.primaryProfileUid != null) {
+                    val accepted = acceptedCombinedTurn(selectedTurn)
+                    if (accepted != null) {
+                        try {
+                            require(next.primaryProfileUid in accepted.context.requested.participantUids) { "For this saved turn, choose one of its accepted profiles or regenerate with the new selection." }
+                            agentRunCoordinator.withChatGate(committedRoom.id) {
+                                val latest = chatRepository.fetchMessagesV2(committedRoom.id)
+                                require(latest.none { it.linkedMessageId == selectedTurn && it.isCombinedSynthesis() }) { "Final writing has already started. Use a new answer revision to change its writer." }
+                                combinedCollectionDecisions?.chooseWriter(accepted.context.rootBudgetId, next.primaryProfileUid, accepted.context.persistBudget)
+                                resumeResearchForUserTurn(selectedTurn, "user-selected-writer")
+                            }
+                            agentRunCoordinator.resumeCombinedCollection(committedRoom.id, selectedTurn, accepted.context.rootBudgetId, "USER_SELECTED_WRITER")
+                        } catch (failure: Exception) {
+                            if (failure is CancellationException) throw failure
+                            _attachmentNotice.value = failure.message ?: "Primary saved. The retained turn could not resume yet."
+                        }
+                    }
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
@@ -1240,6 +1395,7 @@ class ChatViewModel @Inject constructor(
 
     fun abortCombinedChatSettingsSave() {
         if (_combinedSettingsSaveState.value.isCommitting) return
+        reviewingCombinedPrimaryTurn = null
         viewModelScope.launch {
             try {
                 savedStateHandle.get<String>("combinedSettingsOperationId")?.let { operation ->
@@ -1307,22 +1463,39 @@ class ChatViewModel @Inject constructor(
         _combinedFailures.value = grouped.userMessages.indices.flatMap { index ->
             val user = grouped.userMessages[index]
             val row = grouped.assistantMessages.getOrNull(index).orEmpty()
+            if (row.any { it.isCombinedSynthesis() }) return@flatMap emptyList()
             val accepted = acceptedCombinedTurn(user.id) ?: return@flatMap emptyList()
             if (!accepted.context.requested.singlePass) return@flatMap emptyList()
             val activeRows = row.filter { it.platformType in _activePlatformUids.value && it.platformType in accepted.context.requested.participantUids }
             if (activeRows.any { _agentRunsById.value[it.currentRunId]?.status == AgentRunStatus.CANCELED }) return@flatMap emptyList()
             combinedProfileFailures(user.id, user.content, activeRows, _agentRunsById.value, _platformsInApp.value.associate { it.uid to it.name }, accepted.context.requested.requestedModels)
+                .filterNot { reviewingCombinedFailureTurn != user.id && combinedCollectionDecisions?.acknowledged(accepted.context.rootBudgetId, it.attemptId) == true }
+                .map { it.copy(retrying = "${it.userMessageId}:${it.profileUid}:${it.attemptId}" in pendingCombinedRetries) }
         }
+    }
+
+    fun reviewCombinedFailures(userMessageId: Int) {
+        reviewingCombinedFailureTurn = userMessageId
+        refreshCombinedFailures()
     }
 
     fun retryCombinedProfile(userId: Int, profileUid: String) {
         val failure = _combinedFailures.value.firstOrNull { it.userMessageId == userId && it.profileUid == profileUid } ?: return
-        if (!failure.retryAllowed || (failure.retryAfterMillis ?: 0) > System.currentTimeMillis() || profileUid !in _activePlatformUids.value) return
-        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("CombinedRetry", "RETRY_REQUESTED · initiator=USER · userMessageId=$userId · profileUid=$profileUid · priorAttempt=${failure.attemptId} · category=${failure.category}")
+        if (!failure.retryAllowed || failure.retrying || (failure.retryAfterMillis ?: 0) > System.currentTimeMillis() || profileUid !in _activePlatformUids.value) return
         val turn = _groupedMessages.value.userMessages.indexOfFirst { it.id == userId }
         val index = _groupedMessages.value.assistantMessages.getOrNull(turn).orEmpty().indexOfFirst { it.platformType == profileUid }
         if (turn < 0 || index < 0) return
+        val row = _groupedMessages.value.assistantMessages[turn]
+        if (row[index].currentRunId != failure.attemptId || row.any { it.isCombinedSynthesis() }) return
+        val actionKey = "$userId:$profileUid:${failure.attemptId}"
+        if (!pendingCombinedRetries.add(actionKey)) return
+        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("CombinedRetry", "RETRY_ACCEPTED · initiator=USER · userMessageId=$userId · profileUid=$profileUid · priorAttempt=${failure.attemptId} · category=${failure.category}")
+        refreshCombinedFailures()
         retryChat(turn, index, dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.RETRY_FAILED_STAGE)
+        if (_loadingStates.value.getOrNull(enabledPlatformsInChat.indexOf(profileUid)) != LoadingState.Loading) {
+            pendingCombinedRetries.remove(actionKey)
+            refreshCombinedFailures()
+        }
     }
 
     fun canCombineAvailable(userId: Int): Boolean {
@@ -1334,15 +1507,35 @@ class ChatViewModel @Inject constructor(
     }
 
     fun combineAvailableResults(userId: Int) {
-        if (!canCombineAvailable(userId)) return
         val accepted = acceptedCombinedTurn(userId) ?: return
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("CombinedSynthesis", "COMBINE_AVAILABLE · initiator=USER · userMessageId=$userId")
-        viewModelScope.launch { agentRunCoordinator.resumeCombinedCollection(_chatRoom.value.id, userId, accepted.context.rootBudgetId, "USER_COMBINE_AVAILABLE") }
+        val attempts = _combinedFailures.value.filter { it.userMessageId == userId }.mapNotNull { it.attemptId }.toSet()
+        viewModelScope.launch {
+            try {
+                agentRunCoordinator.withChatGate(_chatRoom.value.id) {
+                    combinedCollectionDecisions?.acknowledge(accepted.context.rootBudgetId, attempts, accepted.context.persistBudget)
+                    resumeResearchForUserTurn(userId, "user-combine-available")
+                }
+                if (reviewingCombinedFailureTurn == userId) reviewingCombinedFailureTurn = null
+                refreshCombinedFailures()
+                agentRunCoordinator.resumeCombinedCollection(_chatRoom.value.id, userId, accepted.context.rootBudgetId, "USER_COMBINE_AVAILABLE")
+            } catch (failure: Exception) {
+                if (failure is CancellationException) throw failure
+                _attachmentNotice.value = failure.message ?: "Could not save your choice. Your replies are retained."
+            }
+        }
     }
 
     fun retryCombinedMerge(turnIndex: Int) {
         val index = _groupedMessages.value.assistantMessages.getOrNull(turnIndex).orEmpty().indexOfFirst { it.currentRunId?.let { id -> _agentRunsById.value[id]?.synthesisKey != null } == true }
         if (index >= 0) retryChat(turnIndex, index, dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.RETRY_WRITING)
+    }
+
+    fun regenerateWithSelectedPrimary(turnIndex: Int) {
+        val user = _groupedMessages.value.userMessages.getOrNull(turnIndex) ?: return
+        val owner = _groupedMessages.value.assistantMessages.getOrNull(turnIndex).orEmpty().firstOrNull { it.currentRunId != null } ?: return
+        val previous = owner.currentRunId?.let { _agentRunsById.value[it] } ?: return
+        regenerateCombinedTurn(turnIndex, owner, user, previous)
     }
 
     fun dismissQueuedJobInspection() {
@@ -1447,54 +1640,65 @@ class ChatViewModel @Inject constructor(
         _loadingStates.update { states -> states.mapIndexed { index, state -> if (enabledPlatformsInChat.getOrNull(index) == ownerProfileUid) LoadingState.Loading else state } }
 
         viewModelScope.launch {
-            persistBeforeProvider(
-                persist = {
-                    if (accepted?.context?.requested?.singlePass == true && previousRun != null) {
-                        reconciledAnswer = chatRepository.reconcileCombinedQueuedContributor(previousRun.runId)
-                        require(chatRepository.reopenCombinedContributor(previousRun.runId)) { "This turn was cancelled or already combined. Start a new turn; saved replies are retained." }
-                    }
-                    chatRepository.persistAgentRetry(
-                        PersistAgentRetryRequest(
-                            userMessage = userMessage,
-                            assistantMessage = currentAssistantMessage.copy(combinedSources = emptyList()),
-                            recovery = recovery,
-                            run = AgentRunDraft(
-                                runId = runId,
-                                profileUid = platformWithChatModel.uid,
-                                providerSnapshot = platformWithChatModel.compatibleType.name,
-                                modelSnapshot = platformWithChatModel.model,
-                                synthesisSnapshot = accepted?.copy(recoveredProviderAnswer = reconciledAnswer, sourceQueueRunId = if (reconciledAnswer != null) accepted.sourceQueueRunId ?: previousRun?.runId else null)?.encode(),
-                                createdAt = currentTimeStamp
-                            )
-                        )
-                    )
-                },
-                startProvider = { persisted ->
-                    _groupedMessages.update { groupedMessages ->
-                        updateAssistantSlot(groupedMessages, turnIndex, platformIndex) { current ->
-                            if (current.id == currentAssistantMessage.id && current.platformType == ownerProfileUid) persisted.assistantMessage else current
+            agentRunCoordinator.withChatGate(userMessage.chatId) {
+                persistBeforeProvider(
+                    persist = {
+                        researchSessionStore?.execution(recovery.rootWorkId, !_chatRoom.value.isTemporary)?.takeIf { it.accepted.targetSources > 0 && it.attempt.state.terminal }?.let {
+                            researchSessionStore.resumeExecution(recovery.rootWorkId, "profile-retry:${it.attempt.attemptId}", !_chatRoom.value.isTemporary)
                         }
-                    }
-                    val contextMessages = groupedMessagesThroughTurn(_groupedMessages.value, turnIndex)
-                    agentRunCoordinator.start(
-                        listOf(
-                            AgentRunRequest(
-                                runId = runId,
-                                chatId = persisted.assistantMessage.chatId,
-                                assistantMessage = persisted.assistantMessage,
-                                platform = platformWithChatModel,
-                                userMessages = contextMessages.userMessages,
-                                assistantMessages = contextMessages.assistantMessages,
-                                chatToolConfig = retryTools
+                        if (accepted?.context?.requested?.singlePass == true && previousRun != null) {
+                            val durable = chatRepository.fetchMessagesV2(userMessage.chatId)
+                            require(durable.singleOrNull { it.id == currentAssistantMessage.id }?.currentRunId == previousRun.runId && durable.none { it.linkedMessageId == userMessage.id && it.isCombinedSynthesis() }) { "This contribution changed or the final answer already started. Use a new answer revision." }
+                            reconciledAnswer = chatRepository.reconcileCombinedQueuedContributor(previousRun.runId)
+                            require(chatRepository.reopenCombinedContributor(previousRun.runId)) { "This turn was cancelled or already combined. Start a new turn; saved replies are retained." }
+                        }
+                        chatRepository.persistAgentRetry(
+                            PersistAgentRetryRequest(
+                                userMessage = userMessage,
+                                assistantMessage = currentAssistantMessage.copy(combinedSources = emptyList()),
+                                recovery = recovery,
+                                run = AgentRunDraft(
+                                    runId = runId,
+                                    profileUid = platformWithChatModel.uid,
+                                    providerSnapshot = platformWithChatModel.compatibleType.name,
+                                    modelSnapshot = platformWithChatModel.model,
+                                    synthesisSnapshot = accepted?.copy(recoveredProviderAnswer = reconciledAnswer, sourceQueueRunId = if (reconciledAnswer != null) accepted.sourceQueueRunId ?: previousRun?.runId else null)?.encode(),
+                                    createdAt = currentTimeStamp
+                                )
                             )
                         )
-                    )
-                },
-                onFailure = { error ->
-                    _attachmentNotice.value = error.message ?: "The retry could not be saved. The previous response is retained."
-                    _loadingStates.update { states -> states.mapIndexed { index, state -> if (enabledPlatformsInChat.getOrNull(index) == ownerProfileUid) LoadingState.Idle else state } }
-                }
-            )
+                    },
+                    startProvider = { persisted ->
+                        _agentRunsById.update { it + (persisted.run.runId to persisted.run) }
+                        pendingCombinedRetries.remove("${userMessage.id}:$ownerProfileUid:${previousRun?.runId}")
+                        _groupedMessages.update { groupedMessages ->
+                            updateAssistantSlot(groupedMessages, turnIndex, platformIndex) { current ->
+                                if (current.id == currentAssistantMessage.id && current.platformType == ownerProfileUid) persisted.assistantMessage else current
+                            }
+                        }
+                        val contextMessages = groupedMessagesThroughTurn(_groupedMessages.value, turnIndex)
+                        agentRunCoordinator.start(
+                            listOf(
+                                AgentRunRequest(
+                                    runId = runId,
+                                    chatId = persisted.assistantMessage.chatId,
+                                    assistantMessage = persisted.assistantMessage,
+                                    platform = platformWithChatModel,
+                                    userMessages = contextMessages.userMessages,
+                                    assistantMessages = contextMessages.assistantMessages,
+                                    chatToolConfig = retryTools
+                                )
+                            )
+                        )
+                    },
+                    onFailure = { error ->
+                        pendingCombinedRetries.remove("${userMessage.id}:$ownerProfileUid:${previousRun?.runId}")
+                        refreshCombinedFailures()
+                        _attachmentNotice.value = error.message ?: "The retry could not be saved. The previous response is retained."
+                        _loadingStates.update { states -> states.mapIndexed { index, state -> if (enabledPlatformsInChat.getOrNull(index) == ownerProfileUid) LoadingState.Idle else state } }
+                    }
+                )
+            }
         }
     }
 
@@ -1583,7 +1787,7 @@ class ChatViewModel @Inject constructor(
                 val acceptedPlatform = platform.copy(
                     model = snapshot.model,
                     temperature = if (snapshot.version >= 5 && snapshot.combined != null) snapshot.temperature else platform.temperature,
-                    systemPrompt = listOf(snapshot.systemPrompt, combinedEditorialInstruction(snapshot.deliveryProtocol)).joinToString("\n\n"),
+                    systemPrompt = dev.chungjungsoo.gptmobile.data.agent.combinedWriterSystemPrompt(snapshot.systemPrompt, snapshot.deliveryProtocol, snapshot.userMessage.content),
                     disableAllTools = true,
                     disableLocalTools = true
                 )
@@ -2130,12 +2334,21 @@ class ChatViewModel @Inject constructor(
                         val originalMessageId = recoveryTask?.sourceMessageId ?: persisted.userMessage.id
                         val taskText = recoveryTask?.originalRequest ?: persisted.userMessage.content
                         if (taskText.isNotBlank()) {
+                            val acceptedResearch = dispatchTools.combined?.requested?.acceptedResearch
+                            val researchSettings = (dispatchTools.research ?: featureSettings.value.conversationResearch[persisted.chatRoom.id])?.normalized()
                             researchSessionStore?.acceptTask(
                                 persisted.chatRoom.id, "${persisted.chatRoom.id}:$originalMessageId", originalMessageId, taskText,
                                 platforms.map { it.value.uid }, dispatchTools.combined?.requested?.preferredOwnerUid,
                                 dev.chungjungsoo.gptmobile.data.research.researchHash(kotlinx.serialization.json.Json.encodeToString(featureSettings.value) + kotlinx.serialization.json.Json.encodeToString(dispatchTools)),
                                 dev.chungjungsoo.gptmobile.data.research.researchHash(platforms.joinToString { kotlinx.serialization.json.Json.encodeToString(it.value) }),
-                                !persisted.chatRoom.isTemporary
+                                !persisted.chatRoom.isTemporary,
+                                acceptedPolicyJson = kotlinx.serialization.json.buildJsonObject {
+                                    put("features", kotlinx.serialization.json.Json.encodeToJsonElement(dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings.serializer(), featureSettings.value))
+                                    put("chat", kotlinx.serialization.json.Json.encodeToJsonElement(dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig.serializer(), dispatchTools))
+                                }.toString(),
+                                sourceScope = acceptedResearch?.contentScope ?: researchSettings?.scope?.name.orEmpty(),
+                                targetSources = acceptedResearch?.sourceGoal?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt() ?: if (researchSettings?.researchToggle == true && researchSettings.depth > 0) platforms.maxOfOrNull { dev.chungjungsoo.gptmobile.data.model.effectiveResearchPlan(featureSettings.value, it.value.uid, researchSettings).sourceGoal } ?: 0 else 0,
+                                requestedModels = platforms.associate { it.value.uid to it.value.model }
                             )
                         }
                         agentRunCoordinator.start(

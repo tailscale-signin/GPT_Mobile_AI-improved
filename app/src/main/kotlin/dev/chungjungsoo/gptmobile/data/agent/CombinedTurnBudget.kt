@@ -52,6 +52,21 @@ data class CombinedReservation(
 data class CombinedBudgetAdjustment(val ownerKey: String, val reason: String, val resources: CombinedResourceQuota, val costMicros: Long = 0)
 
 @Serializable
+data class CombinedWorkAccounting(
+    val terminal: Int,
+    val succeeded: Int,
+    val failed: Int,
+    val partial: Int,
+    val skipped: Int,
+    val cancelled: Int,
+    val interrupted: Int,
+    val budgetBlocked: Int,
+    val legacyTerminalUnknown: Int,
+    val waitingForResource: Int,
+    val pending: Int
+)
+
+@Serializable
 data class CombinedBudgetSnapshot(
     val version: Int = 1,
     val rootBudgetId: String,
@@ -62,6 +77,7 @@ data class CombinedBudgetSnapshot(
     val reservations: Map<String, CombinedReservation> = emptyMap(),
     val baselineAdjustments: List<CombinedBudgetAdjustment> = emptyList(),
     val pendingWork: Map<String, CombinedWorkItem> = plan.workItems.associateBy { it.id },
+    /** Legacy name means terminal work, including failures; use workAccounting for outcomes. */
     val completedWork: Set<String> = emptySet(),
     val workAssignments: Map<String, String> = emptyMap(),
     val discoveredSources: Map<String, String> = emptyMap(),
@@ -79,11 +95,37 @@ data class CombinedBudgetSnapshot(
     val retryEligible: Boolean = false,
     val firstFailure: String? = null,
     val deliverySnapshotId: String? = null,
-    val deliveryFailure: String? = null
+    val deliveryFailure: String? = null,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val resourceWaits: Map<String, String> = emptyMap(),
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val workAccounting: CombinedWorkAccounting? = null
 ) {
     val charged: CombinedResourceQuota get() = reservations.values.fold(CombinedResourceQuota()) { sum, item -> sum + item.charged }
     val unknownAttemptIds: Set<String> get() = reservations.values.filter { it.status in setOf(CombinedReservationStatus.RESERVED, CombinedReservationStatus.UNKNOWN) }.mapTo(linkedSetOf()) { it.attemptId }
     val costMicros: Long? get() = if (reservations.values.any { it.status != CombinedReservationStatus.RELEASED && it.chargedCost == null }) null else reservations.values.sumOf { it.chargedCost ?: 0 }
+
+    fun withWorkAccounting(): CombinedBudgetSnapshot {
+        val terminal = completedWork + stageOutcomes.keys
+        val statuses = terminal.map { id ->
+            val recorded = stageOutcomes[id]
+            when {
+                recorded?.endsWith(":UNUSED_OPTIONAL_CAPACITY") == true -> "SKIPPED"
+                recorded == null -> "LEGACY_TERMINAL_UNKNOWN"
+                else -> recorded.substringBefore(':')
+            }
+        }.groupingBy { it }.eachCount()
+        return copy(
+            resourceWaits = resourceWaits - terminal,
+            workAccounting = CombinedWorkAccounting(
+                terminal.size, statuses["COMPLETED"] ?: 0, statuses["FAILED"] ?: 0,
+                statuses["PARTIAL"] ?: 0, statuses["SKIPPED"] ?: 0, statuses["CANCELLED"] ?: 0,
+                statuses["INTERRUPTED"] ?: 0, statuses["BUDGET_BLOCKED"] ?: 0,
+                statuses["LEGACY_TERMINAL_UNKNOWN"] ?: 0, (resourceWaits.keys - terminal).size,
+                (pendingWork.keys - terminal).size
+            )
+        )
+    }
 }
 
 sealed interface CombinedBudgetAdmission {
@@ -103,10 +145,18 @@ class CombinedTurnBudget(
     private val now: () -> Long = System::currentTimeMillis
 ) {
     private val mutex = Mutex()
-    private var state = initial
+    private var state = initial.withWorkAccounting()
     private val childJobs = ConcurrentHashMap<Job, Unit>()
 
     suspend fun snapshot(): CombinedBudgetSnapshot = mutex.withLock { state }
+
+    /** Queue ownership is not a model attempt or a terminal stage outcome. */
+    suspend fun waitingForResource(ownerKey: String, reason: String?) = mutex.withLock {
+        if (state.closed || state.cancelled || ownerKey in state.completedWork || ownerKey in state.stageOutcomes) return@withLock
+        require(ownerKey in state.plan.baselineByOwner || ownerKey in state.pendingWork)
+        val waits = if (reason == null) state.resourceWaits - ownerKey else state.resourceWaits + (ownerKey to reason.take(300))
+        if (waits != state.resourceWaits) commit(state.copy(resourceWaits = waits))
+    }
 
     /** Detached jobs retain the root's cancellation lifetime, including cancellation before start. */
     suspend fun registerChild(job: Job) = mutex.withLock {
@@ -166,6 +216,7 @@ class CombinedTurnBudget(
             return@withLock CombinedBudgetAdmission.Denied("This contributor stage is terminal. A fresh accepted regeneration is required before calling it again.")
         }
         if (context.role == CombinedRunRole.RESEARCH && context.workItemId?.startsWith("research:") == true) {
+            if (CombinedResearchStages.isTaskStage(context.workItemId) && context.profileUid !in state.plan.researchAssignment?.eligibleWorkerUids.orEmpty()) return@withLock CombinedBudgetAdmission.Denied("RESEARCH_WORKER_NOT_ASSIGNED: the profile was not accepted for this task.")
             if (context.workItemId in state.plan.unfundedRequiredWorkIds) return@withLock CombinedBudgetAdmission.Denied("RESEARCH_STAGE_UNFUNDED: accepted hard limits cannot fund this stage.")
             if (context.ownerKey in state.stageOutcomes) return@withLock CombinedBudgetAdmission.Denied("RESEARCH_STAGE_TERMINAL: this stage requires a newly accepted request.")
         }
@@ -264,7 +315,7 @@ class CombinedTurnBudget(
 
     suspend fun completeWork(itemId: String) = mutex.withLock {
         if (itemId !in state.pendingWork) return@withLock
-        commit(state.copy(pendingWork = state.pendingWork - itemId, completedWork = state.completedWork + itemId))
+        commit(state.copy(pendingWork = state.pendingWork - itemId, completedWork = state.completedWork + itemId, stageOutcomes = state.stageOutcomes + (itemId to "COMPLETED")))
     }
 
     /** Explicit user retry only; retained attempts remain charged and the final reservation is protected. */
@@ -357,6 +408,7 @@ class CombinedTurnBudget(
             state.copy(
                 pendingWork = if (remaining == 0L) state.pendingWork - itemId else state.pendingWork + (itemId to item.copy(remainingUnits = remaining)),
                 completedWork = if (remaining == 0L) state.completedWork + itemId else state.completedWork,
+                stageOutcomes = if (remaining == 0L) state.stageOutcomes + (itemId to "COMPLETED") else state.stageOutcomes,
                 discoveredSources = state.discoveredSources - CombinedWorkInventory.urls(arguments).map(::combinedDigest).toSet(),
                 progressFingerprints = state.progressFingerprints + identities,
                 noProgressBatches = 0
@@ -376,6 +428,7 @@ class CombinedTurnBudget(
             state.copy(
                 pendingWork = if (remaining == 0L) state.pendingWork - itemId else state.pendingWork + (itemId to item.copy(remainingUnits = remaining)),
                 completedWork = if (remaining == 0L) state.completedWork + itemId else state.completedWork,
+                stageOutcomes = if (remaining == 0L) state.stageOutcomes + (itemId to "COMPLETED") else state.stageOutcomes,
                 progressFingerprints = state.progressFingerprints + identity,
                 noProgressBatches = 0
             )
@@ -445,7 +498,7 @@ class CombinedTurnBudget(
     }
 
     private suspend fun commit(next: CombinedBudgetSnapshot) {
-        val revised = next.copy(revision = state.revision + 1)
+        val revised = next.copy(revision = state.revision + 1).withWorkAccounting()
         withContext(NonCancellable) {
             // Stopping physical work must survive a disk-full or journal failure. Admission still
             // persists before publication, while closure fails closed locally and reports the error.

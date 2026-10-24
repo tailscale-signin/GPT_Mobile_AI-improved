@@ -6,14 +6,15 @@ import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
 /** One immutable extraction shared by prompt, decoding, coverage and local assessment. */
 internal data class CombinedContentIndex(val records: List<CombinedClaimRecord>) {
     val fingerprints by lazy { records.associate { it.proposition to CombinedClaimMatcher.fingerprint(it.proposition) } }
+    val byId by lazy { records.flatMap { claim -> (claim.candidateIds + claim.id + claim.canonicalId).map { it to claim } }.toMap() }
 }
 
 internal object CombinedContentIndexes {
-    private data class SourceKey(val uid: String, val body: String, val attempt: String?, val createdAt: Long?, val ancestry: Set<String>)
+    private data class SourceKey(val uid: String, val body: String, val attempt: String?, val createdAt: Long?, val ancestry: Set<String>, val extraction: Int, val completeness: String)
     private val entries = LinkedHashMap<List<SourceKey>, CombinedContentIndex>(4, 0.75f, true)
 
     fun get(sources: List<CombinedModelResponse>): CombinedContentIndex {
-        val key = sources.map { SourceKey(it.platformUid, it.content, it.attemptId, it.createdAt, it.ancestryIds.toSet()) }
+        val key = sources.map { SourceKey(it.platformUid, it.content, it.attemptId, it.createdAt, it.ancestryIds.toSet(), it.claimExtractionVersion, it.contentCompleteness) }
         synchronized(entries) { entries[key]?.let { return it } }
         val started = System.nanoTime()
         val result = CombinedContentIndex(java.util.Collections.unmodifiableList(CombinedClaimSemantics.extractRecords(sources)))
@@ -25,7 +26,8 @@ internal object CombinedContentIndexes {
                 while (entries.size > 2) entries.remove(entries.keys.first())
             }
         }
-        AppLogRecorder.record("CombinedSynthesis", "CONTENT_INDEX_PREPARED · sources=${sources.size} · claims=${result.records.size} · durationMs=${(System.nanoTime() - started) / 1_000_000}")
+        val elapsed = System.nanoTime() - started
+        AppLogRecorder.record("CombinedSynthesis", "CONTENT_INDEX_PREPARED · sources=${sources.size} · claims=${result.records.size} · durationNs=$elapsed · durationMs=${elapsed / 1_000_000}")
         return result
     }
 
@@ -42,6 +44,7 @@ internal inline fun <T> measureCombinedPreparation(stage: String, block: () -> T
     try {
         return block()
     } finally {
-        AppLogRecorder.record("CombinedSynthesis", "PREPARATION_TIMING · stage=$stage · durationMs=${(System.nanoTime() - started) / 1_000_000}")
+        val elapsed = System.nanoTime() - started
+        AppLogRecorder.record("CombinedSynthesis", "PREPARATION_TIMING · stage=$stage · durationNs=$elapsed · durationMs=${elapsed / 1_000_000}")
     }
 }

@@ -1,26 +1,21 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
 import android.content.Context
-import android.os.BatteryManager
-import android.os.Build
-import android.os.Debug
-import android.os.PowerManager
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkBatch
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkExecutionCoordinator
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkMode
-import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkOutcome
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkProgress
-import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkRun
-import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkRunner
-import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkSample
+import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkQueueItem
+import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkQueueState
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkStore
 import dev.chungjungsoo.gptmobile.data.benchmark.benchmarkConfigKey
+import dev.chungjungsoo.gptmobile.data.benchmark.benchmarkSnapshot
 import dev.chungjungsoo.gptmobile.data.benchmark.benchmarkSuite
-import dev.chungjungsoo.gptmobile.data.benchmark.runBenchmarkSuite
 import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentRunDao
@@ -36,8 +31,6 @@ import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
@@ -72,6 +65,9 @@ class ProfileBenchmarkViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
     internal val scoreSnapshot = store.snapshot
     val history = store.history
+    val batches = store.batches
+    val storageWarning = store.warning
+    val benchmarkSession = execution.sessionId
     private val finishedRuns = history.map { runs -> runs.filter { it.finished } }.distinctUntilChanged()
     internal val retests = finishedRuns.map { dev.chungjungsoo.gptmobile.data.benchmark.benchmarkRetests(it) }
         .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -88,7 +84,7 @@ class ProfileBenchmarkViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val selectedBenchmarks = combine(benchmarkCandidates, selectedBenchmarkUids) { list, selected ->
         val ids = selected ?: emptySet()
-        list.filter { it.uid in ids }
+        ids.mapNotNull { uid -> list.firstOrNull { it.uid == uid } }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private val delegateUid = MutableStateFlow("")
@@ -120,7 +116,7 @@ class ProfileBenchmarkViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
     val selectedDelegates = combine(delegates, selectedDelegateUids, delegationSettings) { list, chosen, config ->
         val ids = chosen ?: setOf(config.targetProfileUid).filter { it.isNotBlank() }.toSet()
-        list.filter { it.uid in ids }
+        ids.mapNotNull { uid -> list.firstOrNull { it.uid == uid } }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val legacyReport: String? = context.getSharedPreferences("connection_doctor", Context.MODE_PRIVATE)
         .getString("last_report", null)?.takeIf { it.startsWith("Benchmark v1") }
@@ -253,7 +249,7 @@ class ProfileBenchmarkViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 check(!detailed || settings.getDebugMode()) { "Enable Debug Mode to export diagnostic benchmark data." }
-                val raw = store.exportJson(includeScoreHistory = true)
+                val raw = store.exportJson(includeScoreHistory = detailed)
                 val payload = withContext(Dispatchers.Default) { dev.chungjungsoo.gptmobile.data.benchmark.benchmarkExport(raw, detailed) }
                 withContext(Dispatchers.IO) {
                     checkNotNull(context.contentResolver.openOutputStream(uri, "wt")) { "Unable to open the export destination." }.bufferedWriter().use { it.write(payload) }
@@ -275,415 +271,78 @@ class ProfileBenchmarkViewModel @Inject constructor(
             return
         }
         val profile = selected.value ?: return
-        if (execution.isRunning || !mutableReady.value) return
-        if (profile.compatibleType == ClientType.LITERT_LM && localEnvironment.value.isBlank()) return
-        if (activeRequests.value) {
-            mutableError.value = "Wait for active model requests to finish before benchmarking."
-            return
-        }
-        if (profile.model.isBlank()) {
-            mutableError.value = "Choose a model in this AI profile first."
-            return
-        }
-        val helper = delegate.value
-        if (mode == BenchmarkMode.DELEGATION && helper == null) {
-            mutableError.value = "Choose an enabled delegate. Benchmarks never fall back to another profile."
-            return
-        }
-        val config = delegationSettings.value.copy(targetProfileUid = helper?.uid.orEmpty(), fallbackToAnotherProfile = false)
-        mutableError.value = null
-        mutableProgress.value = BenchmarkProgress(profile.name, "Validating profile", 0, benchmarkSuite(mode).size)
-        launchBenchmark {
-            val diagnosticMode = diagnostics && settings.getDebugMode()
-            var fixtureContext: Int? = null
-            try {
-                chats.validateBenchmarkProfile(profile)
-                fixtureContext = chats.benchmarkContextTokens(profile)
-                if (mode == BenchmarkMode.DELEGATION) {
-                    check(config.enabled && config.processingOwnership < 100) { "Enable delegation and give the helper a share of the work before testing." }
-                    check(config.researchEnabled && config.maxPages > 0) { "Enable delegate research and allow at least one page for the research test." }
-                    check(!profile.disableAllTools && !profile.disableLocalTools && !profile.excludesMemory()) { "Enable tools on the primary profile before testing delegation." }
-                    val worker = checkNotNull(helper) { "Choose a delegate before testing." }
-                    chats.validateBenchmarkProfile(worker)
-                    check(!worker.disableAllTools && chats.supportsBenchmarkTools(worker)) { "The delegate needs tool calling enabled and a model that supports tools." }
-                }
-            } catch (error: Exception) {
-                mutableProgress.value = null
-                if (error is CancellationException) throw error
-                mutableError.value = safeMessage(error)
-                return@launchBenchmark
-            }
-            val suite = benchmarkSuite(mode, fixtureContext)
-            var run = BenchmarkRun(
-                UUID.randomUUID().toString(), profile.uid, profile.name, profile.compatibleType.name,
-                profile.model, benchmarkConfigKey(profile, localEnvironment.value), profile.compatibleType == ClientType.LITERT_LM,
-                mode, System.currentTimeMillis(), billingOrigin = dev.chungjungsoo.gptmobile.data.pricing.billingProvider(profile), finished = false, suiteVersion = dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkSuiteRegistry.VERSION,
-                plannedTrials = benchmarkSuite(mode).size, measurementVersion = 2, scoringVersion = 2, appCommit = dev.chungjungsoo.gptmobile.BuildConfig.APP_COMMIT, runtimeVersion = dev.chungjungsoo.gptmobile.BuildConfig.LITERT_LM_VERSION,
-                diagnosticMode = diagnosticMode,
-                device = "${Build.MANUFACTURER} ${Build.MODEL}", thermalBefore = thermal(), batteryBefore = battery(),
-                engineWasLoaded = profile.compatibleType == ClientType.LITERT_LM && runtime.loadedEngineSpec() != null,
-                delegationSettings = config.takeIf { mode == BenchmarkMode.DELEGATION },
-                fixtureContextTokens = fixtureContext
-            )
-            var currentTest = suite.first()
-            try {
-                mutableProgress.value = BenchmarkProgress(profile.name, "Preparing tests", 0, suite.size)
-                store.save(run)
-                val supportsTools = chats.supportsBenchmarkTools(profile)
-                val stoppedReason = runBenchmarkSuite(
-                    suite = suite,
-                    runCase = { index, test ->
-                        currentTest = test
-                        if (profile.compatibleType == ClientType.LITERT_LM) checkLocalConditions()
-                        mutableProgress.value = BenchmarkProgress(profile.name, test.label, index, suite.size)
-                        if (mode == BenchmarkMode.DELEGATION) {
-                            try {
-                                chats.runDelegationBenchmark(profile, test, "benchmark-${run.id}-${test.id}", config)
-                            } catch (cancelled: CancellationException) {
-                                throw cancelled
-                            } catch (failure: Exception) {
-                                BenchmarkSample(test.id, test.label, test.category, BenchmarkOutcome.ERROR, error = safeMessage(failure))
-                            }
-                        } else {
-                            BenchmarkRunner(openSession = { turns, tools ->
-                                chats.openBenchmarkSession(profile, turns, tools, "benchmark-${run.id}-${test.id}", test.requestCategory)
-                            }).run(prepareBenchmarkTest(test), supportsTools)
-                        }
-                    },
-                    onSample = { sample ->
-                        val pss = withContext(Dispatchers.IO) { Debug.getPss() }
-                        val actual = runtime.state.value.takeIf { run.local && sample.completed }
-                        run = run.copy(
-                            samples = run.samples + sample,
-                            resources = if (run.diagnosticMode) {
-                                run.resources + dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkResourceSample(
-                                    sample.testId,
-                                    System.currentTimeMillis(),
-                                    pss,
-                                    Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory(),
-                                    battery(),
-                                    thermal()
-                                )
-                            } else {
-                                run.resources
-                            },
-                            peakClientPssKb = maxOf(run.peakClientPssKb ?: 0, pss),
-                            backend = actual?.backend?.displayName ?: run.backend,
-                            accelerator = actual?.engineSpec?.accelerator ?: run.accelerator
-                        )
-                        store.save(run)
-                    },
-                    stopOnError = false
-                )
-                if (stoppedReason != null) {
-                    run = run.copy(stoppedReason = stoppedReason)
-                    mutableError.value = "Benchmark stopped: $stoppedReason"
-                }
-            } catch (_: CancellationException) {
-                val canceledSample = if (run.samples.any { it.testId == currentTest.id }) emptyList() else listOf(BenchmarkSample(currentTest.id, currentTest.label, currentTest.category, BenchmarkOutcome.CANCELED))
-                run = run.copy(canceled = true, stoppedReason = execution.stopReason, samples = run.samples + canceledSample)
-            } catch (error: Exception) {
-                mutableError.value = safeMessage(error)
-                run = run.copy(canceled = true)
-            } finally {
-                withContext(NonCancellable) {
-                    try {
-                        val finished = run.copy(finished = true, thermalAfter = thermal(), batteryAfter = battery())
-                        store.save(finished)
-                        if (finished.mode == BenchmarkMode.DELEGATION) logDelegationRating(finished)
-                    } catch (error: Exception) {
-                        mutableError.value = "Could not save benchmark: ${safeMessage(error)}"
-                    }
-                    mutableProgress.value = null
-                }
-            }
-        }
+        startSelected(listOf(profile), mode, diagnostics)
     }
 
-    fun startStandardBatch(mode: BenchmarkMode) {
-        require(mode != BenchmarkMode.DELEGATION)
-        val enrolledTargets = selectedBenchmarks.value
-        val completedBlocks = history.value.count { it.mode == mode && it.finished }
-        val targets = if (enrolledTargets.isEmpty()) enrolledTargets else (enrolledTargets.drop(completedBlocks % enrolledTargets.size) + enrolledTargets.take(completedBlocks % enrolledTargets.size)).let { if (completedBlocks % 2 == 0) it else it.asReversed() }
+    fun startStandardBatch(mode: BenchmarkMode) = startSelected(selectedBenchmarks.value, mode)
+
+    private fun startSelected(targets: List<PlatformV2>, mode: BenchmarkMode, diagnostics: Boolean = false) {
         if (execution.isRunning || !mutableReady.value) return
-        if (activeRequests.value) {
-            mutableError.value = "Wait for active model requests to finish before benchmarking."
-            return
-        }
         if (targets.isEmpty()) {
             mutableError.value = "Select at least one AI model to benchmark."
             return
         }
-        val suite = benchmarkSuite(mode)
-        val totalTests = suite.size * targets.size
-        mutableError.value = null
-        mutableProgress.value = BenchmarkProgress("Batch benchmark", "Preparing models", 0, totalTests)
-        launchBenchmark {
-            val failures = mutableListOf<String>()
-            try {
-                targets.forEachIndexed { profileIndex, target ->
-                    val baseProgress = profileIndex * suite.size
-                    var run = BenchmarkRun(
-                        UUID.randomUUID().toString(), target.uid, target.name, target.compatibleType.name,
-                        target.model, benchmarkConfigKey(target, localEnvironment.value), target.compatibleType == ClientType.LITERT_LM,
-                        mode, System.currentTimeMillis(), billingOrigin = dev.chungjungsoo.gptmobile.data.pricing.billingProvider(target), finished = false, suiteVersion = dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkSuiteRegistry.VERSION,
-                        plannedTrials = benchmarkSuite(mode).size, measurementVersion = 2, scoringVersion = 2, appCommit = dev.chungjungsoo.gptmobile.BuildConfig.APP_COMMIT, runtimeVersion = dev.chungjungsoo.gptmobile.BuildConfig.LITERT_LM_VERSION,
-                        device = "${Build.MANUFACTURER} ${Build.MODEL}", thermalBefore = thermal(), batteryBefore = battery(),
-                        engineWasLoaded = target.compatibleType == ClientType.LITERT_LM && runtime.loadedEngineSpec() != null
-                    )
-                    var currentTest = suite.first()
-                    try {
-                        if (target.compatibleType == ClientType.LITERT_LM && localEnvironment.value.isBlank()) {
-                            error("Local runtime details are not ready.")
-                        }
-                        mutableProgress.value = BenchmarkProgress(target.name, "Validating profile", baseProgress, totalTests)
-                        chats.validateBenchmarkProfile(target)
-                        store.save(run)
-                        val fixtureContext = chats.benchmarkContextTokens(target)
-                        val localSuite = benchmarkSuite(mode, fixtureContext)
-                        run = run.copy(fixtureContextTokens = fixtureContext)
-                        val supportsTools = chats.supportsBenchmarkTools(target)
-                        val stoppedReason = runBenchmarkSuite(
-                            suite = localSuite,
-                            runCase = { index, test ->
-                                currentTest = test
-                                if (target.compatibleType == ClientType.LITERT_LM) checkLocalConditions()
-                                mutableProgress.value = BenchmarkProgress(target.name, test.label, baseProgress + index, totalTests)
-                                BenchmarkRunner(openSession = { turns, tools ->
-                                    chats.openBenchmarkSession(target, turns, tools, "benchmark-${run.id}-${test.id}", test.requestCategory)
-                                }).run(prepareBenchmarkTest(test), supportsTools)
-                            },
-                            onSample = { sample ->
-                                val pss = withContext(Dispatchers.IO) { Debug.getPss() }
-                                val actual = runtime.state.value.takeIf { run.local && sample.completed }
-                                run = run.copy(
-                                    samples = run.samples + sample,
-                                    peakClientPssKb = maxOf(run.peakClientPssKb ?: 0, pss),
-                                    backend = actual?.backend?.displayName ?: run.backend,
-                                    accelerator = actual?.engineSpec?.accelerator ?: run.accelerator
-                                )
-                                store.save(run)
-                            },
-                            stopOnError = false
-                        )
-                        if (stoppedReason != null) {
-                            run = run.copy(stoppedReason = stoppedReason)
-                            failures += "${target.name}: $stoppedReason"
-                        }
-                    } catch (cancelled: CancellationException) {
-                        val canceledSample = if (run.samples.any { it.testId == currentTest.id }) {
-                            emptyList()
-                        } else {
-                            listOf(BenchmarkSample(currentTest.id, currentTest.label, currentTest.category, BenchmarkOutcome.CANCELED))
-                        }
-                        run = run.copy(canceled = true, stoppedReason = execution.stopReason, samples = run.samples + canceledSample)
-                        throw cancelled
-                    } catch (error: Exception) {
-                        val reason = safeMessage(error)
-                        failures += "${target.name}: $reason"
-                        run = run.copy(stoppedReason = reason)
-                    } finally {
-                        withContext(NonCancellable) {
-                            runCatching {
-                                store.save(run.copy(finished = true, thermalAfter = thermal(), batteryAfter = battery()))
-                            }.onFailure { failures += "${target.name}: could not save benchmark" }
-                        }
-                    }
-                }
-            } catch (_: CancellationException) {
-                // The current run is persisted as canceled by the per-profile finally block.
-            } finally {
-                mutableProgress.value = null
-                if (failures.isNotEmpty()) mutableError.value = failures.joinToString("\n").take(1500)
-            }
-        }
-    }
-
-    private fun logDelegationRating(run: BenchmarkRun) {
-        val portable = dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkScoreboard.fromRun(run)?.let(dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkScoreboard::evaluate)
-        val rating = dev.chungjungsoo.gptmobile.data.benchmark.delegationBenchmarkRating(listOf(run))
-        val rankings = dev.chungjungsoo.gptmobile.data.benchmark.delegateRankings(store.history.value, run.configKey, run.delegationSettings)
-        val rank = rankings.indexOfFirst { it.run.id == run.id }.takeIf { it >= 0 }?.plus(1)
-        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
-            "DelegationBenchmark",
-            "DELEGATION_SCORE · run=${run.id} score=${portable?.score ?: rating.score} rank=$rank passed=${rating.passed}/${rating.attempts} " +
-                "toolSuccessPercent=${rating.toolTaskSuccessPercent} tokPerSec=${rating.medianDecodeSpeed} estimated=${rating.estimated}"
+        val batch = BenchmarkBatch(
+            id = UUID.randomUUID().toString(),
+            mode = mode,
+            createdAt = System.currentTimeMillis(),
+            items = targets.mapIndexed { ordinal, profile -> BenchmarkQueueItem(ordinal, profile.benchmarkSnapshot(), UUID.randomUUID().toString(), benchmarkConfigKey(profile, localEnvironment.value)) },
+            localEnvironment = localEnvironment.value,
+            diagnosticMode = diagnostics && debugMode.value
         )
+        mutableError.value = null
+        mutableProgress.value = BenchmarkProgress("Benchmark queue", "Saving selection", 0, targets.size * benchmarkSuite(mode).size)
+        if (execution.startBatch(batch) == null) mutableProgress.value = null
     }
 
     fun startDelegationBatch(plan: BenchmarkMode) {
-        require(plan == BenchmarkMode.QUICK || plan == BenchmarkMode.FULL)
-        val profile = selected.value ?: return
-        val helpers = selectedDelegates.value
         if (execution.isRunning || !mutableReady.value) return
-        if (profile.compatibleType == ClientType.LITERT_LM && localEnvironment.value.isBlank()) return
-        if (activeRequests.value) {
-            mutableError.value = "Wait for active model requests to finish before benchmarking."
-            return
-        }
-        if (profile.model.isBlank()) {
-            mutableError.value = "Choose a model in the primary AI profile first."
-            return
-        }
+        val primary = selected.value ?: return
+        val helpers = selectedDelegates.value
         if (helpers.isEmpty()) {
             mutableError.value = "Select at least one delegate to benchmark."
             return
         }
-        val chosenReviewer = benchmarkReviewer.value
+        val reviewer = benchmarkReviewer.value
         val paired = pairedComparison.value
-        val baseConfig = dev.chungjungsoo.gptmobile.data.benchmark.delegationBenchmarkSettings(chosenReviewer?.uid.orEmpty()).copy(taskPlan = if (paired) delegationSettings.value.taskPlan else dev.chungjungsoo.gptmobile.data.delegation.DelegationTaskPlan())
-        val suite = dev.chungjungsoo.gptmobile.data.benchmark.delegationBenchmarkSuite(plan, paired)
-        val totalTests = suite.size * helpers.size
-        mutableError.value = null
-        mutableProgress.value = BenchmarkProgress(profile.name, "Validating delegation batch", 0, totalTests)
-        launchBenchmark {
-            val failures = mutableListOf<String>()
-            val reviewer = if (baseConfig.reviewerEnabled) profiles.value.firstOrNull { it.uid == baseConfig.reviewerProfileUid } else null
-            try {
-                chats.validateBenchmarkProfile(profile)
-                check(baseConfig.enabled && baseConfig.processingOwnership < 100) { "Enable delegation and give helpers a share of the work before testing." }
-                check(baseConfig.researchEnabled && baseConfig.maxPages > 0) { "Enable delegate research and allow at least one page for the research test." }
-                check(!profile.disableAllTools && !profile.disableLocalTools && !profile.excludesMemory()) { "Enable tools on the primary profile before testing delegation." }
-                if (baseConfig.reviewerEnabled) {
-                    val selectedReviewer = checkNotNull(reviewer) { "Choose a Reviewer model before running delegation benchmarks." }
-                    check(!dev.chungjungsoo.gptmobile.data.delegation.DelegationPolicyResolver.sameModel(selectedReviewer, profile)) { "Reviewer must be different from the primary model." }
-                    chats.validateBenchmarkProfile(selectedReviewer)
-                }
-            } catch (error: Exception) {
-                if (error is CancellationException) throw error
-                mutableError.value = safeMessage(error)
-                mutableProgress.value = null
-                return@launchBenchmark
-            }
-            try {
-                helpers.forEachIndexed { helperIndex, helper ->
-                    val config = baseConfig.copy(targetProfileUid = helper.uid, fallbackToAnotherProfile = false)
-                    val baseProgress = helperIndex * suite.size
-                    var run = BenchmarkRun(
-                        UUID.randomUUID().toString(), profile.uid, profile.name, profile.compatibleType.name,
-                        profile.model, benchmarkConfigKey(profile, localEnvironment.value), profile.compatibleType == ClientType.LITERT_LM,
-                        BenchmarkMode.DELEGATION, System.currentTimeMillis(), finished = false, suiteVersion = dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkSuiteRegistry.VERSION,
-                        plannedTrials = suite.size, delegationPlan = plan, delegationSuiteVersion = if (paired) 2 else 1,
-                        reviewerProvider = reviewer?.compatibleType?.name, reviewerModel = reviewer?.model, measurementVersion = 2, scoringVersion = 2, appCommit = dev.chungjungsoo.gptmobile.BuildConfig.APP_COMMIT, runtimeVersion = dev.chungjungsoo.gptmobile.BuildConfig.LITERT_LM_VERSION,
-                        device = "${Build.MANUFACTURER} ${Build.MODEL}", thermalBefore = thermal(), batteryBefore = battery(),
-                        engineWasLoaded = profile.compatibleType == ClientType.LITERT_LM && runtime.loadedEngineSpec() != null,
-                        delegationSettings = config
-                    )
-                    var currentTest = suite.first()
-                    try {
-                        mutableProgress.value = BenchmarkProgress("${profile.name} → ${helper.name}", "Validating helper", baseProgress, totalTests)
-                        chats.validateBenchmarkProfile(helper)
-                        check(!helper.disableAllTools && chats.supportsBenchmarkTools(helper)) { "The delegate needs tool calling enabled and a model that supports tools." }
-                        reviewer?.let { selectedReviewer ->
-                            check(selectedReviewer.uid != helper.uid) { "Reviewer must be a different profile from the delegate." }
-                            check(!dev.chungjungsoo.gptmobile.data.delegation.DelegationPolicyResolver.sameModel(selectedReviewer, helper)) { "Reviewer must use a different model from the delegate." }
-                        }
-                        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("DelegationBenchmark", "BATCH_WORKER_START · worker=${helper.uid} model=${helper.model} index=${helperIndex + 1}/${helpers.size}")
-                        store.save(run)
-                        val stoppedReason = runBenchmarkSuite(
-                            suite = suite,
-                            runCase = { index, test ->
-                                currentTest = test
-                                if (helper.compatibleType == ClientType.LITERT_LM || profile.compatibleType == ClientType.LITERT_LM) checkLocalConditions()
-                                mutableProgress.value = BenchmarkProgress("${profile.name} → ${helper.name}", test.label, baseProgress + index, totalTests)
-                                try {
-                                    chats.runDelegationBenchmark(profile, test, "benchmark-${run.id}-${test.id}", config)
-                                } catch (cancelled: CancellationException) {
-                                    throw cancelled
-                                } catch (failure: Exception) {
-                                    BenchmarkSample(test.id, test.label, test.category, BenchmarkOutcome.ERROR, error = safeMessage(failure))
-                                }
-                            },
-                            onSample = { sample ->
-                                val pss = withContext(Dispatchers.IO) { Debug.getPss() }
-                                val actual = runtime.state.value.takeIf { run.local && sample.completed }
-                                run = run.copy(
-                                    samples = run.samples + sample,
-                                    peakClientPssKb = maxOf(run.peakClientPssKb ?: 0, pss),
-                                    backend = actual?.backend?.displayName ?: run.backend,
-                                    accelerator = actual?.engineSpec?.accelerator ?: run.accelerator
-                                )
-                                store.save(run)
-                            },
-                            stopOnError = false
-                        )
-                        if (stoppedReason != null) {
-                            run = run.copy(stoppedReason = stoppedReason)
-                            failures += "${helper.name}: $stoppedReason"
-                        }
-                        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("DelegationBenchmark", "BATCH_WORKER_COMPLETE · worker=${helper.uid} passed=${run.samples.count { it.outcome == BenchmarkOutcome.PASSED }}/${run.samples.size}")
-                    } catch (cancelled: CancellationException) {
-                        val canceledSample = if (run.samples.any { it.testId == currentTest.id }) emptyList() else listOf(BenchmarkSample(currentTest.id, currentTest.label, currentTest.category, BenchmarkOutcome.CANCELED))
-                        run = run.copy(canceled = true, stoppedReason = execution.stopReason, samples = run.samples + canceledSample)
-                        throw cancelled
-                    } catch (error: Exception) {
-                        val reason = "Delegate ${helper.name} could not be benchmarked: ${safeMessage(error)}"
-                        failures += reason
-                        run = run.copy(stoppedReason = reason)
-                        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("DelegationBenchmark", "BATCH_WORKER_ERROR · worker=${helper.uid} · ${safeMessage(error)}", "E")
-                    } finally {
-                        withContext(NonCancellable) {
-                            try {
-                                val finished = run.copy(finished = true, thermalAfter = thermal(), batteryAfter = battery())
-                                store.save(finished)
-                                if (finished.mode == BenchmarkMode.DELEGATION) logDelegationRating(finished)
-                            } catch (error: Exception) {
-                                failures += "${helper.name}: could not save benchmark: ${safeMessage(error)}"
-                            }
-                        }
-                    }
-                }
-            } catch (_: CancellationException) {
-                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("DelegationBenchmark", "BATCH_CANCELLED", "W")
-            } finally {
-                mutableProgress.value = null
-                if (failures.isNotEmpty()) mutableError.value = failures.joinToString("\n").take(1000)
-            }
-        }
+        val config = dev.chungjungsoo.gptmobile.data.benchmark.delegationBenchmarkSettings(reviewer?.uid.orEmpty()).copy(taskPlan = if (paired) delegationSettings.value.taskPlan else dev.chungjungsoo.gptmobile.data.delegation.DelegationTaskPlan())
+        val batch = BenchmarkBatch(
+            UUID.randomUUID().toString(), BenchmarkMode.DELEGATION, System.currentTimeMillis(),
+            helpers.mapIndexed { ordinal, helper -> BenchmarkQueueItem(ordinal, helper.benchmarkSnapshot(), UUID.randomUUID().toString(), benchmarkConfigKey(primary, localEnvironment.value)) },
+            delegationPrimary = primary.benchmarkSnapshot(), delegationReviewer = reviewer?.benchmarkSnapshot(), delegationSettings = config,
+            delegationPlan = plan, paired = paired, localEnvironment = localEnvironment.value
+        )
+        mutableProgress.value = BenchmarkProgress(primary.name, "Saving delegation selection", 0, helpers.size * dev.chungjungsoo.gptmobile.data.benchmark.delegationBenchmarkSuite(plan, paired).size)
+        if (execution.startBatch(batch) == null) mutableProgress.value = null
     }
 
-    private fun launchBenchmark(block: suspend () -> Unit): Job? {
-        val launched = execution.launch {
-            try {
-                dev.chungjungsoo.gptmobile.data.localruntime.InferenceAdmission.benchmark(block)
-            } catch (error: kotlinx.coroutines.TimeoutCancellationException) {
-                mutableError.value = "Benchmark could not acquire inference resources within 60 seconds. Stop active requests and try again."
-            } finally {
-                mutableProgress.value = null
-            }
-        }
-        if (launched == null) mutableProgress.value = null
-        return launched
+    fun skipProfile() = execution.skipProfile()
+    fun resumeRemaining(batchId: String) {
+        if (!execution.isRunning) execution.resumeBatch(batchId)
     }
 
-    private suspend fun prepareBenchmarkTest(test: dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkCase): dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkCase {
-        val code = test.imageCode ?: return test
-        return withContext(Dispatchers.IO) {
-            val bitmap = android.graphics.Bitmap.createBitmap(512, 256, android.graphics.Bitmap.Config.ARGB_8888)
-            val file = java.io.File(context.cacheDir, "benchmark-image-v1.png")
-            try {
-                val canvas = android.graphics.Canvas(bitmap)
-                canvas.drawColor(android.graphics.Color.WHITE)
-                val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-                    color = android.graphics.Color.BLACK
-                    textSize = 110f
-                    typeface = android.graphics.Typeface.MONOSPACE
-                }
-                canvas.drawText(code, 100f, 165f, paint)
-                file.outputStream().use { check(bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)) }
-            } finally {
-                bitmap.recycle()
-            }
-            test.copy(attachments = listOf(dev.chungjungsoo.gptmobile.data.model.ChatAttachment(file.path, file.path, "benchmark-image.png", "image/png", file.length(), width = 512, height = 256)))
-        }
+    fun retryFailed(batchId: String) {
+        if (execution.isRunning) return
+        val previous = batches.value.firstOrNull { it.id == batchId } ?: return
+        val failed = previous.items.filter { it.state in setOf(BenchmarkQueueState.FAILED, BenchmarkQueueState.BLOCKED, BenchmarkQueueState.INTERRUPTED) }
+        if (failed.isEmpty()) return
+        val next = previous.copy(
+            id = UUID.randomUUID().toString(), createdAt = System.currentTimeMillis(), state = dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkBatchState.QUEUED,
+            activeOrdinal = null, endedAt = null, stopOrigin = null, retryOfBatchId = previous.id, storageWarning = null,
+            items = failed.mapIndexed { ordinal, item -> item.copy(ordinal = ordinal, runId = UUID.randomUUID().toString(), retryOfRunId = item.runId, state = BenchmarkQueueState.QUEUED, failure = null, startedAt = null, endedAt = null, activeCaseId = null, completedCases = 0) }
+        )
+        execution.startBatch(next)
     }
 
-    private fun thermal(): Int? = context.getSystemService(PowerManager::class.java)?.currentThermalStatus
-    private fun checkLocalConditions() {
-        check((battery() ?: 100) >= 15) { "Local benchmark stopped: battery is below 15%." }
-        check((thermal() ?: 0) < PowerManager.THERMAL_STATUS_SEVERE) { "Local benchmark stopped: severe thermal pressure." }
+    fun moveSelectedProfile(uid: String, offset: Int) {
+        if (execution.isRunning) return
+        val ordered = selectedBenchmarks.value.map { it.uid }.toMutableList()
+        val index = ordered.indexOf(uid)
+        val destination = index + offset
+        if (index < 0 || destination !in ordered.indices) return
+        ordered.add(destination, ordered.removeAt(index))
+        selectedBenchmarkUids.value = ordered.toSet()
     }
 
-    private fun battery(): Int? = context.getSystemService(BatteryManager::class.java)?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)?.takeIf { it in 0..100 }
     private fun safeMessage(error: Exception) = DiagnosticRedactor.redact(error.message ?: "Unknown error").take(500)
 }

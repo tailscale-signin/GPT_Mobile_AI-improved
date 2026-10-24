@@ -25,7 +25,7 @@ class BenchmarkProfileTest {
 
     @Test fun correctnessAndThroughputHaveDifferentBudgetsForMandatoryReasoningModels() {
         val profile = PlatformV2(name = "Groq", model = "openai/gpt-oss-120b", compatibleType = ClientType.GROQ)
-        assertEquals(512, benchmarkProfile(profile, false, "speed").maxTokens)
+        assertEquals(4096, benchmarkProfile(profile, false, "speed").maxTokens)
         assertEquals(8192, benchmarkProfile(profile, false, "task").maxTokens)
         assertEquals(2048, benchmarkProfile(profile.copy(model = "other"), false, "json").maxTokens)
         assertEquals(4096, benchmarkProfile(profile.copy(model = "other"), false, IntelligenceBenchmark.CATEGORY).maxTokens)
@@ -38,7 +38,7 @@ class BenchmarkProfileTest {
         val options = Json.parseToJsonElement(bounded.openRouterRouting!!).jsonObject
         assertEquals("0.0", options.getValue("temperature").jsonPrimitive.content)
         assertEquals("true", options.getValue("stream").jsonPrimitive.content)
-        assertEquals("512", options.getValue("max_tokens").jsonPrimitive.content)
+        assertEquals("768", options.getValue("max_tokens").jsonPrimitive.content)
         assertEquals("latency", options.getValue("provider").jsonObject.getValue("sort").jsonPrimitive.content)
         assertFalse(bounded.reasoning)
         assertFalse(bounded.disableAllTools)

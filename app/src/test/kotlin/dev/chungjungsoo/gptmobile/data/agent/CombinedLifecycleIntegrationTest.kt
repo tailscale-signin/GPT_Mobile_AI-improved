@@ -142,15 +142,15 @@ class CombinedLifecycleIntegrationTest {
         )
     }
 
-    private suspend fun turn(text: String, contribution: String, status: String = "COMPLETED", contributions: Map<String, String> = emptyMap()): PersistAgentTurnResult {
-        val policy = CombinedPolicyResolver.accept(ConversationCombinedSettings(effort = 100), profiles.map { it.uid }, profiles.associate { it.uid to it.model }, text, preferredOwnerUid = "p1")
+    private suspend fun turn(text: String, contribution: String, status: String = "COMPLETED", contributions: Map<String, String> = emptyMap(), singlePass: Boolean = false, attachments: List<dev.chungjungsoo.gptmobile.data.model.ChatAttachment> = emptyList()): PersistAgentTurnResult {
+        val policy = CombinedPolicyResolver.accept(ConversationCombinedSettings(effort = 100), profiles.map { it.uid }, profiles.associate { it.uid to it.model }, text, preferredOwnerUid = "p1", singlePass = singlePass)
         val execution = CombinedExecutionContext(policy, CombinedPolicyResolver.resolve(policy, 1024, toolsAllowed = false), "root-${System.nanoTime()}", chatId = 1)
         val tools = ChatMcpToolConfig(allToolsDisabled = true, combined = execution)
         val accepted = CombinedAcceptedTurn(context = execution, tools = tools)
         val persisted = repository.persistAgentTurn(
             PersistAgentTurnRequest(
                 ChatRoomV2(id = 1, title = "Lifecycle", enabledPlatform = profiles.map { it.uid }, conversationMode = "COMBINED", combinedPrimaryUid = "p1"),
-                MessageV2(chatId = 1, platformType = null, content = text),
+                MessageV2(chatId = 1, platformType = null, content = text, attachments = attachments),
                 profiles.map { AgentRunDraft("contributor-${execution.rootBudgetId}-${it.uid}", it.uid, it.compatibleType.name, it.model, synthesisSnapshot = accepted.encode()) },
                 profiles.associate { it.uid to it.model }
             )
@@ -238,6 +238,37 @@ class CombinedLifecycleIntegrationTest {
             assertNull(planner().prepare(1, accepted.userMessage.id, root(accepted).rootBudgetId))
         }
         assertEquals("Two short acknowledgments require no final provider invocation", 16, db.invocationDao().forChat(1).size)
+    }
+
+    @Test fun attachedDocumentHistoryAndCurrentTextAreCapturedBeforeFreezeAndNeverReopenedForFinalDispatch() = runBlocking {
+        val oldFile = files.newFile("prior-context.txt").apply { writeText("PRIOR_CAPTURED_EVIDENCE: the earlier group had 12 participants.") }
+        val currentFile = files.newFile("current-context.txt").apply { writeText("CURRENT_CAPTURED_EVIDENCE: the current group had 18 participants.") }
+        fun attachment(file: File) = dev.chungjungsoo.gptmobile.data.model.ChatAttachment(file.absolutePath, "", file.name, "text/plain", file.length())
+        val prior = MessageV2(id = 100, chatId = 1, platformType = null, content = "Review the earlier study document", attachments = listOf(attachment(oldFile)), createdAt = 1)
+        db.messageDao().addMessages(prior, MessageV2(id = 101, chatId = 1, platformType = "p1", linkedMessageId = prior.id, content = "The earlier group had 12 participants.", createdAt = 2))
+        val accepted = turn("Expand the previous study comparison", "The earlier group had 12 participants and the current group had 18 participants.", singlePass = true, attachments = listOf(attachment(currentFile)))
+        val request = finalRequest(accepted)
+        val snapshot = frozen(request.runId)
+        val captured = requireNotNull(snapshot.writerContext)
+        assertTrue(captured.history.single().user.content.contains("PRIOR_CAPTURED_EVIDENCE"))
+        assertTrue(snapshot.prompt.contains("CURRENT_CAPTURED_EVIDENCE"))
+        assertTrue(captured.history.single().user.attachments.isEmpty())
+        assertTrue(captured.current.attachments.isEmpty())
+        assertEquals(setOf(oldFile.absolutePath, currentFile.absolutePath), captured.attachmentPaths)
+        oldFile.writeText("MUTATED_HISTORY_MUST_NOT_BE_READ")
+        currentFile.delete()
+        val before = requests.size
+        answer = { emitText(record(snapshot, "The earlier group had 12 participants and the current group had 18 participants.")) }
+        assertEquals(ApiStateFlowOutcome.Completed, execute(request))
+        assertEquals(before + 1, requests.size)
+        val transmittedSystem = requests.last().messages.single { it.role == dev.chungjungsoo.gptmobile.data.dto.openai.common.Role.SYSTEM }.content.orEmpty()
+            .filterIsInstance<dev.chungjungsoo.gptmobile.data.dto.openai.common.TextContent>().joinToString("") { it.text }
+        assertEquals(requireNotNull(snapshot.writerRequestPlan).systemPromptDigest, combinedDigest(transmittedSystem))
+        val transmitted = requests.last().messages.toString()
+        assertTrue(transmitted.contains("PRIOR_CAPTURED_EVIDENCE"))
+        assertTrue(transmitted.contains("CURRENT_CAPTURED_EVIDENCE"))
+        assertFalse(transmitted.contains("MUTATED_HISTORY_MUST_NOT_BE_READ"))
+        assertEquals(snapshot.encode(), frozen(request.runId).encode())
     }
 
     @Test fun fiveFailedButUsableContributionsProduceOneOwnerAndPreserveFirstWriterFailure() = runBlocking {

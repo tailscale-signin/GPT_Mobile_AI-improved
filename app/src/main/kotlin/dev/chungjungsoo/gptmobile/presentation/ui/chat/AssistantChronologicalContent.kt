@@ -62,6 +62,7 @@ internal fun AssistantChronologicalContent(
     animateResponse: Boolean = true,
     proseColor: androidx.compose.ui.graphics.Color? = null,
     debugMode: Boolean,
+    showExecutionTrace: Boolean = true,
     debugMemorySources: Map<String, DebugMemorySource> = emptyMap(),
     debugSettings: AppFeatureSettings = AppFeatureSettings(),
     showReasoning: Boolean,
@@ -87,7 +88,9 @@ internal fun AssistantChronologicalContent(
         }
     }
     val legacy = timeline.isEmpty() || timeline.any { it.type == AssistantTimelineItemType.LEGACY_ORDER }
-    val items = if (legacy) {
+    val items = if (!showExecutionTrace) {
+        if (fallbackText.isBlank()) emptyList() else listOf(AssistantTimelineItem(AssistantTimelineItemType.TEXT, fallbackText))
+    } else if (legacy) {
         buildList {
             if (fallbackThoughts.isNotBlank()) add(AssistantTimelineItem(AssistantTimelineItemType.THINKING, fallbackThoughts))
             addAll(toolEvents.sortedBy { it.sequence }.map { AssistantTimelineItem(AssistantTimelineItemType.TOOL, toolSequence = it.sequence) })
@@ -98,7 +101,7 @@ internal fun AssistantChronologicalContent(
         timeline
     }
     Column(Modifier.fillMaxWidth().padding(12.dp)) {
-        run {
+        if (showExecutionTrace || isLoading) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     if (isLoading) {
@@ -112,8 +115,10 @@ internal fun AssistantChronologicalContent(
                         androidx.compose.foundation.layout.Spacer(Modifier.fillMaxWidth())
                     }
                 }
-                IconButton(onClick = { onExpandedChange(!expanded) }) {
-                    Icon(if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, if (expanded) "Collapse activity" else "Expand activity", tint = MaterialTheme.colorScheme.primary)
+                if (showExecutionTrace) {
+                    IconButton(onClick = { onExpandedChange(!expanded) }) {
+                        Icon(if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, if (expanded) "Collapse activity" else "Expand activity", tint = MaterialTheme.colorScheme.primary)
+                    }
                 }
             }
         }
@@ -130,7 +135,7 @@ internal fun AssistantChronologicalContent(
                             if (isLoading) delay(32)
                             value = withContext(Dispatchers.Default) { prepareAssistantDisplay(item.content, combinedWording != null) }
                         }
-                        if (expanded && showReasoning && preparedDisplay.thinking.isNotBlank()) {
+                        if (showExecutionTrace && expanded && showReasoning && preparedDisplay.thinking.isNotBlank()) {
                             Text(preparedDisplay.thinking, Modifier.padding(vertical = 8.dp), style = MaterialTheme.typography.bodySmall)
                         }
                         val citationText = preparedDisplay.citationText

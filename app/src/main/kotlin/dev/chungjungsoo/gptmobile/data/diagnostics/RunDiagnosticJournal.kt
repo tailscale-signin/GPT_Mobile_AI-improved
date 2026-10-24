@@ -89,7 +89,10 @@ data class RunJournalSnapshot(
     val missingBatches: Int,
     val storageFailed: Boolean,
     val missingSequences: Long = 0,
-    val completeProviderWireCapture: Boolean = false
+    val completeProviderWireCapture: Boolean = false,
+    val captureEnabled: Boolean? = null,
+    val counterScope: String = "process_session",
+    val lossReasons: Map<String, Long> = emptyMap()
 )
 
 /** Optional capture only. Generation state and accounting must not depend on this journal. */
@@ -117,6 +120,12 @@ internal class RunDiagnosticJournal(
     private val permittedRuns = mutableSetOf<String>()
     private val privateRuns = mutableSetOf<String>()
     private val dropped = AtomicLong()
+    private val disabledSuppressed = AtomicLong()
+    private val privacySuppressed = AtomicLong()
+    private val rejected = AtomicLong()
+    private val capacityDropped = AtomicLong()
+    private val storageFailedEvents = AtomicLong()
+    private val retentionPrunedBatches = AtomicLong()
 
     @Volatile var enabled = false
 
@@ -162,6 +171,7 @@ internal class RunDiagnosticJournal(
                 } catch (_: Exception) {
                     failed = true
                     dropped.addAndGet(batch.size.toLong())
+                    storageFailedEvents.addAndGet(batch.size.toLong())
                 } finally {
                     synchronized(lock) { inFlight = emptyList() }
                 }
@@ -222,22 +232,33 @@ internal class RunDiagnosticJournal(
         outputPartId: String? = null,
         localAdmissionReceipt: dev.chungjungsoo.gptmobile.data.localruntime.LocalAdmissionReceipt? = null
     ) {
-        if (!enabled || privateSession) return
+        if (!enabled) {
+            disabledSuppressed.incrementAndGet()
+            return
+        }
+        if (privateSession) {
+            privacySuppressed.incrementAndGet()
+            return
+        }
         // Identifiers are internally generated IDs. Reject accidental content at the boundary.
         if (!safeId(runId) || invocationId != null && !safeId(invocationId) || physicalAttemptId != null && !safeId(physicalAttemptId)) {
             dropped.incrementAndGet()
+            rejected.incrementAndGet()
             return
         }
         if (listOfNotNull(physicalAttempt, fence, inputTokens, outputTokens, safetyTokens, contextTokens, visibleBytes, reasoningBytes, elapsedMillis, cacheHits, cacheMisses, staleCacheReads).any { it < 0 }) {
             dropped.incrementAndGet()
+            rejected.incrementAndGet()
             return
         }
         if (outputPartId != null && !outputPartId.matches(Regex("[0-9:]{1,40}"))) {
             dropped.incrementAndGet()
+            rejected.incrementAndGet()
             return
         }
         if ((outputBoundary == null) != (outputRepresentation == null) || (outputBoundary == null) != (outputFingerprint == null) || outputFingerprint?.let { it.utf8Bytes < 0 || !it.sha256.matches(Regex("[a-f0-9]{64}")) } == true) {
             dropped.incrementAndGet()
+            rejected.incrementAndGet()
             return
         }
         synchronized(lock) {
@@ -246,6 +267,7 @@ internal class RunDiagnosticJournal(
             val prior = sequences[runId] ?: 0L
             if (prior == Long.MAX_VALUE || prior == 0L && sequences.size >= 10_000) {
                 dropped.incrementAndGet()
+                capacityDropped.incrementAndGet()
                 return
             }
             val sequence = prior + 1L
@@ -254,6 +276,7 @@ internal class RunDiagnosticJournal(
             val critical = kind in criticalKinds
             if (!critical && pending.size >= 480) {
                 dropped.incrementAndGet()
+                capacityDropped.incrementAndGet()
                 return
             }
             if (pending.size >= 512) {
@@ -263,9 +286,11 @@ internal class RunDiagnosticJournal(
                     pending.removeAt(sample)
                 } else {
                     dropped.incrementAndGet()
+                    capacityDropped.incrementAndGet()
                     return
                 }
                 dropped.incrementAndGet()
+                capacityDropped.incrementAndGet()
             }
             if (kind == RunDiagnosticKind.RUN_TERMINAL) terminals += runId
             if (kind == RunDiagnosticKind.FIRST_VISIBLE_TEXT) firstVisible += runId to fence
@@ -318,7 +343,16 @@ internal class RunDiagnosticJournal(
         }
         val retained = (events + queued).distinctBy { it.eventId }.filter { it.runId in runIds && synchronized(lock) { it.runId !in privateRuns } && it.sequence <= (watermarks[it.streamId] ?: Long.MAX_VALUE) }.sortedWith(compareBy<RunDiagnosticEvent> { it.capturedAtMillis }.thenBy { it.streamId }.thenBy { it.sequence })
         val frozen = retained.groupBy { it.streamId }.mapValues { (_, rows) -> rows.maxOf { it.sequence } } + watermarks
-        return RunJournalSnapshot(events = retained, highWatermarks = frozen, droppedEvents = dropped.get(), missingBatches = missing, storageFailed = failed, missingSequences = frozen.entries.sumOf { (stream, high) -> (high - retained.count { it.streamId == stream }).coerceAtLeast(0) })
+        return RunJournalSnapshot(
+            events = retained,
+            highWatermarks = frozen,
+            droppedEvents = dropped.get(),
+            missingBatches = missing,
+            storageFailed = failed,
+            missingSequences = frozen.entries.sumOf { (stream, high) -> (high - retained.count { it.streamId == stream }).coerceAtLeast(0) },
+            captureEnabled = enabled,
+            lossReasons = mapOf("suppressed_disabled" to disabledSuppressed.get(), "suppressed_private" to privacySuppressed.get(), "rejected_validation" to rejected.get(), "capacity_dropped" to capacityDropped.get(), "storage_failed_events" to storageFailedEvents.get(), "retention_pruned_batches" to retentionPrunedBatches.get())
+        )
     }
 
     suspend fun clear() = writes.withLock {
@@ -330,6 +364,7 @@ internal class RunDiagnosticJournal(
             terminals.clear()
             firstVisible.clear()
             dropped.set(0)
+            listOf(disabledSuppressed, privacySuppressed, rejected, capacityDropped, storageFailedEvents, retentionPrunedBatches).forEach { it.set(0) }
         }
         try {
             vault.references().filter { it.startsWith("journal-") }.forEach { vault.delete(it) }
@@ -348,7 +383,10 @@ internal class RunDiagnosticJournal(
             val bytes = vault.read(reference)
             total += bytes?.size ?: 0
             bytes?.fill(0)
-            if (captured < now() - retentionMillis || total > maxStoredBytes) vault.delete(reference)
+            if (captured < now() - retentionMillis || total > maxStoredBytes) {
+                vault.delete(reference)
+                retentionPrunedBatches.incrementAndGet()
+            }
         }
     }
 

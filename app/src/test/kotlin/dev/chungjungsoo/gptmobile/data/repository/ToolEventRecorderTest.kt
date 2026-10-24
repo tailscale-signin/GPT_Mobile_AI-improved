@@ -405,7 +405,17 @@ class ToolEventRecorderTest {
     )
 }
 
-private class FakeAgentRunDao : AgentRunDao {
+private class FakeAgentRunDao :
+    AgentRunDao,
+    UnusedPolicySnapshotAccess {
+    override suspend fun rawGetById(runId: String): AgentRun? = getById(runId)
+    override suspend fun rawGetByChatId(chatId: Int): List<AgentRun> = getByChatId(chatId)
+    override suspend fun rawCombinedTerminalOwners(): List<AgentRun> = combinedTerminalOwners()
+    override suspend fun rawGetRecoverableGatewayRuns(): List<AgentRun> = getRecoverableGatewayRuns()
+    override fun rawObserveByChatId(chatId: Int): Flow<List<AgentRun>> = observeByChatId(chatId)
+    override fun rawObserveActive(): Flow<List<AgentRun>> = observeActive()
+    override fun rawObserveRecent(limit: Int): Flow<List<AgentRun>> = observeRecent(limit)
+
     override fun observeHomeActivity(limit: Int): Flow<List<dev.chungjungsoo.gptmobile.data.model.SettingsHomeActivity>> = MutableStateFlow(emptyList())
     override fun observeActive(): Flow<List<AgentRun>> = MutableStateFlow(emptyList())
     override fun observeUnreportedOutputLengths(limit: Int): Flow<List<dev.chungjungsoo.gptmobile.data.database.dao.RunOutputLength>> = MutableStateFlow(emptyList())
@@ -444,7 +454,14 @@ private class FakeAgentRunDao : AgentRunDao {
     override suspend fun combinedTerminalOwners(): List<AgentRun> = emptyList()
 }
 
-private class FakeAgentPersistenceDao : AgentPersistenceDao {
+private class FakeAgentPersistenceDao :
+    AgentPersistenceDao,
+    UnusedPolicySnapshotAccess {
+    override suspend fun rawSynthesisRunsForTurn(chatId: Int, userId: Int): List<AgentRun> = synthesisRunsForTurn(chatId, userId)
+    override suspend fun rawGetCompletedRuns(chatId: Int): List<AgentRun> = getCompletedRuns(chatId)
+    override suspend fun rawGetIncompleteRuns(chatId: Int, userMessageIds: List<Int>): List<AgentRun> = getIncompleteRuns(chatId, userMessageIds)
+    override suspend fun rawRecoveryRun(runId: String): AgentRun? = recoveryRun(runId)
+
     override suspend fun synthesisRunsForTurn(chatId: Int, userId: Int): List<AgentRun> = unused()
     override suspend fun combinedDeliveryCheckpoint(runId: String, revisionId: String): dev.chungjungsoo.gptmobile.data.database.entity.CombinedDeliveryCheckpoint? = unused()
     override suspend fun upsertCombinedDeliveryCheckpoint(row: dev.chungjungsoo.gptmobile.data.database.entity.CombinedDeliveryCheckpoint) = unused<Unit>()
@@ -573,3 +590,17 @@ private class FakeAgentPersistenceDao : AgentPersistenceDao {
 }
 
 private fun Char.isSurrogate(): Boolean = this in '\uD800'..'\uDFFF'
+
+/** This fixture tests event recording; policy storage is covered by real Room contract tests. */
+private interface UnusedPolicySnapshotAccess : dev.chungjungsoo.gptmobile.data.database.dao.RunPolicySnapshotAccess {
+    override suspend fun policyChatTemporary(chatId: Int): Boolean? = false
+    override suspend fun policyRows(chatId: Int, digests: List<String>): List<dev.chungjungsoo.gptmobile.data.database.entity.RunPolicySnapshot> = emptyList()
+    override suspend fun policyRowsForRuns(runIds: List<String>): List<dev.chungjungsoo.gptmobile.data.database.entity.RunPolicySnapshot> = emptyList()
+    override suspend fun policyRefsForRuns(runIds: List<String>): List<dev.chungjungsoo.gptmobile.data.database.entity.AgentRunPolicyRef> = emptyList()
+    override suspend fun insertPolicyRows(rows: List<dev.chungjungsoo.gptmobile.data.database.entity.RunPolicySnapshot>) = Unit
+    override suspend fun insertPolicyRefs(refs: List<dev.chungjungsoo.gptmobile.data.database.entity.AgentRunPolicyRef>) = Unit
+    override suspend fun removePolicyRefs(runId: String) = Unit
+    override suspend fun removeUnusedPolicies(chatId: Int) = Unit
+    override suspend fun rawInsertPolicyRun(run: AgentRun) = Unit
+    override suspend fun rawUpsertPolicyRun(run: AgentRun) = Unit
+}

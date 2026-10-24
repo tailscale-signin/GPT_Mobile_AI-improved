@@ -19,13 +19,13 @@ class CombinedTurnBudgetTest {
         val plan = CombinedPolicyResolver.resolve(requested, estimatedInputTokens = 1024)
         val context = CombinedExecutionContext(requested, plan, "appraisal-root", profileUid = "a")
         val budget = CombinedTurnBudgetStore.inMemory().open(context)
-        val appraisal = context.forRole(CombinedRunRole.RESEARCH, "a", CombinedResearchStages.id("a", "appraisal"))
+        val appraisal = context.forRole(CombinedRunRole.RESEARCH, "a", CombinedResearchStages.id(context, "a", "appraisal"))
         assertEquals(6144, plan.outputTokens(CombinedRunRole.RESEARCH))
         assertEquals(1024, plan.verificationOutputTokens)
         val admitted = budget.reserve(appraisal, "full-appraisal", CombinedResourceQuota(12000, 6144))
         assertTrue(admitted is CombinedBudgetAdmission.Granted)
         assertEquals(CombinedBudgetPool.BASELINE, (admitted as CombinedBudgetAdmission.Granted).reservation.pool)
-        assertTrue(plan.baselineByOwner.getValue(CombinedResearchStages.id("a", "study_review")).generatedTokens >= 11 * 1024)
+        assertTrue(plan.baselineByOwner.getValue(CombinedResearchStages.id(context, "a", "study_review")).generatedTokens >= 11 * 1024)
     }
 
     @Test fun researchContributorReportRepairAndContinuationUseItsThreeProtectedBaselinePasses() = runBlocking {
@@ -149,10 +149,12 @@ class CombinedTurnBudgetTest {
             assertTrue(first === second)
             assertTrue(first.reserve(context, "one", CombinedResourceQuota(toolOperations = 1)) is CombinedBudgetAdmission.Granted)
             assertTrue(second.reserve(context, "two", CombinedResourceQuota(toolOperations = 1)) is CombinedBudgetAdmission.Denied)
+            assertEquals(setOf(context.rootBudgetId), secondStore.rootsForConversation(42))
             firstStore.deleteConversation(42)
             first.unknown("one", "Late completion after deletion")
             assertTrue(first.snapshot().cancelled)
             assertFalse(directory.listFiles().orEmpty().any { it.extension == "json" })
+            assertTrue(secondStore.rootsForConversation(42).isEmpty())
         } finally {
             directory.deleteRecursively()
         }

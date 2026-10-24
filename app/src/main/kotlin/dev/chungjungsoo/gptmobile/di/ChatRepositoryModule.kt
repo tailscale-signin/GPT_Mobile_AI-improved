@@ -88,7 +88,8 @@ object ChatRepositoryModule {
         researchRecall: dev.chungjungsoo.gptmobile.data.research.memory.ResearchRecallProvider,
         localAssistPreparation: dev.chungjungsoo.gptmobile.data.assist.LocalAssistPreparation,
         memoryPreview: dev.chungjungsoo.gptmobile.data.readiness.MemoryPreviewCoordinator,
-        combinedBudgets: dev.chungjungsoo.gptmobile.data.agent.CombinedTurnBudgetStore
+        combinedBudgets: dev.chungjungsoo.gptmobile.data.agent.CombinedTurnBudgetStore,
+        combinedDecisions: dev.chungjungsoo.gptmobile.data.agent.CombinedCollectionDecisionStore
     ): ChatRepository = ChatRepositoryImpl(
         context = context,
         chatRoomV2Dao = chatRoomV2Dao,
@@ -129,6 +130,7 @@ object ChatRepositoryModule {
         researchRecall = researchRecall,
         localAssistPreparation = localAssistPreparation,
         memoryPreview = memoryPreview,
-        combinedBudgets = combinedBudgets
+        combinedBudgets = combinedBudgets,
+        combinedDecisions = combinedDecisions
     )
 }

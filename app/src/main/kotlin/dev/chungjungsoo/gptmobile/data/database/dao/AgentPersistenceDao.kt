@@ -26,7 +26,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
 @Dao
-interface AgentPersistenceDao {
+interface AgentPersistenceDao : RunPolicySnapshotAccess {
     @Insert
     suspend fun insertChatRoom(chatRoom: ChatRoomV2): Long
 
@@ -36,8 +36,8 @@ interface AgentPersistenceDao {
     @Insert
     suspend fun insertMessage(message: MessageV2): Long
 
-    @Insert
-    suspend fun insertRun(run: AgentRun)
+    @Transaction
+    suspend fun insertRun(run: AgentRun) = writePolicyRun(run, upsert = false)
 
     @Insert
     suspend fun insertToolEvent(event: ToolEvent)
@@ -95,13 +95,13 @@ interface AgentPersistenceDao {
     }
 
     @Query("SELECT * FROM agent_runs WHERE chat_id = :chatId AND user_message_id = :userId AND synthesis_key IS NOT NULL")
-    suspend fun synthesisRunsForTurn(chatId: Int, userId: Int): List<AgentRun>
+    suspend fun rawSynthesisRunsForTurn(chatId: Int, userId: Int): List<AgentRun>
 
     @Query("SELECT * FROM agent_runs WHERE chat_id = :chatId AND status = 'COMPLETED' ORDER BY created_at, run_id")
-    suspend fun getCompletedRuns(chatId: Int): List<AgentRun>
+    suspend fun rawGetCompletedRuns(chatId: Int): List<AgentRun>
 
     @Query("SELECT failed.* FROM agent_runs failed WHERE failed.chat_id = :chatId AND failed.user_message_id IN (:userMessageIds) AND failed.status IN ('FAILED', 'CANCELED', 'INTERRUPTED') AND NOT EXISTS (SELECT 1 FROM agent_runs done WHERE done.assistant_message_id = failed.assistant_message_id AND done.status = 'COMPLETED' AND done.created_at > failed.created_at) ORDER BY failed.created_at, failed.run_id")
-    suspend fun getIncompleteRuns(chatId: Int, userMessageIds: List<Int>): List<AgentRun>
+    suspend fun rawGetIncompleteRuns(chatId: Int, userMessageIds: List<Int>): List<AgentRun>
 
     @Query("SELECT * FROM tool_events WHERE run_id IN (:runIds) ORDER BY run_id, sequence")
     suspend fun rawGetToolEvents(runIds: List<String>): List<ToolEvent>
@@ -295,7 +295,7 @@ interface AgentPersistenceDao {
     }
 
     @Query("SELECT * FROM agent_runs WHERE run_id = :runId")
-    suspend fun recoveryRun(runId: String): AgentRun?
+    suspend fun rawRecoveryRun(runId: String): AgentRun?
 
     @Query("SELECT * FROM messages_v2 WHERE message_id = :messageId")
     suspend fun rawRecoveryMessage(messageId: Int): MessageV2?
@@ -447,7 +447,7 @@ interface AgentPersistenceDao {
     suspend fun firstPendingId(chatId: Int): String?
 
     @Transaction
-    suspend fun markCombinedMergeUnavailable(chatId: Int, userMessageId: Int, rootBudgetId: String): Boolean {
+    suspend fun markCombinedMergeUnavailable(chatId: Int, userMessageId: Int, rootBudgetId: String, reason: String? = null): Boolean {
         val rows = rawGetMessages(chatId).filter { it.linkedMessageId == userMessageId && it.platformType != null }
         if (rows.any { row -> row.currentRunId?.let { recoveryRun(it)?.status } in setOf("QUEUED", "RUNNING") }) return false
         val matching = rows.filter { row -> row.timeline.any { it.combinedTurn?.rootBudgetId == rootBudgetId } }
@@ -457,7 +457,7 @@ interface AgentPersistenceDao {
                 row.copy(
                     timeline = row.timeline.map { item ->
                         item.combinedTurn?.takeIf { it.rootBudgetId == rootBudgetId }?.let { marker ->
-                            item.copy(combinedTurn = marker.copy(deliveryStatus = "MERGE_UNAVAILABLE"))
+                            item.copy(combinedTurn = marker.copy(deliveryStatus = "MERGE_UNAVAILABLE", deliveryReason = reason?.take(500)))
                         } ?: item
                     }
                 )
@@ -711,7 +711,14 @@ interface AgentPersistenceDao {
                 if (request.freezeCombinedSources) {
                     val membership = requireNotNull(getChatRoom(current.chatId)).activePlatform.toSet()
                     val expected = incoming.combined?.requested?.participantUids.orEmpty().filter { it in membership }.toSet()
-                    require(incoming.sources.map { it.platformUid }.toSet() == expected) { "COMBINED_MEMBERSHIP_CHANGED: Recheck the complete remaining input before dispatch." }
+                    val included = incoming.sources.map { it.platformUid }.toSet()
+                    require(included.size == incoming.sources.size && included.all { it in expected }) { "COMBINED_MEMBERSHIP_CHANGED: Recheck the remaining input before dispatch." }
+                    val rows = rawGetMessages(current.chatId).filter { it.linkedMessageId == request.userMessage.id && it.platformType != null }
+                    (expected - included).forEach { uid ->
+                        val omitted = requireNotNull(rows.singleOrNull { it.platformType == uid }) { "A Combined contributor changed." }
+                        val omittedRun = omitted.currentRunId?.let { recoveryRun(it) }
+                        require(omittedRun?.status in setOf("COMPLETED", "FAILED", "INTERRUPTED", "CANCELED") && omitted.currentRunId in incoming.acknowledgedFailureAttempts) { "COMBINED_FAILURE_DECISION_REQUIRED: A skipped contributor needs an acknowledgement for its current attempt." }
+                    }
                 }
                 val existing = synthesisRunsForTurn(current.chatId, request.userMessage.id).firstOrNull { run ->
                     run.synthesisSnapshot?.let { runCatching { decoder.decodeFromString<dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot>(it).dispatchIdentity }.getOrNull() } == incoming.dispatchIdentity
@@ -728,25 +735,60 @@ interface AgentPersistenceDao {
             "The Combined answer already owns a frozen corpus. Late source updates cannot replace it automatically."
         }
         request.successorOfRunId?.let { predecessorId ->
-            require(previousRun != null && previousRun.runId == predecessorId && previousRun.status == "FAILED") { "COMBINED_SUCCESSOR_OWNER_CHANGED" }
+            require(previousRun != null && previousRun.runId == predecessorId && previousRun.status in setOf("FAILED", "INTERRUPTED", "CANCELED", "COMPLETED")) { "COMBINED_SUCCESSOR_OWNER_CHANGED" }
             val decoder = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
             val previousRaw = requireNotNull(previousRun.synthesisSnapshot)
             val successorRaw = requireNotNull(request.run.synthesisSnapshot)
             require(previousRun.synthesisKey == dev.chungjungsoo.gptmobile.data.research.researchHash(previousRaw) && request.run.synthesisKey == dev.chungjungsoo.gptmobile.data.research.researchHash(successorRaw)) { "COMBINED_SUCCESSOR_INTEGRITY_FAILED" }
-            dev.chungjungsoo.gptmobile.data.agent.CombinedSuccessorSnapshot.validate(decoder.decodeFromString(previousRaw), decoder.decodeFromString(successorRaw), predecessorId)
+            val original = decoder.decodeFromString<dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot>(previousRaw)
+            val successor = decoder.decodeFromString<dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot>(successorRaw)
+            if (original.combined?.requested?.singlePass == true) {
+                require(successor.combined?.rootBudgetId != original.combined.rootBudgetId && successor.dispatchIdentity != original.dispatchIdentity) { "COMBINED_EXPLICIT_WRITER_REQUIRES_FRESH_ROOT" }
+            } else {
+                require(previousRun.status in setOf("FAILED", "INTERRUPTED")) { "COMBINED_SUCCESSOR_OWNER_CHANGED" }
+            }
+            dev.chungjungsoo.gptmobile.data.agent.CombinedSuccessorSnapshot.validate(original, successor, predecessorId)
+        }
+        // Initial source freezing may replace the primary contributor revision. A later
+        // same-writer final retry instead needs a new root and an unchanged accepted corpus.
+        if (request.replaceCombinedCorpus && !request.freezeCombinedSources && request.successorOfRunId == null && request.resumeCombinedFrom == null && previousRun?.synthesisKey != null) {
+            val decoder = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+            val previousRaw = requireNotNull(previousRun.synthesisSnapshot)
+            val retryRaw = requireNotNull(request.run.synthesisSnapshot)
+            require(previousRun.synthesisKey == dev.chungjungsoo.gptmobile.data.research.researchHash(previousRaw) && request.run.synthesisKey == dev.chungjungsoo.gptmobile.data.research.researchHash(retryRaw)) { "COMBINED_RETRY_INTEGRITY_FAILED" }
+            val original = decoder.decodeFromString<dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot>(previousRaw)
+            val retry = decoder.decodeFromString<dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot>(retryRaw)
+            if (original.combined?.requested?.singlePass == true) {
+                require(previousRun.status in setOf("FAILED", "INTERRUPTED", "CANCELED", "COMPLETED") && request.run.runId != previousRun.runId) { "COMBINED_RETRY_OWNER_CHANGED" }
+                require(request.assistantMessage.combinedSources == original.sources && retry.profileUid == request.run.profileUid && retry.model == request.run.modelSnapshot) { "COMBINED_RETRY_CORPUS_CHANGED" }
+                dev.chungjungsoo.gptmobile.data.agent.CombinedWriterRetrySnapshot.validate(original, retry)
+            }
         }
         if (request.freezeCombinedSources) {
             val rows = rawGetMessages(current.chatId).filter { it.linkedMessageId == request.userMessage.id && it.platformType != null }
             require(request.assistantMessage.combinedSources.isNotEmpty()) { "Combined sources are missing." }
             request.assistantMessage.combinedSources.forEach { source ->
                 val row = requireNotNull(rows.singleOrNull { it.platformType == source.platformUid }) { "A Combined contributor changed." }
-                val sourceRun = row.currentRunId?.let { recoveryRun(it) }
+                val currentRun = row.currentRunId?.let { recoveryRun(it) }
+                val selectedAttempt = source.selectedContributionAttemptId ?: source.attemptId ?: row.currentRunId
+                val sourceRun = selectedAttempt?.let { recoveryRun(it) } ?: currentRun
+                val retainedBodies = listOf(row.currentRunId to row.content) + row.revisions.map { it.runId to it.content }
+                val selectedBody = retainedBodies.firstOrNull { (attempt, body) ->
+                    attempt == selectedAttempt &&
+                        if (source.rawContentDigest.isNotBlank()) {
+                            source.rawContentDigest == dev.chungjungsoo.gptmobile.data.research.researchHash(body)
+                        } else {
+                            dev.chungjungsoo.gptmobile.util.stripAssistantErrorNote(body).trim() == dev.chungjungsoo.gptmobile.util.stripAssistantErrorNote(source.content).trim()
+                        }
+                }
                 require(
                     row.combinedSources.isEmpty() &&
-                        (row.currentRunId == null || sourceRun?.status in setOf("COMPLETED", "FAILED", "INTERRUPTED")) &&
+                        (row.currentRunId == null || currentRun?.status in setOf("COMPLETED", "FAILED", "INTERRUPTED", "CANCELED")) &&
+                        (source.latestAttemptId == null || source.latestAttemptId == row.currentRunId) &&
+                        sourceRun?.synthesisKey == null &&
                         source.completionStatus == (sourceRun?.status ?: source.completionStatus) &&
                         source.content.isNotBlank() &&
-                        (if (source.rawContentDigest.isNotBlank()) source.rawContentDigest == dev.chungjungsoo.gptmobile.data.research.researchHash(row.content) else dev.chungjungsoo.gptmobile.util.stripAssistantErrorNote(row.content).trim() == dev.chungjungsoo.gptmobile.util.stripAssistantErrorNote(source.content).trim())
+                        selectedBody != null
                 ) {
                     "A Combined contribution is still settling. The inputs will be checked again before dispatch."
                 }
@@ -870,6 +912,31 @@ interface AgentPersistenceDao {
         } catch (_: Exception) {
             false
         }
+    }
+
+    /** Commit the complete accumulated answer and terminal status under the same ownership check. */
+    @Transaction
+    suspend fun finishQueuedWithFailure(runId: String, status: String, completedAt: Long, terminalError: String?): Boolean {
+        require(status in setOf("FAILED", "CANCELED", "INTERRUPTED"))
+        val run = recoveryRun(runId)?.takeIf { it.status == "QUEUED" } ?: return false
+        val message = recoveryMessage(run.assistantMessageId) ?: return false
+        val updated = if (status == "FAILED" && !terminalError.isNullOrBlank()) {
+            val failure = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.classify(terminalError).copy(
+                dispatched = false,
+                remoteAcceptance = dev.chungjungsoo.gptmobile.data.agent.RemoteRequestAcceptance.NO,
+                phase = "PRE_DISPATCH"
+            )
+            message.copy(
+                timeline = message.timeline + dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(
+                    dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE,
+                    runError = terminalError,
+                    profileFailure = failure
+                )
+            )
+        } else {
+            message
+        }
+        return finishRunningWithMessage(updated, runId, status, completedAt, terminalError)
     }
 
     /** Commit the complete accumulated answer and terminal status under the same ownership check. */
@@ -1086,4 +1153,9 @@ interface AgentPersistenceDao {
     suspend fun recoveryMessage(messageId: Int): MessageV2? = rawRecoveryMessage(messageId)?.decodedArchiveText()
 
     suspend fun latestAssistantMessages(chatId: Int): List<MessageV2> = rawLatestAssistantMessages(chatId).map { it.decodedArchiveText() }
+
+    suspend fun synthesisRunsForTurn(chatId: Int, userId: Int): List<AgentRun> = hydratePolicyRuns(rawSynthesisRunsForTurn(chatId, userId))
+    suspend fun getCompletedRuns(chatId: Int): List<AgentRun> = hydratePolicyRuns(rawGetCompletedRuns(chatId))
+    suspend fun getIncompleteRuns(chatId: Int, userMessageIds: List<Int>): List<AgentRun> = hydratePolicyRuns(rawGetIncompleteRuns(chatId, userMessageIds))
+    suspend fun recoveryRun(runId: String): AgentRun? = hydratePolicyRun(rawRecoveryRun(runId))
 }

@@ -1,81 +1,56 @@
 package dev.chungjungsoo.gptmobile.data.benchmark
 
-/** Versioned isolated fixtures. Validation labels are never included in model context. */
+/** Version eight is a fixed 50-case manifest; version seven remains frozen separately. */
 internal object BenchmarkSuiteRegistry {
-    const val VERSION = 7
+    const val VERSION = 8
     const val MIN_TIMING_REFERENCE_UNITS = 128
-    fun legacyStandard(agent: Boolean): List<BenchmarkCase> = createStandard(agent, historical = true).map(::historicalIntelligence)
+    val quick: List<BenchmarkCase> get() = BenchmarkSuite7.quick
+    fun historical(mode: BenchmarkMode) = BenchmarkSuite7.historical(mode)
+    fun legacyStandard(agent: Boolean) = BenchmarkSuite7.legacyStandard(agent)
 
     val full: List<BenchmarkCase> by lazy {
-        val legacy = createStandard(true)
-        val json = legacy.filter { it.category == "json" }
-        legacy.filter { it.category == "speed" } +
-            legacy.filter { it.category == "task" }.take(8) +
-            json + json.mapIndexed { index, test ->
-                val expected = "{\"ready\":false,\"count\":${index + 9},\"unit\":\"m\"}"
-                test.copy(id = "json-${index + 3}", label = "JSON ${index + 4}", prompt = "Return only this JSON object, without markdown: $expected", expected = expected, seed = index + 3)
-            } + legacy.filter { it.category == "tools" } + IntelligenceBenchmark.batches
-    }
-
-    fun historical(mode: BenchmarkMode): List<BenchmarkCase> {
-        if (mode == BenchmarkMode.QUICK) {
-            return quick.map { test ->
-                if (test.category == "json") test.copy(prompt = test.prompt.replace(", without markdown", "")) else historicalIntelligence(test)
+        BenchmarkSuite7.full.filter { it.category == "speed" } + buildList {
+            repeat(2) { seed ->
+                val tag = "READY_${742 + seed}"
+                add(BenchmarkCase("instruction-$seed", "Exact instruction ${seed + 1}", "task", "Reply with exactly $tag and nothing else.", tag, workload = "instruction", seed = seed))
+                add(BenchmarkCase("logic-$seed", "Arithmetic ${seed + 1}", "task", "Compute ${17 + seed} * 23 + 9. Reply only with the integer.", ((17 + seed) * 23 + 9).toString(), workload = "logic", seed = seed))
+                add(BenchmarkCase("extract-$seed", "Grounded extraction ${seed + 1}", "task", "Record: parcel $tag is not approved and weighs ${12 + seed} kg. Reply only with its mass in kg.", "${12 + seed} kg", workload = "extraction", seed = seed))
+                add(BenchmarkCase("recall-$seed", "Context recall ${seed + 1}", "task", "Parcel code: $tag. " + "Irrelevant record. ".repeat(160) + "Reply with only the parcel code.", tag, workload = "recall", seed = seed))
+                add(BenchmarkCase("abstain-$seed", "Evidence boundary ${seed + 1}", "task", "A parcel exists. Its destination and date are unknown. State the ${if (seed == 0) "destination" else "arrival date"}. Reply UNKNOWN when not established.", "UNKNOWN", workload = "abstention", seed = seed))
             }
-        }
-        val legacy = createStandard(true, historical = true)
-        val json = legacy.filter { it.category == "json" }
-        return (
-            legacy.filter { it.category == "speed" } + legacy.filter { it.category == "task" }.take(8) +
-                json + json.mapIndexed { index, test ->
-                    val expected = "{\"ready\":false,\"count\":${index + 9},\"unit\":\"m\"}"
-                    test.copy(id = "json-${index + 3}", label = "JSON ${index + 4}", prompt = "Return only this JSON object, without markdown: $expected", expected = expected, seed = index + 3)
-                } + legacy.filter { it.category == "tools" } + IntelligenceBenchmark.batches
-            ).map(::historicalIntelligence)
+        } + listOf(
+            "{\"status\":\"ready\",\"count\":3}",
+            "{\"items\":[{\"id\":2,\"active\":false}],\"next\":null}",
+            "{\"text\":\"a\\\"b\\nc\",\"path\":\"C:\\\\temp\"}",
+            "{\"integer\":7,\"decimal\":1.5,\"flag\":true,\"empty\":[]}",
+            "{\"outer\":{\"inner\":[1,2,3]},\"unit\":\"kg\"}",
+            "{\"exact\":\"ONLY_THIS_OBJECT\",\"optional\":null}"
+        ).mapIndexed { index, expected -> BenchmarkCase("json-$index", "JSON ${index + 1}", "json", "Return exactly this JSON value, without Markdown or explanation: $expected", expected, workload = "structured", seed = index) } +
+            listOf("tools", "typed_arguments", "tool_error_recovery", "research_fixture", "tool_selection", "tool_result_reading", "tools", "typed_arguments", "research_fixture", "tool_error_recovery").mapIndexed { index, workload ->
+                val prompt = when (workload) {
+                    "typed_arguments" -> "Call benchmark_lookup with key=parcel, count=2 as an integer and includeArchived=false as a boolean. Return only its code."
+                    "research_fixture" -> "Call benchmark_search with query=parcel, then benchmark_read on the returned fixture URL. Reply only with FINAL_PARCEL_CODE."
+                    "tool_error_recovery" -> "Call benchmark_lookup with key=parcel. If it reports a temporary failure, retry exactly once with a new call ID. Reply only with its code."
+                    else -> "Use benchmark_lookup with exactly key=parcel. Reply only with its returned parcel code; stop after success. Never guess."
+                }
+                BenchmarkCase("tool-$index", "Tool contract ${index + 1}", "tools", prompt, workload = workload, seed = index)
+            } + IntelligenceBenchmark.batches
     }
+}
 
-    private fun historicalIntelligence(test: BenchmarkCase): BenchmarkCase = if (test.category == IntelligenceBenchmark.CATEGORY) {
-        test.copy(
-            prompt = test.prompt.replace("label C says it is not in C.", "label C says it is in A.")
-                .replace("Return only a raw JSON object, without Markdown or code fences,", "Return only a JSON object")
-        )
-    } else {
-        test
+internal fun benchmarkSuiteForVersion(version: Int, mode: BenchmarkMode): List<BenchmarkCase> = when (version) {
+    8 -> when (mode) {
+        BenchmarkMode.QUICK -> BenchmarkSuiteRegistry.quick
+        BenchmarkMode.DIAGNOSTIC -> BenchmarkCapabilitySuite.cases
+        BenchmarkMode.DELEGATION -> delegationBenchmarkSuite()
+        else -> BenchmarkSuiteRegistry.full
     }
-
-    val quick: List<BenchmarkCase> by lazy {
-        listOf(
-            BenchmarkCase("speed-0", "Delivery", "speed", "Write about 120 words explaining how rain forms, in plain English. No heading."),
-            BenchmarkCase("instruction", "Exact instruction", "task", "Reply with exactly BENCHMARK_READY and nothing else.", "BENCHMARK_READY", workload = "instruction"),
-            BenchmarkCase("json", "Structured JSON", "json", "Return only this JSON object, without markdown: {\"status\":\"ready\",\"count\":3,\"items\":[\"red\",\"green\",\"blue\"]}", workload = "structured"),
-            BenchmarkCase("tool", "Tool readiness", "tools", "Call benchmark_lookup with key=\"parcel\". Reply with only the code returned by that tool. Do not guess.", workload = "tools"),
-            IntelligenceBenchmark.batches.first()
-        )
+    7 -> when (mode) {
+        BenchmarkMode.QUICK -> BenchmarkSuite7.quick
+        BenchmarkMode.DIAGNOSTIC -> BenchmarkCapabilitySuite.cases
+        BenchmarkMode.DELEGATION -> delegationBenchmarkSuite()
+        else -> BenchmarkSuite7.full
     }
-    private fun createStandard(agent: Boolean, historical: Boolean = false): List<BenchmarkCase> = buildList {
-        for ((band, target) in listOf("short" to 512, "medium" to 2048, "long" to 4096)) {
-            val suffix = if (historical) "\nExplain how rain forms in about 100 plain English words. No heading. Ignore the irrelevant record padding above." else "\nExplain how rain forms in 180 to 220 plain English words, covering evaporation, condensation, cloud formation, and precipitation in separate sentences. No heading. Ignore the irrelevant record padding above."
-            var padding = "Synthetic weather record. "
-            while (ReferenceTextTokenizer.starts(padding + suffix).size < target) padding += "Synthetic weather record. "
-            repeat(6) { trial ->
-                add(BenchmarkCase("speed-$band-$trial", "$band delivery ${if (trial == 0) "warm-up" else trial}", "speed", padding + suffix, warmup = trial == 0, workload = band, seed = trial))
-            }
-        }
-        repeat(3) { seed ->
-            val tag = "READY_${742 + seed}"
-            add(BenchmarkCase("instruction-$seed", "Instruction ${seed + 1}", "task", "Reply with exactly $tag and nothing else.", tag, workload = "instruction", seed = seed))
-            val json = "{\"ready\":true,\"count\":${3 + seed},\"unit\":\"kg\"}"
-            add(BenchmarkCase("json-$seed", "JSON ${seed + 1}", "json", "Return only this JSON object, without markdown: $json", json, workload = "structured", seed = seed))
-            add(BenchmarkCase("logic-$seed", "Logic ${seed + 1}", "task", "Compute ${17 + seed} * 23 + 9. Reply only with the integer.", ((17 + seed) * 23 + 9).toString(), workload = "logic", seed = seed))
-            add(BenchmarkCase(if (seed == 0) "context" else "recall-$seed", "Context ${seed + 1}", "task", if (seed == 0) "What was the parcel code I gave you? Reply with only the code." else "Read this record: parcel $tag weighs ${12 + seed} kg. " + "Irrelevant record. ".repeat(160) + "Reply only with the parcel code.", if (seed == 0) "ORCHID-742" else tag, workload = "recall", seed = seed))
-            add(BenchmarkCase("extract-$seed", "Grounded extraction ${seed + 1}", "task", "Source A: shipment $tag is NOT approved. Measured mass is ${12 + seed} kg on 2026-10-10. Reply with exactly: $tag|not approved|${12 + seed} kg|2026-10-10", "$tag|not approved|${12 + seed} kg|2026-10-10", workload = "extraction", seed = seed))
-            add(BenchmarkCase("abstain-$seed", "Insufficient evidence ${seed + 1}", "task", "A shipment exists. No destination or delivery date is known. What is its delivery date? Reply only UNKNOWN.", "UNKNOWN", workload = "abstention", seed = seed))
-        }
-        addAll(IntelligenceBenchmark.suite)
-        if (agent) {
-            repeat(12) { index ->
-                add(BenchmarkCase("tool-$index", "Tool contract ${index + 1}", "tools", "Only the benchmark fixture is allowed. Call benchmark_lookup with exactly key=\"parcel\", then reply with only its returned code. Never guess, use old codes, or invoke a different tool.", workload = "tools", seed = index))
-            }
-        }
-    }
+    6 -> BenchmarkSuite7.historical(mode)
+    else -> emptyList()
 }

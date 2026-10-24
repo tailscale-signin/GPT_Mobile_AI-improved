@@ -26,6 +26,12 @@ object ErrorTemplates {
             actionButtonLabel = "Retry",
             autoRetry = false
         )
+        ErrorCategory.SAVED_POLICY_UNAVAILABLE -> UiErrorTemplate(
+            title = "Saved Request Unavailable",
+            description = error.userMessage,
+            actionButtonLabel = "Review Saved Data",
+            autoRetry = false
+        )
         ErrorCategory.MEMORY_STALE -> UiErrorTemplate(
             title = "Memory Changed",
             description = error.userMessage,
@@ -36,6 +42,36 @@ object ErrorTemplates {
             title = "Source Permission Required",
             description = error.userMessage,
             actionButtonLabel = "Review Access",
+            autoRetry = false
+        )
+        ErrorCategory.RESOURCE_DEADLINE -> UiErrorTemplate(
+            title = "Resource Wait Expired",
+            description = error.userMessage,
+            actionButtonLabel = "Resume",
+            autoRetry = false
+        )
+        ErrorCategory.LOCAL_INITIALIZATION_FAILED -> UiErrorTemplate(
+            title = "Local Model Initialization Failed",
+            description = error.userMessage,
+            actionButtonLabel = "Review Model",
+            autoRetry = false
+        )
+        ErrorCategory.REASONING_BUDGET_EXHAUSTED, ErrorCategory.NO_VISIBLE_ANSWER -> UiErrorTemplate(
+            title = "Provider Returned No Answer",
+            description = error.userMessage,
+            actionButtonLabel = "Review Model",
+            autoRetry = false
+        )
+        ErrorCategory.TOOL_CHOICE_MISMATCH, ErrorCategory.PROVIDER_PAYLOAD_ERROR -> UiErrorTemplate(
+            title = "Provider Generation Failed",
+            description = error.userMessage,
+            actionButtonLabel = "Review Settings",
+            autoRetry = false
+        )
+        ErrorCategory.OUTPUT_PROTOCOL_INVALID -> UiErrorTemplate(
+            title = "Answer Format Incomplete",
+            description = error.userMessage,
+            actionButtonLabel = "Review Answer",
             autoRetry = false
         )
         ErrorCategory.NETWORK_TIMEOUT -> UiErrorTemplate(

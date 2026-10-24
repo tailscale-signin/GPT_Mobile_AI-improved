@@ -35,6 +35,13 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
     private val appContext = context
     private val directory = File(context.filesDir, "research-history")
     private val taskStore = ResearchTaskStore(directory)
+    val executionState: kotlinx.coroutines.flow.StateFlow<Map<String, ResearchExecutionRecord>> get() = taskStore.executions
+    suspend fun execution(rootWorkId: String, persistent: Boolean = true) = taskStore.execution(rootWorkId, persistent)
+    suspend fun reconcileExecutions(chatIds: Set<Int>) = taskStore.reconcile(chatIds)
+    suspend fun reconcileAllExecutions() = taskStore.reconcile()
+    suspend fun resumeExecution(rootWorkId: String, actionId: String, persistent: Boolean = true, reconciled: Boolean = false, expectedAttempt: ResearchAttempt? = null) = taskStore.resumeAttempt(rootWorkId, actionId, persistent, reconciled, expectedAttempt)
+    suspend fun updateExecution(rootWorkId: String, expected: ResearchAttempt, state: ResearchAttemptState, persistent: Boolean = true, reason: String? = null, runId: String? = null, profileUid: String? = null, dispatched: Boolean = false, checkpointId: String? = null, evidenceRevision: String? = null, readableSources: Int? = null, queueMillis: Long? = null) =
+        taskStore.transition(rootWorkId, expected.attemptId, expected.generation, state, persistent, reason, runId, profileUid, dispatched, checkpointId, evidenceRevision, readableSources, queueMillis)
     private val sessionIndex = ResearchSessionIndex(directory)
     private val lock = maintenanceGates.computeIfAbsent(directory.absolutePath) { ResearchStorageGate() }
     private val journalLocks = directoryTaskLocks.computeIfAbsent(directory.absolutePath) { ConcurrentHashMap<Pair<Int, String>, Mutex>() }
@@ -148,9 +155,9 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
         result
     }
 
-    suspend fun acceptTask(chatId: Int, rootWorkId: String, sourceMessageId: Int, task: String, participants: List<String>, primary: String?, settingsRevision: String, authorityRevision: String, persistent: Boolean): AcceptedResearchTask = withContext(Dispatchers.IO) {
+    suspend fun acceptTask(chatId: Int, rootWorkId: String, sourceMessageId: Int, task: String, participants: List<String>, primary: String?, settingsRevision: String, authorityRevision: String, persistent: Boolean, acceptedPolicyJson: String = "", sourceScope: String = "", targetSources: Int = 0, requestedModels: Map<String, String> = emptyMap()): AcceptedResearchTask = withContext(Dispatchers.IO) {
         check(chatId !in deletedChats) { "Conversation was deleted" }
-        taskStore.accept(AcceptedResearchTask(taskId = researchHash("task:$rootWorkId"), rootWorkId = rootWorkId, chatId = chatId, originatingUserMessageId = sourceMessageId, taskText = task, intent = if (isResearchConversationOnly(task)) "NOT_NEEDED" else "REQUIRED", participantUids = participants.distinct(), primaryUid = primary, settingsRevision = settingsRevision, sourceAuthorityRevision = authorityRevision, acceptedAt = System.currentTimeMillis()), persistent)
+        taskStore.accept(AcceptedResearchTask(taskId = researchHash("task:$rootWorkId"), rootWorkId = rootWorkId, chatId = chatId, originatingUserMessageId = sourceMessageId, taskText = task, intent = if (isResearchConversationOnly(task)) "NOT_NEEDED" else "REQUIRED", participantUids = participants.distinct(), primaryUid = primary, settingsRevision = settingsRevision, sourceAuthorityRevision = authorityRevision, acceptedAt = System.currentTimeMillis(), acceptedPolicyJson = acceptedPolicyJson, sourceScope = sourceScope, targetSources = targetSources, requestedModels = requestedModels), persistent)
     }
     suspend fun acceptedTask(rootWorkId: String, persistent: Boolean = true): AcceptedResearchTask? = withContext(Dispatchers.IO) { taskStore.accepted(rootWorkId, persistent) }
     suspend fun evidenceManifest(rootWorkId: String, persistent: Boolean = true): ResearchEvidenceManifest? = withContext(Dispatchers.IO) { taskStore.manifest(rootWorkId, persistent) }
@@ -173,21 +180,30 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
         stops += runId
         runTurns[runId]?.let { stoppedTurns += it }
     }
-    fun journal(runId: String, chatId: Int, persistent: Boolean, turnId: String = runId, authority: String = "legacy", shareEnabled: Boolean = true, ownerScope: String = runId, publicEvidence: Boolean = false, acceptedTools: dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig? = null): ResearchJournal = object : ResearchJournal {
+    fun journal(runId: String, chatId: Int, persistent: Boolean, turnId: String = runId, authority: String = "legacy", shareEnabled: Boolean = true, ownerScope: String = runId, publicEvidence: Boolean = false, acceptedTools: dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig? = null, expectedAttempt: ResearchAttempt? = null): ResearchJournal = object : ResearchJournal {
         private val createdAt = System.currentTimeMillis()
         private var archiveEpoch: Long? = null
         private var generation = generations[chatId to turnId] ?: -1L
-        private suspend fun <T> journalLock(block: suspend () -> T): T = lock.withReadLock {
+        private var attemptFence: ResearchAttempt? = expectedAttempt ?: taskStore.executions.value[turnId]?.attempt
+        private suspend fun <T> journalLock(onSuperseded: (() -> T)? = null, block: suspend () -> T): T = lock.withReadLock {
             journalLocks.computeIfAbsent(chatId to turnId) { Mutex() }.withLock {
                 val current = currentGeneration(chatId, turnId, persistent, refresh = true)
                 if (generation < 0) generation = current
+                val currentAttempt = taskStore.execution(turnId, persistent)?.attempt
+                if (attemptFence == null) attemptFence = currentAttempt
+                if (attemptFence != null && (currentAttempt?.attemptId != attemptFence?.attemptId || currentAttempt?.generation != attemptFence?.generation)) {
+                    // Receipt/checkpoint retention has an explicit rejection result. Other
+                    // stale operations still cancel before they can read or publish evidence.
+                    if (onSuperseded != null) return@withLock onSuperseded()
+                    throw kotlinx.coroutines.CancellationException("Research attempt was superseded")
+                }
                 block()
             }
         }
         init {
             runTurns[runId] = chatId to turnId
         }
-        override fun scoped(authority: String, sharePublicEvidence: Boolean): ResearchJournal = journal(runId, chatId, persistent, turnId, if (shareEnabled && sharePublicEvidence) authority else "$authority:$ownerScope", shareEnabled, ownerScope, sharePublicEvidence, acceptedTools)
+        override fun scoped(authority: String, sharePublicEvidence: Boolean): ResearchJournal = journal(runId, chatId, persistent, turnId, if (shareEnabled && sharePublicEvidence) authority else "$authority:$ownerScope", shareEnabled, ownerScope, sharePublicEvidence, acceptedTools, attemptFence)
         override suspend fun featurePolicy() = featureSettings?.getFeatureSettings()?.researchFeature ?: dev.chungjungsoo.gptmobile.data.research.feature.ResearchFeatureSettings()
         override suspend fun archiveLeads(task: String): List<ResearchSource> {
             val database = featureDatabase ?: return emptyList()
@@ -374,7 +390,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
             return taskLock.withLock { block() }
         }
         override suspend fun retainDeliveryReceipt(receipt: dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryReceipt): Boolean = withContext(Dispatchers.IO) {
-            journalLock {
+            journalLock(onSuperseded = { false }) {
                 if (stopRequested() || generation >= 0 && generation != (generations[chatId to turnId] ?: 0L)) return@journalLock false
                 val accepted = taskStore.accepted(turnId, persistent) ?: return@journalLock false
                 if (accepted.chatId != chatId) return@journalLock false
@@ -384,7 +400,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
 
         override suspend fun retainPartial(stage: String, profileUid: String, text: String): String? = withContext(Dispatchers.IO) {
             if (!persistent || text.isBlank()) return@withContext null
-            journalLock {
+            journalLock(onSuperseded = { null }) {
                 if (stopRequested() || generation >= 0 && generation != (generations[chatId to turnId] ?: 0L)) return@journalLock null
                 check(directory.mkdirs() || directory.isDirectory)
                 var retained = text.take(120 * 1024)
@@ -445,8 +461,11 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
             false
         }
 
+        override suspend fun requiresEvidence(): Boolean? = taskStore.accepted(turnId, persistent)?.intent?.let { it == "REQUIRED" }
+
         override suspend fun bindTask(snapshot: ResearchSnapshot): ResearchSnapshot = withContext(Dispatchers.IO) {
             val accepted = taskStore.accepted(turnId, persistent) ?: return@withContext snapshot
+            if (attemptFence == null) attemptFence = taskStore.execution(turnId, persistent)?.attempt
             require(snapshot.taskId.isBlank() || snapshot.taskId == accepted.taskId) { "RESEARCH_CHECKPOINT_TASK_MISMATCH" }
             snapshot.copy(task = accepted.taskText, taskId = accepted.taskId, rootWorkId = accepted.rootWorkId, originatingUserMessageId = accepted.originatingUserMessageId, taskChatId = accepted.chatId)
         }
@@ -469,6 +488,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
         override suspend fun save(snapshot: ResearchSnapshot) = withContext(Dispatchers.IO) {
             journalLock {
                 if (chatId in deletedChats || stopOrigins[runId] == "SUPERSEDED_GENERATION" || generation >= 0 && generation != (generations[chatId to turnId] ?: 0L)) return@journalLock
+                if (attemptFence != null && taskStore.execution(turnId, persistent)?.attempt?.state?.terminal == true) return@journalLock
                 val previousSourceCount = mutable.value[runId]?.snapshot?.sources?.size ?: 0
                 val priorPlan = mutable.value[runId]?.takeIf { it.authority == authority }?.snapshot?.delegationPlan ?: if (persistent) read(file(runId))?.takeIf { it.authority == authority }?.snapshot?.delegationPlan else null
                 val inherited = mutable.value.values.filter { it.chatId == chatId && it.turnId == turnId && it.authority == authority }.map { it.snapshot }
@@ -476,7 +496,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                 val accepted = taskStore.accepted(turnId, persistent)
                 val snapshot = bindTask(merged)
                 accepted?.let { accepted ->
-                    taskStore.checkpoint(accepted, runId, authority, generation, snapshot, persistent)
+                    taskStore.checkpoint(accepted, runId, authority, generation, snapshot, persistent, attemptFence?.attemptId, attemptFence?.generation)
                 }
                 val session = ResearchSession(runId, chatId, snapshot, turnId, authority)
                 if (!persistent) {
@@ -650,6 +670,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
     }
 
     suspend fun loadChat(chatId: Int) = withContext(Dispatchers.IO) {
+        taskStore.reconcile(setOf(chatId))
         lock.withReadLock {
             if (chatId in deletedChats) return@withReadLock
             val restored = linkedMapOf<String, ResearchSession>()
@@ -791,7 +812,13 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
     }
 
     suspend fun featureDiagnostics(chatId: Int): JsonObject = withContext(Dispatchers.IO) {
-        val database = featureDatabase ?: return@withContext buildJsonObject { put("available", false) }
+        val executionRecords = taskStore.exportExecutions(setOf(chatId))
+        val database = featureDatabase ?: return@withContext buildJsonObject {
+            put("available", false)
+            put("scope", "selected_chat")
+            put("executionAuthority", "versioned_atomic_file")
+            put("attempts", Json.encodeToJsonElement(kotlinx.serialization.builtins.ListSerializer(ResearchExecutionRecord.serializer()), executionRecords))
+        }
         val dao = database.research()
         database.withTransaction {
             val receipts = dao.saveReceipts(chatId)
@@ -801,6 +828,8 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
             buildJsonObject {
                 put("schemaVersion", 2)
                 put("acceptedTasks", Json.encodeToJsonElement(kotlinx.serialization.builtins.ListSerializer(AcceptedResearchTask.serializer()), taskStore.exportTasks(setOf(chatId))))
+                put("executionAuthority", "versioned_atomic_file")
+                put("attempts", Json.encodeToJsonElement(kotlinx.serialization.builtins.ListSerializer(ResearchExecutionRecord.serializer()), executionRecords))
                 put("sourceValidations", Json.encodeToJsonElement(kotlinx.serialization.builtins.ListSerializer(dev.chungjungsoo.gptmobile.data.research.feature.ResearchSourceValidation.serializer()), dao.allSourceValidations().filter { row -> dao.version(row.versionId)?.workId in workIds }))
                 put("identityResolutions", Json.encodeToJsonElement(kotlinx.serialization.builtins.ListSerializer(dev.chungjungsoo.gptmobile.data.research.feature.ResearchIdentityResolution.serializer()), dao.allIdentityResolutions().filter { it.workId in workIds && it.relatedWorkId in workIds }))
                 put("jobTransitions", Json.encodeToJsonElement(kotlinx.serialization.builtins.ListSerializer(dev.chungjungsoo.gptmobile.data.research.feature.ExaminationTransition.serializer()), jobs.flatMap { dao.transitions(it.jobId) }))

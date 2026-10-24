@@ -21,7 +21,23 @@ class BenchmarkScoreboardTest {
         assertNotNull(BenchmarkScoreboard.evaluate(legacy))
         assertEquals(2, BenchmarkScoreboard.best(listOf(legacy, current)).size)
         assertNull(BenchmarkScoreboard.fromRun(run("old").copy(suiteVersion = 6)))
-        assertNull(BenchmarkScoreboard.evaluate(current.copy(suiteVersion = 8)))
+        assertNull(BenchmarkScoreboard.evaluate(current.copy(suiteVersion = BenchmarkSuiteRegistry.VERSION + 1)))
+    }
+
+    @Test fun exportedV2RunsRetainTheirExactFixtureAndPublicSubmissionSchema() {
+        val source = run("export-roundtrip")
+        // Match BenchmarkStore's canonical backup serializer: storage version is explicit.
+        val backup = Json { encodeDefaults = true }.encodeToString(BenchmarkBackupPayload(runs = listOf(source)))
+        val exported = benchmarkExport(backup, false)
+        val header = Json.parseToJsonElement(exported).jsonObject
+        assertEquals("2", header.getValue("schemaVersion").jsonPrimitive.content)
+        assertEquals("3", header.getValue("storageSchemaVersion").jsonPrimitive.content)
+        val restored = Json { ignoreUnknownKeys = true }.decodeFromString<BenchmarkBackupPayload>(exported).runs.single()
+        assertEquals(benchmarkSuiteForRun(source), benchmarkSuiteForRun(restored))
+        val submission = checkNotNull(BenchmarkScoreboard.fromRun(restored))
+        assertEquals(2, submission.schemaVersion)
+        assertEquals(BenchmarkSuiteRegistry.VERSION, submission.suiteVersion)
+        assertNotNull(BenchmarkScoreboard.evaluate(submission))
     }
 
     @Test fun `Android matches the repository scoring contract for both plans and kinds`() {

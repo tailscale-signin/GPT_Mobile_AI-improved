@@ -75,9 +75,9 @@ data class ResearchPlanContract(val questions: List<ResearchQuestion>, val queri
             return ResearchPlanContract(questions, queries, unnecessary)
         }
 
-        fun fallback(task: String): ResearchPlanContract {
+        fun fallback(task: String, requiresEvidence: Boolean = !isResearchConversationOnly(task)): ResearchPlanContract {
             require(task.isNotBlank()) { "A research task is required" }
-            if (isResearchConversationOnly(task)) return ResearchPlanContract(emptyList(), emptyList(), noResearchNeeded = true)
+            if (!requiresEvidence && isResearchConversationOnly(task)) return ResearchPlanContract(emptyList(), emptyList(), noResearchNeeded = true)
             return ResearchPlanContract(
                 listOf(ResearchQuestion("Q1", task.take(350).ifBlank { "Resolve the original task" }, "Relevant evidence with explicit source and limitations")),
                 listOf(ResearchQuery("QRY1", task.take(500).ifBlank { "original task evidence" }, listOf("Q1"))),

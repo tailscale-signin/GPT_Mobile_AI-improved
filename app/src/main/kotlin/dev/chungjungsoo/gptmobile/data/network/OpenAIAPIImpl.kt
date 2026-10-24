@@ -291,7 +291,9 @@ class OpenAIAPIImpl @Inject constructor(
                             },
                             gatewayMetadata = gatewayMetadata ?: decoded.gatewayMetadata,
                             error = decoded.error?.let { error ->
-                                error.copy(message = config.readableProviderError(error.message, error.code))
+                                val category = providerPayloadFailure(error.code, error.message, preparedRequest.toolChoice, !preparedRequest.tools.isNullOrEmpty())
+                                config.freeDiagnostics?.category = category
+                                error.copy(message = "${category.name}: " + config.readableProviderError(error.message, error.code), type = category.name.lowercase())
                             }
                         )
                         if (free != null) {
@@ -363,7 +365,9 @@ class OpenAIAPIImpl @Inject constructor(
                             receivedGatewayToolActivity = true
                         }
                         val chunk = decoded.error?.let { error ->
-                            decoded.copy(error = error.copy(message = config.readableProviderError(providerErrorDetails(data, error.message, config.token), error.code)))
+                            val category = providerPayloadFailure(error.code, error.message, preparedRequest.toolChoice, !preparedRequest.tools.isNullOrEmpty())
+                            config.freeDiagnostics?.category = category
+                            decoded.copy(error = error.copy(message = "${category.name}: " + config.readableProviderError(providerErrorDetails(data, error.message, config.token), error.code), type = category.name.lowercase()))
                         } ?: decoded
                         if (free != null && !chunk.model.isNullOrBlank() && resolvedFreeModel != chunk.model) {
                             resolvedFreeModel = chunk.model

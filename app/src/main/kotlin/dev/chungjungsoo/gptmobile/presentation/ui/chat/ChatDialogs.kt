@@ -263,6 +263,8 @@ fun ChatModelDialog(
                             val clientType = platformClientTypes[platformUid]
                             val isMember = platformUid in draftParticipants
                             val isTemporarilyEnabled = platformUid !in disabledPlatformUids
+                            val combinedProfile = delegationProfiles.firstOrNull { it.uid == platformUid }?.let { it.copy(model = models[platformUid] ?: it.model) }
+                            val contributionUnavailable = if (combinedMode) combinedProfile?.let { dev.chungjungsoo.gptmobile.data.agent.CombinedProviderEligibility.unavailableReason(it) } else null
                             val onMembershipChanged: (Boolean) -> Unit = { active ->
                                 if (combinedMode) {
                                     combinedDraft = combinedDraft.copy(
@@ -282,9 +284,23 @@ fun ChatModelDialog(
                                 platformName = platformName,
                                 isMember = isMember,
                                 isTemporarilyEnabled = isTemporarilyEnabled,
-                                enabled = !saving,
+                                enabled = !saving && (isMember || contributionUnavailable == null),
                                 onCheckedChange = onMembershipChanged
                             )
+
+                            if (combinedMode && combinedProfile != null) {
+                                Text(
+                                    contributionUnavailable?.let { "Combined contribution unavailable: $it" } ?: "Available as a Combined contributor",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (contributionUnavailable == null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error
+                                )
+                                val writerUnavailable = dev.chungjungsoo.gptmobile.data.agent.CombinedProviderEligibility.unavailableReason(combinedProfile, "hi", writer = true)
+                                Text(
+                                    writerUnavailable?.let { "Final writer unavailable: $it" } ?: "Final writer capacity is checked against the complete request before dispatch.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
 
                             if (clientType == ClientType.LITERT_LM) {
                                 Text(

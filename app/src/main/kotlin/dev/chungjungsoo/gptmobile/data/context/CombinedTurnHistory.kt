@@ -11,7 +11,9 @@ data class CombinedTurnHistory(
     val participantUids: List<String>,
     val deliveryStatus: String = "CANDIDATE_PENDING",
     val profileUid: String? = null,
-    val ancestryIds: Set<String> = emptySet()
+    val ancestryIds: Set<String> = emptySet(),
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val deliveryReason: String? = null
 ) {
     companion object {
         fun accepted(context: CombinedExecutionContext) = CombinedTurnHistory(

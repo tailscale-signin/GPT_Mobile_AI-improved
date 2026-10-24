@@ -19,11 +19,15 @@ internal enum class ResearchReportContract(val sections: List<String>, val guida
     );
 
     companion object {
-        fun forTask(task: String): ResearchReportContract {
+        fun forTask(task: String, questions: List<dev.chungjungsoo.gptmobile.data.research.ResearchQuestion> = emptyList(), sources: List<dev.chungjungsoo.gptmobile.data.research.ResearchSource> = emptyList(), overrideStructure: String = "AUTO"): ResearchReportContract {
+            entries.firstOrNull { it.name == overrideStructure }?.let { return it }
+            // Evidence types affect presentation only; this never expands source permission.
+            val scientificEvidence = questions.any { it.requirement?.designs?.isNotEmpty() == true } || sources.any { it.studyDesigns.isNotEmpty() || it.pmid.isNotBlank() || it.population.isNotBlank() && it.intervention.isNotBlank() }
+            if (scientificEvidence) return SCIENTIFIC
             val value = task.lowercase()
             fun matches(pattern: String) = Regex(pattern).containsMatchIn(value)
             return when {
-                matches("\\b(clinical|patients?|trials?|medicine|medical|therapy|disease|health|biomedical|randomi[sz]ed|systematic review|meta.analysis)\\b") -> SCIENTIFIC
+                matches("\\b(scientific|clinical|patients?|trials?|medicine|medical|therapy|disease|health|biomedical|randomi[sz]ed|systematic review|meta.analysis|hydrogen inhalation|inhalation|intervention|physiolog|biolog|efficacy|toxicology)\\b") -> SCIENTIFIC
                 matches("\\b(software|engineering|code|api|android|kotlin|runtime|llama|litert|qnn|architecture|implementation|algorithm)\\b") -> TECHNICAL
                 matches("\\b(buy|buying|price|products?|shopping|laptop|phones?|headphones?|purchase)\\b") -> PRODUCT
                 else -> GENERAL

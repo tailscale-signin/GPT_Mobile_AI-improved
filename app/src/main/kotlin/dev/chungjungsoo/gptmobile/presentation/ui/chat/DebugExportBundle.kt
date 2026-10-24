@@ -29,6 +29,7 @@ internal object DebugExportBundle {
         val root = conversation(redactedConversation)
         val journal = root["runJournal"] as? JsonObject
         val events = (journal?.get("events") as? JsonArray).orEmpty()
+        val captureSummary = dev.chungjungsoo.gptmobile.data.diagnostics.JournalCaptureSummary.describe(journal, events.size, root["capture"] as? JsonObject)
         val context = (root["workspace"] as? JsonArray).orEmpty().filter { row ->
             ((row as? JsonObject)?.get("kind") as? JsonPrimitive)?.content == "context"
         }
@@ -59,7 +60,10 @@ internal object DebugExportBundle {
                     put("completeProviderWireCapture", false)
                 }
             )
-            put("journalAvailability", if (journal == null) "not-captured-or-unavailable" else "retained")
+            put("journalAvailability", captureSummary.getValue("availability"))
+            put("journalCapture", captureSummary)
+            put("buildIdentity", JsonObject(root.filterKeys { it in setOf("version", "build", "appCommit", "nativeRuntimeCommit", "buildVariant", "package") }))
+            put("dataScopes", root["dataScopes"] ?: JsonObject(emptyMap()))
             put(
                 "journalGaps",
                 buildJsonObject {

@@ -173,6 +173,7 @@ class GPTMobileApp :
                         startup.agentRunDao().interruptActiveRuns(interruptedAt)
                         startup.agentPersistenceDao().cancelInterruptedToolEvents(interruptedAt)
                         startup.combinedLifecycleReconciler().reconcile()
+                        startup.researchStartupReconciler().reconcile()
                     },
                     migrateSecrets = startup.settingRepository()::migrateSecrets
                 )
@@ -277,6 +278,7 @@ interface StartupDependencies {
     fun agentRunDao(): AgentRunDao
     fun agentPersistenceDao(): AgentPersistenceDao
     fun combinedLifecycleReconciler(): dev.chungjungsoo.gptmobile.data.agent.CombinedLifecycleReconciler
+    fun researchStartupReconciler(): dev.chungjungsoo.gptmobile.data.research.ResearchStartupReconciler
     fun localRuntime(): LocalRuntime
     fun agentRunCoordinator(): AgentRunCoordinator
 }

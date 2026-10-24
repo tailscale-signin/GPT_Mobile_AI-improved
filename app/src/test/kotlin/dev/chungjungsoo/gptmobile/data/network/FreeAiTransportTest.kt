@@ -22,13 +22,28 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 
 class FreeAiTransportTest {
+    private lateinit var providerStateDirectory: java.io.File
+
+    @Before fun initializeProviderState() {
+        dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.resetForTest()
+        providerStateDirectory = Files.createTempDirectory("free-ai-transport").toFile()
+        FreeAiRequestLimiter.shared.initialize(java.io.File(providerStateDirectory, "cooldowns.json"))
+    }
+
+    @After fun clearProviderState() {
+        dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.resetForTest()
+        providerStateDirectory.deleteRecursively()
+    }
+
     @Test
     fun `Kilo pins the free route and strips credentials while streaming`() = runBlocking {
         val engine = MockEngine { request ->
@@ -49,6 +64,7 @@ class FreeAiTransportTest {
                 10,
                 ProviderRequestConfig("https://wrong.example", "do-not-send", freeProvider = FreeAiProvider.KILO)
             ).single()
+            assertNull(result.error?.message, result.error)
             assertEquals("Hello", result.choices!!.single().delta.content)
         } finally {
             client.close()
@@ -57,7 +73,6 @@ class FreeAiTransportTest {
 
     @Test
     fun `Pollinations posts structured history with its native bound and preserves terminal usage`() = runBlocking {
-        FreeAiRequestLimiter.shared.initialize(Files.createTempDirectory("pollinations-post").resolve("cooldowns.json").toFile())
         val engine = MockEngine { request ->
             assertEquals(HttpMethod.Post, request.method)
             assertEquals(FreeAiProvider.POLLINATIONS.chatCompletionsUrl, request.url.toString())
@@ -87,6 +102,34 @@ class FreeAiTransportTest {
             assertTrue(result.last().applicationNotice!!.contains("continue"))
         } finally {
             client.close()
+        }
+    }
+
+    @Test
+    fun `HTTP 200 payload failures have the same category in JSON and streaming responses`() = runBlocking {
+        val payload = """{"error":{"message":"Tool generation was attempted with tool_choice none","type":"invalid_request_error","code":"tool_use_failed"}}"""
+        for (streaming in listOf(false, true)) {
+            val engine = MockEngine {
+                respond(
+                    if (streaming) "data: $payload\n\ndata: [DONE]\n\n" else payload,
+                    headers = headersOf(HttpHeaders.ContentType, if (streaming) "text/event-stream" else "application/json")
+                )
+            }
+            val client = HttpClient(engine) { install(HttpTimeout) }
+            try {
+                val network = mockk<NetworkClient>()
+                every { network.invoke() } returns client
+                val result = OpenAIAPIImpl(network).streamChatCompletion(
+                    request().copy(toolChoice = "none"),
+                    10,
+                    ProviderRequestConfig(FreeAiProvider.KILO.apiUrl, null, freeProvider = FreeAiProvider.KILO)
+                ).toList()
+                assertEquals("tool_choice_mismatch", result.last().error?.type)
+                assertTrue(result.last().error!!.message.startsWith("TOOL_CHOICE_MISMATCH:"))
+                assertTrue(result.flatMap { it.choices.orEmpty() }.all { it.effectiveDelta.content.isNullOrBlank() })
+            } finally {
+                client.close()
+            }
         }
     }
 

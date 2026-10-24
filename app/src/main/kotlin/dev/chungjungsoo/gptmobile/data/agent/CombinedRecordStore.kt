@@ -81,7 +81,7 @@ internal class CombinedRecordStore private constructor(
             val protocol = withContext(Dispatchers.Default) {
                 val protocol = CombinedRecordProtocol(
                     state.copy(revisionId = revisionId),
-                    (frozen.claimInventory?.claims ?: CombinedClaimSemantics.records(frozen.sources)).flatMap { it.candidateIds }.toSet(),
+                    (frozen.claimInventory?.claims ?: CombinedClaimSemantics.records(frozen.sources)).flatMap { it.candidateIds + it.id + it.canonicalId }.toSet(),
                     frozen.sources.indices.mapTo(linkedSetOf()) { "C${it + 1}" },
                     frozen.evidence.records.mapTo(linkedSetOf()) { it.id },
                     maxCharacters,

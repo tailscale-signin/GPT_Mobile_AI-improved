@@ -95,6 +95,8 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
     val profiles by viewModel.profiles.collectAsStateWithLifecycle()
     val profile by viewModel.selected.collectAsStateWithLifecycle()
     val history by viewModel.history.collectAsStateWithLifecycle()
+    val batches by viewModel.batches.collectAsStateWithLifecycle()
+    val session by viewModel.benchmarkSession.collectAsStateWithLifecycle()
     val retests by viewModel.retests.collectAsStateWithLifecycle()
     val scoreboardRuns by viewModel.scoreboardRuns.collectAsStateWithLifecycle()
     val localEnvironment by viewModel.localEnvironment.collectAsStateWithLifecycle()
@@ -110,13 +112,14 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
     val selectedBenchmarks by viewModel.selectedBenchmarks.collectAsStateWithLifecycle()
     val progress by viewModel.progress.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
+    val storageWarning by viewModel.storageWarning.collectAsStateWithLifecycle()
     val ready by viewModel.ready.collectAsStateWithLifecycle()
     val activeRequests by viewModel.activeRequests.collectAsStateWithLifecycle()
     val everyday by viewModel.everyday.collectAsStateWithLifecycle()
     val everydayTools by viewModel.everydayTools.collectAsStateWithLifecycle()
     val days by viewModel.days.collectAsStateWithLifecycle()
     val rangeLabel = if (days == 0) "stored history" else "$days days"
-    var tab by rememberSaveable { mutableIntStateOf(2) }
+    var tab by rememberSaveable { mutableIntStateOf(0) }
     var mode by rememberSaveable { mutableStateOf(BenchmarkMode.QUICK) }
     var delegationBoard by rememberSaveable { mutableStateOf(false) }
     var delegationMode by rememberSaveable { mutableStateOf(BenchmarkMode.QUICK) }
@@ -133,11 +136,12 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
     val matching = remember(profileHistory, selected, mode, localEnvironment) { selected?.let { comparableRuns(profileHistory, it, mode, localEnvironment) }.orEmpty() }
     val activeRetest = retests.filter { it.current.profileUid == selected?.uid && it.current.revision == selected?.let { profile -> benchmarkConfigKey(profile, localEnvironment) } && it.current.cohort.startsWith(mode.name + "|") }
         .maxByOrNull { retest -> history.firstOrNull { it.id == retest.current.sourceRunIds.firstOrNull() }?.startedAt ?: 0 }
-    val activeScore = activeRetest?.current
+    val activeScore = snapshot?.rows?.filter { it.profileUid == selected?.uid && it.revision == selected?.let { profile -> benchmarkConfigKey(profile, localEnvironment) } && it.cohort.startsWith(mode.name + "|") }?.maxByOrNull { row -> history.filter { it.id in row.sourceRunIds }.maxOfOrNull { it.startedAt } ?: 0 }
+        ?: activeRetest?.current
     val previousScore = activeRetest?.previous
     val rating = remember(matching, local, activeScore) {
         val dimensions = dev.chungjungsoo.gptmobile.data.benchmark.benchmarkScoreDimensions(activeScore, local)
-        benchmarkRating(matching, local).copy(score = activeScore?.overall?.roundToInt(), medianSpeed = activeScore?.speed, estimatedSpeed = false, dimensions = dimensions, measuredWeight = dimensions.filter { it.score != null }.sumOf { it.weight })
+        benchmarkRating(history.filter { it.id in activeScore?.sourceRunIds.orEmpty() }, local).copy(score = activeScore?.overall?.roundToInt(), medianFirstTextMs = activeScore?.firstTextMs?.toLong(), medianSpeed = activeScore?.speed, estimatedSpeed = false, dimensions = dimensions, measuredWeight = dimensions.filter { it.score != null }.sumOf { it.weight })
     }
     val latestScoreboard = scoreboardRuns.filter {
         it.kind == dev.chungjungsoo.gptmobile.data.benchmark.ScoreboardKind.MODEL && it.plan == mode && it.provider == selected?.compatibleType?.name && it.model == selected?.model?.trim()?.let { model -> if (selected.compatibleType == ClientType.OPENROUTER) model.removeSuffix(":batch") else model }
@@ -157,6 +161,9 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
             item { SettingsHero("Performance lab", "Measure. Compare. Improve.", "${history.size} recorded runs · ${profiles.size} profiles") }
             item { BenchmarkNavigation(tab, debugMode) { tab = it } }
             if (tab != 2 && tab != 5 && tab != 6 && !(tab == 4 && delegationBoard)) item { BenchmarkProfilePicker(profiles, selected, progress == null, viewModel::select) }
+            if (storageWarning != null && storageWarning != error) {
+                item { Text(storageWarning.orEmpty(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+            }
             if (error != null) {
                 item {
                     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
@@ -170,13 +177,30 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
             progress?.let { current ->
                 item {
                     BenchmarkPanel(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_73d63d9b5c, current.profileName)) {
-                        LinearProgressIndicator(progress = { current.completed.toFloat() / current.total }, modifier = Modifier.fillMaxWidth(), color = tint)
+                        LinearProgressIndicator(progress = { current.completed.toFloat() / current.total.coerceAtLeast(1) }, modifier = Modifier.fillMaxWidth(), color = tint)
                         Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_ad2d56e844, current.completed, current.total, current.testName))
                         OutlinedButton(onClick = viewModel::cancel) {
                             Icon(Icons.Rounded.Stop, null)
-                            Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_440ce82b50))
+                            Text("Stop all")
                         }
                     }
+                }
+            }
+            if (tab == 0 || tab == 3) {
+                items(if (tab == 0) batches.take(1) else batches.take(100), key = { "queue.${it.id}" }) { batch ->
+                    BenchmarkQueueCard(
+                        batch,
+                        session == batch.id,
+                        viewModel::skipProfile,
+                        viewModel::cancel,
+                        onResume = { viewModel.resumeRemaining(batch.id) },
+                        onRetry = { viewModel.retryFailed(batch.id) },
+                        onResults = { tab = 5 },
+                        onExport = {
+                            detailedExport = false
+                            exportLauncher.launch("benchmarks-${System.currentTimeMillis()}.json")
+                        }
+                    )
                 }
             }
             if (tab == 4) {
@@ -202,7 +226,7 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                 item {
                     SettingsPanel("Diagnostic benchmark") {
                         Text("Runs the full test suite and records per-test memory, thermal and battery samples alongside timings, tokens, tool results and score dimensions. Provider usage is billed normally.")
-                        Button(onClick = viewModel::startDebugBenchmark, enabled = selected != null && ready && progress == null && !activeRequests) { Text("Run full diagnostic benchmark") }
+                        Button(onClick = viewModel::startDebugBenchmark, enabled = selected != null && ready && progress == null) { Text("Run full diagnostic benchmark") }
                         TextButton(onClick = {
                             detailedExport = true
                             exportLauncher.launch("benchmark-debug-${System.currentTimeMillis()}.json")
@@ -272,7 +296,7 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                                 }
                                 if (delegates.isEmpty()) Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_44433acfbb))
                                 Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_ed08a01807, if (delegationMode == BenchmarkMode.QUICK) 5 else 50), style = MaterialTheme.typography.bodySmall)
-                                Button(onClick = { viewModel.startDelegationBatch(delegationMode) }, enabled = ready && progress == null && !activeRequests && benchmarkReviewer != null && selectedDelegates.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
+                                Button(onClick = { viewModel.startDelegationBatch(delegationMode) }, enabled = ready && progress == null && benchmarkReviewer != null && selectedDelegates.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
                                     Icon(Icons.Rounded.PlayArrow, null)
                                     Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_2cf971db8e, delegationMode.label, selectedDelegates.size), Modifier.padding(start = 8.dp))
                                 }
@@ -344,9 +368,16 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                                         }
                                     }
                                 }
+                                selectedBenchmarks.forEachIndexed { index, chosen ->
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text("${index + 1}. ${chosen.name}", Modifier.weight(1f))
+                                        TextButton(onClick = { viewModel.moveSelectedProfile(chosen.uid, -1) }, enabled = session == null && index > 0) { Text("Up") }
+                                        TextButton(onClick = { viewModel.moveSelectedProfile(chosen.uid, 1) }, enabled = session == null && index < selectedBenchmarks.lastIndex) { Text("Down") }
+                                    }
+                                }
                                 Button(
                                     onClick = { viewModel.startStandardBatch(mode) },
-                                    enabled = ready && progress == null && !activeRequests && selectedBenchmarks.isNotEmpty(),
+                                    enabled = ready && progress == null && selectedBenchmarks.isNotEmpty(),
                                     modifier = Modifier.fillMaxWidth(),
                                     colors = ButtonDefaults.buttonColors(containerColor = tint, contentColor = if (tint.luminance() > .5f) Color.Black else Color.White)
                                 ) {
@@ -356,13 +387,14 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                                         Modifier.padding(start = 8.dp)
                                     )
                                 }
-                                BenchmarkAction(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_c8624a55ae, (selected.name).toString()), Icons.Rounded.PlayArrow, onClick = { viewModel.start(mode) }, enabled = ready && progress == null && !activeRequests, modifier = Modifier.fillMaxWidth())
-                                if (activeRequests && progress == null) Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_1d5b120900), style = MaterialTheme.typography.labelSmall)
+                                BenchmarkAction(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_c8624a55ae, (selected.name).toString()), Icons.Rounded.PlayArrow, onClick = { viewModel.start(mode) }, enabled = ready && progress == null, modifier = Modifier.fillMaxWidth())
+                                if (activeRequests && progress == null) Text("The queue will wait for current work and yield between trials to interactive requests.", style = MaterialTheme.typography.labelSmall)
                                 Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_f0a6512884), style = MaterialTheme.typography.labelSmall)
                             }
                         }
                         if (latestScoreboard != null) item { ScoreboardScores(latestScoreboard, previousScoreboard, "Latest run · retest changes") }
-                        item { BenchmarkScoreCard(rating, local, matching.size, mode) }
+                        item { BenchmarkScoreCard(rating, local, activeScore?.sourceRunIds?.size ?: 0, mode) }
+                        activeScore?.let { score -> item { Text("Latest attempt: ${score.latestAttemptStatus.lowercase()} · availability ${score.availability?.let { "%.0f%%".format(it) } ?: "unknown"} · ${listOfNotNull(score.backend, score.accelerator).joinToString(" / ")}") } }
                         item {
                             BenchmarkPanel(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_37c194cbad)) {
                                 IntelligenceResults(activeScore?.intelligence, mode == BenchmarkMode.QUICK, previousScore?.intelligence)
@@ -376,12 +408,12 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                         item {
                             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 BenchmarkTile("First response", formatLatency(rating.medianFirstTextMs), "median first text", Modifier.weight(1f), tint)
-                                BenchmarkTile("Generation speed", rating.medianSpeed?.let { "${if (rating.estimatedSpeed) "≈ " else ""}%.1f".format(it) } ?: "—", "reference tokens / second", Modifier.weight(1f), tint)
+                                BenchmarkTile("Generation speed", rating.medianSpeed?.let { "${if (rating.estimatedSpeed) "≈ " else ""}%.1f".format(it) } ?: "—", "reference units / second", Modifier.weight(1f), tint)
                             }
                         }
                         item {
                             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                BenchmarkTile("Completion", rating.sampleCount.takeIf { it > 0 }?.let { "${(100.0 * rating.completed / it).roundToInt()}%" } ?: "—", "${rating.completed} / ${rating.sampleCount} requests", Modifier.weight(1f), tint)
+                                BenchmarkTile("Delivery completion", activeScore?.reliability?.let { "${it.roundToInt()}%" } ?: "—", "Dispatched attempts", Modifier.weight(1f), tint)
                                 BenchmarkTile(
                                     "Tool success",
                                     when {
@@ -449,9 +481,12 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                         }
                     }
                     5 -> {
+                        items(snapshot?.rows.orEmpty().filter { it.cohort.startsWith(mode.name + "|") }, key = { it.resultId.ifBlank { "${it.profileUid}.${it.revision}.${it.cohort}" } }) { row ->
+                            BenchmarkResultCard(row, profiles.firstOrNull { it.uid == row.profileUid }?.name ?: "Retained profile")
+                        }
                         item { BenchmarkPlanPicker(mode, progress == null, includeDiagnostics = true) { mode = it } }
                         item {
-                            BenchmarkSideBySide(snapshot?.rows.orEmpty().filter { it.cohort.startsWith(mode.name + "|") }.map { row -> retests.firstOrNull { it.current.profileUid == row.profileUid && it.current.revision == row.revision && it.current.cohort == row.cohort }?.current ?: row }, profiles, retests)
+                            BenchmarkSideBySide(snapshot?.rows.orEmpty().filter { it.cohort.startsWith(mode.name + "|") }.map { row -> retests.firstOrNull { it.current.resultId == row.resultId }?.current ?: row }, profiles, retests)
                         }
                         item { BenchmarkAction(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_08d721ca13), Icons.Rounded.PlayArrow, onClick = { tab = 0 }, modifier = Modifier.fillMaxWidth()) }
                     }
@@ -641,6 +676,16 @@ private fun BenchmarkHistoryCard(run: BenchmarkRun, current: Boolean, canDelete:
                         retained?.correction?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                     }
                     MetricLine("Output tokens · cumulative request", "${if (sample.estimatedTokens) "≈ " else ""}${sample.outputTokens}")
+                    MetricLine("Input token source", "${sample.inputTokenSource} · ${sample.inputTokenConfidence}")
+                    MetricLine("Output token source", "${sample.outputTokenSource} · ${sample.outputTokenConfidence}")
+                    if (sample.phaseElapsedMs.isNotEmpty()) MetricLine("Observed phases", sample.phaseElapsedMs.entries.joinToString { "${it.key.replace('_', ' ')} ${it.value} ms" })
+                    sample.admissionWaitMs?.let { MetricLine("Resource wait", "$it ms") }
+                    sample.cleanupDurationMs?.let { MetricLine("Cleanup", "$it ms · ${sample.cleanupReceipt ?: "unknown"}") }
+                    sample.nativeIdentity?.let { identity ->
+                        MetricLine("Worker / measurement lease", "${identity.workerGenerationId ?: "unknown"} / ${identity.measurementLeaseId ?: "unknown"}")
+                        MetricLine("Observed offload / configured layers", "${identity.actualOffloadLayers ?: "unknown"} / ${identity.configuredOffloadLayers ?: "unknown"}")
+                        MetricLine("Engine / driver identity", "${identity.engineInstanceId ?: "unknown"} / ${identity.driverIdentity ?: "unknown"}")
+                    }
                     MetricLine("Longest text pause", formatLatency(sample.longestGapMs))
                     sample.pairedComparison?.let { pair ->
                         MetricLine("Supported fixture facts · primary / delegated", "${pair.primaryOnlyFacts}/${pair.requiredFacts} · ${pair.delegatedFacts}/${pair.requiredFacts}")

@@ -20,9 +20,26 @@ data class CombinedPassageRecord(
     val evidenceStatus: String = "UNVERIFIED",
     val origin: String = "SYNTHESIS_DECLARATION",
     val passageId: String = "",
-    val semanticLinkStatus: String = "UNVERIFIED"
+    val semanticLinkStatus: String = "UNVERIFIED",
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val linkVersion: Int = 0,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val links: List<CombinedPassageLink> = emptyList()
 ) {
     val primaryProfileUid: String? get() = profileUids.sorted().firstOrNull()
+    fun matches(answer: String): Boolean = start >= 0 && end > start && end <= answer.length && researchHash(answer.substring(start, end)) == digest
+}
+
+@Serializable
+data class CombinedPassageLink(
+    val start: Int,
+    val end: Int,
+    val digest: String,
+    val profileUids: Set<String>,
+    val claimIds: Set<String>,
+    val identityLinkStatus: String = "KNOWN_OCCURRENCES",
+    val semanticSupportStatus: String = "CONSERVATIVE_LINK_CHECKED"
+) {
     fun matches(answer: String): Boolean = start >= 0 && end > start && end <= answer.length && researchHash(answer.substring(start, end)) == digest
 }
 
@@ -78,7 +95,15 @@ data class CombinedQualityReport(
     val lengthCompliance: String = "NOT_ASSESSED",
     val topicCoverage: String = "NOT_ASSESSED",
     val sourceLinkStatus: String = "NOT_ASSESSED",
-    val sourceLinkRejections: Map<String, Int> = emptyMap()
+    val sourceLinkRejections: Map<String, Int> = emptyMap(),
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val displayableDraft: Boolean = false,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val protocolComplete: Boolean = false,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val identityLinkStatus: String = "NOT_ASSESSED",
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val semanticSupportStatus: String = "NOT_ASSESSED"
 )
 
 /** One NDJSON record per paragraph permits progressive delivery without leaking protocol data. */
@@ -105,7 +130,7 @@ internal class CombinedPassageDecoder(
     private var plainRecoveryBlocked = false
     private val sourceIds = evidence.records.associateBy { it.id }
     private val inventory = CombinedClaimSemantics.records(sources)
-    private val claimsById = inventory.flatMap { claim -> claim.candidateIds.map { it to claim } }.toMap()
+    private val claimsById = CombinedContentIndexes.get(sources).byId
     private val claimIds = claimsById.keys
 
     fun accept(delta: String, final: Boolean = false): List<String> {
@@ -301,18 +326,23 @@ internal class CombinedPassageDecoder(
         val claims = strings("claims")
         if (claims.any { it !in claimIds }) issues += "UNKNOWN_CLAIM_REFERENCE"
         val retainedClaims = claims.filter { it in claimIds }.toSet()
-        val linkedClaims = retainedClaims.filterTo(linkedSetOf()) { id ->
-            val claim = claimsById.getValue(id)
-            CombinedContentCoverage.sentences(body).any { candidate ->
-                CombinedClaimSemantics.lostQualifiers(claim.qualifiers, CombinedClaimSemantics.qualifiers(candidate)).isEmpty() &&
+        val units = CombinedSourceClaims.units(body)
+        val linksByUnit = units.associateWith { unit ->
+            retainedClaims.filterTo(linkedSetOf()) { id ->
+                val claim = claimsById.getValue(id)
+                CombinedSourceClaims.material(claim.proposition) &&
+                    CombinedClaimSemantics.lostQualifiers(claim.qualifiers, CombinedClaimSemantics.qualifiers(unit.text)).isEmpty() &&
                     (
-                        CombinedContentCoverage.normalized(claim.proposition) == CombinedContentCoverage.normalized(candidate) ||
-                            CombinedClaimMatcher.match(claim.proposition, candidate) >= CombinedClaimMatcher.Match.PARAPHRASE
+                        CombinedContentCoverage.normalized(claim.proposition) == CombinedContentCoverage.normalized(unit.text) ||
+                            CombinedClaimMatcher.match(claim.proposition, unit.text) >= CombinedClaimMatcher.Match.PARAPHRASE
                         )
             }
         }
+        val linkedClaims = linksByUnit.values.flatten().toSet()
         if (linkedClaims != retainedClaims) issues += "UNESTABLISHED_CONTRIBUTION_LINK"
-        val claimProfiles = linkedClaims.mapNotNull { id -> id.substringBefore('.').removePrefix("C").toIntOrNull()?.let { sources.getOrNull(it - 1)?.platformUid } }.toSet()
+        // Canonical IDs and aliases resolve the same immutable occurrence set. Prefixes
+        // identify wire references, not exclusive ownership of a merged proposition.
+        val claimProfiles = linkedClaims.flatMapTo(linkedSetOf()) { id -> claimsById.getValue(id).occurrences.map { it.profileUid } }
         val owners = profiles.intersect(claimProfiles)
         if (owners != profiles) issues += "MISSING_CONTRIBUTION_LINK"
         val normalizedBody = CombinedContentCoverage.normalized(body)
@@ -353,7 +383,19 @@ internal class CombinedPassageDecoder(
             retainedClaims,
             assessment.result,
             passageId = if (strictRecords) text("id") else "P${passages.size + 1}",
-            semanticLinkStatus = if (linkedClaims == retainedClaims && linkedClaims.isNotEmpty()) "CONSERVATIVE_LINK_CHECKED" else "UNVERIFIED"
+            semanticLinkStatus = if (linkedClaims == retainedClaims && linkedClaims.isNotEmpty()) "CONSERVATIVE_LINK_CHECKED" else "UNVERIFIED",
+            linkVersion = 1,
+            links = linksByUnit.flatMap { (unit, ids) ->
+                val actualOwners = ids.flatMapTo(linkedSetOf()) { id -> claimsById.getValue(id).occurrences.map { it.profileUid } }.intersect(profiles)
+                if (ids.isEmpty() || actualOwners.isEmpty()) {
+                    emptyList()
+                } else {
+                    val ranges = if (unit.cells.isEmpty()) listOf(unit.start to unit.end) else unit.cells.map { it.startUtf16 to it.endUtf16 }
+                    ranges.filter { (from, to) -> to > from }.map { (from, to) ->
+                        CombinedPassageLink(start + from, start + to, researchHash(body.substring(from, to)), actualOwners, ids)
+                    }
+                }
+            }
         )
         if (citations.isNotBlank()) output.append("\n\n$citations")
         val index = seen.size

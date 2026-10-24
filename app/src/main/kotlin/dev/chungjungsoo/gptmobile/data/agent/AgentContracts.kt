@@ -32,7 +32,8 @@ sealed interface ProviderEvent {
         val outputSource: String = "provider_reported",
         val actualRuntime: String? = null,
         val reasoningTokens: Int? = null,
-        val phase: ProviderUsagePhase = ProviderUsagePhase.FINAL
+        val phase: ProviderUsagePhase = ProviderUsagePhase.FINAL,
+        val writerObservationKey: String? = null
     ) : ProviderEvent
 
     /** Effective provider request settings after profile preferences and hard request constraints are resolved. */

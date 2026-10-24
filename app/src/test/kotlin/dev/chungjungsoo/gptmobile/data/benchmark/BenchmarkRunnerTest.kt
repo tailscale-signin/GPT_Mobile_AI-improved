@@ -27,6 +27,31 @@ import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class BenchmarkRunnerTest {
+    @Test fun policyDenialAfterAToolRoundRetainsEarlierDispatchAndStopsFurtherCases() = runTest {
+        var rounds = 0
+        val runner = BenchmarkRunner({ _, _ ->
+            object : AgentProviderSession {
+                override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                    rounds++
+                    if (exchanges.isEmpty()) {
+                        emit(ProviderEvent.ToolCall("lookup", "benchmark_lookup", buildJsonObject { put("key", "parcel") }))
+                        emit(ProviderEvent.Completed)
+                    } else {
+                        emit(ProviderEvent.Failed("Configured spending ceiling reached.", errorCode = "POLICY_BLOCKED"))
+                    }
+                }
+            }
+        })
+        val sample = runner.run(BenchmarkCase("tool", "Tool", "tools", "Look up the parcel"), true)
+        assertEquals(BenchmarkOutcome.POLICY_BLOCKED, sample.outcome)
+        assertEquals(true, sample.requestDispatched)
+        assertEquals(1, sample.rounds.size)
+        assertEquals(2, rounds)
+        assertTrue(sample.executionFailure())
+        assertFalse(sample.completed)
+        assertEquals(0, sample.outputCharacters)
+    }
+
     @Test
     fun offlineSearchReadAndRecoveryRequireTheCompleteToolSequence() = runTest {
         for (workload in listOf("research_fixture", "tool_error_recovery")) {
@@ -156,8 +181,8 @@ class BenchmarkRunnerTest {
         val result = runner.run(instruction, false)
 
         assertEquals(BenchmarkOutcome.ERROR, result.outcome)
-        assertEquals("INIT", result.failureCategory)
-        assertEquals("ENGINE_INIT", result.runtimeStage)
+        assertEquals("NATIVE_EXECUTION_FAILED", result.failureCategory)
+        assertEquals("engine_init", result.runtimeStage)
         assertNull(result.decodeTokensPerSecond)
     }
 
@@ -195,7 +220,7 @@ class BenchmarkRunnerTest {
         val suite = benchmarkSuite(BenchmarkMode.FULL)
         val saved = mutableListOf<BenchmarkSample>()
         val reason = runBenchmarkSuite(suite, { _, test ->
-            BenchmarkSample(test.id, test.label, test.category, if (test.category == "speed") BenchmarkOutcome.ERROR else BenchmarkOutcome.PASSED, failureCategory = if (test.category == "speed") "CONTEXT" else null)
+            BenchmarkSample(test.id, test.label, test.category, if (test.category == "speed") BenchmarkOutcome.UNSUPPORTED else BenchmarkOutcome.PASSED, failureCategory = if (test.category == "speed") "UNSUPPORTED_INPUT_BAND" else null)
         }, { saved += it })
         assertNull(reason)
         assertEquals(suite.size, saved.size)
@@ -209,7 +234,7 @@ class BenchmarkRunnerTest {
     }
 
     @Test
-    fun `connection abort retries once before any output and retains attempted usage`() = runTest {
+    fun `connection abort is not automatically replayed despite no visible output`() = runTest {
         var opened = 0
         val runner = BenchmarkRunner({ _, _ ->
             opened++
@@ -220,10 +245,10 @@ class BenchmarkRunnerTest {
             }
         })
         val result = runner.run(instruction, true)
-        assertEquals(BenchmarkOutcome.PASSED, result.outcome)
-        assertEquals(2, opened)
-        assertEquals(1, result.reconnectAttempts)
-        assertEquals(30, result.inputTokens)
+        assertEquals(BenchmarkOutcome.ERROR, result.outcome)
+        assertEquals(1, opened)
+        assertEquals(0, result.reconnectAttempts)
+        assertEquals(10, result.inputTokens)
     }
 
     @Test
@@ -238,25 +263,27 @@ class BenchmarkRunnerTest {
     }
 
     @Test
-    fun `persistent connection abort is bounded to two attempts`() = runTest {
+    fun `persistent connection abort makes one request`() = runTest {
         var opened = 0
         val runner = BenchmarkRunner({ _, _ ->
             opened++
             session(flowOf(ProviderEvent.Failed("connection reset")))
         })
         assertEquals(BenchmarkOutcome.ERROR, runner.run(instruction, true).outcome)
-        assertEquals(2, opened)
+        assertEquals(1, opened)
     }
 
     @Test
-    fun `independent delegation cases continue after a failed stage`() = runTest {
+    fun `delegation execution failure skips this profile remaining cases`() = runTest {
         val saved = mutableListOf<BenchmarkSample>()
         val suite = delegationBenchmarkSuite()
         val reason = runBenchmarkSuite(suite, { _, test ->
             BenchmarkSample(test.id, test.label, test.category, BenchmarkOutcome.ERROR, error = "Worker failed")
         }, { saved.add(it) }, stopOnError = false)
-        assertNull(reason)
-        assertEquals(24, saved.size)
+        assertTrue(reason != null)
+        assertEquals(suite.size, saved.size)
+        assertEquals(1, saved.count { it.outcome == BenchmarkOutcome.ERROR })
+        assertTrue(saved.drop(1).all { it.outcome == BenchmarkOutcome.SKIPPED })
     }
 
     @Test
@@ -485,7 +512,7 @@ class BenchmarkRunnerTest {
 
     @Test
     fun `full suite supplies recall history without user conversation content`() = runTest {
-        val test = benchmarkSuite(BenchmarkMode.FULL).first { it.id == "context" }
+        val test = benchmarkSuiteForVersion(7, BenchmarkMode.FULL).first { it.id == "context" }
         val runner = BenchmarkRunner({ turns, tools ->
             assertEquals(2, turns.size)
             assertTrue(turns.first().userMessage.content.contains("ORCHID-742"))
@@ -511,5 +538,50 @@ class BenchmarkRunnerTest {
         assertEquals(6, sample.intelligenceAnswers.size)
         assertEquals(5, sample.intelligenceAnswers.values.count { it })
         assertEquals(6, IntelligenceBenchmark.scoreBatches(listOf(sample), true).answered)
+    }
+
+    @Test fun malformedExpectedJsonIsAHarnessFailureWithoutDispatch() = runTest {
+        var opened = false
+        val result = BenchmarkRunner({ _, _ ->
+            opened = true
+            error("must not dispatch")
+        }).run(BenchmarkCase("broken-json", "Broken", "json", "Return JSON", "{broken"), true)
+        assertFalse(opened)
+        assertEquals("FIXTURE_INVALID", result.failureCategory)
+        assertEquals(false, result.requestDispatched)
+    }
+
+    @Test fun transportEnvelopesAndHtmlAreRejectedButFixtureJsonIsAccepted() = runTest {
+        for (answer in listOf("<html><body>Gateway unavailable</body></html>", "{\"object\":\"chat.completion\",\"choices\":[]}", "{\"role\":\"assistant\",\"reasoning\":\"thinking\",\"content\":null}")) {
+            val result = BenchmarkRunner({ _, _ -> session(flowOf(ProviderEvent.TextDelta(answer), ProviderEvent.Completed)) }).run(instruction, true)
+            assertEquals("OUTPUT_PROTOCOL_INVALID", result.failureCategory)
+            assertEquals(BenchmarkOutcome.ERROR, result.outcome)
+            assertNull(result.referenceSpeed)
+        }
+        assertFalse(invalidBenchmarkEnvelope("{\"status\":\"ready\",\"count\":3}"))
+    }
+
+    @Test fun aValidBufferedAnswerCompletesWithoutInventedDecodeRate() = runTest {
+        val test = benchmarkSuite(BenchmarkMode.FULL).first { it.id == "speed-short-1" }
+        val answer = "Water evaporation condensation clouds precipitation. ".repeat(38).trim()
+        val result = BenchmarkRunner({ _, _ -> session(flowOf(ProviderEvent.TextDelta(answer), ProviderEvent.Completed)) }).run(test, false)
+        assertEquals(BenchmarkOutcome.PASSED, result.outcome)
+        assertNull(result.referenceSpeed)
+        assertEquals("NO_MEASURABLE_DECODE_INTERVAL", result.throughputExclusion)
+        assertEquals("buffered", result.deliveryMode)
+        assertEquals(answer, result.canonicalAnswer)
+        assertEquals(benchmarkHash(answer), result.answerHash)
+        assertEquals("unknown", result.inputTokenSource)
+        assertEquals("estimated_characters", result.outputTokenSource)
+    }
+
+    @Test fun cappedEvidenceDeclaresItsTruncationAndOriginalObservedSize() = runTest {
+        val answer = "a".repeat(20_000)
+        val result = BenchmarkRunner({ _, _ -> session(flowOf(ProviderEvent.TextDelta(answer), ProviderEvent.Completed)) }).run(instruction, false)
+        assertTrue(result.answerTruncated)
+        assertEquals(20_000, result.answerLength)
+        assertEquals(16_384, result.canonicalAnswer?.length)
+        assertEquals(benchmarkHash(answer), result.answerHash)
+        assertFalse(result.completed)
     }
 }

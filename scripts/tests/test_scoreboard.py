@@ -177,6 +177,27 @@ class ScoreboardTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             parse_issue("```json\n" + json.dumps(dict(data, issueNumber=1)) + "\n```")
 
+    def test_suite_eight_is_frozen_separate_and_never_scores_infrastructure_as_accuracy(self):
+        data = submission(plan="FULL")
+        data["suiteVersion"] = 8
+        data["schemaVersion"] = 2
+        data.update(effectiveConfigHash="a" * 64, comparisonContextHash="b" * 64, measurementVersion=3, scoringVersion=3, loadRegime="remote_unknown", cacheRegime="unknown", capabilityManifest=["text", "structured", "tools", "reasoning"])
+        data["trials"] = []
+        for key, (category, _) in manifest("MODEL", "FULL", 8).items():
+            trial = dict(id=key, outcome="PASSED", durationMs=500)
+            if category == "intelligence":
+                trial["intelligence"] = dict.fromkeys(DOMAINS, True)
+            data["trials"].append(trial)
+        self.assertEqual(50, len(data["trials"]))
+        self.assertEqual(100, score(data))
+        changed = dict(data, id="other-context", comparisonContextHash="c" * 64)
+        self.assertEqual(2, len(best([data, changed])))
+        data["trials"][0]["outcome"] = "ERROR"
+        with self.assertRaisesRegex(ValueError, "answer accuracy"):
+            score(data)
+        self.assertIn("context", manifest("MODEL", "FULL", 7))
+        self.assertNotIn("context", manifest("MODEL", "FULL", 8))
+
     def test_android_server_shared_contract(self):
         fixtures = json.loads((Path(__file__).resolve().parents[2] / "app/src/test/resources/scoreboard-contract.json").read_text())
         for case in fixtures:

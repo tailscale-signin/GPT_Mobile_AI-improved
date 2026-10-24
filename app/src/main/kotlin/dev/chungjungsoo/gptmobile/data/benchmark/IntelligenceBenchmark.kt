@@ -15,7 +15,11 @@ internal data class IntelligenceScore(
     val domains: Map<String, Double>,
     val version: Int = IntelligenceBenchmark.VERSION,
     val provisional: Boolean = false,
-    val questionsPerDomain: Int = 6
+    val questionsPerDomain: Int = 6,
+    val runCount: Int = 1,
+    val scoreMinimum: Double? = null,
+    val scoreMaximum: Double? = null,
+    val uniqueQuestions: Int = answered
 )
 
 /**
@@ -152,9 +156,11 @@ internal object IntelligenceBenchmark {
     }
 
     fun gradeRetained(sample: BenchmarkSample, fixtureVersion: Int): BatchGrade? {
-        if (!sample.completed || sample.preview.isEmpty() || sample.outputCharacters != sample.preview.length) return null
+        if (!sample.completed || sample.answerTruncated) return null
+        val retained = sample.canonicalAnswer ?: sample.preview.takeIf { sample.outputCharacters == it.length } ?: return null
+        if (retained.isEmpty() || sample.answerLength?.let { it != retained.length } == true || sample.answerHash?.let { it != benchmarkHash(retained) } == true) return null
         val test = batches.singleOrNull { it.id == sample.testId } ?: return null
-        return evaluateBatch(test, sample.preview, fixtureVersion)
+        return evaluateBatch(test, retained, fixtureVersion)
     }
 
     fun scoreBatches(samples: List<BenchmarkSample>, quick: Boolean, fixtureVersion: Int = VERSION): IntelligenceScore {

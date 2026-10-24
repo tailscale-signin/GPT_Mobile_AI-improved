@@ -5,6 +5,9 @@ import kotlinx.serialization.Serializable
 @Serializable
 enum class ResearchIntensity { QUICK, RESEARCH, EXHAUSTIVE }
 
+@Serializable
+enum class ResearchReportStructure(val label: String) { AUTO("Auto"), GENERAL("General"), TECHNICAL("Technical"), PRODUCT("Product"), SCIENTIFIC("Scientific") }
+
 /** Android limits are independent of the inference model's location. */
 @Serializable
 data class DeepResearchSettings(
@@ -35,10 +38,11 @@ data class DeepResearchSettings(
     val customSourceTarget: Int? = null,
     val userLimits: ResearchUserLimits = ResearchUserLimits(),
     val disabledEngineIds: Set<String> = emptySet(),
-    val reportDetail: ResearchReportDetail = ResearchReportDetail.DETAILED
+    val reportDetail: ResearchReportDetail = ResearchReportDetail.DETAILED,
+    val reportStructure: ResearchReportStructure = ResearchReportStructure.AUTO
 ) {
     /** Preserve the legacy acquisition identity; presentation changes cannot reset spent work or hide saved evidence.
-     * reportDetail intentionally remains the final constructor property for this compatibility representation.
+     * The presentation-only properties follow reportDetail so they cannot alter acquisition identity.
      */
     fun collectionPolicyKey(): String = toString().substringBeforeLast(", reportDetail=") + ")"
 

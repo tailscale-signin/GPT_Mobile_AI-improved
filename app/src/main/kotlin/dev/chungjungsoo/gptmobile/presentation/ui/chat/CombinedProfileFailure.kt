@@ -16,8 +16,19 @@ data class CombinedProfileFailure(
     val retryAllowed: Boolean,
     val applicationFailure: Boolean = false,
     val retryAfterMillis: Long? = null,
-    val category: String = "INCOMPLETE"
+    val category: String = "INCOMPLETE",
+    val retrying: Boolean = false
 )
+
+internal fun CombinedProfileFailure.shortStatus(now: Long): String = when {
+    retrying -> "Retrying…"
+    category == "SAVED_POLICY_UNAVAILABLE" -> "Saved request unavailable"
+    applicationFailure -> "App paused"
+    !retryAllowed -> "Not supported"
+    (retryAfterMillis ?: 0) > now -> "Rate limited"
+    category.contains("INCOMPLETE") || category.contains("OUTPUT") || reason.contains("incomplete", true) -> "Reply incomplete"
+    else -> "Unavailable"
+}
 
 internal fun combinedProfileFailures(
     userMessageId: Int,
@@ -37,12 +48,14 @@ internal fun combinedProfileFailures(
     val assessed = CombinedContributionUsability.assess(run.status, content, allowPartial = true, request = request, demo = demo, finishReason = generation?.finishReason, outputTokens = generation?.outputTokens, outputAllowance = generation?.outputAllowance ?: 256.takeIf { uid == "builtin-free-ai_horde" })
     if (run.status == AgentRunStatus.COMPLETED && assessed.admitted && !assessed.usablePartial) return@mapNotNull null
     val details = run.terminalError ?: assessed.reason ?: "Incomplete contribution"
+    val savedPolicyUnavailable = details.contains("POLICY_SNAPSHOT_", ignoreCase = true)
     val classified = message.timeline.lastOrNull { it.profileFailure != null }?.profileFailure
-        ?.takeUnless { demo } ?: dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.classify(details, demoExcluded = demo)
-    val appFailure = classified.category == "APP_EXECUTION"
+        ?.takeUnless { demo || savedPolicyUnavailable } ?: dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.classify(details, demoExcluded = demo)
+    val appFailure = classified.category in setOf("APP_EXECUTION", "SAVED_POLICY_UNAVAILABLE") || savedPolicyUnavailable
     val incompatible = !classified.retryAllowed
     val retryAt = classified.retryAfterMillis
     val reason = when {
+        savedPolicyUnavailable || classified.category == "SAVED_POLICY_UNAVAILABLE" -> "Saved request data is unavailable. Restore its complete backup or start a new request; other replies are saved."
         appFailure -> "App execution paused. Open the app to resume."
         incompatible -> "This model or configuration is incompatible. Change it before retrying."
         details.contains("Tool choice is none", true) -> "The provider returned a tool call although tools were disabled."
@@ -56,5 +69,5 @@ internal fun combinedProfileFailures(
         assessed.usablePartial -> "The answer is incomplete."
         else -> details.take(180)
     }
-    CombinedProfileFailure(userMessageId, uid, names[uid] ?: uid, models[uid] ?: run.modelSnapshot, message.currentRunId, reason, details, !incompatible, appFailure, retryAt, classified.category)
+    CombinedProfileFailure(userMessageId, uid, names[uid]?.takeIf { it.isNotBlank() } ?: "Saved profile", models[uid] ?: run.modelSnapshot, message.currentRunId, reason, details, !incompatible, appFailure, retryAt, classified.category)
 }

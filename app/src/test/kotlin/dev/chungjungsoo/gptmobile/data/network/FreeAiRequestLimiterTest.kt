@@ -4,7 +4,6 @@ import dev.chungjungsoo.gptmobile.data.model.FreeAiProvider
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.yield
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -91,9 +90,10 @@ class FreeAiRequestLimiterTest {
         limiter.reserve(FreeAiProvider.LLM7)
     }
 
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     @Test
-    fun `canceling a stream releases the shared provider permit`() = runBlocking {
-        val limiter = FreeAiRequestLimiter()
+    fun `canceling a Classic stream releases its permit and preserves completion spacing`() = kotlinx.coroutines.test.runTest {
+        val limiter = FreeAiRequestLimiter { testScheduler.currentTime }
         val started = CompletableDeferred<Unit>()
         val first = async {
             limiter.withRequest(FreeAiProvider.POLLINATIONS) {
@@ -107,5 +107,14 @@ class FreeAiRequestLimiterTest {
         assertFalse(second.isCompleted)
         first.cancelAndJoin()
         assertEquals("next response", second.await())
+        assertEquals(30_000L, testScheduler.currentTime)
+    }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test
+    fun classicSpacingStartsAfterTheResponseFinishes() = kotlinx.coroutines.test.runTest {
+        val limiter = FreeAiRequestLimiter { testScheduler.currentTime }
+        limiter.withRequest(FreeAiProvider.POLLINATIONS) { kotlinx.coroutines.delay(20_000) }
+        limiter.withRequest(FreeAiProvider.POLLINATIONS) { assertEquals(50_000L, testScheduler.currentTime) }
     }
 }

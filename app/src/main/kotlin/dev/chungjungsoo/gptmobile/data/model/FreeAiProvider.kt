@@ -4,7 +4,7 @@ import dev.chungjungsoo.gptmobile.BuildConfig
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import java.net.URI
 
-enum class ProviderAuthenticationMode { ANONYMOUS, FREE_USER_TOKEN, PAID_API }
+enum class ProviderAuthenticationMode { ANONYMOUS, ANONYMOUS_OR_FREE_TOKEN, FREE_USER_TOKEN, PAID_API }
 
 /** App-owned free routes; never fall back to a billing-capable route. */
 enum class FreeAiProvider(
@@ -17,9 +17,9 @@ enum class FreeAiProvider(
     val maxOutputTokens: Int = 2048
 ) {
     KILO("Kilo", "https://ai-gateway.kilo.ai/api/v1", "kilo-auto/free", true, 0, 200),
-    POLLINATIONS("Pollinations", "https://text.pollinations.ai", "openai-fast", false, 0, 0),
+    POLLINATIONS("Pollinations", "https://text.pollinations.ai", "openai-fast", false, 0, 0, 1500),
     OVHCLOUD("OVHcloud", "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1", "Mistral-Small-3.2-24B-Instruct-2506", true, 2, 0),
-    LLM7("LLM7", "https://api.llm7.io/v1", "mistral-Nemo-Instruct-2407", false, 60, 250),
+    LLM7("LLM7", "https://api.llm7.io/v1", "automatic", false, 60, 250),
     BLOCKRUN("BlockRun", "https://blockrun.ai/api/v1", "nvidia/nemotron-3.5-lightning", false, 30, 300, 8192),
     AI_HORDE("AI Horde", "https://aihorde.net/api/v2", "automatic", false, 0, 0, 256),
     VIREONIX("Vireonix", "https://vireonix.ai/v1", "auto", false, 0, 0, 8192),
@@ -31,12 +31,16 @@ enum class FreeAiProvider(
 
     // Preset values are defaults, not verified per-model server ceilings.
     val defaultOutputTokens: Int get() = maxOutputTokens
-    val enforcedOutputCeiling: Int? get() = if (this == AI_HORDE) 256 else null
+
+    // Classic forwards a fixed 1,500-token cap even when the client requests less.
+    val fixedOutputTokens: Int? get() = if (this == POLLINATIONS) 1500 else null
+    val enforcedOutputCeiling: Int? get() = fixedOutputTokens ?: 256.takeIf { this == AI_HORDE }
     fun outputAllowance(requested: Int?): Int = minOf(requested?.takeIf { it > 0 } ?: defaultOutputTokens, enforcedOutputCeiling ?: Int.MAX_VALUE)
 
     val authenticationMode: ProviderAuthenticationMode
-        get() = if (this == LLM7) ProviderAuthenticationMode.FREE_USER_TOKEN else ProviderAuthenticationMode.ANONYMOUS
+        get() = if (this == LLM7) ProviderAuthenticationMode.ANONYMOUS_OR_FREE_TOKEN else ProviderAuthenticationMode.ANONYMOUS
     val requiresUserToken: Boolean get() = authenticationMode == ProviderAuthenticationMode.FREE_USER_TOKEN
+    val acceptsUserToken: Boolean get() = authenticationMode in setOf(ProviderAuthenticationMode.FREE_USER_TOKEN, ProviderAuthenticationMode.ANONYMOUS_OR_FREE_TOKEN)
 
     val isDemo: Boolean get() = this == PORCHLM
 
@@ -57,8 +61,8 @@ enum class FreeAiProvider(
         name = platform.name.takeUnless { it.isBlank() || it == "Free Models" || it == fromApiUrl(platform.apiUrl)?.displayName } ?: displayName,
         compatibleType = ClientType.FREE,
         apiUrl = apiUrl,
-        token = platform.token.takeIf { requiresUserToken && fromApiUrl(platform.apiUrl) == this },
-        secretRef = platform.secretRef.takeIf { requiresUserToken && fromApiUrl(platform.apiUrl) == this },
+        token = platform.token.takeIf { acceptsUserToken && fromApiUrl(platform.apiUrl) == this },
+        secretRef = platform.secretRef.takeIf { acceptsUserToken && fromApiUrl(platform.apiUrl) == this },
         model = platform.model.takeIf { dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.models(this).any { option -> option.id == it } } ?: model,
         maxTokens = platform.maxTokens?.takeIf { it > 0 }?.let { minOf(it, enforcedOutputCeiling ?: Int.MAX_VALUE) },
         batchMode = false,

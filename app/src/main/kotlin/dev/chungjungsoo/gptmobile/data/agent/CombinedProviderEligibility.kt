@@ -14,11 +14,16 @@ internal object CombinedProviderEligibility {
         if (profile.compatibleType != ClientType.FREE) return null
         val provider = FreeAiProvider.fromApiUrl(profile.apiUrl) ?: return "Unknown Free route."
         dev.chungjungsoo.gptmobile.data.network.FreeProviderPreflight.check(profile)?.let { return it.message }
-        if (provider in setOf(FreeAiProvider.POLLINATIONS, FreeAiProvider.HUGGING_FACE) || provider == FreeAiProvider.AI_HORDE && profile.model == "horde-image") {
+        if (provider == FreeAiProvider.HUGGING_FACE || provider == FreeAiProvider.AI_HORDE && profile.model == "horde-image") {
             return "This route does not expose an enforceable text-output bound for Combined mode. Individual chat remains available."
         }
+        provider.fixedOutputTokens?.let { fixed ->
+            if (profile.maxTokens?.takeIf { it > 0 }?.let { it < fixed } == true) return "${provider.displayName} requires a $fixed-token output allowance; this profile's smaller limit cannot be enforced by the route."
+        }
         if (provider.isDemo && (writer || request.isBlank() || CombinedTaskContract.from(request).factual)) return "Demo model: excluded from factual Combined contributions and final writing."
-        FreeAiRequestLimiter.shared.cooldownUntilMillis(provider, profile.model)?.let { return "Rate limited until $it; choose another selected provider or retry after the cooldown." }
+        // Short local spacing is cancellable scheduling, already enforced by the
+        // transport. A provider Retry-After is handled by FreeProviderPreflight.
+        FreeAiRequestLimiter.shared.cooldownUntilMillis(provider, profile.model)?.takeIf { it - System.currentTimeMillis() > 60_000 }?.let { return "Rate limited until $it; choose another selected provider or retry after the cooldown." }
         try {
             FreeCatalogState.requireGenerationReady(provider, profile.model)
         } catch (unavailable: dev.chungjungsoo.gptmobile.data.free.FreeGenerationUnavailableException) {

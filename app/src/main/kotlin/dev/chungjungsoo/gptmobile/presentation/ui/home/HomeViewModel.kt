@@ -215,8 +215,7 @@ class HomeViewModel @Inject constructor(
     private val _activeChatIds = MutableStateFlow<Set<Int>>(emptySet())
     val activeChatIds = _activeChatIds.asStateFlow()
     val completedGenerations = combine(completionStore.items, featureSettings) { rows, features ->
-        val roots = features.multiChatWorkspaces.flatMap { (root, children) -> children.map { it to root } }.toMap()
-        rows.map { it.copy(visibleChatId = roots[it.chatId] ?: it.chatId) }
+        homeUnreadReplies(rows, features.multiChatWorkspaces)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     val unreadChatIds = completedGenerations.map { rows -> rows.mapTo(mutableSetOf()) { it.visibleChatId } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
@@ -240,16 +239,31 @@ class HomeViewModel @Inject constructor(
         rows.mapNotNull { row ->
             val room = chatListState.value.chats.firstOrNull { it.id == row.chatId } ?: return@mapNotNull null
             val latestUser = row.messages.filter { it.platformType == null }.maxByOrNull { it.id } ?: return@mapNotNull null
-            val runs = row.runs.filter { it.userMessageId == latestUser.id }
+            val answers = row.messages.filter { it.linkedMessageId == latestUser.id && it.platformType != null }
+            val ownedRunIds = answers.mapNotNullTo(mutableSetOf()) { it.currentRunId }
+            // Regeneration keeps historical runs under the same user turn. Only the
+            // current answer owners may contribute status or completion evidence.
+            val runs = row.runs.filter { it.userMessageId == latestUser.id && it.runId in ownedRunIds }
             val root = "${row.chatId}:${latestUser.id}"
             val evidence = sessions.values.filter { it.chatId == row.chatId && (it.turnId == root || it.snapshot.originatingUserMessageId == latestUser.id) }
-            val budget = budgets.values.filter { it.chatId == row.chatId && it.acceptedAtMillis >= latestUser.createdAt * 1000 - 1000 }.maxByOrNull { it.acceptedAtMillis }
-            val accepted = row.messages.filter { it.linkedMessageId == latestUser.id }.any { message ->
-                message.timeline.lastOrNull { it.researchDeliveryReceipt != null }?.researchDeliveryReceipt?.let { it.accepted && it.matchesRevision(message.content) } == true ||
-                    message.timeline.lastOrNull { it.combinedQuality != null }?.combinedQuality?.let { it.complete && !it.correctionRequired && it.answerDigest == dev.chungjungsoo.gptmobile.data.research.researchHash(message.content) && it.deliveredScopeStatus in setOf("COMPLETED", "COMPLETED_WITH_LIMITS") } == true
-            }
-            val participants = runs.filter { it.synthesisKey == null && !it.runId.startsWith("combined-synthesis:") }.mapTo(linkedSetOf()) { it.profileUid }.ifEmpty { room.activePlatform.toSet() }
-            conversationWorkProgress(features.conversationResearch[row.chatId]?.researchToggle == true || evidence.isNotEmpty(), room.conversationMode == dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode.COMBINED, participants, runs, evidence, budget, active.values.any { it.chatId == row.chatId }, accepted)?.let { row.chatId to it }
+            val budgetRoots = answers.mapNotNull { message -> message.timeline.lastOrNull { it.combinedTurn != null }?.combinedTurn?.rootBudgetId }.toSet()
+            val budgetEntry = budgets.entries.filter { it.key in budgetRoots && it.value.chatId == row.chatId }.maxByOrNull { it.value.acceptedAtMillis }
+            val combined = room.conversationMode == dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode.COMBINED
+            val final = runs.filter { it.isCombinedFinal() }.maxWithOrNull(conversationAttemptOrder)
+            val finalBudgetRoot = answers.firstOrNull { it.currentRunId == final?.runId }?.timeline?.lastOrNull { it.combinedTurn != null }?.combinedTurn?.rootBudgetId
+            val delivery = conversationDeliveryEvidence(runs, row.messages, combined)
+            val participants = runs.filterNot { it.isCombinedFinal() }.mapTo(linkedSetOf()) { it.profileUid }.ifEmpty { room.activePlatform.toSet() }
+            conversationWorkProgress(
+                research = row.chatId in features.researchChatIds || features.conversationResearch[row.chatId]?.researchToggle == true || evidence.isNotEmpty(),
+                combined = combined,
+                participants = participants,
+                runs = runs,
+                sessions = evidence,
+                budget = budgetEntry?.value,
+                active = active.values.any { it.chatId == row.chatId && it.runId in ownedRunIds },
+                reportAccepted = delivery.reportAccepted,
+                finalTextDelivered = delivery.textDelivered && (!combined || finalBudgetRoot != null && finalBudgetRoot == budgetEntry?.key)
+            )?.let { row.chatId to it }
         }.toMap()
     }.flowOn(kotlinx.coroutines.Dispatchers.Default).distinctUntilChanged().sample(150).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 

@@ -17,7 +17,6 @@ import dev.chungjungsoo.gptmobile.data.openrouter.account.recordOpenRouterReceip
 import dev.chungjungsoo.gptmobile.util.applyPlatformStreamingTimeout
 import io.ktor.client.call.body
 import io.ktor.client.plugins.HttpRequestTimeoutException
-import io.ktor.client.plugins.timeout
 import io.ktor.client.request.accept
 import io.ktor.client.request.bearerAuth
 import io.ktor.client.request.forms.MultiPartFormDataContent
@@ -106,7 +105,7 @@ class OpenAIAPIImpl @Inject constructor(
         timeoutSeconds: Int,
         config: ProviderRequestConfig
     ): Flow<ChatCompletionChunk> = flow {
-        val config = if (config.freeProvider != null) config.copy(freeDiagnostics = dev.chungjungsoo.gptmobile.data.free.FreeRequestDiagnostics()) else config
+        var config = if (config.freeProvider != null) config.copy(freeDiagnostics = dev.chungjungsoo.gptmobile.data.free.FreeRequestDiagnostics()) else config
         val workerBudget = kotlinx.coroutines.currentCoroutineContext()[WorkerRequestBudget]
         var receivedAssistantPayload = false
         var receivedGatewayToolActivity = false
@@ -120,14 +119,20 @@ class OpenAIAPIImpl @Inject constructor(
             val free = config.freeProvider
             if (free != null) {
                 FreeProviderPreflight.require(config, request.model)
-                recoveryCheck = dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.beginGeneration(free, request.model)
             }
-            var freeModel = free?.let { dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.requireModel(it, request.model) }
+            var freeModel = free?.let {
+                if (it == FreeAiProvider.LLM7) Llm7FreeModelSelection.resolve(networkClient(), config, request.model) else dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.requireModel(it, request.model)
+            }
             if (free == FreeAiProvider.PORCHLM && request.model == "automatic") {
                 dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.refresh(free)
                 freeModel = dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.models(free).firstOrNull { it.id != "automatic" }
                 check(freeModel != null) { "PorchLM model discovery is unavailable. Retry its status check later." }
             }
+            if (free != null) {
+                config = config.copy(freeModelSnapshot = requireNotNull(freeModel))
+                recoveryCheck = dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.beginGeneration(free, freeModel.id)
+            }
+            if (free == FreeAiProvider.POLLINATIONS) PollinationsClassic.requireText(request)
             if (free == FreeAiProvider.PORCHLM) emit(ChatCompletionChunk(applicationNotice = "PorchLM is an educational demonstration model. Responses can be incoherent or inaccurate; use another provider for factual answers."))
             var preparedRequest = if (free == null) {
                 request.withEndpointSamplingPolicy(config.apiUrl)
@@ -143,7 +148,7 @@ class OpenAIAPIImpl @Inject constructor(
                     provider = null,
                     plugins = null,
                     topK = null,
-                    reasoningEffort = request.reasoningEffort.takeIf { free in setOf(FreeAiProvider.KILO, FreeAiProvider.BLOCKRUN) },
+                    reasoningEffort = if (free == FreeAiProvider.POLLINATIONS) request.reasoningEffort ?: "low" else request.reasoningEffort.takeIf { free in setOf(FreeAiProvider.KILO, FreeAiProvider.BLOCKRUN) },
                     reasoning = request.reasoning.takeIf { free == FreeAiProvider.KILO },
                     options = null,
                     transforms = null,
@@ -152,25 +157,6 @@ class OpenAIAPIImpl @Inject constructor(
             }
             if (free == FreeAiProvider.AI_HORDE || free == FreeAiProvider.HUGGING_FACE) {
                 FreeQueuedTransport(networkClient(), requestPreparation).generate(preparedRequest, config, timeoutSeconds) { emit(it) }
-                return@flow
-            }
-            if (free == FreeAiProvider.POLLINATIONS) {
-                val prompt = legacyPollinationsPrompt(preparedRequest)
-                val legacyResponse = pollinationsCompletion {
-                    FreeAiRequestLimiter.shared.withRequest(free) {
-                        val admittedUrl = requestPreparation.preparePollinationsGet(prompt, config)
-                        config.freeDiagnostics?.attempted()
-                        networkClient().prepareGet(admittedUrl) {
-                            timeout { requestTimeoutMillis = timeoutSeconds.coerceIn(15, 120) * 1_000L }
-                            accept(ContentType.Text.Plain)
-                        }.execute { response ->
-                            config.freeDiagnostics?.responded()
-                            PollinationsResponse(response.status.value, response.body<String>(), response.headers[HttpHeaders.ContentType], response.headers[HttpHeaders.RetryAfter])
-                        }
-                    }
-                }
-                emit(ChatCompletionChunk(model = free.model, choices = listOf(Choice(delta = Delta(content = legacyResponse), finishReason = "stop"))))
-                dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.recordResponse(free, free.model)
                 return@flow
             }
             if (workerBudget != null) LocalServiceHealth.probe(config.apiUrl)
@@ -189,7 +175,7 @@ class OpenAIAPIImpl @Inject constructor(
                     contentType(ContentType.Application.Json)
                     setBody(admittedPayload)
                     accept(if (preparedRequest.stream) ContentType.Text.EventStream else ContentType.Application.Json)
-                    config.token?.takeIf { it.isNotBlank() && (free == null || free.requiresUserToken) }?.let { bearerAuth(it) }
+                    config.token?.takeIf { it.isNotBlank() && (free == null || free.acceptsUserToken) }?.let { bearerAuth(it) }
                     config.extraHeaders.forEach { (key, value) -> header(key, value) }
                     if (LocalEndpointConnectionPolicy.freshConnection(endpoint)) header(HttpHeaders.Connection, "close")
                 }.execute { response ->
@@ -206,9 +192,14 @@ class OpenAIAPIImpl @Inject constructor(
                             val contextLimit = rejectedFreeContextLimit(response.status.value, errorBody)
                             if (contextLimit != null && !contextCorrected && !receivedAssistantPayload && !receivedGatewayToolActivity) {
                                 dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.learnContextLimit(free, preparedRequest.model, contextLimit)
-                                contextCorrected = true
-                                preparedRequest = preparedRequest.copy(maxTokens = minOf(preparedRequest.maxTokens ?: 1024, 1024, contextLimit / 2).coerceAtLeast(1))
-                                throw FreeContextRetry()
+                                config = config.copy(freeModelSnapshot = config.freeModelSnapshot?.let { it.copy(contextTokens = minOf(it.contextTokens ?: contextLimit, contextLimit)) })
+                                // A fixed-ceiling route cannot repair context overflow by
+                                // pretending to request less output than its server allows.
+                                if (free.fixedOutputTokens == null) {
+                                    contextCorrected = true
+                                    preparedRequest = preparedRequest.copy(maxTokens = minOf(preparedRequest.maxTokens ?: 1024, 1024, contextLimit / 2).coerceAtLeast(1))
+                                    throw FreeContextRetry()
+                                }
                             }
                         }
                         val parameter = rejectedSamplingParameter(errorBody)
@@ -244,7 +235,7 @@ class OpenAIAPIImpl @Inject constructor(
                         emit(
                             ChatCompletionChunk(
                                 error = ErrorDetail(
-                                    message = if (free?.requiresUserToken == true || response.status.value !in setOf(401, 402, 403)) config.readableProviderError(errorMessage, response.status.value.toString()) else errorMessage,
+                                    message = if (free?.acceptsUserToken == true || response.status.value !in setOf(401, 402, 403)) config.readableProviderError(errorMessage, response.status.value.toString()) else errorMessage,
                                     type = config.freeDiagnostics?.category?.name ?: "http_error",
                                     code = response.status.value.toString()
                                 )

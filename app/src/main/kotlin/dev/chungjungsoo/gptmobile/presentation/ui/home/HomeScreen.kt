@@ -58,7 +58,6 @@ import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Delete
-import androidx.compose.material.icons.rounded.DragHandle
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PushPin
@@ -143,7 +142,6 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -522,6 +520,7 @@ fun HomeScreen(
                                 }
                                 val isGenerating = activeChatIds.contains(chatRoom.id)
                                 val hasUnreadResponse = unreadChatIds.contains(chatRoom.id)
+                                val isResearch = chatRoom.id in homeFeatures.researchChatIds || homeFeatures.conversationResearch[chatRoom.id]?.researchToggle == true
                                 var hasTriggeredHaptic by remember { mutableStateOf(false) }
                                 val dismissState = rememberSwipeToDismissBoxState(
                                     positionalThreshold = { totalDistance -> totalDistance * 0.38f },
@@ -565,6 +564,7 @@ fun HomeScreen(
                                         isGenerating = isGenerating,
                                         workProgress = conversationProgress[chatRoom.id],
                                         hasUnreadResponse = hasUnreadResponse,
+                                        isResearch = isResearch,
                                         usingPlatform = usingPlatform,
                                         profileLabels = chatProfileLabels,
                                         isServerChat = chatProfiles.singleOrNull()?.compatibleType in setOf(ClientType.OLLAMA, ClientType.LLAMA, ClientType.LITERT_LM),
@@ -585,6 +585,7 @@ fun HomeScreen(
                                 } else {
                                     var dragging by remember(chatRoom.id) { mutableStateOf(false) }
                                     var dragOffset by remember(chatRoom.id) { mutableStateOf(Offset.Zero) }
+                                    var dragOrigin by remember(chatRoom.id) { mutableStateOf(Offset.Zero) }
                                     val dragScale by animateFloatAsState(if (dragging) 1.03f else 1f, tween(180), label = "conversationDragScale")
                                     val translationX by animateFloatAsState(dragOffset.x, if (dragging) snap() else tween(220), label = "conversationDragX")
                                     val translationY by animateFloatAsState(dragOffset.y, if (dragging) snap() else tween(220), label = "conversationDragY")
@@ -612,6 +613,7 @@ fun HomeScreen(
                                         isGenerating = isGenerating,
                                         workProgress = conversationProgress[chatRoom.id],
                                         hasUnreadResponse = hasUnreadResponse,
+                                        isResearch = isResearch,
                                         usingPlatform = usingPlatform,
                                         profileLabels = chatProfileLabels,
                                         isServerChat = chatProfiles.singleOrNull()?.compatibleType in setOf(ClientType.OLLAMA, ClientType.LLAMA, ClientType.LITERT_LM),
@@ -624,14 +626,16 @@ fun HomeScreen(
                                             homeViewModel.selectChat(idx)
                                         },
                                         revealingLabels = dragging,
-                                        dragHandleModifier = Modifier.pointerInput(chatRoom.id, chatRoom.isFavorite, windowHeight, pinTargetHeight) {
+                                        dragHandleModifier = Modifier.onGloballyPositioned {
+                                            if (!dragging) dragOrigin = it.localToRoot(Offset.Zero)
+                                        }.pointerInput(chatRoom.id, chatRoom.isFavorite, windowHeight, pinTargetHeight) {
                                             detectDragGestures(
                                                 onDragStart = { position ->
                                                     dragging = true
                                                     draggedConversationId = chatRoom.id
                                                     draggedDistanceY = 0f
-                                                    draggedPointerX = (conversationBounds[chatRoom.id]?.right ?: 0f) - 48.dp.toPx() + position.x
-                                                    draggedPointerY = (conversationBounds[chatRoom.id]?.top ?: 0f) + position.y
+                                                    draggedPointerX = dragOrigin.x + position.x
+                                                    draggedPointerY = dragOrigin.y + position.y
                                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                                 },
                                                 onDrag = { change, amount ->
@@ -709,6 +713,8 @@ fun HomeScreen(
                                         onUnarchiveChat = { room -> homeViewModel.unarchiveChat(room) },
                                         onDeleteChat = { room -> homeViewModel.deleteArchivedChat(room) },
                                         onChatClick = { room -> homeViewModel.openConversation(room, openExistingChat) },
+                                        unreadChatIds = unreadChatIds,
+                                        researchChatIds = homeFeatures.researchChatIds + homeFeatures.conversationResearch.filterValues { it.researchToggle }.keys,
                                         modifier = Modifier.padding(bottom = 80.dp)
                                     )
                                 }
@@ -1036,6 +1042,7 @@ fun FancySwipeChatCard(
     usingPlatform: String,
     profileLabels: List<dev.chungjungsoo.gptmobile.data.model.ProfileLabel>,
     isServerChat: Boolean = false,
+    isResearch: Boolean = false,
     onItemClick: () -> Unit,
     onItemLongClick: () -> Unit,
     revealingLabels: Boolean = false,
@@ -1193,6 +1200,7 @@ fun FancySwipeChatCard(
                 usingPlatform = usingPlatform,
                 profileLabels = profileLabels,
                 isServerChat = isServerChat,
+                isResearch = isResearch,
                 onItemClick = onItemClick,
                 onItemLongClick = onItemLongClick,
                 revealingLabels = revealingLabels,
@@ -1217,6 +1225,7 @@ internal fun ChatListItem(
     usingPlatform: String,
     profileLabels: List<dev.chungjungsoo.gptmobile.data.model.ProfileLabel>,
     isServerChat: Boolean = false,
+    isResearch: Boolean = false,
     onItemClick: () -> Unit,
     onItemLongClick: () -> Unit,
     revealingLabels: Boolean = false,
@@ -1257,8 +1266,8 @@ internal fun ChatListItem(
                     }
                 }
                 .padding(start = 8.dp, end = 8.dp),
-            trailingContent = {
-                if (chatListState.isSelectionMode && chatListState.selectedChats.getOrElse(idx) { false } && rowActions.isNotEmpty()) {
+            trailingContent = if (chatListState.isSelectionMode && chatListState.selectedChats.getOrElse(idx) { false } && rowActions.isNotEmpty()) {
+                {
                     Box {
                         IconButton(onClick = { menuOpen = true }) { Icon(Icons.Rounded.MoreVert, stringResource(R.string.conversation_actions)) }
                         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
@@ -1270,15 +1279,24 @@ internal fun ChatListItem(
                             }
                         }
                     }
-                } else if (!chatListState.isSelectionMode && !chatListState.isSearchMode) {
-                    Box(dragHandleModifier.size(48.dp).semantics { contentDescription = "Drag to organize conversation" }, contentAlignment = Alignment.Center) { Icon(androidx.compose.material.icons.Icons.Rounded.DragHandle, null, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
                 }
+            } else {
+                null
             },
             headlineContent = {
                 Row(
+                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
+                    Text(
+                        text = chatRoom.title,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        color = Color.Unspecified,
+                        fontWeight = if (hasUnreadResponse) FontWeight.ExtraBold else FontWeight.Normal,
+                        modifier = Modifier.weight(1f).graphicsLayer { alpha = titleAlpha }
+                    )
                     if (chatRoom.isFavorite) {
                         Icon(
                             imageVector = Icons.Rounded.PushPin,
@@ -1287,14 +1305,6 @@ internal fun ChatListItem(
                             modifier = Modifier.size(16.dp)
                         )
                     }
-                    Text(
-                        text = chatRoom.title,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        color = Color.Unspecified,
-                        fontWeight = if (hasUnreadResponse) FontWeight.ExtraBold else FontWeight.Normal,
-                        modifier = Modifier.graphicsLayer { alpha = titleAlpha }
-                    )
                 }
             },
             leadingContent = {
@@ -1304,7 +1314,7 @@ internal fun ChatListItem(
                         onCheckedChange = { onItemClick() }
                     )
                 } else {
-                    Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+                    Box(dragHandleModifier.size(48.dp), contentAlignment = Alignment.Center) {
                         if (isGenerating) {
                             if (motionEnabled) {
                                 CircularProgressIndicator(Modifier.size(40.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary)
@@ -1312,7 +1322,7 @@ internal fun ChatListItem(
                                 CircularProgressIndicator(progress = { 1f }, modifier = Modifier.size(40.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary)
                             }
                         }
-                        ConversationModeSymbol(chatRoom, isServerChat, hasUnreadResponse)
+                        ConversationModeSymbol(chatRoom, isResearch, hasUnreadResponse)
                         if (hasUnreadResponse) {
                             dev.chungjungsoo.gptmobile.presentation.common.AppGlassSurface(
                                 modifier = Modifier.align(AbsoluteAlignment.BottomRight).size(18.dp),
@@ -1329,44 +1339,28 @@ internal fun ChatListItem(
                 }
             },
             supportingContent = {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     ProfileNameText(usingPlatform, compact)
+                    ConversationProgressBar(workProgress, motionEnabled)
                     chatRoom.draftText?.takeIf { it.isNotBlank() }?.let { draft ->
                         Text("Draft: $draft", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
             }
         )
-        workProgress?.let { work ->
-            androidx.compose.material3.LinearProgressIndicator(
-                progress = { work.fraction },
-                modifier = Modifier.fillMaxWidth().height(3.dp).semantics { stateDescription = work.label },
-                color = if (work.running || work.fraction == 1f) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary
-            )
-        }
     }
 }
 
 @Composable
 private fun ConversationModeSymbol(
     chatRoom: ChatRoomV2,
-    isServerChat: Boolean,
+    isResearch: Boolean,
     hasUnreadResponse: Boolean
 ) {
-    val icon = when {
-        chatRoom.conversationMode == ConversationMode.COMBINED -> if (hasUnreadResponse) R.drawable.ic_conversation_combined_unread else R.drawable.ic_conversation_combined_seen
-        chatRoom.enabledPlatform.size > 1 -> if (hasUnreadResponse) R.drawable.ic_conversation_multi_unread else R.drawable.ic_conversation_multi_seen
-        else -> if (hasUnreadResponse) R.drawable.ic_conversation_chat_unread else R.drawable.ic_conversation_chat_seen
-    }
+    val type = conversationType(chatRoom, isResearch)
     Icon(
-        ImageVector.vectorResource(icon),
-        "${if (chatRoom.conversationMode == ConversationMode.COMBINED) {
-            "Combined"
-        } else if (chatRoom.enabledPlatform.size > 1) {
-            "Multi Chat"
-        } else {
-            "Chat"
-        }} · ${if (hasUnreadResponse) "unread reply" else "read"}",
+        conversationTypeIcon(type, hasUnreadResponse),
+        "${type.title} · ${if (hasUnreadResponse) "unread reply" else "read"}",
         Modifier.size(24.dp),
         tint = MaterialTheme.colorScheme.primary
     )

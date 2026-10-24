@@ -8,6 +8,9 @@ import io.mockk.mockk
 import io.mockk.verify
 import java.net.HttpURLConnection
 import java.nio.file.Files
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -73,11 +76,71 @@ class FreeProviderAccessTest {
         verify(exactly = 1) { connection.setRequestProperty("Authorization", "Bearer synthetic-token") }
         verify { connection.instanceFollowRedirects = false }
         verify { connection.disconnect() }
+        val noToken = mockk<HttpURLConnection>(relaxed = true)
+        every { noToken.responseCode } returns 200
+        every { noToken.inputStream } answers { """{"data":[]}""".byteInputStream() }
+        FreeCatalogState.readCatalog(FreeAiProvider.LLM7, "") { noToken }
+        verify(exactly = 0) { noToken.setRequestProperty("Authorization", any()) }
         val anonymous = mockk<HttpURLConnection>(relaxed = true)
         every { anonymous.responseCode } returns 200
         every { anonymous.inputStream } answers { """{"data":[]}""".byteInputStream() }
         FreeCatalogState.readCatalog(FreeAiProvider.KILO, "do-not-send") { anonymous }
         verify(exactly = 0) { anonymous.setRequestProperty("Authorization", any()) }
+    }
+
+    @Test fun automaticLlm7SelectionNeedsExplicitCurrentFreeAllowanceMetadata() {
+        val selection = dev.chungjungsoo.gptmobile.data.network.Llm7FreeModelSelection
+        assertThrows(IllegalStateException::class.java) { selection.select("automatic", FreeModelCatalog.defaults(FreeAiProvider.LLM7)) }
+        val catalog = listOf(FreeModelOption("paid"), FreeModelOption("eligible", freeAllowance = true))
+        assertEquals("eligible", selection.select("automatic", catalog).id)
+        assertThrows(IllegalStateException::class.java) { selection.select("paid", catalog) }
+        assertThrows(IllegalStateException::class.java) { selection.select("unknown", catalog) }
+    }
+
+    @Test fun parallelCatalogChecksReturnTheirOwnImmutableEligibilitySnapshot() = runTest {
+        val firstRead = CompletableDeferred<Unit>()
+        val releaseFirst = CompletableDeferred<Unit>()
+        val secondRead = CompletableDeferred<Unit>()
+        val releaseSecond = CompletableDeferred<Unit>()
+        fun catalog(id: String) = Json.parseToJsonElement("""{"data":[{"id":"$id","model_type":"chat","tier":"turbo","usage_based_only":false}]}""")
+        val first = async {
+            FreeCatalogState.refresh(FreeAiProvider.LLM7, true, "first-token") {
+                firstRead.complete(Unit)
+                releaseFirst.await()
+                catalog("first-free")
+            }
+        }
+        firstRead.await()
+        val second = async {
+            FreeCatalogState.refresh(FreeAiProvider.LLM7, true, "second-token") {
+                secondRead.complete(Unit)
+                releaseSecond.await()
+                catalog("second-free")
+            }
+        }
+        releaseFirst.complete(Unit)
+        secondRead.await()
+        val firstResult = first.await()
+        assertFalse(FreeCatalogState.status.value.getValue(FreeAiProvider.LLM7).catalogCheckSucceeded)
+        assertTrue(firstResult.succeeded)
+        assertEquals("first-free", dev.chungjungsoo.gptmobile.data.network.Llm7FreeModelSelection.select("automatic", firstResult.models).id)
+        releaseSecond.complete(Unit)
+        assertEquals("second-free", second.await().models.single().id)
+        assertEquals("first-free", firstResult.models.single().id)
+    }
+
+    @Test fun refreshedSnapshotsKeepLearnedCapacityWithoutAuthorizingRemovedModels() = runTest {
+        val provider = FreeAiProvider.LLM7
+        fun catalog(context: Int, output: Int, paid: Boolean = false) = Json.parseToJsonElement("""{"data":[{"id":"eligible","model_type":"chat","tier":"turbo","usage_based_only":$paid,"context_window":{"tokens":$context},"max_output_tokens":$output}]}""")
+        val first = FreeCatalogState.refresh(provider, true) { catalog(8192, 2048) }
+        FreeCatalogState.learnContextLimit(provider, "eligible", 4096)
+        val refreshed = FreeCatalogState.refresh(provider, true) { catalog(32768, 8192) }
+        assertEquals(8192, first.models.single().contextTokens)
+        assertEquals(4096, refreshed.models.single().contextTokens)
+        assertEquals(2048, refreshed.models.single().outputTokens)
+        val removed = FreeCatalogState.refresh(provider, true) { catalog(32768, 8192, paid = true) }
+        assertTrue(removed.succeeded)
+        assertTrue(removed.models.isEmpty())
     }
 
     @Test fun structuredCooldownRetainsEvidenceAndLegacyDeadlinesKeepUnknownScope() {

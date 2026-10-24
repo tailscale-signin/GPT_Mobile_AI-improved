@@ -2,6 +2,8 @@
 
 Base: `7ba0abd59` (main). Branch: `fix/free-provider-contract-auth-2026-10-22`.
 
+**Historical record:** The required-token LLM7 behavior below was superseded on October 24 2026. Anonymous generation on the same public endpoint was verified successfully and restored, with an optional personal token and live free-model eligibility checks. See [the implementation follow-up](../design/Research_Mode_Stability_Implementation_2026-10-23.md#d-4-restore-free-llm7-with-an-optional-token). The existing vault protections and provider-approval control remain in place.
+
 ## Behavior
 
 - The vetted Qwen Space adapter checks `/config` and `/gradio_api/info` before sending a generation. It finds the `add_message` dependency, verifies the two supported public parameters and custom components, maps them onto the complete component order, and inserts JSON null only for discovered `state` inputs. Unknown, duplicated, or missing components fail locally. No universal padding is added to other Spaces.

@@ -119,8 +119,7 @@ object ApiKeyValidator {
             ?: return ValidationResult.Error("Choose a Free service first.")
         if (!provider.isAvailable) return ValidationResult.Error(provider.unavailableReason.orEmpty())
         if (provider.requiresUserToken && apiKey.isBlank()) return ValidationResult.Error("Add API token in this AI profile’s settings.")
-        dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.refresh(provider, true, apiKey)
-        val status = dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.status.value[provider]
-        return if (status?.catalogCheckSucceeded == true) ValidationResult.Success("Catalog reachable; generation has not been verified by this check.") else ValidationResult.Error(status?.message ?: "Service unavailable")
+        val refreshed = dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.refresh(provider, true, apiKey)
+        return if (refreshed.succeeded) ValidationResult.Success("Catalog reachable; generation has not been verified by this check.") else ValidationResult.Error(refreshed.message.ifBlank { "Service unavailable" })
     }
 }

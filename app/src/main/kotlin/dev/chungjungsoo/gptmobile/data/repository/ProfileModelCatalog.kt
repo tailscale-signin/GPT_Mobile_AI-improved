@@ -26,12 +26,11 @@ class ProfileModelCatalog(private val client: OkHttpClient = sharedClient) {
         val type = profile.compatibleType
         if (type == ClientType.FREE) {
             val provider = FreeAiProvider.requireFor(profile)
-            if (provider.requiresUserToken) {
-                require(!profile.token.isNullOrBlank()) { "Add API token in this AI profile’s settings." }
-                dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.refresh(provider, true, profile.token)
-                check(dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.status.value[provider]?.catalogCheckSucceeded == true) {
-                    dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.status.value[provider]?.message ?: "Catalog unavailable"
-                }
+            if (provider.acceptsUserToken) {
+                require(!provider.requiresUserToken || !profile.token.isNullOrBlank()) { "Add API token in this AI profile’s settings." }
+                val refreshed = dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.refresh(provider, true, profile.token)
+                check(refreshed.succeeded) { refreshed.message.ifBlank { "Catalog unavailable" } }
+                return@withContext (dev.chungjungsoo.gptmobile.data.free.FreeModelCatalog.defaults(provider) + refreshed.models).distinctBy { it.id }.map { ProfileModelOption(it.id, it.label) }
             }
             return@withContext dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.models(provider).map { ProfileModelOption(it.id, it.label) }
         }

@@ -159,7 +159,7 @@ class SettingViewModelV2 @Inject constructor(
             val connection = newConnection?.let {
                 settingRepository.addProviderConnection(it, credential)
             }
-            val profileOwnsCredential = platform.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.FREE && dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.fromApiUrl(platform.apiUrl)?.requiresUserToken == true
+            val profileOwnsCredential = platform.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.FREE && dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.fromApiUrl(platform.apiUrl)?.acceptsUserToken == true
             val profileToSave = platform.copy(
                 providerConnectionUid = connection?.uid ?: platform.providerConnectionUid,
                 apiUrl = if (platform.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.FREE) {

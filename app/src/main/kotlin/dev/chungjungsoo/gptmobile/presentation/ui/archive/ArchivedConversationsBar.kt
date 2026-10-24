@@ -64,6 +64,8 @@ fun ArchivedConversationsBar(
     onUnarchiveChat: (ChatRoomV2) -> Unit,
     onDeleteChat: (ChatRoomV2) -> Unit,
     onChatClick: (ChatRoomV2) -> Unit,
+    unreadChatIds: Set<Int> = emptySet(),
+    researchChatIds: Set<Int> = emptySet(),
     modifier: Modifier = Modifier
 ) {
     var pendingDelete by androidx.compose.runtime.remember { mutableStateOf<ChatRoomV2?>(null) }
@@ -149,7 +151,8 @@ fun ArchivedConversationsBar(
                             idx = 0,
                             usingPlatform = profiles.joinToString(", ") { it.name }.ifBlank { room.enabledPlatform.joinToString(", ") { platformState.getPlatformName(it) } },
                             isGenerating = false,
-                            hasUnreadResponse = false,
+                            hasUnreadResponse = room.id in unreadChatIds,
+                            isResearch = room.id in researchChatIds,
                             dismissState = state,
                             profileLabels = collectReusableProfileLabels(profiles.map { it.labels }),
                             onItemClick = {

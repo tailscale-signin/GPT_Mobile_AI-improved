@@ -52,6 +52,39 @@ class ResearchModelCoordinatorTest {
         assertTrue(coordinator.events.any { it.profileUid == "broken" && it.reason == "MODEL_CIRCUIT_OPEN" })
     }
 
+    @Test fun outputLimitsDoNotOpenHealthCircuitsForTypedOrReturnedFailures() = runTest {
+        for (typed in listOf(false, true)) {
+            var attempts = 0
+            val target = ResearchModelEndpoint("worker", "model", "route", false, { true }) { _, _, _ ->
+                attempts++
+                if (attempts <= 2) {
+                    if (typed) {
+                        throw dev.chungjungsoo.gptmobile.data.agent.tool.DelegateGenerationException(
+                            dev.chungjungsoo.gptmobile.data.agent.tool.DelegateFailureKind.OUTPUT_LIMIT,
+                            "Output limit",
+                            0,
+                            0,
+                            0,
+                            true,
+                            partialText = "{\"claims\":["
+                        )
+                    }
+                    ResearchModelReply("{\"claims\":[", "route", transportComplete = true, finishReason = "length", outputLimitReached = true)
+                } else {
+                    ResearchModelReply("""{"claims":[]}""", "route")
+                }
+            }
+            val coordinator = ResearchModelCoordinator(listOf(target))
+            repeat(2) { assertNull(coordinator.generate(ResearchModelStage.EXTRACT, "source", 128)) }
+            assertEquals(listOf("OUTPUT_LIMIT", "OUTPUT_LIMIT"), coordinator.events.map { it.failureCategory })
+            assertTrue(coordinator.events.all { it.outcome == "FAILED" && !it.schemaValid && !it.stageAccepted })
+            assertNotNull(coordinator.generate(ResearchModelStage.EXTRACT, "source", 512))
+            assertEquals(3, attempts)
+            assertFalse(coordinator.events.any { it.reason == "MODEL_CIRCUIT_OPEN" })
+            assertTrue(coordinator.events.last().stageAccepted)
+        }
+    }
+
     @Test fun providerCooldownAdmissionNeverCreatesRunningGeneration() = runTest {
         var attempts = 0
         val endpoint = ResearchModelEndpoint("limited", "model", "route", false, { true }, admission = { ResearchAdmission.PROVIDER_COOLDOWN }) { _, _, _ ->

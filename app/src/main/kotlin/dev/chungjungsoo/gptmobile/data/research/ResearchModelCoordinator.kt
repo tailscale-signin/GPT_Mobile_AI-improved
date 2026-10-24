@@ -215,7 +215,7 @@ internal class ResearchModelCoordinator(
                 if (reply != null && (!reply.transportComplete || reply.transportFailure != null || reply.outputLimitReached || reply.text.startsWith("[PARTIAL_DELEGATE_OUTPUT:"))) {
                     val limited = reply.outputLimitReached || reply.text.startsWith("[PARTIAL_DELEGATE_OUTPUT:")
                     val checkpoint = keepPartial(stage, target, reply.text)
-                    failed(shared = !limited)
+                    if (!limited) failed(shared = true)
                     record(event.copy(outcome = "FAILED", reason = if (limited) "OUTPUT_LIMIT_BEFORE_SCHEMA" else "TRANSPORT_INCOMPLETE", failurePhase = "GENERATION", failureCategory = if (limited) "OUTPUT_LIMIT" else "TRANSPORT", durationMs = elapsed(started), invocationId = reply.invocationId, transportComplete = reply.transportComplete && reply.transportFailure == null, partialRetained = checkpoint != null, checkpointId = checkpoint, providerHost = target.providerHost, finishReason = reply.finishReason, requestId = reply.requestId))
                     continue
                 }
@@ -267,7 +267,7 @@ internal class ResearchModelCoordinator(
                 if (dns && target.providerHost.isNotBlank()) dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.failed(target.providerHost, java.net.UnknownHostException("DNS resolution failed"))
                 val checkpoint = delegated?.partialText?.takeIf { it.isNotBlank() }?.let { keepPartial(stage, target, it) }
                 if (delegated?.transportComplete == true && target.providerHost.isNotBlank()) dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.success(target.providerHost)
-                if (category !in setOf("BUDGET_DENIED", "CONTEXT_LIMIT", "AUTHORIZATION", "ADMISSION")) {
+                if (category !in setOf("OUTPUT_LIMIT", "BUDGET_DENIED", "CONTEXT_LIMIT", "AUTHORIZATION", "ADMISSION")) {
                     failed(shared = category in setOf("TRANSPORT", "RATE_LIMITED", "PROVIDER_UNAVAILABLE", "PROVIDER_OVERLOADED", "RUNTIME_QUARANTINED", "REASONING_ONLY", "EMPTY_OUTPUT"))
                 }
                 record(
@@ -333,7 +333,6 @@ internal class ResearchModelCoordinator(
                 error is dev.chungjungsoo.gptmobile.data.agent.CombinedBudgetExceeded ||
                     listOf("CombinedBudgetExceeded", "OUTPUT_BUDGET_UNENFORCEABLE", "RESEARCH_OUTPUT_ALLOWANCE", "PHYSICAL_ATTEMPT_ALLOWANCE", "RESEARCH_STAGE_UNFUNDED", "REQUIRED_WORK_UNFUNDED", "BUDGET_DENIED", "work allowance reached", "total token allowance").any { messages.contains(it, true) } -> "BUDGET_DENIED"
                 messages.contains("DELEGATE_OVERSIZED", true) || messages.contains("CONTEXT_CAPACITY", true) -> "CONTEXT_LIMIT"
-                messages.contains("503") || messages.contains("overload", true) -> "PROVIDER_OVERLOADED"
                 delegated?.kind == dev.chungjungsoo.gptmobile.data.agent.tool.DelegateFailureKind.REASONING_ONLY -> "REASONING_ONLY"
                 delegated?.kind == dev.chungjungsoo.gptmobile.data.agent.tool.DelegateFailureKind.EMPTY_OUTPUT -> "EMPTY_OUTPUT"
                 delegated?.kind == dev.chungjungsoo.gptmobile.data.agent.tool.DelegateFailureKind.TRANSPORT_FAILURE -> "TRANSPORT"
@@ -343,6 +342,7 @@ internal class ResearchModelCoordinator(
                 messages.contains("PROFILE_", true) -> "PROFILE_RESOLUTION"
                 messages.contains("interrupted inside native", true) || messages.contains("QUARANTIN", true) -> "RUNTIME_QUARANTINED"
                 error is IllegalArgumentException -> "ARGUMENT_VALIDATION"
+                messages.contains("503") || messages.contains("overload", true) -> "PROVIDER_OVERLOADED"
                 error is java.io.IOException -> "TRANSPORT"
                 else -> "PROVIDER_ADAPTER"
             }

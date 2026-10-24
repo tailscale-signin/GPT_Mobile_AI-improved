@@ -14,10 +14,12 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
@@ -27,6 +29,217 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AndroidResearchWorkflowTest {
+    private fun reviewPacket(prompt: String) = Json.parseToJsonElement(Json.parseToJsonElement(prompt.substringAfterLast('\n')).jsonObject.getValue("untrusted_evidence").jsonPrimitive.content).jsonObject
+
+    private fun boundedReviewReply(prompt: String) = buildJsonObject {
+        put("packetId", reviewPacket(prompt).getValue("packetId"))
+        put("verdict", "Supported")
+        put("relevance", "Relevant")
+        put("questionId", "Q1")
+        put("rationale", "The supplied quote states the request limit.")
+    }.toString()
+
+    private fun smallResearchWorker(inputBudget: Int = 2000, review: (String) -> String = { boundedReviewReply(it) }, extract: (String) -> String) = dev.chungjungsoo.gptmobile.data.research.ResearchModelCoordinator(
+        listOf(
+            dev.chungjungsoo.gptmobile.data.research.ResearchModelEndpoint(
+                "free",
+                "small",
+                "small",
+                false,
+                { true },
+                requestBudget = { dev.chungjungsoo.gptmobile.data.research.ResearchModelRequestBudget(256, inputBudget, true) }
+            ) { stage, prompt, output ->
+                assertEquals(256, output)
+                assertTrue(dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(prompt) <= inputBudget)
+                val text = when (stage) {
+                    dev.chungjungsoo.gptmobile.data.research.ResearchModelStage.PLAN -> """{"questions":[{"id":"Q1","text":"What is the documented request limit?"}],"queries":[{"id":"QRY1","text":"research device requests","questionIds":["Q1"]}]}"""
+                    dev.chungjungsoo.gptmobile.data.research.ResearchModelStage.EXTRACT -> {
+                        assertTrue(prompt.startsWith("Extract at most 1 claims"))
+                        assertTrue(prompt.contains("under 512 characters"))
+                        assertFalse(prompt.contains("under 6000 characters"))
+                        extract(prompt)
+                    }
+                    dev.chungjungsoo.gptmobile.data.research.ResearchModelStage.REVIEW -> review(prompt)
+                    dev.chungjungsoo.gptmobile.data.research.ResearchModelStage.FIND_GAPS -> """{"missing":[],"queries":[]}"""
+                }
+                dev.chungjungsoo.gptmobile.data.research.ResearchModelReply(text, "small", "inv-${stage.name}")
+            }
+        )
+    )
+
+    private fun boundedClaim() = """{"sourceId":"S1","questionId":"Q1","text":"Two parallel page requests are supported.","quote":"$passage"}"""
+
+    @Test fun smallFreeModelCanCompleteExplicitlyAcknowledgedShortSourceWithoutRepeatingIt() = runBlocking {
+        val journal = Journal()
+        var extractionCalls = 0
+        val worker = smallResearchWorker {
+            extractionCalls++
+            """{"packetComplete":true,"claims":[${boundedClaim()}]}"""
+        }
+        val first = AndroidResearchWorkflow(config(1), listOf(search(), reader()), { _, _ -> error("Legacy generator must not run") }, journal, modelCoordinator = worker).run("Research documented request limits", "small-first")
+        val retained = requireNotNull(journal.snapshot)
+        assertEquals(LocalResearchOutcome.SUCCESS, first.outcome)
+        assertTrue(retained.complete)
+        assertEquals(1, retained.claims.size)
+        assertEquals(passage, retained.sources.single().passage)
+        assertTrue(retained.extractedSourceVersions.any { it.contains(":packet-v2:") })
+        assertTrue(retained.extractedSourceVersions.contains("S1:" + dev.chungjungsoo.gptmobile.data.research.researchHash(retained.sources.single().versionId + passage)))
+        assertTrue(worker.completedStage("extract"))
+        assertEquals(1, extractionCalls)
+        val alias = retained.sources.single().copy(id = "S2", url = "https://example.org/duplicate", canonicalUrl = "https://example.org/duplicate", originId = "S1")
+        for (order in listOf(retained.sources + alias, listOf(alias) + retained.sources)) {
+            journal.snapshot = retained.copy(sources = order)
+            val resumed = AndroidResearchWorkflow(config(1), listOf(search(), reader()), { _, _ -> error("Legacy generator must not run") }, journal, modelCoordinator = worker).run("Research documented request limits", "small-resume")
+            assertEquals(LocalResearchOutcome.SUCCESS, resumed.outcome)
+            assertEquals(retained.claims, journal.snapshot!!.claims)
+            assertEquals("S1", journal.snapshot!!.sources.single().id)
+            assertEquals(1, extractionCalls)
+        }
+    }
+
+    @Test fun incompleteOrNonBooleanPacketCompletionRetainsClaimsAndCanRevisitTheSamePacketOnResume() = runBlocking {
+        for (completion in listOf("", "\"packetComplete\":false,", "\"packetComplete\":\"true\",")) {
+            val journal = Journal()
+            val prompts = mutableListOf<String>()
+            var acknowledge = false
+            fun worker() = smallResearchWorker { prompt ->
+                prompts += prompt
+                if (acknowledge) """{"packetComplete":true,"claims":[${boundedClaim()}]}""" else """{$completion"claims":[${boundedClaim()}]}"""
+            }
+            val first = AndroidResearchWorkflow(config(1), listOf(search(), reader()), { _, _ -> error("Legacy generator must not run") }, journal, modelCoordinator = worker()).run("Research documented request limits", "small-partial")
+            val retained = requireNotNull(journal.snapshot)
+            assertEquals(LocalResearchOutcome.PARTIAL_USEFUL, first.outcome)
+            assertFalse(retained.complete)
+            assertEquals(1, retained.claims.size)
+            assertEquals(passage, retained.sources.single().passage)
+            assertTrue(retained.extractedSourceVersions.isEmpty())
+            assertTrue(retained.notes.any { it.contains("awaiting another packet") })
+            assertEquals(1, prompts.size)
+            acknowledge = true
+            val resumed = AndroidResearchWorkflow(config(1), listOf(search(), reader()), { _, _ -> error("Legacy generator must not run") }, journal, modelCoordinator = worker()).run("Research documented request limits", "small-resume")
+            assertEquals(2, prompts.size)
+            assertEquals(prompts.first(), prompts.last())
+            assertEquals(LocalResearchOutcome.SUCCESS, resumed.outcome)
+            assertTrue(requireNotNull(journal.snapshot).complete)
+            assertEquals(1, journal.snapshot!!.claims.size)
+        }
+    }
+
+    @Test fun packetAcknowledgementCannotHideOverflowOrMalformedClaimRows() = runBlocking {
+        for (extra in listOf(boundedClaim(), "42", """{"text":"Unquoted unsupported claim"}""")) {
+            val journal = Journal()
+            var calls = 0
+            val worker = smallResearchWorker {
+                calls++
+                """{"packetComplete":true,"claims":[${boundedClaim()},$extra]}"""
+            }
+            AndroidResearchWorkflow(config(1), listOf(search(), reader()), { _, _ -> error("Legacy generator must not run") }, journal, modelCoordinator = worker).run("Research documented request limits", "small-invalid")
+            assertFalse(requireNotNull(journal.snapshot).complete)
+            assertEquals(1, journal.snapshot!!.claims.size)
+            assertTrue(journal.snapshot!!.extractedSourceVersions.isEmpty())
+            assertFalse(worker.completedStage("extract"))
+            assertEquals(1, calls)
+        }
+    }
+
+    @Test fun acknowledgedPacketsAdvanceWithinOneBudgetedRunAndSettleTheStageOnlyAfterTheLastPacket() = runBlocking {
+        val journal = Journal()
+        val fullPassage = passage.repeat(10)
+        val packetStarts = mutableListOf<Int>()
+        val worker = smallResearchWorker { prompt ->
+            val envelope = Json.parseToJsonElement(prompt.substringAfterLast('\n')).jsonObject
+            val packet = Json.parseToJsonElement(envelope.getValue("untrusted_evidence").jsonPrimitive.content.substringAfter('\n')).jsonObject
+            val start = packet.getValue("packetStart").jsonPrimitive.content.toInt()
+            packetStarts += start
+            if (start == 0) """{"packetComplete":true,"claims":[${boundedClaim()}]}""" else """{"packetComplete":true,"claims":[]}"""
+        }
+        val read = reader { id, _ ->
+            AgentToolResult(
+                id,
+                ToolResultContent.Json(
+                    buildJsonObject {
+                        put("content", fullPassage)
+                        put("links", JsonArray(emptyList()))
+                    }
+                ),
+                false
+            )
+        }
+        val result = AndroidResearchWorkflow(config(1), listOf(search(), read), { _, _ -> error("Legacy generator must not run") }, journal, modelCoordinator = worker).run("Research documented request limits", "small-packets")
+        assertEquals(LocalResearchOutcome.SUCCESS, result.outcome)
+        assertTrue(requireNotNull(journal.snapshot).complete)
+        assertEquals(fullPassage, journal.snapshot!!.sources.single().passage)
+        assertTrue(packetStarts.size >= 3)
+        assertEquals(packetStarts.distinct().sorted(), packetStarts)
+        assertTrue(worker.completedStage("extract"))
+    }
+
+    @Test fun longCaptureUsesSingleBoundedReviewsAndKeepsInvalidCounterevidencePendingUntilRetry() = runBlocking {
+        val task = "Research documented request limits"
+        val omitted = "The omitted appendix reports a contrary finding that was never supplied in this review packet."
+        val otherQuote = "The archived server supports three concurrent tasks and records each completed operation in the retained response history."
+        val fullPassage = omitted + " Background discussion describes the test method and its limitations. ".repeat(250) + passage + otherQuote
+        val source = dev.chungjungsoo.gptmobile.data.research.ResearchSource("S1", "https://example.org/research/1", "Research documentation", "Read", fullPassage, retrievedAt = System.currentTimeMillis(), versionId = "v1")
+        val questions = listOf(dev.chungjungsoo.gptmobile.data.research.ResearchQuestion("Q1", "What is the documented request limit?"))
+        val claims = listOf(passage, otherQuote).mapIndexed { index, quote -> dev.chungjungsoo.gptmobile.data.research.ResearchClaim(if (index == 0) "Two parallel page requests are supported." else "Three concurrent tasks are supported.", "S1", quote, questionId = "Q1", exactQuoteVerified = true, extractedBy = "extractor", sourceVersion = "v1", passageHash = dev.chungjungsoo.gptmobile.data.research.researchHash(fullPassage)) }
+        val journal = Journal().apply {
+            snapshot = ResearchSnapshot(task, questions = questions.map { it.text }, questionPlan = questions, queries = listOf("research device requests"), sources = listOf(source), claims = claims, extractedSourceVersions = setOf("S1:" + dev.chungjungsoo.gptmobile.data.research.researchHash(source.versionId + source.passage)))
+        }
+        var reviewCalls = 0
+        val worker = smallResearchWorker(inputBudget = 1200, review = { prompt ->
+            reviewCalls++
+            assertTrue(prompt.startsWith("Review one claim"))
+            assertFalse(prompt.contains("Review each claim"))
+            val packet = reviewPacket(prompt)
+            assertTrue(packet.getValue("packetStart").jsonPrimitive.content.toInt() > fullPassage.length / 2)
+            assertFalse(omitted in packet.getValue("passage").jsonPrimitive.content)
+            val valid = Json.parseToJsonElement(boundedReviewReply(prompt)).jsonObject
+            if (reviewCalls == 2) JsonObject(valid + mapOf("verdict" to JsonPrimitive("Contradicted"), "counterEvidence" to JsonPrimitive(omitted))).toString() else valid.toString()
+        }) { error("Retained extraction must not repeat") }
+        val first = AndroidResearchWorkflow(config(1), listOf(search(), reader()), { _, _ -> error("Legacy generator must not run") }, journal, modelCoordinator = worker).run(task, "bounded-review")
+        assertEquals(2, reviewCalls)
+        assertEquals(LocalResearchOutcome.PARTIAL_USEFUL, first.outcome)
+        assertFalse(journal.snapshot!!.complete)
+        assertEquals("Supported", journal.snapshot!!.claims.first().verdict)
+        assertEquals(claims.last(), journal.snapshot!!.claims.last())
+        assertEquals(fullPassage, journal.snapshot!!.sources.single().passage)
+        assertFalse(worker.completedStage("review"))
+        assertTrue(worker.events.any { it.stage == "REVIEW" && it.outcome == "VALIDATION_FAILED" && !it.stageAccepted })
+        val resumedWorker = smallResearchWorker(inputBudget = 1200, review = { prompt ->
+            reviewCalls++
+            boundedReviewReply(prompt)
+        }) { error("Retained extraction must not repeat") }
+        val resumed = AndroidResearchWorkflow(config(1), listOf(search(), reader()), { _, _ -> error("Legacy generator must not run") }, journal, modelCoordinator = resumedWorker).run(task, "bounded-review-resume")
+        assertEquals(3, reviewCalls)
+        assertEquals(LocalResearchOutcome.SUCCESS, resumed.outcome)
+        assertTrue(journal.snapshot!!.complete)
+        assertEquals(fullPassage, journal.snapshot!!.sources.single().passage)
+        assertTrue(journal.snapshot!!.claims.all { it.reviewRubric.startsWith("bounded-passage-v1:") && it.sourceVersion == "v1" && it.passageHash == dev.chungjungsoo.gptmobile.data.research.researchHash(fullPassage) })
+        assertTrue(resumedWorker.completedStage("review"))
+    }
+
+    @Test fun oversizedMandatoryReviewTaskLeavesClaimUntouchedWithoutDispatch() = runBlocking {
+        val task = "Research the complete required task scope ".repeat(1000)
+        val source = dev.chungjungsoo.gptmobile.data.research.ResearchSource("S1", "https://example.org/research/1", "Research documentation", "Read", passage, retrievedAt = System.currentTimeMillis(), versionId = "v1")
+        val question = dev.chungjungsoo.gptmobile.data.research.ResearchQuestion("Q1", "What is the documented request limit?")
+        val claim = dev.chungjungsoo.gptmobile.data.research.ResearchClaim("Two parallel page requests are supported.", "S1", passage, questionId = "Q1", exactQuoteVerified = true, sourceVersion = "v1", passageHash = dev.chungjungsoo.gptmobile.data.research.researchHash(passage))
+        val journal = Journal().apply {
+            snapshot = ResearchSnapshot(task, questions = listOf(question.text), questionPlan = listOf(question), queries = listOf("research device requests"), sources = listOf(source), claims = listOf(claim), extractedSourceVersions = setOf("S1:" + dev.chungjungsoo.gptmobile.data.research.researchHash(source.versionId + source.passage)))
+        }
+        var calls = 0
+        val worker = smallResearchWorker(inputBudget = 1200, review = {
+            calls++
+            error("Oversized review must not dispatch")
+        }) { error("Retained extraction must not repeat") }
+        AndroidResearchWorkflow(config(1), listOf(search(), reader()), { _, _ -> error("Legacy generator must not run") }, journal, modelCoordinator = worker).run(task, "oversized-review")
+        assertEquals(0, calls)
+        assertFalse(journal.snapshot!!.complete)
+        assertEquals(claim, journal.snapshot!!.claims.single())
+        assertEquals(passage, journal.snapshot!!.sources.single().passage)
+        assertTrue(journal.snapshot!!.notes.any { it.contains("quote-bound claim reviews") })
+        assertFalse(worker.completedStage("review"))
+    }
+
     @Test fun requiredIntentCannotBeWaivedByInitialPlannerRepairOrConversationHeuristic() = runBlocking {
         val saved = Journal()
         val journal = object : ResearchJournal by saved {

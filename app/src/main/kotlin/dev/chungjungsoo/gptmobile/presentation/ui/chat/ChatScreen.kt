@@ -783,7 +783,10 @@ fun ChatScreen(
                             execution = execution,
                             onStop = { chatViewModel.stopResearchAttempt(execution.accepted.rootWorkId) },
                             onRetry = { chatViewModel.retryResearch(execution.accepted.rootWorkId) },
-                            onReviewInterruptedRequests = { chatViewModel.reviewInterruptedResearch(execution.accepted.rootWorkId) }
+                            onReviewInterruptedRequests = { chatViewModel.reviewInterruptedResearch(execution.accepted.rootWorkId) },
+                            debugMode = debugMode,
+                            profileStatistics = researchProfileStatistics[execution.accepted.rootWorkId].orEmpty(),
+                            profileNames = appAllPlatforms.associate { it.uid to it.name }
                         )
                     }
                     val chatResearch = researchSessions.values.filter { session ->
@@ -817,7 +820,8 @@ fun ChatScreen(
                             deliveryRevisionText = owner?.effectiveContent(),
                             profileStatistics = researchProfileStatistics[chatResearch.first().turnId].orEmpty(),
                             profileNames = appAllPlatforms.associate { it.uid to it.name } + turnRuns.associate { run -> run.runId to (appAllPlatforms.firstOrNull { it.uid == run.profileUid }?.name ?: run.profileUid) },
-                            deliveryComplete = combinedComplete
+                            deliveryComplete = combinedComplete,
+                            debugMode = debugMode
                         )
                     }
                 }

@@ -326,6 +326,14 @@ internal class FreeQueuedTransport(private val client: HttpClient, private val p
         var snapshot: String? = null
         var diagnostic: String? = null
         var retrievalFailure: java.io.IOException? = null
+        fun generationFailed(envelope: String, event: String): Nothing {
+            config.freeDiagnostics?.stage = "generation"
+            config.freeDiagnostics?.category = FreeFailureCategory.HOSTED_GENERATION_FAILED
+            val detail = gradioErrorDetails(envelope, config.token)
+            val message = "Space generation failed: $detail This job cannot resume; start a new generation later or choose another Free provider."
+            dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.record(config, model, message, body = envelope, event = event, terminal = true)
+            throw QueueTerminalFailure(message)
+        }
         client.prepareGet("${FreeAiProvider.HUGGING_FACE.apiUrl}/gradio_api/call/add_message/$id") {
             timeout {
                 requestTimeoutMillis = null
@@ -360,21 +368,20 @@ internal class FreeQueuedTransport(private val client: HttpClient, private val p
                 }
                 if (line.isBlank() && (data.isNotEmpty() || event == "error")) {
                     if (event == "error") {
-                        config.freeDiagnostics?.stage = "generation"
-                        config.freeDiagnostics?.category = FreeFailureCategory.HOSTED_GENERATION_FAILED
                         val envelope = gradioErrorEnvelope(data.toString()).takeUnless { it == "{}" } ?: diagnostic?.let { buildJsonObject { put("message", it) }.toString() } ?: "{}"
-                        val detail = gradioErrorDetails(envelope)
-                        val message = "Space generation failed: $detail This job cannot resume; start a new generation later or choose another Free provider."
-                        dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.record(config, model, message, body = envelope, event = event, terminal = true)
-                        throw QueueTerminalFailure(message)
+                        generationFailed(envelope, event)
                     }
                     config.freeDiagnostics?.progress = event.take(40)
                     if (event in setOf("generating", "complete")) {
                         val record = Json.parseToJsonElement(data.toString())
                         qwenDiagnostic(record, config.token)?.let { diagnostic = it }
-                        gradioAnswerOrNull(record)?.let { snapshot = it }
+                        // The Space renders upstream exceptions into an assistant bubble before
+                        // reporting failure. That diagnostic is never answer text, even when a
+                        // later transport event says complete or the stream ends unexpectedly.
+                        if (diagnostic == null) gradioAnswerOrNull(record)?.let { snapshot = it }
                     }
                     if (event == "complete") {
+                        diagnostic?.let { generationFailed(buildJsonObject { put("message", it) }.toString(), event) }
                         final = snapshot ?: throw QueueTerminalFailure("Space completed without an assistant answer. Start a new generation or choose another Free provider.")
                         break
                     }
@@ -388,6 +395,7 @@ internal class FreeQueuedTransport(private val client: HttpClient, private val p
                 if (nextLine == null) break
             }
         }
+        diagnostic?.let { generationFailed(buildJsonObject { put("message", it) }.toString(), "provider_diagnostic") }
         if (final == null) {
             snapshot?.takeIf { it.isNotBlank() && diagnostic == null }?.let { emit(ChatCompletionChunk(choices = listOf(Choice(delta = Delta(content = it))))) }
             retrievalFailure?.let { throw it }
@@ -445,7 +453,8 @@ internal class FreeQueuedTransport(private val client: HttpClient, private val p
             val outputs = data as? JsonArray ?: error("Invalid Space completion record")
             // Gradio hides State components from its public API; output positions can vary.
             val answer = outputs.mapNotNull { if (it is JsonObject) it["value"] as? JsonArray else it as? JsonArray }
-                .flatMap { it.filterIsInstance<JsonObject>() }.lastOrNull { it.text("role") == "assistant" } ?: return null
+                .flatMap { it.filterIsInstance<JsonObject>() }.lastOrNull { it.text("role") in setOf("assistant", "user") }
+                ?.takeIf { it.text("role") == "assistant" } ?: return null
             val content = answer["content"]
             return if (content is JsonPrimitive) {
                 content.contentOrNull

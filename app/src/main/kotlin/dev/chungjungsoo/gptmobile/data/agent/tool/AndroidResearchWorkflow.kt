@@ -100,6 +100,16 @@ internal class AndroidResearchWorkflow(
     private fun questions() = enforcePublicationPolicy(state.questionPlan.ifEmpty { state.questions.mapIndexed { index, text -> ResearchQuestion("Q${index + 1}", text) } })
     private fun collectionWorkCount() = sources.values.filter { !featurePolicy.peerReviewedOnly || it.reviewStatus.equals("peer_reviewed", true) && it.isPreprint != true && it.isRetracted != true }.readableWorkCount()
     private fun coverage() = assessResearchCoverage(questions(), state.claims, sources.values.toList())
+    private fun boundedExtractionPending(captured: List<ResearchSource> = sources.values.toList(), extracted: Set<String> = state.extractedSourceVersions): Boolean =
+        options.reviewEvidence &&
+            modelCoordinator?.requestBudget(dev.chungjungsoo.gptmobile.data.research.ResearchModelStage.EXTRACT, minOf(config.maxOutputTokens, 3072))?.bounded == true &&
+            captured.any { source -> source.readable && source.originId.isBlank() && "${source.id}:${researchHash(source.versionId + source.passage)}" !in extracted }
+
+    private fun boundedAnalysisPending(captured: List<ResearchSource> = sources.values.toList(), extracted: Set<String> = state.extractedSourceVersions, claims: List<dev.chungjungsoo.gptmobile.data.research.ResearchClaim> = state.claims): Boolean =
+        boundedExtractionPending(captured, extracted) ||
+            options.reviewEvidence &&
+            modelCoordinator?.requestBudget(dev.chungjungsoo.gptmobile.data.research.ResearchModelStage.REVIEW, minOf(config.maxOutputTokens, 1536))?.bounded == true &&
+            claims.any { claim -> (claim.verdict == "Unreviewed" || claim.relevance == "Unknown") && captured.any { researchClaimMatchesCapture(claim, it) } }
 
     private fun supportedClaimIdentities(): Set<String> = state.claims.filter { it.verdict == "Supported" }
         .map { researchHash("${it.sourceId}\n${it.text}\n${it.quote}") }.toSet()
@@ -148,14 +158,11 @@ internal class AndroidResearchWorkflow(
             val prompt = if (modelCoordinator == null) {
                 delegationPrompt("$instruction\n$budgetContext", state.task, evidence, config.maxInputCharacters.coerceIn(2000, 16000))
             } else {
-                "$instruction\n$budgetContext\n" + buildJsonObject {
-                    put("taskText", state.task)
-                    put("sourceGoal", sourceTarget)
-                    put("untrusted_evidence", evidence)
-                }
+                dev.chungjungsoo.gptmobile.data.research.researchStagePrompt(instruction, state.task, evidence, sourceTarget)
             }
-            val cap = minOf(config.maxOutputTokens, if (stage == dev.chungjungsoo.gptmobile.data.research.ResearchModelStage.EXTRACT) 3072 else 1536)
+            val requestedCap = minOf(config.maxOutputTokens, if (stage == dev.chungjungsoo.gptmobile.data.research.ResearchModelStage.EXTRACT) 3072 else 1536)
             val worker = modelCoordinator
+            val cap = worker?.requestBudget(stage, requestedCap)?.outputTokens ?: requestedCap
             if (worker == null) {
                 withTimeoutOrNull(dev.chungjungsoo.gptmobile.data.research.ResearchTimeouts.MODEL_MS) {
                     generate(prompt, cap)?.let(::parseDelegationObject)
@@ -222,7 +229,7 @@ internal class AndroidResearchWorkflow(
         val retained = journal?.load(task)?.withFreshEvidence(now())
         val saved = retained?.takeIf { normalizedTask(it.task).equals(normalizedTask(task), ignoreCase = true) }?.let {
             // A historical collection-complete flag is not proof of question coverage.
-            it.copy(complete = it.complete && if (it.phase == "Not needed") !requiresEvidence else assessResearchCoverage(enforcePublicationPolicy(it.questionPlan), it.claims, it.sources).complete)
+            it.copy(complete = it.complete && if (it.phase == "Not needed") !requiresEvidence else assessResearchCoverage(enforcePublicationPolicy(it.questionPlan), it.claims, it.sources).complete && !boundedAnalysisPending(it.sources, it.extractedSourceVersions, it.claims))
         }
         // A sibling task shares evidence, never another task's questions or completion.
         state = saved ?: ResearchSnapshot(task, sources = retained?.sources.orEmpty(), claims = retained?.claims.orEmpty().map { it.copy(relevance = "Unknown", questionId = "") }, queries = retained?.queries.orEmpty(), notes = listOf("Policy:$policy"))
@@ -237,8 +244,11 @@ internal class AndroidResearchWorkflow(
                     else -> true
                 }
         }.forEach {
-            sources[it.equivalenceGroup.ifBlank { canonicalSearchUrl(it.url) }] =
-                if (it.status == "Deferred") it.copy(status = if (it.paperId.isNotBlank()) "Metadata only" else "Discovered", failureReason = "") else it
+            val key = it.equivalenceGroup.ifBlank { canonicalSearchUrl(it.url) }
+            // An origin-linked alias is not a readable capture. It must not replace its
+            // original during restoration and erase claims already bound to that source.
+            if (it.originId.isNotBlank() && sources[key]?.originId?.isBlank() == true) return@forEach
+            sources[key] = if (it.status == "Deferred") it.copy(status = if (it.paperId.isNotBlank()) "Metadata only" else "Discovered", failureReason = "") else it
         }
         state = state.copy(claims = state.claims.filter { claim -> sources.values.any { it.id == claim.sourceId && it.readable } })
         queries += state.queries
@@ -378,12 +388,14 @@ internal class AndroidResearchWorkflow(
                             "No further eligible evidence"
                         }
                     }
+                } else if (boundedAnalysisPending()) {
+                    "Research analysis remains pending"
                 } else if (!coverage().complete) {
                     "Partial coverage"
                 } else {
                     "Complete"
                 },
-                complete = !exhausted && collecting() && !stopped() && (noResearchNeeded || collectionWorkCount() >= sourceTarget && coverage().complete)
+                complete = !exhausted && collecting() && !stopped() && (noResearchNeeded || collectionWorkCount() >= sourceTarget && coverage().complete && !boundedAnalysisPending())
             )
         } catch (cancelled: CancellationException) {
             val cancellation = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.delegation.DelegationCancellationContext]
@@ -1000,38 +1012,70 @@ internal class AndroidResearchWorkflow(
         for (source in sources.values.filter { it.readable && it.originId.isBlank() }.sortedByDescending { source -> questions().count { dev.chungjungsoo.gptmobile.data.research.researchSourceCanAnswer(it, source) } }) {
             if (stopped() || exhausted || !collecting()) break
             val sourceVersion = "${source.id}:${researchHash(source.versionId + source.passage)}"
-            if (sourceVersion !in state.extractedSourceVersions) {
-                val extracted = model(
-                    "Extract at most 6 claims addressing the supplied research questions. Preserve study design, enrolled and analyzed participants, intervention and comparator, numeric results with units and uncertainty, adverse or null results and limitations as separate source-supported claims when available. Return JSON {\"claims\":[{\"text\":\"precise claim\",\"sourceId\":\"${source.id}\",\"questionId\":\"Q1\",\"quote\":\"exact supporting passage copied verbatim\",\"facts\":[{\"value\":\"verbatim number\",\"unit\":\"verbatim unit\",\"population\":\"verbatim population\",\"intervention\":\"verbatim intervention\",\"outcome\":\"verbatim outcome\",\"comparator\":\"verbatim comparator\",\"qualifiers\":[],\"quote\":\"exact sentence from the claim quote\"}]}]}. Every explicit numerical value with a unit in a claim or its quote requires a matching fact; include facts for all such quantities. Facts are optional for nonnumerical claims. Use empty strings for unavailable population, intervention, outcome or comparator attributes, never inferred labels. Each fact must bind one result in one exact source sentence; never combine populations or outcomes from different findings with the same number. The app supplies source version, passage hash and locator. Use compact JSON with no commentary. Keep each claim text under 200 characters and each exact quote 20-600 characters; use the shortest passage that supports it. Keep the whole object under 6000 characters so the structured response finishes within its output allowance. Prioritize contrary findings and limitations alongside benefits. Empty claims are valid when this source does not answer a question. Never use snippets or infer publication type.",
-                    "Questions: " + JsonArray(questions().map { it.json() }) + "\n" + source.json(),
-                    dev.chungjungsoo.gptmobile.data.research.ResearchModelStage.EXTRACT
-                ) ?: continue
-                if (extracted["claims"] !is JsonArray) continue
-                val claims = validatedResearchClaims(extracted.rows("claims"), listOf(source), requireNumericalFacts = true).take(6).map { it.copy(extractedBy = lastModelReply?.modelKey.orEmpty(), extractionInvocationId = lastModelReply?.invocationId.orEmpty()) }
-                if (extracted.rows("claims").isNotEmpty() && claims.isEmpty()) {
-                    modelCoordinator?.rejectGrounding(lastModelReply?.invocationId)
-                    state = state.copy(notes = (state.notes + "Claim extraction did not pass source grounding; this version remains unfinished.").distinct())
+            val extractionStage = dev.chungjungsoo.gptmobile.data.research.ResearchModelStage.EXTRACT
+            var boundedExtraction = false
+            while (sourceVersion !in state.extractedSourceVersions) {
+                if (stopped() || exhausted || !collecting()) break
+                val allowance = modelCoordinator?.requestBudget(extractionStage, minOf(config.maxOutputTokens, 3072))
+                boundedExtraction = allowance?.bounded == true
+                val packet = allowance?.takeIf { it.bounded }?.let {
+                    dev.chungjungsoo.gptmobile.data.research.ResearchExtractionPackets.next(source, questions(), state.task, sourceTarget, it, state.extractedSourceVersions)
+                }
+                val remainingNote = "${source.id} has retained passages or claims awaiting another packet or a larger Research allowance."
+                if (boundedExtraction && packet == null) {
+                    state = state.copy(notes = (state.notes + remainingNote).distinct())
                     checkpoint()
-                    continue
-                }
-                state = state.copy(
-                    claims = (state.claims + claims).distinctBy { listOf(it.sourceId, it.text, it.quote, it.sourceVersion) },
-                    extractedSourceVersions = state.extractedSourceVersions + sourceVersion
-                )
-                val facts = claims.flatMap { it.facts }
-                if (facts.isNotEmpty()) {
-                    fun labels(existing: String, values: List<String>) = (listOf(existing) + values).filter(String::isNotBlank).distinct().joinToString("; ").take(1000)
-                    sources.entries.firstOrNull { it.value.id == source.id && it.value.versionId == source.versionId }?.setValue(
-                        source.copy(
-                            population = labels(source.population, facts.map { it.population }),
-                            intervention = labels(source.intervention, facts.map { it.intervention }),
-                            outcomes = labels(source.outcomes, facts.map { it.outcome }),
-                            metadataProvenance = (source.metadataProvenance + "literal_claim_attributes:${researchHash(source.passage)}").distinct()
-                        )
+                    break
+                } else {
+                    val extracted = model(
+                        packet?.instruction ?: "Extract at most 6 claims addressing the supplied research questions. Preserve study design, enrolled and analyzed participants, intervention and comparator, numeric results with units and uncertainty, adverse or null results and limitations as separate source-supported claims when available. Return JSON {\"claims\":[{\"text\":\"precise claim\",\"sourceId\":\"${source.id}\",\"questionId\":\"Q1\",\"quote\":\"exact supporting passage copied verbatim\",\"facts\":[{\"value\":\"verbatim number\",\"unit\":\"verbatim unit\",\"population\":\"verbatim population\",\"intervention\":\"verbatim intervention\",\"outcome\":\"verbatim outcome\",\"comparator\":\"verbatim comparator\",\"qualifiers\":[],\"quote\":\"exact sentence from the claim quote\"}]}]}. Every explicit numerical value with a unit in a claim or its quote requires a matching fact; include facts for all such quantities. Facts are optional for nonnumerical claims. Use empty strings for unavailable population, intervention, outcome or comparator attributes, never inferred labels. Each fact must bind one result in one exact source sentence; never combine populations or outcomes from different findings with the same number. The app supplies source version, passage hash and locator. Use compact JSON with no commentary. Keep each claim text under 200 characters and each exact quote 20-600 characters; use the shortest passage that supports it. Keep the whole object under 6000 characters so the structured response finishes within its output allowance. Prioritize contrary findings and limitations alongside benefits. Empty claims are valid when this source does not answer a question. Never use snippets or infer publication type.",
+                        packet?.evidence ?: ("Questions: " + JsonArray(questions().map { it.json() }) + "\n" + source.json()),
+                        extractionStage
+                    ) ?: break
+                    val rawClaims = extracted["claims"] as? JsonArray ?: break
+                    val grounded = validatedResearchClaims(extracted.rows("claims"), listOf(source), requireNumericalFacts = true)
+                        .filter { packet == null || it.quote in source.passage.substring(packet.start, packet.end) }
+                    val claims = grounded.take(packet?.maxClaims ?: 6).map { it.copy(extractedBy = lastModelReply?.modelKey.orEmpty(), extractionInvocationId = lastModelReply?.invocationId.orEmpty()) }
+                    if (rawClaims.isNotEmpty() && claims.isEmpty()) {
+                        modelCoordinator?.rejectGrounding(lastModelReply?.invocationId)
+                        state = state.copy(notes = (state.notes + "Claim extraction did not pass source grounding; this version remains unfinished.").distinct())
+                        checkpoint()
+                        break
+                    }
+                    val packetCompletion = extracted["packetComplete"] as? JsonPrimitive
+                    val packetAcknowledged = packet == null ||
+                        packetCompletion?.isString == false &&
+                        packetCompletion.booleanOrNull == true &&
+                        rawClaims.size <= packet.maxClaims &&
+                        grounded.size == rawClaims.size
+                    val sourceComplete = packet == null || packet.canCompleteSource && packetAcknowledged
+                    state = state.copy(
+                        claims = (state.claims + claims).distinctBy { listOf(it.sourceId, it.text, it.quote, it.sourceVersion) },
+                        extractedSourceVersions = state.extractedSourceVersions + listOfNotNull(packet?.key?.takeIf { packetAcknowledged }, sourceVersion.takeIf { sourceComplete }),
+                        notes = if (sourceComplete) state.notes - remainingNote else (state.notes + remainingNote).distinct()
                     )
+                    val facts = claims.flatMap { it.facts }
+                    if (facts.isNotEmpty()) {
+                        fun labels(existing: String, values: List<String>) = (listOf(existing) + values).filter(String::isNotBlank).distinct().joinToString("; ").take(1000)
+                        sources.entries.firstOrNull { it.value.id == source.id && it.value.versionId == source.versionId }?.let { entry ->
+                            val current = entry.value
+                            entry.setValue(
+                                current.copy(
+                                    population = labels(current.population, facts.map { it.population }),
+                                    intervention = labels(current.intervention, facts.map { it.intervention }),
+                                    outcomes = labels(current.outcomes, facts.map { it.outcome }),
+                                    metadataProvenance = (current.metadataProvenance + "literal_claim_attributes:${researchHash(current.passage)}").distinct()
+                                )
+                            )
+                        }
+                    }
+                    checkpoint()
+                    // Continue acknowledged packets within the existing verification budget. An
+                    // incomplete packet remains revisitable; do not repeatedly request its prefix.
+                    if (packet == null || !packetAcknowledged) break
                 }
-                checkpoint()
             }
+            if (boundedExtraction && sourceVersion !in state.extractedSourceVersions) modelCoordinator?.deferStage(extractionStage)
             // Persist academic quote verification before batching; retries never repeat completed checks.
             for (claim in state.claims.filter { researchClaimMatchesCapture(it, source) && !it.exactQuoteVerified }) {
                 if (stopped() || exhausted || !collecting()) break
@@ -1063,9 +1107,14 @@ internal class AndroidResearchWorkflow(
                     checkpoint()
                 }
             }
-            // Batch only already quote-verified claims from one source version and extractor.
-            // A partial batch commits accepted items before the existing single-item recovery path.
-            val pendingBatches = (if (modelCoordinator == null) emptyList() else state.claims).filter { researchClaimMatchesCapture(it, source) && it.exactQuoteVerified && (it.verdict == "Unreviewed" || it.relevance == "Unknown") }.groupBy { it.extractedBy }.values.flatMap { it.chunked(4) }.filter { it.size > 1 }
+            val reviewStage = dev.chungjungsoo.gptmobile.data.research.ResearchModelStage.REVIEW
+            val reviewAllowance = modelCoordinator?.requestBudget(reviewStage, minOf(config.maxOutputTokens, 1536))
+            val boundedReview = reviewAllowance?.bounded == true
+            val pendingReviewNote = "${source.id} has quote-bound claim reviews awaiting sufficient context or a valid review response."
+            // Bounded routes review one claim at a time; a four-record response cannot fit tiny
+            // outputs and must not reintroduce the full source into the admitted input packet.
+            // Unbounded batches retain their existing independent source/hash validation.
+            val pendingBatches = (if (modelCoordinator == null || boundedReview) emptyList() else state.claims).filter { researchClaimMatchesCapture(it, source) && it.exactQuoteVerified && (it.verdict == "Unreviewed" || it.relevance == "Unknown") }.groupBy { it.extractedBy }.values.flatMap { it.chunked(4) }.filter { it.size > 1 }
             for (batch in pendingBatches) {
                 if (stopped() || exhausted || !collecting()) break
                 val result = model(
@@ -1090,6 +1139,28 @@ internal class AndroidResearchWorkflow(
                 if (stopped() || exhausted || !collecting()) break
                 val exact = claim.exactQuoteVerified
                 if (source.paperId.isNotBlank() && !exact) continue
+                if (boundedReview) {
+                    val packet = dev.chungjungsoo.gptmobile.data.research.ResearchReviewPackets.prepare(source, claim, questions(), state.task, sourceTarget, requireNotNull(reviewAllowance))
+                    if (packet == null) {
+                        state = state.copy(notes = (state.notes + pendingReviewNote).distinct())
+                        checkpoint()
+                        continue
+                    }
+                    val result = model(packet.instruction, packet.evidence, reviewStage, claim.extractedBy)
+                    val updated = result?.let { dev.chungjungsoo.gptmobile.data.research.ResearchReviewPackets.accept(packet, it, claim, source, questions(), lastModelReply) }
+                    if (updated == null) {
+                        if (result != null) modelCoordinator?.rejectGrounding(lastModelReply?.invocationId, reviewStage, "REVIEW_PACKET_VALIDATION")
+                        state = state.copy(notes = (state.notes + pendingReviewNote).distinct())
+                        checkpoint()
+                        continue
+                    }
+                    state = state.copy(
+                        claims = state.claims.map { if (it == claim) updated else it },
+                        notes = (state.notes + "Claims were reviewed against exact quoted passages and bounded neighboring context; omitted passages were not reviewed.").distinct()
+                    )
+                    checkpoint()
+                    continue
+                }
                 val result = model(
                     "Review the claim against the exact quote AND the task question. Return JSON {\"verdict\":\"Supported|Contradicted|Insufficient\",\"relevance\":\"Relevant|Background|Irrelevant\",\"questionId\":\"Q1\",\"rationale\":\"reason\",\"counterEvidence\":\"exact contrary source quote, required for Contradicted\"}. Passage entailment and task relevance are independent. Pricing, prevalence, protocols, and keyword overlap cannot prove a different benefit or outcome. Preserve scope, uncertainty, and contrary evidence. Do not infer independent review or publication status.",
                     "Questions: " + JsonArray(questions().map { it.json() }) + "\nSource metadata: " + source.json() + "\nClaim: " + claim.json(),
@@ -1108,6 +1179,14 @@ internal class AndroidResearchWorkflow(
                 val updated = claim.copy(rationale = result?.text("rationale").orEmpty().take(1200), counterEvidence = result?.text("counterEvidence").orEmpty().take(1200), reviewedSourceVersion = source.versionId.ifBlank { researchHash(source.passage) }, reviewRubric = "passage-review-v2", verdict = verdict, questionId = questionId, relevance = relevance, exactQuoteVerified = exact, reviewedBy = if (result != null) lastModelReply?.modelKey.orEmpty() else claim.reviewedBy, reviewInvocationId = if (result != null) lastModelReply?.invocationId.orEmpty() else claim.reviewInvocationId, independentReview = result != null && lastModelReply?.independent == true)
                 state = state.copy(claims = state.claims.map { if (it == claim) updated else it })
                 checkpoint()
+            }
+            if (boundedReview) {
+                if (state.claims.any { researchClaimMatchesCapture(it, source) && (it.verdict == "Unreviewed" || it.relevance == "Unknown") }) {
+                    modelCoordinator?.deferStage(reviewStage)
+                } else if (pendingReviewNote in state.notes) {
+                    state = state.copy(notes = state.notes - pendingReviewNote)
+                    checkpoint()
+                }
             }
         }
     }

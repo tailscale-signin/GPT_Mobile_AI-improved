@@ -209,6 +209,61 @@ class FreeProviderContractTest {
         }
     }
 
+    @Test fun hostedDiagnosticCannotBecomeAnAnswerOnCompleteOrDisconnect() = runBlocking {
+        val diagnostic = """[{"value":[{"role":"assistant","status":"done","loading":false,"content":[{"type":"text","content":"<span style=\"color: var(--color-red-500)\">'NoneType' object has no attribute 'choices'</span>"}]}]}]"""
+        val streams = listOf(
+            "event: complete\ndata: $diagnostic\n\n",
+            "event: generating\ndata: $diagnostic\n\nevent: complete\ndata: [null,{\"__type__\":\"update\"}]\n\n",
+            "event: generating\ndata: $diagnostic\n\n"
+        )
+        for (stream in streams) {
+            FreeCatalogState.resetForTest()
+            var posts = 0
+            val client = HttpClient(
+                MockEngine { wire ->
+                    respond(
+                        when {
+                            wire.url.encodedPath == "/config" -> layout
+                            wire.url.encodedPath.endsWith("/info") -> info
+                            wire.method == HttpMethod.Post -> {
+                                posts++
+                                """{"event_id":"failed-upstream"}"""
+                            }
+                            else -> stream
+                        }
+                    )
+                }
+            ) { install(HttpTimeout) }
+            try {
+                val provider = FreeAiProvider.HUGGING_FACE
+                val config = ProviderRequestConfig(provider.apiUrl, null, freeProvider = provider, queueScope = java.util.UUID.randomUUID().toString())
+                val chunks = api(client).streamChatCompletion(request(provider), 30, config).toList()
+                assertEquals("HOSTED_GENERATION_FAILED", chunks.last().error?.type)
+                assertTrue(chunks.last().error!!.message.contains("'NoneType' object has no attribute 'choices'"))
+                assertTrue(chunks.flatMap { it.choices.orEmpty() }.all { it.effectiveDelta.content.isNullOrBlank() })
+                assertEquals(1, FreeCatalogState.status.value[provider]?.generationFailures)
+                api(client).streamChatCompletion(request(provider), 30, config).toList()
+                assertEquals(1, posts)
+            } finally {
+                client.close()
+            }
+        }
+    }
+
+    @Test fun previousAssistantMessageCannotAnswerANewerUserTurn() {
+        val record = Json.parseToJsonElement("""[[{"role":"assistant","content":"An earlier answer"},{"role":"user","content":"A newer question"}]]""")
+        assertNull(FreeQueuedTransport.gradioAnswerOrNull(record))
+    }
+
+    @Test fun previousHostedDiagnosticDoesNotFailANewerUserTurn() {
+        val record = Json.parseToJsonElement("""[[{"role":"assistant","status":"done","loading":false,"content":[{"type":"text","content":"<span style=\"color: var(--color-red-500)\">Earlier failure</span>"}]},{"role":"user","content":"A newer question"}]]""")
+        assertNull(qwenDiagnostic(record, null))
+    }
+
+    @Test fun hostedErrorDetailsRedactTheConfiguredCredential() {
+        assertFalse(gradioErrorDetails("""{"message":"Failed synthetic-secret-token"}""", "synthetic-secret-token").contains("synthetic-secret-token"))
+    }
+
     @Test fun llm7SupportsAnonymousAndOptionalTokenWithoutSendingAutomaticOrPaidModels() = runBlocking {
         var posts = 0
         var catalogs = 0

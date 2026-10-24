@@ -149,6 +149,8 @@ internal class ResearchDeliverySession(
         var text = ResearchReportReferences.render(draft.toString(), delivery)
         var partialFallback = false
         val result = withContext(Dispatchers.Default) { ResearchDeliveryValidator.validate(text, delivery) }
+        var deliveryIssues = result.issues
+        var repairRejection: ResearchRepairResult.Reason? = null
         if (!result.accepted || overflow) {
             emit(ProviderEvent.Notice("Checking omitted findings, numerical claims and source links."))
             val repair = StringBuilder()
@@ -162,6 +164,7 @@ internal class ResearchDeliverySession(
                     create(instruction, true).streamRound(emptyList(), emptyList()).transformWhile { event ->
                         if (event is ProviderEvent.ToolCall || event is ProviderEvent.TextDelta && repair.length + event.text.length > MAX_REPORT_CHARACTERS) {
                             repairFailed = true
+                            repairRejection = if (event is ProviderEvent.ToolCall) ResearchRepairResult.Reason.UNEXPECTED_TOOL_CALL else ResearchRepairResult.Reason.RESPONSE_TOO_LARGE
                             false
                         } else {
                             emit(event)
@@ -172,6 +175,7 @@ internal class ResearchDeliverySession(
                             is ProviderEvent.TextDelta -> repair.append(event.text)
                             is ProviderEvent.Failed -> {
                                 repairFailed = true
+                                repairRejection = ResearchRepairResult.Reason.REQUEST_FAILED
                                 if (isAuthorizationFailure(event)) authorizationFailure = event
                             }
                             ProviderEvent.Completed -> repairCompleted = true
@@ -180,12 +184,17 @@ internal class ResearchDeliverySession(
                     }
                     true
                 }
-                if (finished != true) repairFailed = true
+                if (finished != true) {
+                    repairFailed = true
+                    repairRejection = ResearchRepairResult.Reason.TIMEOUT
+                }
             } catch (cancelled: CancellationException) {
+                AppLogRecorder.record("Research", "REPAIR_OUTCOME · reason=${ResearchRepairResult.Reason.CANCELLED.issueCode} · responseChars=${repair.length} · applied=false")
                 throw cancelled
             } catch (failure: Exception) {
                 if (isAuthorizationFailure(failure)) throw failure
                 repairFailed = true
+                repairRejection = ResearchRepairResult.Reason.REQUEST_FAILED
             }
             validateAccess()
             // A revoked permission must not reveal a cached evidence fallback after the failed dispatch.
@@ -193,10 +202,20 @@ internal class ResearchDeliverySession(
                 emit(denial)
                 return@flow
             }
-            val applied = if (!repairFailed && repairCompleted) ResearchReportRepair.apply(text, repair.toString(), delivery) else null
-            val repairText = ResearchReportReferences.render(applied.orEmpty(), delivery)
-            val repaired = withContext(Dispatchers.Default) { ResearchDeliveryValidator.validate(repairText, delivery) }
-            val repairedAccepted = applied != null && !repairFailed && repairCompleted && repaired.accepted
+            val application = if (repairFailed || !repairCompleted) {
+                ResearchRepairResult.Rejected(repairRejection ?: ResearchRepairResult.Reason.INCOMPLETE_RESPONSE)
+            } else {
+                withContext(Dispatchers.Default) { ResearchReportRepair.applyResult(text, repair.toString(), delivery) }
+            }
+            repairRejection = (application as? ResearchRepairResult.Rejected)?.reason
+            val applied = (application as? ResearchRepairResult.Applied)?.text
+            val repairText = applied?.let { ResearchReportReferences.render(it, delivery) }
+            // A rejected patch never becomes a synthetic empty report. The original
+            // draft remains the fallback source, and the exact rejection is retained.
+            val repaired = repairText?.let { candidate -> withContext(Dispatchers.Default) { ResearchDeliveryValidator.validate(candidate, delivery) } }
+            val repairIssues = repairRejection?.let { listOf(it.issueCode) } ?: repaired?.issues.orEmpty()
+            val repairedAccepted = repaired?.accepted == true
+            deliveryIssues = (result.issues + repairIssues).distinct()
             // Long reports often overflow a provider's per-answer cap. Two isolated
             // text-only sections preserve evidence without redoing the acquisition.
             val sectioned = if (!repairedAccepted && delivery.detail != ResearchReportDetail.BRIEF) {
@@ -208,7 +227,7 @@ internal class ResearchDeliverySession(
             val sectionedAccepted = sectioned != null
             validateAccess()
             text = when {
-                repairedAccepted -> repairText
+                repairedAccepted -> requireNotNull(repairText)
                 sectioned != null -> sectioned
                 else -> {
                     val digest = dev.chungjungsoo.gptmobile.data.research.researchHash(delivery.json().toString() + delivery.detail.name)
@@ -220,14 +239,15 @@ internal class ResearchDeliverySession(
                 partialFallback = true
                 emit(ProviderEvent.Notice("The generated report did not pass evidence checks. Delivering a clearly labelled partial evidence report instead."))
             }
-            AppLogRecorder.record("Research", "DELIVERY_VALIDATED · repaired=true · accepted=${repairedAccepted || sectionedAccepted} · sectioned=$sectionedAccepted · partialFallback=${!repairedAccepted && !sectionedAccepted} · initialIssues=${result.issues.joinToString()} · repairIssues=${repaired.issues.joinToString()} · repairCompleted=$repairCompleted · repairFailed=$repairFailed · initialOverflow=$overflow · structuralIssues=${repaired.issues.joinToString()} · semanticCoverageVerified=false")
+            AppLogRecorder.record("Research", "DELIVERY_VALIDATED · repaired=true · accepted=${repairedAccepted || sectionedAccepted} · sectioned=$sectionedAccepted · partialFallback=${!repairedAccepted && !sectionedAccepted} · initialIssues=${result.issues.joinToString()} · repairIssues=${repairIssues.joinToString()} · repairCompleted=$repairCompleted · repairFailed=$repairFailed · repairRejection=${repairRejection?.issueCode ?: "none"} · repairResponseChars=${repair.length} · repairApplied=${applied != null} · initialOverflow=$overflow · structuralIssues=${repaired?.issues.orEmpty().joinToString()} · semanticCoverageVerified=false")
         } else {
             AppLogRecorder.record("Research", "DELIVERY_VALIDATED · repaired=false · accepted=true · cited=${result.citedIds.size} · semanticCoverageVerified=false")
         }
         publish(text)
-        receipt(if (partialFallback) ResearchReportValidity.EVIDENCE_ONLY else ResearchReportValidity.ACCEPTED, delivery, text, if (partialFallback) result.issues else emptyList())
+        receipt(if (partialFallback) ResearchReportValidity.EVIDENCE_ONLY else ResearchReportValidity.ACCEPTED, delivery, text, if (partialFallback) deliveryIssues else emptyList())
         if (partialFallback) {
-            emit(ProviderEvent.Failed("RESEARCH_PARTIAL: Evidence is retained, but the report did not pass its delivery checks. Resume writing from saved evidence."))
+            val correctionStatus = repairRejection?.let { " ${it.description}" }.orEmpty()
+            emit(ProviderEvent.Failed("RESEARCH_PARTIAL: Evidence is retained, but the report did not pass its delivery checks.$correctionStatus Resume writing from saved evidence.", errorCode = "RESEARCH_PARTIAL"))
         } else {
             emit(ProviderEvent.Completed)
         }

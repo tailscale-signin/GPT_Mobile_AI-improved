@@ -219,6 +219,13 @@ data class CombinedExecutionContext(
     fun forRole(role: CombinedRunRole, profileUid: String? = this.profileUid, workItemId: String? = if (role == this.role) this.workItemId else null) =
         copy(role = role, profileUid = profileUid, workItemId = workItemId)
 
+    /** Physical helper identity belongs to its invocation; shared stage ownership stays with its accepted worker. */
+    fun forResearchTarget(targetUid: String, stageId: String?) = forRole(
+        CombinedRunRole.RESEARCH,
+        if (stageId != null && CombinedResearchStages.isTaskStage(stageId)) profileUid ?: targetUid else targetUid,
+        stageId
+    )
+
     val ownerKey: String get() = when (role) {
         CombinedRunRole.CONTRIBUTOR -> "contributor:${profileUid.orEmpty()}"
         CombinedRunRole.RESEARCH -> plan?.workItems?.firstOrNull { it.id == workItemId }?.assignedOwnerKey ?: "research:${profileUid.orEmpty()}"

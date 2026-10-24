@@ -44,7 +44,8 @@ internal fun ResearchProgressCard(
     deliveryRevisionText: String? = null,
     profileStatistics: List<dev.chungjungsoo.gptmobile.data.research.ResearchProfileStatistics> = emptyList(),
     profileNames: Map<String, String> = emptyMap(),
-    deliveryComplete: Boolean? = null
+    deliveryComplete: Boolean? = null,
+    debugMode: Boolean = false
 ) {
     var expanded by remember { mutableStateOf(false) }
     var filter by remember { mutableStateOf("") }
@@ -88,16 +89,8 @@ internal fun ResearchProgressCard(
                 if (active) androidx.compose.material3.CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
             }
             if (active) androidx.compose.material3.LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
+            if (debugMode) ResearchProfileStatisticsPanel(profileStatistics, profileNames)
             dev.chungjungsoo.gptmobile.presentation.common.DetailsSection {
-                profileStatistics.forEach { stats ->
-                    Column(Modifier.fillMaxWidth()) {
-                        Text(profileNames[stats.profileUid] ?: stats.profileUid, style = MaterialTheme.typography.titleSmall)
-                        Text("${stats.sources} sources · ${stats.uniqueSources} unique · ${stats.sourcesRead} read · ${stats.studiesExamined} studies examined", style = MaterialTheme.typography.bodySmall)
-                        Text("${stats.inputTokens + stats.outputTokens} ${if (stats.estimatedTokens) "estimated tokens" else "tokens"} (${stats.inputTokens} input / ${stats.outputTokens} output) · ${stats.modelRequests} model requests", style = MaterialTheme.typography.bodySmall)
-                        if (stats.examinationsPending > 0) Text("${stats.examinationsPending} examinations pending", style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-                if (profileStatistics.isNotEmpty()) Text("Unique sources were found by only this profile among the selected profiles. Shared evidence retains its original attribution; older records without attribution are not assigned to a profile.", style = MaterialTheme.typography.labelSmall)
                 val checked = snapshot.claims.count { claim ->
                     val source = snapshot.sources.firstOrNull { it.id == claim.sourceId }
                     claim.exactQuoteVerified &&

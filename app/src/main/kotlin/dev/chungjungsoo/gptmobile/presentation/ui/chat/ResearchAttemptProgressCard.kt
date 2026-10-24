@@ -23,6 +23,9 @@ internal fun ResearchAttemptProgressCard(
     onStop: () -> Unit,
     onRetry: () -> Unit,
     onReviewInterruptedRequests: () -> Unit,
+    debugMode: Boolean = false,
+    profileStatistics: List<dev.chungjungsoo.gptmobile.data.research.ResearchProfileStatistics> = emptyList(),
+    profileNames: Map<String, String> = emptyMap(),
     modifier: Modifier = Modifier
 ) {
     val attempt = execution.attempt
@@ -62,6 +65,7 @@ internal fun ResearchAttemptProgressCard(
             if (needsReconciliation) {
                 OutlinedButton(onClick = onReviewInterruptedRequests) { Text("Review interrupted requests") }
             }
+            if (debugMode) ResearchProfileStatisticsPanel(profileStatistics, profileNames)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (!attempt.state.terminal) OutlinedButton(onClick = onStop) { Text("Stop") }
                 if (canRetry) {

@@ -99,7 +99,9 @@ data class CombinedBudgetSnapshot(
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
     val resourceWaits: Map<String, String> = emptyMap(),
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
-    val workAccounting: CombinedWorkAccounting? = null
+    val workAccounting: CombinedWorkAccounting? = null,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val researchWorkerOutcomes: Map<String, Map<String, String>> = emptyMap()
 ) {
     val charged: CombinedResourceQuota get() = reservations.values.fold(CombinedResourceQuota()) { sum, item -> sum + item.charged }
     val unknownAttemptIds: Set<String> get() = reservations.values.filter { it.status in setOf(CombinedReservationStatus.RESERVED, CombinedReservationStatus.UNKNOWN) }.mapTo(linkedSetOf()) { it.attemptId }
@@ -217,8 +219,10 @@ class CombinedTurnBudget(
         }
         if (context.role == CombinedRunRole.RESEARCH && context.workItemId?.startsWith("research:") == true) {
             if (CombinedResearchStages.isTaskStage(context.workItemId) && context.profileUid !in state.plan.researchAssignment?.eligibleWorkerUids.orEmpty()) return@withLock CombinedBudgetAdmission.Denied("RESEARCH_WORKER_NOT_ASSIGNED: the profile was not accepted for this task.")
+            if (CombinedResearchStages.isTaskStage(context.workItemId) && "contributor:${context.profileUid}" in state.stageOutcomes) return@withLock CombinedBudgetAdmission.Denied("RESEARCH_WORKER_STAGE_TERMINAL: this contributor already finished its accepted work.")
             if (context.workItemId in state.plan.unfundedRequiredWorkIds) return@withLock CombinedBudgetAdmission.Denied("RESEARCH_STAGE_UNFUNDED: accepted hard limits cannot fund this stage.")
             if (context.ownerKey in state.stageOutcomes) return@withLock CombinedBudgetAdmission.Denied("RESEARCH_STAGE_TERMINAL: this stage requires a newly accepted request.")
+            if (context.profileUid in state.researchWorkerOutcomes[context.workItemId].orEmpty()) return@withLock CombinedBudgetAdmission.Denied("RESEARCH_WORKER_STAGE_TERMINAL: this profile already finished its accepted stage.")
         }
         if (resources.toolOperations > 0 && (!state.plan.toolsAllowed || context.role.finalization)) return@withLock CombinedBudgetAdmission.Denied("This Combined role is tool-free.")
         if (resources.toolOperations > 0 && context.requested.acceptedResearch != null && context.workItemId == null && context.role != CombinedRunRole.VERIFIER) return@withLock CombinedBudgetAdmission.Denied("REQUIRED_ACQUISITION_UNASSIGNED: Required Research requests must carry their funded work item; dispatched=false")
@@ -324,12 +328,66 @@ class CombinedTurnBudget(
         val owner = "contributor:$profileUid"
         if (owner !in state.stageOutcomes) return@withLock true
         val owners = (state.plan.baselineByOwner.keys.filter { it == owner || it.startsWith("research:$profileUid:") } + owner).toSet()
-        val stages = state.plan.workItems.filter { it.kind == CombinedWorkKind.STAGE && it.assignedOwnerKey in owners }.associateBy { it.id }
+        val sharedStages = state.plan.workItems.filter { CombinedResearchStages.isTaskStage(it.id) && profileUid in state.plan.researchAssignment?.eligibleWorkerUids.orEmpty() }.associateBy { it.id }
+        val stages = state.plan.workItems.filter { it.kind == CombinedWorkKind.STAGE && it.assignedOwnerKey in owners }.associateBy { it.id } + sharedStages
         // A user authorizes another bounded attempt, not a refund of the previous request.
         // reserve() still enforces the whole-turn hard limits and other owners' protection.
         val adjustments = owners.mapNotNull { key -> state.plan.baselineByOwner[key]?.let { CombinedBudgetAdjustment(key, "USER_REQUESTED_RETRY", it, state.plan.costReservesByOwner[key] ?: 0) } }
-        commit(state.copy(stageOutcomes = state.stageOutcomes - owners, completedWork = state.completedWork - owners - stages.keys, pendingWork = state.pendingWork + stages, baselineAdjustments = state.baselineAdjustments + adjustments))
+        commit(
+            state.copy(
+                stageOutcomes = state.stageOutcomes - owners - sharedStages.keys,
+                completedWork = state.completedWork - owners - stages.keys,
+                pendingWork = state.pendingWork + stages,
+                baselineAdjustments = state.baselineAdjustments + adjustments,
+                researchWorkerOutcomes = state.researchWorkerOutcomes.mapValues { (stage, workers) -> if (stage in sharedStages) workers - profileUid else workers }
+            )
+        )
         true
+    }
+
+    /** One worker finishing acquisition cannot close a stage shared by the other accepted workers. */
+    suspend fun finishResearchStage(stageId: String, profileUid: String, outcome: String, reason: String? = null) {
+        if (!CombinedResearchStages.isTaskStage(stageId)) {
+            finishStage(stageId, outcome, reason)
+            return
+        }
+        mutex.withLock {
+            if (state.closed || state.cancelled || stageId in state.stageOutcomes) return@withLock
+            require(profileUid in state.plan.researchAssignment?.eligibleWorkerUids.orEmpty())
+            require(state.plan.workItems.any { it.id == stageId })
+            require(outcome in TERMINAL_OUTCOMES)
+            val workers = state.researchWorkerOutcomes[stageId].orEmpty()
+            if (profileUid in workers) return@withLock
+            val recorded = if (reason.isNullOrBlank()) outcome else "$outcome:${reason.take(300)}"
+            val next = state.copy(researchWorkerOutcomes = state.researchWorkerOutcomes + (stageId to (workers + (profileUid to recorded))))
+            commit(closeFinishedResearchStages(next))
+        }
+    }
+
+    /** Interrupted or failed contributors also settle their share, without blocking active peers. */
+    private fun closeFinishedResearchStages(snapshot: CombinedBudgetSnapshot): CombinedBudgetSnapshot {
+        val participants = snapshot.plan.researchAssignment?.eligibleWorkerUids.orEmpty()
+        if (participants.isEmpty()) return snapshot
+        var next = snapshot
+        snapshot.plan.workItems.filter { CombinedResearchStages.isTaskStage(it.id) && it.id !in snapshot.stageOutcomes }.forEach { stage ->
+            val recorded = next.researchWorkerOutcomes[stage.id].orEmpty().toMutableMap()
+            participants.filterNot { it in recorded }.forEach { uid ->
+                next.stageOutcomes["contributor:$uid"]?.let { terminal ->
+                    recorded[uid] = if (terminal.substringBefore(':') == "COMPLETED") "PARTIAL:CONTRIBUTOR_TERMINAL_BEFORE_STAGE_COMPLETED" else terminal
+                }
+            }
+            next = next.copy(researchWorkerOutcomes = next.researchWorkerOutcomes + (stage.id to recorded))
+            if (participants.all { it in recorded }) {
+                val outcome = if (participants.all { recorded.getValue(it).substringBefore(':') == "COMPLETED" }) "COMPLETED" else "PARTIAL:RESEARCH_WORKER_INCOMPLETE"
+                next = next.copy(
+                    pendingWork = next.pendingWork - stage.id,
+                    completedWork = next.completedWork + stage.id,
+                    stageOutcomes = next.stageOutcomes + (stage.id to outcome),
+                    firstFailure = next.firstFailure ?: outcome.takeUnless { it == "COMPLETED" }
+                )
+            }
+        }
+        return next
     }
 
     /** A contributor's response, including failure, releases its unused protected baseline. */
@@ -346,22 +404,24 @@ class CombinedTurnBudget(
         val release = ownerKey != "finalization" || outcome in setOf("COMPLETED", "CANCELLED", "BUDGET_BLOCKED")
         val stageItems = state.pendingWork.filterValues { it.kind == CombinedWorkKind.STAGE && it.assignedOwnerKey == ownerKey }.keys + ownerKey
         commit(
-            state.copy(
-                pendingWork = if (release) state.pendingWork - stageItems else state.pendingWork,
-                completedWork = if (release) state.completedWork + stageItems else state.completedWork,
-                stageOutcomes = state.stageOutcomes + (ownerKey to recorded),
-                deliveryStatus = if (ownerKey == "finalization") {
-                    when (outcome) {
-                        "COMPLETED" -> "COMPLETED"
-                        "CANCELLED", "BUDGET_BLOCKED" -> outcome
-                        else -> "RECOVERABLE_FAILURE"
-                    }
-                } else {
-                    state.deliveryStatus
-                },
-                retryEligible = if (ownerKey == "finalization") outcome !in setOf("COMPLETED", "CANCELLED", "BUDGET_BLOCKED") && !state.closed && !state.cancelled else state.retryEligible,
-                firstFailure = state.firstFailure ?: recorded.takeIf { outcome !in setOf("COMPLETED", "CANCELLED") },
-                deliveryFailure = if (ownerKey == "finalization") recorded.takeIf { outcome !in setOf("COMPLETED", "CANCELLED") } else state.deliveryFailure
+            closeFinishedResearchStages(
+                state.copy(
+                    pendingWork = if (release) state.pendingWork - stageItems else state.pendingWork,
+                    completedWork = if (release) state.completedWork + stageItems else state.completedWork,
+                    stageOutcomes = state.stageOutcomes + (ownerKey to recorded),
+                    deliveryStatus = if (ownerKey == "finalization") {
+                        when (outcome) {
+                            "COMPLETED" -> "COMPLETED"
+                            "CANCELLED", "BUDGET_BLOCKED" -> outcome
+                            else -> "RECOVERABLE_FAILURE"
+                        }
+                    } else {
+                        state.deliveryStatus
+                    },
+                    retryEligible = if (ownerKey == "finalization") outcome !in setOf("COMPLETED", "CANCELLED", "BUDGET_BLOCKED") && !state.closed && !state.cancelled else state.retryEligible,
+                    firstFailure = state.firstFailure ?: recorded.takeIf { outcome !in setOf("COMPLETED", "CANCELLED") },
+                    deliveryFailure = if (ownerKey == "finalization") recorded.takeIf { outcome !in setOf("COMPLETED", "CANCELLED") } else state.deliveryFailure
+                )
             )
         )
     }

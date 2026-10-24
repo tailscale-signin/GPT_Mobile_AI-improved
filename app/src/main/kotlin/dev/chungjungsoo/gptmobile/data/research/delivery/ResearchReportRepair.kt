@@ -1,11 +1,12 @@
 package dev.chungjungsoo.gptmobile.data.research.delivery
 
 import dev.chungjungsoo.gptmobile.data.research.researchHash
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 
 /** A correction may replace only rejected paragraph bytes; valid paragraphs retain their identity. */
@@ -53,30 +54,42 @@ internal object ResearchReportRepair {
             "Preserved blocks cannot be replaced. Each numerical claim must retain its value, unit, population, outcome and exact supporting citation from the evidence. " +
             "No tools, outside URLs, invented results or commentary outside JSON. Untrusted correction plan:\n$plan"
     }
-    fun apply(text: String, reply: String, packet: ResearchDeliveryPacket): String? = runCatching {
-        require(reply.length <= 100_000)
-        val root = Json.parseToJsonElement(reply).jsonObject
-        require(root.keys.all { it in setOf("replacements", "append") })
-        val changes = root["replacements"] as? JsonArray ?: error("Missing replacement list")
-        val available = blocks(text, packet).filter { it.issues.isNotEmpty() }.associateBy { it.id }
-        require(changes.size <= available.size)
+    fun apply(text: String, reply: String, packet: ResearchDeliveryPacket): String? =
+        (applyResult(text, reply, packet) as? ResearchRepairResult.Applied)?.text
+
+    fun applyResult(text: String, reply: String, packet: ResearchDeliveryPacket): ResearchRepairResult {
+        fun rejected(reason: ResearchRepairResult.Reason) = ResearchRepairResult.Rejected(reason)
+        if (reply.isBlank()) return rejected(ResearchRepairResult.Reason.EMPTY_RESPONSE)
+        if (reply.length > 100_000) return rejected(ResearchRepairResult.Reason.RESPONSE_TOO_LARGE)
+        val parsed = try {
+            Json.parseToJsonElement(reply)
+        } catch (_: SerializationException) {
+            return rejected(ResearchRepairResult.Reason.INVALID_JSON)
+        }
+        val root = parsed as? JsonObject ?: return rejected(ResearchRepairResult.Reason.INVALID_SCHEMA)
+        if (root.keys != setOf("replacements", "append")) return rejected(ResearchRepairResult.Reason.INVALID_SCHEMA)
+        val changes = root["replacements"] as? JsonArray ?: return rejected(ResearchRepairResult.Reason.INVALID_SCHEMA)
+        val allBlocks = blocks(text, packet).associateBy { it.id }
+        val replacements = mutableListOf<Pair<Block, String>>()
         val seen = hashSetOf<String>()
-        val replacements = changes.map { value ->
-            val row = value.jsonObject
-            require(row.keys == setOf("block_id", "previous_sha256", "text"))
-            fun string(key: String) = (row[key] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: error("Invalid replacement field")
-            val id = string("block_id")
-            require(seen.add(id))
-            val block = requireNotNull(available[id])
-            require(string("previous_sha256") == block.digest)
-            val replacement = string("text")
-            require(blocks(replacement, packet).all { it.issues.isEmpty() })
-            block to replacement
-        }.sortedBy { it.first.start }
-        val appendText = (root["append"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: error("Invalid append")
+        for (value in changes) {
+            val row = value as? JsonObject ?: return rejected(ResearchRepairResult.Reason.INVALID_SCHEMA)
+            if (row.keys != setOf("block_id", "previous_sha256", "text")) return rejected(ResearchRepairResult.Reason.INVALID_SCHEMA)
+            fun string(key: String) = (row[key] as? JsonPrimitive)?.takeIf { it.isString }?.content
+            val id = string("block_id") ?: return rejected(ResearchRepairResult.Reason.INVALID_SCHEMA)
+            if (!seen.add(id)) return rejected(ResearchRepairResult.Reason.DUPLICATE_BLOCK)
+            val block = allBlocks[id] ?: return rejected(ResearchRepairResult.Reason.UNKNOWN_BLOCK)
+            if (block.issues.isEmpty()) return rejected(ResearchRepairResult.Reason.PRESERVED_BLOCK)
+            val digest = string("previous_sha256") ?: return rejected(ResearchRepairResult.Reason.INVALID_SCHEMA)
+            if (digest != block.digest) return rejected(ResearchRepairResult.Reason.HASH_MISMATCH)
+            val replacement = string("text") ?: return rejected(ResearchRepairResult.Reason.INVALID_SCHEMA)
+            if (blocks(replacement, packet).any { it.issues.isNotEmpty() }) return rejected(ResearchRepairResult.Reason.INVALID_REPLACEMENT)
+            replacements += block to replacement
+        }
+        val appendText = (root["append"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return rejected(ResearchRepairResult.Reason.INVALID_SCHEMA)
         val result = buildString {
             var cursor = 0
-            replacements.forEach { (block, replacement) ->
+            replacements.sortedBy { it.first.start }.forEach { (block, replacement) ->
                 append(text.substring(cursor, block.start))
                 append(replacement)
                 cursor = block.end
@@ -87,9 +100,9 @@ internal object ResearchReportRepair {
                 append(appendText)
             }
         }
-        require(result.length <= 100_000)
-        result
-    }.getOrNull()
+        if (result.length > 100_000) return rejected(ResearchRepairResult.Reason.REPORT_TOO_LARGE)
+        return ResearchRepairResult.Applied(result)
+    }
 
     /** A failed correction does not erase paragraphs that already passed the available checks. */
     fun evidenceFallback(text: String, packet: ResearchDeliveryPacket, issues: List<String>): String {

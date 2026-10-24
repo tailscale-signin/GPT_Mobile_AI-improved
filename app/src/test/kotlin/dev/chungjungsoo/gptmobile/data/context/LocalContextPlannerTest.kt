@@ -25,6 +25,7 @@ class LocalContextPlannerTest {
         )
         assertTrue(plan.outputReserveTokens > 0)
         assertTrue(plan.omittedTools > 0)
+        assertTrue(plan.toolSelectionReasons.values.all { it == "not_needed_for_request" })
         assertTrue(plan.estimatedPromptTokens + plan.outputReserveTokens + plan.toolResultBytes / 2 + 256 < 2048)
     }
 

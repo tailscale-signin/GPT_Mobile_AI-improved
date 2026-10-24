@@ -141,7 +141,9 @@ internal object CombinedClaimSemantics {
 
     fun consequential(text: String): Boolean = has(text, "\\b(?:patients?|treatment|disease|therapy|mortality|clinical|medical|toxicolog\\w*|cocaine|overdose|malpractice|criminal|reconciled|reconciliation)\\b")
 
-    fun records(sources: List<CombinedModelResponse>): List<CombinedClaimRecord> {
+    fun records(sources: List<CombinedModelResponse>): List<CombinedClaimRecord> = CombinedContentIndexes.get(sources).records
+
+    internal fun extractRecords(sources: List<CombinedModelResponse>): List<CombinedClaimRecord> {
         val candidates = sources.flatMapIndexed { sourceIndex, source ->
             var cursor = 0
             val digest = researchHash(source.content)

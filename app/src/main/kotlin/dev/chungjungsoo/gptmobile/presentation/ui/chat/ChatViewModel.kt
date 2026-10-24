@@ -1337,7 +1337,7 @@ class ChatViewModel @Inject constructor(
         if (!canCombineAvailable(userId)) return
         val accepted = acceptedCombinedTurn(userId) ?: return
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("CombinedSynthesis", "COMBINE_AVAILABLE · initiator=USER · userMessageId=$userId")
-        viewModelScope.launch { agentRunCoordinator.resumeCombinedCollection(_chatRoom.value.id, userId, accepted.context.rootBudgetId) }
+        viewModelScope.launch { agentRunCoordinator.resumeCombinedCollection(_chatRoom.value.id, userId, accepted.context.rootBudgetId, "USER_COMBINE_AVAILABLE") }
     }
 
     fun retryCombinedMerge(turnIndex: Int) {
@@ -2897,7 +2897,7 @@ class ChatViewModel @Inject constructor(
         }
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
             "CombinedSynthesis",
-            "SYNTHESIS_INPUT_FROZEN · runId=$synthesisRunId · sourceCount=${attributedSources.size} · profileUids=${attributedSources.map { it.platformUid }.distinct().joinToString(",")} · candidateUnits=${dev.chungjungsoo.gptmobile.data.agent.CombinedContentCoverage(attributedSources).units.size} · promptChars=${synthesisPrompt.length} · protocol=PASSAGES_V2"
+            "SYNTHESIS_INPUT_FROZEN · trigger=LEGACY_STATE_HANDOFF · runId=$synthesisRunId · sourceCount=${attributedSources.size} · profileUids=${attributedSources.map { it.platformUid }.distinct().joinToString(",")} · candidateUnits=${dev.chungjungsoo.gptmobile.data.agent.CombinedClaimSemantics.records(attributedSources).size} · promptChars=${synthesisPrompt.length} · protocol=PASSAGES_V2"
         )
         val run = AgentRunDraft(
             runId = synthesisRunId,

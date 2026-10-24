@@ -146,7 +146,7 @@ import dev.chungjungsoo.gptmobile.presentation.common.hasGlassBackdrop
 import dev.chungjungsoo.gptmobile.util.isAssistantErrorMessage
 import java.io.File
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
@@ -1648,8 +1648,8 @@ internal fun ChatBottomAutoScroller(
         snapshotFlow {
             val info = listState.layoutInfo
             val last = info.visibleItemsInfo.lastOrNull()
-            Triple(info.totalItemsCount, last?.index, last?.let { it.offset + it.size })
-        }.distinctUntilChanged().conflate().collect { (totalItems, _, _) ->
+            info.totalItemsCount to last?.takeIf { it.index == info.totalItemsCount - 1 }?.size
+        }.distinctUntilChanged().collectLatest { (totalItems, _) ->
             kotlinx.coroutines.delay(32)
             val latestItemIndex = totalItems - 1
             if (latestItemIndex >= 0 && listState.canScrollForward) {

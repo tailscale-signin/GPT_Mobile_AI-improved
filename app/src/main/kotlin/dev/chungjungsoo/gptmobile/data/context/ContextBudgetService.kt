@@ -9,7 +9,9 @@ data class TokenBudgetSettings(val contextTokens: Int = Int.MAX_VALUE, val outpu
     fun normalized() = copy(contextTokens = if (contextTokens == 0 || contextTokens == Int.MAX_VALUE) Int.MAX_VALUE else contextTokens.coerceIn(256, 1048576), outputTokens = outputTokens.coerceAtLeast(0), totalRunTokens = if (totalRunTokens == 0 || totalRunTokens == Int.MAX_VALUE) Int.MAX_VALUE else totalRunTokens.coerceIn(4096, 2097152), generationTimeoutMinutes = generationTimeoutMinutes.coerceIn(0, 1440), responseCharacterLimit = if (responseCharacterLimit == 0) 0 else responseCharacterLimit.coerceIn(4096, 16_777_216))
 }
 
-data class ContextPlan(val turns: List<ConversationTurn>, val system: String, val tools: List<AgentToolDefinition>, val toolResultBytes: Int, val outputTokens: Int?, val notice: String, val promptTokens: Int = 0, val multipass: CombinedCorpusMultipassPlan? = null, val authorizedTools: List<AgentToolDefinition> = tools)
+data class ContextPlan(val turns: List<ConversationTurn>, val system: String, val tools: List<AgentToolDefinition>, val toolResultBytes: Int, val outputTokens: Int?, val notice: String, val promptTokens: Int = 0, val multipass: CombinedCorpusMultipassPlan? = null, val authorizedTools: List<AgentToolDefinition> = tools, val toolOmissions: Map<String, ToolOmissionReason> = emptyMap())
+
+enum class ToolOmissionReason { NOT_NEEDED, USER_DISABLED, UNSUPPORTED, CONTEXT_BUDGET, REQUIRED_UNAVAILABLE }
 
 /** Conservative byte-based estimates. Provider-reported counts remain the accounting authority. */
 object ContextBudgetService {
@@ -111,7 +113,8 @@ object ContextBudgetService {
             resultReserve * 3,
             outputLimit,
             "Context estimate: $used prompt tokens, $output output reserved, $resultReserve tool-result tokens reserved. $omitted earlier turns and ${tools.size - selectedTools.size} tools omitted. Attachment costs are estimates; server limits may differ.",
-            promptTokens = used
+            promptTokens = used,
+            toolOmissions = tools.filterNot { it in selectedTools }.associate { it.name to ToolOmissionReason.CONTEXT_BUDGET }
         )
     }
 }

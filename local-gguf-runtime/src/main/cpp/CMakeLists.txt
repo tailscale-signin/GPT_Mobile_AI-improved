@@ -96,6 +96,7 @@ include(FetchContent)
 FetchContent_Declare(llama
     URL https://codeload.github.com/ggml-org/llama.cpp/tar.gz/620d2225cc436ab0b001e3200e590e3b286ef9ab
     URL_HASH SHA256=1d4a987d9bd048f6e93107e838026438df70fbde237fc0c69c63d600512b4bd9
+    PATCH_COMMAND ${CMAKE_COMMAND} -DSOURCE_DIR=<SOURCE_DIR> -P ${CMAKE_CURRENT_SOURCE_DIR}/select_backends.cmake
 )
 FetchContent_MakeAvailable(llama)
 # Build the pinned Jinja renderer without llama-common's server, download and

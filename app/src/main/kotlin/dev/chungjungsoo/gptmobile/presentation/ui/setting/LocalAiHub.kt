@@ -92,6 +92,8 @@ fun LocalModelsScreen(
     val ui by viewModel.uiState.collectAsStateWithLifecycle()
     val importActive by viewModel.importActive.collectAsStateWithLifecycle()
     var pendingUri by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingCopy by rememberSaveable { mutableStateOf(false) }
+    val copyRecovery by viewModel.importCopyRecovery.collectAsStateWithLifecycle()
     var pendingFolder by rememberSaveable { mutableStateOf(false) }
     val importStatus by viewModel.importStatus.collectAsStateWithLifecycle()
     val importedModelId by viewModel.importedModelId.collectAsStateWithLifecycle()
@@ -103,12 +105,14 @@ fun LocalModelsScreen(
     val context = LocalContext.current
     val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
+            pendingCopy = false
             pendingFolder = false
             pendingUri = uri.toString()
         }
     }
     val folderImporter = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
+            pendingCopy = false
             pendingFolder = true
             pendingUri = uri.toString()
         }
@@ -126,8 +130,10 @@ fun LocalModelsScreen(
                 inspectionFailure = failure
             }
         }
-        var copyRequested by rememberSaveable(pendingUri, pendingFolder) { mutableStateOf(false) }
+        var copyRequested by rememberSaveable(pendingUri, pendingFolder, pendingCopy) { mutableStateOf(pendingCopy) }
         val copyModel = copyRequested || preview?.linkProblem != null
+        val requiredBytes = preview?.installedBytes?.let { it + 64L * 1024 * 1024 }
+        val enoughSpace = !copyModel || requiredBytes == null || preview?.availableBytes?.let { it >= requiredBytes } != false
         val inspectionError = inspectionFailure?.let { it.message ?: stringResource(R.string.local_ai_inspect_failed) }
         AlertDialog(
             onDismissRequest = { pendingUri = null },
@@ -141,6 +147,11 @@ fun LocalModelsScreen(
                         Text(details.runtime)
                         details.sourceBytes?.let { Text(stringResource(R.string.local_ai_source_size, dev.chungjungsoo.gptmobile.data.catalog.ModelCatalogParser.formatDownloadSize(it))) }
                         details.installedBytes?.let { Text(stringResource(R.string.local_ai_installed_size, dev.chungjungsoo.gptmobile.data.catalog.ModelCatalogParser.formatDownloadSize(it))) }
+                        if (copyModel) {
+                            details.availableBytes?.let { Text(stringResource(R.string.local_ai_copy_available_space, dev.chungjungsoo.gptmobile.data.catalog.ModelCatalogParser.formatDownloadSize(it))) }
+                            requiredBytes?.let { Text(stringResource(R.string.local_ai_copy_required_space, dev.chungjungsoo.gptmobile.data.catalog.ModelCatalogParser.formatDownloadSize(it))) }
+                            if (!enoughSpace) Text(stringResource(R.string.local_ai_copy_insufficient_space), color = MaterialTheme.colorScheme.error)
+                        }
                         if (details.backends.isNotEmpty()) Text(stringResource(R.string.local_ai_declared_processors, details.backends.joinToString().uppercase()))
                         details.contextTokens?.let { Text(stringResource(R.string.local_ai_import_context, it, details.assets)) }
                         LocalModelImportChoice(
@@ -154,7 +165,7 @@ fun LocalModelsScreen(
                 }
             },
             confirmButton = {
-                TextButton(enabled = preview != null && !importActive, onClick = {
+                TextButton(enabled = preview != null && !importActive && enoughSpace, onClick = {
                     viewModel.importCustomModel(context.contentResolver, source.copy(mode = if (copyModel) dev.chungjungsoo.gptmobile.data.localmodel.LocalModelSource.Mode.COPY else dev.chungjungsoo.gptmobile.data.localmodel.LocalModelSource.Mode.LINK))
                     pendingUri = null
                 }) { Text(stringResource(if (copyModel) R.string.local_ai_import_copy else R.string.local_ai_import)) }
@@ -213,6 +224,13 @@ fun LocalModelsScreen(
                     importStatus?.let { status ->
                         item(key = "import-status") {
                             Text(status)
+                            copyRecovery?.takeIf { !importActive }?.let { recovery ->
+                                TextButton(onClick = {
+                                    pendingFolder = recovery.folder
+                                    pendingCopy = true
+                                    pendingUri = recovery.uri.toString()
+                                }) { Text(stringResource(R.string.local_ai_import_copy)) }
+                            }
                             if (importActive) TextButton(onClick = viewModel::cancelImport) { Text(stringResource(R.string.cancel)) }
                             importedModelId?.let { id ->
                                 val item = ui.allItems.firstOrNull { it.entry.id == id }

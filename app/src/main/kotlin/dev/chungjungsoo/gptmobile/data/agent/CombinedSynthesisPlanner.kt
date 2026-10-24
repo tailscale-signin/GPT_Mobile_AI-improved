@@ -25,7 +25,7 @@ class CombinedSynthesisPlanner @Inject constructor(
     private val settingRepository: SettingRepository,
     private val researchSessionStore: ResearchSessionStore
 ) {
-    suspend fun prepare(chatId: Int, userId: Int, rootBudgetId: String): AgentRunRequest? {
+    suspend fun prepare(chatId: Int, userId: Int, rootBudgetId: String, trigger: String = "COLLECTION_HANDOFF"): AgentRunRequest? {
         val messages = chatRepository.fetchMessagesV2(chatId)
         val userMessage = messages.singleOrNull { it.id == userId && it.platformType == null } ?: return null
         val runs = chatRepository.observeAgentRuns(chatId).first().associateBy { it.runId }
@@ -179,7 +179,7 @@ class CombinedSynthesisPlanner @Inject constructor(
         }
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
             "CombinedSynthesis",
-            "SYNTHESIS_INPUT_FROZEN · runId=$synthesisRunId · sourceCount=${attributedSources.size} · profileUids=${attributedSources.map { it.platformUid }.distinct().joinToString(",")} · candidateUnits=${dev.chungjungsoo.gptmobile.data.agent.CombinedContentCoverage(attributedSources).units.size} · promptChars=${synthesisPrompt.length} · protocol=$deliveryProtocol"
+            "SYNTHESIS_INPUT_FROZEN · trigger=${trigger.take(64)} · runId=$synthesisRunId · sourceCount=${attributedSources.size} · profileUids=${attributedSources.map { it.platformUid }.distinct().joinToString(",")} · candidateUnits=${CombinedClaimSemantics.records(attributedSources).size} · promptChars=${synthesisPrompt.length} · protocol=$deliveryProtocol"
         )
         val run = AgentRunDraft(
             runId = synthesisRunId,

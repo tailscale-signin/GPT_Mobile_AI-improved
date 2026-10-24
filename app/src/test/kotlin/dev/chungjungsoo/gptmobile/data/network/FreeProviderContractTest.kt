@@ -49,6 +49,32 @@ class FreeProviderContractTest {
         return OpenAIAPIImpl(network)
     }
 
+    @Test fun reasoningOnlySuccessfulHttpResponseIsAnExplicitGenerationFailure() = runBlocking {
+        val file = Files.createTempDirectory("reasoning-only").resolve("failures.json").toFile()
+        FreeProviderDiagnostics.initialize(file)
+        val provider = FreeAiProvider.BLOCKRUN
+        val client = HttpClient(
+            MockEngine {
+                respond("""{"model":"reasoning-route","choices":[{"message":{"role":"assistant","reasoning_content":"Internal analysis","content":""},"finish_reason":"length"}]}""", HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json"))
+            }
+        ) { install(HttpTimeout) }
+        try {
+            val config = ProviderRequestConfig(provider.apiUrl, null, freeProvider = provider, queueScope = "42:turn", queuePersistent = true)
+            val chunks = api(client).streamChatCompletion(request(provider), 30, config).toList()
+            assertEquals("reasoning_budget_exhausted", chunks.last().error?.type)
+            val failure = FreeProviderDiagnostics.snapshot(42).single()
+            assertEquals("REASONING_BUDGET_EXHAUSTED", failure.category)
+            assertTrue(failure.attemptedDispatch)
+            assertTrue(failure.responseReceived)
+            assertEquals(true, failure.requestTransmitted)
+            assertEquals(1, FreeCatalogState.status.value[provider]?.generationFailures)
+        } finally {
+            client.close()
+            FreeProviderDiagnostics.clear()
+            file.parentFile.deleteRecursively()
+        }
+    }
+
     @Test fun rawCallUsesAllDiscoveredPositionsAndTheMatchingEventRetrieval() = runBlocking {
         var posts = 0
         var gets = 0

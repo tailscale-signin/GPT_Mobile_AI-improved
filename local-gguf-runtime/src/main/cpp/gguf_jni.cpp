@@ -1,3 +1,9 @@
+#if GGML_USE_VULKAN
+#include "ggml-vulkan.h"
+#endif
+#if GGUF_OPENCL
+#include "ggml-opencl.h"
+#endif
 #include <jni.h>
 #include "llama.h"
 #include "llama-ext.h"
@@ -46,7 +52,7 @@ std::atomic<jlong> nextId{1};
 std::atomic<bool> cancelLoad{false};
 std::atomic<jlong> loadOperation{0};
 std::mutex operationMutex;
-std::once_flag initialized;
+std::once_flag initialized, vulkanInitialized, openclInitialized;
 using Clock = std::chrono::steady_clock;
 long elapsed(Clock::time_point from) { return std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - from).count(); }
 std::mutex errorMutex;
@@ -69,6 +75,17 @@ void initialize() {
         }
     }, nullptr);
     llama_backend_init();
+}
+// Global initialization now registers CPU only (see select_backends.cmake).
+// A blocked vendor initializer is contained in the disposable inference worker.
+void initializeBackend(const std::string & backend) {
+    std::call_once(initialized, initialize);
+#if GGML_USE_VULKAN
+    if (backend == "gpu" && getenv("GGML_DISABLE_VULKAN") == nullptr) std::call_once(vulkanInitialized, [] { ggml_backend_register(ggml_backend_vk_reg()); });
+#endif
+#if GGUF_OPENCL
+    if (backend == "opencl") std::call_once(openclInitialized, [] { ggml_backend_register(ggml_backend_opencl_reg()); });
+#endif
 }
 void fail(JNIEnv * env, const char * message) {
     std::string detail(message);
@@ -159,7 +176,7 @@ extern "C" JNIEXPORT jstring JNICALL Java_dev_melo_gguf_GgufNative_buildInfo(JNI
 
 extern "C" JNIEXPORT jboolean JNICALL Java_dev_melo_gguf_GgufNative_supportsGpuOffload(JNIEnv * env, jclass) {
     try {
-        std::call_once(initialized, initialize);
+        initializeBackend("gpu");
         return selectedDevice("gpu") ? JNI_TRUE : JNI_FALSE;
     } catch (const std::exception & e) { fail(env, e.what()); return JNI_FALSE; }
 }
@@ -169,7 +186,7 @@ extern "C" JNIEXPORT void JNICALL Java_dev_melo_gguf_GgufNative_configureDiagnos
     catch (const std::exception & e) { fail(env, e.what()); }
 }
 extern "C" JNIEXPORT jboolean JNICALL Java_dev_melo_gguf_GgufNative_supportsBackend(JNIEnv * env, jclass, jstring backend) {
-    try { std::call_once(initialized, initialize); const auto name = backendName(env, backend); return name == "cpu" || selectedDevice(name) ? JNI_TRUE : JNI_FALSE; }
+    try { const auto name = backendName(env, backend); initializeBackend(name); return name == "cpu" || selectedDevice(name) ? JNI_TRUE : JNI_FALSE; }
     catch (const std::exception & e) { fail(env, e.what()); return JNI_FALSE; }
 }
 
@@ -187,6 +204,7 @@ struct LoadProgressObserver {
     jmethodID method = nullptr;
     std::mutex mutex;
     int lastPercent = -1;
+    std::string lastPhase;
     jlong operation = 0;
     std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
     LoadProgressObserver(JNIEnv * env, jobject progress, jlong operationId) : owner(env), operation(operationId) {
@@ -204,8 +222,9 @@ struct LoadProgressObserver {
         if (!callback) return !cancelLoad.load();
         std::lock_guard<std::mutex> lock(mutex);
         int percent = fraction >= 0 ? static_cast<int>(fraction * 100) : -1;
-        if (fraction >= 0 && percent == lastPercent) return !cancelLoad.load();
+        if (fraction >= 0 && percent == lastPercent && lastPhase == phase) return !cancelLoad.load();
         lastPercent = percent;
+        lastPhase = phase;
         JNIEnv * env = nullptr;
         bool attached = vm->GetEnv(reinterpret_cast<void **>(&env), JNI_VERSION_1_6) != JNI_OK;
 #if defined(__ANDROID__)
@@ -229,15 +248,16 @@ extern "C" JNIEXPORT jlong JNICALL Java_dev_melo_gguf_GgufNative_loadBackendProg
     try {
         if (contextTokens < 128 || contextTokens > 32768 || threads < 1 || threads > 64 || gpuLayers < 0 || gpuLayers > 999) throw std::runtime_error("Unsupported GGUF context, thread, or GPU layer limit");
         if (promptThreads < 1 || promptThreads > 64 || (batchTokens != 64 && batchTokens != 128 && batchTokens != 256) || (microBatchTokens != 64 && microBatchTokens != 128 && microBatchTokens != 256) || microBatchTokens > batchTokens) throw std::runtime_error("Invalid GGUF prompt thread or batch configuration");
-        std::call_once(initialized, initialize);
         const auto backend = backendName(env, backendValue);
+        LoadProgressObserver observer(env, progress, operationId);
+        if (!observer.emit("INITIALIZING_BACKEND", -1)) throw std::runtime_error("GGUF load canceled");
+        initializeBackend(backend);
+        if (!observer.emit("PROBING_DEVICE", -1)) throw std::runtime_error("GGUF load canceled");
         if (backend != "cpu" && backend != "gpu" && backend != "opencl") throw std::runtime_error("Unsupported GGUF backend");
         auto device = gpuLayers > 0 ? selectedDevice(backend) : nullptr;
         if (gpuLayers > 0 && !device) throw std::runtime_error("GGUF_GPU_DEVICE_UNAVAILABLE: selected GPU backend has no compatible device");
         { std::lock_guard<std::mutex> lock(errorMutex); nativeError.clear(); }
         if (loadOperation != operationId || cancelLoad) throw std::runtime_error("GGUF load canceled before entry");
-        LoadProgressObserver observer(env, progress, operationId);
-        observer.emit("LOADING_WEIGHTS", 0);
         auto engine = std::make_shared<Engine>();
         auto mp = llama_model_default_params();
         ggml_backend_dev_t selected[] = {device, nullptr};
@@ -245,6 +265,7 @@ extern "C" JNIEXPORT jlong JNICALL Java_dev_melo_gguf_GgufNative_loadBackendProg
         engine->backend = backend;
         engine->requestedLayers = gpuLayers;
         engine->deviceInfo = device ? std::string(ggml_backend_dev_name(device)) + ";" + ggml_backend_dev_description(device) + ";" + driverInfo(backend) : "CPU";
+        observer.emit("LOADING_WEIGHTS", 0);
         mp.n_gpu_layers = gpuLayers;
         mp.progress_callback = [](float fraction, void * data) { return static_cast<LoadProgressObserver *>(data)->emit("LOADING_WEIGHTS", fraction); };
         mp.progress_callback_user_data = &observer;

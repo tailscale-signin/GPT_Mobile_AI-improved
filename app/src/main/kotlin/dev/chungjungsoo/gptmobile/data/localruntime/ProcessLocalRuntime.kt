@@ -117,7 +117,19 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
         try {
             mutableState.value = state.value.copy(lifecycle = "LOADING")
             readiness.qualify(identity) {
-                if (!isEngineLoaded(spec)) command(packet, timeoutMs = 180_000)
+                if (!isEngineLoaded(spec)) {
+                    try {
+                        command(packet, timeoutMs = 180_000)
+                    } catch (failure: GgufInitializationTimeoutException) {
+                        // No generation has begun. The old binder must be dead before
+                        // a single CPU recovery load can enter a fresh worker.
+                        if (!failure.message.orEmpty().contains("backend=gpu") && !failure.message.orEmpty().contains("backend=opencl")) throw failure
+                        check(remote == null && quarantinedBinder?.isBinderAlive != true) { "Waiting for the timed-out GPU worker to exit" }
+                        AppLogRecorder.record("LocalModel", "GGUF_FRESH_WORKER_CPU_RECOVERY · trigger=${failure.message} · previousWorkerStopped=true · generationDispatched=false", "W")
+                        command(packet.copy(requestId = UUID.randomUUID().toString(), generation = "", spec = spec.copy(accelerator = LocalAccelerators.CPU, ggufGpuLayers = 0)), timeoutMs = 180_000)
+                        mutableState.value = state.value.copy(fallbackReason = "Running on CPU after GPU initialization timed out in the previous worker")
+                    }
+                }
             }
         } catch (error: Exception) {
             if (error !is kotlinx.coroutines.CancellationException && error.message.orEmpty().contains("interrupted inside native code", true)) {
@@ -256,6 +268,7 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
             send(packet)
             return withTimeout(timeoutMs) { request.finished.await() }.also {
                 if (it.operation == "ERROR") {
+                    if (it.errorCode == "GGUF_INITIALIZATION_TIMEOUT") throw GgufInitializationTimeoutException(it.text)
                     if (it.errorCode == "MODEL_CONFIGURATION") throw LocalModelConfigurationException(it.text)
                     if (it.errorCode == "NPU_PACKAGE") throw LocalNpuPackageException.fromRemote(it.text)
                     if (it.loadAttempts.isNotEmpty()) throw LocalLoadFailure(it.loadAttempts)
@@ -365,6 +378,7 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
             }
             "LOAD_PROGRESS" -> {
                 val progress = packet.nativeProgress
+                request.lastProgress = progress
                 mutableState.value = state.value.copy(lifecycle = "LOADING", loadProgress = progress, allocationObservation = progress?.allocationObservation ?: state.value.allocationObservation)
                 AppLogRecorder.record("LocalModel", "GGUF_LOAD_PROGRESS · request=${packet.requestId} · stage=${progress?.stage} · fraction=${progress?.loadFraction} · elapsedMs=${progress?.elapsedMs} · observation=${progress?.allocationObservation}")
             }
@@ -431,6 +445,7 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
 
     @Synchronized private fun disconnect(reason: String) {
         processPssBytes = null
+        remote?.binder?.takeIf { it.isBinderAlive }?.let { quarantinedBinder = it }
         unbind()
         generation = ""
         sessionId = ""
@@ -443,7 +458,8 @@ class ProcessLocalRuntime(private val context: Context, private val settings: Se
             it.cancelling = true
             it.toolJobs.values.forEach { job -> job.cancel() }
             it.events?.offer(LocalRuntimeEvent.Error(reason))
-            it.finished.complete(RuntimeWire("ERROR", it.packet.requestId, text = reason))
+            val timedOut = it.packet.operation == "LOAD" && it.lastProgress?.stage == "LOAD_STAGE_DEADLINE_EXCEEDED"
+            it.finished.complete(RuntimeWire("ERROR", it.packet.requestId, text = if (timedOut) "GGUF initialization timed out: ${it.lastProgress?.configuration}" else reason, errorCode = if (timedOut) "GGUF_INITIALIZATION_TIMEOUT" else null))
         }
     }
 

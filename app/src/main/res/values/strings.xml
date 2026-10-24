@@ -1037,6 +1037,9 @@
     <string name="local_ai_inspect_failed">This source could not be inspected. Choose it again.</string>
     <string name="local_ai_source_size">Source: %1$s</string>
     <string name="local_ai_installed_size">Model assets: %1$s</string>
+    <string name="local_ai_copy_available_space">Available space: %1$s</string>
+    <string name="local_ai_copy_required_space">Copy space required, including reserve: %1$s</string>
+    <string name="local_ai_copy_insufficient_space">Free more storage before importing this copy.</string>
     <string name="local_ai_declared_processors">Declared processors: %1$s</string>
     <string name="local_ai_import_context">Declared context: %1$d tokens · %2$d assets</string>
     <string name="local_ai_import_verification">Checks file format and checksums. After adding the model, use Verify load in its profile to test execution.</string>

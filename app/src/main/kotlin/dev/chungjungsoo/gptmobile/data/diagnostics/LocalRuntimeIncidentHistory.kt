@@ -57,6 +57,15 @@ internal object LocalRuntimeIncidentHistory {
                 put("originalError", redactLogMessage(it.readText()))
             }
         }
-        history + listOfNotNull(native)
+        val terminations = dev.chungjungsoo.gptmobile.data.localruntime.NativeWorkerTermination.snapshot(File(file.parentFile.parentFile, "native-worker")).map { receipt ->
+            buildJsonObject {
+                put("event", "WORKER_TERMINATION_INTENT")
+                put("time", receipt.getValue("time").toLong())
+                put("process", receipt.getValue("process").toInt())
+                put("fields", JsonObject(receipt.filterKeys { it !in setOf("time", "process") }.mapValues { JsonPrimitive(it.value) }))
+                put("exitConfirmed", false)
+            }
+        }
+        history + listOfNotNull(native) + terminations
     }.getOrDefault(emptyList())
 }

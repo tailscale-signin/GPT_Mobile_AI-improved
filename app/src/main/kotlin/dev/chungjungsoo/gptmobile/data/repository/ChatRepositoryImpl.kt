@@ -2497,12 +2497,14 @@ class ChatRepositoryImpl(
         var contextPlan = measurePreparation(runId, PreparationPhase.CONTEXT_ASSEMBLY) { planRunContext(contextTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits) }
         AppLogRecorder.record(
             "Tools",
-            "Tool catalog · resolved=${resolvedTools.size} · exposed=${exposedTools.size} · contextSelected=${contextPlan.tools.size} · omittedByContext=${exposedTools.count { exposed -> contextPlan.tools.none { it.name == exposed.modelToolName } }} · profile=${platform.uid} · preparation=${preparationPlan.kind} · supportsTools=$supportsTools · profileAllDisabled=${platform.disableAllTools} · profileLocalDisabled=${platform.disableLocalTools} · profileRemoteDisabled=${platform.disableRemoteTools} · chatAllDisabled=${chatToolConfig?.allToolsDisabled == true} · chatAllowAllByDefault=${chatToolConfig?.allowAllByDefault ?: true} · chatExcludedCount=${chatToolConfig?.disabledToolIds?.size ?: 0}"
+            "Tool catalog · resolved=${resolvedTools.size} · exposed=${exposedTools.size} · contextSelected=${contextPlan.tools.size} · omittedByContext=${contextPlan.toolOmissions.values.count { it == dev.chungjungsoo.gptmobile.data.context.ToolOmissionReason.CONTEXT_BUDGET }} · profile=${platform.uid} · preparation=${preparationPlan.kind} · supportsTools=$supportsTools · profileAllDisabled=${platform.disableAllTools} · profileLocalDisabled=${platform.disableLocalTools} · profileRemoteDisabled=${platform.disableRemoteTools} · chatAllDisabled=${chatToolConfig?.allToolsDisabled == true} · chatAllowAllByDefault=${chatToolConfig?.allowAllByDefault ?: true} · chatExcludedCount=${chatToolConfig?.disabledToolIds?.size ?: 0}"
         )
-        if (contextPlan.authorizedTools.size < exposedTools.size) {
+        val omissions = contextPlan.toolOmissions.values.groupingBy { it }.eachCount()
+        AppLogRecorder.record("Tools", "TOOL_SELECTION_REASONS · profile=${platform.uid} · omissions=$omissions · unsupported=${!supportsTools} · userDisabled=${platform.disableAllTools || chatToolConfig?.allToolsDisabled == true}")
+        if (contextPlan.toolOmissions.values.any { it == dev.chungjungsoo.gptmobile.data.context.ToolOmissionReason.CONTEXT_BUDGET }) {
             AppLogRecorder.record(
                 "Tools",
-                "TOOL_CONTEXT_PRUNED · ${exposedTools.count { exposed -> contextPlan.tools.none { it.name == exposed.modelToolName } }} enabled tools omitted only because the active context budget could not fit their schemas. Increase context capacity to expose the full catalog.",
+                "TOOL_CONTEXT_PRUNED · ${contextPlan.toolOmissions.values.count { it == dev.chungjungsoo.gptmobile.data.context.ToolOmissionReason.CONTEXT_BUDGET }} relevant tools omitted because their schemas exceeded the active context budget. Reduce selected tools or increase capacity if those capabilities are needed.",
                 "W"
             )
         }
@@ -2512,7 +2514,7 @@ class ChatRepositoryImpl(
             exposedTools = if (reviewedPreparationUnavailable) emptyList() else dev.chungjungsoo.gptmobile.data.agent.tool.aggregateWebSearch(taskRoutedTools, policy = searchPolicy)
             requestPlatform = platform.withSystemPrompt(systemPrompt = recalled.prefix() + researchMemory.text + documentContext + baseSystemPrompt())
             contextPlan = measurePreparation(runId, PreparationPhase.CONTEXT_ASSEMBLY) { planRunContext(contextTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits) }
-            AppLogRecorder.record("Tools", "Tool catalog replanned · resolved=${resolvedTools.size} · exposed=${exposedTools.size} · contextSelected=${contextPlan.tools.size} · omittedByContext=${exposedTools.count { exposed -> contextPlan.tools.none { it.name == exposed.modelToolName } }} · profile=${platform.uid}")
+            AppLogRecorder.record("Tools", "Tool catalog replanned · resolved=${resolvedTools.size} · exposed=${exposedTools.size} · contextSelected=${contextPlan.tools.size} · omittedByContext=${contextPlan.toolOmissions.values.count { it == dev.chungjungsoo.gptmobile.data.context.ToolOmissionReason.CONTEXT_BUDGET }} · profile=${platform.uid}")
         }
         if (reviewedPreparationUnavailable) emit(ApiState.Notice("100% delegation requires an available helper and independent review. Check the delegate, reviewer and context settings, then retry.", persistent = true))
         if (settingRepository.getDebugMode()) emit(ApiState.Notice(contextPlan.notice, persistent = true))
@@ -2655,7 +2657,10 @@ class ChatRepositoryImpl(
                 val required = dev.chungjungsoo.gptmobile.data.context.LocalContextPlanner.requiredToolNames(task + "\n" + intent + "\n" + platform.systemPrompt.orEmpty(), tools.map { it.tool.definition })
                 val relevant = dev.chungjungsoo.gptmobile.data.context.LocalContextPlanner.relevantTools(task, tools.map { it.tool.definition }, required).map { it.name }.toSet()
                 val plan = planPrimaryContext(turns, prompt, tools.filter { it.tool.definition.name in relevant }, settings, true)
-                if (relevant.isEmpty()) plan else plan.copy(authorizedTools = tools.map { it.tool.definition })
+                plan.copy(
+                    authorizedTools = if (relevant.isEmpty()) plan.authorizedTools else tools.map { it.tool.definition },
+                    toolOmissions = plan.toolOmissions + tools.filterNot { it.tool.definition.name in relevant }.associate { it.modelToolName to dev.chungjungsoo.gptmobile.data.context.ToolOmissionReason.NOT_NEEDED }
+                )
             } else {
                 planPrimaryContext(turns, prompt, tools, settings, true)
             }
@@ -4326,7 +4331,7 @@ class ChatRepositoryImpl(
                     }
                     is ProviderEvent.Usage -> {
                         if (editorialPass) {
-                            dev.chungjungsoo.gptmobile.data.agent.CombinedWriterObservations.recordUsage(capKey, providerEvent.reasoningTokens)
+                            dev.chungjungsoo.gptmobile.data.agent.CombinedWriterObservations.recordUsage(capKey, providerEvent.reasoningTokens, providerEvent.finishReason, resolvedOutputCap)
                             AppLogRecorder.record("CombinedWriter", "WRITER_USAGE · runId=$runId · allowReasoning=false · reasoningTokens=${providerEvent.reasoningTokens ?: -1} · outputTokens=${providerEvent.outputTokens ?: -1} · outputAllowance=$resolvedOutputCap · finish=${providerEvent.finishReason.orEmpty()}")
                         }
                         if (providerEvent.inputTokens != null || providerEvent.outputTokens != null || providerEvent.totalTokens != null || retainGenerationReceipt && providerEvent.finishReason != null) {

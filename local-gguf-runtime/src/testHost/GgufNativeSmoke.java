@@ -24,7 +24,14 @@ public final class GgufNativeSmoke {
         } catch (IllegalStateException expected) {
             if (!(expected instanceof dev.melo.gguf.GgufNativeException) || !((dev.melo.gguf.GgufNativeException) expected).category.equals("DEVICE_UNAVAILABLE")) throw expected;
         }
-        long engine = GgufNative.load(args[0].getBytes(StandardCharsets.UTF_8), 512, 2, 0);
+        var initialLoadStages = new java.util.ArrayList<String>();
+        long loadOperation = GgufNative.nextOperationId();
+        GgufNative.prepareOperation(0, loadOperation);
+        long engine = GgufNative.loadBackendProgress(args[0].getBytes(StandardCharsets.UTF_8), 512, 2, 0,
+            loadOperation, 2, 256, 128, (stage, fraction, elapsed) -> {
+                if (initialLoadStages.isEmpty() || !initialLoadStages.get(initialLoadStages.size() - 1).equals(stage)) initialLoadStages.add(stage);
+            }, "cpu");
+        check(initialLoadStages.equals(java.util.List.of("INITIALIZING_BACKEND", "PROBING_DEVICE", "LOADING_WEIGHTS", "PREPARING_TEMPLATE", "ALLOCATING_CONTEXT", "NATIVE_READY")), "Incomplete native load stages: " + initialLoadStages);
         try {
             for (int attempt = 0; attempt < 3; attempt++) {
                 var output = new java.io.ByteArrayOutputStream();
@@ -129,7 +136,7 @@ public final class GgufNativeSmoke {
         var fractions = new java.util.ArrayList<Float>();
         long observed = GgufNative.loadConfiguredProgress(args[0].getBytes(StandardCharsets.UTF_8), 513, 2, 0,
             observedOperation, 2, 128, 64, (phase, fraction, elapsed) -> {
-                check(elapsed >= 0 && fraction >= 0 && fraction <= 1, "Invalid load progress");
+                check(elapsed >= 0 && (fraction == -1f || fraction >= 0 && fraction <= 1), "Invalid load progress");
                 loadStages.add(phase); fractions.add(fraction);
             });
         try {

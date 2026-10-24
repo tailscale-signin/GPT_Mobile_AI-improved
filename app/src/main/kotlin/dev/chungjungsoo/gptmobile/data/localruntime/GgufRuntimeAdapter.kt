@@ -55,6 +55,8 @@ internal class GgufRuntimeAdapter(private val context: Context) : LocalRuntime {
     private val history = mutableListOf<Pair<String, String>>()
     private val gpuFallbackModelKeys = ConcurrentHashMap.newKeySet<String>()
 
+    private val nativeOperations = java.util.concurrent.atomic.AtomicLong()
+
     @Volatile private var loadObserver: ((GgufNativeProgress) -> Unit)? = null
 
     @Volatile private var allocation: NativeAllocationObservation? = null
@@ -98,7 +100,6 @@ internal class GgufRuntimeAdapter(private val context: Context) : LocalRuntime {
     override suspend fun loadEngine(spec: LocalEngineSpec) = withContext(Dispatchers.IO) {
         RuntimeCapabilityRegistry.requireRuntime(ArtifactRuntime.LLAMA_CPP)
         val incidents = File(context.noBackupFilesDir, "local-runtime-incidents").also { check(it.isDirectory || it.mkdirs()) }
-        GgufNative.configureDiagnosticFile(File(incidents, "native-error.log").absolutePath.toByteArray())
         if (isEngineLoaded(spec)) return@withContext
         backendFallback = null
         val file = File(spec.modelPath)
@@ -107,19 +108,20 @@ internal class GgufRuntimeAdapter(private val context: Context) : LocalRuntime {
         val modelHash = manifest.files.first { it.path == manifest.entryFile }.sha256
         val requestedBackend = LocalAccelerators.normalize(spec.accelerator)
         val baseKey = "$modelHash|${GgufNative.REVISION}|${android.os.Build.FINGERPRINT}"
-        val driverCache = mutableMapOf("cpu" to "cpu")
-        fun driver(backend: String) = driverCache.getOrPut(backend) { runCatching { GgufNative.backendDeviceInfo(backend) }.getOrDefault("unavailable") }
-        fun key(backend: String) = dev.chungjungsoo.gptmobile.data.research.researchHash("$baseKey|$backend|${driver(backend)}|${dev.chungjungsoo.gptmobile.BuildConfig.APP_COMMIT}|${spec.maxTokens}|${spec.ggufBatchTokens}|${spec.ggufMicroBatchTokens}")
+
+        // Qualification lookup must never initialize a vendor driver. Firmware,
+        // artifact, runtime, app and allocation shape invalidate saved samples.
+        fun key(backend: String) = dev.chungjungsoo.gptmobile.data.research.researchHash("v2|$baseKey|$backend|${dev.chungjungsoo.gptmobile.BuildConfig.APP_COMMIT}|${spec.maxTokens}|${spec.ggufBatchTokens}|${spec.ggufMicroBatchTokens}")
         val cpuSamples = devicePlans.read(key("cpu"))
         val automatic = if (requestedBackend == LocalAccelerators.AUTO) {
             listOf("gpu", "opencl").filter { it in RuntimeCapabilityRegistry.gguf(android.os.Build.SUPPORTED_ABIS?.toList().orEmpty()).backends }
+                .filterNot { journal.isQuarantined("$modelHash|${GgufNative.REVISION}|${android.os.Build.FINGERPRINT}|$it|${spec.maxTokens}") }
                 .firstNotNullOfOrNull { GgufDevicePlans.gpu(devicePlans.read(key(it))) }
         } else {
             null
         }
         val selectedSpec = if (requestedBackend == LocalAccelerators.AUTO) spec.copy(accelerator = automatic?.backend ?: "cpu", ggufGpuLayers = automatic?.layers ?: 0) else spec
-        val drivers = driver(selectedSpec.accelerator)
-        val fallbackKey = "$baseKey|$drivers"
+        val fallbackKey = baseKey
         val planKey = key(selectedSpec.accelerator)
         val samples = devicePlans.read(planKey)
         effectiveThreads = GgufCpuThreads.resolve(spec.cpuThreads, Runtime.getRuntime().availableProcessors(), GgufDevicePlans.threads(cpuSamples, false))
@@ -140,14 +142,6 @@ internal class GgufRuntimeAdapter(private val context: Context) : LocalRuntime {
         val templateName = dev.chungjungsoo.gptmobile.data.localmodel.GgufChatTemplateIdentity.describe(preflightMetadata["tokenizer.chat_template"])
         val template = preflightMetadata["tokenizer.chat_template"]
             ?: error("GGUF chat template '$templateName' is missing; no model memory was allocated.")
-        try {
-            GgufNative.validateChatTemplate(template.toByteArray(Charsets.UTF_8))
-        } catch (failure: IllegalStateException) {
-            if (failure is CancellationException) throw failure
-            AppLogRecorder.record("LocalModel", "GGUF_TEMPLATE_REJECTED · model=${model.name} · template=$templateName · runtimeRevision=${GgufNative.REVISION} · renderer=jinja · stage=metadata_only_preflight · modelLoadStarted=false · reason=${failure.message.orEmpty().take(180)}", "E")
-            throw IllegalStateException("GGUF chat template '$templateName' could not be parsed as Jinja. No model weights or context were loaded. ${failure.message.orEmpty().take(180)}", failure)
-        }
-        AppLogRecorder.record("LocalModel", "GGUF_TEMPLATE_PARSED · model=${model.name} · template=$templateName · runtimeRevision=${GgufNative.REVISION} · renderer=jinja · stage=syntax_only_preflight · modelLoadStarted=false")
         val accelerator = LocalAccelerators.normalize(effectiveSpec.accelerator)
         check(accelerator in RuntimeCapabilityRegistry.gguf(android.os.Build.SUPPORTED_ABIS?.toList().orEmpty()).backends) { "Requested GGUF backend is not packaged in this build" }
         if (accelerator == LocalAccelerators.GPU) check(RuntimeCapabilityRegistry.gguf(android.os.Build.SUPPORTED_ABIS?.toList().orEmpty()).backends.contains("gpu")) { "This build does not include GGUF Vulkan GPU offload; rebuild with ggufVulkan=true" }
@@ -155,10 +149,26 @@ internal class GgufRuntimeAdapter(private val context: Context) : LocalRuntime {
         val identity = "$modelHash|${GgufNative.REVISION}|${android.os.Build.FINGERPRINT}|$accelerator|${effectiveSpec.maxTokens}"
         unloadEngine()
         devicePlanKey = key(effectiveSpec.accelerator)
-        dev.chungjungsoo.gptmobile.data.diagnostics.LocalRuntimeIncidentHistory.record("LOAD_STARTED", mapOf("modelIdentity" to identity, "requestedBackend" to spec.accelerator, "selectedBackend" to accelerator, "drivers" to drivers, "layers" to effectiveSpec.ggufGpuLayers.toString()))
-        journal.before(identity, "LOAD")
+        dev.chungjungsoo.gptmobile.data.diagnostics.LocalRuntimeIncidentHistory.record("LOAD_STARTED", mapOf("modelIdentity" to identity, "requestedBackend" to spec.accelerator, "selectedBackend" to accelerator, "layers" to effectiveSpec.ggufGpuLayers.toString()))
+        journal.before(identity, "LIBRARY_LOADING")
+        val operation = nativeOperations.incrementAndGet()
+        activeOperation = operation
+        loadBackend = accelerator
+        loadStage("LIBRARY_LOADING")
         try {
-            cancellableNative(null) { loadNative(model, effectiveSpec, accelerator, templateName).also { handle = it } }
+            cancellableNative(null, operation) {
+                GgufNative.configureDiagnosticFile(File(incidents, "native-error.log").absolutePath.toByteArray())
+                loadStage("VALIDATING_TEMPLATE")
+                try {
+                    GgufNative.validateChatTemplate(template.toByteArray(Charsets.UTF_8))
+                } catch (failure: IllegalStateException) {
+                    if (failure is CancellationException) throw failure
+                    AppLogRecorder.record("LocalModel", "GGUF_TEMPLATE_REJECTED · model=${model.name} · template=$templateName · runtimeRevision=${GgufNative.REVISION} · renderer=jinja · stage=metadata_only_preflight · modelLoadStarted=false · reason=${failure.message.orEmpty().take(180)}", "E")
+                    throw IllegalStateException("GGUF chat template '$templateName' could not be parsed as Jinja. No model weights or context were loaded. ${failure.message.orEmpty().take(180)}", failure)
+                }
+                AppLogRecorder.record("LocalModel", "GGUF_TEMPLATE_PARSED · model=${model.name} · template=$templateName · runtimeRevision=${GgufNative.REVISION} · renderer=jinja · stage=syntax_only_preflight · modelLoadStarted=false")
+                loadNative(model, effectiveSpec, accelerator, templateName).also { handle = it }
+            }
             healthy = true
             modelReceipt = "file=${model.name};architecture=${manifest.architecture ?: "unknown"};quantization=${manifest.weightPrecision ?: "unknown"};templateHash=${dev.chungjungsoo.gptmobile.data.research.researchHash(template)};modelBytes=${model.length()}"
             loaded = effectiveSpec
@@ -166,6 +176,7 @@ internal class GgufRuntimeAdapter(private val context: Context) : LocalRuntime {
             tuple = identity
             modelFallbackKey = fallbackKey
         } catch (failure: Throwable) {
+            AppLogRecorder.record("LocalModel", "GGUF_STAGE_FAILED · operation=$activeOperation · stage=${lastLoadStage.orEmpty()} · durationMs=${SystemClock.elapsedRealtime() - stageStartedAtMs} · category=${failure.ggufFailureCategory().name}", "W")
             dev.chungjungsoo.gptmobile.data.diagnostics.LocalRuntimeIncidentHistory.record("LOAD_FAILED", mapOf("modelIdentity" to identity, "requestedBackend" to spec.accelerator, "category" to failure.ggufFailureCategory().name, "error" to failure.message.orEmpty()))
             withContext(NonCancellable) { unloadEngine() }
             if (failure !is CancellationException && LocalAccelerators.isGpu(accelerator) && failure.isRecoverableGgufGpuLoadFailure()) {
@@ -185,6 +196,7 @@ internal class GgufRuntimeAdapter(private val context: Context) : LocalRuntime {
                     // own completed attempt as a native process interruption.
                     journal.finished()
                     journal.before(cpuIdentity, "LOAD")
+                    loadBackend = "cpu"
                     cancellableNative(null) {
                         loadNative(model, cpuSpec, LocalAccelerators.CPU, templateName).also { handle = it }
                     }
@@ -204,6 +216,7 @@ internal class GgufRuntimeAdapter(private val context: Context) : LocalRuntime {
             }
             throw failure
         } finally {
+            lastLoadStage = null
             journal.finished()
         }
     }
@@ -231,7 +244,7 @@ internal class GgufRuntimeAdapter(private val context: Context) : LocalRuntime {
             spec.ggufBatchTokens.takeIf { it in setOf(64, 128, 256) } ?: 256,
             minOf(spec.ggufMicroBatchTokens.takeIf { it in setOf(64, 128, 256) } ?: 128, spec.ggufBatchTokens.takeIf { it in setOf(64, 128, 256) } ?: 256),
             GgufNative.LoadProgress { stage, fraction, elapsed ->
-                if (operation == activeOperation) loadObserver?.invoke(GgufNativeProgress(operation, stage, elapsedMs = elapsed, observedAtMs = SystemClock.elapsedRealtime(), loadFraction = fraction.toDouble().takeIf { it in 0.0..1.0 }))
+                if (operation == activeOperation) loadStage(stage, elapsed, fraction.toDouble().takeIf { it in 0.0..1.0 })
             },
             accelerator
         ).also { engine ->
@@ -512,9 +525,29 @@ internal class GgufRuntimeAdapter(private val context: Context) : LocalRuntime {
         }
     }
 
-    private suspend fun <T> cancellableNative(activeHandle: Long?, block: () -> T): T = coroutineScope {
+    private var loadBackend = "cpu"
+    private var lastLoadStage: String? = null
+    private var stageStartedAtMs = 0L
+
+    private fun loadStage(stage: String, elapsed: Long = 0, fraction: Double? = null) {
+        val now = SystemClock.elapsedRealtime()
+        if (stage != lastLoadStage) {
+            lastLoadStage?.let {
+                AppLogRecorder.record("LocalModel", "GGUF_STAGE_FINISHED · operation=$activeOperation · stage=$it · durationMs=${now - stageStartedAtMs}")
+                dev.chungjungsoo.gptmobile.data.diagnostics.LocalRuntimeIncidentHistory.record("LOAD_STAGE_FINISHED", mapOf("operation" to activeOperation.toString(), "stage" to it, "durationMs" to (now - stageStartedAtMs).toString()))
+            }
+            journal.stage(stage, activeOperation)
+            AppLogRecorder.record("LocalModel", "GGUF_STAGE_STARTED · operation=$activeOperation · stage=$stage")
+            dev.chungjungsoo.gptmobile.data.diagnostics.LocalRuntimeIncidentHistory.record("LOAD_STAGE_STARTED", mapOf("operation" to activeOperation.toString(), "stage" to stage, "backend" to loadBackend))
+            lastLoadStage = stage
+            stageStartedAtMs = now
+        }
+        loadObserver?.invoke(GgufNativeProgress(activeOperation, stage, elapsedMs = elapsed, observedAtMs = now, loadFraction = fraction, configuration = "backend=$loadBackend"))
+        if (stage == "NATIVE_READY") lastLoadStage = null
+    }
+
+    private suspend fun <T> cancellableNative(activeHandle: Long?, operation: Long = nativeOperations.incrementAndGet(), block: () -> T): T = coroutineScope {
         val completed = AtomicBoolean(false)
-        val operation = GgufNative.nextOperationId()
         activeOperation = operation
         activeOperationHandle = activeHandle ?: 0L
         GgufNative.prepareOperation(activeHandle ?: 0L, operation)

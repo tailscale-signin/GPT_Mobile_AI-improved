@@ -326,6 +326,7 @@ class LocalModelsViewModel @Inject constructor(
     }
 
     val importStatus = MutableStateFlow<String?>(null)
+    val importCopyRecovery = MutableStateFlow<dev.chungjungsoo.gptmobile.data.localmodel.LocalModelSource?>(null)
     val importActive = MutableStateFlow(false)
     private val importScheduling = MutableStateFlow(false)
     val importedModelId = MutableStateFlow<String?>(null)
@@ -363,6 +364,7 @@ class LocalModelsViewModel @Inject constructor(
         val preview = dev.chungjungsoo.gptmobile.data.localmodel.LocalImportPreview.inspect(input, name, size, dev.chungjungsoo.gptmobile.BuildConfig.GENIEX_ENABLED, folder)
         val coroutine = kotlinx.coroutines.currentCoroutineContext()
         preview.copy(
+            availableBytes = (importContext?.getExternalFilesDir(null) ?: checkNotNull(importContext).filesDir).usableSpace,
             linkProblem = dev.chungjungsoo.gptmobile.data.localmodel.LocalModelSourceImport.linkProblem(
                 checkNotNull(importContext),
                 dev.chungjungsoo.gptmobile.data.localmodel.LocalModelSource(uri, if (folder) dev.chungjungsoo.gptmobile.data.localmodel.LocalModelSource.Kind.FOLDER else dev.chungjungsoo.gptmobile.data.localmodel.LocalModelSource.Kind.FILE),
@@ -387,7 +389,14 @@ class LocalModelsViewModel @Inject constructor(
                         Triple(preferences.getString("latest", null), preferences.getBoolean("ownsGrant", false), preferences.getString("source", null))
                     }
                     val worker = jobs.firstOrNull { !it.state.isFinished } ?: jobs.firstOrNull { it.id.toString() == latest }
-                    if (worker?.state?.isFinished == true && worker.id.toString() == latest && ownsGrant) {
+                    val copyAvailable = worker?.state == androidx.work.WorkInfo.State.FAILED && worker.outputData.getBoolean(dev.chungjungsoo.gptmobile.data.worker.LocalModelImportWorker.COPY_AVAILABLE, false)
+                    importCopyRecovery.value = if (copyAvailable && source != null) {
+                        val folder = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { context.getSharedPreferences("local-import-job", android.content.Context.MODE_PRIVATE).getBoolean("folder", false) }
+                        dev.chungjungsoo.gptmobile.data.localmodel.LocalModelSource(Uri.parse(source), if (folder) dev.chungjungsoo.gptmobile.data.localmodel.LocalModelSource.Kind.FOLDER else dev.chungjungsoo.gptmobile.data.localmodel.LocalModelSource.Kind.FILE, dev.chungjungsoo.gptmobile.data.localmodel.LocalModelSource.Mode.COPY)
+                    } else {
+                        null
+                    }
+                    if (worker?.state?.isFinished == true && worker.id.toString() == latest && ownsGrant && !copyAvailable) {
                         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                             source?.let { if (!dev.chungjungsoo.gptmobile.data.localmodel.LinkedModelSources.usesGrant(Uri.parse(it))) runCatching { context.contentResolver.releasePersistableUriPermission(Uri.parse(it), Intent.FLAG_GRANT_READ_URI_PERMISSION) } }
                             context.getSharedPreferences("local-import-job", android.content.Context.MODE_PRIVATE).edit().putBoolean("ownsGrant", false).apply()
@@ -424,13 +433,19 @@ class LocalModelsViewModel @Inject constructor(
             var ownsGrant = false
             try {
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    ownsGrant = contentResolver.persistedUriPermissions.none { it.uri == uri && it.isReadPermission }
+                    val prior = context.getSharedPreferences("local-import-job", android.content.Context.MODE_PRIVATE)
+                    val priorSource = prior.getString("source", null)?.let(Uri::parse)
+                    val inheritedGrant = prior.getBoolean("ownsGrant", false)
+                    if (inheritedGrant && priorSource != null && priorSource != uri && !dev.chungjungsoo.gptmobile.data.localmodel.LinkedModelSources.usesGrant(priorSource)) {
+                        runCatching { contentResolver.releasePersistableUriPermission(priorSource, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+                    }
+                    ownsGrant = inheritedGrant && priorSource == uri || contentResolver.persistedUriPermissions.none { it.uri == uri && it.isReadPermission }
                     contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     val request = androidx.work.OneTimeWorkRequestBuilder<dev.chungjungsoo.gptmobile.data.worker.LocalModelImportWorker>()
                         .setInputData(androidx.work.Data.Builder().putString("source", uri.toString()).putBoolean("folder", folder).putString(dev.chungjungsoo.gptmobile.data.worker.LocalModelImportWorker.MODE, mode.name).putBoolean(dev.chungjungsoo.gptmobile.data.worker.LocalModelImportWorker.OWNS_GRANT, ownsGrant).build()).build()
                     check(
                         context.getSharedPreferences("local-import-job", android.content.Context.MODE_PRIVATE).edit()
-                            .putString("latest", request.id.toString()).putString("source", uri.toString()).putBoolean("ownsGrant", ownsGrant).commit()
+                            .putString("latest", request.id.toString()).putString("source", uri.toString()).putBoolean("folder", folder).putBoolean("ownsGrant", ownsGrant).commit()
                     ) { "Could not persist the import job" }
                     androidx.work.WorkManager.getInstance(context).enqueueUniqueWork(dev.chungjungsoo.gptmobile.data.worker.LocalModelImportWorker.WORK, androidx.work.ExistingWorkPolicy.KEEP, request).result.get()
                 }

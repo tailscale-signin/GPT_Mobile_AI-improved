@@ -17,10 +17,15 @@ data class ProfileFailureRecord(val category: String, val retryAllowed: Boolean,
             val category = when {
                 incompatible -> "INCOMPATIBLE_CONFIGURATION"
                 details.contains("ForegroundService", true) || details.contains("mAllowStartForeground", true) || details.startsWith("APP_EXECUTION_") -> "APP_EXECUTION"
+                details.contains("REASONING_BUDGET_EXHAUSTED", true) -> "REASONING_BUDGET_EXHAUSTED"
+                details.contains("NO_VISIBLE_ANSWER", true) -> "NO_VISIBLE_ANSWER"
+                details.contains("HOSTED_GENERATION_FAILED", true) -> "HOSTED_GENERATION_FAILED"
                 retryAt != null || Regex("(?i)429|rate.?limit|cooldown|quota").containsMatchIn(details) -> "RATE_LIMIT"
                 details.contains("QUEUE_JOB_PENDING", true) -> "QUEUED_JOB"
                 Regex("(?i)timeout|timed out").containsMatchIn(details) -> "TIMEOUT"
-                Regex("(?i)DNS|connection|\\b50[234]\\b").containsMatchIn(details) -> "CONNECTION"
+                details.contains("DNS", true) -> "DNS_RESOLUTION_FAILED"
+                Regex("(?i)\\b50[234]\\b").containsMatchIn(details) -> "UPSTREAM_UNAVAILABLE"
+                details.contains("connection", true) -> "CONNECTION"
                 else -> "INCOMPLETE"
             }
             return ProfileFailureRecord(category, !incompatible, retryAt)

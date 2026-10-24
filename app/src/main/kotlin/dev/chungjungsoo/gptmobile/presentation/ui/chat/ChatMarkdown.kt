@@ -190,7 +190,7 @@ fun ChatMarkdown(
         // Live deltas are rate-limited, but saved messages and final answers
         // render immediately rather than waiting for the next sample tick.
         merge(
-            requests.filter { it.streaming && dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.hasAnswer(it.content) }.take(1),
+            requests.filter { it.streaming && it.content.isNotBlank() }.take(1),
             requests.filter { it.streaming }.sample(MARKDOWN_PREPARATION_SAMPLE_MS),
             requests.filter { !it.streaming }
         ).filter { request ->
@@ -218,6 +218,9 @@ fun ChatMarkdown(
                         mapped.second.wordingSpans(request.content, combined, requireNotNull(request.wording).sources, request.wording.passages, request.wording.fullAnswer, includeShared = true)
                     } else {
                         emptyList()
+                    }
+                    if (wantsWording && !request.streaming) {
+                        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("CombinedPalette", "DISPLAY_SPAN_MAPPING · run=${request.outputTrace?.runId.orEmpty()} · part=${request.outputTrace?.partId.orEmpty()} · uniqueSpans=${profileSpans.count { it.profileUids.size == 1 }} · sharedSpans=${profileSpans.count { it.profileUids.size > 1 }} · linkedCharacters=${profileSpans.sumOf { it.end - it.start }} · represented=${profileSpans.flatMap { it.profileUids }.distinct().take(32)} · palette=PERSISTED_PROFILE_HUE · factualVerification=false")
                     }
                     PreparedChatMarkdown(parsed, combined, memoryHighlightRanges(combined, request.memoryValues), ProfileSpanIndex(profileSpans))
                 } finally {

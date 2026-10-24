@@ -14,7 +14,7 @@ import kotlinx.coroutines.CancellationException
 internal object NativeModelSource {
     class CannotLink(val detail: String, cause: Exception? = null) :
         IllegalStateException(
-            "This document can be read, but cannot be loaded in place. Select it again and choose Import copy. No model copy was created. ($detail)",
+            "This document can be read, but cannot be loaded in place. Choose Import copy for the selected document. No model copy was created. ($detail)",
             cause
         )
 

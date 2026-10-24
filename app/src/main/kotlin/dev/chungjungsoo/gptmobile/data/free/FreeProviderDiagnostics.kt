@@ -15,7 +15,29 @@ import kotlinx.serialization.json.contentOrNull
 /** Per-flow state. No prompt, response, tools or credentials are retained. */
 class FreeRequestDiagnostics {
     internal val failureId = java.util.UUID.randomUUID().toString()
-    internal var requestSent = false
+    internal var requestSent: Boolean? = false
+    internal var attemptedDispatch = false
+    internal var responseReceived = false
+    internal var network = dev.chungjungsoo.gptmobile.data.network.DeviceNetworkDiagnostics.episodes.current()
+
+    internal fun attempted() {
+        attemptedDispatch = true
+        requestSent = null // Attempting dispatch does not establish that DNS or transmission succeeded.
+        responseReceived = false
+        category = null
+        cooldown = null
+        network = dev.chungjungsoo.gptmobile.data.network.DeviceNetworkDiagnostics.episodes.current()
+    }
+
+    internal fun responded() {
+        requestSent = true
+        responseReceived = true
+    }
+
+    internal fun dnsFailed(host: String) {
+        requestSent = false
+        network = dev.chungjungsoo.gptmobile.data.network.DeviceNetworkDiagnostics.episodes.dnsFailure(host, network)
+    }
     internal var category: dev.chungjungsoo.gptmobile.data.network.FreeFailureCategory? = null
     internal var cooldown: dev.chungjungsoo.gptmobile.data.network.FreeCooldown? = null
     internal val startedAt = System.currentTimeMillis()
@@ -34,6 +56,14 @@ data class FreeProviderFailureRecord(
     val category: String? = null,
     val action: String? = null,
     val requestSent: Boolean? = null,
+    val attemptedDispatch: Boolean = false,
+    val connectionEstablished: Boolean? = null,
+    val requestTransmitted: Boolean? = null,
+    val responseReceived: Boolean = false,
+    val networkChangeId: String? = null,
+    val networkValidation: String? = null,
+    val networkEpisodeId: String? = null,
+    val networkEpisodeHostCount: Int = 0,
     val cooldownOrigin: dev.chungjungsoo.gptmobile.data.network.FreeCooldown? = null,
     val provider: String,
     val endpoint: String,
@@ -139,6 +169,7 @@ object FreeProviderDiagnostics {
     @Synchronized internal fun record(config: ProviderRequestConfig, model: String, message: String, status: Int? = null, body: String = "", header: (String) -> String? = { null }, retryAt: Long? = null, event: String? = null, terminal: Boolean? = null) {
         val provider = config.freeProvider ?: return
         val state = config.freeDiagnostics
+        if (status != null) state?.responded()
         state?.recorded = true
         // Temporary chats must not create persistent or exportable failure history.
         if (!config.queuePersistent) return
@@ -154,6 +185,14 @@ object FreeProviderDiagnostics {
         val record = FreeProviderFailureRecord(
             time = System.currentTimeMillis(),
             failureId = state?.failureId, category = state?.category?.name, action = state?.category?.action,
+            attemptedDispatch = state?.attemptedDispatch == true,
+            connectionEstablished = if (state?.responseReceived == true) true else false.takeIf { state?.category == dev.chungjungsoo.gptmobile.data.network.FreeFailureCategory.DNS_RESOLUTION_FAILED },
+            requestTransmitted = state?.requestSent,
+            responseReceived = state?.responseReceived == true,
+            networkChangeId = state?.network?.changeId,
+            networkValidation = state?.network?.validation,
+            networkEpisodeId = state?.network?.episodeId,
+            networkEpisodeHostCount = state?.network?.distinctHosts ?: 0,
             requestSent = state?.requestSent, cooldownOrigin = state?.cooldown,
             provider = provider.name, endpoint = provider.apiUrl, model = model.take(256), profileUid = config.profileUid,
             chatId = config.queueScope?.substringBefore(':')?.toIntOrNull(), stage = state?.stage ?: "unknown", status = status,

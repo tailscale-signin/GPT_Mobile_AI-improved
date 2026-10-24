@@ -148,8 +148,8 @@ class AgentRunCoordinator @Inject constructor(
         }
     }
 
-    suspend fun resumeCombinedCollection(chatId: Int, userId: Int, rootBudgetId: String) = withChatGate(chatId) {
-        synthesisPlanner?.prepare(chatId, userId, rootBudgetId)?.let { startUnlocked(listOf(it)) }
+    suspend fun resumeCombinedCollection(chatId: Int, userId: Int, rootBudgetId: String, trigger: String = "RESTORE_OR_STATE_CHANGE") = withChatGate(chatId) {
+        synthesisPlanner?.prepare(chatId, userId, rootBudgetId, trigger)?.let { startUnlocked(listOf(it)) }
     }
 
     suspend fun removeCombinedProfile(chatId: Int, profileUid: String) {
@@ -653,7 +653,7 @@ class AgentRunCoordinator @Inject constructor(
                 // Keep the final contributor registered and its foreground service alive through
                 // durable synthesis preparation. Publish the new writer before releasing this one.
                 withChatGate(request.chatId) {
-                    synthesisPlanner?.prepare(request.chatId, userId, combined.rootBudgetId)?.let { next ->
+                    synthesisPlanner?.prepare(request.chatId, userId, combined.rootBudgetId, "CONTRIBUTORS_TERMINAL")?.let { next ->
                         withContext(NonCancellable) {
                             if (chatRepository.isCombinedTurnCancelled(combined.rootBudgetId)) {
                                 chatRepository.finishActiveAgentRun(next.runId, AgentRunStatus.CANCELED, currentEpochSeconds(), null)

@@ -46,6 +46,10 @@ class LocalInferenceService : Service() {
     private val toolResults = ConcurrentHashMap<String, CompletableDeferred<RuntimeWire>>()
     private var sessionId = ""
 
+    @Volatile private var loadProgress: GgufNativeProgress? = null
+
+    @Volatile private var loadStageStartedAt = 0L
+
     @Volatile private var generatingRequest: String? = null
 
     override fun onCreate() {
@@ -68,7 +72,7 @@ class LocalInferenceService : Service() {
                     "ACK" -> replies[packet.requestId]?.acknowledge(packet.sequence)
                     "TOOL_RESULT" -> if (packet.generation == generation && packet.requestId == generatingRequest && packet.sessionId == sessionId) toolResults[packet.callId]?.complete(packet)
                     "CANCEL" -> cancel(packet.requestId)
-                    "SHUTDOWN" -> Process.killProcess(Process.myPid())
+                    "SHUTDOWN" -> terminateWorker("CLIENT_SHUTDOWN", packet.requestId)
                     else -> start(packet, target)
                 }
             }
@@ -115,11 +119,28 @@ class LocalInferenceService : Service() {
                         // The operation lock keeps generations and inspection out of this boundary.
                         runtime.unloadEngine()
                         dev.chungjungsoo.gptmobile.data.localmodel.LinkedModelSources.closeLeases()
-                        runtime.setLoadProgressObserver { progress -> reply.send("LOAD_PROGRESS", state = runtime.state.value.copy(processIsolated = true, lifecycle = "LOADING", loadProgress = progress, allocationObservation = progress.allocationObservation ?: runtime.state.value.allocationObservation), nativeProgress = progress) }
+                        loadProgress = null
+                        val monitor = scope.launch {
+                            while (true) {
+                                delay(250)
+                                val progress = loadProgress ?: continue
+                                if (GgufLoadDeadline.expired(progress.stage, loadStageStartedAt, android.os.SystemClock.elapsedRealtime())) {
+                                    reply.send("LOAD_PROGRESS", nativeProgress = progress.copy(stage = "LOAD_STAGE_DEADLINE_EXCEEDED", configuration = "${progress.stage}|${progress.configuration.orEmpty()}"))
+                                    terminateWorker("LOAD_STAGE_DEADLINE_EXCEEDED", packet.requestId)
+                                }
+                            }
+                        }
+                        runtime.setLoadProgressObserver { progress ->
+                            if (progress.stage != loadProgress?.stage || progress.operationId != loadProgress?.operationId) loadStageStartedAt = android.os.SystemClock.elapsedRealtime()
+                            loadProgress = progress
+                            reply.send("LOAD_PROGRESS", state = runtime.state.value.copy(processIsolated = true, lifecycle = "LOADING", loadProgress = progress, allocationObservation = progress.allocationObservation ?: runtime.state.value.allocationObservation), nativeProgress = progress)
+                        }
                         try {
                             runtime.loadEngine(spec)
                         } finally {
+                            monitor.cancel()
                             runtime.setLoadProgressObserver(null)
+                            loadProgress = null
                         }
                         reply.send("RESULT", state = runtime.state.value.copy(processIsolated = true, lifecycle = "READY"))
                     }
@@ -175,7 +196,7 @@ class LocalInferenceService : Service() {
                                             val owner = jobs[packet.requestId]
                                             scope.launch {
                                                 delay(10_000)
-                                                if (owner?.isCompleted == false) Process.killProcess(Process.myPid())
+                                                if (owner?.isCompleted == false) terminateWorker("PREFILL_CANCELLATION_UNACKNOWLEDGED", packet.requestId)
                                             }
                                         }
                                     }
@@ -214,11 +235,11 @@ class LocalInferenceService : Service() {
                     else -> error("Unsupported local operation")
                 }
             } catch (cancelled: CancellationException) {
-                withContext(NonCancellable) { runCatching { runtime.closeConversation() }.onFailure { if (it is NativeCancellationTimeoutException || it is NativeResourceCleanupException) Process.killProcess(Process.myPid()) } }
+                withContext(NonCancellable) { runCatching { runtime.closeConversation() }.onFailure { if (it is NativeCancellationTimeoutException || it is NativeResourceCleanupException) terminateWorker("NATIVE_CLEANUP_FAILED", packet.requestId) } }
                 val safeToReuse = withContext(NonCancellable) { runtime.state.value.engineSpec?.let { runtime.isEngineLoaded(it) } == true }
                 reply.send("CANCELLED", text = "Local request cancelled after native cleanup", state = runtime.state.value.copy(processIsolated = true, engineHealth = if (safeToReuse) "HEALTHY" else "RESET_REQUIRED"))
             } catch (error: Throwable) {
-                if (error is NativeCancellationTimeoutException || error is NativeResourceCleanupException) Process.killProcess(Process.myPid())
+                if (error is NativeCancellationTimeoutException || error is NativeResourceCleanupException) terminateWorker("NATIVE_CLEANUP_FAILED", packet.requestId)
                 val errorCode = when (error) {
                     is LocalModelConfigurationException -> "MODEL_CONFIGURATION"
                     is LocalNpuPackageException -> "NPU_PACKAGE"
@@ -243,8 +264,14 @@ class LocalInferenceService : Service() {
         job.cancel()
         scope.launch {
             delay(10_000)
-            if (!job.isCompleted) Process.killProcess(Process.myPid())
+            if (!job.isCompleted) terminateWorker("CANCELLATION_UNACKNOWLEDGED", requestId)
         }
+    }
+
+    private fun terminateWorker(reason: String, requestId: String) {
+        runCatching { NativeWorkerTermination.record(File(noBackupFilesDir, "native-worker"), Process.myPid(), requestId, generation, reason, loadProgress ?: runtime.state.value.loadProgress) }
+        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("NativeRuntime", "WORKER_TERMINATION_REQUESTED · pid=${Process.myPid()} · request=$requestId · generation=$generation · reason=$reason · operation=${loadProgress?.operationId ?: -1} · stage=${loadProgress?.stage.orEmpty()}", "W")
+        Process.killProcess(Process.myPid())
     }
 
     private fun validatePath(path: String) {
@@ -257,7 +284,7 @@ class LocalInferenceService : Service() {
         scope.cancel()
         thread.quitSafely()
         // Terminating this private process releases native pointers even after an unacknowledged callback.
-        Process.killProcess(Process.myPid())
+        terminateWorker("SERVICE_DESTROYED", generatingRequest.orEmpty())
         super.onDestroy()
     }
 

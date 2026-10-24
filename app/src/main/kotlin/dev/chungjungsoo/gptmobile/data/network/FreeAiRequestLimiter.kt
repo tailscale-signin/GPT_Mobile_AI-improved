@@ -18,6 +18,7 @@ class FreeAiRequestLimiter(
         val permit = Semaphore(1)
         val requests = ArrayDeque<Long>()
         var cooldown: FreeCooldown? = null
+        var nextLocalSlotAt: Long = 0
         val retryAt: Long get() = cooldown?.retryAt ?: 0L
     }
 
@@ -67,7 +68,7 @@ class FreeAiRequestLimiter(
     private fun bucket(provider: FreeAiProvider, model: String = "", credentialIdentity: String = "unknown"): Bucket = buckets.computeIfAbsent(
         provider to when {
             provider == FreeAiProvider.OVHCLOUD -> model
-            provider.requiresUserToken && credentialIdentity != "unknown" -> "credential:$credentialIdentity"
+            provider.acceptsUserToken && credentialIdentity !in setOf("unknown", "anonymous") -> "credential:$credentialIdentity"
             else -> ""
         }
     ) { Bucket() }
@@ -84,8 +85,19 @@ class FreeAiRequestLimiter(
                 delay(wait)
             }
             reserve(provider, model, credentialIdentity)
-            request()
+            try {
+                request()
+            } finally {
+                if (provider == FreeAiProvider.POLLINATIONS) completedClassicRequest(model, credentialIdentity)
+            }
         }
+
+    @Synchronized
+    private fun completedClassicRequest(model: String, credentialIdentity: String) {
+        // Classic's IP interval begins after the active response finishes, including
+        // a cancelled stream. Cancellation releases the permit but not this spacing.
+        bucket(FreeAiProvider.POLLINATIONS, model, credentialIdentity).nextLocalSlotAt = nowMillis() + 30_000
+    }
 
     @Synchronized
     private fun schedulingDelayMillis(provider: FreeAiProvider, model: String, credentialIdentity: String): Long {
@@ -103,7 +115,7 @@ class FreeAiRequestLimiter(
         val now = nowMillis()
         while (bucket.requests.isNotEmpty() && bucket.requests.first <= now - HOUR_MS) bucket.requests.removeFirst()
         val minuteRequests = bucket.requests.filter { it > now - MINUTE_MS }
-        var retryAt = savedCooldown(provider, model, credentialIdentity)?.retryAt ?: 0L
+        var retryAt = maxOf(savedCooldown(provider, model, credentialIdentity)?.retryAt ?: 0L, bucket.nextLocalSlotAt)
         if (provider == FreeAiProvider.LLM7 && bucket.requests.isNotEmpty()) {
             retryAt = maxOf(retryAt, bucket.requests.last + 1000)
         }
@@ -118,6 +130,7 @@ class FreeAiRequestLimiter(
             throw FreeAiRateLimitException(provider, (retryAt - now + 999) / 1000, cooldown = savedCooldown(provider, model, credentialIdentity), retryAt = retryAt)
         }
         bucket.requests.addLast(now)
+        if (provider == FreeAiProvider.POLLINATIONS) bucket.nextLocalSlotAt = now + 30_000
     }
 
     @Synchronized
@@ -154,7 +167,7 @@ class FreeAiRequestLimiter(
         val bucket = bucket(provider, model, credentialIdentity)
         while (bucket.requests.isNotEmpty() && bucket.requests.first <= now - HOUR_MS) bucket.requests.removeFirst()
         val minuteRequests = bucket.requests.filter { it > now - MINUTE_MS }
-        var retryAt = savedCooldown(provider, model, credentialIdentity)?.retryAt ?: 0L
+        var retryAt = maxOf(savedCooldown(provider, model, credentialIdentity)?.retryAt ?: 0L, bucket.nextLocalSlotAt)
         if (provider == FreeAiProvider.LLM7 && bucket.requests.isNotEmpty()) {
             retryAt = maxOf(retryAt, bucket.requests.last + 1000)
         }

@@ -29,6 +29,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.R
@@ -52,6 +53,7 @@ fun FreeProviderPicker(
     val health by dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.status.collectAsState()
     val now by freeProviderClock()
     val scope = rememberCoroutineScope()
+    val uriHandler = LocalUriHandler.current
     var tokenDraft by remember(apiUrl, token) { mutableStateOf(token.orEmpty()) }
     var testing by remember { mutableStateOf(false) }
     var testStatus by remember(apiUrl, tokenDraft) { mutableStateOf<dev.chungjungsoo.gptmobile.data.network.ApiKeyValidator.ValidationResult?>(null) }
@@ -84,19 +86,6 @@ fun FreeProviderPicker(
                 )
                 ExposedDropdownMenu(expanded = expanded && enabled, onDismissRequest = { expanded = false }) {
                     FreeAiProvider.entries.forEach { provider ->
-                        if (provider.requiresUserToken && onTokenSaved != null) {
-                            OutlinedTextField(
-                                value = tokenDraft,
-                                onValueChange = { tokenDraft = it },
-                                label = { Text("LLM7 free API token") },
-                                singleLine = true,
-                                enabled = enabled && !testing,
-                                visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                            Text("Use a free token from dash.llm7.io. Paid-only models and paid fallback are excluded.", style = MaterialTheme.typography.bodySmall)
-                            androidx.compose.material3.OutlinedButton(enabled = enabled && !testing && tokenDraft != token.orEmpty(), onClick = { onTokenSaved(tokenDraft.trim()) }) { Text(if (tokenDraft.isBlank()) "Remove token" else "Save token") }
-                        }
                         if (provider.isDemo) Text("Demo / Experimental", Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.labelLarge)
                         DropdownMenuItem(
                             enabled = provider.isAvailable && !testing,
@@ -123,19 +112,20 @@ fun FreeProviderPicker(
                 androidx.compose.material3.OutlinedButton(enabled = !testing, onClick = { expanded = true }) { Text("Choose another provider") }
             }
             selected?.let { provider ->
-                if (provider.requiresUserToken && token.isNullOrBlank()) Text("Add API token to use this provider.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                if (provider.acceptsUserToken && token.isNullOrBlank()) Text("Anonymous access is enabled. You can optionally add your own free API token.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                 freeProviderAvailability(provider, model ?: provider.model, health[provider], now, token.takeIf { provider == selected })?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
-                if (provider.requiresUserToken && onTokenSaved != null) {
+                if (provider.acceptsUserToken && onTokenSaved != null) {
                     OutlinedTextField(
                         value = tokenDraft,
                         onValueChange = { tokenDraft = it },
-                        label = { Text("LLM7 free API token") },
+                        label = { Text(if (provider.requiresUserToken) "LLM7 free API token · required" else "LLM7 free API token · optional") },
                         singleLine = true,
                         enabled = enabled && !testing,
                         visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
                         modifier = Modifier.fillMaxWidth()
                     )
-                    Text("Use a free token from dash.llm7.io. Paid-only models and paid fallback are excluded.", style = MaterialTheme.typography.bodySmall)
+                    Text("Leave blank to use anonymous access. If you add a token, use a free account’s token: LLM7 may bill topped-up accounts even for models eligible for the free allowance.", style = MaterialTheme.typography.bodySmall)
+                    androidx.compose.material3.TextButton(enabled = enabled && !testing, onClick = { uriHandler.openUri("https://dash.llm7.io") }) { Text("Get a free LLM7 token") }
                     androidx.compose.material3.OutlinedButton(enabled = enabled && !testing && tokenDraft != token.orEmpty(), onClick = { onTokenSaved(tokenDraft.trim()) }) { Text(if (tokenDraft.isBlank()) "Remove token" else "Save token") }
                 }
                 if (provider.isDemo) Text("Demo / Experimental · transport completion does not verify answer quality. Use evaluation prompts in Benchmarks to assess usefulness.", style = MaterialTheme.typography.bodySmall)
@@ -147,7 +137,7 @@ fun FreeProviderPicker(
                     style = MaterialTheme.typography.bodyMedium,
                     color = if (provider.isAvailable) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error
                 )
-                Text(stringResource(R.string.free_ai_model, provider.model), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                Text(stringResource(R.string.free_ai_model, model ?: provider.model), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
             }
             androidx.compose.material3.TextButton(enabled = enabled && !testing && selected?.isAvailable == true, onClick = {
                 val testedUrl = apiUrl

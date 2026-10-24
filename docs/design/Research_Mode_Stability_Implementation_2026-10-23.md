@@ -4,7 +4,7 @@ Implementation document for GPT Mobile AI
 
 Prepared October 23 2026 Toronto time
 
-**Status:** Design proposal based on the attached Research Chat export and repository inspection. This change adds documentation. Runtime repairs and the acceptance tests below remain implementation work.
+**Status:** Research stability design based on the attached Research Chat export and repository inspection. The core scheduler, durable-attempt, budget, and export repairs below remain proposed implementation work. Appendix D records the main-menu and free-provider changes added to this branch following the user's implementation request, including restored anonymous LLM7 access.
 
 **Repository:** `tailscale-signin/GPT_Mobile_AI-improved`  
 **Inspected source:** main commit `46413444b62c3f0d6db78b09432cd874b29fa6d6`  
@@ -12,7 +12,7 @@ Prepared October 23 2026 Toronto time
 
 ## 1 Purpose and decision
 
-Research failed before evidence collection in this session. Seven selected online profiles waited approximately 60 seconds for inference resources held by a local benchmark, then failed without dispatch. Pollinations and Hugging Face were rejected immediately because their current routes do not expose an enforceable text output bound for Combined mode. Every assistant answer is empty. No research session, source collection, provider invocation, or final report is retained. [E1–E4]
+Research failed before evidence collection in this session. Seven selected online profiles waited approximately 60 seconds for inference resources held by a local benchmark, then failed without dispatch. Pollinations and Hugging Face were rejected immediately because the routes in the exported build did not expose an enforceable text output bound for Combined mode. Every assistant answer is empty. No research session, source collection, provider invocation, or final report is retained. The Pollinations route is updated by the follow-up in Appendix D. [E1–E4]
 
 The first implementation priority is resource admission and recovery. Replace the global benchmark gate with admission that understands the requested resource and the benchmark measurement policy. Persist waiting as a task state, preserve the accepted question, and resume eligible work once resources are available. Check route capabilities before accepting participant roles. A benchmark must not turn a temporary wait into seven apparent AI failures. [C1–C4]
 
@@ -388,3 +388,53 @@ The resource gate, benchmark suites, Research task and session stores, Research 
 New main adds durable ProfileFailureRecord categories, cooldown-aware aggregate retry and removal controls, an action to combine available results, retry provenance, and improved Combined writer allowances. This document extends those features instead of proposing them as wholly absent. The classifier still has no benchmark-resource category, and the immediate eligibility return and outer admission exception paths still need consistent structured receipts. The failure dialog remains a standard AlertDialog in the inspected file.
 
 The updated writer reserve protects one final generation for single-pass turns and changes reasoning/output budgeting. All numerical allowance totals in this document describe the uploaded export; they are not presented as recalculated defaults for the newer main. Preserve the merged GGUF, Combined delivery, provider recovery, and responsiveness improvements while implementing this plan. [C13]
+
+## Appendix D Main-menu and free-provider implementation
+
+This follow-up was requested and implemented on the same branch on October 24 2026, Toronto time. It addresses six interface and provider requirements. It does not claim completion of the resource scheduler or all Research acceptance cases T01–T24. The export remains evidence of the older build's behavior.
+
+### D 1 Conversation progress and presentation
+
+The Home progress indicator belongs inside the conversation's text column. Its leading edge aligns with the subject title, and its trailing edge aligns with the AI-profile subtitle layout box. Moving it into the shared column avoids independent padding calculations and keeps it aligned as screen width, font size, or leading icons change. A themed gradient pans across measured work; animation does not invent additional progress.
+
+Contributor completion alone must not produce 100 percent. Combined completion requires the current turn's successful final run, saved nonblank primary output, and delivery receipt. Research also requires its report to be accepted. An indicator already visible during generation briefly reaches 100 percent before disappearing. Opening a previously completed chat does not replay the completion animation. Failure, interruption, or user stop removes the indicator immediately. A retry must be evaluated from its current attempts, without an older failed final run suppressing fresh work.
+
+The equals-shaped drag handle is removed from the main menu. Profile subtitle opacity is half its previous computed theme opacity. The subtitle's RGB theme treatment is retained; this is a requested visual change, not a claim that contrast remains at the previous level.
+
+### D 2 Shared conversation icons and unread state
+
+Home and New Chat use one mode-to-icon resolver for individual, multi-profile, Combined, and Research chats. A new conversation and a read conversation use the themed outline. A published, unseen answer uses the filled counterpart of the same shape. Research receives an explicit outline/filled pair instead of falling through to a different chat type.
+
+Unread state continues to come from durable reply publication and seen acknowledgements. Run activity, timestamps, empty placeholder messages, and failed contributors are not evidence of an unread answer. The Home projection retains visible publication identity and maps hidden workspace children to their visible parent chat. Tests cover acknowledgement, current-turn identity, and invalid or hidden publication records.
+
+### D 3 Pollinations in Combined
+
+The legacy text GET route is replaced with the documented Classic OpenAI-compatible POST route at `https://text.pollinations.ai/openai`. It accepts anonymous requests. The current upstream implementation always applies a generation ceiling of 1,500 tokens, including when a client requests a smaller value. Both its source and regression test establish this behavior. The app therefore records a fixed allowance of 1,500; it must never pretend that a smaller requested number is enforced. [P1–P3]
+
+Combined eligibility admits Pollinations contributions when the plan can reserve that allowance. The planner, final dispatch guard, and physical dispatch receipt must agree on the same bound. Explicit hard allowances below 1,500 are rejected with an actionable capacity message. Writer capacity remains bounded, so larger final-writing requirements need a capable selected writer. GET-era URL and context reductions are removed. The transport retains finish reasons, usage, actual served-model identity, and truncation handling.
+
+Classic limits anonymous text requests by IP. HTTP 402 with Retry-After represents exhaustion of the next free slot and is treated as a cooldown. This integration does not initiate the separate paid request mechanism. The existing model alias is retained where supported, with the current GPT-OSS 20B identity shown to the user. [P1]
+
+### D 4 Restore free LLM7 with an optional token
+
+The user's recollection of earlier free releases is supported by repository history. PR 510 reported a successful anonymous LLM7 response. Commit `6244bff2e84716ffa2b4703c53a54b15034caee8` later introduced required-token classification while retaining the same API host and route. The restoration separates whether a provider accepts a user token from whether it requires one. [P4, P5]
+
+On October 24, a direct check of the public model catalog returned HTTP 200 with five chat models explicitly classified as `tier=turbo` and `usage_based_only=false`. A subsequent request to `https://api.llm7.io/v1/chat/completions`, using `codestral-latest`, no Authorization header, a 16-token output limit, and the harmless prompt “Reply with OK.” returned HTTP 200 and a valid answer. This verifies anonymous operation of the ordinary public endpoint at the time of testing; no alternate endpoint or shared credential was used.
+
+The current public documentation says an API token is required, which conflicts with this observed behavior. The implementation preserves the working anonymous route and allows an optional personal token. A later authentication rejection should explain how to add a free token; it must not silently switch to a different or paid route. The app's existing owner-approved integration control is preserved. [P6]
+
+Generation resolves against the live free-allowance catalog. Paid-only, Pro-only, missing-classification, and removed models cannot bypass that check through an imported or stale profile. The automatic choice is local app state and is resolved to a real allowed model before dispatch. A provided token is attached only to LLM7's validated endpoint and contributes to credential-specific request limiting. Blank token values send no Authorization header. Free-model eligibility does not override billing rules of a paid or topped-up account; the free allowance applies to the service's free access. [P7]
+
+### D 5 Verification and implementation references
+
+Verification covers Kotlin compilation, focused Home and provider regression tests, resource validation, and changed-file formatting. Live LLM7 evidence establishes the anonymous route's current behavior; it does not establish long-term uptime. No Android device or emulator is available in the validation environment, so rendered menu alignment and animation still require device review. Exact executed test results are recorded in the branch implementation summary and pull request.
+
+Primary provider and history references:
+
+- **P1** [Pollinations Classic API](https://github.com/pollinations/pollinations/blob/master/APIDOCS.md), anonymous POST routes, model identity, free-slot limits, and HTTP 402 behavior. Consulted October 24 2026.
+- **P2** [Pollinations origin implementation](https://github.com/pollinations/pollinations/blob/master/text.pollinations.ai/cloudflare-cache/src/origin.js), MAX_TOKENS and the upstream request body. Consulted October 24 2026.
+- **P3** [Pollinations origin regression tests](https://github.com/pollinations/pollinations/blob/master/text.pollinations.ai/cloudflare-cache/test/origin.test.js), client limit 99 still yields upstream limit 1,500. Consulted October 24 2026.
+- **P4** [Earlier anonymous LLM7 release, PR 510](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/510).
+- **P5** [Required-token change](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/commit/6244bff2e84716ffa2b4703c53a54b15034caee8), merged through PR 732.
+- **P6** [LLM7 published API access terms](https://github.com/chigwell/llm7.io/blob/main/TERMS.md), contrasted with the live public-endpoint check described above. Consulted October 24 2026.
+- **P7** [LLM7 Models API](https://docs.llm7.io/guides/models-api), dynamic catalog, free Turbo access, and account-dependent billing. Consulted October 24 2026.

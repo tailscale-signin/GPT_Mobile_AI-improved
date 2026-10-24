@@ -15,10 +15,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.automirrored.rounded.Chat
-import androidx.compose.material.icons.rounded.Hub
-import androidx.compose.material.icons.rounded.Science
-import androidx.compose.material.icons.rounded.ViewColumn
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.IconButton
@@ -30,7 +26,6 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -70,12 +65,7 @@ internal fun NewChatTypeScreen(
                     if (option == options.firstOrNull { it.requiredPluginId != null }) {
                         Text("Plugins", Modifier.padding(top = 20.dp, bottom = 12.dp), style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                     }
-                    val icon: ImageVector = when (option) {
-                        NewChatType.RESEARCH -> Icons.Rounded.Science
-                        NewChatType.SINGLE -> Icons.AutoMirrored.Rounded.Chat
-                        NewChatType.MULTI_CHAT -> Icons.Rounded.ViewColumn
-                        NewChatType.COMBINED -> Icons.Rounded.Hub
-                    }
+                    val icon = conversationTypeIcon(option)
                     Surface(
                         modifier = Modifier.fillMaxWidth().clickable { onChoose(option) }.testTag("new_chat_type_" + option.name),
                         shape = RoundedCornerShape(24.dp),
@@ -96,7 +86,7 @@ internal fun NewChatTypeScreen(
                                     imageVector = icon,
                                     contentDescription = null,
                                     modifier = Modifier.padding(14.dp).size(28.dp),
-                                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                                    tint = MaterialTheme.colorScheme.primary
                                 )
                             }
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {

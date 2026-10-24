@@ -46,7 +46,22 @@ class FreeAiProviderTest {
     @Test
     fun `LLM7 does not advertise unsupported tool definitions`() {
         assertFalse(FreeAiProvider.LLM7.supportsTools)
+        assertTrue(FreeAiProvider.LLM7.acceptsUserToken)
+        assertFalse(FreeAiProvider.LLM7.requiresUserToken)
+        assertEquals(ProviderAuthenticationMode.ANONYMOUS_OR_FREE_TOKEN, FreeAiProvider.LLM7.authenticationMode)
         assertTrue(FreeAiProvider.KILO.supportsTools)
+    }
+
+    @Test fun optionalLlm7CredentialsStayWithTheirProviderAndStaleDefaultsMigrate() {
+        val source = PlatformV2(name = "LLM7", apiUrl = FreeAiProvider.LLM7.apiUrl, model = "mistral-Nemo-Instruct-2407", token = "synthetic", secretRef = "vault-ref")
+        val llm7 = FreeAiProvider.LLM7.applyTo(source)
+        assertEquals("automatic", llm7.model)
+        assertEquals("synthetic", llm7.token)
+        assertEquals("vault-ref", llm7.secretRef)
+        assertNull(FreeAiProvider.KILO.applyTo(llm7).token)
+        assertNull(FreeAiProvider.POLLINATIONS.applyTo(llm7).secretRef)
+        assertEquals(1500, FreeAiProvider.POLLINATIONS.outputAllowance(9000))
+        assertEquals(1000, FreeAiProvider.POLLINATIONS.outputAllowance(1000))
     }
 
     @Test

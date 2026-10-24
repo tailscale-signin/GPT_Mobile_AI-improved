@@ -635,7 +635,7 @@ class SettingRepositoryImpl @Inject constructor(
             val owner = providerConnectionDao.getConnection(dev.chungjungsoo.gptmobile.data.free.FreeModelCatalog.CONNECTION_UID)
                 ?: addProviderConnection(ProviderConnection(name = "Free Models", compatibleType = ClientType.FREE, apiUrl = FreeAiProvider.default.apiUrl))
             val normalized = FreeAiProvider.requireFor(resolved).applyTo(resolved).copy(providerConnectionUid = owner.uid)
-            if (!FreeAiProvider.requireFor(normalized).requiresUserToken) return normalized
+            if (!FreeAiProvider.requireFor(normalized).acceptsUserToken) return normalized
             val secret = normalized.token ?: return normalized
             if (secret.isBlank()) return normalized.copy(token = null, secretRef = null)
             val reference = normalized.secretRef ?: profileSecretRef(normalized.uid)

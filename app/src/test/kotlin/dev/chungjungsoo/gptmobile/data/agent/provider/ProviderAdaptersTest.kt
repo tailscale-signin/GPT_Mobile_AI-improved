@@ -83,7 +83,7 @@ class ProviderAdaptersTest {
             val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(flowOf(ChatCompletionChunk(choices = listOf(Choice(delta = Delta(content = "OK"), finishReason = "stop")))))))
             val profile = provider.applyTo(platform(ClientType.FREE).copy(apiUrl = provider.apiUrl, token = "synthetic-token"))
             OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder()).openSession(turns(), profile).streamRound(emptyList(), emptyList()).toList()
-            assertEquals(if (provider.requiresUserToken) "synthetic-token" else null, api.configs.single().token)
+            assertEquals(if (provider.acceptsUserToken) "synthetic-token" else null, api.configs.single().token)
             assertEquals(provider, api.configs.single().freeProvider)
         }
     }

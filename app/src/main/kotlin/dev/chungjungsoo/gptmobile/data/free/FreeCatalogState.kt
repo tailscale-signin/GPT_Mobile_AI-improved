@@ -39,6 +39,9 @@ enum class FreeGenerationReadiness(val label: String) {
 @kotlinx.serialization.Serializable
 data class FreeServiceStatus(val catalogCheckSucceeded: Boolean = false, val generationFailures: Int = 0, val failureSignature: String? = null, val readiness: FreeGenerationReadiness = FreeGenerationReadiness.UNTESTED, val retryAt: Long? = null, val deniedModel: String? = null, val denialCount: Int = 0, val reachable: Boolean? = null, val checking: Boolean = false, val checkedAt: Long = 0, val message: String = "Not checked", val servedModel: String? = null, val remaining: String? = null)
 
+/** Per-check authority. Shared UI health may change as soon as the catalog mutex unlocks. */
+data class FreeCatalogRefreshResult(val models: List<FreeModelOption>, val succeeded: Boolean, val readiness: FreeGenerationReadiness = FreeGenerationReadiness.UNTESTED, val message: String = "")
+
 object FreeCatalogState {
     private val _status = MutableStateFlow<Map<FreeAiProvider, FreeServiceStatus>>(emptyMap())
     val status = _status.asStateFlow()
@@ -80,7 +83,11 @@ object FreeCatalogState {
         }
     }
 
-    fun models(provider: FreeAiProvider): List<FreeModelOption> = if (provider == FreeAiProvider.LLM7 && _catalog.value.containsKey(provider)) _catalog.value[provider].orEmpty() else (_catalog.value[provider].orEmpty().map { mergeLimits(it, FreeModelCatalog.defaults(provider).firstOrNull { known -> known.id == it.id }) } + FreeModelCatalog.defaults(provider)).distinctBy { it.id }
+    fun models(provider: FreeAiProvider): List<FreeModelOption> = if (provider == FreeAiProvider.LLM7) {
+        (FreeModelCatalog.defaults(provider) + _catalog.value[provider].orEmpty().filter { it.freeAllowance }).distinctBy { it.id }
+    } else {
+        (_catalog.value[provider].orEmpty().map { mergeLimits(it, FreeModelCatalog.defaults(provider).firstOrNull { known -> known.id == it.id }) } + FreeModelCatalog.defaults(provider)).distinctBy { it.id }
+    }
     fun model(provider: FreeAiProvider, id: String): FreeModelOption? = models(provider).firstOrNull { it.id == id }
     fun requireModel(provider: FreeAiProvider, id: String): FreeModelOption = requireNotNull(model(provider, id)) { "This model is not in ${provider.displayName}'s free catalog. Refresh models in Free Models settings." }
 
@@ -154,6 +161,7 @@ object FreeCatalogState {
 
     internal fun resetForTest() {
         _status.value = emptyMap()
+        _catalog.value = emptyMap()
         recovering.clear()
         healthCache = null
     }
@@ -174,6 +182,7 @@ object FreeCatalogState {
         provider,
         message,
         when {
+            provider == FreeAiProvider.POLLINATIONS && status == 402 && retryAt != null -> FreeGenerationReadiness.RATE_LIMITED
             dev.chungjungsoo.gptmobile.data.network.error.ProviderFailure.parse(status, body).kind == dev.chungjungsoo.gptmobile.data.network.error.ProviderFailureKind.BUDGET -> FreeGenerationReadiness.ALLOWANCE_RESTRICTED
             status == 429 -> FreeGenerationReadiness.RATE_LIMITED
             status in setOf(401, 402, 403) -> FreeGenerationReadiness.ACCESS_DENIED
@@ -189,21 +198,29 @@ object FreeCatalogState {
         generationUnavailableReason(provider, model)?.let { throw FreeGenerationUnavailableException(it) }
     }
 
-    suspend fun refresh(provider: FreeAiProvider, force: Boolean = false, token: String? = null) = checks.getValue(provider).withLock {
+    suspend fun refresh(provider: FreeAiProvider, force: Boolean = false, token: String? = null, catalogReader: (suspend () -> kotlinx.serialization.json.JsonElement)? = null) = checks.getValue(provider).withLock {
         if (!provider.isAvailable || provider.requiresUserToken && token.isNullOrBlank()) {
-            _status.update { it + (provider to (it[provider] ?: FreeServiceStatus()).copy(catalogCheckSucceeded = false, message = provider.unavailableReason ?: "Add API token in an LLM7 profile to check its catalog.")) }
-            return@withLock
+            val message = provider.unavailableReason ?: "Add API token in an LLM7 profile to check its catalog."
+            _status.update { it + (provider to (it[provider] ?: FreeServiceStatus()).copy(catalogCheckSucceeded = false, message = message)) }
+            return@withLock FreeCatalogRefreshResult(emptyList(), false, message = message)
         }
-        if (!force && System.currentTimeMillis() - (_status.value[provider]?.checkedAt ?: 0) < 300_000) return@withLock
+        if (!force && System.currentTimeMillis() - (_status.value[provider]?.checkedAt ?: 0) < 300_000) {
+            val status = _status.value.getValue(provider)
+            return@withLock FreeCatalogRefreshResult(models(provider), status.catalogCheckSucceeded, status.readiness, status.message)
+        }
         _status.update { it + (provider to (it[provider] ?: FreeServiceStatus()).copy(checking = true, catalogCheckSucceeded = false)) }
         try {
             parallelChecks.withPermit {
-                val payload = withContext(Dispatchers.IO) { readCatalog(provider, token) }
+                val payload = catalogReader?.invoke() ?: withContext(Dispatchers.IO) { readCatalog(provider, token) }
                 val models = decodeModels(provider, payload)
                 check(provider == FreeAiProvider.LLM7 && (payload as? JsonObject)?.get("data") is JsonArray || models.isNotEmpty() || provider == FreeAiProvider.HUGGING_FACE && (payload as? JsonObject)?.containsKey("named_endpoints") == true) { "Service responded without a compatible model catalog" }
+                var currentModels = emptyList<FreeModelOption>()
                 _catalog.update { old ->
                     val reviewedIds = if (provider == FreeAiProvider.LLM7) emptySet() else FreeModelCatalog.defaults(provider).map { it.id }.toSet()
                     val merged = models.map { mergeLimits(it, old[provider]?.firstOrNull { previous -> previous.id == it.id }) }
+                    // Preserve learned lower capacities in this request's snapshot,
+                    // while live metadata alone determines model membership/access.
+                    currentModels = merged
                     old + (provider to (merged + old[provider].orEmpty().filter { it.id in reviewedIds }).distinctBy { it.id })
                 }
                 disk.withLock {
@@ -222,6 +239,7 @@ object FreeCatalogState {
                     }
                 }
                 _status.update { it + (provider to (it[provider] ?: FreeServiceStatus()).copy(catalogCheckSucceeded = true, reachable = true, checkedAt = System.currentTimeMillis(), message = (it[provider]?.message?.takeIf { _ -> it[provider]?.readiness != FreeGenerationReadiness.UNTESTED } ?: "Catalog reachable · generation not tested"))) }
+                FreeCatalogRefreshResult(currentModels.toList(), true)
             }
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -229,10 +247,17 @@ object FreeCatalogState {
             if ((_status.value[provider]?.generationFailures ?: 0) >= 2) {
                 _status.update { it + (provider to it.getValue(provider).copy(message = "Catalog check failed; generation remains unavailable")) }
             } else if (error is CatalogHttpFailure) {
-                recordHttpFailure(provider, error.status, if (provider.requiresUserToken && error.status in setOf(401, 403)) "Check API token: catalog returned HTTP ${error.status}" else "Catalog returned HTTP ${error.status}")
+                val message = if (provider.acceptsUserToken && error.status in setOf(401, 403)) {
+                    if (token.isNullOrBlank()) "Anonymous catalog access was declined. Add a free API token from https://dash.llm7.io or retry later (HTTP ${error.status})." else "Check API token: catalog returned HTTP ${error.status}"
+                } else {
+                    "Catalog returned HTTP ${error.status}"
+                }
+                recordHttpFailure(provider, error.status, message)
             } else {
                 recordFailure(provider, error.message ?: "Service unreachable from this device", if (error is java.io.IOException) FreeGenerationReadiness.UNREACHABLE else FreeGenerationReadiness.INVALID_REQUEST, reachable = error !is java.io.IOException)
             }
+            val status = _status.value[provider] ?: FreeServiceStatus()
+            FreeCatalogRefreshResult(emptyList(), false, status.readiness, status.message)
         } finally {
             _status.update { it + (provider to (it[provider] ?: FreeServiceStatus()).copy(checking = false)) }
         }
@@ -252,7 +277,7 @@ object FreeCatalogState {
             connection.connectTimeout = 8000
             connection.readTimeout = 8000
             connection.setRequestProperty("Accept", "application/json")
-            if (provider.requiresUserToken && !token.isNullOrBlank()) connection.setRequestProperty("Authorization", "Bearer $token")
+            if (provider.acceptsUserToken && !token.isNullOrBlank()) connection.setRequestProperty("Authorization", "Bearer $token")
             if (connection.responseCode !in 200..299) throw CatalogHttpFailure(connection.responseCode)
             val body = connection.inputStream.use { input ->
                 val output = java.io.ByteArrayOutputStream()
@@ -290,7 +315,7 @@ object FreeCatalogState {
             fun capacity(vararg fields: String): Int? = fields.mapNotNull { field ->
                 ((item[field] as? JsonObject)?.get("tokens") as? JsonPrimitive ?: (item[field] ?: topProvider?.get(field)) as? JsonPrimitive)?.contentOrNull?.toIntOrNull()?.takeIf { it in 1..100_000_000 }
             }.minOrNull()
-            mergeLimits(FreeModelOption(id, (item["name"] as? JsonPrimitive)?.contentOrNull ?: id, tools = if (provider == FreeAiProvider.KILO) "tools" in parameters else known?.tools == true, privacy = known?.privacy, freeAllowance = llm7Free, streaming = if (provider == FreeAiProvider.LLM7) (item["stream"] as? JsonPrimitive)?.booleanOrNull == true else provider !in setOf(FreeAiProvider.AI_HORDE, FreeAiProvider.HUGGING_FACE, FreeAiProvider.POLLINATIONS), contextTokens = capacity("context_length", "context_window", "max_model_len"), outputTokens = capacity("max_output_tokens", "max_completion_tokens", "max_output_length")), known)
+            mergeLimits(FreeModelOption(id, (item["name"] as? JsonPrimitive)?.contentOrNull ?: known?.label ?: id, tools = if (provider == FreeAiProvider.KILO) "tools" in parameters else known?.tools == true, privacy = known?.privacy, freeAllowance = llm7Free, streaming = if (provider == FreeAiProvider.LLM7) (item["stream"] as? JsonPrimitive)?.booleanOrNull == true else provider !in setOf(FreeAiProvider.AI_HORDE, FreeAiProvider.HUGGING_FACE), contextTokens = capacity("context_length", "context_window", "max_model_len"), outputTokens = capacity("max_output_tokens", "max_completion_tokens", "max_output_length")), known)
         }.distinctBy { it.id }.take(256)
     }
     internal fun mergeLimits(model: FreeModelOption, previous: FreeModelOption?): FreeModelOption = model.copy(
@@ -324,6 +349,6 @@ object FreeCatalogState {
     }
 }
 
-private class CatalogHttpFailure(val status: Int) : IllegalStateException("Catalog HTTP $status")
+internal class CatalogHttpFailure(val status: Int) : IllegalStateException("Catalog HTTP $status")
 
 internal class FreeGenerationUnavailableException(message: String) : dev.chungjungsoo.gptmobile.data.network.FreeProviderException(dev.chungjungsoo.gptmobile.data.network.FreeFailureCategory.PROVIDER_UNAVAILABLE, message)

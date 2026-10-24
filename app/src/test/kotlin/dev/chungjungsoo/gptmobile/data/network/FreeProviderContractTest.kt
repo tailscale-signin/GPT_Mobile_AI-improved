@@ -35,6 +35,7 @@ import org.junit.Test
 class FreeProviderContractTest {
     private val layout get() = javaClass.getResource("/free/gradio/qwen-config.json")!!.readText()
     private val info get() = javaClass.getResource("/free/gradio/qwen-info.json")!!.readText()
+    private val llm7Catalog = """{"data":[{"id":"paid-only","model_type":"chat","tier":"pro","usage_based_only":true},{"id":"free-turbo","model_type":"chat","tier":"turbo","usage_based_only":false,"stream":true}]}"""
 
     @Before fun reset() {
         FreeCatalogState.resetForTest()
@@ -208,24 +209,38 @@ class FreeProviderContractTest {
         }
     }
 
-    @Test fun llm7TokenReachesDispatchAndMissingTokenMakesZeroHttpRequests() = runBlocking {
+    @Test fun llm7SupportsAnonymousAndOptionalTokenWithoutSendingAutomaticOrPaidModels() = runBlocking {
         var posts = 0
+        var catalogs = 0
+        var expectedToken: String? = null
         val client = HttpClient(
             MockEngine { wire ->
-                posts++
-                assertEquals("Bearer synthetic-free-token", wire.headers[HttpHeaders.Authorization])
-                respond("data: {\"choices\":[{\"delta\":{\"content\":\"OK\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n", headers = headersOf(HttpHeaders.ContentType, "text/event-stream"))
+                assertEquals(expectedToken, wire.headers[HttpHeaders.Authorization])
+                if (wire.method == HttpMethod.Get) {
+                    catalogs++
+                    assertEquals("https://api.llm7.io/v1/models", wire.url.toString())
+                    respond(llm7Catalog, headers = headersOf(HttpHeaders.ContentType, "application/json"))
+                } else {
+                    posts++
+                    assertEquals(FreeAiProvider.LLM7.chatCompletionsUrl, wire.url.toString())
+                    val body = Json.parseToJsonElement((wire.body as HttpTextContent).text).jsonObject
+                    assertEquals("\"free-turbo\"", body["model"].toString())
+                    assertFalse(body.containsKey("models"))
+                    respond("data: {\"choices\":[{\"delta\":{\"content\":\"OK\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n", headers = headersOf(HttpHeaders.ContentType, "text/event-stream"))
+                }
             }
         ) { install(HttpTimeout) }
         try {
             val p = FreeAiProvider.LLM7
             val config = ProviderRequestConfig(p.apiUrl, null, freeProvider = p)
-            val missing = api(client).streamChatCompletion(request(p), 30, config).toList()
-            assertEquals("AUTHENTICATION_REQUIRED", missing.last().error!!.type)
-            assertEquals(0, posts)
+            val anonymous = api(client).streamChatCompletion(request(p).copy(models = listOf("paid-only")), 30, config).toList()
+            assertNull(anonymous.last().error)
+            assertEquals(1, posts)
+            expectedToken = "Bearer synthetic-free-token"
             val success = api(client).streamChatCompletion(request(p), 30, config.copy(token = "synthetic-free-token")).toList()
             assertNull(success.last().error)
-            assertEquals(1, posts)
+            assertEquals(2, posts)
+            assertEquals(2, catalogs)
         } finally {
             client.close()
         }
@@ -236,9 +251,13 @@ class FreeProviderContractTest {
         FreeProviderDiagnostics.initialize(history)
         var calls = 0
         val client = HttpClient(
-            MockEngine {
-                calls++
-                respond("""{"error":{"code":"daily_tokens_exhausted","message":"Synthetic token quota reached","quota_scope":"token"}}""", HttpStatusCode.TooManyRequests, headersOf("Retry-After", "10800"))
+            MockEngine { wire ->
+                if (wire.method == HttpMethod.Get) {
+                    respond(llm7Catalog, headers = headersOf(HttpHeaders.ContentType, "application/json"))
+                } else {
+                    calls++
+                    respond("""{"error":{"code":"daily_tokens_exhausted","message":"Synthetic token quota reached","quota_scope":"token"}}""", HttpStatusCode.TooManyRequests, headersOf("Retry-After", "10800"))
+                }
             }
         ) { install(HttpTimeout) }
         try {
@@ -267,9 +286,16 @@ class FreeProviderContractTest {
     }
 
     @Test fun rejectedLlm7TokenGivesAnAuthenticationActionWithoutLeakingTheToken() = runBlocking {
+        var posts = 0
         val client = HttpClient(
-            MockEngine {
-                respond("""{"error":{"message":"Rejected synthetic-free-token"}}""", HttpStatusCode.Unauthorized)
+            MockEngine { wire ->
+                assertEquals("Bearer synthetic-free-token", wire.headers[HttpHeaders.Authorization])
+                if (wire.method == HttpMethod.Get) {
+                    respond(llm7Catalog, headers = headersOf(HttpHeaders.ContentType, "application/json"))
+                } else {
+                    posts++
+                    respond("""{"error":{"message":"Rejected synthetic-free-token"}}""", HttpStatusCode.Unauthorized)
+                }
             }
         ) { install(HttpTimeout) }
         try {
@@ -279,8 +305,67 @@ class FreeProviderContractTest {
             assertEquals("AUTHENTICATION_REJECTED", error.type)
             assertTrue(error.message.contains("Check API token"))
             assertFalse(error.message.contains("synthetic-free-token"))
+            assertEquals(1, posts)
         } finally {
             client.close()
+        }
+    }
+
+    @Test fun quota429RetainsBudgetClassificationWhileSavingRetryAfter() {
+        val provider = FreeAiProvider.LLM7
+        val config = ProviderRequestConfig(provider.apiUrl, "synthetic-free-token", freeProvider = provider)
+        val retryAt = retainFreeHttpFailure(config, "free-turbo", 429, """{"error":{"code":"insufficient_quota","message":"Free token allowance exhausted","quota_scope":"token"}}""") { if (it == "Retry-After") "120" else null }
+        val saved = FreeAiRequestLimiter.shared.savedCooldown(provider, "free-turbo", freeCredentialIdentity(provider, config.token))!!
+        assertEquals("BUDGET", saved.category)
+        assertEquals(429, saved.status)
+        assertEquals(retryAt, saved.retryAt)
+    }
+
+    @Test fun llm7RechecksFreeEligibilityAndNeverFallsBackAfterCatalogChanges() = runBlocking {
+        var posts = 0
+        var free = true
+        val client = HttpClient(
+            MockEngine { wire ->
+                if (wire.method == HttpMethod.Get) {
+                    respond(if (free) llm7Catalog else """{"data":[{"id":"free-turbo","model_type":"chat","tier":"pro","usage_based_only":true}]}""", headers = headersOf(HttpHeaders.ContentType, "application/json"))
+                } else {
+                    posts++
+                    respond("""{"choices":[{"message":{"content":"OK"},"finish_reason":"stop"}]}""", headers = headersOf(HttpHeaders.ContentType, "application/json"))
+                }
+            }
+        ) { install(HttpTimeout) }
+        try {
+            val provider = FreeAiProvider.LLM7
+            val config = ProviderRequestConfig(provider.apiUrl, null, freeProvider = provider)
+            assertNull(api(client).streamChatCompletion(request(provider), 30, config).toList().last().error)
+            free = false
+            val blocked = api(client).streamChatCompletion(request(provider).copy(model = "free-turbo"), 30, config.copy(token = "synthetic-free-token")).toList()
+            assertEquals("REQUEST_INVALID", blocked.last().error?.type)
+            assertEquals(1, posts)
+        } finally {
+            client.close()
+        }
+    }
+
+    @Test fun contextRejectionUpdatesTheRequestSnapshotBeforeRetryAdmission() = runBlocking {
+        var posts = 0
+        val original = "retained source content ".repeat(700)
+        val client = HttpClient(
+            MockEngine { wire ->
+                posts++
+                assertTrue((wire.body as HttpTextContent).text.contains(original))
+                respond("""{"error":{"code":"context_window_exceeded","context_window":3000,"message":"Context window exceeded"}}""", HttpStatusCode.BadRequest)
+            }
+        ) { install(HttpTimeout) }
+        try {
+            val provider = FreeAiProvider.KILO
+            val request = ChatCompletionRequest(provider.model, listOf(ChatMessage(Role.USER, listOf(TextContent(original)))), maxTokens = 8192)
+            val chunks = api(client).streamChatCompletion(request, 30, ProviderRequestConfig(provider.apiUrl, null, freeProvider = provider)).toList()
+            assertEquals(1, posts)
+            assertTrue(chunks.last().error!!.message.contains("CONTEXT_CAPACITY_EXCEEDED"))
+        } finally {
+            client.close()
+            FreeCatalogState.resetForTest()
         }
     }
 }

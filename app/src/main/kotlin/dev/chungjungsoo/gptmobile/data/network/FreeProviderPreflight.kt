@@ -63,12 +63,12 @@ object FreeProviderPreflight {
 
 /** A non-reversible identity only; never retain the credential itself in health or diagnostics. */
 internal fun freeCredentialIdentity(provider: FreeAiProvider, token: String?): String =
-    if (!provider.requiresUserToken) {
+    if (!provider.acceptsUserToken) {
         "anonymous"
     } else {
         token?.takeIf { it.isNotBlank() }?.let {
             java.security.MessageDigest.getInstance("SHA-256").digest(it.toByteArray()).joinToString("") { byte -> "%02x".format(byte) }
-        } ?: "unknown"
+        } ?: if (provider.requiresUserToken) "unknown" else "anonymous"
     }
 
 internal fun freeFailureCategory(error: Exception): FreeFailureCategory = when (error) {

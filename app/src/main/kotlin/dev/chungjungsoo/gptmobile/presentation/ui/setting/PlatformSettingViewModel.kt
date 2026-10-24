@@ -452,7 +452,7 @@ class PlatformSettingViewModel @Inject constructor(
     fun updateApiToken(token: String) {
         val platform = platformState.value ?: return
         if (platform.compatibleType == ClientType.FREE) {
-            if (FreeAiProvider.requireFor(platform).requiresUserToken) updatePlatform(platform.copy(token = token))
+            if (FreeAiProvider.requireFor(platform).acceptsUserToken) updatePlatform(platform.copy(token = token))
             closeApiTokenDialog()
             return
         }

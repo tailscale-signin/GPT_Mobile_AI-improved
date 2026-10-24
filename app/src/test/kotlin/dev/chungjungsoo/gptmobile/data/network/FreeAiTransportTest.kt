@@ -15,16 +15,16 @@ import io.ktor.http.content.TextContent as HttpTextContent
 import io.ktor.http.headersOf
 import io.mockk.every
 import io.mockk.mockk
-import java.net.URLDecoder
+import java.nio.file.Files
 import kotlinx.coroutines.flow.single
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -56,38 +56,37 @@ class FreeAiTransportTest {
     }
 
     @Test
-    fun `Pollinations uses the legacy GET adapter with role labelled history`() = runBlocking {
+    fun `Pollinations posts structured history with its native bound and preserves terminal usage`() = runBlocking {
+        FreeAiRequestLimiter.shared.initialize(Files.createTempDirectory("pollinations-post").resolve("cooldowns.json").toFile())
         val engine = MockEngine { request ->
-            assertEquals(HttpMethod.Get, request.method)
-            assertEquals("text.pollinations.ai", request.url.host)
+            assertEquals(HttpMethod.Post, request.method)
+            assertEquals(FreeAiProvider.POLLINATIONS.chatCompletionsUrl, request.url.toString())
             assertNull(request.headers[HttpHeaders.Authorization])
-            val prompt = URLDecoder.decode(request.url.encodedPath.removePrefix("/"), "UTF-8")
-            assertTrue(prompt.contains("system: Be brief"))
-            assertTrue(prompt.contains("user: A & B?"))
-            assertTrue(prompt.endsWith("assistant:"))
-            respond("A and B.", headers = headersOf(HttpHeaders.ContentType, "text/plain"))
+            val body = NetworkClient.openAIJson.parseToJsonElement((request.body as HttpTextContent).text).jsonObject
+            assertEquals("1500", body.getValue("max_tokens").jsonPrimitive.content)
+            assertEquals("low", body.getValue("reasoning_effort").jsonPrimitive.content)
+            assertEquals(listOf("system", "user"), body.getValue("messages").jsonArray.map { it.jsonObject.getValue("role").jsonPrimitive.content })
+            assertFalse(body.containsKey("models"))
+            respond("""{"model":"gpt-oss-20b","choices":[{"message":{"role":"assistant","content":"A and B."},"finish_reason":"length"}],"usage":{"prompt_tokens":17,"completion_tokens":1500,"total_tokens":1517}}""", headers = headersOf(HttpHeaders.ContentType, "application/json"))
         }
         val client = HttpClient(engine) { install(HttpTimeout) }
         try {
             val network = mockk<NetworkClient>()
             every { network.invoke() } returns client
             val result = OpenAIAPIImpl(network).streamChatCompletion(
-                request().copy(model = FreeAiProvider.POLLINATIONS.model),
+                request().copy(model = FreeAiProvider.POLLINATIONS.model, maxTokens = 9000, models = listOf("paid-fallback")),
                 10,
-                ProviderRequestConfig(FreeAiProvider.POLLINATIONS.apiUrl, null, freeProvider = FreeAiProvider.POLLINATIONS)
-            ).single()
-            val choice = requireNotNull(result.choices).single()
-            assertEquals("A and B.", choice.delta.content)
-            assertEquals("stop", choice.finishReason)
+                ProviderRequestConfig("https://wrong.example", "do-not-send", freeProvider = FreeAiProvider.POLLINATIONS)
+            ).toList()
+            val response = result.first()
+            val choice = requireNotNull(response.choices).single()
+            assertEquals("A and B.", choice.effectiveDelta.content)
+            assertEquals("length", choice.finishReason)
+            assertEquals("gpt-oss-20b", response.model)
+            assertEquals(1500, response.usage?.completionTokens)
+            assertTrue(result.last().applicationNotice!!.contains("continue"))
         } finally {
             client.close()
-        }
-    }
-
-    @Test
-    fun `legacy adapter rejects excessive prompts before sending them`() {
-        assertThrows(IllegalArgumentException::class.java) {
-            legacyPollinationsPrompt(request().copy(messages = listOf(ChatMessage(Role.USER, listOf(TextContent("x".repeat(6001)))))))
         }
     }
 

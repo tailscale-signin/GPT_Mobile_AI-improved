@@ -297,6 +297,18 @@ class ChatRepositoryImpl(
                 )
             }
             profiles.forEach { profile ->
+                FreeAiProvider.fromApiUrl(profile.apiUrl)?.takeIf { profile.compatibleType == ClientType.FREE }?.fixedOutputTokens?.let { fixed ->
+                    add(
+                        dev.chungjungsoo.gptmobile.data.agent.CombinedCapRecord(
+                            "providerFixedOutputTokens",
+                            fixed.toLong(),
+                            dev.chungjungsoo.gptmobile.data.agent.CombinedCapOrigin.PROVIDER,
+                            dev.chungjungsoo.gptmobile.data.agent.CombinedCapScope.INVOCATION,
+                            "Verified fixed generation allowance; smaller client output caps are not honored",
+                            profile.uid
+                        )
+                    )
+                }
                 val profileToolsDisabled = profile.disableAllTools || available[profile.uid]?.disableAllTools == true
                 add(
                     dev.chungjungsoo.gptmobile.data.agent.CombinedCapRecord(
@@ -1884,7 +1896,7 @@ class ChatRepositoryImpl(
                             return@preparedDispatch
                         }
                         if (appSearchRequested) {
-                            val evidence = AppAssistedSearch.prepare(effectiveUserMessages, aggregatedTools, trace, runId, if (platform.compatibleType == ClientType.FREE && FreeAiProvider.requireFor(platform) == FreeAiProvider.POLLINATIONS) 2200 else 6000, ::emit) ?: return@preparedDispatch
+                            val evidence = AppAssistedSearch.prepare(effectiveUserMessages, aggregatedTools, trace, runId, 6000, ::emit) ?: return@preparedDispatch
                             appendPreparedEvidence(evidence)
                         }
                         if (!resumeWriterOnly) prepareConnectedMemory()
@@ -3220,12 +3232,7 @@ class ChatRepositoryImpl(
         val advertisedLimits = dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterCatalogLimits.forRequest(platform.compatibleType.name, platform.apiUrl, platform.model, platform.openRouterRouting)
         val profileBudget = budgetSettings.copy(contextTokens = minOf(budgetSettings.contextTokens, budgetSettings.profileContextCeilings[platform.uid] ?: Int.MAX_VALUE, advertisedLimits?.context ?: Int.MAX_VALUE))
         if (advertisedLimits != null) AppLogRecorder.record("Context", "MODEL_CATALOG_LIMITS · context=${advertisedLimits.context ?: "unknown"} · output=${advertisedLimits.output ?: "unknown"} · source=public_catalog · serverConfirmed=false")
-        val limits = if (platform.compatibleType == ClientType.FREE && FreeAiProvider.requireFor(platform) == FreeAiProvider.POLLINATIONS) {
-            // The legacy GET endpoint accepts a small prompt in its URL.
-            profileBudget.copy(contextTokens = minOf(profileBudget.contextTokens, 1536), outputTokens = minOf(profileBudget.outputTokens.takeIf { it > 0 } ?: 256, 256))
-        } else {
-            profileBudget
-        }
+        val limits = profileBudget
         val turnKey = stage?.acceptedTask?.rootWorkId ?: taskRecovery?.let { "${effectiveUserMessages.lastOrNull()?.chatId}:${it.sourceMessageId}" } ?: dev.chungjungsoo.gptmobile.data.agent.rootWorkId(savedUserTurns, runId)
         dev.chungjungsoo.gptmobile.data.delegation.DelegationRunControls.register(runId)
         val admittedProfiles = settingRepository.fetchPlatformV2s()

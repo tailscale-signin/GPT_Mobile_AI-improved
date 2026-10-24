@@ -16,7 +16,19 @@ data class ResearchProfileStatistics(
     val inputTokens: Long = 0,
     val outputTokens: Long = 0,
     val estimatedTokens: Boolean = false,
-    val modelRequests: Int = 0
+    val modelRequests: Int = 0,
+    val completedRequests: Int = 0,
+    val failedRequests: Int = 0,
+    val runningRequests: Int = 0,
+    val cancelledRequests: Int = 0,
+    val acceptedStages: Int = 0,
+    val failedStages: Int = 0,
+    val skippedStages: Int = 0,
+    val modelDurationMs: Long = 0,
+    val lastStage: String? = null,
+    val lastStageOutcome: String? = null,
+    val lastFailureCategory: String? = null,
+    val lastInvocationId: String? = null
 )
 
 /** Attribution survives corpus sharing. Missing legacy attribution never becomes invented work. */
@@ -28,6 +40,9 @@ internal fun researchProfileStatistics(root: String, participants: Set<String>, 
     val complete = setOf(ExaminationStage.COMPLETE_FULL, ExaminationStage.COMPLETE_PARTIAL, ExaminationStage.ABSTRACT_ONLY)
     return participants.sorted().map { uid ->
         val requests = invocations.filter { it.turnKey == root && it.profileUid == uid }.distinctBy { it.id }
+        val stages = sessions.filter { it.turnId == root }.sortedBy { it.snapshot.updatedAt }.flatMap { it.snapshot.modelEvents }
+            .filter { it.profileUid == uid }.associateBy { it.id }.values.sortedBy { it.startedAt }
+        val lastStage = stages.lastOrNull()
         val examined = scopedJobs.filter { it.profileUid == uid && it.stage in complete }.map { it.workId }.toSet()
         ResearchProfileStatistics(
             uid,
@@ -39,7 +54,19 @@ internal fun researchProfileStatistics(root: String, participants: Set<String>, 
             requests.sumOf { if (it.status == "RUNNING") it.observedInputTokens ?: 0 else it.inputTokens.toLong() },
             requests.sumOf { if (it.status == "RUNNING") it.observedOutputTokens ?: 0 else it.outputTokens.toLong() },
             requests.any { it.estimated },
-            requests.size
+            requests.size,
+            completedRequests = requests.count { it.status == "COMPLETED" },
+            failedRequests = requests.count { it.status in setOf("FAILED", "ERROR") },
+            runningRequests = requests.count { it.status == "RUNNING" },
+            cancelledRequests = requests.count { it.status in setOf("CANCELLED", "CANCELED", "INTERRUPTED") },
+            acceptedStages = stages.count { it.stageAccepted },
+            failedStages = stages.count { it.outcome in setOf("FAILED", "INVALID_RESPONSE", "VALIDATION_FAILED", "TIMED_OUT") },
+            skippedStages = stages.count { it.outcome == "SKIPPED" },
+            modelDurationMs = requests.sumOf { it.durationMs.coerceAtLeast(0) },
+            lastStage = lastStage?.stage,
+            lastStageOutcome = lastStage?.outcome,
+            lastFailureCategory = stages.lastOrNull { it.failureCategory.isNotBlank() }?.failureCategory,
+            lastInvocationId = lastStage?.invocationId ?: requests.maxByOrNull { it.startedAt }?.id
         )
     }
 }

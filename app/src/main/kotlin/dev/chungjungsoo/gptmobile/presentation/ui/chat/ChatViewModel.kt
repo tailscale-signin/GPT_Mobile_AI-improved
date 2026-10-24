@@ -324,11 +324,15 @@ class ChatViewModel @Inject constructor(
 
     val researchProfileStatistics = combine(
         researchSessions,
+        researchExecutionState,
         (invocationLedger?.usageForChat(chatRoomId) ?: flowOf(emptyList())).sample(250),
         researchDatabase?.research()?.jobs()?.map { rows -> rows.filter { it.chatId == chatRoomId } }?.distinctUntilChanged() ?: flowOf(emptyList())
-    ) { sessions, requests, jobs ->
-        sessions.values.filter { it.chatId == chatRoomId }.groupBy { it.turnId }.mapValues { (root, rows) ->
-            val accepted = researchSessionStore?.acceptedTask(root)
+    ) { sessions, executions, requests, jobs ->
+        val byRoot = sessions.values.filter { it.chatId == chatRoomId }.groupBy { it.turnId }
+        val acceptedRoots = executions.values.filter { it.accepted.chatId == chatRoomId }.associateBy { it.accepted.rootWorkId }
+        (byRoot.keys + acceptedRoots.keys).associateWith { root ->
+            val rows = byRoot[root].orEmpty()
+            val accepted = acceptedRoots[root]?.accepted ?: researchSessionStore?.acceptedTask(root)
             val participants = accepted?.participantUids?.toSet() ?: requests.filter { it.turnKey == root }.mapNotNull { it.profileUid }.toSet()
             dev.chungjungsoo.gptmobile.data.research.researchProfileStatistics(root, participants, rows, requests, jobs)
         }

@@ -63,6 +63,18 @@ internal object DirectResearchModelFactory {
                 if (!current.enabled) return ResearchAdmission.PROFILE_DISABLED
                 if (!sameDestination(current)) return ResearchAdmission.DESTINATION_CHANGED
                 if (dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.profileRevision(current) != revision) return ResearchAdmission.REGISTERED_PROFILE_CHANGED
+                if (target.compatibleType == ClientType.FREE && dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.fromApiUrl(target.apiUrl) == dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.HUGGING_FACE) {
+                    // The vetted Qwen Space does not serialize a generation ceiling. It cannot
+                    // satisfy bounded Research stages until a controlled contract is verified.
+                    return ResearchAdmission.OUTPUT_LIMIT_UNSUPPORTED
+                }
+                dev.chungjungsoo.gptmobile.data.network.FreeProviderPreflight.check(current, target.model)?.let { blocked ->
+                    return when (blocked.category) {
+                        dev.chungjungsoo.gptmobile.data.network.FreeFailureCategory.LOCAL_COOLDOWN_ACTIVE,
+                        dev.chungjungsoo.gptmobile.data.network.FreeFailureCategory.PROVIDER_RATE_LIMITED -> ResearchAdmission.PROVIDER_COOLDOWN
+                        else -> ResearchAdmission.PROVIDER_UNAVAILABLE
+                    }
+                }
                 val live = liveFeatures()
                 if (local && (!live.assistEnabled() || !policy.shareDerivedEvidence || live.effectiveAssistPolicy() != policy || !policy.allowsProcessing(target))) return ResearchAdmission.PERMISSION_REVOKED
                 val selectedResearchReviewer = features.researchFeature.reviewerProfileUid == target.uid && live.researchFeature.enabled && live.researchFeature.reviewerProfileUid == target.uid
@@ -84,6 +96,7 @@ internal object DirectResearchModelFactory {
                 providerHost = runCatching { java.net.URI(target.apiUrl).host.orEmpty() }.getOrDefault(""),
                 admission = { admission() },
                 timeoutMillis = if (local) (policy.queueWaitSeconds + policy.loadTimeoutSeconds + policy.taskTimeoutSeconds) * 1000L else null,
+                requestBudget = { requested -> ResearchProviderBudget.request(target, requested, features.tokenBudget) },
                 generate = { stage, prompt, cap ->
                     suspend fun execute(): ResearchModelReply {
                         requireAdmission()

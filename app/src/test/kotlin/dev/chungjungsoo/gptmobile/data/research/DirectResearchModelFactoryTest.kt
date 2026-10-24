@@ -19,6 +19,42 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DirectResearchModelFactoryTest {
+    @Test fun unboundedHuggingFaceSpaceIsIneligibleForBoundedResearchBeforeGeneration() = runTest {
+        val provider = dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.HUGGING_FACE
+        val primary = PlatformV2(uid = "space", name = "Space", compatibleType = ClientType.FREE, apiUrl = provider.apiUrl, model = provider.model)
+        val features = AppFeatureSettings()
+        var invoked = 0
+        val worker = DirectResearchModelFactory.create(primary, listOf(primary), features, ModelDelegationSettings(), "space-bounded", { listOf(primary) }, { features }, { true }, { _, _ -> false }, { _, _, _, _ ->
+            invoked++
+            error("An unenforceable output cap must not dispatch")
+        })
+        assertNull(worker.generate(ResearchModelStage.EXTRACT, "source", 512))
+        assertEquals(0, invoked)
+        assertEquals("SKIPPED", worker.events.single().outcome)
+        assertEquals("OUTPUT_LIMIT_UNSUPPORTED", worker.events.single().reason)
+        assertNull(worker.events.single().invocationId)
+    }
+
+    @Test fun freeProviderHealthBlocksResearchBeforeChildGenerationAndKeepsSkippedReceipts() = runTest {
+        val provider = dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.BLOCKRUN
+        val primary = PlatformV2(uid = "free-primary", name = "Free", compatibleType = ClientType.FREE, apiUrl = provider.apiUrl, model = provider.model)
+        val features = AppFeatureSettings()
+        dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.resetForTest()
+        try {
+            repeat(2) { dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.recordTerminalFailure(provider, provider.model, "remote generation failed") }
+            var invoked = 0
+            val worker = DirectResearchModelFactory.create(primary, listOf(primary), features, ModelDelegationSettings(), "free-preflight", { listOf(primary) }, { features }, { true }, { _, _ -> false }, { _, _, _, _ ->
+                invoked++
+                error("must not dispatch")
+            })
+            repeat(10) { assertNull(worker.generate(ResearchModelStage.EXTRACT, "source-$it", 512)) }
+            assertEquals(0, invoked)
+            assertTrue(worker.events.all { it.outcome == "SKIPPED" && it.reason == "PROVIDER_UNAVAILABLE" && it.failureCategory == "ADMISSION" })
+        } finally {
+            dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.resetForTest()
+        }
+    }
+
     @Test fun explicitLocalPermissionIsRequiredAndDenialFallsBackOnlyToPinnedPrimary() = runTest {
         val primary = PlatformV2(uid = "primary", name = "Primary", model = "remote")
         val local = PlatformV2(uid = "local", name = "Local", compatibleType = ClientType.LITERT_LM, model = "local")

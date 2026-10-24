@@ -17,7 +17,7 @@ class CombinedExaminationBarrier @Inject constructor(
     private val budgets: CombinedTurnBudgetStore
 ) {
     suspend fun await(context: CombinedExecutionContext, profileUid: String, rootWorkId: String) {
-        val stages = listOf("appraisal", "independent_review", "study_review").map { CombinedResearchStages.id(profileUid, it) }.filter { id -> context.plan?.workItems?.any { it.id == id } == true }
+        val stages = listOf("appraisal", "independent_review", "study_review").map { CombinedResearchStages.id(context, profileUid, it) }.filter { id -> context.plan?.workItems?.any { it.id == id } == true }
         if (stages.isEmpty()) return
         val budget = budgets.open(context)
         var complete = true
@@ -59,6 +59,6 @@ class CombinedExaminationBarrier @Inject constructor(
             complete = false
             reason = "EXAMINATION_BLOCKED_CHECKPOINT_RETAINED"
         }
-        stages.forEach { budget.finishStage(it, if (complete) "COMPLETED" else "PARTIAL", reason) }
+        stages.forEach { budget.finishResearchStage(it, profileUid, if (complete) "COMPLETED" else "PARTIAL", reason) }
     }
 }

@@ -19,6 +19,51 @@ class ResearchModelCoordinatorTest {
     private fun endpoint(id: String, key: String = id, available: suspend () -> Boolean = { true }, generate: suspend () -> String) =
         ResearchModelEndpoint(id, id, key, id == "local", available) { _, _, _ -> ResearchModelReply(generate(), key, "inv-$id") }
 
+    @Test fun wrappedLocalRejectionsAndCooldownsAreNotMisreportedAsTransportFailures() {
+        fun wrapped(message: String) = dev.chungjungsoo.gptmobile.data.agent.tool.DelegateGenerationException(
+            dev.chungjungsoo.gptmobile.data.agent.tool.DelegateFailureKind.TRANSPORT_FAILURE,
+            message,
+            0,
+            0,
+            0,
+            true
+        )
+        assertEquals("ADMISSION", ResearchModelCoordinator.failureCategory(wrapped("RESEARCH_STAGE_TERMINAL: stage is closed")))
+        assertEquals("BUDGET_DENIED", ResearchModelCoordinator.failureCategory(wrapped("RESEARCH_OUTPUT_ALLOWANCE: fixed ceiling exceeds hard limit")))
+        assertEquals("RATE_LIMITED", ResearchModelCoordinator.failureCategory(wrapped("Blocked locally by saved provider cooldown. The allowance may not have reset.")))
+        assertEquals("CONTEXT_LIMIT", ResearchModelCoordinator.failureCategory(wrapped("DELEGATE_OVERSIZED: prompt exceeds capacity")))
+        assertEquals("REASONING_ONLY", ResearchModelCoordinator.failureCategory(wrapped("REASONING_BUDGET_EXHAUSTED: no visible answer")))
+        assertEquals("EMPTY_OUTPUT", ResearchModelCoordinator.failureCategory(wrapped("NO_VISIBLE_ANSWER: provider returned no answer")))
+    }
+
+    @Test fun remoteTransportFailuresStopRepeatedSourceDispatchAndAllowPinnedHealthyPeer() = runTest {
+        var attempts = 0
+        val coordinator = ResearchModelCoordinator(
+            listOf(
+                endpoint("broken") {
+                    attempts++
+                    throw java.io.IOException("socket closed")
+                },
+                endpoint("healthy") { """{"claims":[]}""" }
+            )
+        )
+        repeat(12) { assertNotNull(coordinator.generate(ResearchModelStage.EXTRACT, "source-$it", 512)) }
+        assertEquals(2, attempts)
+        assertTrue(coordinator.events.any { it.profileUid == "broken" && it.reason == "MODEL_CIRCUIT_OPEN" })
+    }
+
+    @Test fun providerCooldownAdmissionNeverCreatesRunningGeneration() = runTest {
+        var attempts = 0
+        val endpoint = ResearchModelEndpoint("limited", "model", "route", false, { true }, admission = { ResearchAdmission.PROVIDER_COOLDOWN }) { _, _, _ ->
+            attempts++
+            ResearchModelReply(plan, "route")
+        }
+        val coordinator = ResearchModelCoordinator(listOf(endpoint))
+        repeat(10) { assertNull(coordinator.generate(ResearchModelStage.EXTRACT, "source-$it", 512)) }
+        assertEquals(0, attempts)
+        assertTrue(coordinator.events.all { it.outcome == "SKIPPED" && it.reason == "PROVIDER_COOLDOWN" && it.failureCategory == "ADMISSION" })
+    }
+
     @Test fun stageCompletionRetainsFailuresBeyondTheBoundedEventHistory() = kotlinx.coroutines.test.runTest {
         var ready = true
         val endpoint = ResearchModelEndpoint("primary", "model", "identity", false, { ready }) { _, _, _ -> ResearchModelReply("""{"claims":[]}""", "identity") }

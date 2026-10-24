@@ -80,6 +80,19 @@ class CombinedDeliveryRepairTest {
         assertEquals(6200, CombinedWriterObservations.get(key)?.minimumUsefulOutputAllowance)
     }
 
+    @Test fun delayedUsageStaysWithItsServedRouteAfterAnotherAliasResolves() {
+        val key = CombinedWriterObservations.key(profile("auto-route"))
+        val first = CombinedWriterObservations.recordRoute(key, "reasoner", "backend-a", "reasoning.enabled=false", true)
+        val second = CombinedWriterObservations.recordRoute(key, "writer", "backend-b", "reasoning.enabled=false", false)
+        CombinedWriterObservations.recordUsage(first, 2878, "length", 3688)
+        CombinedWriterObservations.recordUsage(second, 0, "stop", 4096)
+        assertEquals(2878, CombinedWriterObservations.get(first)?.reasoningTokensHighWater)
+        assertEquals(3688, CombinedWriterObservations.get(first)?.stalledOutputAllowance)
+        assertEquals(0, CombinedWriterObservations.get(second)?.reasoningTokensHighWater)
+        assertEquals(null, CombinedWriterObservations.get(second)?.stalledOutputAllowance)
+        assertEquals("writer", CombinedWriterObservations.get(key)?.servedModel)
+    }
+
     @Test fun reasoningUsageIsReservedAndCannotBeErasedByVisibleText() {
         val p = profile("reasoning")
         val key = CombinedWriterObservations.key(p)

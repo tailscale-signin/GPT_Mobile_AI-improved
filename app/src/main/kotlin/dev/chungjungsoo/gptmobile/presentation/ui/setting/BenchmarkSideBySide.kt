@@ -47,7 +47,7 @@ import dev.chungjungsoo.gptmobile.presentation.common.SettingsHelpIcon
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import kotlin.math.abs
 
-private fun BenchmarkScoreRow.selectionKey(): String = "$profileUid|$revision|$cohort"
+private fun BenchmarkScoreRow.selectionKey(): String = resultId.ifBlank { "$profileUid|$revision|$cohort|$backend|$accelerator" }
 
 @Composable
 internal fun BenchmarkSideBySide(rows: List<BenchmarkScoreRow>, profiles: List<PlatformV2>, retests: List<dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkRetest> = emptyList()) {
@@ -87,7 +87,7 @@ internal fun BenchmarkSideBySide(rows: List<BenchmarkScoreRow>, profiles: List<P
             val firstChanges = priorFirst?.let { benchmarkComparisonMetrics(first, it).associate { metric -> metric.label to metric.second } }.orEmpty()
             val secondChanges = priorSecond?.let { benchmarkComparisonMetrics(second, it).associate { metric -> metric.label to metric.second } }.orEmpty()
             if (priorFirst != null || priorSecond != null) Text("Retest bars · theme: retained points · red: lost · yellow: gained. Deltas in the table compare model 2 to model 1.", style = MaterialTheme.typography.bodySmall)
-            if (first.cohort != second.cohort) {
+            if (first.cohort != second.cohort || first.backend != second.backend || first.accelerator != second.accelerator || first.capabilityManifest != second.capabilityManifest) {
                 Text("Different test conditions. Charts show each model's own scale; score differences require a matching suite and execution cohort.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             }
             Text("Two charts · scores / 100", style = MaterialTheme.typography.titleMedium)
@@ -148,7 +148,7 @@ private fun ComparisonPicker(label: String, selected: BenchmarkScoreRow, rows: L
             Icon(if (selected.cohort.contains("device:")) Icons.Rounded.Memory else Icons.Rounded.Cloud, null, Modifier.size(20.dp))
             Column(Modifier.weight(1f).padding(horizontal = 12.dp), horizontalAlignment = Alignment.Start) {
                 Text(label, style = MaterialTheme.typography.labelSmall)
-                Text(name(selected), fontWeight = FontWeight.SemiBold)
+                Text(name(selected) + " · " + listOfNotNull(selected.backend, selected.accelerator).joinToString(" / "), fontWeight = FontWeight.SemiBold)
                 Text("${selected.cohort.substringBefore('|')} · suite ${selected.cohort.split('|').getOrNull(1)} · ${selected.cohort.substringAfterLast(':')}", style = MaterialTheme.typography.labelSmall)
             }
             Icon(Icons.Rounded.ExpandMore, "Choose model")
@@ -157,7 +157,7 @@ private fun ComparisonPicker(label: String, selected: BenchmarkScoreRow, rows: L
             rows.forEach { row ->
                 DropdownMenuItem(text = {
                     Column {
-                        Text(name(row))
+                        Text(name(row) + " · " + listOfNotNull(row.backend, row.accelerator).joinToString(" / "))
                         Text("Suite ${row.cohort.split('|').getOrNull(1)} · ${row.cohort.substringAfterLast('|')}", style = MaterialTheme.typography.labelSmall)
                     }
                 }, onClick = {

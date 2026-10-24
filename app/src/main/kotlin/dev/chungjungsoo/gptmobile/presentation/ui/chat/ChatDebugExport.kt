@@ -55,6 +55,7 @@ internal suspend fun writeChatDebugExport(
     researchStream: suspend (suspend (ResearchSession) -> Unit) -> Unit = { consume -> research.forEach { consume(it) } }
 ) {
     val credentials = profiles.mapNotNull { it.token }
+    val policySnapshots = DebugPolicySnapshots { redactChatDebugData(it, credentials) }
     val dependencyIds = buildSet {
         addAll(room.activePlatform)
         features.localAssistPolicy.profileUid?.let(::add)
@@ -130,6 +131,7 @@ internal suspend fun writeChatDebugExport(
                 put("runEvents", dev.chungjungsoo.gptmobile.data.diagnostics.RUN_EVENT_SCHEMA)
                 put("legacyEvents", 4)
                 put("assist", 2)
+                put("policySnapshots", 1)
             }
         )
         put(
@@ -137,6 +139,7 @@ internal suspend fun writeChatDebugExport(
             buildJsonObject {
                 put("level", if (records["runJournal"] != null) "metadata-and-retained-records" else "retained-records")
                 put("capturedFully", false)
+                put("diagnosticsEnabled", features.diagnosticsCollection)
                 put("replayableReducer", false)
                 put("completeProviderWireCapture", false)
                 put("exportTruncated", false)
@@ -169,6 +172,18 @@ internal suspend fun writeChatDebugExport(
         put("version", BuildConfig.VERSION_NAME)
         put("build", BuildConfig.VERSION_CODE)
         put("package", BuildConfig.APPLICATION_ID)
+        put("appCommit", BuildConfig.APP_COMMIT)
+        put("buildVariant", BuildConfig.BUILD_TYPE)
+        put("nativeRuntimeCommit", dev.chungjungsoo.gptmobile.data.localruntime.RuntimeCapabilityRegistry.GGUF_REVISION)
+        put(
+            "dataScopes",
+            buildJsonObject {
+                put("runs", "selected_chat")
+                put("researchLifecycle", "selected_chat")
+                put("appLogSnapshot", "app_wide_recent")
+                put("localRuntimeIncidents", "app_wide_retained")
+            }
+        )
         put("snapshot", "Stored records with live message overlays; generation may still be running. No history-window limit.")
         put("availability", "Contains retained data only. Credentials are redacted. Attachment bytes, deleted data and unrecorded wire payloads are unavailable. Request receipts include digests and retained context, not a complete wire capture. Estimated token counts remain estimates. Research history may have been evicted by its retention policy.")
         put("conversation", json.encodeToJsonElement(room))
@@ -224,10 +239,15 @@ internal suspend fun writeChatDebugExport(
                         }
                     )
                 }
+            } else if (value is JsonArray && key in setOf("runs", "combinedBudgets")) {
+                array(key, value.asSequence()) { policySnapshots.normalize(it) }
+            } else if (key == "researchLifecycle") {
+                put(key, policySnapshots.normalize(value))
             } else {
                 put(key, value)
             }
         }
+        put("policySnapshots", policySnapshots.table())
         arrayFrom("research") { emit ->
             researchStream { session ->
                 emit(

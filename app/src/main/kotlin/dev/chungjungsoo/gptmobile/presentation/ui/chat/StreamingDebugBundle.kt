@@ -42,6 +42,10 @@ internal object StreamingDebugBundle {
                 put("capturedFully", false)
             }
             var journalPresent = false
+            var journalEventCount = 0
+            val journalMetadata = mutableMapOf<String, JsonElement>()
+            val buildIdentity = mutableMapOf<String, JsonElement>()
+            var dataScopes: JsonElement = JsonObject(emptyMap())
             val gaps = mutableMapOf<String, JsonElement>()
             var clock: JsonElement = JsonObject(emptyMap())
             events.bufferedWriter().use { eventWriter ->
@@ -50,7 +54,7 @@ internal object StreamingDebugBundle {
                     JsonReader(conversation.bufferedReader()).use { reader ->
                         reader.beginObject()
                         while (reader.hasNext()) {
-                            when (reader.nextName()) {
+                            when (val fieldName = reader.nextName()) {
                                 "schema" -> schema = reader.nextString()
                                 "messages" -> {
                                     messages = reader.peek() == JsonToken.BEGIN_ARRAY
@@ -61,6 +65,8 @@ internal object StreamingDebugBundle {
                                     reader.skipValue()
                                 }
                                 "capture" -> capture = element(reader)
+                                "version", "build", "appCommit", "nativeRuntimeCommit", "buildVariant", "package" -> buildIdentity[fieldName] = element(reader)
+                                "dataScopes" -> dataScopes = element(reader)
                                 "responseMapping" -> response.bufferedWriter().use { copyValue(reader, JsonWriter(it)) }
                                 "profileDependencies" -> profiles.bufferedWriter().use { copyValue(reader, JsonWriter(it)) }
                                 "appLogSnapshot" -> {
@@ -94,10 +100,15 @@ internal object StreamingDebugBundle {
                                                     copyValue(reader, writer)
                                                     writer.flush()
                                                     eventWriter.write("\n")
+                                                    journalEventCount++
                                                 }
                                                 reader.endArray()
                                             }
-                                            key in setOf("droppedEvents", "missingBatches", "missingSequences", "storageFailed") -> gaps[key] = element(reader)
+                                            key in setOf("droppedEvents", "missingBatches", "missingSequences", "storageFailed") -> element(reader).also {
+                                                gaps[key] = it
+                                                journalMetadata[key] = it
+                                            }
+                                            key in setOf("captureEnabled", "counterScope", "lossReasons") -> journalMetadata[key] = element(reader)
                                             else -> reader.skipValue()
                                         }
                                     }
@@ -129,7 +140,11 @@ internal object StreamingDebugBundle {
                 put("conversationSchema", schema)
                 put("eventSchema", dev.chungjungsoo.gptmobile.data.diagnostics.RUN_EVENT_SCHEMA)
                 put("capture", capture)
-                put("journalAvailability", if (journalPresent) "retained" else "not-captured-or-unavailable")
+                val summary = dev.chungjungsoo.gptmobile.data.diagnostics.JournalCaptureSummary.describe(JsonObject(journalMetadata).takeIf { journalPresent }, journalEventCount, capture as? JsonObject)
+                put("journalAvailability", summary.getValue("availability"))
+                put("journalCapture", summary)
+                put("buildIdentity", JsonObject(buildIdentity))
+                put("dataScopes", dataScopes)
                 put("journalGaps", JsonObject(gaps))
                 put("payloads", "No additional payload capture; permitted retained content is in conversation.json")
                 put(

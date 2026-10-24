@@ -5,6 +5,7 @@ import dev.chungjungsoo.gptmobile.data.localmodel.ArtifactRuntime
 import java.io.File
 
 internal class ArtifactRuntimeMultiplexer(private val gguf: LocalRuntime, private val preview: LocalRuntime) : LocalRuntime {
+    override val isNativeOperationBusy: Boolean get() = gguf.isNativeOperationBusy || preview.isNativeOperationBusy
     private var active: LocalRuntime? = null
     private fun runtime(path: String): LocalRuntime = if (ArtifactManifestStore.read(File(path)).runtime == ArtifactRuntime.LLAMA_CPP) gguf else preview
     override suspend fun inspectModel(modelPath: String) = runtime(modelPath).inspectModel(modelPath)

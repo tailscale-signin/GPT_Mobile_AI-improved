@@ -16,6 +16,7 @@ import dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayProgress
 import dev.chungjungsoo.gptmobile.data.localruntime.DeviceHardwareGovernor
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
+import dev.chungjungsoo.gptmobile.data.model.delegationFor
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAPI
 import dev.chungjungsoo.gptmobile.data.repository.ChatRepository
@@ -42,6 +43,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -56,7 +58,8 @@ data class AgentRunRequest(
     val userMessages: List<MessageV2>,
     val assistantMessages: List<List<MessageV2>>,
     val chatToolConfig: ChatMcpToolConfig? = null,
-    val stage: AgentStageRequest? = null
+    val stage: AgentStageRequest? = null,
+    val researchParticipantUids: List<String> = emptyList()
 )
 
 data class ActiveAgentRun(
@@ -99,12 +102,14 @@ class AgentRunCoordinator @Inject constructor(
     private val gatewayAPI: GatewayAPI,
     private val settingRepository: SettingRepository,
     private val completionStore: GenerationCompletionStore,
-    private val synthesisPlanner: CombinedSynthesisPlanner? = null
+    private val synthesisPlanner: CombinedSynthesisPlanner? = null,
+    private val researchSessions: dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore? = null
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val jobs = ConcurrentHashMap<String, Job>()
     private val cancellationContexts = ConcurrentHashMap<String, dev.chungjungsoo.gptmobile.data.delegation.DelegationCancellationContext>()
     private val combinedRoots = ConcurrentHashMap<String, String>()
+    private val researchLifecycles = ConcurrentHashMap<String, dev.chungjungsoo.gptmobile.data.research.ResearchDispatchLifecycle>()
     private val recoveryLock = Mutex()
     private val gatewayRecoveryAttemptAtMs = ConcurrentHashMap<String, Long>()
     private val gatewayRecoveryFailures = ConcurrentHashMap<String, Int>()
@@ -158,7 +163,7 @@ class AgentRunCoordinator @Inject constructor(
     }
 
     suspend fun tryAnotherCombinedWriter(chatId: Int, runId: String): Boolean = withChatGate(chatId) {
-        val next = synthesisPlanner?.prepareFallback(chatId, runId) ?: return@withChatGate false
+        val next = synthesisPlanner?.prepareFallback(chatId, runId, userRequested = true) ?: return@withChatGate false
         startUnlocked(listOf(next))
         true
     }
@@ -191,7 +196,9 @@ class AgentRunCoordinator @Inject constructor(
             deferUntilForeground(requests)
             return
         }
-        val pending = requests.distinctBy(AgentRunRequest::runId).mapNotNull { request ->
+        val participants = requests.groupBy { rootWorkId(it.userMessages, it.runId) }.mapValues { (_, runs) -> runs.map { it.platform.uid }.distinct() }
+        val pending = requests.distinctBy(AgentRunRequest::runId).mapNotNull { original ->
+            val request = original.copy(researchParticipantUids = original.researchParticipantUids.ifEmpty { participants[rootWorkId(original.userMessages, original.runId)].orEmpty() })
             val rootMessage = resolveTaskRecovery(request.userMessages)?.sourceMessageId ?: request.userMessages.lastOrNull()?.id
             val cancellation = dev.chungjungsoo.gptmobile.data.delegation.DelegationCancellationContext("${request.chatId}:$rootMessage", request.runId)
             val job = scope.launch(context = cancellation, start = CoroutineStart.LAZY) {
@@ -205,6 +212,7 @@ class AgentRunCoordinator @Inject constructor(
                         jobs.remove(request.runId)
                         cancellationContexts.remove(request.runId)
                         combinedRoots.remove(request.runId)
+                        researchLifecycles.remove(request.runId)
                         _streamMessages.update { current ->
                             if (current[request.assistantMessage.id]?.currentRunId == request.runId) current - request.assistantMessage.id else current
                         }
@@ -308,6 +316,7 @@ class AgentRunCoordinator @Inject constructor(
 
     private suspend fun terminalizeAndCancel(runIds: Set<String>, isInterrupted: Boolean, origin: dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin = dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.USER_WHOLE_RUN) {
         if (runIds.isEmpty()) return
+        val researchRoots = runIds.mapNotNull { researchLifecycles[it] }.distinctBy { it.rootWorkId }
         val cancelCombined = !isInterrupted &&
             origin in setOf(
                 dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.USER_WHOLE_RUN,
@@ -333,6 +342,13 @@ class AgentRunCoordinator @Inject constructor(
                             terminalError = if (isInterrupted) AgentRunTerminalError.SERVICE_STOPPED else null
                         )
                     }
+                }
+            }
+            if (isInterrupted || cancelCombined) {
+                researchRoots.forEach { lifecycle ->
+                    runCatching {
+                        lifecycle.terminal(if (isInterrupted) dev.chungjungsoo.gptmobile.data.research.ResearchAttemptState.INTERRUPTED else dev.chungjungsoo.gptmobile.data.research.ResearchAttemptState.CANCELLED, origin.name)
+                    }.onFailure { AppLogRecorder.record("Research", "TERMINAL_JOURNAL_PENDING · root=${lifecycle.rootWorkId} · reason=${it.javaClass.simpleName}", "W") }
                 }
             }
         }
@@ -476,13 +492,111 @@ class AgentRunCoordinator @Inject constructor(
         const val GATEWAY_RECOVERY_MIN_INTERVAL_MS = 60_000L
         const val GATEWAY_RECOVERY_EXPIRED = "GATEWAY_RECOVERY_EXPIRED"
     }
-    private suspend fun execute(request: AgentRunRequest) = coroutineScope {
-        if (request.chatToolConfig?.combined?.role == CombinedRunRole.CONTRIBUTOR) {
-            val reason = CombinedProviderEligibility.unavailableReason(request.platform, request.userMessages.lastOrNull()?.content.orEmpty())
-            if (reason != null) {
-                chatRepository.finishQueuedAgentRun(request.runId, AgentRunStatus.FAILED, currentEpochSeconds(), reason)
-                return@coroutineScope
+    private suspend fun prepareResearchLifecycle(request: AgentRunRequest, ineligibleReason: String? = null): dev.chungjungsoo.gptmobile.data.research.ResearchDispatchLifecycle? {
+        val store = researchSessions ?: return null
+        val selection = request.chatToolConfig?.research
+        val combined = request.chatToolConfig?.combined
+        if (selection?.researchToggle != true && combined?.requested?.acceptedResearch == null) return null
+        val original = request.userMessages.lastOrNull() ?: return null
+        val recovery = resolveTaskRecovery(request.userMessages)
+        val root = request.stage?.acceptedTask?.rootWorkId ?: rootWorkId(request.userMessages, request.runId)
+        val persistent = chatRepository.researchPersistenceAllowed(request.chatId)
+        val features = settingRepository.getFeatureSettings()
+        val profiles = settingRepository.fetchPlatformV2s()
+        val policy = kotlinx.serialization.json.Json.encodeToString(ChatMcpToolConfig.serializer(), request.chatToolConfig ?: ChatMcpToolConfig())
+        val featurePolicy = kotlinx.serialization.json.Json.encodeToString(dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings.serializer(), features)
+        val existing = store.execution(root, persistent)
+        val participants = existing?.accepted?.participantUids ?: combined?.requested?.participantUids ?: request.researchParticipantUids.ifEmpty { listOf(request.platform.uid) }
+        val authority = dev.chungjungsoo.gptmobile.data.research.researchHash(profiles.joinToString { "${it.uid}:${it.compatibleType}:${it.apiUrl}:${it.model}:${it.secretRef}:${it.disableAllTools}:${it.disableRemoteTools}" })
+        val research = selection?.applyTo(features.delegationFor(request.platform.uid))?.deepResearch ?: features.delegationFor(request.platform.uid).deepResearch
+        store.acceptTask(
+            request.chatId, root, request.stage?.acceptedTask?.originatingUserMessageId ?: recovery?.sourceMessageId ?: original.id,
+            recovery?.originalRequest ?: original.content, participants, combined?.requested?.preferredOwnerUid ?: request.platform.uid,
+            dev.chungjungsoo.gptmobile.data.research.researchHash(featurePolicy + policy), authority, persistent,
+            acceptedPolicyJson = kotlinx.serialization.json.JsonObject(mapOf("features" to kotlinx.serialization.json.Json.parseToJsonElement(featurePolicy), "chat" to kotlinx.serialization.json.Json.parseToJsonElement(policy))).toString(),
+            sourceScope = combined?.requested?.acceptedResearch?.contentScope ?: selection?.scope?.name ?: research.contentScope.name,
+            targetSources = combined?.requested?.acceptedResearch?.sourceGoal?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt() ?: research.customSourceTarget ?: dev.chungjungsoo.gptmobile.data.model.DeepResearchSettings.targetForEffort(selection?.depth ?: research.effort),
+            requestedModels = combined?.requested?.requestedModels ?: profiles.filter { it.uid in participants }.associate { it.uid to it.model }
+        )
+        val accepted = store.execution(root, persistent) ?: error("RESEARCH_ACCEPTANCE_UNAVAILABLE")
+        val authorityGuard = if (ineligibleReason == null) {
+            dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.capture(settingRepository, request.platform, request.chatId)
+        } else {
+            dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard("incompatible-role") {
+                throw dev.chungjungsoo.gptmobile.data.context.PhysicalAttemptRejected(ineligibleReason)
             }
+        }
+        val savedFeatures = runCatching {
+            val envelope = kotlinx.serialization.json.Json.parseToJsonElement(accepted.accepted.acceptedPolicyJson) as? kotlinx.serialization.json.JsonObject
+            envelope?.get("features")?.let { kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromJsonElement(dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings.serializer(), it) }
+        }.getOrNull()
+        val frozenPolicyRevision = savedFeatures?.takeIf { accepted.attempt.generation == 0L }?.let { dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.policyRevision(it, request.platform.uid, request.chatId) }
+        // Claim the row for this attempt before queueing, including recovered answers that
+        // need no new physical dispatch. Startup cannot borrow a previous attempt's success.
+        store.updateExecution(
+            root,
+            accepted.attempt,
+            dev.chungjungsoo.gptmobile.data.research.ResearchAttemptState.ACCEPTED,
+            persistent,
+            reason = "RUN_ACCEPTED",
+            runId = request.runId,
+            profileUid = request.platform.uid
+        )
+        return dev.chungjungsoo.gptmobile.data.research.ResearchDispatchLifecycle(store, root, accepted.attempt, persistent, request.runId, request.platform.uid) {
+            authorityGuard.validate()
+            check(frozenPolicyRevision == null || frozenPolicyRevision == dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.policyRevision(settingRepository.getFeatureSettings(), request.platform.uid, request.chatId)) { "RESEARCH_CONFIGURATION_CHANGED: accepted Research settings changed; review and resume the task before dispatch." }
+        }
+    }
+
+    private suspend fun settleResearchOutcome(
+        request: AgentRunRequest,
+        lifecycle: dev.chungjungsoo.gptmobile.data.research.ResearchDispatchLifecycle?,
+        message: MessageV2,
+        status: String,
+        reason: String?,
+        contributorsExhausted: Boolean = false
+    ) {
+        val store = researchSessions ?: return
+        if (lifecycle == null || !contributorsExhausted && request.chatToolConfig?.combined?.role == CombinedRunRole.CONTRIBUTOR) return
+        try {
+            val execution = store.execution(lifecycle.rootWorkId, lifecycle.persistent) ?: return
+            val accepted = execution.accepted
+            val ownedIds = execution.attempt.dispatchedRunIds + execution.receipts.filter { it.attemptId == lifecycle.attempt.attemptId && it.generation == lifecycle.attempt.generation }.mapNotNull { it.runId }
+            val turnRuns = chatRepository.observeAgentRuns(request.chatId).first().filter { it.userMessageId == accepted.originatingUserMessageId || it.runId in ownedIds }
+            val active = turnRuns.any { it.runId != request.runId && it.status in setOf(AgentRunStatus.QUEUED, AgentRunStatus.RUNNING, "STOPPING") }
+            val currentRuns = turnRuns.filter { it.runId in ownedIds }
+            val allBlocked = currentRuns.isNotEmpty() &&
+                currentRuns.all { run ->
+                    run.status == AgentRunStatus.FAILED && run.terminalError?.let { ProfileFailureRecord.classify(it).category in setOf("INCOMPATIBLE_CONFIGURATION", "TOOL_CHOICE_MISMATCH") } == true
+                }
+            if (active) return
+            val retained = store.exportTurn(request.chatId, setOf(lifecycle.rootWorkId))
+            val readable = retained.flatMap { it.snapshot.sources }.filter { it.readable }.map { it.equivalenceGroup.ifBlank { it.canonicalUrl.ifBlank { it.id } } }.distinct().size
+            val receipt = message.timeline.mapNotNull { it.researchDeliveryReceipt }.lastOrNull { it.matchesRevision(message.content) }
+            val combined = message.timeline.mapNotNull { it.combinedQuality }.lastOrNull { it.answerDigest == dev.chungjungsoo.gptmobile.data.research.researchHash(message.content) }
+            val checkpoint = receipt?.revisionId ?: combined?.answerDigest
+            val state = when {
+                status == AgentRunStatus.CANCELED -> dev.chungjungsoo.gptmobile.data.research.ResearchAttemptState.CANCELLED
+                status == AgentRunStatus.INTERRUPTED -> dev.chungjungsoo.gptmobile.data.research.ResearchAttemptState.INTERRUPTED
+                !contributorsExhausted && readable > 0 && status == AgentRunStatus.COMPLETED && (receipt?.accepted == true || combined?.let { it.complete && !it.correctionRequired && it.deliveredScopeStatus in setOf("COMPLETED", "COMPLETED_WITH_LIMITS") } == true) -> dev.chungjungsoo.gptmobile.data.research.ResearchAttemptState.COMPLETED
+                !contributorsExhausted && readable > 0 && checkpoint != null && message.content.isNotBlank() && (receipt?.partial == true || combined != null) -> dev.chungjungsoo.gptmobile.data.research.ResearchAttemptState.PARTIAL
+                allBlocked -> dev.chungjungsoo.gptmobile.data.research.ResearchAttemptState.BLOCKED_CONFIGURATION
+                readable > 0 -> dev.chungjungsoo.gptmobile.data.research.ResearchAttemptState.FAILED_DELIVERY
+                else -> dev.chungjungsoo.gptmobile.data.research.ResearchAttemptState.FAILED_NO_EVIDENCE
+            }
+            lifecycle.terminal(state, if (allBlocked) "ALL_SELECTED_PROFILES_INCOMPATIBLE" else reason, checkpoint, readable)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            AppLogRecorder.record("Research", "TERMINAL_JOURNAL_PENDING · root=${lifecycle.rootWorkId} · reason=${failure.javaClass.simpleName}", "W")
+        }
+    }
+
+    private suspend fun execute(request: AgentRunRequest) = coroutineScope {
+        val eligibilityFailure = if (request.chatToolConfig?.combined?.role == CombinedRunRole.CONTRIBUTOR) {
+            CombinedProviderEligibility.unavailableReason(request.platform, request.userMessages.lastOrNull()?.content.orEmpty())
+        } else {
+            null
         }
         val startedAt = currentEpochSeconds()
         var assistantMessage = request.assistantMessage
@@ -491,6 +605,7 @@ class AgentRunCoordinator @Inject constructor(
         var lastCheckpointAt = 0L
         var firstAnswerCheckpoint = false
         var committedForHandoff = false
+        var researchLifecycle: dev.chungjungsoo.gptmobile.data.research.ResearchDispatchLifecycle? = null
         suspend fun traceReducedOutput(message: MessageV2) {
             dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.let { journal ->
                 withContext(Dispatchers.Default) { journal.traceOutput(request.runId, dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceBoundary.REDUCER, message.content, fence = message.ownershipFence) }
@@ -500,125 +615,150 @@ class AgentRunCoordinator @Inject constructor(
             traceReducedOutput(snapshot)
             chatRepository.updateAgentMessage(snapshot)
         }
+        suspend fun finishUnavailablePolicy(error: Throwable, status: String = AgentRunStatus.FAILED): Boolean {
+            val policyError = generateSequence(error) { it.cause }.filterIsInstance<dev.chungjungsoo.gptmobile.data.database.RunPolicySnapshotException>().firstOrNull() ?: return false
+            // The usual message commit hydrates the missing policy and would fail again. The
+            // raw terminal update checks current run ownership without replacing any saved text.
+            val finished = chatRepository.finishActiveAgentRun(request.runId, status, currentEpochSeconds(), policyError.message)
+            if (finished) {
+                committedForHandoff = false
+                settleResearchOutcome(request, researchLifecycle, assistantMessage.copy(timeline = emptyList()), status, policyError.message, contributorsExhausted = true)
+                _notices.tryEmit(AgentRunNotice(request.chatId, request.runId, requireNotNull(policyError.message), true))
+            }
+            return true
+        }
         var checkpoints = newCheckpoints()
         try {
-            if (!withContext(NonCancellable) { chatRepository.markAgentRunRunning(request.runId, startedAt) }) return@coroutineScope
-            val recovered = if (request.chatToolConfig?.combined?.requested?.singlePass == true) {
-                chatRepository.observeAgentRuns(request.chatId).first().firstOrNull { it.runId == request.runId }?.let { CombinedAcceptedTurn.decode(it.synthesisSnapshot)?.recoveredProviderAnswer }
+            researchLifecycle = prepareResearchLifecycle(request, eligibilityFailure)
+            researchLifecycle?.let { researchLifecycles[request.runId] = it }
+            if (eligibilityFailure != null) {
+                val completedAt = currentEpochSeconds()
+                committedForHandoff = withContext(NonCancellable) {
+                    chatRepository.finishQueuedAgentRun(request.runId, AgentRunStatus.FAILED, completedAt, eligibilityFailure)
+                }
+                if (committedForHandoff) assistantMessage = terminalAgentMessage(assistantMessage, eligibilityFailure, completedAt).withCombinedOutcome(AgentRunStatus.FAILED)
             } else {
-                null
-            }
-            val response = if (recovered != null) {
-                kotlinx.coroutines.flow.flowOf(dev.chungjungsoo.gptmobile.data.dto.ApiState.Success(recovered), dev.chungjungsoo.gptmobile.data.dto.ApiState.Done)
-            } else {
-                chatRepository.completeChat(
-                    request.userMessages,
-                    request.assistantMessages,
-                    request.platform,
-                    request.runId,
-                    request.chatToolConfig,
-                    request.stage
-                )
-            }
-            val outcome = response.collectApiStateUpdates(
-                onUpdate = { content, thoughts, timeline ->
-                    val retained = if (content.isEmpty() && committedPrefix.isNotEmpty()) committedPrefix else content
-                    require(retained.startsWith(committedPrefix)) { "A resumed Combined stream attempted to replace its committed prefix." }
-                    assistantMessage = assistantMessage.copy(
-                        content = retained,
-                        thoughts = thoughts,
-                        timeline = recoveryMarkers + timeline
+                if (!withContext(NonCancellable) { chatRepository.markAgentRunRunning(request.runId, startedAt) }) return@coroutineScope
+                val recovered = if (request.chatToolConfig?.combined?.requested?.singlePass == true) {
+                    chatRepository.observeAgentRuns(request.chatId).first().firstOrNull { it.runId == request.runId }?.let { CombinedAcceptedTurn.decode(it.synthesisSnapshot)?.recoveredProviderAnswer }
+                } else {
+                    null
+                }
+                val response = if (recovered != null) {
+                    kotlinx.coroutines.flow.flowOf(dev.chungjungsoo.gptmobile.data.dto.ApiState.Success(recovered), dev.chungjungsoo.gptmobile.data.dto.ApiState.Done)
+                } else {
+                    chatRepository.completeChat(
+                        request.userMessages,
+                        request.assistantMessages,
+                        request.platform,
+                        request.runId,
+                        request.chatToolConfig,
+                        request.stage
                     )
-                    _streamMessages.update { current ->
-                        val owner = current[assistantMessage.id]
-                        if (owner != null && owner.ownershipFence > assistantMessage.ownershipFence) current else current + (assistantMessage.id to assistantMessage)
-                    }
-                    val now = SystemClock.elapsedRealtime()
-                    val firstAnswer = !firstAnswerCheckpoint && dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.hasAnswer(retained)
-                    if (firstAnswer || now - lastCheckpointAt >= 500L) {
-                        dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(request.runId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.REDUCER_CHECKPOINT, fence = assistantMessage.ownershipFence, visibleBytes = content.toByteArray(Charsets.UTF_8).size.toLong(), reasoningBytes = thoughts.toByteArray(Charsets.UTF_8).size.toLong())
-                        checkpoints.offer(assistantMessage)
-                        firstAnswerCheckpoint = firstAnswerCheckpoint || firstAnswer
-                        lastCheckpointAt = now
-                    }
-                },
-                onNotice = { notice, persistent ->
-                    _notices.tryEmit(AgentRunNotice(request.chatId, request.runId, notice, persistent))
-                },
-                onResearchReplacement = { digest, text ->
-                    checkpoints.offer(assistantMessage)
-                    checkpoints.drain()
-                    val replaced = withContext(NonCancellable) { chatRepository.replaceResearchDraft(request.runId, assistantMessage.ownershipFence, digest, text) }
-                    checkpoints = newCheckpoints()
-                    if (replaced != null) {
-                        assistantMessage = replaced
-                        _streamMessages.update { it + (replaced.id to replaced) }
-                    }
-                    replaced != null
-                },
-                onCombinedReplacement = { candidate ->
-                    checkpoints.offer(assistantMessage)
-                    checkpoints.drain()
-                    val replaced = withContext(NonCancellable) {
-                        chatRepository.replaceCombinedAnswer(request.runId, assistantMessage.ownershipFence, candidate)
-                    }
-                    checkpoints = newCheckpoints()
-                    if (replaced != null) {
-                        assistantMessage = replaced
-                        committedPrefix = replaced.content
-                        _streamMessages.update { it + (replaced.id to replaced) }
-                    }
-                    replaced != null
-                },
-                onPhaseChanged = { phase ->
-                    _activeRuns.update { runs ->
-                        val current = runs[request.runId]
-                        if (current != null) {
-                            runs + (request.runId to current.copy(phase = phase))
-                        } else {
-                            runs
+                }
+                val outcome = response.flowOn(researchLifecycle ?: kotlin.coroutines.EmptyCoroutineContext).collectApiStateUpdates(
+                    onUpdate = { content, thoughts, timeline ->
+                        val retained = if (content.isEmpty() && committedPrefix.isNotEmpty()) committedPrefix else content
+                        require(retained.startsWith(committedPrefix)) { "A resumed Combined stream attempted to replace its committed prefix." }
+                        assistantMessage = assistantMessage.copy(
+                            content = retained,
+                            thoughts = thoughts,
+                            timeline = recoveryMarkers + timeline
+                        )
+                        _streamMessages.update { current ->
+                            val owner = current[assistantMessage.id]
+                            if (owner != null && owner.ownershipFence > assistantMessage.ownershipFence) current else current + (assistantMessage.id to assistantMessage)
                         }
-                    }
-                },
-                onNativeProgress = { progress ->
-                    _activeRuns.update { runs ->
-                        val current = runs[request.runId]
-                        if (current == null) runs else runs + (request.runId to current.copy(nativeProgress = progress))
-                    }
-                },
-                onGatewayProgress = { progress ->
-                    updateGatewayProgress(request.runId, progress)
-                },
-                publishIntervalMillis = publishIntervalMillis
-            )
-            checkpoints.drain()
-            AppLogRecorder.record("Streaming", "CHECKPOINT_WRITER · queueAgeMs=${checkpoints.lastQueueAgeMillis} · writeMs=${checkpoints.lastWriteMillis}")
-            val terminal = outcome.toTerminalUpdate()
-            val completedAt = currentEpochSeconds()
-            val terminalMessage = terminalAgentMessage(assistantMessage, terminal.error, completedAt).withCombinedOutcome(terminal.status)
-            val committed = withContext(NonCancellable) {
-                traceReducedOutput(terminalMessage)
-                chatRepository.commitAgentRun(terminalMessage, request.runId, terminal.status, completedAt, terminal.error)
-            }
-            committedForHandoff = committed
-            if (committed && terminal.status == AgentRunStatus.COMPLETED && terminalMessage.id > 0) {
-                completionStore.record(request.runId, request.chatId, terminalMessage.id, completedAt)
+                        val now = SystemClock.elapsedRealtime()
+                        val firstAnswer = !firstAnswerCheckpoint && dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.hasAnswer(retained)
+                        if (firstAnswer || now - lastCheckpointAt >= 500L) {
+                            dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(request.runId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.REDUCER_CHECKPOINT, fence = assistantMessage.ownershipFence, visibleBytes = content.toByteArray(Charsets.UTF_8).size.toLong(), reasoningBytes = thoughts.toByteArray(Charsets.UTF_8).size.toLong())
+                            checkpoints.offer(assistantMessage)
+                            firstAnswerCheckpoint = firstAnswerCheckpoint || firstAnswer
+                            lastCheckpointAt = now
+                        }
+                    },
+                    onNotice = { notice, persistent ->
+                        _notices.tryEmit(AgentRunNotice(request.chatId, request.runId, notice, persistent))
+                    },
+                    onResearchReplacement = { digest, text ->
+                        checkpoints.offer(assistantMessage)
+                        checkpoints.drain()
+                        val replaced = withContext(NonCancellable) { chatRepository.replaceResearchDraft(request.runId, assistantMessage.ownershipFence, digest, text) }
+                        checkpoints = newCheckpoints()
+                        if (replaced != null) {
+                            assistantMessage = replaced
+                            _streamMessages.update { it + (replaced.id to replaced) }
+                        }
+                        replaced != null
+                    },
+                    onCombinedReplacement = { candidate ->
+                        checkpoints.offer(assistantMessage)
+                        checkpoints.drain()
+                        val replaced = withContext(NonCancellable) {
+                            chatRepository.replaceCombinedAnswer(request.runId, assistantMessage.ownershipFence, candidate)
+                        }
+                        checkpoints = newCheckpoints()
+                        if (replaced != null) {
+                            assistantMessage = replaced
+                            committedPrefix = replaced.content
+                            _streamMessages.update { it + (replaced.id to replaced) }
+                        }
+                        replaced != null
+                    },
+                    onPhaseChanged = { phase ->
+                        _activeRuns.update { runs ->
+                            val current = runs[request.runId]
+                            if (current != null) {
+                                runs + (request.runId to current.copy(phase = phase))
+                            } else {
+                                runs
+                            }
+                        }
+                    },
+                    onNativeProgress = { progress ->
+                        _activeRuns.update { runs ->
+                            val current = runs[request.runId]
+                            if (current == null) runs else runs + (request.runId to current.copy(nativeProgress = progress))
+                        }
+                    },
+                    onGatewayProgress = { progress ->
+                        updateGatewayProgress(request.runId, progress)
+                    },
+                    publishIntervalMillis = publishIntervalMillis
+                )
+                checkpoints.drain()
+                AppLogRecorder.record("Streaming", "CHECKPOINT_WRITER · queueAgeMs=${checkpoints.lastQueueAgeMillis} · writeMs=${checkpoints.lastWriteMillis}")
+                val terminal = outcome.toTerminalUpdate()
+                val completedAt = currentEpochSeconds()
+                val terminalMessage = terminalAgentMessage(assistantMessage, terminal.error, completedAt).withCombinedOutcome(terminal.status)
+                val committed = withContext(NonCancellable) {
+                    traceReducedOutput(terminalMessage)
+                    chatRepository.commitAgentRun(terminalMessage, request.runId, terminal.status, completedAt, terminal.error)
+                }
+                committedForHandoff = committed
+                if (committed) settleResearchOutcome(request, researchLifecycle, terminalMessage, terminal.status, terminal.error)
+                if (committed && terminal.status == AgentRunStatus.COMPLETED && terminalMessage.id > 0) {
+                    completionStore.record(request.runId, request.chatId, terminalMessage.id, completedAt)
+                }
             }
         } catch (error: CancellationException) {
             withContext(NonCancellable) {
                 checkpoints.cancelAndJoin()
                 val completedAt = currentEpochSeconds()
+                val isInterrupted = interruptingRunIds.remove(request.runId)
                 runCatching {
-                    val isInterrupted = interruptingRunIds.remove(request.runId)
                     traceReducedOutput(assistantMessage)
-                    chatRepository.commitAgentRun(
-                        assistantMessage.copy(createdAt = completedAt).resetActiveRevision().withCombinedOutcome(if (isInterrupted) AgentRunStatus.INTERRUPTED else AgentRunStatus.CANCELED),
+                    val cancelledMessage = assistantMessage.copy(createdAt = completedAt).resetActiveRevision().withCombinedOutcome(if (isInterrupted) AgentRunStatus.INTERRUPTED else AgentRunStatus.CANCELED)
+                    val committed = chatRepository.commitAgentRun(
+                        cancelledMessage,
                         request.runId,
                         if (isInterrupted) AgentRunStatus.INTERRUPTED else AgentRunStatus.CANCELED,
                         completedAt,
                         if (isInterrupted) AgentRunTerminalError.SERVICE_STOPPED else null
                     )
-                }
+                    if (committed) settleResearchOutcome(request, researchLifecycle, cancelledMessage, if (isInterrupted) AgentRunStatus.INTERRUPTED else AgentRunStatus.CANCELED, if (isInterrupted) AgentRunTerminalError.SERVICE_STOPPED else "USER_CANCELLED")
+                }.onFailure { failure -> finishUnavailablePolicy(failure, if (isInterrupted) AgentRunStatus.INTERRUPTED else AgentRunStatus.CANCELED) }
             }
             throw error
         } catch (error: Throwable) {
@@ -626,11 +766,13 @@ class AgentRunCoordinator @Inject constructor(
                 checkpoints.cancelAndJoin()
                 val completedAt = currentEpochSeconds()
                 val message = error.message ?: "Unknown provider error."
+                if (finishUnavailablePolicy(error)) return@withContext
                 runCatching {
                     val terminalMessage = terminalAgentMessage(assistantMessage, message, completedAt).withCombinedOutcome(AgentRunStatus.FAILED)
                     traceReducedOutput(terminalMessage)
                     committedForHandoff = chatRepository.commitAgentRun(terminalMessage, request.runId, AgentRunStatus.FAILED, completedAt, message)
-                }
+                    if (committedForHandoff) settleResearchOutcome(request, researchLifecycle, terminalMessage, AgentRunStatus.FAILED, message)
+                }.onFailure { failure -> finishUnavailablePolicy(failure) }
             }
         } finally {
             withContext(NonCancellable) { checkpoints.cancelAndJoin() }
@@ -662,6 +804,7 @@ class AgentRunCoordinator @Inject constructor(
                             }
                         }
                     }
+                    settleResearchOutcome(request, researchLifecycle, assistantMessage, AgentRunStatus.FAILED, "FINAL_DELIVERY_NOT_STARTED", contributorsExhausted = true)
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled

@@ -66,7 +66,21 @@ data class DelegationBenchmarkMetrics(
 )
 
 @Serializable
-data class BenchmarkRoundMetrics(val round: Int, val inputTokens: Int, val outputTokens: Int, val estimatedOutput: Boolean, val finishReason: String?, val terminalReceived: Boolean)
+data class BenchmarkRoundMetrics(
+    val round: Int,
+    val inputTokens: Int,
+    val outputTokens: Int,
+    val estimatedOutput: Boolean,
+    val finishReason: String?,
+    val terminalReceived: Boolean,
+    val inputTokenSource: String = "unknown",
+    val outputTokenSource: String = "unknown",
+    val inputTokenConfidence: String = "unknown",
+    val outputTokenConfidence: String = "unknown",
+    val reasoningTokens: Int? = null,
+    val reasoningTokenSource: String = "unknown",
+    val reasoningTokenConfidence: String = "unknown"
+)
 
 @Serializable
 data class BenchmarkSample(
@@ -118,14 +132,48 @@ data class BenchmarkSample(
     val languageBackend: String? = null,
     val visionBackend: String? = null,
     val finalResponseFormat: String? = null,
-    val pairedComparison: PairedDelegationComparison? = null
+    val pairedComparison: PairedDelegationComparison? = null,
+    val attemptId: String? = null,
+    val requestDispatched: Boolean? = null,
+    val failure: BenchmarkFailure? = null,
+    val canonicalAnswer: String? = null,
+    val answerHash: String? = null,
+    val answerLength: Int? = null,
+    val answerTruncated: Boolean = false,
+    val fixtureHash: String? = null,
+    val validatorVersion: String = "legacy",
+    val deliveryMode: String = "unknown",
+    val throughputExclusion: String? = null,
+    val loadRegime: String = "unknown",
+    val cacheRegime: String = "unknown",
+    val inputTokenSource: String = "unknown",
+    val outputTokenSource: String = "unknown",
+    val terminalReceived: Boolean? = null,
+    val cleanupReceipt: String? = null,
+    val physicalRequestIds: List<String> = emptyList(),
+    val logicalRequestId: String? = null,
+    val invocationIds: List<String> = emptyList(),
+    val runtimeSnapshot: dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntimeState? = null,
+    val actualRuntimeVersion: String? = null,
+    val workerPssBytes: Long? = null,
+    val inputTokenConfidence: String = "unknown",
+    val outputTokenConfidence: String = "unknown",
+    val phaseIntervals: List<BenchmarkPhaseInterval> = emptyList(),
+    val phaseElapsedMs: Map<String, Long> = emptyMap(),
+    val admissionWaitMs: Long? = null,
+    val cleanupDurationMs: Long? = null,
+    val nativeIdentity: BenchmarkNativeIdentity? = null,
+    val phaseIntervalsTruncated: Boolean = false,
+    val reasoningTokens: Int? = null,
+    val reasoningTokenSource: String = "unknown",
+    val reasoningTokenConfidence: String = "unknown"
 ) {
     val referenceSpeed: Double? get() = firstTextMs?.let { first ->
         val last = lastTextMs ?: return@let null
         referenceDecodeTokens?.takeIf { it > 0 && completed && chunks > 1 && last > first }
             ?.let { it * 1000.0 / (last - first) }?.takeIf { it.isFinite() && it > 0 }
     }
-    val timingExclusionReason: String? get() = if (category == "speed" &&
+    val timingExclusionReason: String? get() = throughputExclusion ?: if (category == "speed" &&
         completed &&
         referenceTokens != null &&
         referenceTokens < BenchmarkSuiteRegistry.MIN_TIMING_REFERENCE_UNITS &&
@@ -154,7 +202,8 @@ data class BenchmarkResourceSample(
     val processPssKb: Long,
     val javaHeapBytes: Long,
     val batteryPercent: Int?,
-    val thermalStatus: Int?
+    val thermalStatus: Int?,
+    val workerPssBytes: Long? = null
 )
 
 @Serializable
@@ -197,7 +246,19 @@ data class BenchmarkRun(
     val reviewerModel: String? = null,
     val billingOrigin: String? = null,
     val diagnosticMode: Boolean = false,
-    val resources: List<BenchmarkResourceSample> = emptyList()
+    val resources: List<BenchmarkResourceSample> = emptyList(),
+    val batchId: String? = null,
+    val queueOrdinal: Int? = null,
+    val state: String = "LEGACY_IMPORTED",
+    val endedAt: Long? = null,
+    val cancellationOrigin: BenchmarkStopOrigin? = null,
+    val loadRegime: String = "unknown",
+    val cacheRegime: String = "unknown",
+    val capabilityManifest: Set<String> = emptySet(),
+    val requestedAccelerator: String? = null,
+    val cleanupReceipt: String? = null,
+    val fixtureManifestHash: String? = null,
+    val runtimeSnapshot: dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntimeState? = null
 )
 
 data class BenchmarkDimension(val label: String, val score: Double?, val weight: Int, val detail: String)
@@ -226,12 +287,14 @@ data class BenchmarkRating(
 }
 
 fun benchmarkConfigKey(profile: PlatformV2, localEnvironment: String = ""): String {
+    val effective = benchmarkProfile(profile, allowTools = true, category = "speed")
     val values = listOf(
-        "quick-reasoning-off-v3",
-        profile.compatibleType.name, profile.model, profile.apiUrl, profile.accelerator.orEmpty(),
-        profile.temperature.toString(), profile.maxTokens.toString(), profile.timeout.toString(), profile.stream.toString(),
-        profile.topP.toString(), profile.topK.toString(), profile.openRouterRouting.orEmpty(), profile.ollamaOptions.orEmpty(),
-        profile.providerConnectionUid.orEmpty(), profile.systemPrompt.orEmpty(), profile.reasoning.toString(), if (profile.compatibleType == ClientType.LITERT_LM) localEnvironment else ""
+        "benchmark-effective-v4", effective.compatibleType.name, effective.model, effective.apiUrl,
+        effective.accelerator.orEmpty(), effective.temperature.toString(), effective.maxTokens.toString(),
+        effective.timeout.toString(), effective.stream.toString(), effective.topP.toString(), effective.topK.toString(),
+        effective.openRouterRouting.orEmpty(), effective.ollamaOptions.orEmpty(), effective.providerConnectionUid.orEmpty(),
+        effective.systemPrompt.orEmpty(), profile.reasoning.toString(), profile.disableAllTools.toString(),
+        profile.disableLocalTools.toString(), if (profile.compatibleType == ClientType.LITERT_LM) localEnvironment else ""
     )
     return MessageDigest.getInstance("SHA-256").digest(values.joinToString("\u0000").toByteArray())
         .joinToString("") { "%02x".format(it) }

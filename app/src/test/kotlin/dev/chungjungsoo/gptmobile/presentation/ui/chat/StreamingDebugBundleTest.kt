@@ -90,8 +90,39 @@ class StreamingDebugBundleTest {
             val manifest = Json.parseToJsonElement(parts.getValue("manifest.json")).jsonObject
             assertEquals("2", manifest.getValue("journalGaps").jsonObject.getValue("missingSequences").jsonPrimitive.content)
             assertEquals(JsonPrimitive(false), manifest.getValue("journalGaps").jsonObject.getValue("storageFailed"))
+            assertEquals("PARTIAL", manifest.getValue("journalAvailability").jsonPrimitive.content)
+            assertEquals("1", manifest.getValue("journalCapture").jsonObject.getValue("eventCount").jsonPrimitive.content)
+            assertTrue(manifest.getValue("buildIdentity").jsonObject.containsKey("appCommit"))
+            assertTrue(manifest.getValue("buildIdentity").jsonObject.containsKey("nativeRuntimeCommit"))
+            assertEquals("app_wide_recent", manifest.getValue("dataScopes").jsonObject.getValue("appLogSnapshot").jsonPrimitive.content)
             assertFalse(manifest.getValue("capture").jsonObject.getValue("capturedFully").jsonPrimitive.content.toBoolean())
             assertEquals(0, directory.listFiles().orEmpty().count { it.name.startsWith("debug-parts-") })
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test fun emptyDisabledJournalHasTheSameStatusInStreamingAndMemoryBundles() {
+        val directory = kotlin.io.path.createTempDirectory("debug-empty-capture-").toFile()
+        try {
+            val body = buildJsonObject {
+                put("schema", DebugExportSchema.CONVERSATION)
+                put("messages", JsonArray(emptyList()))
+                put("profiles", JsonArray(emptyList()))
+                put("capture", buildJsonObject { put("diagnosticsEnabled", false) })
+                put("runJournal", buildJsonObject { put("events", JsonArray(emptyList())) })
+            }.toString()
+            val memory = java.io.ByteArrayOutputStream()
+            DebugExportBundle.write(body, memory)
+            val memoryManifest = Json.parseToJsonElement(DebugExportBundle.read(memory.toByteArray().inputStream()).getValue("manifest.json")).jsonObject
+            val source = File(directory, "conversation.json").apply { writeText(body) }
+            val zip = File(directory, "export.zip")
+            StreamingDebugBundle.write(source, zip)
+            StreamingDebugBundle.verify(zip)
+            val streamingManifest = Json.parseToJsonElement(zip.inputStream().use(DebugExportBundle::read).getValue("manifest.json")).jsonObject
+            assertEquals("DISABLED", streamingManifest.getValue("journalAvailability").jsonPrimitive.content)
+            assertEquals(memoryManifest.getValue("journalCapture"), streamingManifest.getValue("journalCapture"))
+            assertEquals("0", streamingManifest.getValue("journalCapture").jsonObject.getValue("eventCount").jsonPrimitive.content)
         } finally {
             directory.deleteRecursively()
         }

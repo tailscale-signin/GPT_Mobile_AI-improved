@@ -33,7 +33,7 @@ data class ResearchDeliveryPacket(
     val minimalMetadata: Boolean = false,
     val includeOmissionDetails: Boolean = false
 ) {
-    internal val contract: ResearchReportContract get() = ResearchReportContract.forTask(snapshot.task)
+    internal val contract: ResearchReportContract get() = ResearchReportContract.forTask(snapshot.task, snapshot.questionPlan, studies, snapshot.reportStructure)
     val sections: List<String> get() = contract.sections
     val searchDate: String get() = Instant.ofEpochMilli(snapshot.updatedAt).atZone(ZoneOffset.UTC).toLocalDate().toString()
     fun claimsFor(source: ResearchSource): List<ResearchClaim> = claims.filter { researchClaimMatchesCapture(it, source) }
@@ -42,6 +42,8 @@ data class ResearchDeliveryPacket(
         ?: JsonObject(emptyMap())
     fun json(): JsonObject = buildJsonObject {
         put("schema", "research.delivery.v1")
+        put("reportContract", contract.name)
+        put("reportContractRevision", 2)
         put("task", snapshot.task)
         put("taskId", snapshot.taskId.ifBlank { researchHash(snapshot.task) })
         if (snapshot.rootWorkId.isNotBlank()) {
@@ -243,8 +245,12 @@ data class ResearchDeliveryPacket(
                     ?.takeIf { it.text("sourceVersion") == capturedResearchVersion(source) && it.text("passageHash") == researchHash(source.passage) }
                 // Evidence precedes unread leads. Fit exact prefixes while retaining the
                 // original source hash and version, rather than dropping every readable page.
-                for (excerptLimit in listOf(2400, 1200, 600, 300, 150)) {
-                    val firstQuote = valid.firstOrNull { it.sourceId == source.id }?.quote
+                val firstQuote = valid.firstOrNull { it.sourceId == source.id }?.quote
+                // Fixed metadata can leave less than 150 characters at the smallest accepted
+                // handoff budget. Keep a whole captured quote before dropping its source; never
+                // truncate the quote itself, alter its capture identity or enlarge the budget.
+                val excerptLimits = listOf(2400, 1200, 600, 300, 150) + listOfNotNull(firstQuote?.length?.takeIf { it in 20 until 150 })
+                for (excerptLimit in excerptLimits) {
                     val start = firstQuote?.let { source.passage.indexOf(it).coerceAtLeast(0) } ?: 0
                     val excerpt = source.passage.substring(start).take(excerptLimit).let {
                         if (it.lastOrNull()?.isHighSurrogate() == true) it.dropLast(1) else it

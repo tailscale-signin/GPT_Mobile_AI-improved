@@ -5,11 +5,15 @@ import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Update
+import dev.chungjungsoo.gptmobile.data.database.RunPolicySnapshotCodec
+import dev.chungjungsoo.gptmobile.data.database.RunPolicySnapshotException
+import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 
 @Dao
-interface ChatRoomV2Dao {
+interface ChatRoomV2Dao : RunPolicySnapshotAccess {
 
     @Query("SELECT * FROM chats_v2 WHERE is_archived = 0 ORDER BY is_favorite DESC, updated_at DESC LIMIT 200")
     fun observeNavigationChats(): kotlinx.coroutines.flow.Flow<List<ChatRoomV2>>
@@ -36,7 +40,34 @@ interface ChatRoomV2Dao {
     suspend fun updatePlatforms(chatId: Int, history: List<String>, active: List<String>, updatedAt: Long)
 
     @Query("UPDATE chats_v2 SET is_temporary = :enabled WHERE chat_id = :chatId")
-    suspend fun updateTemporary(chatId: Int, enabled: Boolean)
+    suspend fun rawUpdateTemporary(chatId: Int, enabled: Boolean)
+
+    @Query("SELECT * FROM agent_runs WHERE chat_id = :chatId")
+    suspend fun policyRunsForPrivacyChange(chatId: Int): List<AgentRun>
+
+    @Transaction
+    suspend fun updateTemporary(chatId: Int, enabled: Boolean) {
+        if (enabled) {
+            val runs = policyRunsForPrivacyChange(chatId).map { run ->
+                try {
+                    requireNotNull(hydratePolicyRun(run))
+                } catch (_: RunPolicySnapshotException) {
+                    // A damaged reference must not prevent privacy revocation. Keep its original
+                    // bytes for an explicit recovery error, never replace it with today's policy.
+                    run
+                }
+            }
+            rawUpdateTemporary(chatId, true)
+            runs.forEach { run ->
+                rawUpsertPolicyRun(run)
+                removePolicyRefs(run.runId)
+            }
+            removeUnusedPolicies(chatId)
+            RunPolicySnapshotCodec.forgetChat(chatId)
+        } else {
+            rawUpdateTemporary(chatId, false)
+        }
+    }
 
     @Update
     suspend fun editChatRoom(chatRoom: ChatRoomV2)
@@ -63,5 +94,11 @@ interface ChatRoomV2Dao {
     suspend fun temporaryChats(): List<ChatRoomV2>
 
     @Delete
-    suspend fun deleteChatRooms(vararg chatRooms: ChatRoomV2)
+    suspend fun rawDeleteChatRooms(vararg chatRooms: ChatRoomV2)
+
+    @Transaction
+    suspend fun deleteChatRooms(vararg chatRooms: ChatRoomV2) {
+        rawDeleteChatRooms(*chatRooms)
+        chatRooms.forEach { RunPolicySnapshotCodec.forgetChat(it.id) }
+    }
 }

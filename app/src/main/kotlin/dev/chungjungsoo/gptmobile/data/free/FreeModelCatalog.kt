@@ -4,7 +4,7 @@ import dev.chungjungsoo.gptmobile.data.model.FreeAiProvider
 
 /** Reviewed free routes. Discovery can never authorize a paid route or a new host. */
 @kotlinx.serialization.Serializable
-data class FreeModelOption(val id: String, val label: String = id, val tools: Boolean = false, val streaming: Boolean = true, val privacy: String? = null, val contextTokens: Int? = null, val outputTokens: Int? = null, val freeAllowance: Boolean = false)
+data class FreeModelOption(val id: String, val label: String = id, val tools: Boolean = false, val streaming: Boolean = true, val privacy: String? = null, val contextTokens: Int? = null, val outputTokens: Int? = null, val freeAllowance: Boolean = false, val reasoning: Boolean? = null)
 
 data class FreeServiceDetails(
     val authentication: String = "Anonymous · no account or personal API key",

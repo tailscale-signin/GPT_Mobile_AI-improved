@@ -28,8 +28,9 @@ internal data class CombinedFinalAssessment(
 
 /** Live delivery uses the same claim inventory as synthesis; no independent, unenforced sidecar. */
 internal object CombinedFinalCheck {
-    private fun sentencesWithSpans(answer: String, start: Int = 0, end: Int = answer.length): List<Pair<String, CombinedCoverageLink>> {
+    private fun sentencesWithSpans(answer: String, start: Int = 0, end: Int = answer.length, scoped: Boolean = false): List<Pair<String, CombinedCoverageLink>> {
         val body = answer.substring(start, end)
+        if (scoped) return CombinedSourceClaims.units(body).map { unit -> unit.text to CombinedCoverageLink(start + unit.start, start + unit.end, dev.chungjungsoo.gptmobile.data.research.researchHash(body.substring(unit.start, unit.end))) }
         var cursor = 0
         val spans = CombinedTextSpanIndex(body)
         return CombinedContentCoverage.sentences(body).mapNotNull { text ->
@@ -64,8 +65,9 @@ internal object CombinedFinalCheck {
             }
         }
         val inventory = CombinedClaimSemantics.records(sources)
-        val byId = inventory.flatMap { claim -> claim.candidateIds.map { it to claim } }.toMap()
-        val destinations = if (passages.isEmpty()) sentencesWithSpans(answer) else passages.filter { it.matches(answer) }.flatMap { sentencesWithSpans(answer, it.start, it.end) }
+        val byId = CombinedContentIndexes.get(sources).byId
+        val scoped = sources.any { it.claimExtractionVersion >= 2 }
+        val destinations = if (passages.isEmpty()) sentencesWithSpans(answer, scoped = scoped) else passages.filter { it.matches(answer) }.flatMap { sentencesWithSpans(answer, it.start, it.end, scoped) }
         if (passages.any { !it.matches(answer) }) checks += CombinedAnswerCheck("STALE_PASSAGE_REVISION", "PROVENANCE", "FAIL", true)
 
         val sourceAssessments = inventory.associate { claim -> claim.id to CombinedEvidenceVerifier.assess(claim.id, claim.proposition, evidence) }
@@ -73,7 +75,7 @@ internal object CombinedFinalCheck {
             claim.id to destinations.flatMap { (text, span) ->
                 fun aligned(value: String): Boolean = CombinedClaimSemantics.lostQualifiers(claim.qualifiers, CombinedClaimSemantics.qualifiers(value)).isEmpty() &&
                     CombinedClaimMatcher.match(claim.proposition, value) >= CombinedClaimMatcher.Match.PARAPHRASE
-                val clauses = CombinedClaimClauses.spans(text).filter { aligned(it.text) }
+                val clauses = if (answer.substring(span.startUtf16, span.endUtf16) == text) CombinedClaimClauses.spans(text).filter { aligned(it.text) } else emptyList()
                 if (clauses.isNotEmpty()) {
                     clauses.map { clause ->
                         if (clauses.size == 1 && text.take(clause.start).none(Char::isLetterOrDigit) && text.drop(clause.end).none(Char::isLetterOrDigit)) {

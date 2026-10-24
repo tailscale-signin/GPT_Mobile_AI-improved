@@ -25,6 +25,7 @@ class PlannedLocalRuntime(
     stateScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 ) : LocalRuntime by delegate {
     override val ownsEngineSwitching = true
+    override val isNativeOperationBusy: Boolean get() = delegate.isNativeOperationBusy
     private val planner = LocalExecutionPlanner()
     private val admission = LocalWorkloadAdmission()
     private val mutableState = MutableStateFlow(delegate.state.value)

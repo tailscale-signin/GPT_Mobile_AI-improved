@@ -23,6 +23,23 @@ class CombinedRecordRecoverySessionTest {
         }
     }
 
+    @Test fun cleanEofWithoutEndRecordIsAProtocolFailureButLengthIsNot() = runTest {
+        suspend fun outcome(finishReason: String): ProviderEvent.Failed {
+            val recovery = CombinedRecordRecoverySession(
+                session(ProviderEvent.TextDelta(first), ProviderEvent.Usage(finishReason = finishReason), ProviderEvent.Completed),
+                protocol(),
+                0,
+                validateAccess = {},
+                save = {}
+            ) { _, _ -> error("Single-pass writer must not continue automatically") }
+            return recovery.streamRound(emptyList(), emptyList()).toList().last() as ProviderEvent.Failed
+        }
+        assertEquals("OUTPUT_PROTOCOL_INVALID", outcome("stop").errorCode)
+        val length = outcome("length")
+        assertTrue(length.message.startsWith("COMBINED_PARTIAL:"))
+        assertFalse(length.errorCode == "OUTPUT_PROTOCOL_INVALID")
+    }
+
     @Test fun limitedStreamCommitsBeforePublicationAndRegeneratesWholeRecordWithoutOverlap() = runTest {
         var saved: CombinedRecordCheckpoint? = null
         var continuations = 0

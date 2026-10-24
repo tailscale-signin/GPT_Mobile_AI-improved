@@ -11,7 +11,9 @@ data class CombinedTaskContract(
     val scope: String,
     val relationship: String = "NEW_TASK",
     val referencedRequest: String? = null,
-    val subjectConfidence: String = "EXPLICIT"
+    val subjectConfidence: String = "EXPLICIT",
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val interpretedTerms: Map<String, String> = emptyMap()
 ) {
     val historicalSurvey: Boolean get() = action == "HISTORY" && scope == "SURVEY"
     val factual: Boolean get() = action !in setOf("CREATIVE", "CONVERSATION")
@@ -30,17 +32,20 @@ data class CombinedTaskContract(
         // A heading alone cannot establish that the body answered the task.
         val prose = answer.lines().filterNot { it.trimStart().startsWith('#') }.joinToString("\n")
         if (!subjectMatches(prose)) return listOf("TASK_SUBJECT_MISMATCH")
+        if (interpretedTerms.values.any { it == "carrots" } && Regex("(?i)\\b(?:cocaine|heroin|cigarettes?|cannabis|methamphetamine)\\b").containsMatchIn(prose)) return listOf("UNRELATED_TOPIC_AFTER_TYPO_RESOLUTION")
         return emptyList()
     }
 
     fun instruction(): String = "Current task: $request\nAction: $action; subjects: ${subjects.joinToString()}; scope: $scope; relationship: $relationship." +
-        referencedRequest?.let { "\nExplicit reference resolves to: $it. An interrupted prior answer remains part of that prior task." }.orEmpty()
+        referencedRequest?.let { "\nExplicit reference resolves to: $it. An interrupted prior answer remains part of that prior task." }.orEmpty() +
+        interpretedTerms.takeIf { it.isNotEmpty() }?.let { "\nLikely typo interpretation: ${it.entries.joinToString { term -> "${term.key} means ${term.value}" }}. Mention this assumption at most once, answer the interpreted food question, and exclude unrelated drug suggestions from contributors." }.orEmpty()
 
     companion object {
         private val aliases = mapOf(
             "germany" to listOf("Germany", "German", "Deutschland"),
             "france" to listOf("France", "French"),
-            "portugal" to listOf("Portugal", "Portuguese")
+            "portugal" to listOf("Portugal", "Portuguese"),
+            "carrots" to listOf("carrots", "carrot")
         )
         private val reference = Regex("(?i)\\b(?:it|them|those|previous|above|both sites|both providers|that model|these models)\\b|\\b(?:compare|explain|summarize|rewrite|shorten)\\s+(?:this|that)\\b")
         private val followUpVerb = Regex("(?i)^\\s*(?:continue|expand|shorten|rewrite|elaborate|summarize)\\b")
@@ -51,7 +56,12 @@ data class CombinedTaskContract(
         internal fun tokens(text: String): Set<String> = Regex("[\\p{L}\\p{N}]+").findAll(text.lowercase()).map { it.value }.filterNot { it in noise }.toSet()
 
         fun from(request: String, previousRequest: String? = null): CombinedTaskContract {
-            val text = request.trim()
+            val interpreted = if (Regex("(?i)\\b(?:benefits?|nutrition|nutritional|food|vegetables?)\\b").containsMatchIn(request)) {
+                Regex("(?i)\\b(?:carrets|carrrots|carrits)\\b").findAll(request).associate { it.value to "carrots" }
+            } else {
+                emptyMap()
+            }
+            val text = interpreted.entries.fold(request.trim()) { value, (typo, subject) -> value.replace(Regex("(?i)\\b${Regex.escape(typo)}\\b"), subject) }
             val following = previousRequest != null && referencesPrior(text)
             val action = when {
                 Regex("(?i)\\b(?:history|historical)\\b").containsMatchIn(text) -> "HISTORY"
@@ -73,13 +83,14 @@ data class CombinedTaskContract(
             val inferred = tokens(text).filterNot { it.toIntOrNull() != null }.take(8)
             val narrow = Regex("(?i)\\b(?:one|single|fact|event|during|between|from|until|century|centuries|ancient|medieval|modern)\\b|\\b[12][0-9]{3}\\b").containsMatchIn(text)
             return CombinedTaskContract(
-                request = text,
+                request = request.trim(),
                 action = if (following && action == "ANSWER") prior?.action ?: action else action,
                 subjects = subjects.ifEmpty { if (action == "CONVERSATION") emptyList() else inferred },
                 scope = if (narrow) "FOCUSED" else prior?.scope ?: "SURVEY",
                 relationship = if (following) "FOLLOW_UP" else "NEW_TASK",
                 referencedRequest = previousRequest.takeIf { following },
-                subjectConfidence = if (named.isNotEmpty() || prior?.subjectConfidence == "EXPLICIT" || subjectText != null && (action == "HISTORY" || Regex("(?i)\\bessay (?:on|about)\\b").containsMatchIn(text))) "EXPLICIT" else "LEXICAL_HINT_ONLY"
+                subjectConfidence = if (named.isNotEmpty() || prior?.subjectConfidence == "EXPLICIT" || subjectText != null && (action == "HISTORY" || Regex("(?i)\\bessay (?:on|about)\\b").containsMatchIn(text))) "EXPLICIT" else "LEXICAL_HINT_ONLY",
+                interpretedTerms = interpreted
             )
         }
 

@@ -3,11 +3,13 @@ package dev.chungjungsoo.gptmobile.data.backup
 import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
 import androidx.sqlite.db.SupportSQLiteDatabase
+import dev.chungjungsoo.gptmobile.data.database.RunPolicySnapshotDatabase
 import java.io.File
 
 /** Copies logical rows under the caller's Room transaction, including data still in the WAL. */
 internal object CompleteBackupDatabase {
     fun snapshot(source: SupportSQLiteDatabase, target: File) {
+        RunPolicySnapshotDatabase.validateReferences(source)
         SQLiteDatabase.openOrCreateDatabase(target, null).use { copy ->
             copy.execSQL("DROP TABLE IF EXISTS android_metadata")
             copy.beginTransaction()
@@ -73,6 +75,7 @@ internal object CompleteBackupDatabase {
         }
         source.query("PRAGMA integrity_check").use { require(it.moveToFirst() && it.getString(0) == "ok") { "Damaged backup database." } }
         source.query("PRAGMA foreign_key_check").use { require(!it.moveToFirst()) { "Backup contains broken data relationships." } }
+        RunPolicySnapshotDatabase.validateReferences(source)
     }
 
     fun restore(source: SupportSQLiteDatabase, destination: SupportSQLiteDatabase) {
@@ -86,6 +89,7 @@ internal object CompleteBackupDatabase {
         source.query("SELECT name, seq FROM sqlite_sequence").use { rows ->
             copyRows("sqlite_sequence", rows) { sql, values -> destination.execSQL(sql, values) }
         }
+        RunPolicySnapshotDatabase.normalizeInlineRecords(destination)
         if ("amazon_check_events" in tables(destination)) destination.execSQL("DELETE FROM amazon_check_events")
         pauseRestoredAmazon(destination)
         // History is portable; active jobs must never be replayed by service recovery.
@@ -148,6 +152,7 @@ internal object CompleteBackupDatabase {
         }
 
         if (CompleteBackupSection.AGENT_HISTORY in selection.normalized().sections) {
+            RunPolicySnapshotDatabase.normalizeInlineRecords(destination)
             destination.execSQL(
                 "UPDATE agent_runs SET status = 'INTERRUPTED', terminal_error = 'BACKUP_RESTORED' " +
                     "WHERE status IN ('QUEUED', 'RUNNING')"
@@ -203,6 +208,8 @@ internal object CompleteBackupDatabase {
             }
             if (CompleteBackupSection.AGENT_HISTORY in sections) {
                 add("agent_runs")
+                add("run_policy_snapshots")
+                add("agent_run_policy_refs")
                 add("answer_segments")
                 add("combined_delivery_checkpoints")
                 add("tool_events")

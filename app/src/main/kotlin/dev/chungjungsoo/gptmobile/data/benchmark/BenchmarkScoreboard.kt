@@ -50,11 +50,20 @@ data class ScoreboardSubmission(
     val reviewerProvider: String? = null,
     val reviewerModel: String? = null,
     val trials: List<ScoreboardTrial>,
-    val issueNumber: Long? = null
+    val issueNumber: Long? = null,
+    val effectiveConfigHash: String? = null,
+    val comparisonContextHash: String? = null,
+    val measurementVersion: Int? = null,
+    val scoringVersion: Int? = null,
+    val backend: String? = null,
+    val accelerator: String? = null,
+    val capabilityManifest: Set<String> = emptySet(),
+    val loadRegime: String = "unknown",
+    val cacheRegime: String = "unknown"
 ) {
     // Model IDs may be case-sensitive. Profile names and UIDs are deliberately absent.
     val identity: String get() = "$provider\u0000$model"
-    val key: String get() = "$kind|$plan|$suiteVersion|$identity"
+    val key: String get() = "$kind|$plan|$suiteVersion|$identity|$effectiveConfigHash|$comparisonContextHash|$backend|$accelerator|${capabilityManifest.sorted()}"
 }
 
 @Serializable
@@ -77,7 +86,7 @@ object BenchmarkScoreboard {
         } else if (version == 6) {
             BenchmarkSuiteRegistry.historical(plan)
         } else {
-            benchmarkSuite(plan)
+            benchmarkSuiteForVersion(version, plan)
         }
 
     fun fromRun(run: BenchmarkRun): ScoreboardSubmission? {
@@ -91,6 +100,10 @@ object BenchmarkScoreboard {
         if (delegation && (run.delegationSettings?.reviewerEnabled != true || run.delegationSettings?.researchEnabled != true)) return null
         if (delegation && run.samples.mapNotNull { it.delegation }.any { it.workerProvider != worker?.workerProvider || it.workerModel != worker?.workerModel }) return null
         val submission = ScoreboardSubmission(
+            schemaVersion = 2,
+            effectiveConfigHash = benchmarkHash(run.configKey), comparisonContextHash = benchmarkHash(DynamicScoreEngine.cohort(run)),
+            measurementVersion = run.measurementVersion, scoringVersion = run.scoringVersion, backend = run.backend, accelerator = run.accelerator,
+            capabilityManifest = run.capabilityManifest, loadRegime = run.loadRegime, cacheRegime = run.cacheRegime,
             id = run.id,
             kind = if (delegation) ScoreboardKind.DELEGATION else ScoreboardKind.MODEL,
             plan = plan,
@@ -113,7 +126,7 @@ object BenchmarkScoreboard {
                     estimatedTokens = helper?.workerEstimated ?: sample.estimatedTokens,
                     toolCalls = helper?.fixtureCalls ?: sample.toolCalls,
                     successfulToolCalls = helper?.successfulFixtureCalls ?: sample.successfulToolCalls,
-                    intelligence = if (sample.category == IntelligenceBenchmark.CATEGORY && !sample.completed) domains.associateWith { false } else sample.intelligenceAnswers,
+                    intelligence = sample.intelligenceAnswers,
                     reviewerScore = helper?.reviewerScore,
                     workerCalls = helper?.workerCalls ?: 0, searches = helper?.searches ?: 0,
                     pagesRead = helper?.pagesRead ?: 0, handoffCharacters = helper?.handoffCharacters ?: 0,
@@ -127,15 +140,19 @@ object BenchmarkScoreboard {
     }
 
     fun evaluate(data: ScoreboardSubmission): ScoreboardEntry? {
-        if (data.schemaVersion != 1 || data.plan !in setOf(BenchmarkMode.QUICK, BenchmarkMode.FULL)) return null
+        if (data.schemaVersion !in 1..2 || data.plan !in setOf(BenchmarkMode.QUICK, BenchmarkMode.FULL)) return null
         if (data.provider !in providers || !validModel(data.model)) return null
         if (!data.id.matches(Regex("[A-Za-z0-9-]{1,80}")) || data.startedAt !in 0..253402300799999L || (data.issueNumber != null && data.issueNumber <= 0)) return null
         val delegation = data.kind == ScoreboardKind.DELEGATION
-        if (if (delegation) data.suiteVersion != 1 else data.suiteVersion !in setOf(6, BenchmarkSuiteRegistry.VERSION)) return null
+        if (data.schemaVersion == 2 && (data.effectiveConfigHash?.matches(Regex("[a-f0-9]{64}")) != true || data.comparisonContextHash?.matches(Regex("[a-f0-9]{64}")) != true || (data.measurementVersion ?: 0) !in 1..100 || (data.scoringVersion ?: 0) !in 1..100)) return null
+        if (listOfNotNull(data.backend, data.accelerator, data.loadRegime, data.cacheRegime).any { !it.matches(Regex("[A-Za-z0-9 _./-]{1,80}")) } || data.capabilityManifest.any { it !in setOf("text", "structured", "reasoning", "tools", "images") }) return null
+        if (if (delegation) data.suiteVersion != 1 else data.suiteVersion !in setOf(6, 7, BenchmarkSuiteRegistry.VERSION)) return null
         if (delegation && (data.primaryProvider !in providers + "LITERT_LM" || data.reviewerProvider !in providers + "LITERT_LM" || !validModel(data.primaryModel) || !validModel(data.reviewerModel))) return null
         if (!delegation && listOf(data.primaryProvider, data.primaryModel, data.reviewerProvider, data.reviewerModel).any { it != null }) return null
         if (delegation && data.model.equals(data.reviewerModel, ignoreCase = true)) return null
         val manifest = manifest(data.kind, data.plan, data.suiteVersion).associateBy { it.id }
+        // A public score requires complete graded evidence. Execution failures have no invented accuracy.
+        if (!delegation && data.suiteVersion >= 8 && data.trials.any { it.outcome !in setOf(BenchmarkOutcome.PASSED, BenchmarkOutcome.FAILED) }) return null
         if (data.trials.size != manifest.size || data.trials.map { it.id }.toSet() != manifest.keys) return null
         if (data.trials.any { trial ->
                 trial.outcome !in allowedOutcomes ||
@@ -189,7 +206,7 @@ object BenchmarkScoreboard {
         val score = minOf(dimensions.sumOf { (it.value ?: 0.0) * it.weight } / 100, if (delegation) percent(data.trials) else completion)
         val domainScores = if (delegation) emptyList() else domains.map { domain -> ScoreboardMetric(domain, selected(IntelligenceBenchmark.CATEGORY).count { it.intelligence[domain] == true } * 100.0 / selected(IntelligenceBenchmark.CATEGORY).size) }
         val metrics = dimensions + listOf(
-            ScoreboardMetric("Generation speed", median(speeds), unit = if (delegation) "tok/s" else "ref tok/s"),
+            ScoreboardMetric("Generation speed", median(speeds), unit = if (delegation) "tok/s" else "reference units/s"),
             ScoreboardMetric("First response", median(speedTrials.mapNotNull { it.firstTextMs?.toDouble() }), unit = "ms"),
             ScoreboardMetric("Case duration", median(data.trials.map { it.durationMs.toDouble() }), unit = "ms"),
             ScoreboardMetric("Consistency", consistency)

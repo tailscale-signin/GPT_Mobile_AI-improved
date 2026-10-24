@@ -31,7 +31,7 @@ private const val BACK_FADE_MILLIS = 500
 
 /** Defer dismissing the owner until the actual popup finishes fading, including system back. */
 @Composable
-private fun rememberFadeDismiss(onDismiss: () -> Unit): Pair<Animatable<Float, androidx.compose.animation.core.AnimationVector1D>, () -> Unit> {
+private fun rememberFadeDismiss(onDismiss: () -> Unit, fadeMillis: Int = BACK_FADE_MILLIS): Pair<Animatable<Float, androidx.compose.animation.core.AnimationVector1D>, () -> Unit> {
     val opacity = remember { Animatable(1f) }
     val callback by rememberUpdatedState(onDismiss)
     val scope = rememberCoroutineScope()
@@ -40,7 +40,7 @@ private fun rememberFadeDismiss(onDismiss: () -> Unit): Pair<Animatable<Float, a
         if (!dismissing) {
             dismissing = true
             scope.launch {
-                opacity.animateTo(0f, tween(BACK_FADE_MILLIS))
+                opacity.animateTo(0f, tween(fadeMillis))
                 callback()
             }
         }
@@ -83,9 +83,10 @@ fun FadingDialog(
     onDismissRequest: () -> Unit,
     properties: DialogProperties = DialogProperties(),
     fullScreenScene: Boolean = false,
+    fadeMillis: Int = BACK_FADE_MILLIS,
     content: @Composable () -> Unit
 ) {
-    val (opacity, dismiss) = rememberFadeDismiss(onDismissRequest)
+    val (opacity, dismiss) = rememberFadeDismiss(onDismissRequest, fadeMillis)
     ComposeDialog(onDismissRequest = dismiss, properties = properties) {
         androidx.compose.runtime.CompositionLocalProvider(LocalOverlayWindow provides true) {
             Box(Modifier.graphicsLayer { alpha = opacity.value }) {

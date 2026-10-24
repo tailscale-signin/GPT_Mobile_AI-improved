@@ -13,6 +13,7 @@ import java.util.Locale
  * Ambiguous wording stays pending, never silently accepted as full coverage.
  */
 internal class CombinedContentCoverage(sources: List<CombinedModelResponse>, request: String = "") {
+    private val scoped = sources.any { it.claimExtractionVersion >= 2 }
     data class Unit(val text: String, val profileUids: Set<String>)
     data class Result(
         val total: Int,
@@ -24,8 +25,12 @@ internal class CombinedContentCoverage(sources: List<CombinedModelResponse>, req
         val accepted: Boolean get() = total > 0 && missing.isEmpty()
     }
 
-    val units: List<Unit> = if (request.isNotBlank()) {
+    val units: List<Unit> = if (request.isNotBlank() && CurrentRequestContract.from(request).intent in setOf("GREETING", "TEST", "PROVIDER_TEST")) {
+        emptyList()
+    } else if (request.isNotBlank()) {
         CombinedEditorialInventory.select(CombinedClaimSemantics.records(sources), request, CombinedAnswerPolicy.from(request)).map { Unit(it.proposition, it.profileUids) }
+    } else if (scoped) {
+        CombinedClaimSemantics.records(sources).map { Unit(it.proposition, it.profileUids) }
     } else {
         sources.flatMap { source ->
             sentences(sourceCoverageText(source.content)).filter { tokens(it).isNotEmpty() }
@@ -38,7 +43,7 @@ internal class CombinedContentCoverage(sources: List<CombinedModelResponse>, req
     fun check(answer: String): Result {
         // Do not pool unrelated sentences: their combined terms/numbers can manufacture
         // apparent coverage of a claim that no individual answer sentence actually makes.
-        val candidates = sentences(answer).distinct().map {
+        val candidates = (if (scoped) CombinedSourceClaims.units(answer).map { it.text } else sentences(answer)).distinct().map {
             val normalized = normalized(it)
             normalized to CombinedClaimMatcher.fingerprint(it)
         }
@@ -124,7 +129,7 @@ internal class CombinedContentCoverage(sources: List<CombinedModelResponse>, req
 /** All matching submitters are retained. A verbatim match establishes text lineage, not exclusive meaning. */
 internal fun combinedVerbatimProfiles(passage: String, sources: List<CombinedModelResponse>): Set<String> {
     val text = ConversationSubject.withoutMetadata(passage).trim()
-    if (text.length < 24 || text.count(Char::isLetterOrDigit) < 16) return emptySet()
+    if (text.length < 24 || text.count(Char::isLetterOrDigit) < 16 || !CombinedSourceClaims.material(text)) return emptySet()
     return sources.filter { source -> ConversationSubject.withoutMetadata(source.content).contains(text) }.mapTo(linkedSetOf()) { it.platformUid }
 }
 

@@ -10,7 +10,7 @@ import dev.chungjungsoo.gptmobile.data.research.delivery.ResearchReportValidity
 import dev.chungjungsoo.gptmobile.data.research.researchHash
 import dev.chungjungsoo.gptmobile.util.isAssistantErrorMessage
 
-/** Build from the latest candidate, never a historical revision selected for inspection. */
+/** Freeze a usable contribution revision; a failed latest retry cannot erase an earlier success. */
 internal fun combinedSynthesisInputs(
     responses: List<MessageV2>,
     runs: Map<String, AgentRun>,
@@ -30,7 +30,9 @@ internal fun combinedSynthesisInputs(
     }
     if (requireComplete && combinedProfileFailures(0, currentRequest.orEmpty(), responses, runs, names, models).isNotEmpty()) return null
     val synthesis = responses.firstOrNull { it.isCombinedSynthesis() }
-    val sources = responses.mapNotNull { message ->
+    val sources = responses.mapNotNull { latestMessage ->
+        val selection = selectCombinedContribution(latestMessage, runs, currentRequest)
+        val message = selection.message
         val uid = message.platformType ?: return@mapNotNull null
         val original = message.combinedSources.firstOrNull { it.platformUid == uid }
         val originalContent = original?.content ?: message.content
@@ -71,7 +73,11 @@ internal fun combinedSynthesisInputs(
             disposition = if (assessment.usablePartial) ContributionDisposition.USABLE_PARTIAL else combinedContributionDisposition(message, original, status),
             contentCompleteness = assessment.completeness,
             factualSupport = original?.factualSupport ?: "UNVERIFIED",
-            nativeFinishReason = finishReason
+            nativeFinishReason = finishReason,
+            claimExtractionVersion = original?.claimExtractionVersion ?: 2,
+            latestAttemptId = selection.latestAttemptId,
+            bestUsableAttemptId = selection.bestUsableAttemptId,
+            selectedContributionAttemptId = original?.attemptId ?: message.currentRunId
         )
     }
     if (sources.isEmpty() || requireComplete && sources.size != responses.size) return null

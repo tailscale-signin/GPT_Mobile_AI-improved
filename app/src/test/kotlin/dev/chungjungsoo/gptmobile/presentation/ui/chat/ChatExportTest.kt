@@ -130,18 +130,16 @@ class ChatExportTest {
     }
 
     @Test
-    fun combinedRecoverySourcesAreDebugOnlyInRegularChatExports() {
+    fun combinedRecoverySourcesStayOutOfRegularExportsInBothDebugStates() {
         val message = MessageV2(
             content = "Main synthesis.\n\n$COMBINED_RECOVERY_MARKER\n\n## Further details\n\nRecovered source passage.",
             platformType = "main",
             currentRunId = "combined-synthesis:final"
         )
-        assertEquals("Main synthesis.", assistantExportText(message, ChatExportFormat.MARKDOWN))
-        assertEquals("Main synthesis.", assistantExportText(message, ChatExportFormat.PLAIN_TEXT))
-        assertEquals(
-            "Main synthesis.\n\n## Further details\n\nRecovered source passage.",
-            assistantExportText(message, ChatExportFormat.MARKDOWN, debugMode = true)
-        )
+        for (debugMode in listOf(false, true)) {
+            assertEquals("Main synthesis.", assistantExportText(message, ChatExportFormat.MARKDOWN, debugMode))
+            assertEquals("Main synthesis.", assistantExportText(message, ChatExportFormat.PLAIN_TEXT, debugMode))
+        }
     }
 
     @Test

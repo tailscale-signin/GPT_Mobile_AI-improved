@@ -4,7 +4,6 @@ import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
 
 /** Stored before contributor dispatch in the existing durable run snapshot column. */
 @Serializable
@@ -29,16 +28,15 @@ data class CombinedAcceptedTurn(
             encodeDefaults = true
         }
 
-        fun decode(value: String?): CombinedAcceptedTurn? {
-            if (value.isNullOrBlank()) return null
-            return runCatching { json.decodeFromString<CombinedAcceptedTurn>(value) }
-                .getOrNull()?.takeIf { it.version == 1 && it.policyRecordKind == "COMBINED_ACCEPTED_TURN" }
-        }
+        fun decode(value: String?): CombinedAcceptedTurn? = CombinedAcceptedTurnCache.read(value)?.accepted
 
-        fun context(value: String?): CombinedExecutionContext? = decode(value)?.context ?: runCatching {
-            val record = json.parseToJsonElement(value.orEmpty()) as? JsonObject
-            record?.get("combined")?.let { json.decodeFromJsonElement(CombinedExecutionContext.serializer(), it) }
-        }.getOrNull()
+        fun context(value: String?): CombinedExecutionContext? = CombinedAcceptedTurnCache.read(value)?.context
+
+        /** DAO readers invoke this on IO before an observable snapshot reaches the UI. */
+        internal fun prepareDecoded(value: String?, chatId: Int) {
+            CombinedAcceptedTurnCache.read(value, chatId)
+        }
+        internal fun forgetDecodedChat(chatId: Int) = CombinedAcceptedTurnCache.forgetChat(chatId)
     }
 }
 

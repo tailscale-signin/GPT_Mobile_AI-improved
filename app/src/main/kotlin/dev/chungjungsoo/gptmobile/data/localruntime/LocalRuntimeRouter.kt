@@ -23,6 +23,8 @@ class LocalRuntimeRouter(
     private val backendSnapshot: (() -> LocalRuntimeBackend)? = null
 ) : LocalRuntime {
     override val handlesEngineFallback = true
+    override val isNativeOperationBusy: Boolean
+        get() = qnnRuntime.isNativeOperationBusy || liteRtRuntime.isNativeOperationBusy || artifactRuntime?.isNativeOperationBusy == true
     private val _state = MutableStateFlow(LocalRuntimeState())
     override val state = _state.asStateFlow()
 

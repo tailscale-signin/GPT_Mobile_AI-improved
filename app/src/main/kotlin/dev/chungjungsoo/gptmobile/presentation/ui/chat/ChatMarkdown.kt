@@ -219,7 +219,7 @@ fun ChatMarkdown(
                     } else {
                         emptyList()
                     }
-                    if (wantsWording && !request.streaming) {
+                    if (wantsWording && !request.streaming && CombinedAttributionDiagnostics.changed("mapping:${request.outputTrace?.runId}:$contentIdentity", dev.chungjungsoo.gptmobile.data.research.researchHash(request.content + profileSpans))) {
                         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("CombinedPalette", "DISPLAY_SPAN_MAPPING · run=${request.outputTrace?.runId.orEmpty()} · part=${request.outputTrace?.partId.orEmpty()} · uniqueSpans=${profileSpans.count { it.profileUids.size == 1 }} · sharedSpans=${profileSpans.count { it.profileUids.size > 1 }} · linkedCharacters=${profileSpans.sumOf { it.end - it.start }} · represented=${profileSpans.flatMap { it.profileUids }.distinct().take(32)} · palette=PERSISTED_PROFILE_HUE · factualVerification=false")
                     }
                     PreparedChatMarkdown(parsed, combined, memoryHighlightRanges(combined, request.memoryValues), ProfileSpanIndex(profileSpans))

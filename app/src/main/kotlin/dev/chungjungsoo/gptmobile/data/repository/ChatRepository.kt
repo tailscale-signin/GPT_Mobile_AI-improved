@@ -24,9 +24,17 @@ interface ChatRepository {
         tools: ChatMcpToolConfig
     ): dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext = execution
 
+    /** Capture authorized attachments/history before freezing the final model-facing envelope. */
+    suspend fun prepareCombinedWriterContext(
+        history: List<MessageV2>,
+        replies: List<List<MessageV2>>,
+        user: MessageV2,
+        writer: PlatformV2
+    ): dev.chungjungsoo.gptmobile.data.agent.CombinedWriterContext = dev.chungjungsoo.gptmobile.data.agent.CombinedWriterContext.capture(history, replies, user, writer)
+
     suspend fun cancelCombinedTurn(rootBudgetId: String) = Unit
     suspend fun isCombinedTurnCancelled(rootBudgetId: String): Boolean = false
-    suspend fun markCombinedMergeUnavailable(chatId: Int, userMessageId: Int, rootBudgetId: String) = Unit
+    suspend fun markCombinedMergeUnavailable(chatId: Int, userMessageId: Int, rootBudgetId: String, reason: String? = null) = Unit
     suspend fun canRetryCombined(rootBudgetId: String): Boolean = !isCombinedTurnCancelled(rootBudgetId)
     suspend fun publishCombinedEvidenceFallback(runId: String): Boolean = false
     suspend fun useCombinedReply(runId: String, expectedFence: Long, sourceProfileUid: String): MessageV2? = null
@@ -50,7 +58,9 @@ interface ChatRepository {
         turns: List<dev.chungjungsoo.gptmobile.data.context.ConversationTurn>,
         tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentTool>,
         runId: String,
-        benchmarkCategory: String = "task"
+        benchmarkCategory: String = "task",
+        onInvocation: (String) -> Unit = {},
+        onPhysicalRequest: (String) -> Unit = {}
     ): dev.chungjungsoo.gptmobile.data.agent.AgentProviderSession = error("Benchmark sessions are unavailable")
 
     /** Tool-free article examination uses the same provider adapters and physical invocation ledger. */
@@ -68,7 +78,8 @@ interface ChatRepository {
         platform: PlatformV2,
         test: dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkCase,
         runId: String,
-        settings: dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings
+        settings: dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings,
+        frozenProfiles: Map<String, PlatformV2> = emptyMap()
     ): dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkSample = error("Delegation benchmarks are unavailable")
 
     suspend fun supportsBenchmarkTools(platform: PlatformV2): Boolean = false
@@ -113,6 +124,9 @@ interface ChatRepository {
     suspend fun reopenCombinedContributor(runId: String): Boolean = false
     suspend fun reconcileCombinedQueuedContributor(runId: String): String? = null
     suspend fun fetchMessagesV2(chatId: Int): List<MessageV2>
+
+    /** Missing/deleted rooms and temporary chats never authorize durable Research storage. */
+    suspend fun researchPersistenceAllowed(chatId: Int): Boolean = false
     suspend fun newestAssistantMessageId(chatId: Int): Int? = fetchMessagesV2(chatId)
         .filter { it.platformType != null && it.content.isNotBlank() }
         .maxWithOrNull(compareBy<MessageV2> { it.createdAt }.thenBy { it.combinedSources.isNotEmpty() }.thenBy { it.id })?.id

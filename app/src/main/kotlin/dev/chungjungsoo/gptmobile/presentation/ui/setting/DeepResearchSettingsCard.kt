@@ -54,6 +54,9 @@ internal fun DeepResearchSettingsCard(value: DeepResearchSettings, enabled: Bool
                 Text("Report style", style = MaterialTheme.typography.titleSmall)
                 val details = dev.chungjungsoo.gptmobile.data.model.ResearchReportDetail.entries
                 SettingsTabs(details.map { it.label }, details.indexOf(value.reportDetail)) { onChange(value.copy(reportDetail = details[it])) }
+                Text("Report structure", style = MaterialTheme.typography.titleSmall)
+                val structures = dev.chungjungsoo.gptmobile.data.model.ResearchReportStructure.entries
+                SettingsTabs(structures.map { it.label }, structures.indexOf(value.reportStructure)) { onChange(value.copy(reportStructure = structures[it])) }
                 ResearchToggle("Papers and studies", value.academicSources, enabled) { onChange(value.copy(academicSources = it)) }
                 ResearchToggle("Review evidence", value.reviewEvidence, enabled) { onChange(value.copy(reviewEvidence = it)) }
                 TextButton(onClick = { advanced = !advanced }) { Text(if (advanced) "Close engine controls" else "Engine controls") }

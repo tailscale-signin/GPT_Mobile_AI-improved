@@ -25,6 +25,11 @@ import dev.chungjungsoo.gptmobile.data.repository.ChatRepository
 import dev.chungjungsoo.gptmobile.data.repository.LocalModelRepository
 import dev.chungjungsoo.gptmobile.data.repository.ModelCatalogRepository
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
+import dev.chungjungsoo.gptmobile.data.research.AcceptedResearchTask
+import dev.chungjungsoo.gptmobile.data.research.ResearchAttemptState
+import dev.chungjungsoo.gptmobile.data.research.ResearchExecutionRecord
+import dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore
+import dev.chungjungsoo.gptmobile.data.research.researchHash
 import dev.chungjungsoo.gptmobile.presentation.StartupRecoveryGate
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -153,7 +158,7 @@ class ChatViewModelStartupTest {
         verify(exactly = 0) { coordinator.start(any()) }
     }
 
-    @Test fun restoredPrimaryContinuesDespiteHistoricalContributorFailure() = runTest(dispatcher) {
+    @Test fun restoredPrimaryKeepsOwnershipWithoutReopeningHistoricalContributorFailureModal() = runTest(dispatcher) {
         StartupRecoveryGate.start(backgroundScope) {}
         seedTurn(listOf(AgentRunStatus.COMPLETED, AgentRunStatus.FAILED, AgentRunStatus.COMPLETED))
         val primary = runs.value.first().copy(runId = "combined-synthesis:primary", status = AgentRunStatus.RUNNING, synthesisKey = "root")
@@ -161,7 +166,11 @@ class ChatViewModelStartupTest {
         messages.value = messages.value.map { if (it.platformType == "profile-1") it.copy(currentRunId = primary.runId, content = "Primary is writing") else it }
         activeRuns.value = mapOf(primary.runId to ActiveAgentRun(primary.runId, 7, primary.profileUid, primary.assistantMessageId))
         val model = createViewModel()
-        assertEquals(setOf("profile-2"), model.combinedFailures.value.map { it.profileUid }.toSet())
+        assertTrue(model.combinedFailures.value.isEmpty())
+        assertEquals(AgentRunStatus.FAILED, model.agentRunsById.value.getValue("run-2").status)
+        assertEquals("HTTP 502", model.agentRunsById.value.getValue("run-2").terminalError)
+        assertEquals(primary, model.agentRunsById.value.getValue(primary.runId))
+        assertEquals(setOf(primary.runId), activeRuns.value.keys)
         assertEquals(ChatViewModel.LoadingState.Loading, model.loadingStates.value.first())
         assertEquals("Primary is writing", model.groupedMessages.value.assistantMessages.single().first().content)
         verify(exactly = 0) { coordinator.cancelRuns(any()) }
@@ -177,6 +186,72 @@ class ChatViewModelStartupTest {
         verify(exactly = 1) { exitWork.enqueue(7, any()) }
         exitAction!!.invoke()
         coVerify { repository.saveComposerDraft(7, "Saved draft", "[]", any()) }
+    }
+
+    @Test fun interruptedResearchCannotRetryUntilReviewedAuthorizationAndOnlyResumesOnce() = runTest(dispatcher) {
+        StartupRecoveryGate.start(backgroundScope) {}
+        seedTurn(listOf(AgentRunStatus.INTERRUPTED, AgentRunStatus.COMPLETED, AgentRunStatus.COMPLETED))
+        val original = interruptedResearch()
+        val execution = MutableStateFlow(mapOf("root" to original))
+        val research = researchStore(execution)
+        coEvery { research.resumeExecution(any(), any(), any(), any(), any()) } answers {
+            assertEquals(original.attempt, arg(4))
+            assertEquals(true, arg<Boolean>(3))
+            original.resume(arg(1), 40, reconciled = true).also { execution.value = mapOf("root" to it) }
+        }
+        val model = createViewModel(research = research)
+        model.retryResearch("root")
+        model.reviewInterruptedResearch("root")
+        val review = requireNotNull(model.interruptedResearchReview.value)
+        assertEquals(listOf("run-1"), review.requests.map { it.runId })
+        coVerify(exactly = 0) { research.resumeExecution(any(), any(), any(), any(), any()) }
+        verify(exactly = 0) { coordinator.start(any()) }
+        model.authorizeReviewedResearchAttempt("unreviewed-action")
+        coVerify(exactly = 0) { research.resumeExecution(any(), any(), any(), any(), any()) }
+        model.authorizeReviewedResearchAttempt(review.actionId)
+        model.authorizeReviewedResearchAttempt(review.actionId)
+        model.retryResearch("root")
+        coVerify(exactly = 1) { research.resumeExecution("root", review.actionId, true, true, original.attempt) }
+        assertEquals(1L, execution.value.getValue("root").attempt.generation)
+        assertEquals(ResearchAttemptState.INTERRUPTED, execution.value.getValue("root").previousAttempts.single().state)
+        assertEquals(null, model.interruptedResearchReview.value)
+    }
+
+    @Test fun staleOrDismissedInterruptedReviewCannotAuthorizeANewGeneration() = runTest(dispatcher) {
+        StartupRecoveryGate.start(backgroundScope) {}
+        seedTurn(listOf(AgentRunStatus.INTERRUPTED, AgentRunStatus.COMPLETED, AgentRunStatus.COMPLETED))
+        val original = interruptedResearch()
+        val execution = MutableStateFlow(mapOf("root" to original))
+        val research = researchStore(execution)
+        val model = createViewModel(research = research)
+        model.reviewInterruptedResearch("root")
+        val dismissed = requireNotNull(model.interruptedResearchReview.value)
+        model.dismissInterruptedResearchReview()
+        model.authorizeReviewedResearchAttempt(dismissed.actionId)
+        model.reviewInterruptedResearch("root")
+        val stale = requireNotNull(model.interruptedResearchReview.value)
+        execution.value = mapOf("root" to original.resume("another-authorized-action", 40, reconciled = true))
+        model.authorizeReviewedResearchAttempt(stale.actionId)
+        coVerify(exactly = 0) { research.resumeExecution(any(), any(), any(), any(), any()) }
+        verify(exactly = 0) { coordinator.start(any()) }
+        assertTrue(model.attachmentNotice.value.orEmpty().contains("attempt changed"))
+    }
+
+    private fun researchStore(execution: MutableStateFlow<Map<String, ResearchExecutionRecord>>): ResearchSessionStore = mockk<ResearchSessionStore>(relaxed = true).also { research ->
+        every { research.executionState } returns execution
+        every { research.sessions } returns MutableStateFlow(emptyMap())
+    }
+
+    private fun interruptedResearch(): ResearchExecutionRecord {
+        val accepted = ResearchExecutionRecord.accept(
+            AcceptedResearchTask(
+                taskId = researchHash("task:root"), rootWorkId = "root", chatId = 7, originatingUserMessageId = 1,
+                taskText = "Explain the findings", intent = "REQUIRED", participantUids = profiles.map { it.uid }, primaryUid = "profile-1",
+                settingsRevision = "settings", sourceAuthorityRevision = "scope", acceptedAt = 10, targetSources = 5
+            )
+        )
+        return accepted.transition(accepted.attempt.attemptId, 0, ResearchAttemptState.ANALYZING, 20, runId = "run-1", profileUid = "profile-1", dispatched = true)
+            .transition(accepted.attempt.attemptId, 0, ResearchAttemptState.INTERRUPTED, 30)
     }
 
     private val exitWork = mockk<dev.chungjungsoo.gptmobile.data.chat.ConversationExitWork>(relaxed = true)
@@ -200,7 +275,7 @@ class ChatViewModelStartupTest {
         activeRuns.value = runs.value.filter { it.status == AgentRunStatus.RUNNING }.associate { it.runId to ActiveAgentRun(it.runId, 7, it.profileUid, it.assistantMessageId) }
     }
 
-    private fun createViewModel(chatId: Int = 7, combined: Boolean = true): ChatViewModel {
+    private fun createViewModel(chatId: Int = 7, combined: Boolean = true, research: ResearchSessionStore? = null): ChatViewModel {
         val room = ChatRoomV2(id = chatId, title = "Saved chat", enabledPlatform = profiles.map { it.uid }, activePlatform = profiles.map { it.uid }, conversationMode = if (combined) ConversationMode.COMBINED else ConversationMode.STANDARD, draftText = "Saved draft")
         every { repository.observeMessageWindow(chatId, any()) } returns messages
         every { repository.observeTurnCount(chatId) } returns flowOf(messages.value.count { it.platformType == null })
@@ -240,6 +315,7 @@ class ChatViewModelStartupTest {
             freeModelToolConsentStore = mockk(relaxed = true),
             conversationReadStateStore = ConversationReadStateStore(completions),
             generationCompletionStore = completions,
+            researchSessionStore = research,
             conversationExitWork = exitWork,
             messageGroupingDispatcher = dispatcher
         ).also { store.put("chat", it) }

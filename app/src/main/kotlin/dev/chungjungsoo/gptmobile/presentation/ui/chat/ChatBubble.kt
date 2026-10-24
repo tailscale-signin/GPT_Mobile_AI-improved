@@ -235,6 +235,7 @@ fun OpponentChatBubble(
     canEdit: Boolean = false,
     isFavorite: Boolean = false,
     debugMode: Boolean = false,
+    showExecutionTrace: Boolean = true,
     profileColorIdentity: dev.chungjungsoo.gptmobile.data.model.ProfileColorIdentity? = null,
     debugMemorySources: Map<String, DebugMemorySource> = emptyMap(),
     invocations: List<dev.chungjungsoo.gptmobile.data.accounting.ModelInvocation> = emptyList(),
@@ -272,14 +273,14 @@ fun OpponentChatBubble(
     val noticeMessages = remember(runNotices, timeline, isLoading) {
         visibleChatRunNotices(runNotices, timelineNoticeMessages(timeline), isLoading)
     }
-    val visibleThoughts = remember(showReasoning, thoughts, text, isLoading) {
+    val visibleThoughts = remember(showExecutionTrace, showReasoning, thoughts, text, isLoading) {
         // Do not rescan the entire growing answer on the UI thread for each streaming token.
         // Native reasoning deltas remain visible; legacy inline thinking is parsed on completion.
-        if (showReasoning) thoughts.ifBlank { if (isLoading) "" else ThinkingParser.extractThinking(text).thinking.orEmpty() } else ""
+        if (showExecutionTrace && showReasoning) thoughts.ifBlank { if (isLoading) "" else ThinkingParser.extractThinking(text).thinking.orEmpty() } else ""
     }
-    val processToolEvents = toolEvents
-    val contentTimeline = remember(timeline, showReasoning) {
-        timeline.filter { showReasoning || it.type != AssistantTimelineItemType.THINKING }
+    val processToolEvents = if (showExecutionTrace) toolEvents else emptyList()
+    val contentTimeline = remember(timeline, showReasoning, showExecutionTrace) {
+        timeline.filter { if (showExecutionTrace) showReasoning || it.type != AssistantTimelineItemType.THINKING else it.type == AssistantTimelineItemType.TEXT }
     }
     val (telemetryNotice, nonTelemetryNotices) = remember(noticeMessages) {
         extractTelemetryNotice(noticeMessages)
@@ -386,7 +387,7 @@ fun OpponentChatBubble(
         }
         onInspectContext?.let { add(BubbleAction(stringResource(R.string.bubble_context), Icons.Rounded.Description, !isLoading, it)) }
         add(BubbleAction(retryLabel ?: stringResource(R.string.retry), Icons.Rounded.Refresh, canRetry && !isLoading, onRetryClick))
-        if (hasDetails) add(BubbleAction(stringResource(R.string.details), Icons.Rounded.HelpOutline) { activityExpanded = !activityExpanded })
+        if (showExecutionTrace && hasDetails) add(BubbleAction(stringResource(R.string.details), Icons.Rounded.HelpOutline) { activityExpanded = !activityExpanded })
     }
     BubbleActionHost(identity = contentIdentity, actions = actions) {
         Column(modifier = modifier) {
@@ -404,7 +405,7 @@ fun OpponentChatBubble(
                         )
                 ) {
                     AnimatedVisibility(
-                        visible = activityExpanded && generationTiming != null,
+                        visible = showExecutionTrace && activityExpanded && generationTiming != null,
                         enter = fadeIn(tween(1000)),
                         exit = fadeOut(tween(500))
                     ) {
@@ -426,12 +427,13 @@ fun OpponentChatBubble(
                         outputTrace = agentRun?.let { dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceOwner(it.runId, it.ownershipFence, "0") },
                         animateResponse = debugSettings.responseAnimation, timeline = contentTimeline,
                         proseColor = profileColorIdentity?.let { ProfileAttributionPalette.foreground(it, bubbleColor.compositeOver(MaterialTheme.colorScheme.background)) },
-                        toolEvents = toolEvents,
+                        toolEvents = processToolEvents,
                         fallbackText = text,
                         fallbackThoughts = visibleThoughts,
                         contentIdentity = contentIdentity,
                         isLoading = isLoading,
                         debugMode = debugMode,
+                        showExecutionTrace = showExecutionTrace,
                         debugSettings = debugSettings,
                         debugMemorySources = debugMemorySources,
                         showReasoning = showReasoning,
@@ -481,7 +483,7 @@ fun OpponentChatBubble(
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                     )
 
-                    if (debugMode && activityExpanded) {
+                    if (showExecutionTrace && debugMode && activityExpanded) {
                         ChatDebugDiagnosticsCard(
                             agentRun = agentRun,
                             telemetryNotice = telemetryNotice,

@@ -13,12 +13,12 @@ internal object CombinedWriterPolicy {
             (observation?.reasoningTokensHighWater ?: 0) > 0 -> (observation!!.reasoningTokensHighWater.toLong() * 5 / 4 + 256).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
             observation?.reasoningDisabled in setOf("NOT_HONORED", "DISABLE_UNVERIFIED") -> 4096
             observation?.reasoningDisabled == "OBSERVED_NO_REASONING" && observation.completeAnswers > 0 -> 0
+            profile.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.FREE && dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.fromApiUrl(profile.apiUrl)?.let { dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.model(it, profile.model)?.reasoning } == false -> 0
             else -> 4096
         }
         return maxOf((words * 2.2 + 512 + reasoningReserve).toLong(), observation?.minimumUsefulOutputAllowance?.toLong() ?: 0L, observation?.stalledOutputAllowance?.toLong()?.plus(512) ?: 0L).coerceIn(768, Int.MAX_VALUE.toLong()).toInt()
     }
     fun unavailableReason(profile: PlatformV2, request: String, inputTokens: Int = 0): String? {
-        if (CurrentRequestContract.from(request).intent in setOf("GREETING", "TEST", "PROVIDER_TEST")) return null
         val required = requiredOutput(request, profile)
         val cap = ProviderRouteCapacity.output(profile, required)
         if (cap < required) return "Final writing needs at least $required generation tokens including record framing; this route allows $cap. Its contributions remain available."

@@ -13,6 +13,9 @@ enum class FreeFailureCategory(val action: String) {
     PROVIDER_CLIENT_RESTRICTED("Choose another provider"),
     PROVIDER_APPROVAL_REQUIRED("Choose another provider"),
     REQUEST_SCHEMA_INCOMPATIBLE("Update the provider adapter"),
+    TOOL_CHOICE_MISMATCH("Review this model's tool support and tool settings before retrying"),
+    PROVIDER_PAYLOAD_ERROR("Review the provider's generation error or choose another model"),
+    OUTPUT_PROTOCOL_INVALID("The answer format was invalid; retain usable passages and explicitly retry or choose another writer"),
     HOSTED_GENERATION_FAILED("Choose another provider or retry later"),
     PROVIDER_UNAVAILABLE("Choose another provider"),
     REQUEST_INVALID("Review the request settings"),
@@ -78,6 +81,7 @@ internal fun freeFailureCategory(error: Exception): FreeFailureCategory = when (
     else -> {
         val causes = generateSequence<Throwable>(error) { it.cause }.take(8).toList()
         when {
+            causes.any { dev.chungjungsoo.gptmobile.data.network.error.isOutputProtocolFailure(it.message.orEmpty()) } -> FreeFailureCategory.OUTPUT_PROTOCOL_INVALID
             causes.any { it is java.net.UnknownHostException || it is java.nio.channels.UnresolvedAddressException } -> FreeFailureCategory.DNS_RESOLUTION_FAILED
             causes.any { it is java.io.IOException || it is io.ktor.client.plugins.HttpRequestTimeoutException } -> FreeFailureCategory.NETWORK_ERROR
             else -> FreeFailureCategory.REQUEST_INVALID

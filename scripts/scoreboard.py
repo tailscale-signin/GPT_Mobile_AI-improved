@@ -7,12 +7,12 @@ import re
 PROVIDERS = {"OPENAI", "ANTHROPIC", "GOOGLE", "GROQ", "OPENROUTER", "OLLAMA", "CUSTOM", "LLAMA", "FREE", "NVIDIA"}
 DOMAINS = {"Math", "Logic", "Reading", "Planning", "Code reasoning", "Knowledge"}
 OUTCOMES = {"PASSED", "FAILED", "ERROR", "TIMED_OUT"}
-ROOT_KEYS = {"schemaVersion", "id", "kind", "plan", "suiteVersion", "startedAt", "provider", "model", "primaryProvider", "primaryModel", "reviewerProvider", "reviewerModel", "trials", "issueNumber"}
+ROOT_KEYS = {"schemaVersion", "id", "kind", "plan", "suiteVersion", "startedAt", "provider", "model", "primaryProvider", "primaryModel", "reviewerProvider", "reviewerModel", "trials", "issueNumber", "effectiveConfigHash", "comparisonContextHash", "measurementVersion", "scoringVersion", "backend", "accelerator", "capabilityManifest", "loadRegime", "cacheRegime"}
 TRIAL_DEFAULTS = dict(firstTextMs=None, speed=None, inputTokens=0, outputTokens=0, estimatedTokens=False, toolCalls=0, successfulToolCalls=0, intelligence={}, reviewerScore=None, workerCalls=0, searches=0, pagesRead=0, handoffCharacters=0, primaryInputTokens=0, primaryOutputTokens=0, reviewerCalls=0, reviewerInputTokens=0, reviewerOutputTokens=0, outputCapViolations=0)
 FAMILIES = ["delegation-compact", "delegation-tools", "delegation-research", "delegation-chunks", "delegation-handoff", "delegation-stopping", "delegation-ownership", "delegation-progress"]
 
 
-def manifest(kind, plan):
+def manifest(kind, plan, version=7):
     if kind == "DELEGATION":
         pairs = [(family, 0) for family in FAMILIES[:5]] if plan == "QUICK" else [(FAMILIES[i % 8], i // 8) for i in range(50)]
         return {(family if seed == 0 else f"{family}-seed-{seed}"): ("delegation", family) for family, seed in pairs}
@@ -20,8 +20,11 @@ def manifest(kind, plan):
         return {"speed-0": ("speed", "short"), "instruction": ("task", "instruction"), "json": ("json", "structured"), "tool": ("tools", "tools"), "intelligence-batch-0": ("intelligence", "Six domains")}
     result = {f"speed-{band}-{seed}": ("speed", band) for band in ("short", "medium", "long") for seed in range(6)}
     result.update({key: ("task", family) for key, family in [("instruction-0", "instruction"), ("logic-0", "logic"), ("context", "recall"), ("extract-0", "extraction"), ("abstain-0", "abstention"), ("instruction-1", "instruction"), ("logic-1", "logic"), ("recall-1", "recall")]})
+    if version == 8:
+        result = {f"speed-{band}-{seed}": ("speed", band) for band in ("short", "medium", "long") for seed in range(6)}
+        result.update({f"{family}-{seed}": ("task", workload) for seed in range(2) for family, workload in (("instruction", "instruction"), ("logic", "logic"), ("extract", "extraction"), ("recall", "recall"), ("abstain", "abstention"))})
     result.update({f"json-{i}": ("json", "structured") for i in range(6)})
-    result.update({f"tool-{i}": ("tools", "tools") for i in range(12)})
+    result.update({f"tool-{i}": ("tools", "tools") for i in range(10 if version == 8 else 12)})
     result.update({f"intelligence-batch-{i}": ("intelligence", "Six domains") for i in range(6)})
     return result
 
@@ -43,10 +46,10 @@ def validate(data, *, submitted=False):
     require(type(data) is dict and not data.keys() - ROOT_KEYS, "Unknown or private fields in submission.")
     data = dict(data)
     data.setdefault("schemaVersion", 1)
-    require(type(data["schemaVersion"]) is int and data["schemaVersion"] == 1, "Unsupported scoreboard version.")
+    require(type(data["schemaVersion"]) is int and data["schemaVersion"] in {1, 2}, "Unsupported scoreboard version.")
     require(type(data.get("kind")) is str and data.get("kind") in {"MODEL", "DELEGATION"} and type(data.get("plan")) is str and data.get("plan") in {"QUICK", "FULL"}, "Unsupported test plan.")
     delegation = data["kind"] == "DELEGATION"
-    require(type(data.get("suiteVersion")) is int and data["suiteVersion"] in ({1} if delegation else {6, 7}), "Unsupported suite version.")
+    require(type(data.get("suiteVersion")) is int and data["suiteVersion"] in ({1} if delegation else {6, 7, 8}), "Unsupported suite version.")
     require(isinstance(data.get("id"), str) and re.fullmatch(r"[A-Za-z0-9-]{1,80}", data["id"]), "Invalid run ID.")
     require(integer(data.get("startedAt"), 0, 253402300799999), "Invalid run timestamp.")
     require(type(data.get("provider")) is str and data.get("provider") in PROVIDERS and model(data.get("model")), "Only remote provider/model identities are accepted.")
@@ -59,7 +62,15 @@ def validate(data, *, submitted=False):
             require(data.get(role + "Provider") is None and data.get(role + "Model") is None, "Unexpected delegation identity.")
     if delegation:
         require(data["model"].lower() != data["reviewerModel"].lower(), "Reviewer must use a different model.")
-    expected = manifest(data["kind"], data["plan"])
+    if data["schemaVersion"] == 2:
+        for field in ("effectiveConfigHash", "comparisonContextHash"):
+            require(isinstance(data.get(field), str) and re.fullmatch(r"[a-f0-9]{64}", data[field]), "Missing or invalid public comparison identity.")
+        require(integer(data.get("measurementVersion"), 1, 100) and integer(data.get("scoringVersion"), 1, 100), "Invalid measurement policy.")
+    for field in ("backend", "accelerator", "loadRegime", "cacheRegime"):
+        require(data.get(field) is None or isinstance(data[field], str) and re.fullmatch(r"[A-Za-z0-9 _./-]{1,80}", data[field]), "Invalid public execution context.")
+    capabilities = data.get("capabilityManifest", [])
+    require(type(capabilities) is list and all(type(value) is str and value in {"text", "structured", "reasoning", "tools", "images"} for value in capabilities), "Invalid capability manifest.")
+    expected = manifest(data["kind"], data["plan"], data["suiteVersion"])
     trials = data.get("trials")
     require(type(trials) is list and len(trials) == len(expected), "Incomplete test count.")
     require(all(type(t) is dict for t in trials), "Invalid trial.")
@@ -70,6 +81,8 @@ def validate(data, *, submitted=False):
         require(not trial.keys() - (TRIAL_DEFAULTS.keys() | {"id", "outcome", "durationMs"}), "Unknown or private trial fields.")
         t = TRIAL_DEFAULTS | trial
         require(type(t.get("outcome")) is str and t.get("outcome") in OUTCOMES and integer(t.get("durationMs"), 0, 3_600_000), "Unfinished or invalid trial.")
+        if not delegation and data["suiteVersion"] >= 8:
+            require(t["outcome"] in {"PASSED", "FAILED"}, "Execution failures do not provide public answer accuracy.")
         require(t["firstTextMs"] is None or integer(t["firstTextMs"], 0, t["durationMs"]), "Invalid first-text time.")
         require(t["speed"] is None or (type(t["speed"]) in (float, int) and math.isfinite(t["speed"]) and 0 < t["speed"] <= 1_000_000), "Invalid speed.")
         for key in ("inputTokens", "outputTokens", "primaryInputTokens", "primaryOutputTokens", "reviewerInputTokens", "reviewerOutputTokens"):
@@ -93,7 +106,7 @@ def validate(data, *, submitted=False):
 def score(data):
     data = validate(data)
     trials = [TRIAL_DEFAULTS | t for t in data["trials"]]
-    expected = manifest(data["kind"], data["plan"])
+    expected = manifest(data["kind"], data["plan"], data["suiteVersion"])
     def passed(items):
         return 100 * sum(t["outcome"] == "PASSED" for t in items) / len(items)
     completion = 100 * sum(t["outcome"] in {"PASSED", "FAILED"} for t in trials) / len(trials)
@@ -110,7 +123,7 @@ def score(data):
 
 
 def identity(data):
-    return (data["kind"], data["plan"], data["suiteVersion"], data["provider"], data["model"])
+    return (data["kind"], data["plan"], data["suiteVersion"], data["provider"], data["model"], data.get("effectiveConfigHash"), data.get("comparisonContextHash"), data.get("backend"), data.get("accelerator"), tuple(sorted(data.get("capabilityManifest", []))))
 
 
 def best(entries):

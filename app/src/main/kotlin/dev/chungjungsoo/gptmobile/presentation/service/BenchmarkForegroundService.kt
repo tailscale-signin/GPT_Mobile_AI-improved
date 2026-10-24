@@ -36,6 +36,7 @@ class BenchmarkForegroundService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var published = false
     private var observing = false
+    private var activeSessionId: String? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -63,14 +64,17 @@ class BenchmarkForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val requestedSession = intent?.getStringExtra(EXTRA_SESSION_ID)
+        if (intent?.action == ACTION_STOP || intent?.action == ACTION_SKIP) {
+            if (requestedSession != null && requestedSession == coordinator.sessionId.value) {
+                if (intent.action == ACTION_SKIP) coordinator.skipProfile(requestedSession) else coordinator.cancel(id = requestedSession)
+            }
+            return START_NOT_STICKY
+        }
+        activeSessionId = requestedSession
         if (!publishForeground()) {
             coordinator.serviceUnavailable("Android could not publish the benchmark foreground notification. The run was stopped; completed samples remain saved.")
             stopSelf(startId)
-            return START_NOT_STICKY
-        }
-        if (intent?.action == ACTION_STOP) {
-            coordinator.cancel()
-            stopSelf()
             return START_NOT_STICKY
         }
         if (!coordinator.serviceReady(intent?.getStringExtra(EXTRA_SESSION_ID))) {
@@ -103,7 +107,7 @@ class BenchmarkForegroundService : Service() {
         val stop = PendingIntent.getService(
             this,
             1,
-            Intent(this, BenchmarkForegroundService::class.java).setAction(ACTION_STOP),
+            Intent(this, BenchmarkForegroundService::class.java).setAction(ACTION_STOP).setData(android.net.Uri.parse("gptmobile://benchmark/${activeSessionId.orEmpty()}/stop")).putExtra(EXTRA_SESSION_ID, activeSessionId),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         return NotificationCompat.Builder(this, CHANNEL_ID)
@@ -111,7 +115,7 @@ class BenchmarkForegroundService : Service() {
             .setContentTitle("Benchmark running")
             .setContentText(progress?.let { "${it.profileName} · ${it.testName} · ${it.completed.coerceAtMost(it.total)}/${it.total}" } ?: "Starting benchmark. Completed samples remain saved.")
             .setContentIntent(openApp)
-            .addAction(android.R.drawable.ic_media_pause, "Stop", stop)
+            .apply { if (activeSessionId != null) addAction(android.R.drawable.ic_media_pause, "Stop all", stop) }
             .setProgress(progress?.total ?: 0, progress?.completed ?: 0, progress == null)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
@@ -126,7 +130,7 @@ class BenchmarkForegroundService : Service() {
     }
 
     override fun onTimeout(startId: Int, fgsType: Int) {
-        coordinator.cancel("Android ended the benchmark foreground service time limit.")
+        coordinator.cancel("Android ended the benchmark foreground service time limit.", activeSessionId, dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkStopOrigin.SERVICE_INTERRUPTION)
         stopSelf(startId)
     }
 
@@ -135,6 +139,7 @@ class BenchmarkForegroundService : Service() {
     companion object {
         const val EXTRA_OPEN_BENCHMARKS = "open_benchmarks"
         const val EXTRA_SESSION_ID = "benchmark_session_id"
+        const val ACTION_SKIP = "dev.chungjungsoo.gptmobile.action.SKIP_BENCHMARK_PROFILE"
         const val ACTION_STOP = "dev.chungjungsoo.gptmobile.action.STOP_BENCHMARK"
         const val CHANNEL_ID = "benchmark_execution"
         const val NOTIFICATION_ID = 8204

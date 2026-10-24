@@ -32,6 +32,7 @@ internal class CombinedDeliverySession(
     private val recordProtocol: Boolean = false,
     private val combined: CombinedExecutionContext? = null,
     private val answerContract: CombinedAnswerPolicy? = null,
+    private val layoutContract: CombinedLayoutContract? = null,
     private val revisionId: String = "",
     private val researchObligations: List<CombinedResearchObligation> = emptyList(),
     private val verify: suspend (CombinedVerificationRequest) -> CombinedEvidenceLedger? = { null },
@@ -136,7 +137,7 @@ internal class CombinedDeliverySession(
             } else {
                 CombinedFinalCheck.check(candidate.text, sources, currentEvidence, policy, candidate.decoder?.passages.orEmpty(), candidate.decoder?.decisions.orEmpty(), currentRevision)
             }
-            val checked = result.copy(checks = result.checks + researchQuestionChecks(candidate.text, researchObligations))
+            val checked = result.copy(checks = result.checks + researchQuestionChecks(candidate.text, researchObligations) + layoutContract?.checks(candidate.text).orEmpty())
             val invalid = checked.receipts.filterNot { CombinedEvidenceVerifier.validateReceipt(candidate.text, currentRevision, currentEvidence, it) }
             if (invalid.isEmpty()) checked else checked.copy(checks = checked.checks + CombinedAnswerCheck("INVALID_REVISION_EVIDENCE_RECEIPT", "PROVENANCE", "FAIL", true, invalid.mapTo(linkedSetOf()) { it.claimId }, "A support receipt did not validate against this answer revision and retained evidence."))
         }
@@ -206,6 +207,10 @@ internal class CombinedDeliverySession(
                 includedProfileUids = if (singlePass) sources.mapTo(linkedSetOf()) { it.platformUid } else emptySet(),
                 representedProfileUids = represented,
                 finalAssessment = final,
+                displayableDraft = candidate.text.isNotBlank(),
+                protocolComplete = providerComplete && framingValid,
+                identityLinkStatus = if (candidate.decoder?.issues.orEmpty().any { it in setOf("UNKNOWN_CLAIM_REFERENCE", "UNKNOWN_PROFILE_REFERENCE") }) "REJECTED_REFERENCES" else "KNOWN_OCCURRENCES",
+                semanticSupportStatus = if (represented.isEmpty()) "UNESTABLISHED" else "CONSERVATIVE_TEXT_LINKS_ONLY",
                 lengthCompliance = if (violations.any { it.contains("WORD") || it.contains("LENGTH") }) "UNMET" else "MET",
                 topicCoverage = if (checked.checks.any { it.category in setOf("SCOPE", "RESEARCH_SCOPE") && it.result != "PASS" }) "UNRESOLVED" else "LOCAL_CHECKS_PASSED",
                 sourceLinkStatus = if (represented.isEmpty()) "UNESTABLISHED" else "PARTIAL_TEXT_MATCHES",
@@ -379,9 +384,15 @@ internal class CombinedDeliverySession(
         if (violations.isNotEmpty()) emit(ProviderEvent.Notice(if (accepted.text.isBlank()) "Final assembly did not deliver answer text. Saved contributions and recovery actions remain available." else "The retained draft has an unmet instruction check.", persistent = true))
         if (correctionRequired) emit(ProviderEvent.Notice("The retained draft requires correction; it is not a checked final answer.", persistent = true))
         if (accepted.text.isBlank()) {
-            emit(accepted.terminal as? ProviderEvent.Failed ?: ProviderEvent.Failed("Combined synthesis produced no usable answer records.", errorCode = if (finalReport.issues.any { it in COMBINED_FRAMING_FAILURES }) "INVALID_DELIVERY_RECORD" else "COMBINED_PARTIAL"))
+            emit(accepted.terminal as? ProviderEvent.Failed ?: ProviderEvent.Failed("Combined synthesis produced no usable answer records.", errorCode = if (finalReport.issues.any { it in COMBINED_FRAMING_FAILURES }) "OUTPUT_PROTOCOL_INVALID" else "COMBINED_PARTIAL"))
         } else if (!finalReport.complete || finalReport.deliveredScopeStatus == "PARTIAL") {
-            emit(accepted.terminal as? ProviderEvent.Failed ?: ProviderEvent.Failed("COMBINED_PARTIAL: The retained answer has unfinished delivery or required checks."))
+            emit(
+                accepted.terminal as? ProviderEvent.Failed ?: if (finalReport.issues.any { it in COMBINED_FRAMING_FAILURES }) {
+                    ProviderEvent.Failed("OUTPUT_PROTOCOL_INVALID: The retained answer contains invalid delivery records.", errorCode = "OUTPUT_PROTOCOL_INVALID")
+                } else {
+                    ProviderEvent.Failed("COMBINED_PARTIAL: The retained answer has unfinished delivery or required checks.")
+                }
+            )
         } else {
             emit(accepted.terminal as? ProviderEvent.Failed ?: if (accepted.terminal == ProviderEvent.Completed) ProviderEvent.Completed else ProviderEvent.Failed("Combined synthesis ended before completion."))
         }

@@ -60,12 +60,34 @@ data class MarkdownSourceMap(
             start >= 0 && fullAnswer.indexOf(original, start + 1) < 0
         }
         val validPassages = if (fullAnswerOffset == null) emptyList() else passages.filter { it.matches(fullAnswer) }
+        val scoped = validPassages.filter { it.linkVersion >= 1 }
+        val knownUids = sources.mapTo(hashSetOf()) { it.platformUid }
+        val links = scoped.flatMap { passage ->
+            passage.links.filter { link ->
+                link.start >= passage.start &&
+                    link.end <= passage.end &&
+                    link.matches(fullAnswer) &&
+                    link.identityLinkStatus == "KNOWN_OCCURRENCES" &&
+                    link.semanticSupportStatus == "CONSERVATIVE_LINK_CHECKED" &&
+                    link.profileUids.all { it in knownUids }
+            }
+        }
+        val scopedMapped = links.filter { link ->
+            link.profileUids.size == 1 && links.none { other -> other.start < link.end && other.end > link.start && other.profileUids != link.profileUids }
+        }.flatMap { link ->
+            runs.mapNotNull { run ->
+                val start = maxOf(link.start - requireNotNull(fullAnswerOffset), run.sourceStart)
+                val end = minOf(link.end - fullAnswerOffset, run.sourceEnd)
+                if (start >= end) null else MappedProfileSpan(run.transformedStart + start - run.sourceStart, run.transformedStart + end - run.sourceStart, link.profileUids.single())
+            }
+        }
         // Math placeholders and removed metadata have no prose source run. Mask those
         // gaps without moving UTF-16 offsets so their numbers cannot invalidate a claim.
         val prose = CharArray(original.length) { if (original[it] == '\n') '\n' else ' ' }
         runs.forEach { run -> original.toCharArray(prose, run.sourceStart, run.sourceStart, run.sourceEnd) }
         val wording = combinedWordingSpans(String(prose), sources)
         val spans = wording.filter { span ->
+            if (scoped.any { it.start < (fullAnswerOffset ?: 0) + span.end && it.end > (fullAnswerOffset ?: 0) + span.start }) return@filter false
             val owner = span.profileUids.singleOrNull() ?: return@filter includeShared
             val start = (fullAnswerOffset ?: 0) + span.start
             val end = (fullAnswerOffset ?: 0) + span.end
@@ -75,7 +97,8 @@ data class MarkdownSourceMap(
         }
         val sourceUids = sources.map { it.platformUid }.toSet()
         val declared = validPassages.filter { passage ->
-            passage.semanticLinkStatus == "CONSERVATIVE_LINK_CHECKED" &&
+            passage.linkVersion == 0 &&
+                passage.semanticLinkStatus == "CONSERVATIVE_LINK_CHECKED" &&
                 passage.profileUids.size == 1 &&
                 passage.profileUids.single() in sourceUids &&
                 validPassages.none { other -> other.start < passage.end && other.end > passage.start && other.profileUids != passage.profileUids } &&
@@ -92,7 +115,7 @@ data class MarkdownSourceMap(
                 if (start >= end) null else MappedProfileSpan(run.transformedStart + start - run.sourceStart, run.transformedStart + end - run.sourceStart, passage.profileUids.single())
             }
         }
-        return declaredMapped + spans.filter { span ->
+        return scopedMapped + declaredMapped + spans.filter { span ->
             declared.none { it.start < (fullAnswerOffset ?: 0) + span.end && it.end > (fullAnswerOffset ?: 0) + span.start }
         }.flatMap { span ->
             val uid = span.profileUids.sorted().firstOrNull() ?: return@flatMap emptyList()

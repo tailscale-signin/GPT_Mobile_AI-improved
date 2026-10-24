@@ -30,6 +30,17 @@ import org.robolectric.annotation.Config
 class PlannedLocalRuntimeTest {
     @get:Rule val temporaryFolder = TemporaryFolder()
 
+    @Test fun nativeBusyReceiptSurvivesThePlanningWrapper() {
+        var nativeBusy = true
+        val delegate = object : LocalRuntime by FakeLocalRuntime() {
+            override val isNativeOperationBusy get() = nativeBusy
+        }
+        val runtime = planned(delegate)
+        assertTrue(runtime.isNativeOperationBusy)
+        nativeBusy = false
+        assertFalse(runtime.isNativeOperationBusy)
+    }
+
     private fun modelPath(name: String): String = temporaryFolder.newFile(name).apply { writeText("test artifact") }.path
 
     private fun planned(delegate: LocalRuntime): PlannedLocalRuntime {

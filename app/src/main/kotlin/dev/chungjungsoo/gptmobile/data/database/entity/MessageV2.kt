@@ -101,7 +101,15 @@ data class CombinedModelResponse(
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
     val factualSupport: String = "UNVERIFIED",
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
-    val nativeFinishReason: String? = null
+    val nativeFinishReason: String? = null,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val claimExtractionVersion: Int = 1,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val latestAttemptId: String? = null,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val bestUsableAttemptId: String? = null,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val selectedContributionAttemptId: String? = null
 )
 
 @Serializable

@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.research
 import android.util.AtomicFile
 import java.io.File
 import kotlin.concurrent.withLock
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -21,7 +22,11 @@ data class AcceptedResearchTask(
     val primaryUid: String?,
     val settingsRevision: String,
     val sourceAuthorityRevision: String,
-    val acceptedAt: Long
+    val acceptedAt: Long,
+    val acceptedPolicyJson: String = "",
+    val sourceScope: String = "",
+    val targetSources: Int = 0,
+    val requestedModels: Map<String, String> = emptyMap()
 )
 
 @Serializable
@@ -50,18 +55,58 @@ internal class ResearchTaskStore(private val directory: File) {
     private val shared = coordination.computeIfAbsent(directory.absolutePath) { Coordination() }
     private val taskLocks = shared.tasks
     private val deletedChats = java.util.concurrent.ConcurrentHashMap.newKeySet<Int>()
+    private fun isDeleted(chatId: Int): Boolean = chatId in deletedChats || read("deleted-chat", chatId.toString(), true) != null
     private suspend fun <T> task(root: String, action: () -> T): T = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         shared.gate.withReadLock { taskLocks.computeIfAbsent(root) { kotlinx.coroutines.sync.Mutex() }.withLock { action() } }
     }
 
+    private val executionState = kotlinx.coroutines.flow.MutableStateFlow<Map<String, ResearchExecutionRecord>>(emptyMap())
+    val executions: kotlinx.coroutines.flow.StateFlow<Map<String, ResearchExecutionRecord>> get() = executionState
+
+    suspend fun execution(root: String, persistent: Boolean) = task(root) { executionUnlocked(root, persistent) }
+    suspend fun transition(root: String, attemptId: String, generation: Long, state: ResearchAttemptState, persistent: Boolean, reason: String? = null, runId: String? = null, profileUid: String? = null, dispatched: Boolean = false, checkpointId: String? = null, evidenceRevision: String? = null, readableSources: Int? = null, queueMillis: Long? = null): ResearchExecutionRecord? = task(root) {
+        val old = executionUnlocked(root, persistent) ?: return@task null
+        check(!isDeleted(old.accepted.chatId)) { "Conversation was deleted" }
+        val next = old.transition(attemptId, generation, state, System.currentTimeMillis(), reason, runId, profileUid, dispatched, checkpointId ?: old.attempt.checkpointId, evidenceRevision ?: old.attempt.evidenceRevision, readableSources ?: old.attempt.readableSources, queueMillis ?: old.attempt.queueMillis)
+        if (next != old) writeExecution(next, persistent)
+        next
+    }
+    suspend fun resumeAttempt(root: String, actionId: String, persistent: Boolean, reconciled: Boolean = false, expectedAttempt: ResearchAttempt? = null): ResearchExecutionRecord? = task(root) {
+        val old = executionUnlocked(root, persistent) ?: return@task null
+        check(!isDeleted(old.accepted.chatId)) { "Conversation was deleted" }
+        if (old.attempt.recoveryActionId == actionId || old.previousAttempts.any { it.recoveryActionId == actionId }) return@task old
+        if (expectedAttempt != null) {
+            check(old.attempt.attemptId == expectedAttempt.attemptId && old.attempt.generation == expectedAttempt.generation) { "RESEARCH_REVIEW_STALE: The attempt changed after this review." }
+        }
+        old.resume(actionId, System.currentTimeMillis(), reconciled).also { if (it != old) writeExecution(it, persistent) }
+    }
+
+    /** Recover projections only. Existing AgentRunCoordinator remains the sole dispatcher. */
+    suspend fun reconcile(chatIds: Set<Int>? = null): List<ResearchExecutionRecord> = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val canonical = files("execution").mapNotNull { path -> readFile(path)?.let { json.decodeFromString<ResearchExecutionRecord>(it).validated().accepted } }
+        val legacy = files("task").mapNotNull { path -> readFile(path)?.let { json.decodeFromString<AcceptedResearchTask>(it) } }
+        val roots = (canonical + legacy).distinctBy { it.rootWorkId }.filter { (chatIds == null || it.chatId in chatIds) && !isDeleted(it.chatId) }
+        roots.mapNotNull { record ->
+            task(record.rootWorkId) {
+                val live = executionUnlocked(record.rootWorkId, true) ?: return@task null
+                // An atomic execution survives a crash before the legacy task projection/link.
+                write("task", live.accepted.rootWorkId, json.encodeToString(live.accepted), true)
+                live
+            }
+        }
+    }
+    suspend fun exportExecutions(chatIds: Set<Int>): List<ResearchExecutionRecord> = reconcile(chatIds)
+
     suspend fun accepted(root: String, persistent: Boolean) = task(root) { acceptedUnlocked(root, persistent) }
     suspend fun accept(value: AcceptedResearchTask, persistent: Boolean) = task(value.rootWorkId) {
-        check(value.chatId !in deletedChats) { "Conversation was deleted" }
+        check(!isDeleted(value.chatId)) { "Conversation was deleted" }
         acceptUnlocked(value, persistent)
     }
     suspend fun resume(value: ResearchResumeRequest, persistent: Boolean) = task(value.rootWorkId) { resumeUnlocked(value, persistent) }
-    suspend fun checkpoint(task: AcceptedResearchTask, runId: String, authority: String, generation: Long, snapshot: ResearchSnapshot, persistent: Boolean) = task(task.rootWorkId) {
-        check(task.chatId !in deletedChats) { "Conversation was deleted" }
+    suspend fun checkpoint(task: AcceptedResearchTask, runId: String, authority: String, generation: Long, snapshot: ResearchSnapshot, persistent: Boolean, expectedAttemptId: String? = null, expectedAttemptGeneration: Long? = null) = task(task.rootWorkId) {
+        check(!isDeleted(task.chatId)) { "Conversation was deleted" }
+        val current = executionUnlocked(task.rootWorkId, persistent)?.attempt
+        if (expectedAttemptId != null && (current?.attemptId != expectedAttemptId || current.generation != expectedAttemptGeneration || current.state.terminal)) return@task
         checkpointUnlocked(task, runId, authority, generation, snapshot, persistent)
     }
     suspend fun manifest(root: String, persistent: Boolean) = task(root) { manifestUnlocked(root, persistent) }
@@ -78,8 +123,12 @@ internal class ResearchTaskStore(private val directory: File) {
         return readFile(path)
     }
 
+    private fun files(kind: String): List<File> = directory.listFiles().orEmpty().map { path ->
+        if (path.name.endsWith(".$kind.bak")) File(directory, path.name.removeSuffix(".bak")) else path
+    }.filter { it.extension == kind }.distinctBy { it.absolutePath }
+
     private fun readFile(path: File): String? = ResearchAtomicFiles.locked(path) {
-        if (path.isFile) AtomicFile(path).openRead().bufferedReader().use { it.readText() } else null
+        if (path.isFile || File(path.path + ".bak").isFile) AtomicFile(path).openRead().bufferedReader().use { it.readText() } else null
     }
 
     private fun write(kind: String, key: String, body: String, persistent: Boolean) {
@@ -102,7 +151,29 @@ internal class ResearchTaskStore(private val directory: File) {
         }
     }
 
-    private fun acceptedUnlocked(root: String, persistent: Boolean): AcceptedResearchTask? = read("task", root, persistent)?.let { json.decodeFromString(it) }
+    private fun writeExecution(value: ResearchExecutionRecord, persistent: Boolean) {
+        value.validated()
+        write("execution", value.accepted.rootWorkId, json.encodeToString(value), persistent)
+        executionState.update { it + (value.accepted.rootWorkId to value) }
+    }
+
+    private fun executionUnlocked(root: String, persistent: Boolean): ResearchExecutionRecord? {
+        val body = read("execution", root, persistent)
+        if (body != null) {
+            val record = json.decodeFromString<ResearchExecutionRecord>(body).validated()
+            require(record.accepted.rootWorkId == root)
+            if (isDeleted(record.accepted.chatId)) return null
+            executionState.update { it + (root to record) }
+            return record
+        }
+        val legacy = read("task", root, persistent)?.let { json.decodeFromString<AcceptedResearchTask>(it) } ?: return null
+        if (isDeleted(legacy.chatId)) return null
+        // Historical files cannot establish whether dispatch/stop already happened. Import
+        // them once as interrupted rather than silently enqueueing old research again.
+        return ResearchExecutionRecord.accept(legacy, legacy = true).also { writeExecution(it, persistent) }
+    }
+
+    private fun acceptedUnlocked(root: String, persistent: Boolean): AcceptedResearchTask? = executionUnlocked(root, persistent)?.accepted
 
     private fun acceptUnlocked(value: AcceptedResearchTask, persistent: Boolean): AcceptedResearchTask {
         require(value.taskId == researchHash("task:${value.rootWorkId}") && value.taskText.isNotBlank() && value.participantUids.isNotEmpty())
@@ -111,6 +182,9 @@ internal class ResearchTaskStore(private val directory: File) {
             check(old.chatId == value.chatId && old.originatingUserMessageId == value.originatingUserMessageId && old.taskText == value.taskText) { "RESEARCH_TASK_IDENTITY_CHANGED" }
             return old
         }
+        // One atomic authority includes the complete payload, attempt and pending action.
+        // The compatibility task file is an idempotent projection, never the dispatcher.
+        writeExecution(ResearchExecutionRecord.accept(value), persistent)
         write("task", value.rootWorkId, json.encodeToString(value), persistent)
         return value
     }
@@ -134,6 +208,18 @@ internal class ResearchTaskStore(private val directory: File) {
         val revision = researchHash(snapshot.sources.joinToString { "${it.id}:${it.versionId}:${researchHash(it.passage)}" } + snapshot.claims.joinToString { "${it.sourceId}:${it.quote}:${it.verdict}" })
         write("checkpoint", "$runId:$authority", json.encodeToString(ResearchTaskCheckpoint(task.taskId, runId, authority, generation, snapshot.phase, revision, dependencies, snapshot.updatedAt)), persistent)
         retainEvidence(task, runId, authority, generation, snapshot, persistent)
+        executionUnlocked(task.rootWorkId, persistent)?.let { record ->
+            val phase = when {
+                snapshot.phase.contains("search", true) -> ResearchAttemptState.SEARCHING
+                snapshot.phase.contains("read", true) || snapshot.phase.contains("fetch", true) -> ResearchAttemptState.FETCHING
+                snapshot.phase.contains("review", true) || snapshot.phase.contains("extract", true) || snapshot.phase.contains("analy", true) -> ResearchAttemptState.ANALYZING
+                else -> record.attempt.state
+            }
+            // Session generation is independently checked by its journal; attempt identity
+            // is frozen at dispatch, so old attempts cannot update this projection.
+            val next = record.transition(record.attempt.attemptId, record.attempt.generation, phase, snapshot.updatedAt, checkpointId = runId, evidenceRevision = revision, readableSources = snapshot.sources.count { it.readable })
+            if (next != record) writeExecution(next, persistent)
+        }
     }
 
     private fun manifestUnlocked(root: String, persistent: Boolean): ResearchEvidenceManifest? = read("manifest", root, persistent)?.let { json.decodeFromString(it) }
@@ -176,7 +262,7 @@ internal class ResearchTaskStore(private val directory: File) {
 
     suspend fun retainedBodyChunks(): Set<String> = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         val retained = linkedSetOf<String>()
-        directory.listFiles().orEmpty().filter { it.extension == "evidence" }.forEach { path ->
+        files("evidence").forEach { path ->
             val page = json.decodeFromString<RetainedResearchEvidence>(readFile(path) ?: return@forEach)
             page.snapshot.rows("sources").forEach { retained += it.strings("bodyChunks") }
         }
@@ -216,17 +302,21 @@ internal class ResearchTaskStore(private val directory: File) {
     }
 
     suspend fun exportTasks(chatIds: Set<Int>): List<AcceptedResearchTask> = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-        directory.listFiles().orEmpty().filter { it.extension == "task" }.mapNotNull { path -> readFile(path)?.let { json.decodeFromString<AcceptedResearchTask>(it) } }.filter { it.chatId in chatIds }
+        val authoritative = files("execution").mapNotNull { path -> readFile(path)?.let { json.decodeFromString<ResearchExecutionRecord>(it).validated().accepted } }
+        val legacy = files("task").mapNotNull { path -> readFile(path)?.let { json.decodeFromString<AcceptedResearchTask>(it) } }
+        (authoritative + legacy).distinctBy { it.rootWorkId }.filter { it.chatId in chatIds && !isDeleted(it.chatId) }
     }
 
     suspend fun clearChat(chatId: Int) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         shared.gate.withLock {
-            deletedChats += chatId
             val tasks = temporary.filterKeys { it.startsWith("task:") }.values.map { json.decodeFromString<AcceptedResearchTask>(it) }.filter { it.chatId == chatId } + exportTasks(setOf(chatId))
+            if (exportTasks(setOf(chatId)).isNotEmpty()) write("deleted-chat", chatId.toString(), "deleted", true)
+            deletedChats += chatId
+            executionState.update { state -> state.filterValues { it.accepted.chatId != chatId } }
             tasks.distinctBy { it.rootWorkId }.forEach { accepted ->
                 taskLocks.computeIfAbsent(accepted.rootWorkId) { kotlinx.coroutines.sync.Mutex() }.withLock {
                     temporary.entries.removeAll { (_, body) -> body.contains(accepted.taskId) }
-                    directory.listFiles().orEmpty().filter { it.extension in setOf("task", "resume", "checkpoint", "manifest", "evidence", "plan", "delivery") }.forEach { path ->
+                    setOf("task", "execution", "resume", "checkpoint", "manifest", "evidence", "plan", "delivery").flatMap(::files).forEach { path ->
                         ResearchAtomicFiles.locked(path) {
                             if (readFile(path)?.contains(accepted.taskId) == true) AtomicFile(path).delete()
                         }

@@ -207,11 +207,13 @@ data class ResearchSnapshot(
     val rootWorkId: String = "",
     val originatingUserMessageId: Int = 0,
     val taskChatId: Int = 0,
-    val numericalFactBindingRequired: Boolean = false
+    val numericalFactBindingRequired: Boolean = false,
+    val reportStructure: String = "AUTO"
 ) {
     fun json() = buildJsonObject {
         put("version", 5)
         put("numericalFactBindingRequired", numericalFactBindingRequired)
+        put("reportStructure", reportStructure)
         put("taskId", taskId)
         put("rootWorkId", rootWorkId)
         put("originatingUserMessageId", originatingUserMessageId)
@@ -325,6 +327,7 @@ data class ResearchSnapshot(
             }
             ResearchSnapshot(
                 numericalFactBindingRequired = (value["numericalFactBindingRequired"] as? JsonPrimitive)?.booleanOrNull == true,
+                reportStructure = value.text("reportStructure").takeIf { name -> dev.chungjungsoo.gptmobile.data.model.ResearchReportStructure.entries.any { it.name == name } } ?: "AUTO",
                 taskId = value.text("taskId"), rootWorkId = value.text("rootWorkId"), originatingUserMessageId = value.number("originatingUserMessageId"), taskChatId = value.number("taskChatId"),
                 modelEvents = (value["modelEvents"] as? JsonArray).orEmpty().takeLast(200).mapNotNull { row -> runCatching { kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromJsonElement(ResearchModelEvent.serializer(), row) }.getOrNull() },
                 delegationPlan = value["delegationPlan"]?.let { kotlinx.serialization.json.Json.decodeFromJsonElement(dev.chungjungsoo.gptmobile.data.delegation.DelegationPlanCheckpoint.serializer(), it) },

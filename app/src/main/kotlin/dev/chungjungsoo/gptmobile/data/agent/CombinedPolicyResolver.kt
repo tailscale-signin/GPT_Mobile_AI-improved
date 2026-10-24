@@ -131,7 +131,7 @@ object CombinedPolicyResolver {
             val direct = minOf(item.remainingUnits, item.sourceUrls.size.toLong())
             direct + (item.remainingUnits - direct) * 2
         }
-        val discoveryCalls = requested.acceptedResearch?.let { minOf(it.sourceGoal, 3L) * maxOf(1, requested.participantUids.size) } ?: 0L
+        val discoveryCalls = requested.acceptedResearch?.let { minOf(it.sourceGoal, 3L) } ?: 0L
         val mandatoryCalls = if (toolsAllowed) maxOf(requiredToolOperations, Math.addExact(explicitAcquisitions, discoveryCalls)) else 0
         val fundingOrder = listOfNotNull(requested.preferredOwnerUid) + requested.participantUids
         val fundingUid = fundingOrder.distinct().firstOrNull { uid ->
@@ -157,41 +157,47 @@ object CombinedPolicyResolver {
         }
         val researchStages = mutableListOf<CombinedWorkItem>()
         val unfundedStages = linkedSetOf<String>()
-        requested.acceptedResearch?.let { research ->
-            requested.participantUids.filterNot { it in blocked }.forEach { uid ->
-                CombinedResearchStages.names.filter { stage ->
-                    when (stage) {
-                        "appraisal", "study_review" -> research.examinationRequested
-                        "independent_review" -> research.examinationRequested && research.independentReviewRequested
-                        else -> true
+        val researchWorkers = requested.participantUids.filterNot { it in blocked }
+        val researchAssignment = requested.acceptedResearch?.takeIf { researchWorkers.isNotEmpty() }?.let {
+            CombinedResearchAssignment(fundingUid ?: researchWorkers.first(), researchWorkers, it.sourceGoal)
+        }
+        requested.acceptedResearch?.takeIf { researchAssignment != null }?.let { research ->
+            CombinedResearchStages.names.filter { stage ->
+                when (stage) {
+                    "appraisal", "study_review" -> research.examinationRequested
+                    "independent_review" -> research.examinationRequested && research.independentReviewRequested
+                    else -> true
+                }
+            }.forEach { stage ->
+                val units = when (stage) {
+                    "extract", "review" -> research.sourceGoal
+                    "study_review" -> Math.multiplyExact(research.sourceGoal, 11L)
+                    "appraisal", "independent_review" -> Math.multiplyExact(research.sourceGoal, 3L)
+                    "find_gaps" -> maxOf(1L, (research.depth + 24L) / 25L)
+                    "plan" -> 2L // Initial plan plus one schema repair, shared by every contributor.
+                    else -> 1L
+                }
+                val id = CombinedResearchStages.taskId(stage)
+                researchStages += CombinedWorkItem(id, CombinedRunRole.RESEARCH, units, reason = "ACCEPTED_TASK_RESEARCH_STAGE", assignedOwnerKey = id)
+                val stageInput = when (stage) {
+                    "appraisal", "independent_review" -> 12000L
+                    "study_review" -> 16000L
+                    else -> 1024L
+                }
+                val quota = CombinedResourceQuota(Math.addExact(input, stageInput), CombinedResearchStages.outputTokens(stage).toLong()).scale(units)
+                // One pool follows the source claim to its actual pinned worker. Price conservatively
+                // across eligible workers; fallback cannot replicate the source goal or its reserve.
+                val workerCosts = researchWorkers.map { uid -> prices[uid]?.cost(quota.inputTokens, quota.generatedTokens) }
+                val cost = workerCosts.takeIf { it.all { value -> value != null } }?.filterNotNull()?.maxOrNull()
+                if (admissible(quota) && (hardLimits.costMicros?.let { cost != null && cost <= it - usedCost } ?: true)) {
+                    baseline[id] = quota
+                    cost?.let {
+                        costReserves[id] = it
+                        usedCost = Math.addExact(usedCost, it)
                     }
-                }.forEach { stage ->
-                    val units = when (stage) {
-                        "extract", "review" -> research.sourceGoal
-                        "study_review" -> Math.multiplyExact(research.sourceGoal, 11L)
-                        "appraisal", "independent_review" -> Math.multiplyExact(research.sourceGoal, 3L)
-                        "find_gaps" -> maxOf(1L, (research.depth + 24L) / 25L)
-                        else -> 1L
-                    }
-                    val id = CombinedResearchStages.id(uid, stage)
-                    researchStages += CombinedWorkItem(id, CombinedRunRole.RESEARCH, units, reason = "ACCEPTED_RESEARCH_STAGE", assignedOwnerKey = id)
-                    val stageInput = when (stage) {
-                        "appraisal", "independent_review" -> 12000L
-                        "study_review" -> 16000L
-                        else -> 1024L
-                    }
-                    val quota = CombinedResourceQuota(Math.addExact(input, stageInput), CombinedResearchStages.outputTokens(stage).toLong()).scale(units)
-                    val cost = prices[uid]?.cost(quota.inputTokens, quota.generatedTokens)
-                    if (admissible(quota) && (hardLimits.costMicros?.let { cost != null && cost <= it - usedCost } ?: true)) {
-                        baseline[id] = quota
-                        cost?.let {
-                            costReserves[id] = it
-                            usedCost = Math.addExact(usedCost, it)
-                        }
-                        used += quota
-                    } else {
-                        unfundedStages += id
-                    }
+                    used += quota
+                } else {
+                    unfundedStages += id
                 }
             }
         }
@@ -231,7 +237,8 @@ object CombinedPolicyResolver {
             toolsAllowed = toolsAllowed,
             searchAllowed = searchAllowed,
             renewable = stop == 4,
-            maxParallelToolCalls = listOf(2, 3, 6, 6, 6)[stop]
+            maxParallelToolCalls = listOf(2, 3, 6, 6, 6)[stop],
+            researchAssignment = researchAssignment
         )
         return plan.copy(effectivePlanDigest = combinedDigest(Json.encodeToString(plan)))
     }

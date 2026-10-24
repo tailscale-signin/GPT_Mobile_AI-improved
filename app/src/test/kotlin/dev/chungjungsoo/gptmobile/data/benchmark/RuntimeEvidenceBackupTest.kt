@@ -73,13 +73,13 @@ class RuntimeEvidenceBackupTest {
             db.execSQL("INSERT INTO benchmark_runs VALUES ('retained', 123, '{}')")
             db.version = 1
         }
-        val database = androidx.room.Room.databaseBuilder(context, BenchmarkDatabase::class.java, name).addMigrations(BenchmarkDatabase.MIGRATION_1_2).build()
+        val database = androidx.room.Room.databaseBuilder(context, BenchmarkDatabase::class.java, name).addMigrations(BenchmarkDatabase.MIGRATION_1_2, BenchmarkDatabase.MIGRATION_2_3).build()
         try {
             assertEquals("retained", database.dao().runs().single().id)
             assertTrue(database.dao().runtimeTrials().isEmpty())
             assertTrue(database.dao().runtimeQualifications().isEmpty())
             assertTrue(database.dao().runtimeDecisions().isEmpty())
-            assertEquals(2, database.openHelper.writableDatabase.version)
+            assertEquals(3, database.openHelper.writableDatabase.version)
         } finally {
             database.close()
             context.deleteDatabase(name)
@@ -91,6 +91,8 @@ class RuntimeEvidenceBackupTest {
         try {
             store.importBackupJson("[]")
             store.importBackupJson("{\"schemaVersion\":1,\"runs\":[]}")
+            store.importBackupJson("{\"format\":\"gptmobile.benchmarks.v2\",\"schemaVersion\":2,\"storageSchemaVersion\":3,\"runs\":[]}")
+            assertTrue(runCatching { store.importBackupJson("{\"schemaVersion\":2,\"storageSchemaVersion\":4,\"runs\":[]}") }.exceptionOrNull() is IllegalArgumentException)
             assertTrue(store.history.value.isEmpty())
             assertTrue(store.runtimeTrials.value.isEmpty())
         } finally {

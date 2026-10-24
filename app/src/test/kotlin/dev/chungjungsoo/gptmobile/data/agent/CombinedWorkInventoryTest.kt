@@ -130,7 +130,7 @@ class CombinedWorkInventoryTest {
         val context = CombinedExecutionContext(requested, plan, "stage-funding", profileUid = "a")
         val budget = CombinedTurnBudgetStore.inMemory().open(context)
         for (stage in listOf("plan", "extract", "find_gaps", "review")) {
-            val id = CombinedResearchStages.id("a", stage)
+            val id = CombinedResearchStages.id(context, "a", stage)
             assertTrue(id in plan.baselineByOwner)
             val child = context.forRole(CombinedRunRole.RESEARCH, "a", id)
             assertEquals(id, child.ownerKey)
@@ -141,7 +141,7 @@ class CombinedWorkInventoryTest {
             assertTrue(budget.reserve(child, "late-$stage", CombinedResourceQuota(256, 128)) is CombinedBudgetAdmission.Denied)
         }
         assertTrue("verification" in budget.snapshot().pendingWork)
-        assertFalse(CombinedResearchStages.id("a", "appraisal") in plan.baselineByOwner)
+        assertFalse(CombinedResearchStages.id(context, "a", "appraisal") in plan.baselineByOwner)
     }
 
     @Test

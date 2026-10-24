@@ -2,37 +2,40 @@ package dev.chungjungsoo.gptmobile.data.database.dao
 
 import androidx.room.Dao
 import androidx.room.Query
-import androidx.room.Upsert
+import androidx.room.Transaction
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 
 data class RunOutputLength(val runId: String, val characters: Long)
 
 @Dao
-interface AgentRunDao {
+interface AgentRunDao : RunPolicySnapshotAccess {
     @Query("SELECT run_id AS runId, profile_uid AS profileUid, provider_snapshot AS provider, model_snapshot AS model, status, created_at AS createdAt, started_at AS startedAt, completed_at AS completedAt, input_tokens AS inputTokens, output_tokens AS outputTokens, total_tokens AS totalTokens FROM agent_runs WHERE display_role != 'INTERNAL' ORDER BY created_at DESC, run_id DESC LIMIT :limit")
     fun observeHomeActivity(limit: Int = 250): Flow<List<dev.chungjungsoo.gptmobile.data.model.SettingsHomeActivity>>
 
-    @Upsert
-    suspend fun upsert(run: AgentRun)
+    @Transaction
+    suspend fun upsert(run: AgentRun) = writePolicyRun(run, upsert = true)
 
     @Query("SELECT * FROM agent_runs WHERE run_id = :runId")
-    suspend fun getById(runId: String): AgentRun?
+    suspend fun rawGetById(runId: String): AgentRun?
 
     @Query("SELECT * FROM agent_runs WHERE chat_id = :chatId ORDER BY created_at, run_id")
-    suspend fun getByChatId(chatId: Int): List<AgentRun>
+    suspend fun rawGetByChatId(chatId: Int): List<AgentRun>
 
     @Query("SELECT r.* FROM agent_runs r JOIN messages_v2 m ON m.message_id = r.assistant_message_id AND m.current_run_id = r.run_id AND m.ownership_fence = r.ownership_fence WHERE r.synthesis_snapshot IS NOT NULL AND r.status IN ('COMPLETED','FAILED','CANCELED','INTERRUPTED')")
-    suspend fun combinedTerminalOwners(): List<AgentRun>
+    suspend fun rawCombinedTerminalOwners(): List<AgentRun>
 
-    @Query("SELECT * FROM agent_runs WHERE chat_id = :chatId ORDER BY created_at, run_id")
-    fun observeByChatId(chatId: Int): Flow<List<AgentRun>>
+    @Query("SELECT DISTINCT r.* FROM agent_runs r LEFT JOIN agent_run_policy_refs policy_ref ON policy_ref.runId = r.run_id LEFT JOIN run_policy_snapshots policy ON policy.chatId = policy_ref.chatId AND policy.digest = policy_ref.digest WHERE r.chat_id = :chatId ORDER BY r.created_at, r.run_id")
+    fun rawObserveByChatId(chatId: Int): Flow<List<AgentRun>>
 
-    @Query("SELECT * FROM agent_runs WHERE status IN ('QUEUED', 'RUNNING')")
-    fun observeActive(): Flow<List<AgentRun>>
+    @Query("SELECT DISTINCT r.* FROM agent_runs r LEFT JOIN agent_run_policy_refs policy_ref ON policy_ref.runId = r.run_id LEFT JOIN run_policy_snapshots policy ON policy.chatId = policy_ref.chatId AND policy.digest = policy_ref.digest WHERE r.status IN ('QUEUED', 'RUNNING')")
+    fun rawObserveActive(): Flow<List<AgentRun>>
 
-    @Query("SELECT * FROM agent_runs ORDER BY created_at DESC, run_id DESC LIMIT :limit")
-    fun observeRecent(limit: Int = 100): Flow<List<AgentRun>>
+    @Query("SELECT DISTINCT r.* FROM agent_runs r LEFT JOIN agent_run_policy_refs policy_ref ON policy_ref.runId = r.run_id LEFT JOIN run_policy_snapshots policy ON policy.chatId = policy_ref.chatId AND policy.digest = policy_ref.digest ORDER BY r.created_at DESC, r.run_id DESC LIMIT :limit")
+    fun rawObserveRecent(limit: Int = 100): Flow<List<AgentRun>>
 
     // Join on both IDs: retries reuse the message, but must not reuse its latest answer.
     // Count in SQLite so analytics never loads full response bodies into memory.
@@ -120,5 +123,14 @@ interface AgentRunDao {
     ): Int
 
     @Query("SELECT * FROM agent_runs WHERE gateway_job_id IS NOT NULL AND status IN ('QUEUED', 'RUNNING', 'INTERRUPTED')")
-    suspend fun getRecoverableGatewayRuns(): List<AgentRun>
+    suspend fun rawGetRecoverableGatewayRuns(): List<AgentRun>
+
+    suspend fun getById(runId: String): AgentRun? = hydratePolicyRun(rawGetById(runId))
+    suspend fun getByChatId(chatId: Int): List<AgentRun> = hydratePolicyRuns(rawGetByChatId(chatId))
+    suspend fun getReadableByChatId(chatId: Int): List<AgentRun> = hydratePolicyRuns(rawGetByChatId(chatId), readableProjection = true)
+    suspend fun combinedTerminalOwners(): List<AgentRun> = hydratePolicyRuns(rawCombinedTerminalOwners(), readableProjection = true).filterNot { it.terminalError?.startsWith("POLICY_SNAPSHOT_") == true }
+    suspend fun getRecoverableGatewayRuns(): List<AgentRun> = hydratePolicyRuns(rawGetRecoverableGatewayRuns(), readableProjection = true).filterNot { it.terminalError?.startsWith("POLICY_SNAPSHOT_") == true }
+    fun observeByChatId(chatId: Int): Flow<List<AgentRun>> = rawObserveByChatId(chatId).map { hydratePolicyRuns(it, readableProjection = true) }.flowOn(Dispatchers.IO)
+    fun observeActive(): Flow<List<AgentRun>> = rawObserveActive().map { hydratePolicyRuns(it, readableProjection = true) }.flowOn(Dispatchers.IO)
+    fun observeRecent(limit: Int = 100): Flow<List<AgentRun>> = rawObserveRecent(limit).map { hydratePolicyRuns(it, readableProjection = true) }.flowOn(Dispatchers.IO)
 }

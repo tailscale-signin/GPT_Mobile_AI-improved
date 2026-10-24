@@ -166,6 +166,15 @@ fun ChatScreen(
     onInspectContext: ((Int, String) -> Unit)? = null
 ) {
     val chatRoom by chatViewModel.chatRoom.collectAsStateWithLifecycle()
+    val featureSettings by chatViewModel.featureSettings.collectAsStateWithLifecycle()
+    val snackbarHost = remember { androidx.compose.material3.SnackbarHostState() }
+    val removedProfile by chatViewModel.removedCombinedProfile.collectAsStateWithLifecycle()
+    LaunchedEffect(removedProfile) {
+        removedProfile?.let { (_, name) ->
+            val result = snackbarHost.showSnackbar("$name removed from this chat", actionLabel = "Undo", withDismissAction = true)
+            chatViewModel.finishRemovedProfileNotice(result == androidx.compose.material3.SnackbarResult.ActionPerformed)
+        }
+    }
     // Only a focus bit and non-empty flag are observed on the UI thread.
     androidx.compose.runtime.DisposableEffect(chatViewModel) {
         onDispose { dev.chungjungsoo.gptmobile.data.readiness.ReadinessHints.clearComposer() }
@@ -194,19 +203,13 @@ fun ChatScreen(
     }
     val combinedFailures by chatViewModel.combinedFailures.collectAsStateWithLifecycle()
     val failureTurn = combinedFailures.firstOrNull()?.userMessageId
-    var failuresDismissed by remember(failureTurn, combinedFailures.map { it.profileUid to it.attemptId }) { mutableStateOf(false) }
-    if (failureTurn != null && !failuresDismissed) {
+    if (failureTurn != null) {
         CombinedFailuresDialog(
             failures = combinedFailures.filter { it.userMessageId == failureTurn },
+            identities = ProfileAttributionPalette.forSelection(combinedFailures.map { it.profileUid }, featureSettings.profileAttributionColors),
             onRetry = chatViewModel::retryCombinedProfile,
-            onRemove = { chatViewModel.setPlatformMembership(it, false) },
-            onCheckJob = chatViewModel::checkQueuedJob,
-            onDismiss = { failuresDismissed = true },
-            canCombineAvailable = chatViewModel.canCombineAvailable(failureTurn),
-            onCombineAvailable = {
-                chatViewModel.combineAvailableResults(failureTurn)
-                failuresDismissed = true
-            }
+            onRemove = chatViewModel::removeCombinedFailureProfile,
+            onContinue = { chatViewModel.combineAvailableResults(failureTurn) }
         )
     }
     val inputRequests by chatViewModel.pendingMcpInput.collectAsStateWithLifecycle()
@@ -241,7 +244,6 @@ fun ChatScreen(
     val maximumOpponentChatBubbleWidth = screenWidthDp - systemChatMargin
     val hasOlderHistory by chatViewModel.olderHistoryAvailable.collectAsStateWithLifecycle()
     val groupedMessages by chatViewModel.groupedMessages.collectAsStateWithLifecycle()
-    val featureSettings by chatViewModel.featureSettings.collectAsStateWithLifecycle()
     val academicGateways by chatViewModel.academicGateways.collectAsStateWithLifecycle()
     val invocationDiagnostics by chatViewModel.invocationDiagnostics.collectAsStateWithLifecycle()
     val hasTargetMessage = chatViewModel.targetMessageId > 0
@@ -347,6 +349,11 @@ fun ChatScreen(
     val debugMode by chatViewModel.debugMode.collectAsStateWithLifecycle()
     val debugMemorySources by chatViewModel.debugMemorySources.collectAsStateWithLifecycle()
     val researchSessions by chatViewModel.researchSessions.collectAsStateWithLifecycle()
+    val researchExecutions by chatViewModel.researchExecutionState.collectAsStateWithLifecycle()
+    val interruptedResearchReview by chatViewModel.interruptedResearchReview.collectAsStateWithLifecycle()
+    interruptedResearchReview?.let { review ->
+        ResearchInterruptedRequestsDialog(review, chatViewModel::dismissInterruptedResearchReview, chatViewModel::authorizeReviewedResearchAttempt)
+    }
     val researchProfileStatistics by chatViewModel.researchProfileStatistics.collectAsStateWithLifecycle()
     LaunchedEffect(chatRoom.id) { chatViewModel.loadResearchHistory(chatRoom.id) }
     val enabledPlatformLookup = remember(appAllPlatforms) { appAllPlatforms.associateBy { it.uid } }
@@ -609,6 +616,7 @@ fun ChatScreen(
     }
 
     Scaffold(
+        snackbarHost = { androidx.compose.material3.SnackbarHost(snackbarHost) },
         modifier = Modifier.then(backFade.modifier)
             .clickable(
                 indication = null,
@@ -751,6 +759,9 @@ fun ChatScreen(
                         onRetry = chatViewModel::retryChat,
                         onRetryCombinedMerge = chatViewModel::retryCombinedMerge,
                         onTryAnotherCombinedWriter = chatViewModel::tryAnotherCombinedWriter,
+                        onReviewCombinedPrimary = { chatViewModel.reviewCombinedPrimary(message.id) },
+                        onReviewCombinedFailures = { chatViewModel.reviewCombinedFailures(message.id) },
+                        onRegenerateWithSelectedPrimary = chatViewModel::regenerateWithSelectedPrimary,
                         onCheckCombinedQueuedJob = chatViewModel::checkCombinedQueuedJob,
                         onCheckQueuedRun = chatViewModel::checkQueuedJob,
                         onUseCombinedReply = chatViewModel::useCombinedReply,
@@ -766,10 +777,19 @@ fun ChatScreen(
                         onContinueClick = { chatViewModel.sendContinueResponse() },
                         onActionClick = { prompt -> chatViewModel.sendPromptResponse(prompt) }
                     )
+                    val researchExecution = researchExecutions.values.lastOrNull { it.accepted.chatId == chatRoom.id && it.accepted.originatingUserMessageId == message.id && it.accepted.targetSources > 0 }
+                    researchExecution?.let { execution ->
+                        ResearchAttemptProgressCard(
+                            execution = execution,
+                            onStop = { chatViewModel.stopResearchAttempt(execution.accepted.rootWorkId) },
+                            onRetry = { chatViewModel.retryResearch(execution.accepted.rootWorkId) },
+                            onReviewInterruptedRequests = { chatViewModel.reviewInterruptedResearch(execution.accepted.rootWorkId) }
+                        )
+                    }
                     val chatResearch = researchSessions.values.filter { session ->
                         session.chatId == chatRoom.id && (session.turnId.substringAfterLast(':').toIntOrNull() ?: agentRunsById[session.runId]?.userMessageId) == message.id
                     }
-                    if (chatResearch.isNotEmpty()) {
+                    if (chatResearch.isNotEmpty() && researchExecution == null) {
                         val turnRuns = agentRunsById.values.filter { it.chatId == chatRoom.id && it.userMessageId == message.id }
                         val turnRow = groupedMessages.assistantMessages.getOrNull(index).orEmpty()
                         val selectedUid = inspectedCombinedProfileUid.takeIf { inspectedCombinedTurn == chatMessagePairKey(message, index) }
@@ -894,11 +914,6 @@ fun ChatScreen(
                             localNetworkPermissionLauncher.launch(PERMISSION_ACCESS_LOCAL_NETWORK)
                         } else {
                             chatViewModel.askQuestion()
-                        }
-                    }
-                    if (combinedFailures.isNotEmpty()) {
-                        TextButton(onClick = { failuresDismissed = false }) {
-                            Text("Resolve ${combinedFailures.size} profile problem(s)", color = MaterialTheme.colorScheme.error)
                         }
                     }
                     if (chatViewModel.enabledPlatformsInChat.size > 1 || chatRoom.conversationMode == ConversationMode.COMBINED) {
@@ -1208,6 +1223,9 @@ private fun ChatMessagePair(
     onRetry: (Int, Int) -> Unit,
     onRetryCombinedMerge: (Int) -> Unit = {},
     onTryAnotherCombinedWriter: (Int) -> Unit = {},
+    onReviewCombinedPrimary: () -> Unit = {},
+    onReviewCombinedFailures: () -> Unit = {},
+    onRegenerateWithSelectedPrimary: (Int) -> Unit = {},
     onCheckCombinedQueuedJob: (Int) -> Unit = {},
     onCheckQueuedRun: (String) -> Unit = {},
     onUseCombinedReply: (Int, String) -> Unit = { _, _ -> },
@@ -1253,7 +1271,7 @@ private fun ChatMessagePair(
         if (combinedMode && dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.enabled == true) {
             combinedIdentities.forEach { (uid, identity) ->
                 val color = attributionColors.getValue(uid)
-                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("CombinedPalette", "DISPLAY_COLOUR · profile=$uid · marker=${identity.marker} · hue=${identity.hue} · foreground=$color · background=$attributionSurface · contrast=${ProfileAttributionPalette.contrast(color, attributionSurface)}")
+                if (CombinedAttributionDiagnostics.changed("palette:$uid", "$identity|$color|$attributionSurface")) dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("CombinedPalette", "DISPLAY_COLOUR · profile=$uid · marker=${identity.marker} · hue=${identity.hue} · foreground=$color · background=$attributionSurface · contrast=${ProfileAttributionPalette.contrast(color, attributionSurface)}")
             }
         }
     }
@@ -1262,7 +1280,6 @@ private fun ChatMessagePair(
     val isSourceResponse = selectedProfile != null
     val isCombinedConversation = hasCombinedTabs && !isSourceResponse
     // Keep profile-coloured prose visible in chat; verbose match diagnostics are opt-in and debug-only.
-    val showCombinedTextMatches = shouldShowCombinedTextMatchDiagnostics(isCombinedConversation, debugMode, debugSettings)
     val combinedStatus = combinedAnswerStatus(assistantMessages.getOrNull(combinedSynthesisIndex), combinedProfiles, agentRunsById)
     val targetAssistantIndex = assistantMessages.indexOfFirst { targetMessageId > 0 && it.id == targetMessageId }
     val displayPlatformIndex = when {
@@ -1278,7 +1295,7 @@ private fun ChatMessagePair(
         isCombinedConversation && !synthesisStarted && combinedStatus == CombinedResponseStatus.FAILED -> stringResource(R.string.combined_all_profiles_failed)
         isCombinedConversation && !synthesisStarted -> ""
         isSourceResponse && selectedProfile.status == CombinedResponseStatus.FAILED && selectedAssistantMessage?.content.isNullOrBlank() -> stringResource(R.string.combined_profile_no_response)
-        isCombinedConversation -> combinedVisibleAnswer(rawAssistantContent, debugMode)
+        isCombinedConversation -> combinedVisibleAnswer(rawAssistantContent, debugMode = false)
         else -> rawAssistantContent
     }
     val assistantThoughts = if (isCombinedConversation && !synthesisStarted) {
@@ -1383,10 +1400,16 @@ private fun ChatMessagePair(
                 if (!hasCombinedTabs) {
                     GPTMobileIcon(loading = shouldShowReplyLoadingIndicator(isActiveMessage, loadingStates))
                 }
-                if (isCombinedConversation) {
-                    dev.chungjungsoo.gptmobile.presentation.common.DetailsSection {
-                        selectedAssistantMessage?.currentRunId?.let(agentRunsById::get)?.let { writer ->
-                            Text("Writer: ${combinedProfiles.firstOrNull { it.uid == writer.profileUid }?.name ?: writer.profileUid} · ${writer.modelSnapshot}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (isCombinedConversation && combinedSynthesisIndex < 0) {
+                    val unavailable = assistantMessages.flatMap { it.timeline }.lastOrNull { it.combinedTurn?.deliveryStatus == "MERGE_UNAVAILABLE" }?.combinedTurn
+                    if (unavailable != null) {
+                        val anyUsableReply = combinedProfiles.any { it.message?.content?.isNotBlank() == true }
+                        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(if (anyUsableReply) "Choose a primary for this answer" else "No usable replies yet", style = MaterialTheme.typography.titleSmall)
+                            Text(unavailable.deliveryReason ?: if (anyUsableReply) "The selected primary cannot complete this answer. Your available replies are saved." else "The original request and saved drafts are available. Retry a profile or review the selection.", style = MaterialTheme.typography.bodySmall)
+                            if (!anyUsableReply) TextButton(onClick = onReviewCombinedFailures) { Text("Review profile replies") }
+                            TextButton(onClick = onReviewCombinedPrimary) { Text(if (anyUsableReply) "Review primary" else "Review profiles") }
+                            TextButton(onClick = { onRegenerateWithSelectedPrimary(messageIndex) }, enabled = isIdle && canUseChat) { Text("Regenerate with selected primary") }
                         }
                     }
                 }
@@ -1430,21 +1453,6 @@ private fun ChatMessagePair(
                             modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp)
                         )
                     }
-                    assistantTimeline.lastOrNull { it.combinedQuality != null }?.combinedQuality?.let { report ->
-                        CombinedDeliveryStatus(report, assistantContent)
-                        if (debugMode) CombinedQualityInspector(report, assistantContent)
-                    }
-                }
-                if (showCombinedTextMatches) {
-                    val synthesis = assistantMessages.getOrNull(combinedSynthesisIndex)
-                    CombinedContributionInspector(
-                        answer = assistantContent,
-                        sources = synthesis?.effectiveCombinedSources().orEmpty(),
-                        selectedProfileUids = combinedProfiles.map { it.uid },
-                        identities = combinedIdentities,
-                        primaryUid = synthesis?.platformType,
-                        onOpenContribution = onCombinedProfileClick
-                    )
                 }
                 OpponentChatBubble(
                     modifier = Modifier
@@ -1481,6 +1489,7 @@ private fun ChatMessagePair(
                     isError = agentRun?.status == AgentRunStatus.FAILED && isAssistantErrorMessage(assistantContent),
                     isFavorite = selectedAssistantMessage?.isFavorite ?: false,
                     debugMode = debugMode,
+                    showExecutionTrace = !isCombinedConversation,
                     profileColorIdentity = selectedProfile?.uid?.let(combinedIdentities::get).takeIf { isSourceResponse },
                     invocations = invocationDiagnostics.filter { it.parentRunId == selectedRunId },
                     debugSettings = debugSettings,
@@ -1504,12 +1513,7 @@ private fun ChatMessagePair(
                     } else {
                         null
                     },
-                    splitForPassageIndicators = hasCombinedTabs && selectedProfile == null,
-                    passageIndicators = { segment ->
-                        if (hasCombinedTabs && selectedProfile == null) {
-                            CombinedPassageIndicators(segment, assistantMessages.getOrNull(combinedSynthesisIndex)?.effectiveCombinedSources().orEmpty(), combinedIdentities, debug = showCombinedTextMatches, onOpenContribution = onCombinedProfileClick)
-                        }
-                    },
+                    splitForPassageIndicators = false,
                     articleCards = { segment ->
                         if (debugSettings.researchFeature.articleCards) {
                             selectedAssistantMessage?.let { articleMessage ->

@@ -613,7 +613,8 @@ class OpenAICompatibleAdapter @Inject constructor(
                                 chunk.error?.let { error ->
                                     roundFailed = true
                                     lastFailedMessage = error.message
-                                    protocolErrorCode = error.code ?: error.type ?: protocolErrorCode
+                                    protocolErrorCode = error.type?.uppercase()?.takeIf { category -> dev.chungjungsoo.gptmobile.data.network.FreeFailureCategory.entries.any { it.name == category } }
+                                        ?: error.code ?: error.type ?: protocolErrorCode
                                     canRotate = ApiCredentialRotator.containsQuotaOrRateLimitMessage(error.message)
                                 } ?: chunk.choices.orEmpty().forEach { choice ->
                                     reasoningParser.append(
@@ -746,6 +747,12 @@ class OpenAICompatibleAdapter @Inject constructor(
                         var observedBackend: String? = null
                         var observedReasoning = false
                         var observedVisible = false
+                        var writerObservationKey: String? = null
+                        var boundModel: String? = null
+                        var boundBackend: String? = null
+                        var boundReasoning = false
+                        val observesWriter = constraints.combined?.role?.finalization == true && !constraints.allowReasoning
+                        val reasoningControl = request.reasoning?.let { "reasoning.enabled=false" } ?: request.chatTemplateKwargs?.get("enable_thinking")?.let { "chat_template_kwargs.enable_thinking=$it" } ?: request.reasoningEffort?.let { "reasoning_effort=$it" }
                         suspend fun publishAssembly(event: ProviderEvent) {
                             if (event is ProviderEvent.Failed) {
                                 roundFailed = true
@@ -776,8 +783,18 @@ class OpenAICompatibleAdapter @Inject constructor(
                                 observedBackend = chunk.provider?.takeIf(String::isNotBlank) ?: observedBackend
                                 observedReasoning = observedReasoning || chunk.choices.orEmpty().any { !it.effectiveDelta.effectiveReasoning.isNullOrBlank() } || ((chunk.usage?.completionTokensDetails?.get("reasoning_tokens") as? JsonPrimitive)?.intOrNull ?: 0) > 0
                                 observedVisible = observedVisible || chunk.choices.orEmpty().any { !it.effectiveDelta.content.isNullOrBlank() }
+                                if (observesWriter && (writerObservationKey == null || observedModel != boundModel || observedBackend != boundBackend || observedReasoning != boundReasoning)) {
+                                    // Bind usage to this invocation's served route before publishing it.
+                                    // Concurrent auto-route requests may resolve to different backends.
+                                    val route = dev.chungjungsoo.gptmobile.data.agent.CombinedWriterObservations.recordRoute(outputLimitKey, observedModel, observedBackend, reasoningControl, observedReasoning)
+                                    if (route != writerObservationKey) emit(ProviderEvent.Usage(writerObservationKey = route))
+                                    writerObservationKey = route
+                                    boundModel = observedModel
+                                    boundBackend = observedBackend
+                                    boundReasoning = observedReasoning
+                                }
                                 chunk.applicationNotice?.let { emit(ProviderEvent.Notice(it, persistent = true)) }
-                                chunk.retryDurationMs?.let { emit(ProviderEvent.Usage(retryDurationMs = it, retryAttempts = chunk.retryAttempts)) }
+                                chunk.retryDurationMs?.let { emit(ProviderEvent.Usage(retryDurationMs = it, retryAttempts = chunk.retryAttempts, writerObservationKey = writerObservationKey)) }
                                 if (chunk.streamFinished) {
                                     terminalReceived = true
                                     assembler.finish().forEach { publishAssembly(it) }
@@ -790,13 +807,14 @@ class OpenAICompatibleAdapter @Inject constructor(
                                             totalTokens = usage.totalTokens,
                                             decodeTokensPerSecond = chunk.timings?.decodeTokensPerSecond,
                                             reasoningTokens = (usage.completionTokensDetails?.get("reasoning_tokens") as? JsonPrimitive)?.intOrNull?.takeIf { it >= 0 },
-                                            phase = if (terminalReceived || chunk.choices.orEmpty().any { it.finishReason != null }) ProviderUsagePhase.FINAL else ProviderUsagePhase.INTERIM
+                                            phase = if (terminalReceived || chunk.choices.orEmpty().any { it.finishReason != null }) ProviderUsagePhase.FINAL else ProviderUsagePhase.INTERIM,
+                                            writerObservationKey = writerObservationKey
                                         )
                                     )
                                 }
                                 if (chunk.usage == null) {
                                     chunk.timings?.decodeTokensPerSecond?.let {
-                                        emit(ProviderEvent.Usage(decodeTokensPerSecond = it))
+                                        emit(ProviderEvent.Usage(decodeTokensPerSecond = it, writerObservationKey = writerObservationKey))
                                     }
                                 }
                                 chunk.gatewayMetadata?.let { metadata ->
@@ -817,13 +835,14 @@ class OpenAICompatibleAdapter @Inject constructor(
                                     roundFailed = true
                                     streamInterrupted = true
                                     lastFailedMessage = error.message
-                                    protocolErrorCode = error.code ?: error.type ?: protocolErrorCode
+                                    protocolErrorCode = error.type?.uppercase()?.takeIf { category -> dev.chungjungsoo.gptmobile.data.network.FreeFailureCategory.entries.any { it.name == category } }
+                                        ?: error.code ?: error.type ?: protocolErrorCode
                                     canRotate = ApiCredentialRotator.containsQuotaOrRateLimitMessage(error.message)
                                 } ?: chunk.choices.orEmpty().forEach { choice ->
                                     if (choice.finishReason != null) {
                                         terminalReceived = true
                                         lastFinishReason = choice.finishReason
-                                        if (requestConfig.captureGenerationReceipt) emit(ProviderEvent.Usage(finishReason = choice.finishReason))
+                                        if (requestConfig.captureGenerationReceipt) emit(ProviderEvent.Usage(finishReason = choice.finishReason, writerObservationKey = writerObservationKey))
                                     }
                                     if (!choice.effectiveDelta.content.isNullOrEmpty() || !choice.effectiveDelta.effectiveReasoning.isNullOrEmpty() || !choice.effectiveDelta.toolCalls.isNullOrEmpty()) deliveredPayload = true
                                     if (choice.finishReason == "length") {
@@ -861,10 +880,8 @@ class OpenAICompatibleAdapter @Inject constructor(
                             state.toProviderEvent()?.let { emit(it) }
                         }
 
-                        if (constraints.combined?.role?.finalization == true && !constraints.allowReasoning) {
-                            val control = request.reasoning?.let { "reasoning.enabled=false" } ?: request.chatTemplateKwargs?.get("enable_thinking")?.let { "chat_template_kwargs.enable_thinking=$it" } ?: request.reasoningEffort?.let { "reasoning_effort=$it" }
-                            dev.chungjungsoo.gptmobile.data.agent.CombinedWriterObservations.recordRoute(outputLimitKey, observedModel, observedBackend, control, observedReasoning)
-                            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("CombinedWriter", "REASONING_CONTROL_OBSERVED · model=${observedModel ?: "unreported"} · backend=${observedBackend ?: "unreported"} · disabledRequested=true · transmittedControl=${control ?: "unverified"} · reasoningReceived=$observedReasoning · answerBytesReceived=$observedVisible")
+                        if (observesWriter) {
+                            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("CombinedWriter", "REASONING_CONTROL_OBSERVED · model=${observedModel ?: "unreported"} · backend=${observedBackend ?: "unreported"} · disabledRequested=true · transmittedControl=${reasoningControl ?: "unverified"} · reasoningReceived=$observedReasoning · answerBytesReceived=$observedVisible")
                         }
                         val learnedCeiling = if (roundFailed && !deliveredPayload && !ceilingRetryUsed) {
                             ProviderOutputLimits.learn(outputLimitKey, lastFailedMessage.orEmpty(), effectiveOutputTokens)

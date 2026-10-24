@@ -40,6 +40,20 @@ class ResearchExaminationWorker @AssistedInject constructor(
     private val sessions: dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore
 ) : CoroutineWorker(context, parameters) {
     override suspend fun doWork(): Result {
+        var processedItems = 0
+        suspend fun finish(pending: Boolean): Result {
+            val outcome = if (pending) {
+                "WAITING"
+            } else if (processedItems == 0) {
+                "NO_OP"
+            } else {
+                "WORKER_COMPLETED"
+            }
+            val receipt = androidx.work.workDataOf("scope" to "app_wide_examination_outbox", "processedItems" to processedItems, "outcome" to outcome, "researchReportDelivered" to false)
+            setProgress(receipt)
+            AppLogRecorder.record("ResearchExamine", "WORKER_OUTCOME · scope=app_wide_examination_outbox · processedItems=$processedItems · outcome=$outcome · researchReportDelivered=false")
+            return if (pending) Result.retry() else Result.success(receipt)
+        }
         coordinator.recover()
         var pending = !sessions.retryPendingDiscovery()
         val features = settings.getFeatureSettings()
@@ -54,6 +68,8 @@ class ResearchExaminationWorker @AssistedInject constructor(
                 try {
                     val resumed = coordinator.resumeWaiting(job.jobId)
                     if (resumed != null) {
+                        processedItems++
+                        AppLogRecorder.record("ResearchExamine", "EXAMINATION_RESUMED · jobId=$resumed · chatId=${job.chatId} · scope=examination_job")
                         coordinator.awaitExecution(resumed)
                         val after = archive.dao.job(resumed)?.checkpointJson?.let { Json.decodeFromString<dev.chungjungsoo.gptmobile.data.research.feature.ExaminationCheckpoint>(it) }
                         if (after?.failure?.retryable == true) pending = true
@@ -67,9 +83,9 @@ class ResearchExaminationWorker @AssistedInject constructor(
         }
         if (!features.researchFeature.enabled || features.researchFeature.autoExamination == AutoExamination.OFF) {
             archive.dao.trimUnexamined(features.researchFeature.unexaminedStudyLimit, System.currentTimeMillis())
-            return if (pending) Result.retry() else Result.success()
+            return finish(pending)
         }
-        if (!features.researchFeature.backgroundExamination && !withContext(Dispatchers.Main) { ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) }) return Result.retry()
+        if (!features.researchFeature.backgroundExamination && !withContext(Dispatchers.Main) { ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) }) return finish(true)
         val profiles = settings.fetchPlatformV2s()
         // Only process-loss recovery is automatic; user Pause/Stop always requires user action.
         archive.dao.allJobs().filter { it.origin != dev.chungjungsoo.gptmobile.data.research.feature.ExaminationOrigin.USER_EXAMINE && it.stage == dev.chungjungsoo.gptmobile.data.research.feature.ExaminationStage.PAUSED && (it.terminalReason == "Process interrupted; explicit resume required" || it.cancellationOrigin == "WAITING_FOR_CONFIGURATION") }.forEach { job ->
@@ -88,6 +104,7 @@ class ResearchExaminationWorker @AssistedInject constructor(
             if (tools != null && System.currentTimeMillis() - job.updatedAt < 24 * 60 * 60_000L) {
                 try {
                     val id = coordinator.automaticExamine(ExaminationRequest(job.workId, job.profileUid, job.chatId, job.requestedVersionId, job.authority, job.origin, checkpoint.rootWorkId, checkpoint.parentRunId)) { tools }
+                    processedItems++
                     if (coordinator.awaitExecution(id) !in setOf(dev.chungjungsoo.gptmobile.data.research.feature.ExaminationStage.COMPLETE_FULL, dev.chungjungsoo.gptmobile.data.research.feature.ExaminationStage.COMPLETE_PARTIAL, dev.chungjungsoo.gptmobile.data.research.feature.ExaminationStage.ABSTRACT_ONLY, dev.chungjungsoo.gptmobile.data.research.feature.ExaminationStage.CANCELED)) pending = true
                 } catch (cancelled: CancellationException) {
                     throw cancelled
@@ -135,6 +152,7 @@ class ResearchExaminationWorker @AssistedInject constructor(
                     }
                     val id = coordinator.automaticExamine(scheduled.request) { scheduled.tools }
                     admitted++
+                    processedItems++
                     AppLogRecorder.record("ResearchExamine", "AUTO_ADMITTED · actionId=${row.id} · jobId=$id · workId=${scheduled.request.workId} · chatId=${scheduled.request.chatId}")
                     val stage = coordinator.awaitExecution(id)
                     if (stage in setOf(dev.chungjungsoo.gptmobile.data.research.feature.ExaminationStage.COMPLETE_FULL, dev.chungjungsoo.gptmobile.data.research.feature.ExaminationStage.COMPLETE_PARTIAL, dev.chungjungsoo.gptmobile.data.research.feature.ExaminationStage.ABSTRACT_ONLY, dev.chungjungsoo.gptmobile.data.research.feature.ExaminationStage.CANCELED)) {
@@ -172,7 +190,7 @@ class ResearchExaminationWorker @AssistedInject constructor(
             AppLogRecorder.record("ResearchExamine", "AUTO_WAITING_CONFIGURATION · reason=$reason · queuedStudies=$count · action=choose_examiner · dispatched=false")
         }
         archive.dao.trimUnexamined(settings.getFeatureSettings().researchFeature.unexaminedStudyLimit, System.currentTimeMillis())
-        return if (pending) Result.retry() else Result.success()
+        return finish(pending)
     }
 
     private fun configurationBlocked(failure: Exception): Boolean = failure.message.orEmpty().let { it.contains("Choose an enabled examination") || it.contains("consent") || it.contains("disabled") || it.contains("reviewer unavailable", true) || it.contains("REQUIRED_REVIEWER_UNAVAILABLE") || it.contains("policy changed", true) || it.contains("does not permit article retrieval") || it.contains("Article tools are excluded") || it.contains("Web-only scope") || it.contains("Increase Research Depth") || it.contains("Research is off") }

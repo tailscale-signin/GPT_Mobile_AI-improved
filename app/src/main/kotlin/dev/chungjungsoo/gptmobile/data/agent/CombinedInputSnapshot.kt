@@ -49,7 +49,13 @@ data class CombinedInputSnapshot(
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
     val predecessorRunId: String? = null,
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
-    val dispatchIdentity: String = ""
+    val dispatchIdentity: String = "",
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val writerRequestPlan: CombinedWriterRequestPlan? = null,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val acknowledgedFailureAttempts: Set<String> = emptySet(),
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val writerContext: CombinedWriterContext? = null
 ) {
     fun contentDigest(): String = dev.chungjungsoo.gptmobile.data.research.researchHash(
         SNAPSHOT_JSON.encodeToString(serializer(), copy(inputDigest = "", resumeFromRunId = null, committedPrefix = "", deliveryResumeFromRevisionId = null))

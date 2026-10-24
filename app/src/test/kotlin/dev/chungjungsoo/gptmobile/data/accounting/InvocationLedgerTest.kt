@@ -20,6 +20,39 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class InvocationLedgerTest {
+    @Test fun benchmarkAllowanceDenialsArePreDispatchPolicyFailuresWithoutAnswerText() = runTest {
+        for (denial in listOf(SpendAllowanceReached("Spending allowance exhausted."), TokenAllowanceReached())) {
+            val dao = mockk<InvocationDao>(relaxed = true)
+            every { dao.recent() } returns flowOf(emptyList())
+            coEvery { dao.reserve(any(), any(), any()) } throws denial
+            val database = mockk<ChatDatabaseV2>()
+            every { database.invocationDao() } returns dao
+            var dispatched = false
+            val provider = object : AgentProviderSession {
+                override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                    dispatched = true
+                    emit(ProviderEvent.TextDelta("must not run"))
+                    emit(ProviderEvent.Completed)
+                }
+            }
+            val wrapped = InvocationLedger(database).wrap(provider, "batch-run", "batch-run", "CUSTOM", "model", "benchmark", 100, 200, 1000)
+            val events = wrapped.streamRound(emptyList(), emptyList()).toList()
+            assertEquals(1, events.size)
+            assertEquals("POLICY_BLOCKED", (events.single() as ProviderEvent.Failed).errorCode)
+            val sample = dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkRunner({ _, _ -> wrapped }).run(
+                dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkCase("instruction", "Instruction", "task", "Reply READY", "READY"),
+                false
+            )
+            assertEquals(dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkOutcome.POLICY_BLOCKED, sample.outcome)
+            assertEquals(false, sample.requestDispatched)
+            assertEquals("admission", sample.failure?.stage)
+            assertEquals("", sample.canonicalAnswer)
+            assertEquals(0, sample.outputCharacters)
+            assertTrue(!dispatched)
+            coVerify(exactly = 0) { dao.save(any()) }
+        }
+    }
+
     @Test fun provenUnsentDnsAttemptRefundsReservationButAmbiguousDisconnectDoesNot() = runTest {
         for (proven in listOf(true, false)) {
             val saved = mutableListOf<ModelInvocation>()

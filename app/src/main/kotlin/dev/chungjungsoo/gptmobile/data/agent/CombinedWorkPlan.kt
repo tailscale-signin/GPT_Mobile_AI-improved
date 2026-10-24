@@ -130,6 +130,15 @@ data class CombinedWorkItem(
     val assignedOwnerKey: String? = null
 )
 
+/** Workers claim sources from one task ledger; changing the worker never creates another goal. */
+@Serializable
+data class CombinedResearchAssignment(
+    val coordinatorProfileUid: String,
+    val eligibleWorkerUids: List<String>,
+    val sourceGoal: Long,
+    val strategy: String = "SHARED_SOURCE_CLAIMS"
+)
+
 @Serializable
 data class CombinedWorkPlan(
     val version: Int = 1,
@@ -151,7 +160,9 @@ data class CombinedWorkPlan(
     val searchAllowed: Boolean = true,
     val renewable: Boolean = false,
     val maxParallelToolCalls: Int = 6,
-    val effectivePlanDigest: String = ""
+    val effectivePlanDigest: String = "",
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val researchAssignment: CombinedResearchAssignment? = null
 ) {
     val baseline: CombinedResourceQuota get() = baselineByOwner.values.fold(CombinedResourceQuota()) { total, quota -> total + quota }
     val totalInitialAllowance: CombinedResourceQuota get() = baseline + finalizationReserve + optionalAllowance
@@ -175,6 +186,10 @@ object CombinedResearchStages {
         else -> 2048
     }
     fun id(profileUid: String, stage: String): String = "research:$profileUid:$stage"
+    fun taskId(stage: String): String = "research:task:$stage"
+    fun isTaskStage(id: String): Boolean = names.any { id == taskId(it) }
+    fun id(context: CombinedExecutionContext, profileUid: String, stage: String): String =
+        taskId(stage).takeIf { id -> context.plan?.workItems?.any { it.id == id } == true } ?: id(profileUid, stage)
     fun item(context: CombinedExecutionContext, profileUid: String, requestRole: String): CombinedWorkItem? {
         val stage = when (requestRole) {
             "research-extraction" -> "extract"
@@ -183,7 +198,7 @@ object CombinedResearchStages {
             "research-study-review", "research-study-review-part" -> "study_review"
             else -> requestRole.removePrefix("research-").takeIf { requestRole.startsWith("research-") && it in names }
         } ?: return null
-        return context.plan?.workItems?.firstOrNull { it.id == id(profileUid, stage) }
+        return context.plan?.workItems?.firstOrNull { it.id == id(context, profileUid, stage) }
     }
 }
 

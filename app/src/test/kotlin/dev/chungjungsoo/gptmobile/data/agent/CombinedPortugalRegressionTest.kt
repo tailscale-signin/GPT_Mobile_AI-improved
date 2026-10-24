@@ -103,14 +103,33 @@ class CombinedPortugalRegressionTest {
         assertEquals(sources.map { it.content }, bodies)
         assertTrue("Prompt was ${prompt.length} chars", prompt.length < 40_000)
         val claims = envelope.getValue("claim_inventory").jsonArray
+        val index = CombinedContentIndexes.get(sources)
+        assertEquals(index.records.size, claims.size)
         assertTrue(claims.any { "source_ranges_utf16" in it.jsonObject })
         for (entry in claims) {
-            entry.jsonObject["source_ranges_utf16"]?.jsonArray?.forEach { raw ->
-                val range = raw.jsonArray
-                val source = bodies[range[0].jsonPrimitive.content.removePrefix("C").toInt() - 1]
-                val start = range[1].jsonPrimitive.content.toInt()
-                val end = range[2].jsonPrimitive.content.toInt()
-                assertTrue(source.substring(start, end).isNotBlank())
+            val claim = entry.jsonObject
+            val record = requireNotNull(index.byId[claim.getValue("id").jsonPrimitive.content])
+            assertFalse("canonical_id" in claim)
+            assertEquals(record, index.byId[record.canonicalId])
+            val aliases = claim.getValue("aliases").jsonArray.map { it.jsonPrimitive.content }
+            assertEquals(record.candidateIds, aliases.toSet())
+            assertTrue(aliases.all { index.byId[it] == record })
+            claim["source_ranges_utf16"]?.jsonArray?.let { ranges ->
+                assertEquals(record.occurrences.size, ranges.size)
+                ranges.forEachIndexed { occurrenceIndex, raw ->
+                    val range = raw.jsonArray
+                    val source = bodies[range[0].jsonPrimitive.content.removePrefix("C").toInt() - 1]
+                    val start = range[1].jsonPrimitive.content.toInt()
+                    val end = range[2].jsonPrimitive.content.toInt()
+                    val occurrence = record.occurrences[occurrenceIndex]
+                    val expected = requireNotNull(occurrence.sourceSpan)
+                    assertEquals(occurrence.candidateId.substringBefore('.'), range[0].jsonPrimitive.content)
+                    assertEquals(expected.startUtf16, start)
+                    assertEquals(expected.endUtf16, end)
+                    val exact = source.substring(start, end)
+                    assertTrue(exact.isNotBlank())
+                    assertEquals(expected.textDigest, dev.chungjungsoo.gptmobile.data.research.researchHash(exact))
+                }
             }
         }
     }

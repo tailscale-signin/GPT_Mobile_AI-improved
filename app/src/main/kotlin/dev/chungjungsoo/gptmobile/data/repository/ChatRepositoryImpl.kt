@@ -241,7 +241,8 @@ class ChatRepositoryImpl(
     private val memoryPreview: dev.chungjungsoo.gptmobile.data.readiness.MemoryPreviewCoordinator? = null,
     private val examinationBarrier: javax.inject.Provider<dev.chungjungsoo.gptmobile.data.research.feature.CombinedExaminationBarrier>? = null,
     private val combinedBudgets: dev.chungjungsoo.gptmobile.data.agent.CombinedTurnBudgetStore =
-        dev.chungjungsoo.gptmobile.data.agent.CombinedTurnBudgetStore(context)
+        dev.chungjungsoo.gptmobile.data.agent.CombinedTurnBudgetStore(context),
+    private val combinedDecisions: dev.chungjungsoo.gptmobile.data.agent.CombinedCollectionDecisionStore? = null
 ) : ChatRepository {
     override suspend fun prepareCombinedTurn(
         execution: dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext,
@@ -384,11 +385,11 @@ class ChatRepositoryImpl(
     }
 
     override suspend fun reconcileCombinedLifecycle() = dev.chungjungsoo.gptmobile.data.agent.CombinedLifecycleReconciler(agentRunDao, agentPersistenceDao, combinedBudgets).reconcile()
-    override suspend fun markCombinedMergeUnavailable(chatId: Int, userMessageId: Int, rootBudgetId: String) {
-        if (!agentPersistenceDao.markCombinedMergeUnavailable(chatId, userMessageId, rootBudgetId)) return
+    override suspend fun markCombinedMergeUnavailable(chatId: Int, userMessageId: Int, rootBudgetId: String, reason: String?) {
+        if (!agentPersistenceDao.markCombinedMergeUnavailable(chatId, userMessageId, rootBudgetId, reason)) return
         val saved = combinedBudgets.snapshot(rootBudgetId) ?: return
         val budget = combinedBudgets.open(dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext(saved.plan.requested, saved.plan, rootBudgetId, chatId = chatId))
-        budget.finishStage("finalization", "PARTIAL", "MERGE_UNAVAILABLE")
+        budget.finishStage("finalization", "PARTIAL", reason ?: "MERGE_UNAVAILABLE")
     }
     override suspend fun regenerateCombinedTurn(
         userMessage: MessageV2,
@@ -574,7 +575,9 @@ class ChatRepositoryImpl(
         turns: List<ConversationTurn>,
         tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentTool>,
         runId: String,
-        benchmarkCategory: String
+        benchmarkCategory: String,
+        onInvocation: (String) -> Unit,
+        onPhysicalRequest: (String) -> Unit
     ): dev.chungjungsoo.gptmobile.data.agent.AgentProviderSession {
         val outputBudget = dev.chungjungsoo.gptmobile.data.benchmark.benchmarkCompletionBudget(platform, benchmarkCategory)
         val constraints = RequestConstraints(
@@ -598,11 +601,15 @@ class ChatRepositoryImpl(
             ClientType.GOOGLE -> geminiAdapter.openSession(turns, target, constraints)
             ClientType.LITERT_LM -> liteRtLmAdapter.openSession(turns, target, tools, constraints)
         }
+        val observed = object : AgentProviderSession by session {
+            override fun streamRound(tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition>, exchanges: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange>): Flow<ProviderEvent> =
+                session.streamRound(tools, exchanges).flowOn(dev.chungjungsoo.gptmobile.data.context.PhysicalAttemptObserver(onPhysicalRequest))
+        }
         return invocationLedger?.wrap(
-            session, runId, runId, target.compatibleType.name, target.model, "benchmark",
+            observed, runId, runId, target.compatibleType.name, target.model, "benchmark",
             turns.sumOf { dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(it.userMessage.content) },
-            outputBudget, Int.MAX_VALUE, profileUid = target.uid
-        ) ?: session
+            outputBudget, Int.MAX_VALUE, profileUid = target.uid, onInvocation = onInvocation
+        ) ?: observed
     }
 
     override suspend fun openResearchSession(
@@ -650,15 +657,20 @@ class ChatRepositoryImpl(
         ) ?: error("Research invocation accounting is unavailable")
     }
 
+    override suspend fun researchPersistenceAllowed(chatId: Int): Boolean = agentPersistenceDao.getChatRoom(chatId)?.isTemporary == false
+
     override suspend fun runDelegationBenchmark(
         platform: PlatformV2,
         test: dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkCase,
         runId: String,
-        settings: dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings
+        settings: dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings,
+        frozenProfiles: Map<String, PlatformV2>
     ): dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkSample {
         val config = settings.normalized().copy(fallbackToAnotherProfile = false)
         check(config.enabled) { "Enable delegation before benchmarking its settings." }
-        val profiles = settingRepository.fetchPlatformV2s()
+        // A resumed benchmark must keep the helper and reviewer accepted with its queue.
+        // Do not blend an incomplete snapshot with mutable settings at dispatch time.
+        val profiles = if (frozenProfiles.isEmpty()) settingRepository.fetchPlatformV2s() else frozenProfiles.values.toList()
         val reserved = dev.chungjungsoo.gptmobile.data.agent.tool.reservedReviewer(config, profiles, platform)
         val eligible = profiles.filter {
             it.enabled &&
@@ -698,11 +710,12 @@ class ChatRepositoryImpl(
         var capViolations = 0
         var measuredSpeedRounds = 0
         var reportedSpeedRounds = 0
-        val benchmarkStarted = System.nanoTime() / 1_000_000
+        val benchmarkNow = android.os.SystemClock::elapsedRealtime
+        val benchmarkStarted = benchmarkNow()
         val benchmarkEvents = mutableListOf<dev.chungjungsoo.gptmobile.data.benchmark.DelegationBenchmarkEvent>()
         fun benchmarkEvent(type: String, message: String, level: String = "INFO") {
             benchmarkEvents += dev.chungjungsoo.gptmobile.data.benchmark.DelegationBenchmarkEvent(
-                elapsedMs = (System.nanoTime() / 1_000_000 - benchmarkStarted).coerceAtLeast(0),
+                elapsedMs = (benchmarkNow() - benchmarkStarted).coerceAtLeast(0),
                 type = type,
                 level = level,
                 message = DiagnosticRedactor.redact(message).take(400)
@@ -730,7 +743,7 @@ class ChatRepositoryImpl(
                     var roundInput = 0L
                     var roundOutput = 0L
                     var roundChars = 0
-                    var roundStarted = System.nanoTime() / 1_000_000
+                    var roundStarted = benchmarkNow()
                     var first: Long? = null
                     var last: Long? = null
                     var chunks = 0
@@ -738,7 +751,7 @@ class ChatRepositoryImpl(
                     var sawOutput = false
                     var backendSpeed: Double? = null
                     fun finishRound() {
-                        val durationMs = (System.nanoTime() / 1_000_000 - roundStarted).coerceAtLeast(0)
+                        val durationMs = (benchmarkNow() - roundStarted).coerceAtLeast(0)
                         val chargedInput = if (sawInput) {
                             roundInput
                         } else {
@@ -805,7 +818,7 @@ class ChatRepositoryImpl(
                             if (event.kind == DelegateProgressKind.REQUEST_STARTED) {
                                 if (requestStarted) {
                                     finishRound()
-                                    roundStarted = System.nanoTime() / 1_000_000
+                                    roundStarted = benchmarkNow()
                                 }
                                 requestStarted = true
                                 benchmarkEvent("WORKER_REQUEST", "worker=${targetProfile.uid} cap=$cap inputCap=$inputCap allowTools=$allowTools")
@@ -822,7 +835,7 @@ class ChatRepositoryImpl(
                             if (event.inputTokens != null) sawInput = true
                             if (event.outputTokens != null) sawOutput = true
                             event.textDelta?.takeIf { it.isNotEmpty() }?.let { delta ->
-                                val time = System.nanoTime() / 1_000_000
+                                val time = benchmarkNow()
                                 if (first == null) {
                                     first = time
                                     benchmarkEvent("FIRST_TEXT", "worker=${targetProfile.uid} latencyMs=${(time - roundStarted).coerceAtLeast(0)}")
@@ -878,6 +891,7 @@ class ChatRepositoryImpl(
                 )
             },
             workerConfigKey = dev.chungjungsoo.gptmobile.data.benchmark.benchmarkConfigKey(target, workerEnvironment),
+            now = benchmarkNow,
             telemetry = {
                 dev.chungjungsoo.gptmobile.data.benchmark.WorkerBenchmarkTelemetry(
                     workerMs,
@@ -1492,6 +1506,7 @@ class ChatRepositoryImpl(
         require(run.synthesisKey == dev.chungjungsoo.gptmobile.data.research.researchHash(raw)) { "COMBINED_SNAPSHOT_INTEGRITY_FAILED" }
         val snapshot = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromString<dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot>(raw)
         val bound = snapshot.bindAcceptedStage()
+        snapshot.writerRequestPlan?.validateProfile(profile)
         require(requested == null || requested == bound) { "COMBINED_STAGE_REQUEST_CHANGED" }
         require(bound.profileUid == profile.uid && snapshot.model == profile.model) { "COMBINED_STAGE_WRITER_CHANGED" }
         val original = requireNotNull(agentPersistenceDao.recoveryMessage(run.userMessageId)) { "COMBINED_ORIGINAL_UNAVAILABLE" }
@@ -1517,7 +1532,8 @@ class ChatRepositoryImpl(
         stage: dev.chungjungsoo.gptmobile.data.agent.AgentStageRequest?
     ): Flow<ApiState> = channelFlow {
         val dispatchAuthority = dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.capture(settingRepository, platform, userMessages.lastOrNull()?.chatId)
-        withContext(dispatchAuthority + dev.chungjungsoo.gptmobile.data.network.ProviderWaitContext { remaining -> send(ApiState.Notice("Provider rate-limited: retry in ${(remaining + 999) / 1000}s", persistent = false)) }) authorizedRun@{
+        val writerGuard = stage?.writerRequestPlan?.let { dev.chungjungsoo.gptmobile.data.agent.CombinedWriterDispatchGuard(it) } ?: kotlin.coroutines.EmptyCoroutineContext
+        withContext(dispatchAuthority + writerGuard + dev.chungjungsoo.gptmobile.data.network.ProviderWaitContext { remaining -> send(ApiState.Notice("Provider rate-limited: retry in ${(remaining + 999) / 1000}s", persistent = false)) }) authorizedRun@{
             suspend fun emit(state: ApiState) = send(state)
             dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.takeIf { it.enabled }?.let { journal ->
                 val room = userMessages.lastOrNull()?.let { agentPersistenceDao.getChatRoom(it.chatId) }
@@ -1767,7 +1783,7 @@ class ChatRepositoryImpl(
                     val documentContext = dispatchPreparation.memory.documentContext
                     suspend fun validateDocuments() = dispatchPreparation.memory.validateDocuments()
                     var requestPlatform = dispatchPreparation.requestPlatform
-                    fun planRunContext(turns: List<ConversationTurn>, prompt: String, tools: List<ResolvedAgentTool>, settings: dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings) =
+                    suspend fun planRunContext(turns: List<ConversationTurn>, prompt: String, tools: List<ResolvedAgentTool>, settings: dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings) =
                         planPreparedRunContext(platform, synthesisRun, chatToolConfig?.combined, turns, prompt, tools, settings)
                     var contextPlan = dispatchPreparation.contextPlan
                     val reservedFinalToolCalls = dispatchPreparation.budgets.reservedFinalToolCalls
@@ -1916,7 +1932,7 @@ class ChatRepositoryImpl(
                                         var invocationId: String? = null
                                         suspend fun generateStage(): String = generateDelegate(target, prompt, cap, inputCap = delegationInputBudget(target, cap), progress = { it.invocationId?.let { id -> invocationId = id } }, allowTools = false, requestRole = if (target.compatibleType == ClientType.LITERT_LM) "assist" else "research-${stage.name.lowercase(java.util.Locale.ROOT)}")
                                         val combined = chatToolConfig?.combined
-                                        val stageId = dev.chungjungsoo.gptmobile.data.agent.CombinedResearchStages.id(platform.uid, stage.name.lowercase(java.util.Locale.ROOT))
+                                        val stageId = combined?.let { dev.chungjungsoo.gptmobile.data.agent.CombinedResearchStages.id(it, platform.uid, stage.name.lowercase(java.util.Locale.ROOT)) }
                                         val text = if (combined?.plan?.workItems?.any { it.id == stageId } == true) {
                                             withContext(dev.chungjungsoo.gptmobile.data.agent.CombinedRunScope(combined.forRole(dev.chungjungsoo.gptmobile.data.agent.CombinedRunRole.RESEARCH, platform.uid, stageId))) { generateStage() }
                                         } else {
@@ -2002,6 +2018,14 @@ class ChatRepositoryImpl(
                         }
                         prepareDelegatedEvidence()
                         suspend fun finalizePreparedContext() {
+                            if (stage?.writerRequestPlan != null) {
+                                // The complete writer input was accepted before this run. A zero
+                                // tool budget must not rebuild its frozen instructions from live
+                                // memory, project settings or the ordinary conversation contract.
+                                exposedTools = emptyList()
+                                contextPlan = planRunContext(preparedTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits)
+                                return
+                            }
                             if (preparedTurns != contextTurns) {
                                 try {
                                     contextPlan = planRunContext(preparedTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits)
@@ -2146,8 +2170,7 @@ class ChatRepositoryImpl(
             val lease = dev.chungjungsoo.gptmobile.data.readiness.ReadinessWorkloadSignals.enter()
             try {
                 dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(runId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.INPUT_PERSISTED)
-                if (dev.chungjungsoo.gptmobile.data.localruntime.InferenceAdmission.isExclusiveBusy) emit(ApiState.Notice("Waiting for benchmark", persistent = false))
-                emitAll(measureBenchmarkAdmission(upstream, runId))
+                emitAll(measureBenchmarkAdmission(upstream, runId, platform, chatToolConfig?.combined))
             } finally {
                 lease.close()
             }
@@ -2160,9 +2183,32 @@ class ChatRepositoryImpl(
      */
     private suspend fun runPreparedDispatch(authority: dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard, block: suspend () -> Unit) = withContext(authority + AppSearchContext()) { block() }
 
-    private fun measureBenchmarkAdmission(upstream: Flow<ApiState>, runId: String): Flow<ApiState> = channelFlow {
+    private fun measureBenchmarkAdmission(upstream: Flow<ApiState>, runId: String, platform: PlatformV2, combined: dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext?): Flow<ApiState> = channelFlow {
         val waitingAt = System.nanoTime()
-        dev.chungjungsoo.gptmobile.data.localruntime.InferenceAdmission.shared {
+        val research = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.research.ResearchDispatchLifecycle]
+        val combinedBudget = combined?.let { combinedBudgets.open(it) }
+        val generation = research?.attempt?.generation ?: 0
+        val request = if (platform.compatibleType == ClientType.LITERT_LM) {
+            dev.chungjungsoo.gptmobile.data.localruntime.ResourceRequest.local(runId, generation)
+        } else {
+            dev.chungjungsoo.gptmobile.data.localruntime.ResourceRequest.remote(runId, dev.chungjungsoo.gptmobile.data.research.researchHash(platform.apiUrl), generation)
+        }
+        dev.chungjungsoo.gptmobile.data.localruntime.InferenceAdmission.shared(request, onState = { state ->
+            research?.admission(state)
+            if (combined != null) {
+                combinedBudget?.waitingForResource(
+                    combined.ownerKey,
+                    if (state is dev.chungjungsoo.gptmobile.data.localruntime.AdmissionOutcome.Waiting) {
+                        if (state.benchmarkBlocker) "BENCHMARK_ACTIVE" else "RESOURCE_IN_USE"
+                    } else {
+                        null
+                    }
+                )
+            }
+            if (state is dev.chungjungsoo.gptmobile.data.localruntime.AdmissionOutcome.Waiting) {
+                send(ApiState.Notice(if (state.benchmarkBlocker) "Waiting for the current benchmark trial to finish" else "Waiting for an inference resource", persistent = false))
+            }
+        }) {
             dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(runId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.PREPARATION_PHASE, phase = PreparationPhase.BENCHMARK_ADMISSION, elapsedMillis = ((System.nanoTime() - waitingAt) / 1_000_000).coerceAtLeast(0), successful = true)
             dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(runId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.DISPATCH_ELIGIBLE)
             upstream.collect { send(it) }
@@ -2390,7 +2436,7 @@ class ChatRepositoryImpl(
             examinationBarrier?.get()?.await(combined, platform.uid, turnKey)
             val budget = combinedBudgets.open(combined)
             for (stage in listOf("plan", "find_gaps", "extract", "review")) {
-                val id = dev.chungjungsoo.gptmobile.data.agent.CombinedResearchStages.id(platform.uid, stage)
+                val id = dev.chungjungsoo.gptmobile.data.agent.CombinedResearchStages.id(combined, platform.uid, stage)
                 if (combined.plan?.workItems?.any { it.id == id } != true) continue
                 val events = modelWorker.events.filter { it.stage.equals(stage, ignoreCase = true) }
                 val successful = modelWorker.completedStage(stage)
@@ -2456,7 +2502,7 @@ class ChatRepositoryImpl(
         val preparationPlan = toolPreparation.preparationPlan
         val latestUser = recallPreparation.latestUser
         val recalled = recallPreparation.recalled
-        var contextTurns = if (AppAssistedSearch.requested(latestUser?.content.orEmpty())) {
+        var contextTurns = if (input.stage?.writerRequestPlan == null && AppAssistedSearch.requested(latestUser?.content.orEmpty())) {
             val resolvedQuestion = AppAssistedSearch.question(input.effectiveUserMessages)
             initialContextTurns.map { turn -> if (turn.isCurrentTurn && resolvedQuestion != turn.userMessage.content) turn.copy(userMessage = turn.userMessage.copy(content = "Resolved current task from this conversation:\n" + resolvedQuestion)) else turn }
         } else {
@@ -2501,10 +2547,16 @@ class ChatRepositoryImpl(
         val memoryPreparation = preparePrimaryDispatchMemory(input, admission, toolPreparation, recallPreparation, taskRoutedTools)
         val researchMemory = memoryPreparation.researchMemory
         val documentContext = memoryPreparation.documentContext
-        var requestPlatform = platform.withSystemPrompt(
-            systemPrompt = recalled.prefix() + researchMemory.text + documentContext + baseSystemPrompt()
-        )
-        fun planRunContext(turns: List<ConversationTurn>, prompt: String, tools: List<ResolvedAgentTool>, settings: dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings) =
+        // A frozen writer already contains its complete accepted instructions and evidence.
+        // New memory, project or time wrappers must not change its admitted request.
+        var requestPlatform = if (input.stage?.writerRequestPlan != null) {
+            platform
+        } else {
+            platform.withSystemPrompt(
+                systemPrompt = recalled.prefix() + researchMemory.text + documentContext + baseSystemPrompt()
+            )
+        }
+        suspend fun planRunContext(turns: List<ConversationTurn>, prompt: String, tools: List<ResolvedAgentTool>, settings: dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings) =
             planPreparedRunContext(platform, synthesisRun, chatToolConfig?.combined, turns, prompt, tools, settings)
         var contextPlan = measurePreparation(runId, PreparationPhase.CONTEXT_ASSEMBLY) { planRunContext(contextTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits) }
         AppLogRecorder.record(
@@ -2649,7 +2701,7 @@ class ChatRepositoryImpl(
         return PrimaryDispatchBudgets(reservedFinalToolCalls, toolBudget, explicitResearchSelection, explicitResearch, acquisitionBudget)
     }
 
-    private fun planPreparedRunContext(
+    private suspend fun planPreparedRunContext(
         platform: PlatformV2,
         synthesisRun: Boolean,
         combined: dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext?,
@@ -2659,7 +2711,8 @@ class ChatRepositoryImpl(
         settings: dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings
     ): dev.chungjungsoo.gptmobile.data.context.ContextPlan =
         if (synthesisRun) {
-            val output = listOfNotNull(settings.outputTokens.takeIf { it > 0 }, combined?.plan?.outputTokens(combined.role)).minOrNull()
+            val frozenOutput = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.CombinedWriterDispatchGuard]?.plan?.effectiveOutputTokens
+            val output = frozenOutput ?: listOfNotNull(settings.outputTokens.takeIf { it > 0 }, combined?.plan?.outputTokens(combined.role)).minOrNull()
             val fullSettings = output?.let { settings.copy(outputTokens = it) } ?: settings
             dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.planFullInputOrMultipass(turns, prompt, fullSettings, combined)
         } else {
@@ -3195,7 +3248,9 @@ class ChatRepositoryImpl(
             return null
         }
         var contextTurns = measurePreparation(runId, PreparationPhase.NORMALIZATION) {
-            buildContextTurns(withoutExcludedAttachments(effectiveUserMessages, exclusions.attachments), assistantMessages.map { withoutExcludedAttachments(it, exclusions.attachments) }, platform, preserveAttachments = runId.startsWith("combined-synthesis:")).also { turns ->
+            val frozen = stage?.writerContext
+            require(frozen?.attachmentPaths.orEmpty().none { it in exclusions.attachments }) { "COMBINED_WRITER_DOCUMENT_SCOPE_CHANGED: An accepted attachment was excluded after the final input was frozen. No writer request was sent." }
+            (frozen?.turns(requireNotNull(stage).stagePrompt) ?: buildContextTurns(withoutExcludedAttachments(effectiveUserMessages, exclusions.attachments), assistantMessages.map { withoutExcludedAttachments(it, exclusions.attachments) }, platform, preserveAttachments = runId.startsWith("combined-synthesis:"))).also { turns ->
                 validateInlineBudgetIfNeeded(turns, platform)
             }
         }
@@ -3232,7 +3287,9 @@ class ChatRepositoryImpl(
         val advertisedLimits = dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterCatalogLimits.forRequest(platform.compatibleType.name, platform.apiUrl, platform.model, platform.openRouterRouting)
         val profileBudget = budgetSettings.copy(contextTokens = minOf(budgetSettings.contextTokens, budgetSettings.profileContextCeilings[platform.uid] ?: Int.MAX_VALUE, advertisedLimits?.context ?: Int.MAX_VALUE))
         if (advertisedLimits != null) AppLogRecorder.record("Context", "MODEL_CATALOG_LIMITS · context=${advertisedLimits.context ?: "unknown"} · output=${advertisedLimits.output ?: "unknown"} · source=public_catalog · serverConfirmed=false")
-        val limits = profileBudget
+        val limits = stage?.writerRequestPlan?.let { plan ->
+            profileBudget.copy(contextTokens = minOf(profileBudget.contextTokens, plan.contextTokens ?: Int.MAX_VALUE), outputTokens = plan.effectiveOutputTokens)
+        } ?: profileBudget
         val turnKey = stage?.acceptedTask?.rootWorkId ?: taskRecovery?.let { "${effectiveUserMessages.lastOrNull()?.chatId}:${it.sourceMessageId}" } ?: dev.chungjungsoo.gptmobile.data.agent.rootWorkId(savedUserTurns, runId)
         dev.chungjungsoo.gptmobile.data.delegation.DelegationRunControls.register(runId)
         val admittedProfiles = settingRepository.fetchPlatformV2s()
@@ -3256,7 +3313,7 @@ class ChatRepositoryImpl(
                 if (turn.isCurrentTurn) turn.copy(userMessage = turn.userMessage.copy(content = stage.stagePrompt)) else turn
             }
         }
-        val admittedResearchJournal = researchSessions?.journal(runId, researchChatId, researchPersistent, turnKey, shareEnabled = runFeatures.sharedReadOnlyToolCalls, ownerScope = platform.uid, acceptedTools = chatToolConfig)
+        val admittedResearchJournal = researchSessions?.journal(runId, researchChatId, researchPersistent, turnKey, shareEnabled = runFeatures.sharedReadOnlyToolCalls, ownerScope = platform.uid, acceptedTools = chatToolConfig, expectedAttempt = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.research.ResearchDispatchLifecycle]?.attempt)
         return PrimaryRunAdmission(exclusions, resumeWriterOnly, contextTurns, effectiveMaxTools, customRunner, runFeatures, searchPolicy, behavior, budgetSettings, limits, turnKey, admittedProfiles, admittedPolicy, researchChatId, researchPersistent, admittedResearchJournal)
     }
 
@@ -3556,7 +3613,20 @@ class ChatRepositoryImpl(
         if (acceptedTaskText.isNotBlank()) {
             val settingsRevision = dev.chungjungsoo.gptmobile.data.research.researchHash(kotlinx.serialization.json.Json.encodeToString(admittedFeatures) + kotlinx.serialization.json.Json.encodeToString(chatToolConfig ?: ChatMcpToolConfig()))
             val authorityRevision = dev.chungjungsoo.gptmobile.data.research.researchHash(admittedProfiles.joinToString { "${it.uid}:${it.compatibleType}:${it.apiUrl}:${it.model}:${it.token}:${it.secretRef}:${it.disableAllTools}:${it.disableRemoteTools}" })
-            researchSessions?.acceptTask(chatId, turnKey, stage?.acceptedTask?.originatingUserMessageId ?: taskRecovery?.sourceMessageId ?: savedUserTurns.lastOrNull()?.id ?: 0, acceptedTaskText, chatToolConfig?.combined?.requested?.participantUids ?: admittedProfiles.filter { it.enabled }.map { it.uid }.ifEmpty { listOf(profileUid) }, chatToolConfig?.combined?.requested?.preferredOwnerUid, settingsRevision, authorityRevision, persistent)?.let { accepted -> stage?.acceptedTask?.validate(accepted) }
+            val research = chatToolConfig?.research?.applyTo(admittedFeatures.delegationFor(profileUid))?.deepResearch ?: admittedFeatures.delegationFor(profileUid).deepResearch
+            val policy = kotlinx.serialization.json.buildJsonObject {
+                put("features", kotlinx.serialization.json.Json.encodeToJsonElement(dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings.serializer(), admittedFeatures))
+                put("chat", kotlinx.serialization.json.Json.encodeToJsonElement(ChatMcpToolConfig.serializer(), chatToolConfig ?: ChatMcpToolConfig()))
+            }.toString()
+            researchSessions?.acceptTask(
+                chatId, turnKey, stage?.acceptedTask?.originatingUserMessageId ?: taskRecovery?.sourceMessageId ?: savedUserTurns.lastOrNull()?.id ?: 0,
+                acceptedTaskText, chatToolConfig?.combined?.requested?.participantUids ?: admittedProfiles.filter { it.enabled }.map { it.uid }.ifEmpty { listOf(profileUid) },
+                chatToolConfig?.combined?.requested?.preferredOwnerUid, settingsRevision, authorityRevision, persistent,
+                acceptedPolicyJson = policy,
+                sourceScope = chatToolConfig?.combined?.requested?.acceptedResearch?.contentScope ?: chatToolConfig?.research?.scope?.name ?: research.contentScope.name,
+                targetSources = chatToolConfig?.combined?.requested?.acceptedResearch?.sourceGoal?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt() ?: research.customSourceTarget ?: dev.chungjungsoo.gptmobile.data.model.DeepResearchSettings.targetForEffort(chatToolConfig?.research?.depth ?: research.effort),
+                requestedModels = chatToolConfig?.combined?.requested?.requestedModels ?: admittedProfiles.associate { it.uid to it.model }
+            )?.let { accepted -> stage?.acceptedTask?.validate(accepted) }
             if (taskRecovery != null) researchSessions?.recordResume(turnKey, resumeDescriptor?.generationId ?: recoveryActionId, taskRecovery.action.name, profileUid, settingsRevision, persistent)
         }
         if (taskRecovery != null) researchSessions?.resumeGeneration(chatId, turnKey, resumeDescriptor?.generationId ?: recoveryActionId, persistent)
@@ -3572,9 +3642,11 @@ class ChatRepositoryImpl(
         outputCap: Int?
     ): dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext? {
         val accepted = context?.forInvocationKind(kind, profileUid) ?: return null
+        val writerPlan = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.CombinedWriterDispatchGuard]?.plan
+        val plannedWriter = writerPlan != null && accepted.requested.singlePass && accepted.role == dev.chungjungsoo.gptmobile.data.agent.CombinedRunRole.SYNTHESIS
         val contributorDelivery = accepted.role == dev.chungjungsoo.gptmobile.data.agent.CombinedRunRole.CONTRIBUTOR && (kind.startsWith("research-report") || kind.startsWith("research-contributor") || kind.contains("continuation"))
-        if (!contributorDelivery && !(kind.contains("continuation") && accepted.role.finalization)) return accepted
-        val workId = "required-delivery:$runId:" + dev.chungjungsoo.gptmobile.data.research.researchHash(kind + turns.toString() + system)
+        if (!plannedWriter && !contributorDelivery && !(kind.contains("continuation") && accepted.role.finalization)) return accepted
+        val workId = if (plannedWriter) "frozen-writer:${requireNotNull(writerPlan).planId}" else "required-delivery:$runId:" + dev.chungjungsoo.gptmobile.data.research.researchHash(kind + turns.toString() + system)
         val budget = combinedBudgets.open(accepted)
         val state = budget.snapshot()
         if (workId !in state.pendingWork && workId !in state.completedWork) {
@@ -3626,7 +3698,8 @@ class ChatRepositoryImpl(
         // Delegation saves input/replay tokens. Its brief budget must never cap the
         // user's final answer (a 256-token brief cannot satisfy a 1000-word task).
         val combinedOutput = chatToolConfig?.combined?.let { it.plan?.outputTokens(it.role) }
-        val effectiveOutputCap = listOfNotNull(requestedOutputTokens, combinedOutput).minOrNull()
+        val writerPlan = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.CombinedWriterDispatchGuard]?.plan
+        val effectiveOutputCap = writerPlan?.effectiveOutputTokens ?: listOfNotNull(requestedOutputTokens, combinedOutput).minOrNull()
             ?: if (runId.startsWith("combined-synthesis:") && (platform.maxTokens == null || platform.maxTokens == 0)) 16_384 else null
         val editorialPass = runId.startsWith("combined-synthesis:")
         val capKey = "${platform.compatibleType}|${platform.apiUrl}|${platform.model}|${platform.openRouterRouting.orEmpty()}"
@@ -3658,6 +3731,7 @@ class ChatRepositoryImpl(
             extraInstruction: String = ""
         ): AgentProviderSession {
             val invocationPlatform = if (extraInstruction.isBlank()) requestPlatform else requestPlatform.withSystemPrompt(requestPlatform.systemPrompt.orEmpty() + "\n" + extraInstruction)
+            kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.CombinedWriterDispatchGuard]?.validatePreparedRequest(invocationPlatform, turns)
             factVault?.validateRecall(recalled, latestUser?.chatId ?: 0, platform.isPrivateDestination())
             if (platform.compatibleType != ClientType.LITERT_LM) {
                 require(recalled.facts.none { it.localOnly } && turns.none { turn -> turn.assistantMessage?.containsLocalOnlyMemory() == true }) { "This history contains local-only memory. Continue with a local AI profile or start a conversation without that history." }
@@ -3803,6 +3877,7 @@ class ChatRepositoryImpl(
             kind: String,
             execution: dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext?
         ): AgentProviderSession {
+            var observationKey = capKey
             val store = dev.chungjungsoo.gptmobile.data.agent.CombinedRecordStore.open(
                 agentPersistenceDao,
                 runId,
@@ -3822,7 +3897,8 @@ class ChatRepositoryImpl(
                     factVault?.validateRecall(recalled, latestUser?.chatId ?: 0, platform.isPrivateDestination())
                 },
                 save = store::save,
-                observeAttempt = { reasoning, passages -> dev.chungjungsoo.gptmobile.data.agent.CombinedWriterObservations.record(capKey, reasoning, passages, resolvedOutputCap) }
+                observeAttempt = { reasoning, passages -> dev.chungjungsoo.gptmobile.data.agent.CombinedWriterObservations.record(observationKey, reasoning, passages, resolvedOutputCap) },
+                observeRoute = { observationKey = it }
             ) { checkpoint, recovery ->
                 val continued = dev.chungjungsoo.gptmobile.data.queue.appendFollowUpContext(
                     turns(),
@@ -3989,6 +4065,7 @@ class ChatRepositoryImpl(
                 answerContract = frozen.answerContract,
                 revisionId = frozen.liveRevisionId(runId),
                 researchObligations = dev.chungjungsoo.gptmobile.data.agent.CombinedResearchObligation.fromPrompt(frozen.prompt),
+                layoutContract = dev.chungjungsoo.gptmobile.data.agent.CombinedLayoutContract.fromPrompt(frozen.prompt),
                 verify = { verification ->
                     try {
                         verifyCombinedEvidence(frozen, verification, runId, traceSequences) { send(it) }
@@ -4241,6 +4318,7 @@ class ChatRepositoryImpl(
     ): Flow<ApiState> = flow {
         val editorialPass = runId.startsWith("combined-synthesis:")
         val capKey = dev.chungjungsoo.gptmobile.data.agent.CombinedWriterObservations.key(platform)
+        var observationKey = capKey
         var resolvedOutputCap = outputAllowance
         dev.chungjungsoo.gptmobile.data.diagnostics.FrameTimingRecorder.phase(runId, "streaming")
         val progressTracker = dev.chungjungsoo.gptmobile.data.agent.ToolProgressTracker()
@@ -4318,12 +4396,12 @@ class ChatRepositoryImpl(
                     }
 
                     is ProviderEvent.CombinedQuality -> {
-                        if (editorialPass) dev.chungjungsoo.gptmobile.data.agent.CombinedWriterObservations.recordDelivery(capKey, providerEvent.report, resolvedOutputCap)
+                        if (editorialPass) dev.chungjungsoo.gptmobile.data.agent.CombinedWriterObservations.recordDelivery(observationKey, providerEvent.report, resolvedOutputCap)
                         emit(ApiState.CombinedQuality(providerEvent.report))
                     }
                     is ProviderEvent.Failed -> {
                         val recovery = if (runId.startsWith("combined-synthesis:")) dev.chungjungsoo.gptmobile.data.agent.CombinedRecoveryFailure.from(providerEvent) else null
-                        recovery?.let { dev.chungjungsoo.gptmobile.data.agent.CombinedWriterObservations.recordFailure(dev.chungjungsoo.gptmobile.data.agent.CombinedWriterObservations.key(platform), it.category) }
+                        recovery?.let { dev.chungjungsoo.gptmobile.data.agent.CombinedWriterObservations.recordFailure(observationKey, it.category) }
                         emit(ApiState.Error(providerEvent.message, providerEvent.progressDeadline, combinedFailure = recovery))
                     }
                     is ProviderEvent.Notice -> emit(ApiState.Notice(providerEvent.message, providerEvent.persistent, providerEvent.researchDelivery))
@@ -4337,8 +4415,9 @@ class ChatRepositoryImpl(
                         if (retainGenerationReceipt) emit(ApiState.TokenUsage(null, null, null, outputAllowance = resolvedOutputCap))
                     }
                     is ProviderEvent.Usage -> {
+                        providerEvent.writerObservationKey?.let { observationKey = it }
                         if (editorialPass) {
-                            dev.chungjungsoo.gptmobile.data.agent.CombinedWriterObservations.recordUsage(capKey, providerEvent.reasoningTokens, providerEvent.finishReason, resolvedOutputCap)
+                            dev.chungjungsoo.gptmobile.data.agent.CombinedWriterObservations.recordUsage(observationKey, providerEvent.reasoningTokens, providerEvent.finishReason, resolvedOutputCap)
                             AppLogRecorder.record("CombinedWriter", "WRITER_USAGE · runId=$runId · allowReasoning=false · reasoningTokens=${providerEvent.reasoningTokens ?: -1} · outputTokens=${providerEvent.outputTokens ?: -1} · outputAllowance=$resolvedOutputCap · finish=${providerEvent.finishReason.orEmpty()}")
                         }
                         if (providerEvent.inputTokens != null || providerEvent.outputTokens != null || providerEvent.totalTokens != null || retainGenerationReceipt && providerEvent.finishReason != null) {
@@ -4443,6 +4522,23 @@ class ChatRepositoryImpl(
         append(tool.connectionUid ?: "builtin")
         append(':')
         append(tool.realToolName)
+    }
+
+    override suspend fun prepareCombinedWriterContext(
+        history: List<MessageV2>,
+        replies: List<List<MessageV2>>,
+        user: MessageV2,
+        writer: PlatformV2
+    ): dev.chungjungsoo.gptmobile.data.agent.CombinedWriterContext = withContext(Dispatchers.IO) {
+        val authority = dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.capture(settingRepository, writer, user.chatId)
+        val exclusions = workspace?.exclusions(user.chatId) ?: dev.chungjungsoo.gptmobile.data.workspace.ContextExclusions()
+        val users = withoutExcludedAttachments(history + user, exclusions.attachments)
+        val assistants = (replies + listOf(emptyList())).map { withoutExcludedAttachments(it, exclusions.attachments) }
+        val turns = buildContextTurns(users, assistants, writer.copy(disableAllTools = true, disableLocalTools = true), preserveAttachments = true)
+        validateInlineBudgetIfNeeded(turns, writer)
+        authority.validate()
+        dev.chungjungsoo.gptmobile.data.agent.CombinedWriterContext.fromTurns(turns, (users + assistants.flatten()).any { it.attachments.isNotEmpty() })
+            .copy(attachmentPaths = (users + assistants.flatten()).flatMap { it.attachments }.mapTo(linkedSetOf()) { it.filePathForDisplay })
     }
 
     private suspend fun buildContextTurns(
@@ -4676,24 +4772,19 @@ class ChatRepositoryImpl(
         require(dev.chungjungsoo.gptmobile.data.agent.CombinedWriterPolicy.rank(listOf(acceptedProfile), saved.userMessage.content, acceptedProfile.uid, dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(saved.prompt)).isNotEmpty()) { "This writer is currently unsuitable for final assembly. Try another selected writer; saved contributions remain available." }
         if (saved.combined?.requested?.singlePass == true) {
             require(run.status in setOf(AgentRunStatus.FAILED, AgentRunStatus.CANCELED, AgentRunStatus.INTERRUPTED, AgentRunStatus.COMPLETED) && message.currentRunId == runId && message.ownershipFence == run.ownershipFence) { "The saved writer is still active or changed." }
-            saved.bindAcceptedStage()
-            val nextContext = saved.combined.copy(rootBudgetId = java.util.UUID.randomUUID().toString(), role = dev.chungjungsoo.gptmobile.data.agent.CombinedRunRole.SYNTHESIS)
-            combinedBudgets.open(nextContext)
-            val revision = java.util.UUID.randomUUID().toString()
-            return@withContext saved.copy(
-                snapshotId = java.util.UUID.randomUUID().toString(),
-                predecessorSnapshotId = saved.snapshotId,
-                inputDigest = "",
-                revisionId = revision,
-                combined = nextContext,
-                acceptedTools = saved.acceptedTools?.copy(combined = nextContext),
-                resumeFromRunId = null,
-                deliveryResumeFromRevisionId = null,
-                predecessorRunId = null,
-                committedPrefix = "",
-                dispatchIdentity = dev.chungjungsoo.gptmobile.data.research.researchHash(saved.dispatchIdentity + ":explicit-retry:" + nextContext.rootBudgetId),
-                prompt = dev.chungjungsoo.gptmobile.presentation.ui.chat.combinedSynthesisPrompt(saved.userMessage.content, saved.sources, evidence = saved.evidence, turnContext = saved.turnContext, combined = nextContext, answerContract = requireNotNull(saved.answerContract), deliveryProtocol = saved.deliveryProtocol, targetRevisionId = revision)
-            ).seal()
+            val outputSettings = settingRepository.getFeatureSettings().tokenBudget.normalized()
+            val next = dev.chungjungsoo.gptmobile.data.agent.CombinedWriterRetrySnapshot.prepare(
+                saved,
+                acceptedProfile,
+                outputSettings.outputTokens,
+                minOf(outputSettings.contextTokens, outputSettings.profileContextCeilings[acceptedProfile.uid] ?: Int.MAX_VALUE)
+            )
+            combinedBudgets.open(requireNotNull(next.combined))
+            val root = saved.acceptedTask?.rootWorkId ?: "${saved.userMessage.chatId}:${saved.userMessage.id}"
+            researchSessions?.execution(root, !room.isTemporary)?.takeIf { it.attempt.state.terminal }?.let {
+                researchSessions.resumeExecution(root, next.snapshotId, !room.isTemporary)
+            }
+            return@withContext next
         }
         dev.chungjungsoo.gptmobile.data.agent.CombinedRecoverySnapshot.prepare(run, message, room.combinedPrimaryUid ?: room.activePlatform.firstOrNull(), acceptedProfile, agentPersistenceDao.answerSegments(runId))
     }
@@ -4713,7 +4804,7 @@ class ChatRepositoryImpl(
                 entry
             }
         }
-        val runs = agentRunDao.getByChatId(chatId)
+        val runs = agentRunDao.getReadableByChatId(chatId)
         val runIds = runs.map { it.runId }.toSet()
         val events = observeToolEvents(chatId).first()
         val savedInvocations = invocationLedger?.dao?.forChat(chatId).orEmpty()
@@ -4870,7 +4961,7 @@ class ChatRepositoryImpl(
         completedAt: Long,
         terminalError: String?
     ): Boolean {
-        val finished = agentRunDao.finishQueued(runId, status, completedAt, terminalError) == 1
+        val finished = agentPersistenceDao.finishQueuedWithFailure(runId, status, completedAt, terminalError)
         if (finished) {
             agentPersistenceDao.recoveryRun(runId)?.let { run -> agentPersistenceDao.recoveryMessage(run.assistantMessageId)?.let { settleCombinedStage(runId, it, status, terminalError) } }
             dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(runId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.RUN_TERMINAL, successful = false)
@@ -4939,8 +5030,8 @@ class ChatRepositoryImpl(
             if (!finalization) {
                 val snapshot = budget.snapshot()
                 dev.chungjungsoo.gptmobile.data.agent.CombinedResearchStages.names.forEach { stage ->
-                    val id = dev.chungjungsoo.gptmobile.data.agent.CombinedResearchStages.id(run.profileUid, stage)
-                    if (id in snapshot.pendingWork) budget.finishStage(id, if (outcome == "COMPLETED") "PARTIAL" else outcome, "CONTRIBUTOR_TERMINAL_BEFORE_STAGE_COMPLETED")
+                    val id = dev.chungjungsoo.gptmobile.data.agent.CombinedResearchStages.id(accepted, run.profileUid, stage)
+                    if (!dev.chungjungsoo.gptmobile.data.agent.CombinedResearchStages.isTaskStage(id) && id in snapshot.pendingWork) budget.finishStage(id, if (outcome == "COMPLETED") "PARTIAL" else outcome, "CONTRIBUTOR_TERMINAL_BEFORE_STAGE_COMPLETED")
                 }
             }
             if (finalization && status == AgentRunStatus.COMPLETED && delivered) budget.close("COMPLETED", report?.deliveredScopeStatus)
@@ -5096,12 +5187,15 @@ class ChatRepositoryImpl(
         val updated = chatRoom.copy(isTemporary = enabled)
         if (updated.id > 0) {
             chatRoomV2Dao.updateTemporary(updated.id, enabled)
+            val runs = agentRunDao.getReadableByChatId(updated.id)
+            val decisionRoots = runs.mapNotNull { dev.chungjungsoo.gptmobile.data.agent.CombinedAcceptedTurn.context(it.synthesisSnapshot)?.rootBudgetId }.toSet() + combinedBudgets.rootsForConversation(updated.id)
+            combinedDecisions?.setPersistent(decisionRoots, !enabled)
             if (enabled) {
                 dev.chungjungsoo.gptmobile.data.agent.ToolBatchCheckpoint.deleteChat(context.filesDir, updated.id)
                 dev.chungjungsoo.gptmobile.data.crawl.CrawlStore.forDirectory(context.filesDir).forgetChat(updated.id)
                 dev.chungjungsoo.gptmobile.data.free.FreeQueueJobs.forgetChat(updated.id)
                 dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.let { journal ->
-                    agentRunDao.getByChatId(updated.id).forEach { journal.revokeRun(it.runId) }
+                    runs.forEach { journal.revokeRun(it.runId) }
                 }
             }
         }
@@ -5115,12 +5209,15 @@ class ChatRepositoryImpl(
     override suspend fun deleteChatsV2(chatRooms: List<ChatRoomV2>) {
         factVault?.load()
         chatRooms.forEach { room ->
+            val runs = agentRunDao.getReadableByChatId(room.id)
+            val decisionRoots = runs.mapNotNull { dev.chungjungsoo.gptmobile.data.agent.CombinedAcceptedTurn.context(it.synthesisSnapshot)?.rootBudgetId }.toSet() + combinedBudgets.rootsForConversation(room.id)
+            combinedDecisions?.deleteRoots(decisionRoots)
             combinedBudgets.deleteConversation(room.id)
             dev.chungjungsoo.gptmobile.data.agent.ToolBatchCheckpoint.deleteChat(context.filesDir, room.id)
             dev.chungjungsoo.gptmobile.data.crawl.CrawlStore.forDirectory(context.filesDir).forgetChat(room.id)
             dev.chungjungsoo.gptmobile.data.free.FreeQueueJobs.forgetChat(room.id)
             dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.let { journal ->
-                agentRunDao.getByChatId(room.id).forEach { journal.revokeRun(it.runId) }
+                runs.forEach { journal.revokeRun(it.runId) }
             }
             memoryEnrichment?.cancelChat(room.id)
             if ((!room.isTemporary || conversationDeletion == null) && (room.isTemporary || factVault?.state?.value?.settings?.forgetWithConversation == true)) factVault?.forgetChat(room.id, preventFutureCapture = true)

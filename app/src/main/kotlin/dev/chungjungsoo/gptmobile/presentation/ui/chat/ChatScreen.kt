@@ -1647,8 +1647,9 @@ internal fun ChatBottomAutoScroller(
         // Observe measured growth, not token count. User gestures cancel the animation.
         snapshotFlow {
             val info = listState.layoutInfo
-            val last = info.visibleItemsInfo.lastOrNull()
-            info.totalItemsCount to last?.takeIf { it.index == info.totalItemsCount - 1 }?.size
+            // The final item is a fixed-height bottom anchor. Follow growth in
+            // measured message rows too, without reacting to their scroll offsets.
+            info.totalItemsCount to info.visibleItemsInfo.map { it.index to it.size }
         }.distinctUntilChanged().collectLatest { (totalItems, _) ->
             kotlinx.coroutines.delay(32)
             val latestItemIndex = totalItems - 1

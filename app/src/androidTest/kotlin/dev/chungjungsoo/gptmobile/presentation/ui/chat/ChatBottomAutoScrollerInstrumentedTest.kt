@@ -111,10 +111,15 @@ class ChatBottomAutoScrollerInstrumentedTest {
         composeRule.waitForIdle()
         composeRule.runOnIdle { assertFalse(listState.canScrollForward) }
 
-        composeRule.runOnIdle { additionalHeight = 480.dp }
-        composeRule.waitForIdle()
-
-        composeRule.runOnIdle { assertFalse(listState.canScrollForward) }
+        // The footer keeps a fixed height: growth belongs to the preceding row.
+        for (height in listOf(12.dp, 48.dp, 480.dp, 960.dp)) {
+            composeRule.runOnIdle { additionalHeight = height }
+            composeRule.waitForIdle()
+            composeRule.runOnIdle {
+                assertFalse(listState.canScrollForward)
+                assertEquals("chat-bottom-anchor", listState.layoutInfo.visibleItemsInfo.last().key)
+            }
+        }
     }
 
     @Test

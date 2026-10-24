@@ -6,8 +6,8 @@ Prepared October 23 2026 Toronto time
 
 **Status:** Research stability design based on the attached Research Chat export and repository inspection. The core scheduler, durable-attempt, budget, and export repairs below remain proposed implementation work. Appendix D records the main-menu and free-provider changes added to this branch following the user's implementation request, including restored anonymous LLM7 access.
 
-**Repository:** `tailscale-signin/GPT_Mobile_AI-improved`  
-**Inspected source:** main commit `46413444b62c3f0d6db78b09432cd874b29fa6d6`  
+**Repository:** `tailscale-signin/GPT_Mobile_AI-improved`
+**Inspected source:** main commit `46413444b62c3f0d6db78b09432cd874b29fa6d6`
 **Exported app:** version `0.9.56.1`, build `127`. The export does not identify the installed app commit. The inspected revision is therefore the source baseline, not a claimed APK identity.
 
 ## 1 Purpose and decision

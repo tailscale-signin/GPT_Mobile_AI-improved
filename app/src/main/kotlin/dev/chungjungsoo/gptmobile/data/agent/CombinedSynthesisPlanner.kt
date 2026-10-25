@@ -305,8 +305,8 @@ class CombinedSynthesisPlanner @Inject constructor(
         // Keep the primary's contributor row when it exists. If collection failed
         // before creating one, allocate a new assistant slot instead of either
         // abandoning synthesis or overwriting another profile's contribution.
-        val assistantSlot = leadMessage?.copy(combinedSources = attributedSources) ?: 
-            dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(
+        val assistantSlot = leadMessage?.copy(combinedSources = attributedSources)
+            ?:             dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(
                 chatId = userMessage.chatId,
                 content = "",
                 platformType = leadUid,

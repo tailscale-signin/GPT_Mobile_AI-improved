@@ -27,9 +27,12 @@ class CombinedTextDeduplicatorTest {
         val output = CombinedTextDeduplicator.removeRepeatedParagraphs(input)
 
         assertEquals(1, Regex("(?m)^# History of Portugal$").findAll(output).count())
-        assertEquals(1, "Portugal became a kingdom in the twelfth century and expanded overseas later.".let { paragraph ->
-            Regex(Regex.escape(paragraph)).findAll(output).count()
-        })
+        assertEquals(
+            1,
+            "Portugal became a kingdom in the twelfth century and expanded overseas later.".let { paragraph ->
+                Regex(Regex.escape(paragraph)).findAll(output).count()
+            }
+        )
         assertEquals(1, Regex("(?m)^## Maritime expansion$").findAll(output).count())
         assertEquals(1, Regex("(?m)^## Modern era$").findAll(output).count())
     }

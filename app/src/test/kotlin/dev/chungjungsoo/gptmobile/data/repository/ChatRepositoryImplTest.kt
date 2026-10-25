@@ -100,6 +100,96 @@ import org.junit.Test
 class ChatRepositoryImplTest {
     @get:org.junit.Rule val testFiles = org.junit.rules.TemporaryFolder()
 
+    @Test fun oneThousandTokenContextUsesTheSameOutputAllowanceForAdmissionWireAndAccounting() = runBlocking {
+        val platform = customPlatform().copy(enabled = true, maxTokens = 1024, disableAllTools = true)
+        val request = "Explain a topic in approximately 128 words."
+        val packets = (1..2).map { part -> (1..64).joinToString(" ", postfix = "\n\n") { word -> "p${part}w$word" } }
+        val api = RecordingOpenAIAPI(
+            ArrayDeque(
+                packets.mapIndexed { index, text ->
+                    flowOf(ChatCompletionChunk(choices = listOf(Choice(0, Delta(content = text), finishReason = if (index == 0) "length" else "stop"))))
+                }
+            )
+        )
+        val settings = mockk<SettingRepository>(relaxed = true)
+        coEvery { settings.getFeatureSettings() } returns dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings(
+            smartSuggestions = false,
+            tokenBudget = dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings(contextTokens = 1024, totalRunTokens = 8192, repetitionGuardEnabled = false)
+        )
+        coEvery { settings.fetchPlatformV2s() } returns listOf(platform)
+        val reservations = mutableListOf<dev.chungjungsoo.gptmobile.data.accounting.ModelInvocation>()
+        val dao = mockk<dev.chungjungsoo.gptmobile.data.accounting.InvocationDao>(relaxed = true)
+        every { dao.recent() } returns flowOf(emptyList())
+        coEvery { dao.reserve(capture(reservations), any(), any()) } returns Unit
+        val database = mockk<dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2>()
+        every { database.invocationDao() } returns dao
+        val ledger = dev.chungjungsoo.gptmobile.data.accounting.InvocationLedger(database, settings)
+        val states = createRepository(openAIAPI = api, settingsOverride = settings, invocationLedgerOverride = ledger).completeChat(
+            listOf(MessageV2(id = 1, chatId = 1, platformType = null, content = request)),
+            emptyList(),
+            platform,
+            "small-context-answer"
+        ).toList()
+        assertTrue(states.toString(), states.none { it is ApiState.Error })
+        assertEquals(packets.joinToString(""), states.filterIsInstance<ApiState.Success>().joinToString("") { it.textChunk })
+        assertEquals(listOf(256, 256), api.requests.map { it.maxTokens })
+        assertEquals(listOf(256, 256), reservations.map { it.outputTokens })
+        assertTrue(reservations.all { it.inputTokens + it.outputTokens + 64 <= 1024 })
+    }
+
+    @Test fun longAnswersContinueThroughTheSharedChatAndCombinedContributorDispatch() = runBlocking {
+        for (combinedMode in listOf(false, true)) {
+            val platform = customPlatform().copy(enabled = true, maxTokens = 1024, disableAllTools = true)
+            val request = "Write a detailed explanation in approximately 1024 words."
+            val packets = (1..4).map { part -> (1..256).joinToString(" ", postfix = "\n\n") { word -> "section${part}word$word" } }
+            val api = RecordingOpenAIAPI(
+                ArrayDeque(
+                    packets.mapIndexed { index, text ->
+                        flowOf(ChatCompletionChunk(choices = listOf(Choice(0, Delta(content = text), finishReason = if (index == 3) "stop" else "length"))))
+                    }
+                )
+            )
+            val settings = mockk<SettingRepository>(relaxed = true)
+            coEvery { settings.getFeatureSettings() } returns dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings(
+                tokenBudget = dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings(contextTokens = 8192, repetitionGuardEnabled = false)
+            )
+            coEvery { settings.fetchPlatformV2s() } returns listOf(platform)
+            val budgets = dev.chungjungsoo.gptmobile.data.agent.CombinedTurnBudgetStore.inMemory()
+            val dao = mockk<dev.chungjungsoo.gptmobile.data.accounting.InvocationDao>(relaxed = true)
+            every { dao.recent() } returns flowOf(emptyList())
+            val database = mockk<dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2>()
+            every { database.invocationDao() } returns dao
+            val ledger = dev.chungjungsoo.gptmobile.data.accounting.InvocationLedger(database, settings, budgets)
+            val accepted = dev.chungjungsoo.gptmobile.data.agent.CombinedPolicyResolver.accept(
+                dev.chungjungsoo.gptmobile.data.model.ConversationCombinedSettings(continueLongAnswers = false),
+                listOf(platform.uid),
+                mapOf(platform.uid to platform.model),
+                request,
+                singlePass = true
+            )
+            val execution = dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext(
+                accepted,
+                dev.chungjungsoo.gptmobile.data.agent.CombinedPolicyResolver.resolve(accepted),
+                "test-continuation-$combinedMode",
+                dev.chungjungsoo.gptmobile.data.agent.CombinedRunRole.CONTRIBUTOR,
+                platform.uid,
+                persistBudget = false
+            )
+            val states = createRepository(openAIAPI = api, settingsOverride = settings, invocationLedgerOverride = ledger, combinedBudgetsOverride = budgets).completeChat(
+                listOf(MessageV2(id = 1, chatId = 1, platformType = null, content = request)),
+                emptyList(),
+                platform,
+                "long-answer-$combinedMode",
+                chatToolConfig = if (combinedMode) dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig(combined = execution) else null
+            ).toList()
+            assertTrue(states.toString(), states.none { it is ApiState.Error })
+            assertEquals(states.toString(), 4, api.streamChatCompletionCalls)
+            assertEquals(packets.joinToString(""), states.filterIsInstance<ApiState.Success>().joinToString("") { it.textChunk })
+            assertTrue(api.requests.all { (it.maxTokens ?: 0) <= 1024 })
+            assertTrue(api.requests.drop(1).all { it.toString().contains("Continue the same answer") })
+        }
+    }
+
     @Test fun documentOnlyRecallIsRevalidatedAtPhysicalDispatchAfterDeletionOrConsentRevocation() = runBlocking {
         for (mode in listOf("allowed", "deleted", "revoked", "regranted_during_preparation")) {
             val storage = object : SecretVault {
@@ -1772,7 +1862,9 @@ class ChatRepositoryImplTest {
         researchOverride: dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore? = null,
         recallOverride: dev.chungjungsoo.gptmobile.data.research.memory.ResearchRecallProvider? = null,
         knowledgeOverride: dev.chungjungsoo.gptmobile.data.knowledge.MemoryDocumentRepository? = null,
-        pendingOverride: dev.chungjungsoo.gptmobile.data.queue.PendingPromptDao? = null
+        pendingOverride: dev.chungjungsoo.gptmobile.data.queue.PendingPromptDao? = null,
+        invocationLedgerOverride: dev.chungjungsoo.gptmobile.data.accounting.InvocationLedger? = null,
+        combinedBudgetsOverride: dev.chungjungsoo.gptmobile.data.agent.CombinedTurnBudgetStore = dev.chungjungsoo.gptmobile.data.agent.CombinedTurnBudgetStore.inMemory()
     ): ChatRepositoryImpl = ChatRepositoryImpl(
         context = object : ContextWrapper(null) {
             override fun getFilesDir(): File = testFiles.root
@@ -1813,7 +1905,9 @@ class ChatRepositoryImplTest {
         researchSessions = researchOverride,
         researchRecall = recallOverride,
         knowledge = knowledgeOverride,
-        pendingPromptDao = pendingOverride
+        pendingPromptDao = pendingOverride,
+        invocationLedger = invocationLedgerOverride,
+        combinedBudgets = combinedBudgetsOverride
     )
 
     private fun emptyToolResolver(): AgentToolResolver {

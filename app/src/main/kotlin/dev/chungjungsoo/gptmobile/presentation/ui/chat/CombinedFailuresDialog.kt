@@ -42,7 +42,7 @@ import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import dev.chungjungsoo.gptmobile.presentation.common.appOverlayTokens
 import dev.chungjungsoo.gptmobile.presentation.common.freeProviderClock
 
-/** One turn-level decision. Closing has the same durable acknowledgement as Continue. */
+/** Dismissal acknowledges alerts; only Continue or an exclusion changes turn membership. */
 @Composable
 internal fun CombinedFailuresDialog(
     failures: List<CombinedProfileFailure>,
@@ -50,6 +50,8 @@ internal fun CombinedFailuresDialog(
     onRetry: (Int, String) -> Unit,
     onRemove: (String) -> Unit,
     onContinue: () -> Unit,
+    onDismiss: () -> Unit,
+    canContinue: Boolean,
     onExclude: (Int, String) -> Unit = { _, _ -> },
     onCheckQueuedJob: (String) -> Unit = {}
 ) {
@@ -58,7 +60,8 @@ internal fun CombinedFailuresDialog(
     val safeInsets = WindowInsets.safeDrawing
     val safeHeight = LocalConfiguration.current.screenHeightDp.dp - with(density) { (safeInsets.getTop(density) + safeInsets.getBottom(density)).toDp() }
     val maxHeight = safeHeight * 0.8f
-    FadingDialog(onDismissRequest = onContinue, properties = DialogProperties(usePlatformDefaultWidth = false), fadeMillis = 200) {
+    val waiting = failures.any { it.category in setOf("RATE_LIMIT", "QUEUED_JOB") }
+    FadingDialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false), fadeMillis = 200) {
         AppGlassSurface(
             modifier = Modifier.padding(horizontal = 16.dp).widthIn(max = 420.dp).fillMaxWidth().heightIn(max = maxHeight).border(1.dp, appOverlayTokens().border, RoundedCornerShape(24.dp)),
             shape = RoundedCornerShape(24.dp)
@@ -66,12 +69,17 @@ internal fun CombinedFailuresDialog(
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(if (failures.size == 1) "1 profile needs attention" else "${failures.size} profiles need attention", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
-                    IconButton(onClick = onContinue, modifier = Modifier.size(48.dp)) {
-                        Icon(Icons.Rounded.Close, "Continue with available replies")
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(48.dp)) {
+                        Icon(Icons.Rounded.Close, "Close profile alerts")
                     }
                 }
                 Text(
-                    if (failures.any { it.category == "SAVED_POLICY_UNAVAILABLE" }) "Restore the complete backup or start a new request. Other replies are saved." else "Other replies are saved.",
+                    when {
+                        failures.any { it.category == "SAVED_POLICY_UNAVAILABLE" } -> "Restore the complete backup or start a new request. Other replies are saved."
+                        waiting && !canContinue -> "No replies are ready to combine yet. Keep waiting leaves these profiles included and their saved replies available."
+                        waiting -> "Continue uses available replies. Waiting profiles are excluded from this turn; their saved replies remain."
+                        else -> "Other replies are saved."
+                    },
                     style = MaterialTheme.typography.bodyMedium
                 )
                 Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
@@ -110,10 +118,11 @@ internal fun CombinedFailuresDialog(
                         TextButton(
                             onClick = { onExclude(failure.userMessageId, failure.profileUid) },
                             enabled = !failure.retrying && !failure.applicationFailure
-                        ) { Text(if (failure.category == "QUEUED_JOB") "Continue without ${failure.profileName}" else "Exclude ${failure.profileName} from this turn") }
+                        ) { Text(if (failure.category in setOf("QUEUED_JOB", "RATE_LIMIT")) "Continue without ${failure.profileName}" else "Exclude ${failure.profileName} from this turn") }
                     }
                 }
-                Button(onClick = onContinue, modifier = Modifier.fillMaxWidth()) { Text("Continue") }
+                Button(onClick = onContinue, enabled = canContinue, modifier = Modifier.fillMaxWidth()) { Text("Continue") }
+                TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text(if (waiting) "Keep waiting" else "Close") }
             }
         }
     }

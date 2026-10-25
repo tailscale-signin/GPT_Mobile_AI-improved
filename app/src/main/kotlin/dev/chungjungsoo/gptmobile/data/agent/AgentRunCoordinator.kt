@@ -212,6 +212,7 @@ class AgentRunCoordinator @Inject constructor(
                 authority.validate(settingRepository)
                 when (action.saved.mode) {
                     ProviderWaitMode.INITIAL -> request
+                    ProviderWaitMode.TEXT_CONTINUATION -> providerWaits?.resumeTextContinuation(action)
                     ProviderWaitMode.RESEARCH_STAGE -> providerWaits?.resumeResearch(action)
                     ProviderWaitMode.COMBINED_APPEND -> synthesisPlanner?.prepareAppendResume(request.chatId, request.runId, decision)
                 }?.copy(providerWaitAuthority = authority).also { resumed ->

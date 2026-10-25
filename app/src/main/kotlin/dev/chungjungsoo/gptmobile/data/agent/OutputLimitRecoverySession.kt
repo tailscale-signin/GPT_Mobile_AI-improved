@@ -5,7 +5,7 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 
-internal enum class ContinuationTrigger { PROVIDER_OUTPUT_LIMIT, REQUESTED_LENGTH, STREAM_INTERRUPTED, RESTORED_DRAFT }
+internal enum class ContinuationTrigger { PROVIDER_OUTPUT_LIMIT, REQUESTED_LENGTH, STREAM_INTERRUPTED, RESTORED_DRAFT, NO_PROGRESS }
 
 /** Bounded text-only continuations. Completed actions are evidence, never replayed. */
 internal class OutputLimitRecoverySession(
@@ -19,16 +19,19 @@ internal class OutputLimitRecoverySession(
     private var effectiveOutputCap: Int? = null,
     private val maxAnswerCharacters: Int = 1_048_576,
     private val combined: CombinedExecutionContext? = null,
+    private val adaptToObservedOutput: Boolean = false,
     private val saveProgress: suspend (draft: String, index: Int, outputCap: Int?, reason: String) -> Unit = { _, _, _, _ -> },
     private val onContinuationTrigger: (ContinuationTrigger) -> Unit = {},
     private val continuation: suspend (String, List<AgentToolExchange>) -> AgentProviderSession
 ) : AgentProviderSession {
     private var continuations = 0
     private var transientRetries = 0
+    private var noProgressRetries = 0
     private var lowYieldLimitRounds = 0
     private val answer = StringBuilder(initialDraft)
     private val retainedCharacterLimit = maxAnswerCharacters.takeIf { it > 0 } ?: Int.MAX_VALUE
-    private val continuationLimit = if (combined == null) maxContinuations.coerceIn(0, 16) else maxContinuations.coerceAtLeast(0)
+    private var continuationLimit = maxContinuations.coerceAtLeast(0)
+    private var observedWordYield: Int? = null
     private var completedAnswerLength: Int? = null
 
     private fun visibleWords(): Int = if (combined == null) LongResponsePolicy.countWords(answer.toString()) else CombinedWordCounter.count(answer.toString())
@@ -49,8 +52,28 @@ internal class OutputLimitRecoverySession(
         if (resumePending) {
             resumePending = false
             emit(ProviderEvent.TextDelta(answer.toString()))
+            if (continuationLimit == 0) {
+                saveProgress(answer.toString(), continuations, effectiveOutputCap, "PARTIAL")
+                emit(ProviderEvent.Failed("OUTPUT_CONTINUATION_DISABLED: The saved answer is retained after 0 continuation requests; automatic continuation is disabled.", errorCode = "OUTPUT_CONTINUATION_DISABLED"))
+                return@flow
+            }
             onContinuationTrigger(ContinuationTrigger.RESTORED_DRAFT)
-            active = continuation(answer.toString(), evidence)
+            active = try {
+                continuation(answer.toString(), evidence)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                    try {
+                        saveProgress(answer.toString(), continuations, effectiveOutputCap, "CANCELLED")
+                    } catch (saveFailure: Exception) {
+                        cancelled.addSuppressed(saveFailure)
+                    }
+                }
+                throw cancelled
+            } catch (_: Exception) {
+                saveProgress(answer.toString(), continuations, effectiveOutputCap, "PARTIAL")
+                emit(ProviderEvent.Failed("OUTPUT_CONTINUATION_UNAVAILABLE: The saved answer is retained, but its continuation could not fit the context or reach the provider.", errorCode = "OUTPUT_CONTINUATION_UNAVAILABLE"))
+                return@flow
+            }
             continuations = 1
         }
         while (true) {
@@ -77,7 +100,8 @@ internal class OutputLimitRecoverySession(
                                 emit(event)
                             }
                             is ProviderEvent.RequestConfigured -> {
-                                effectiveOutputCap = event.effectiveOutputTokens ?: effectiveOutputCap
+                                effectiveOutputCap = listOfNotNull(event.effectiveOutputTokens, event.serializedOutputTokens, event.providerOutputCeiling)
+                                    .filter { it > 0 }.minOrNull() ?: effectiveOutputCap
                                 emit(event)
                             }
                             is ProviderEvent.Usage -> {
@@ -119,8 +143,9 @@ internal class OutputLimitRecoverySession(
             answer.append(novel)
             saveProgress(answer.toString(), continuations, effectiveOutputCap, "SEGMENT_COMMITTED")
             val limitFailure = failure?.let { dev.chungjungsoo.gptmobile.data.agent.tool.isProviderOutputLimitFailure(it.message) } == true ||
-                reportedFinishReason in setOf("length", "max_tokens", "MAX_TOKENS")
-            if (completed && !limitFailure && failure == null && pendingCalls.isEmpty() && answer.isNotBlank()) completedAnswerLength = answer.length
+                reportedFinishReason?.lowercase() in setOf("length", "max_tokens", "output_limit") ||
+                (pendingCalls.isEmpty() && LongResponsePolicy.unfinishedQueuedPacket(segment.toString(), reportedFinishReason, effectiveOutputCap))
+            if (completed && !limitFailure && failure == null && pendingCalls.isEmpty() && answer.isNotBlank() && (!continuing || novel.isNotBlank())) completedAnswerLength = answer.length
             suspend fun retainedFailure(original: ProviderEvent.Failed) {
                 val recovering = continuations > 0 || transientRetries > 0
                 val earlierComplete = completedAnswerLength == answer.length && recovering
@@ -154,18 +179,47 @@ internal class OutputLimitRecoverySession(
             }
             val needsMore = if (combined == null) LongResponsePolicy.needsMore(answer.toString(), targetWords) else targetWords?.let { visibleWords() < it } == true
             val shortAnswer = completed && pendingCalls.isEmpty() && needsMore
-            if (!limitFailure && !shortAnswer && !transientFailure) {
+            val noProgress = continuing && novel.isBlank() && !transientFailure && pendingCalls.isEmpty()
+            // A successful but repeated/empty packet gets one text-only regeneration
+            // within the existing request allowance. Provider failures retain their own
+            // recovery policy; a second repetition cannot become an unbounded loop.
+            val regenerateNoProgress = noProgress && completed && failure == null && noProgressRetries == 0 && continuations < continuationLimit && answer.length < retainedCharacterLimit
+            if (noProgress && !regenerateNoProgress) {
+                saveProgress(answer.toString(), continuations, effectiveOutputCap, "PARTIAL")
+                retainedFailure(
+                    ProviderEvent.Failed(
+                        "OUTPUT_CONTINUATION_NO_PROGRESS: The provider returned no new answer text. The existing ${visibleWords()} words are saved; the answer was not restarted or duplicated.",
+                        errorCode = "OUTPUT_CONTINUATION_NO_PROGRESS"
+                    )
+                )
+                return@flow
+            }
+            if (!limitFailure && !shortAnswer && !transientFailure && !regenerateNoProgress) {
                 pendingCalls.forEach { emit(it) }
                 saveProgress(answer.toString(), continuations, effectiveOutputCap, if (completed) "COMPLETED" else "PARTIAL")
                 if (completed) emit(ProviderEvent.Completed)
                 return@flow
             }
-            if ((!transientFailure && continuations >= continuationLimit) || answer.length >= retainedCharacterLimit || (!transientFailure && continuing && novel.isBlank())) {
+            if (adaptToObservedOutput && continuationLimit > 0 && needsMore && novel.isNotBlank()) {
+                val words = LongResponsePolicy.countWords(novel).takeIf { it > 0 }
+                if (words != null) observedWordYield = minOf(observedWordYield ?: words, words)
+                // The serialized cap and observed yield can be much lower than the profile's
+                // advertised allowance. Fund the remaining requested work from what was
+                // actually delivered instead of repeating a fixed two-request policy.
+                val remaining = (requireNotNull(targetWords) - visibleWords()).coerceAtLeast(0)
+                val basedOnYield = observedWordYield?.let { yield ->
+                    ((remaining.toLong() + yield - 1) / yield + continuations + 1).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+                } ?: 0
+                continuationLimit = maxOf(continuationLimit, basedOnYield, LongResponsePolicy.continuationLimit(targetWords, effectiveOutputCap))
+            }
+            if ((!transientFailure && continuations >= continuationLimit) || answer.length >= retainedCharacterLimit) {
                 saveProgress(answer.toString(), continuations, effectiveOutputCap, "PARTIAL")
+                val reason = if (continuationLimit == 0) "OUTPUT_CONTINUATION_DISABLED" else "OUTPUT_CONTINUATION_BUDGET_EXHAUSTED"
                 retainedFailure(
                     ProviderEvent.Failed(
-                        "The response is incomplete after bounded continuation (${visibleWords()} words" +
-                            (targetWords?.let { " of approximately $it requested" } ?: "") + "). The partial answer and completed evidence are saved; no tool actions were repeated."
+                        "$reason: The response is incomplete after $continuations continuation requests (${visibleWords()} words" +
+                            (targetWords?.let { " of approximately $it requested" } ?: "") + "). The partial answer and completed evidence are saved; no tool actions were repeated.",
+                        errorCode = reason
                     )
                 )
                 return@flow
@@ -176,10 +230,16 @@ internal class OutputLimitRecoverySession(
                 kotlinx.coroutines.delay(transientRetries * 1000L)
             } else {
                 continuations++
+                if (regenerateNoProgress) noProgressRetries++
             }
-            if (!transientFailure) emit(ProviderEvent.Notice("Continuing the response ($continuations/$continuationLimit) from the saved answer and completed evidence.", false))
+            if (regenerateNoProgress) {
+                emit(ProviderEvent.Notice("The continuation added no new text. Regenerating the unfinished continuation once from the saved answer; completed actions will not repeat.", false))
+            } else if (!transientFailure) {
+                emit(ProviderEvent.Notice("Continuing the response (part ${continuations + 1}) from the saved answer and completed evidence.", false))
+            }
             val trigger = when {
                 transientFailure -> ContinuationTrigger.STREAM_INTERRUPTED
+                regenerateNoProgress -> ContinuationTrigger.NO_PROGRESS
                 limitFailure -> ContinuationTrigger.PROVIDER_OUTPUT_LIMIT
                 else -> ContinuationTrigger.REQUESTED_LENGTH
             }
@@ -188,6 +248,13 @@ internal class OutputLimitRecoverySession(
             active = try {
                 continuation(answer.toString(), evidence)
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                    try {
+                        saveProgress(answer.toString(), continuations, effectiveOutputCap, "CANCELLED")
+                    } catch (saveFailure: Exception) {
+                        cancelled.addSuppressed(saveFailure)
+                    }
+                }
                 throw cancelled
             } catch (_: Exception) {
                 saveProgress(answer.toString(), continuations, effectiveOutputCap, "PARTIAL")
@@ -201,7 +268,8 @@ internal class OutputLimitRecoverySession(
 /** Remove literal restart/overlap without guessing that similar but distinct facts are duplicates. */
 internal fun continuationSuffix(previous: String, next: String): String {
     if (next.isBlank()) return ""
-    if (next.trim() in previous) return ""
+    val trimmed = next.trim()
+    if (trimmed == previous.trim() || (trimmed.length >= 20 && trimmed in previous)) return ""
     // Prefix-function matching is linear even for long, repetitive model output.
     val prefix = IntArray(next.length)
     for (index in 1 until next.length) {

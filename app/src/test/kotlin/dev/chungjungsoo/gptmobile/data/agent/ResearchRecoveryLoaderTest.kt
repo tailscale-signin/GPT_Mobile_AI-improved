@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.agent
 
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
+import dev.chungjungsoo.gptmobile.data.database.entity.AssistantRevision
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
@@ -16,6 +17,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -66,5 +68,62 @@ class ResearchRecoveryLoaderTest {
         var blocked: RecoveryBlock? = null
         assertNull(load { blocked = it })
         assertEquals("PROFILE_DISABLED", blocked?.code)
+    }
+
+    @Test fun continuationsDoNotUseSiblingProfilesAsTheirCommittedAnswerOrToolEvidence() = runTest {
+        fixture(temporary = true)
+        val own = AgentRun("old", 1, 1, 2, profile.uid, "OPENAI", "model", status = "FAILED", createdAt = 1)
+        val sibling = AgentRun("sibling", 1, 1, 3, "other-profile", "FREE", "other-model", status = "FAILED", createdAt = 2)
+        val completedSibling = sibling.copy(runId = "sibling-complete", assistantMessageId = 4, status = "COMPLETED", createdAt = 3)
+        coEvery { dao.getIncompleteRuns(1, listOf(1)) } returns listOf(own, sibling)
+        coEvery { dao.getCompletedRuns(1) } returns listOf(completedSibling)
+        coEvery { dao.getMessages(1) } returns listOf(
+            user,
+            answer,
+            MessageV2(id = 3, chatId = 1, content = "Sibling incomplete answer", platformType = sibling.profileUid, currentRunId = sibling.runId),
+            MessageV2(id = 4, chatId = 1, content = "Sibling complete answer", platformType = completedSibling.profileUid, currentRunId = completedSibling.runId)
+        )
+        for (action in listOf(null, ResolvedTaskRecovery(TaskRecoveryAction.CONTINUE_RUN, 1, user.content, false))) {
+            val recovered = requireNotNull(
+                ResearchRecoveryLoader(dao, settings, sessions).load(profile, "new", listOf(user), listOf(user), action, emptyList(), ModelDelegationSettings(), true, "policy") {}
+            )
+            assertEquals(answer.content, recovered.authorizedAnswer())
+            assertTrue(recovered.content.contains(answer.content))
+            assertFalse(recovered.content.contains("Sibling"))
+            assertFalse(recovered.content.contains("other-model"))
+        }
+        coVerify(exactly = 2) { dao.getToolEvents(listOf("old")) }
+        coVerify(exactly = 0) { dao.getToolEvents(match { "sibling" in it || "sibling-complete" in it }) }
+    }
+
+    @Test fun newProfileCannotAcquireAnotherProfilesDraftBySharingTheSameUserMessage() = runTest {
+        fixture(temporary = true)
+        coEvery { dao.getIncompleteRuns(1, listOf(1)) } returns listOf(AgentRun("sibling", 1, 1, 3, "other-profile", "FREE", "other-model", status = "FAILED"))
+        assertNull(load())
+        coVerify(exactly = 0) { dao.getToolEvents(any<List<String>>()) }
+    }
+
+    @Test fun sameSecondRetriesSelectTheNewestOwnedDraftBeforeAnOlderCompletedAnswer() = runTest {
+        fixture(temporary = true)
+        val older = AgentRun("z-older", 1, 1, 2, profile.uid, "OPENAI", "model", status = "COMPLETED", ownershipFence = 1, createdAt = 10)
+        val newer = older.copy(runId = "a-newer", status = "INTERRUPTED", ownershipFence = 2)
+        val retained = answer.copy(
+            content = "",
+            currentRunId = "new",
+            ownershipFence = 3,
+            revisions = listOf(
+                AssistantRevision("Newest accumulated prefix", createdAt = 10, runId = newer.runId),
+                AssistantRevision("Older completed short answer", createdAt = 10, runId = older.runId)
+            )
+        )
+        coEvery { dao.getIncompleteRuns(1, listOf(1)) } returns listOf(newer)
+        coEvery { dao.getCompletedRuns(1) } returns listOf(older)
+        coEvery { dao.getToolEvents(listOf(older.runId, newer.runId)) } returns emptyList()
+        coEvery { dao.getMessages(1) } returns listOf(user, retained)
+        val recovered = requireNotNull(
+            ResearchRecoveryLoader(dao, settings, sessions).load(profile, "new", listOf(user), listOf(user), ResolvedTaskRecovery(TaskRecoveryAction.CONTINUE_RUN, 1, user.content, false), emptyList(), ModelDelegationSettings(), true, "policy") {}
+        )
+        assertEquals("Newest accumulated prefix", recovered.authorizedAnswer())
+        assertFalse(recovered.answerCompleted)
     }
 }

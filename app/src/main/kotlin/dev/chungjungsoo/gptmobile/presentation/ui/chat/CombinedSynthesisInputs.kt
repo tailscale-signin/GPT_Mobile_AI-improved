@@ -10,6 +10,10 @@ import dev.chungjungsoo.gptmobile.data.research.delivery.ResearchReportValidity
 import dev.chungjungsoo.gptmobile.data.research.researchHash
 import dev.chungjungsoo.gptmobile.util.isAssistantErrorMessage
 
+/** A preview for the explicit Continue action; actual exclusion remains a durable turn decision. */
+internal fun availableCombinedResponses(responses: List<MessageV2>, runs: Map<String, AgentRun>): List<MessageV2> =
+    responses.filterNot { runs[it.currentRunId]?.status in setOf(AgentRunStatus.WAITING_PROVIDER_LIMIT, AgentRunStatus.WAITING_REMOTE_JOB) }
+
 /** Freeze a usable contribution revision; a failed latest retry cannot erase an earlier success. */
 internal fun combinedSynthesisInputs(
     responses: List<MessageV2>,

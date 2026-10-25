@@ -24,6 +24,122 @@ class CombinedAppendRecoverySessionTest {
     }
     private val limit = ProviderLimitDecision("GROQ", "p", "model", 1000L, "shared-quota", "PROVIDER_RATE_LIMITED", true)
 
+    @Test fun prematureEndContinuesTheSameAnswerUntilItsRequestedVisibleLengthIsMet() = runTest {
+        var saved: CombinedRecordCheckpoint? = null
+        var calls = 0
+        val protocol = CombinedRecordProtocol(
+            CombinedRecordCheckpoint(snapshotDigest = "snapshot", revisionId = "revision"),
+            emptySet(),
+            emptySet(),
+            emptySet(),
+            100000,
+            continuationAnswerPolicy = CombinedAnswerPolicy.from("History of Portugal in 5000 words")
+        )
+        val first = passage(1, "early ".repeat(1000))
+        val last = passage(2, "modern ".repeat(4000))
+        val wrapper = CombinedRecordRecoverySession(
+            session(ProviderEvent.TextDelta(first + end(2)), ProviderEvent.Completed),
+            protocol,
+            Int.MAX_VALUE,
+            acceptedAppend = true,
+            validateAccess = {},
+            save = { saved = it }
+        ) { state, context ->
+            calls++
+            assertEquals(listOf("P1"), state.records.map { it.id })
+            assertFalse(state.ended)
+            assertEquals(0, state.malformedRecoveryAttempts)
+            assertTrue(context.contains("\"next_sequence\":2"))
+            assertTrue(context.contains("only 1000 visible words"))
+            assertTrue(context.contains("at least 4500"))
+            assertTrue(context.contains("never exceed 5500"))
+            session(ProviderEvent.TextDelta(last + end(3)), ProviderEvent.Completed)
+        }
+        val events = wrapper.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(1, calls)
+        assertEquals(1, events.count { it == ProviderEvent.Completed })
+        assertTrue(events.none { it is ProviderEvent.Failed })
+        assertEquals(listOf("P1", "P2", "END"), saved!!.records.map { it.id })
+        assertEquals(5000, CombinedWordCounter.count(combinedRecordVisibleText(saved!!)))
+        assertEquals(1, events.filterIsInstance<ProviderEvent.TextDelta>().count { it.text.contains("\"id\":\"END\"") })
+    }
+
+    @Test fun repeatedPrematureEndWithoutNewPassagesStopsAtTheNoProgressBound() = runTest {
+        var saved: CombinedRecordCheckpoint? = null
+        var calls = 0
+        val protocol = CombinedRecordProtocol(
+            CombinedRecordCheckpoint(snapshotDigest = "snapshot", revisionId = "revision"),
+            emptySet(),
+            emptySet(),
+            emptySet(),
+            100000,
+            continuationAnswerPolicy = CombinedAnswerPolicy.from("History in at least 5000 words")
+        )
+        val wrapper = CombinedRecordRecoverySession(
+            session(ProviderEvent.TextDelta(passage(1, "early ".repeat(1000)) + end(2)), ProviderEvent.Completed),
+            protocol,
+            Int.MAX_VALUE,
+            acceptedAppend = true,
+            validateAccess = {},
+            save = { saved = it }
+        ) { state, _ ->
+            calls++
+            assertEquals(1, state.lastSequence)
+            session(ProviderEvent.TextDelta(end(2)), ProviderEvent.Completed)
+        }
+        val events = wrapper.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(2, calls)
+        assertEquals("COMBINED_LENGTH_REQUIREMENT_UNMET", events.filterIsInstance<ProviderEvent.Failed>().single().errorCode)
+        assertEquals(listOf("P1"), saved!!.records.map { it.id })
+        assertEquals(2, saved!!.noProgressAttempts)
+        assertEquals(0, saved!!.malformedRecoveryAttempts)
+        assertTrue(events.none { it == ProviderEvent.Completed })
+    }
+
+    @Test fun maximumOnlyContractDoesNotInventAContinuationMinimum() = runTest {
+        val protocol = CombinedRecordProtocol(
+            CombinedRecordCheckpoint(snapshotDigest = "snapshot", revisionId = "revision"),
+            emptySet(),
+            emptySet(),
+            emptySet(),
+            100000,
+            continuationAnswerPolicy = CombinedAnswerPolicy.from("Describe Portugal in at most 5000 words")
+        )
+        val wrapper = CombinedRecordRecoverySession(
+            session(ProviderEvent.TextDelta(passage(1) + end(2)), ProviderEvent.Completed),
+            protocol,
+            Int.MAX_VALUE,
+            acceptedAppend = true,
+            validateAccess = {},
+            save = {}
+        ) { _, _ -> error("A maximum is not a requested minimum") }
+        val events = wrapper.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(1, events.count { it == ProviderEvent.Completed })
+        assertTrue(events.none { it is ProviderEvent.Failed })
+    }
+
+    @Test fun exactAndMinimumGoalsUseTheirFullCountWhileApproximateGoalsUseAcceptedTolerance() {
+        listOf(
+            Triple("exactly 1000 words", 999, false),
+            Triple("exactly 1000 words", 1000, true),
+            Triple("at least 1000 words", 999, false),
+            Triple("about 1000 words", 900, true),
+            Triple("about 1000 words", 899, false)
+        ).forEach { (request, count, complete) ->
+            val parser = CombinedRecordProtocol(
+                CombinedRecordCheckpoint(snapshotDigest = "snapshot", revisionId = "revision"),
+                emptySet(),
+                emptySet(),
+                emptySet(),
+                100000,
+                continuationAnswerPolicy = CombinedAnswerPolicy.from(request)
+            )
+            parser.accept(passage(1, "word ".repeat(count)) + end(2))
+            assertEquals(request, complete, parser.checkpoint().ended)
+            assertEquals(request, !complete, parser.canContinueUnderlength)
+        }
+    }
+
     @Test fun appendCommitsTheAttemptBoundaryBeforeDispatchAndNeverRewritesThePrefix() = runTest {
         var saved: CombinedRecordCheckpoint? = null
         var physical = 0

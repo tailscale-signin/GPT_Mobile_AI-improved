@@ -59,7 +59,7 @@ class CombinedCleanPresentationTest {
         var excluded: Pair<Int, String>? = null
         var continued = 0
         compose.setContent {
-            MaterialTheme { CombinedFailuresDialog(failures, ProfileColorRegistry.ensure(emptyMap(), listOf("alpha", "beta")), { _, uid -> retry = uid }, { remove = it }, { continued++ }, { turn, uid -> excluded = turn to uid }) }
+            MaterialTheme { CombinedFailuresDialog(failures, ProfileColorRegistry.ensure(emptyMap(), listOf("alpha", "beta")), { _, uid -> retry = uid }, { remove = it }, { continued++ }, {}, true, { turn, uid -> excluded = turn to uid }) }
         }
         compose.onNodeWithText("2 profiles need attention").assertIsDisplayed()
         compose.onNodeWithContentDescription("Retry Alpha").performClick()
@@ -75,6 +75,30 @@ class CombinedCleanPresentationTest {
         compose.onNodeWithText("Review later").assertDoesNotExist()
         compose.onNodeWithText("Continue").performClick()
         assertEquals(1, continued)
+    }
+
+    @Test fun allWaitingAlertsCanCloseWithoutCombiningOrExcludingProfiles() {
+        val failure = CombinedProfileFailure(1, "alpha", "Alpha", "model", "waiting-attempt", "RATE_LIMIT", "Provider reset pending", true, retryAfterMillis = Long.MAX_VALUE, category = "RATE_LIMIT")
+        var dismissed = 0
+        compose.setContent {
+            MaterialTheme {
+                CombinedFailuresDialog(
+                    failures = listOf(failure),
+                    identities = emptyMap(),
+                    onRetry = { _, _ -> error("A pending quota cannot retry yet") },
+                    onRemove = { error("Dismissal must retain the profile") },
+                    onContinue = { error("No reply is available to combine") },
+                    onDismiss = { dismissed++ },
+                    canContinue = false,
+                    onExclude = { _, _ -> error("Dismissal must leave turn membership unchanged") }
+                )
+            }
+        }
+        compose.onNodeWithText("Continue").assertIsNotEnabled()
+        compose.onNodeWithText("Keep waiting").performClick()
+        assertEquals(1, dismissed)
+        compose.onNodeWithContentDescription("Close profile alerts").performClick()
+        assertEquals(2, dismissed)
     }
 
     @Test fun normalCopyAndExportsNeverExposeDiagnosticRecoveryAppendices() {
@@ -96,7 +120,7 @@ class CombinedCleanPresentationTest {
         assertEquals(true, failure.applicationFailure)
         assertFalse(failure.retryAllowed)
         compose.setContent {
-            MaterialTheme { CombinedFailuresDialog(listOf(failure), emptyMap(), { _, _ -> error("Retry must remain disabled") }, { error("An app data failure cannot remove a profile") }, {}) }
+            MaterialTheme { CombinedFailuresDialog(listOf(failure), emptyMap(), { _, _ -> error("Retry must remain disabled") }, { error("An app data failure cannot remove a profile") }, {}, {}, false) }
         }
         compose.onNodeWithText("Saved request unavailable").assertIsDisplayed()
         compose.onNodeWithText("Restore the complete backup or start a new request. Other replies are saved.").assertIsDisplayed()

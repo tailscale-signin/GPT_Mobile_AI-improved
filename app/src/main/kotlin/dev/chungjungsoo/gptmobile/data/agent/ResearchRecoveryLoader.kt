@@ -23,7 +23,14 @@ internal class ResearchRecoveryLoader(private val agentPersistenceDao: AgentPers
                     .map { it.id }.distinct().filter { it > 0 }
                 val completedRecoveryRuns = if (taskRecovery != null) agentPersistenceDao.getCompletedRuns(latest.chatId).filter { it.userMessageId in userIds } else emptyList()
                 val candidateRuns = (agentPersistenceDao.getIncompleteRuns(latest.chatId, userIds) + completedRecoveryRuns)
-                    .filter { it.runId != runId }.distinctBy { it.runId }.sortedBy { it.createdAt }
+                    // A reply's continuation belongs to its profile. Other members of a
+                    // Multi-chat/Combined turn are evidence for synthesis, never this
+                    // writer's committed prefix. Shared research remains separately scoped
+                    // to the authorized research corpus below.
+                    .filter { it.runId != runId && it.profileUid == platform.uid }.distinctBy { it.runId }
+                    // Retry timestamps have second precision. The fenced successor
+                    // remains newer even when a completed predecessor shares its time.
+                    .sortedWith(compareBy<dev.chungjungsoo.gptmobile.data.database.entity.AgentRun> { it.createdAt }.thenBy { it.ownershipFence })
                 val allowed = allowedTools.map { it.realToolName to it.connectionUid }.toSet()
                 val savedEvents = if (candidateRuns.isEmpty()) emptyList() else agentPersistenceDao.getToolEvents(candidateRuns.map { it.runId })
                 val deniedRuns = savedEvents.filter { event ->

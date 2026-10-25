@@ -83,6 +83,24 @@ class CombinedSinglePassInputsTest {
         assertNull(combinedSynthesisInputs(listOf(message), runs, emptyMap(), emptyMap(), "List 10 reasons", requireComplete = true))
     }
 
+    @Test fun pausedQuotaWaitKeepsItsCountdownAndCanBeExcludedWithoutRetryingEarly() {
+        val now = 1_000L
+        val deadline = now + 5_180_000L
+        val message = reply("p", "").copy(
+            timeline = listOf(
+                dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(
+                    dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE,
+                    profileFailure = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord("RATE_LIMIT", true, deadline)
+                )
+            )
+        )
+        val failure = combinedProfileFailures(1, "Question", listOf(message), mapOf("p" to run("p", "WAITING_PROVIDER_LIMIT")), emptyMap(), emptyMap()).single()
+        assertEquals(deadline, failure.retryAfterMillis)
+        assertEquals("Rate limited · 1h 26m left", failure.shortStatus(now))
+        assertTrue(failure.retryAllowed)
+        assertEquals("p", failure.attemptId)
+    }
+
     @Test fun removedTabCannotReturnFromHistoricalSourceOrLateResponse() {
         val removed = reply("gone", "Late historical result.")
         val primary = reply("p", "Combined answer").copy(currentRunId = "combined-synthesis:one", combinedSources = listOf(CombinedModelResponse("gone", "Removed", content = removed.content), CombinedModelResponse("p", "Primary", content = "Original")))

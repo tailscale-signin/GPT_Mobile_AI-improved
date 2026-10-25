@@ -47,10 +47,10 @@ data class CombinedWriterRequestPlan(
     val preparedContextDigest: String? = null
 ) {
     fun validate(snapshot: CombinedInputSnapshot) {
-        require(version == 1 && planId.isNotBlank()) { "COMBINED_WRITER_PLAN_UNAVAILABLE" }
+        require(version in 1..2 && planId.isNotBlank()) { "COMBINED_WRITER_PLAN_UNAVAILABLE" }
         require(profileUid == snapshot.profileUid && model == snapshot.model && deliveryProtocol == snapshot.deliveryProtocol) { "COMBINED_WRITER_PLAN_IDENTITY_CHANGED" }
         require(promptDigest == combinedDigest(snapshot.prompt)) { "COMBINED_WRITER_PLAN_PROMPT_CHANGED" }
-        require(systemPromptDigest == combinedDigest(combinedWriterSystemPrompt(snapshot.systemPrompt, snapshot.deliveryProtocol, snapshot.userMessage.content))) { "COMBINED_WRITER_PLAN_SYSTEM_CHANGED" }
+        require(systemPromptDigest == combinedDigest(combinedWriterSystemPrompt(snapshot.systemPrompt, snapshot.deliveryProtocol, snapshot.userMessage.content, version >= 2 && snapshot.combined?.requested?.appendContinuations == true))) { "COMBINED_WRITER_PLAN_SYSTEM_CHANGED" }
         require(historyDigest == writerHistoryDigest(snapshot.writerContext?.historyText() ?: combinedWriterHistory(snapshot.history, snapshot.replies, snapshot.profileUid))) { "COMBINED_WRITER_PLAN_HISTORY_CHANGED" }
         require(preparedContextDigest == snapshot.writerContext?.envelopeDigest(snapshot.prompt)) { "COMBINED_WRITER_PLAN_CONTEXT_CHANGED" }
         require(requiredOutputTokens > 0 && effectiveOutputTokens >= requiredOutputTokens) { "COMBINED_WRITER_PLAN_OUTPUT_INSUFFICIENT" }
@@ -113,6 +113,7 @@ data class CombinedWriterRequestPlan(
             if (context != null && total > context) throw CombinedInputCapacityException("The complete frozen input, safety margin and final answer need approximately $total tokens; the selected writer's accepted context is $context. Saved contributions remain available.")
             val digest = combinedDigest(envelope + "|" + protocol + "|" + ProviderRouteCapacity.key(profile))
             return CombinedWriterRequestPlan(
+                version = if (appendContinuations) 2 else 1,
                 planId = digest,
                 profileUid = profile.uid,
                 model = profile.model,
@@ -152,7 +153,7 @@ internal class CombinedWriterDispatchGuard(val plan: CombinedWriterRequestPlan) 
     }
 
     /** Only an application-owned saved cursor can extend the original complete request. */
-    fun authorizeContinuation(snapshot: CombinedInputSnapshot, state: CombinedRecordCheckpoint, profile: PlatformV2, initialTurns: List<ConversationTurn>, continued: List<ConversationTurn>, cursor: String) {
+    fun authorizeContinuation(snapshot: CombinedInputSnapshot, state: CombinedRecordCheckpoint, profile: PlatformV2, initialTurns: List<ConversationTurn>, continued: List<ConversationTurn>, cursor: String, recordContextTokens: Int? = null) {
         require(dev.chungjungsoo.gptmobile.BuildConfig.COMBINED_APPEND_CONTINUATIONS && snapshot.combined?.requested?.appendContinuations == true) { "COMBINED_APPEND_NOT_ACCEPTED" }
         require(snapshot.writerRequestPlan == plan && state.snapshotDigest == snapshot.inputDigest && state.appendReady && !state.ended && state.noProgressAttempts < 2) { "COMBINED_APPEND_CURSOR_UNAVAILABLE" }
         require(state.lastAttemptOutcome in setOf("COMPLETED", "OUTPUT_LIMIT", "KNOWN_PROVIDER_REJECTION")) { "COMBINED_APPEND_REMOTE_COMPLETION_UNKNOWN" }
@@ -166,9 +167,19 @@ internal class CombinedWriterDispatchGuard(val plan: CombinedWriterRequestPlan) 
         val descriptor = Json.parseToJsonElement(cursor) as? JsonObject ?: error("COMBINED_APPEND_CURSOR_INVALID")
         require((descriptor["protocol"] as? JsonPrimitive)?.content == state.protocol && (descriptor["next_sequence"] as? JsonPrimitive)?.intOrNull == state.lastSequence + 1) { "COMBINED_APPEND_CURSOR_INVALID" }
         require((descriptor["committed_ids"] as? JsonArray)?.map { (it as? JsonPrimitive)?.content } == state.records.map { it.id }) { "COMBINED_APPEND_CURSOR_INVALID" }
-        require(continued == dev.chungjungsoo.gptmobile.data.queue.appendFollowUpContext(initialTurns, "\n\nResume the frozen structured answer using this application-owned cursor: $cursor", state.records.joinToString("\n") { it.wire }, emptyList())) { "COMBINED_APPEND_CORPUS_CHANGED" }
-        // The original prompt contains every frozen source. Only the durable cursor and
-        // committed records are added; provider admission still measures all actual bytes.
+        val expected = if (recordContextTokens == null) {
+            dev.chungjungsoo.gptmobile.data.queue.appendFollowUpContext(initialTurns, "\n\nResume the frozen structured answer using this application-owned cursor: $cursor", state.records.joinToString("\n") { it.wire }, emptyList())
+        } else {
+            require(recordContextTokens in 0..4096) { "COMBINED_APPEND_CURSOR_INVALID" }
+            require((descriptor["committed_digest"] as? JsonPrimitive)?.content == combinedRecordDigest(state)) { "COMBINED_APPEND_CURSOR_INVALID" }
+            require((descriptor["snapshot_digest"] as? JsonPrimitive)?.content == state.snapshotDigest && (descriptor["revision_id"] as? JsonPrimitive)?.content == state.revisionId) { "COMBINED_APPEND_CURSOR_INVALID" }
+            require((descriptor["committed_visible_words"] as? JsonPrimitive)?.intOrNull == CombinedWordCounter.count(combinedRecordVisibleText(state))) { "COMBINED_APPEND_CURSOR_INVALID" }
+            dev.chungjungsoo.gptmobile.data.queue.appendFollowUpContext(initialTurns, combinedRecordContinuationInstruction(cursor, plan.effectiveOutputTokens), combinedRecordContinuationView(state, recordContextTokens), emptyList())
+        }
+        require(continued == expected) { "COMBINED_APPEND_CORPUS_CHANGED" }
+        // Every frozen source remains intact. The cursor binds all complete records;
+        // only the generated answer's model-facing view is bounded. Wire admission
+        // measures the complete continued request before the next physical dispatch.
         prepared.set(false)
         admittedPlan.set(
             plan.copy(
@@ -182,8 +193,8 @@ internal class CombinedWriterDispatchGuard(val plan: CombinedWriterRequestPlan) 
 }
 
 /** Shared by the frozen plan, initial writer, explicit retry and successor writer. */
-internal fun combinedWriterSystemPrompt(base: String?, protocol: String, request: String): String =
-    listOf(base.orEmpty(), combinedEditorialInstruction(protocol, request)).filter(String::isNotBlank).joinToString("\n\n")
+internal fun combinedWriterSystemPrompt(base: String?, protocol: String, request: String, appendContinuations: Boolean = false): String =
+    listOf(base.orEmpty(), combinedEditorialInstruction(protocol, request, appendContinuations)).filter(String::isNotBlank).joinToString("\n\n")
 
 /** Match actual history selection, including selected revisions and undelivered Combined turns. */
 internal fun combinedWriterHistory(history: List<MessageV2>, replies: List<List<MessageV2>>, profileUid: String): List<String> =

@@ -40,6 +40,21 @@ class FreeQueuedTransportTest {
         assertNull(queueContinuationPrefixDigest(request("automatic"), "provider_output_limit_continuation"))
     }
 
+    @Test fun boundedTailContinuationUsesTheCompleteSavedPrefixIdentityInsteadOfAnOlderAssistantMessage() {
+        val completeDraft = "Retained answer paragraph. ".repeat(200)
+        val digest = dev.chungjungsoo.gptmobile.data.research.researchHash(completeDraft)
+        val continuation = request("automatic").copy(
+            messages = listOf(
+                ChatMessage(Role.USER, listOf(TextContent("Earlier unrelated question"))),
+                ChatMessage(Role.ASSISTANT, listOf(TextContent("Older unrelated answer"))),
+                ChatMessage(Role.USER, listOf(TextContent("Continue the current task from this bounded tail: ${completeDraft.takeLast(100)}")))
+            )
+        )
+        assertEquals(digest, queueContinuationPrefixDigest(continuation, "requested_length_continuation", digest))
+        assertNull(queueContinuationPrefixDigest(continuation, "primary", digest))
+        assertThrows(IllegalArgumentException::class.java) { queueContinuationPrefixDigest(continuation, "requested_length_continuation", "invalid") }
+    }
+
     @Test fun resumedPollingCannotResetTheAcceptedJobDeadline() {
         assertEquals(500L, queueRemainingWaitMillis(1000, 1200500, 1200, null))
         assertEquals(200L, queueRemainingWaitMillis(1000, 1200500, 1200, 200))
@@ -517,14 +532,19 @@ class FreeQueuedTransportTest {
             every { network.invoke() } returns client
             val api = OpenAIAPIImpl(network)
             val config = ProviderRequestConfig(FreeAiProvider.AI_HORDE.apiUrl, null, freeProvider = FreeAiProvider.AI_HORDE, queueScope = java.util.UUID.randomUUID().toString(), profileUid = "horde")
-            assertNotNull(api.streamChatCompletion(request("automatic"), 30, config).toList().last().error)
+            val interrupted = api.streamChatCompletion(request("automatic"), 30, config).toList()
+            assertNotNull(interrupted.last().error)
+            assertEquals(listOf(256), interrupted.mapNotNull { it.serializedOutputTokens })
             val result = api.streamChatCompletion(request("automatic"), 30, config).toList()
             assertEquals(1, posts)
+            assertEquals(listOf(256), result.mapNotNull { it.serializedOutputTokens })
             assertEquals("A cloud folds its silver map.", result.last().choices!!.single().delta.content)
             assertEquals("worker/model", result.last().model)
             assertNull(result.last().usage)
             // Checking the same persisted generation can reuse its result; Generate again cannot.
-            api.streamChatCompletion(request("automatic"), 30, config).toList()
+            val cached = api.streamChatCompletion(request("automatic"), 30, config).toList()
+            assertEquals(listOf(256), cached.mapNotNull { it.serializedOutputTokens })
+            assertEquals("queue_complete", cached.last().choices!!.single().finishReason)
             assertEquals(1, posts)
             api.streamChatCompletion(request("automatic"), 30, config.copy(queueScope = java.util.UUID.randomUUID().toString())).toList()
             assertEquals(2, posts)

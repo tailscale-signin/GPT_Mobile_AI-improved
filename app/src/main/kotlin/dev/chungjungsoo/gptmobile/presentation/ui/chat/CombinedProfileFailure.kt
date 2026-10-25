@@ -43,6 +43,7 @@ internal fun CombinedProfileFailure.shortStatus(now: Long): String = when {
         "Rate limited · $countdown left"
     }
     category == "RATE_LIMIT" && retryAfterMillis != null -> "Retry available"
+    category == "RATE_LIMIT" -> "Paused by provider limit"
     category.contains("INCOMPLETE") || category.contains("OUTPUT") || reason.contains("incomplete", true) -> "Reply incomplete"
     else -> "Unavailable"
 }
@@ -58,13 +59,14 @@ internal fun combinedProfileFailures(
     val uid = message.platformType ?: return@mapNotNull null
     if (message.isCombinedSynthesis()) return@mapNotNull null
     val run = runs[message.currentRunId] ?: return@mapNotNull null
-    if (run.status in setOf(AgentRunStatus.QUEUED, AgentRunStatus.RUNNING, AgentRunStatus.WAITING_PROVIDER_LIMIT)) return@mapNotNull null
+    if (run.status in setOf(AgentRunStatus.QUEUED, AgentRunStatus.RUNNING)) return@mapNotNull null
+    val waitingForLimit = run.status == AgentRunStatus.WAITING_PROVIDER_LIMIT
     val generation = message.timeline.lastOrNull { it.generation != null }?.generation
     val content = CombinedContributionQuality.sanitizeContribution(message.content)
     val demo = uid == "builtin-free-porchlm" || names[uid]?.contains("PorchLM", true) == true || models[uid]?.contains("porch", true) == true
     val assessed = CombinedContributionUsability.assess(run.status, content, allowPartial = true, request = request, demo = demo, finishReason = generation?.finishReason, outputTokens = generation?.outputTokens, outputAllowance = generation?.outputAllowance ?: 256.takeIf { uid == "builtin-free-ai_horde" })
     if (run.status == AgentRunStatus.COMPLETED && assessed.admitted && !assessed.usablePartial) return@mapNotNull null
-    val details = run.terminalError ?: assessed.reason ?: "Incomplete contribution"
+    val details = run.terminalError ?: if (waitingForLimit) "Provider rate limit. This profile is paused and has not completed its contribution." else assessed.reason ?: "Incomplete contribution"
     val savedPolicyUnavailable = details.contains("POLICY_SNAPSHOT_", ignoreCase = true)
     val classified = message.timeline.lastOrNull { it.profileFailure != null }?.profileFailure
         ?.takeUnless { demo || savedPolicyUnavailable } ?: dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.classify(details, demoExcluded = demo)
@@ -72,6 +74,7 @@ internal fun combinedProfileFailures(
     val incompatible = !classified.retryAllowed
     val retryAt = classified.retryAfterMillis
     val reason = when {
+        waitingForLimit -> "This profile is paused by a provider limit. Wait for its allowance or combine the available replies without this profile for this turn."
         run.status == AgentRunStatus.WAITING_REMOTE_JOB || classified.category == "QUEUED_JOB" -> "The remote job is still queued or generating. Check its saved status or continue without this profile."
         classified.category == "CACHED_UNUSABLE_RESPONSE" -> "The provider replayed the same cached generation without an answer. Choose a different model, supported settings or provider."
         savedPolicyUnavailable || classified.category == "SAVED_POLICY_UNAVAILABLE" -> "Saved request data is unavailable. Restore its complete backup or start a new request; other replies are saved."

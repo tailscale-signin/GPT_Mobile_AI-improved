@@ -45,12 +45,12 @@ internal class CombinedRecordRecoverySession(
                     emit(ProviderEvent.Failed("COMBINED_APPEND_PROVIDER_WAIT: The saved provider reset deadline has not arrived.", errorCode = "COMBINED_APPEND_PROVIDER_WAIT"))
                     return@flow
                 }
-                if (continuations >= maxContinuations || noProgress >= 2 || checkpoint.failure != null && !protocol.canRecoverMalformed) {
+                if (continuations >= maxContinuations || noProgress >= 2 || checkpoint.failure != null && !protocol.canRecoverMalformed && !protocol.canContinueUnderlength) {
                     emit(ProviderEvent.Failed("${checkpoint.failure ?: "COMBINED_RECORD_RECOVERY_LIMIT"}: Saved records remain available; this stream requires an explicit new revision."))
                     return@flow
                 }
                 validateAccess()
-                val context = protocol.continuationContext(repairMalformed = protocol.canRecoverMalformed)
+                val context = protocol.continuationContext(repairMalformed = protocol.canRecoverMalformed, continueUnderlength = protocol.canContinueUnderlength)
                 save(protocol.checkpoint())
                 continuations++
                 active = continuation(protocol.checkpoint(), context)
@@ -126,7 +126,11 @@ internal class CombinedRecordRecoverySession(
                 failure = ProviderEvent.Failed("OUTPUT_PROTOCOL_INVALID: ${error.message.orEmpty()}", errorCode = "OUTPUT_PROTOCOL_INVALID")
             }
             if (rejectedRecord != null && failure == null) {
-                failure = ProviderEvent.Failed("OUTPUT_PROTOCOL_INVALID: ${rejectedRecord?.message.orEmpty()}", errorCode = "OUTPUT_PROTOCOL_INVALID", transportComplete = complete)
+                failure = if (protocol.canContinueUnderlength) {
+                    ProviderEvent.Failed("COMBINED_LENGTH_REQUIREMENT_UNMET: The saved answer ended before its requested length was met.", errorCode = "COMBINED_LENGTH_REQUIREMENT_UNMET", transportComplete = complete)
+                } else {
+                    ProviderEvent.Failed("OUTPUT_PROTOCOL_INVALID: ${rejectedRecord?.message.orEmpty()}", errorCode = "OUTPUT_PROTOCOL_INVALID", transportComplete = complete)
+                }
             }
             fun passageText(record: CombinedCommittedRecord): String? {
                 val parsed = kotlinx.serialization.json.Json.parseToJsonElement(record.wire) as? kotlinx.serialization.json.JsonObject
@@ -166,9 +170,9 @@ internal class CombinedRecordRecoverySession(
                 emit(requireNotNull(failure))
                 return@flow
             }
-            val recoverable = (protocol.canRecoverMalformed || outputLimit || (failure == null && complete && !after.ended)) && (!acceptedAppend || after.appendReady)
+            val recoverable = (protocol.canRecoverMalformed || protocol.canContinueUnderlength || outputLimit || (failure == null && complete && !after.ended)) && (!acceptedAppend || after.appendReady)
             noProgress = if (passagesAdded == 0) noProgress + 1 else 0
-            if (!recoverable || continuations >= maxContinuations || noProgress >= 2 || after.failure != null && !protocol.canRecoverMalformed) {
+            if (!recoverable || continuations >= maxContinuations || noProgress >= 2 || after.failure != null && !protocol.canRecoverMalformed && !protocol.canContinueUnderlength) {
                 emit(
                     if (reasoningObserved && passagesAdded == 0 && (noProgress >= 2 || continuations >= maxContinuations)) {
                         ProviderEvent.Failed("COMBINED_WRITER_STALLED: Reasoning consumed the allowance without completed answer passages. Retained contributions remain available; an explicit user retry is required.", errorCode = "COMBINED_WRITER_STALLED")
@@ -183,7 +187,7 @@ internal class CombinedRecordRecoverySession(
                 return@flow
             }
             validateAccess()
-            val context = (if (!acceptedAppend && reasoningObserved && passagesAdded == 0) "WRITER_RECOVERY_DIRECT: The previous attempt produced reasoning without an answer passage. Do not repeat analysis or inventory accounting. Write the next complete, short answer paragraph immediately, following the current task and outline. Emit decisions only for material disagreements. " else "") + protocol.continuationContext(repairMalformed = protocol.canRecoverMalformed)
+            val context = (if (!acceptedAppend && reasoningObserved && passagesAdded == 0) "WRITER_RECOVERY_DIRECT: The previous attempt produced reasoning without an answer passage. Do not repeat analysis or inventory accounting. Write the next complete, short answer paragraph immediately, following the current task and outline. Emit decisions only for material disagreements. " else "") + protocol.continuationContext(repairMalformed = protocol.canRecoverMalformed, continueUnderlength = protocol.canContinueUnderlength)
             save(protocol.checkpoint())
             continuations++
             emit(ProviderEvent.Notice("Continuing the unfinished answer from saved record ${after.lastSequence + 1}."))

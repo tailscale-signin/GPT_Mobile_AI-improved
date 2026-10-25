@@ -58,10 +58,17 @@ internal object CombinedContributionUsability {
         val dangling = Regex("(?i)\\b(?:a|an|the|and|or|of|to|by|with|were|was|including|because|such as)$").containsMatchIn(content)
         val queueTail = finishReason == "queue_complete" && prose && usableWords >= 12 && !Regex("[.!?][\"'’”)\\]]*$").containsMatchIn(content)
         val clipped = finishReason in setOf("length", "max_tokens", "MAX_TOKENS") || dangling || queueTail || unfinishedSyntax && (nearCap || task?.historicalSurvey == true)
-        val requestedItems = request?.let { dev.chungjungsoo.gptmobile.data.agent.CombinedAnswerPolicy.from(it).requestedItems }
+        val answerPolicy = request?.let { dev.chungjungsoo.gptmobile.data.agent.CombinedAnswerPolicy.from(it) }
+        val requestedItems = answerPolicy?.requestedItems
         val actualItems = Regex("(?m)^ {0,3}(?:[0-9]+[.)]|[-*+])\\s+\\S").findAll(content).count()
         val incompleteItems = requestedItems != null && requestedItems > 1 && actualItems < requestedItems
-        val partial = terminalFailure || clipped || incompleteItems
+        val minimumWords = answerPolicy?.let { policy ->
+            policy.minimumWords ?: policy.targetWords?.let { target ->
+                if (policy.exactWords) target else (target - maxOf(2, target * policy.approximateTolerancePercent / 100)).coerceAtLeast(0)
+            }
+        }
+        val incompleteLength = minimumWords != null && dev.chungjungsoo.gptmobile.data.agent.CombinedWordCounter.count(content) < minimumWords
+        val partial = terminalFailure || clipped || incompleteItems || incompleteLength
         val completeness = when {
             partial -> "PARTIAL"
             finishReason in setOf("stop", "end_turn", "STOP") -> "COMPLETE"

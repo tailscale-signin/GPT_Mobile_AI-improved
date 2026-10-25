@@ -535,6 +535,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                         token = activeKey.takeIf { it.isNotBlank() && (platform.compatibleType != ClientType.FREE || dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.requireFor(platform).acceptsUserToken) },
                         queueScope = constraints.queueScope ?: constraints.combined?.rootBudgetId ?: constraints.attemptId,
                         queuePersistent = constraints.queuePersistent,
+                        continuationPrefixDigest = constraints.continuationPrefixDigest,
                         freeProvider = if (platform.compatibleType == ClientType.FREE) dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.requireFor(platform) else null,
                         extraHeaders = (if (isOpenRouter) dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterPolicy.headers(routerSettings, constraints.freshResponse || freshOnce, !requestTools.isNullOrEmpty()) else emptyMap()) + llamaGatewayHeaders,
                         openRouterReceipt = if (isOpenRouter) {

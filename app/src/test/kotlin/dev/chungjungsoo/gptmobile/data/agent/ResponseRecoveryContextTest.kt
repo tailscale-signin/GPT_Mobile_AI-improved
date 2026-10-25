@@ -16,6 +16,93 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ResponseRecoveryContextTest {
+    @Test fun typedAnswerContinuationAvoidsEmbeddingTheSameDraftInTheRequiredCurrentTask() = runTest {
+        var allowed = true
+        val answer = "Saved answer paragraph. ".repeat(2000)
+        val message = MessageV2(id = 2, chatId = 1, content = answer, platformType = run.profileUid, currentRunId = run.runId)
+        val recovery = ResponseRecoveryContext(listOf(run), listOf(message), emptyList(), authorization = { allowed })
+        val prefix = recovery.authorizedPrefix(384, pagingAvailable = false, answerContinuation = true) as RecoveryPrefix.Allowed
+        assertTrue(prefix.text.length <= 384)
+        assertFalse(prefix.text.contains("Saved answer paragraph."))
+        assertEquals(answer, recovery.authorizedAnswer())
+        allowed = false
+        assertTrue(recovery.authorizedPrefix(384, pagingAvailable = false, answerContinuation = true) is RecoveryPrefix.Blocked)
+    }
+
+    @Test fun compactAnswerContinuationDoesNotReplaceSavedToolReceiptsWithAnAnswerOnlyPrefix() = runTest {
+        val message = MessageV2(id = 2, chatId = 1, content = "Saved answer.", platformType = run.profileUid, currentRunId = run.runId)
+        val event = ToolEvent("receipt", run.runId, 0, "old-call", null, "Tool", "lookup", "lookup", "{}", "Saved evidence", "TEXT", "COMPLETED")
+        val recovery = ResponseRecoveryContext(listOf(run), listOf(message), listOf(event))
+        val prefix = recovery.authorizedPrefix(384, pagingAvailable = false, answerContinuation = true) as RecoveryPrefix.Allowed
+        assertEquals(recovery.prefix(384, pagingAvailable = false), prefix.text)
+    }
+
+    @Test fun aContinuationDraftRetainsExactWhitespaceForItsSavedPrefixIdentity() = runTest {
+        val retained = "  Retained paragraph.\n\n"
+        val message = MessageV2(id = 2, chatId = 1, content = retained, platformType = run.profileUid, currentRunId = run.runId)
+        assertEquals(retained, ResponseRecoveryContext(listOf(run), listOf(message), emptyList()).authorizedAnswer())
+        val stopped = message.copy(content = dev.chungjungsoo.gptmobile.util.buildAssistantErrorContent(retained, "Network failure"))
+        assertEquals(retained, ResponseRecoveryContext(listOf(run), listOf(stopped), emptyList()).authorizedAnswer())
+    }
+
+    @Test fun authorizedAnswerRetainsTheLatestUsableDraftAcrossAnEmptyRetryAndRechecksAccess() = runTest {
+        var allowed = true
+        val old = AgentRun("retained", 1, 1, 2, "profile", "FREE", "model", status = "FAILED")
+        val latest = old.copy(runId = "empty-retry", createdAt = old.createdAt + 1)
+        val message = MessageV2(
+            id = 2,
+            chatId = 1,
+            content = "",
+            platformType = old.profileUid,
+            currentRunId = latest.runId,
+            revisions = listOf(AssistantRevision("Saved partial answer.", createdAt = 1, runId = old.runId))
+        )
+        val recovery = ResponseRecoveryContext(listOf(old, latest), listOf(message), emptyList(), authorization = { allowed })
+        assertEquals("Saved partial answer.", recovery.authorizedAnswer())
+        assertFalse(recovery.answerCompleted)
+        val completed = ResponseRecoveryContext(listOf(old.copy(status = "COMPLETED"), latest), listOf(message), emptyList())
+        assertEquals("Saved partial answer.", completed.authorizedAnswer())
+        assertTrue(completed.answerCompleted)
+        allowed = false
+        assertTrue(runCatching { recovery.authorizedAnswer() }.exceptionOrNull() is SavedEvidenceAccessDenied)
+    }
+
+    @Test fun recoveryReaderAcceptsDecimalStringOffsetsThroughTheRealToolValidationBoundary() = runTest {
+        val message = MessageV2(id = 2, chatId = 1, content = "Retained Portugal history paragraph.", platformType = "old-profile", currentRunId = run.runId)
+        val recovery = ResponseRecoveryContext(listOf(run), listOf(message), emptyList())
+        val tool = ToolExecutionBudget(AgentRunLimits()).bind(recovery.tool())
+        val result = tool.execute(
+            "string-offset",
+            buildJsonObject {
+                put("offset", "0")
+                put("length", "16000")
+            }
+        )
+        assertFalse(result.isError)
+        assertTrue(result.content.toString().contains(message.content))
+        val numeric = tool.execute(
+            "numeric-offset",
+            buildJsonObject {
+                put("offset", 0)
+                put("length", 16000)
+            }
+        )
+        assertFalse(numeric.isError)
+        assertEquals(result.content, numeric.content)
+    }
+
+    @Test fun recoveryReaderRejectsInvalidRangesInsteadOfFallingBackToTheStartOfTheCorpus() = runTest {
+        val recovery = ResponseRecoveryContext(emptyList(), emptyList(), emptyList())
+        val reader = recovery.tool()
+        for (value in listOf("-1", "1.5", "1e3", "2147483648", " ", "null")) {
+            val result = reader.execute("bad-offset", buildJsonObject { put("offset", value) })
+            assertTrue("Accepted invalid offset $value", result.isError)
+        }
+        for (value in listOf("0", "16001", "100000", "-1")) {
+            assertTrue(reader.execute("bad-length", buildJsonObject { put("length", value) }).isError)
+        }
+    }
+
     @Test fun healthToolsAlwaysPerformAFreshPermissionCheckedReadOnRecovery() = runTest {
         var calls = 0
         val tool = object : AgentTool {

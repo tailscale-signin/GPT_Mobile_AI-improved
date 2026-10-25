@@ -16,6 +16,16 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CombinedEditorialPreparationTest {
+    @Test fun longContributorTargetSurvivesASmallerPerRequestProviderAllowance() {
+        val provider = dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.POLLINATIONS.applyTo(PlatformV2(uid = "p", name = "Pollinations"))
+        val request = CombinedPolicyResolver.accept(ConversationCombinedSettings(), listOf("p"), mapOf("p" to provider.model), "The history of Portugal in 5000 words", singlePass = true)
+        val instruction = combinedContributorInstruction(provider, CombinedExecutionContext(request, rootBudgetId = "turn", profileUid = "p"))
+        assertTrue(instruction.contains("1500 generation tokens per request"))
+        assertTrue(instruction.contains("complete response target is 5000 words"))
+        assertTrue(instruction.contains("continuations append to the same answer"))
+        assertFalse(instruction.contains("keep all requested items concise enough to finish within it"))
+    }
+
     @Test fun acceptedSinglePassContributorsHaveComplementaryEmphasisAndStillOwnTheWholeRequest() {
         val request = CombinedPolicyResolver.accept(ConversationCombinedSettings(), listOf("a", "b", "c"), emptyMap(), "List 10 reasons", singlePass = true)
         val instructions = request.participantUids.map { uid ->

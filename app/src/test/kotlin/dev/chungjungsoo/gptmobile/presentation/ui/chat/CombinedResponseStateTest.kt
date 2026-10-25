@@ -285,10 +285,13 @@ class CombinedResponseStateTest {
         status = status
     )
 
-    @org.junit.Test fun durableProviderWaitIsPausedRatherThanAFailedOrGeneratingAnswer() {
+    @org.junit.Test fun durableProviderWaitStaysPausedAndOffersATurnExclusionDecision() {
         val message = dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(id = 2, chatId = 1, content = "", platformType = "p", currentRunId = "waiting")
         val run = dev.chungjungsoo.gptmobile.data.database.entity.AgentRun("waiting", 1, 1, 2, "p", "FREE", "model", status = "WAITING_PROVIDER_LIMIT")
         org.junit.Assert.assertEquals(CombinedResponseStatus.PAUSED, combinedResponseStatus(message, run))
-        org.junit.Assert.assertTrue(combinedProfileFailures(1, "Question", listOf(message), mapOf(run.runId to run), emptyMap(), emptyMap()).isEmpty())
+        val decision = combinedProfileFailures(1, "Question", listOf(message), mapOf(run.runId to run), emptyMap(), emptyMap()).single()
+        org.junit.Assert.assertEquals("RATE_LIMIT", decision.category)
+        org.junit.Assert.assertEquals("Paused by provider limit", decision.shortStatus(0))
+        org.junit.Assert.assertTrue(decision.reason.contains("without this profile for this turn"))
     }
 }

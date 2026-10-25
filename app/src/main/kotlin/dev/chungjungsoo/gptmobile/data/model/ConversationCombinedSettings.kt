@@ -24,7 +24,7 @@ data class ConversationCombinedSettings(
     val revision: Long = 0,
     val creativity: Float? = null,
     val preservedFields: JsonObject = JsonObject(emptyMap()),
-    val continueLongAnswers: Boolean = false
+    val continueLongAnswers: Boolean = true
 ) {
     val isSupported: Boolean get() = schemaVersion in 0..CURRENT_SCHEMA
 

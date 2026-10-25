@@ -57,12 +57,15 @@ internal class FreeQueuedTransport(private val client: HttpClient, private val p
         // the accepted receipt even when volunteer availability changes.
         val identityPayload = if (provider == FreeAiProvider.AI_HORDE) hordePayload(request, prompt) else gradioPayload(request, prompt)
         var payload = identityPayload
+        var allowanceEmitted = false
         // Scope and payload identify accepted work. Current permission is revalidated
         // before polling; changing it must not cause a duplicate submission.
         val scope = config.queueScope ?: context[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.queueScope ?: java.util.UUID.randomUUID().toString()
-        val key = researchHash("$scope|${config.profileUid}|${config.permissionRevision}|${provider.name}|${config.queuePersistent}|$identityPayload")
-        val requestKey = researchHash("$scope|${config.profileUid}|${provider.name}|${config.queuePersistent}|$identityPayload")
-        val submission = FreeQueueJob(key, chatId = scope.substringBefore(':').toIntOrNull(), protocol = if (provider == FreeAiProvider.HUGGING_FACE) "GRADIO_CALL_V2" else "HORDE", ownerRunId = context[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.queueScope, profileUid = config.profileUid, requestedModel = request.model, requestKey = requestKey, requestRole = config.requestRole, continuationPrefixDigest = queueContinuationPrefixDigest(request, config.requestRole), invocationId = context[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.queueInvocationId)
+        val prefixDigest = queueContinuationPrefixDigest(request, config.requestRole, config.continuationPrefixDigest)
+        val prefixIdentity = config.continuationPrefixDigest?.let { "|$it" }.orEmpty()
+        val key = researchHash("$scope|${config.profileUid}|${config.permissionRevision}|${provider.name}|${config.queuePersistent}|$identityPayload$prefixIdentity")
+        val requestKey = researchHash("$scope|${config.profileUid}|${provider.name}|${config.queuePersistent}|$identityPayload$prefixIdentity")
+        val submission = FreeQueueJob(key, chatId = scope.substringBefore(':').toIntOrNull(), protocol = if (provider == FreeAiProvider.HUGGING_FACE) "GRADIO_CALL_V2" else "HORDE", ownerRunId = context[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.queueScope, profileUid = config.profileUid, requestedModel = request.model, requestKey = requestKey, requestRole = config.requestRole, continuationPrefixDigest = prefixDigest, invocationId = context[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.queueInvocationId)
         FreeQueueJobs.withJob(requestKey) {
             var job = FreeQueueJobs.read(key, config.queuePersistent) ?: FreeQueueJobs.forRequest(requestKey, config.queuePersistent)
             if (job == null && submission.ownerRunId != null && submission.chatId != null && submission.profileUid != null) {
@@ -112,6 +115,7 @@ internal class FreeQueuedTransport(private val client: HttpClient, private val p
                 }
                 if (job.answer != null) {
                     context[RequestAuthorizationGuard]?.validate?.invoke()
+                    hordeOutputAllowance(provider, identityPayload)?.let { emit(ChatCompletionChunk(serializedOutputTokens = it)) }
                     deliver(requireNotNull(job.answer), job.servedModel, provider, emit, verifiedGeneration = false)
                     return@withJob
                 }
@@ -136,8 +140,12 @@ internal class FreeQueuedTransport(private val client: HttpClient, private val p
                         // The simplified /call result route uses event_id as its session key.
                         // Supplying our cache key as session_hash makes Gradio 5.27 return 404.
                         val actualPayload = payload
-                        val wire = preparation.prepareQueued(actualPayload.toString(), config, request.model, if (provider == FreeAiProvider.AI_HORDE && request.model != "horde-image") ((actualPayload["params"] as? JsonObject)?.get("max_length") as? JsonPrimitive)?.intOrNull else null)
-                        if (config.captureGenerationReceipt || config.requestRole == "synthesis") config.freeDiagnostics?.admission?.outputTokens?.toInt()?.let { emit(ChatCompletionChunk(serializedOutputTokens = it)) }
+                        val outputAllowance = hordeOutputAllowance(provider, actualPayload)
+                        val wire = preparation.prepareQueued(actualPayload.toString(), config, request.model, outputAllowance)
+                        (config.freeDiagnostics?.admission?.outputTokens?.toInt() ?: outputAllowance)?.let {
+                            emit(ChatCompletionChunk(serializedOutputTokens = it))
+                            allowanceEmitted = true
+                        }
                         config.freeDiagnostics?.stage = "submission"
                         val response = FreeAiRequestLimiter.shared.withRequest(provider, request.model) {
                             context[WorkerRequestBudget]?.acquireRequest()
@@ -162,6 +170,11 @@ internal class FreeQueuedTransport(private val client: HttpClient, private val p
                         job = submission.copy(id = id, state = "QUEUED")
                         context[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.queueJob("${provider.name}:$id", resumed = false)
                         FreeQueueJobs.save(requireNotNull(job), config.queuePersistent)
+                    }
+                    // A resumed accepted job has no new preparation event. Its request
+                    // identity still binds the original serialized per-segment allowance.
+                    if (!allowanceEmitted) {
+                        hordeOutputAllowance(provider, identityPayload)?.let { emit(ChatCompletionChunk(serializedOutputTokens = it)) }
                     }
                     FreeCatalogState.recordAccepted(provider)
                     config.freeDiagnostics?.apply {
@@ -479,6 +492,8 @@ internal class FreeQueuedTransport(private val client: HttpClient, private val p
 
     companion object {
         private const val HORDE_CLIENT = "GPT-Mobile:1:https://github.com/tailscale-signin/GPT_Mobile_AI-improved"
+        private fun hordeOutputAllowance(provider: FreeAiProvider, payload: JsonObject): Int? =
+            if (provider == FreeAiProvider.AI_HORDE) ((payload["params"] as? JsonObject)?.get("max_length") as? JsonPrimitive)?.intOrNull else null
         internal fun textPrompt(request: ChatCompletionRequest): String = request.messages.joinToString("\n\n") { message ->
             require(message.toolCalls.isNullOrEmpty() && message.content.orEmpty().all { it is TextContent }) { "Queued Free services accept text only; client tool calls and attachments are unavailable." }
             "${message.role.name.lowercase()}: ${message.content.orEmpty().filterIsInstance<TextContent>().joinToString("\n") { it.text }}"
@@ -547,8 +562,12 @@ internal class QueueTerminalFailure(message: String, val remoteTerminal: Boolean
 
 internal class QueuePendingFailure(val jobId: String, message: String) : FreeProviderException(FreeFailureCategory.QUEUE_JOB_PENDING, "QUEUE_JOB_PENDING: $message")
 
-internal fun queueContinuationPrefixDigest(request: ChatCompletionRequest, role: String): String? {
+internal fun queueContinuationPrefixDigest(request: ChatCompletionRequest, role: String, retainedPrefixDigest: String? = null): String? {
     if (!role.contains("continuation")) return null
+    retainedPrefixDigest?.let {
+        require(it.matches(Regex("[a-f0-9]{64}"))) { "Invalid saved continuation prefix digest" }
+        return it
+    }
     return request.messages.lastOrNull { it.role == dev.chungjungsoo.gptmobile.data.dto.openai.common.Role.ASSISTANT }?.content
         ?.takeIf { it.all { content -> content is TextContent } }?.filterIsInstance<TextContent>()
         ?.joinToString("\n") { it.text }?.takeIf(String::isNotBlank)?.let(::researchHash)

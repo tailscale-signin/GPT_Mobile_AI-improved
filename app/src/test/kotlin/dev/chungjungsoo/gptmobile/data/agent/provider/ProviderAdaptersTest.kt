@@ -78,6 +78,21 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 class ProviderAdaptersTest {
+    @Test fun freeContinuationPreservesFullAnswerDigestOutsideTheBoundedWirePrompt() = runBlocking {
+        val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(flowOf(ChatCompletionChunk(choices = listOf(Choice(delta = Delta(content = "Continued answer."), finishReason = "stop")))))))
+        val digest = dev.chungjungsoo.gptmobile.data.research.researchHash("Full committed answer which is not replayed in the wire prompt.")
+        val provider = dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.AI_HORDE
+        OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+            .openSession(
+                turns(),
+                platform(ClientType.FREE).copy(apiUrl = provider.apiUrl, model = "automatic"),
+                RequestConstraints(allowTools = false, requestRole = "requested_length_continuation", continuationPrefixDigest = digest)
+            ).streamRound(emptyList(), emptyList()).toList()
+        assertEquals(digest, api.configs.single().continuationPrefixDigest)
+        assertEquals("requested_length_continuation", api.configs.single().requestRole)
+        assertFalse(requestJson(api.chatRequests.single()).toString().contains(digest))
+    }
+
     @Test fun compatibleWriterBindsServedRouteBeforePublishingUsage() = runBlocking {
         val profile = platform(ClientType.CUSTOM).copy(model = "auto-route", maxTokens = 8192)
         val key = dev.chungjungsoo.gptmobile.data.agent.CombinedWriterObservations.key(profile)

@@ -15,10 +15,13 @@ data class ProviderLimitDecision(
     val category: String,
     val knownNotAccepted: Boolean,
     val failureId: String? = null,
-    val authority: dev.chungjungsoo.gptmobile.data.context.CapturedProviderAuthority? = null
+    val authority: dev.chungjungsoo.gptmobile.data.context.CapturedProviderAuthority? = null,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val continuationPrefixDigest: String? = null
 ) {
     init {
         require(retryAt > 0 && scope.isNotBlank() && provider.isNotBlank())
+        require(continuationPrefixDigest == null || continuationPrefixDigest.matches(Regex("[a-f0-9]{64}")))
     }
 }
 
@@ -48,7 +51,10 @@ internal fun providerLimitDecision(profile: PlatformV2, outcome: FreePreflightOu
 }
 
 internal fun providerLimitDecision(config: ProviderRequestConfig, model: String, receivedPayload: Boolean, error: Exception): ProviderLimitDecision? {
-    (error as? FreeProviderException)?.providerLimit?.let { return if (receivedPayload) it.copy(knownNotAccepted = false) else it }
+    val prefixDigest = config.continuationPrefixDigest?.takeIf { !receivedPayload && config.requestRole.contains("continuation") }
+    (error as? FreeProviderException)?.providerLimit?.let {
+        return if (receivedPayload) it.copy(knownNotAccepted = false, continuationPrefixDigest = null) else it.copy(continuationPrefixDigest = prefixDigest.takeIf { _ -> it.knownNotAccepted })
+    }
     val provider = config.freeProvider ?: return null
     val category = config.freeDiagnostics?.category ?: freeFailureCategory(error)
     if (category !in setOf(FreeFailureCategory.LOCAL_COOLDOWN_ACTIVE, FreeFailureCategory.LOCAL_ALLOWANCE_EXHAUSTED, FreeFailureCategory.PROVIDER_RATE_LIMITED)) return null
@@ -67,6 +73,7 @@ internal fun providerLimitDecision(config: ProviderRequestConfig, model: String,
         FreeAiRequestLimiter.shared.activeQuotaScopeKey(provider, model, identity),
         category.name,
         !receivedPayload && config.freeDiagnostics?.jobId == null && (localRejection || rejectedHttp),
-        cooldown?.originatingFailureId
+        cooldown?.originatingFailureId,
+        continuationPrefixDigest = prefixDigest.takeIf { localRejection || rejectedHttp }
     )
 }

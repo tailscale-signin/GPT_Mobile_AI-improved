@@ -85,7 +85,8 @@ internal fun combinedResponseProfiles(
     profileNames: Map<String, String>,
     participatingUids: Set<String>,
     preparing: Boolean,
-    runsById: Map<String, AgentRun>
+    runsById: Map<String, AgentRun>,
+    cache: CombinedResponseProfileCache? = null
 ): List<CombinedResponseProfile> {
     val synthesis = responses.firstOrNull { it.isCombinedSynthesis() }
     val sources = synthesis?.effectiveCombinedSources().orEmpty().associateBy { it.platformUid }
@@ -96,7 +97,9 @@ internal fun combinedResponseProfiles(
     } else {
         (platformUids + responses.mapNotNull { it.platformType } + sources.keys).distinct()
     }
-    return uids.filter { it in participatingUids }.mapIndexedNotNull { order, uid ->
+    val visibleUids = uids.filter { it in participatingUids }
+    cache?.retainProfiles(visibleUids.toSet())
+    return visibleUids.mapIndexedNotNull { order, uid ->
         val index = responses.indexOfFirst { it.platformType == uid && !it.isCombinedSynthesis() }.takeIf { it >= 0 } ?: responses.indexOfFirst { it.platformType == uid }
         val original = responses.getOrNull(index)
         val source = sources[uid]
@@ -104,36 +107,46 @@ internal fun combinedResponseProfiles(
             !it.currentRunId.isNullOrBlank() || it.content.isNotBlank() || it.thoughts.isNotBlank()
         } == true
         if (source == null && !hasResponse && !(preparing && uid in participatingUids)) return@mapIndexedNotNull null
-        val response = source?.let { sourceMessage(original, it) }
-            ?: original?.let { latest ->
-                if (latest.currentRunId?.let { runsById[it]?.status } in setOf(AgentRunStatus.FAILED, AgentRunStatus.INTERRUPTED, AgentRunStatus.CANCELED)) {
-                    selectCombinedContribution(latest, runsById, null).message.copy(activeRevisionIndex = ACTIVE_REVISION_LATEST)
-                } else {
-                    latest.copy(activeRevisionIndex = ACTIVE_REVISION_LATEST)
-                }
-            }
-        val run = response?.currentRunId?.let(runsById::get)
+        val projection = cache?.projection(uid, original, source, preparing, runsById)
+            ?: combinedResponseProjection(original, source, preparing, runsById)
         CombinedResponseProfile(
             uid = uid,
             name = combinedProfileLabel(source?.platformName ?: profileNames[uid].orEmpty(), "AI ${order + 1}"),
             assistantIndex = index.takeIf { it >= 0 } ?: platformUids.indexOf(uid),
-            message = response,
-            status = if (source != null && source.content.isEmpty() && source.sourceDigest.isNotBlank() && response?.content.isNullOrBlank()) {
-                when (source.completionStatus) {
-                    AgentRunStatus.COMPLETED -> CombinedResponseStatus.COMPLETED
-                    AgentRunStatus.QUEUED, AgentRunStatus.RUNNING -> CombinedResponseStatus.GENERATING
-                    AgentRunStatus.WAITING_PROVIDER_LIMIT, AgentRunStatus.WAITING_REMOTE_JOB -> CombinedResponseStatus.PAUSED
-                    else -> CombinedResponseStatus.FAILED
-                }
-            } else if (run?.status == AgentRunStatus.COMPLETED && response != null && CombinedContributionUsability.assess(run.status, response.content, allowPartial = true, finishReason = response.timeline.lastOrNull { it.generation != null }?.generation?.finishReason).usablePartial) {
-                CombinedResponseStatus.FAILED
-            } else if (run == null && source?.completionStatus in setOf(AgentRunStatus.FAILED, AgentRunStatus.INTERRUPTED, AgentRunStatus.CANCELED)) {
-                CombinedResponseStatus.FAILED
-            } else {
-                combinedResponseStatus(response, run, preparing && source == null && run == null && uid in participatingUids)
-            }
+            message = projection.message,
+            status = projection.status
         )
     }
+}
+
+internal data class CombinedResponseProjection(val message: MessageV2?, val status: CombinedResponseStatus)
+
+/** The expensive archived selection and prose assessment are independent of sibling streams. */
+internal fun combinedResponseProjection(original: MessageV2?, source: CombinedModelResponse?, preparing: Boolean, runsById: Map<String, AgentRun>): CombinedResponseProjection {
+    val response = source?.let { sourceMessage(original, it) }
+        ?: original?.let { latest ->
+            if (latest.currentRunId?.let { runsById[it]?.status } in setOf(AgentRunStatus.FAILED, AgentRunStatus.INTERRUPTED, AgentRunStatus.CANCELED)) {
+                selectCombinedContribution(latest, runsById, null).message.copy(activeRevisionIndex = ACTIVE_REVISION_LATEST)
+            } else {
+                latest.copy(activeRevisionIndex = ACTIVE_REVISION_LATEST)
+            }
+        }
+    val run = response?.currentRunId?.let(runsById::get)
+    val status = if (source != null && source.content.isEmpty() && source.sourceDigest.isNotBlank() && response?.content.isNullOrBlank()) {
+        when (source.completionStatus) {
+            AgentRunStatus.COMPLETED -> CombinedResponseStatus.COMPLETED
+            AgentRunStatus.QUEUED, AgentRunStatus.RUNNING -> CombinedResponseStatus.GENERATING
+            AgentRunStatus.WAITING_PROVIDER_LIMIT, AgentRunStatus.WAITING_REMOTE_JOB -> CombinedResponseStatus.PAUSED
+            else -> CombinedResponseStatus.FAILED
+        }
+    } else if (run?.status == AgentRunStatus.COMPLETED && response != null && CombinedContributionUsability.assess(run.status, response.content, allowPartial = true, finishReason = response.timeline.lastOrNull { it.generation != null }?.generation?.finishReason).usablePartial) {
+        CombinedResponseStatus.FAILED
+    } else if (run == null && source?.completionStatus in setOf(AgentRunStatus.FAILED, AgentRunStatus.INTERRUPTED, AgentRunStatus.CANCELED)) {
+        CombinedResponseStatus.FAILED
+    } else {
+        combinedResponseStatus(response, run, preparing && source == null && run == null)
+    }
+    return CombinedResponseProjection(response, status)
 }
 
 internal fun combinedAnswerStatus(

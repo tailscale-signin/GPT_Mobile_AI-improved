@@ -313,7 +313,7 @@ class CombinedLifecycleIntegrationTest {
 
     @Test fun toolFreeFreeContributorReceivesRoleAndProviderAdjustedAllowance() = runBlocking {
         profiles = listOf(dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.AI_HORDE.applyTo(profiles.first()).copy(model = "horde-text"))
-        val accepted = turn("History of France in 250 words", "France developed through monarchy, revolution and republican government.")
+        val accepted = turn("Briefly summarize the history of France", "France developed through monarchy, revolution and republican government.")
         val wire = requests.single()
         assertEquals(256, wire.maxTokens)
         val text = wire.messages.toString()

@@ -213,6 +213,8 @@ fun ChatScreen(
             onRetry = chatViewModel::retryCombinedProfile,
             onRemove = chatViewModel::removeCombinedFailureProfile,
             onContinue = { chatViewModel.combineAvailableResults(failureTurn) },
+            onDismiss = { chatViewModel.dismissCombinedFailures(failureTurn) },
+            canContinue = chatViewModel.canCombineAvailable(failureTurn),
             onExclude = chatViewModel::excludeCombinedFailureForTurn,
             onCheckQueuedJob = chatViewModel::checkQueuedJob
         )
@@ -401,7 +403,7 @@ fun ChatScreen(
         chatMessagePairKey(message, index) == inspectedCombinedTurn
     }
     val inspectableProfiles = if (inspectedCombinedProfileUid != null) {
-        combinedResponseProfiles(
+        rememberCombinedResponseProfiles(
             responses = groupedMessages.assistantMessages.getOrNull(inspectedTurnIndex).orEmpty(),
             platformUids = chatViewModel.enabledPlatformsInChat,
             profileNames = emptyMap(),
@@ -806,7 +808,7 @@ fun ChatScreen(
                         val turnRow = groupedMessages.assistantMessages.getOrNull(index).orEmpty()
                         val selectedUid = inspectedCombinedProfileUid.takeIf { inspectedCombinedTurn == chatMessagePairKey(message, index) }
                         val owner = if (selectedUid != null) {
-                            combinedResponseProfiles(responses = turnRow, platformUids = chatViewModel.enabledPlatformsInChat, profileNames = appAllPlatforms.associate { it.uid to it.name }, participatingUids = activePlatformUids.toSet(), preparing = false, runsById = agentRunsById).firstOrNull { it.uid == selectedUid }?.message
+                            rememberCombinedResponseProfiles(responses = turnRow, platformUids = chatViewModel.enabledPlatformsInChat, profileNames = appAllPlatforms.associate { it.uid to it.name }, participatingUids = activePlatformUids.toSet(), preparing = false, runsById = agentRunsById).firstOrNull { it.uid == selectedUid }?.message
                         } else if (chatRoom.conversationMode == ConversationMode.COMBINED) {
                             turnRow.firstOrNull { it.isCombinedSynthesis() }
                         } else {
@@ -936,7 +938,7 @@ fun ChatScreen(
                         val replies = groupedMessages.assistantMessages.getOrNull(dockTurn).orEmpty()
                         val combined = chatRoom.conversationMode == ConversationMode.COMBINED
                         val frozenProfiles = if (combined) {
-                            combinedResponseProfiles(
+                            rememberCombinedResponseProfiles(
                                 replies,
                                 chatViewModel.enabledPlatformsInChat,
                                 enabledPlatformLookup.mapValues { it.value.name },
@@ -1258,7 +1260,7 @@ internal fun ChatMessagePair(
     val combinedSynthesisIndex = assistantMessages.indexOfFirst { it.isCombinedSynthesis() }
     val participatingUids = activePlatformUids - disabledPlatformUids
     val combinedProfiles = if (combinedMode) {
-        combinedResponseProfiles(
+        rememberCombinedResponseProfiles(
             responses = assistantMessages,
             platformUids = enabledPlatformsInChat,
             profileNames = enabledPlatformLookup.mapValues { it.value.name },

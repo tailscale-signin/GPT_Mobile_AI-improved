@@ -23,6 +23,7 @@ data class ProviderRequestConfig(
     val allowReasoning: Boolean = true,
     val intentionalAssistantPrefill: Boolean = false,
     val captureGenerationReceipt: Boolean = false,
+    val continuationPrefixDigest: String? = null,
     internal val freeModelSnapshot: dev.chungjungsoo.gptmobile.data.free.FreeModelOption? = null,
     internal val freeDiagnostics: dev.chungjungsoo.gptmobile.data.free.FreeRequestDiagnostics? = null
 ) {

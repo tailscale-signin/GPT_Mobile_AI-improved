@@ -9,7 +9,7 @@ import kotlin.math.sqrt
 import kotlinx.serialization.Serializable
 
 @Serializable
-enum class BenchmarkMode(val label: String) { QUICK("Quick"), FULL("Full"), DIAGNOSTIC("Capability diagnostics"), DELEGATION("Delegation"), AGENT("Legacy Agent") }
+enum class BenchmarkMode(val label: String) { QUICK("Quick"), FULL("Full"), DIAGNOSTIC("Capability diagnostics"), CPU_EXPERIMENT("CPU thread comparison"), PERFORMANCE("Performance diagnostics"), DELEGATION("Delegation"), AGENT("Legacy Agent") }
 
 @Serializable
 enum class BenchmarkOutcome { PASSED, FAILED, ERROR, TIMED_OUT, CANCELED, UNSUPPORTED, QUOTA_BLOCKED, POLICY_BLOCKED, PARTIAL, SKIPPED }
@@ -166,8 +166,39 @@ data class BenchmarkSample(
     val phaseIntervalsTruncated: Boolean = false,
     val reasoningTokens: Int? = null,
     val reasoningTokenSource: String = "unknown",
-    val reasoningTokenConfidence: String = "unknown"
+    val reasoningTokenConfidence: String = "unknown",
+    val validation: BenchmarkValidationResult? = null,
+    val runtimeExecutions: List<dev.chungjungsoo.gptmobile.data.localruntime.RuntimeExecutionReceipt> = emptyList(),
+    val runtimeCleanup: dev.chungjungsoo.gptmobile.data.localruntime.RuntimeCleanupReceipt? = null,
+    val outputParts: List<BenchmarkOutputPart> = emptyList(),
+    val finalAnswer: String? = null,
+    val repetitionDiagnostic: String? = null,
+    val fixtureContentHash: String? = null,
+    val repeatIndex: Int? = null,
+    val requestAdmitted: Boolean? = null,
+    val nativeMetricScope: String = "legacy_unspecified",
+    val endToEndDurationMs: Long? = null,
+    val generationDurationMs: Long? = null,
+    val peakExecutionWorkerPssBytes: Long? = null,
+    val peakExecutionClientPssKb: Long? = null,
+    val workerPssScope: String = "legacy_unspecified",
+    val residentMatch: BenchmarkResidentMatch? = null,
+    val cacheConfigured: Boolean? = null,
+    val intelligenceSemantics: BenchmarkIntelligenceEvidence? = null,
+    val settingsReceipt: BenchmarkSettingsReceipt? = null,
+    val toolAssessment: BenchmarkToolAssessment? = null,
+    val performanceTrial: BenchmarkPerformanceTrial? = null,
+    val nativeLoading: BenchmarkNativeLoadObservation? = null,
+    val inspectionReceipt: dev.chungjungsoo.gptmobile.data.localruntime.RuntimeInspectionReceipt? = null,
+    val inspectionAttribution: BenchmarkInspectionAttribution? = null,
+    val deadlineReceipt: BenchmarkDeadlineReceipt? = null
 ) {
+    val runtimeExecution: dev.chungjungsoo.gptmobile.data.localruntime.RuntimeExecutionReceipt? get() = runtimeExecutions.lastOrNull()
+    val rawReferenceSpeed: Double? get() = firstTextMs?.let { first ->
+        val last = lastTextMs ?: return@let null
+        referenceDecodeTokens?.takeIf { it > 0 && chunks > 1 && last > first }
+            ?.let { it * 1000.0 / (last - first) }?.takeIf { it.isFinite() && it > 0 }
+    }
     val referenceSpeed: Double? get() = firstTextMs?.let { first ->
         val last = lastTextMs ?: return@let null
         referenceDecodeTokens?.takeIf { it > 0 && completed && chunks > 1 && last > first }
@@ -203,7 +234,9 @@ data class BenchmarkResourceSample(
     val javaHeapBytes: Long,
     val batteryPercent: Int?,
     val thermalStatus: Int?,
-    val workerPssBytes: Long? = null
+    val workerPssBytes: Long? = null,
+    val scope: String = "legacy_unspecified",
+    val elapsedRealtimeMs: Long? = null
 )
 
 @Serializable
@@ -258,7 +291,23 @@ data class BenchmarkRun(
     val requestedAccelerator: String? = null,
     val cleanupReceipt: String? = null,
     val fixtureManifestHash: String? = null,
-    val runtimeSnapshot: dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntimeState? = null
+    val runtimeSnapshot: dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntimeState? = null,
+    val runtimeCleanup: dev.chungjungsoo.gptmobile.data.localruntime.RuntimeCleanupReceipt? = null,
+    val caseManifest: List<BenchmarkCase>? = null,
+    val preflightDurationMs: Long? = null,
+    val measurementPolicy: String? = null,
+    val aggregatePolicy: String? = null,
+    val peakExecutionWorkerPssBytes: Long? = null,
+    val peakExecutionClientPssKb: Long? = null,
+    val executionPolicy: BenchmarkExecutionPolicy? = null,
+    val fixtureRotationSeed: Long? = null,
+    val fixtureSetVersion: Int? = null,
+    val deviceBuild: String? = null,
+    val readiness: BenchmarkReadinessReceipt? = null,
+    val deadlinePolicy: String? = null,
+    val structuredOutputMode: BenchmarkStructuredOutputMode? = null,
+    val structuredSchemaModes: Map<String, BenchmarkStructuredOutputMode> = emptyMap(),
+    val verifiedStructuredCompatibilityKeys: Map<String, String> = emptyMap()
 )
 
 data class BenchmarkDimension(val label: String, val score: Double?, val weight: Int, val detail: String)
@@ -286,17 +335,18 @@ data class BenchmarkRating(
     }
 }
 
-fun benchmarkConfigKey(profile: PlatformV2, localEnvironment: String = ""): String {
-    val effective = benchmarkProfile(profile, allowTools = true, category = "speed")
+fun benchmarkConfigKey(profile: PlatformV2, localEnvironment: String = "", executionPolicy: BenchmarkExecutionPolicy = BenchmarkExecutionPolicy.DETERMINISTIC_CAPABILITY_V1): String {
+    val effective = benchmarkProfile(profile, allowTools = true, category = "speed", executionPolicy = executionPolicy)
     val values = listOf(
-        "benchmark-effective-v4", effective.compatibleType.name, effective.model, effective.apiUrl,
+        if (executionPolicy == BenchmarkExecutionPolicy.DETERMINISTIC_CAPABILITY_V1) "benchmark-effective-v4" else "benchmark-profile-settings-v1", effective.compatibleType.name, effective.model, effective.apiUrl,
         effective.accelerator.orEmpty(), effective.temperature.toString(), effective.maxTokens.toString(),
         effective.timeout.toString(), effective.stream.toString(), effective.topP.toString(), effective.topK.toString(),
         effective.openRouterRouting.orEmpty(), effective.ollamaOptions.orEmpty(), effective.providerConnectionUid.orEmpty(),
         effective.systemPrompt.orEmpty(), profile.reasoning.toString(), profile.disableAllTools.toString(),
         profile.disableLocalTools.toString(), if (profile.compatibleType == ClientType.LITERT_LM) localEnvironment else ""
     )
-    return MessageDigest.getInstance("SHA-256").digest(values.joinToString("\u0000").toByteArray())
+    val identity = if (executionPolicy == BenchmarkExecutionPolicy.PROFILE_SETTINGS_V1) values + kotlinx.serialization.json.Json.encodeToString(PlatformV2.serializer(), effective.copy(id = 0, uid = "", name = "", token = null, secretRef = null)) else values
+    return MessageDigest.getInstance("SHA-256").digest(identity.joinToString("\u0000").toByteArray())
         .joinToString("") { "%02x".format(it) }
 }
 

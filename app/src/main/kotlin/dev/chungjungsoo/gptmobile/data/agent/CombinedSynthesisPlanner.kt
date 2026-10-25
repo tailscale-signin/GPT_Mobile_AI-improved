@@ -36,7 +36,8 @@ class CombinedSynthesisPlanner @Inject constructor(
         if (acceptedRecords.any { it.context.rootBudgetId != rootBudgetId || it.context.requested.requestedPolicyDigest != accepted.context.requested.requestedPolicyDigest }) return null
         if (chatRepository.isCombinedTurnCancelled(rootBudgetId)) return null
         val members = if (accepted.context.requested.singlePass) chatRepository.combinedActiveMembers(chatId) ?: accepted.context.requested.participantUids.toSet() else accepted.context.requested.participantUids.toSet()
-        val activeUids = accepted.context.requested.participantUids.filter { it in members }
+        val excludedUids = if (accepted.context.requested.singlePass) collectionDecisions?.excludedProfiles(rootBudgetId).orEmpty() else emptySet()
+        val activeUids = accepted.context.requested.participantUids.filter { it in members && it !in excludedUids }
         if (activeUids.isEmpty()) return null
         val responses = activeUids.map { uid -> allResponses.singleOrNull { it.platformType == uid } ?: return null }
         if (responses.any { runs[it.currentRunId]?.status !in setOf("COMPLETED", "FAILED", "INTERRUPTED", "CANCELED") }) return null
@@ -67,7 +68,7 @@ class CombinedSynthesisPlanner @Inject constructor(
         val sources = (
             combinedSynthesisInputs(responses, runs, profiles.associate { it.uid to it.name }, accepted.context.requested.requestedModels, userMessage.content, requireComplete = false)
                 ?: emptyList()
-            ).map { source -> source.copy(localOnly = source.localOnly || source.platformUid in privateProfiles) }
+            ).map { source -> source.copy(localOnly = source.localOnly || source.platformUid in privateProfiles, claimExtractionVersion = if (accepted.context.requested.singlePass) 3 else source.claimExtractionVersion) }
         val retainedPublicEvidence = if (sources.isEmpty() && accepted.context.requested.acceptedResearch != null) {
             researchSessionStore.exportTurn(chatId, setOf("$chatId:$userId")).any { session ->
                 session.turnId == "$chatId:$userId" && dev.chungjungsoo.gptmobile.data.research.researchHash(session.snapshot.task.trim()) == dev.chungjungsoo.gptmobile.data.research.researchHash(userMessage.content.trim()) && session.snapshot.sources.any { it.readable && it.publicCapture && it.retrievalReceipt.isNotBlank() }
@@ -83,6 +84,10 @@ class CombinedSynthesisPlanner @Inject constructor(
         taskRef.validate(userMessage)
         val combined = accepted.context.copy(chatId = userMessage.chatId, acceptedTask = taskRef)
         val chosenWriter = collectionDecisions?.chosenWriter(rootBudgetId)?.takeIf { it in activeUids }
+        if (chosenWriter == null && combined.requested.preferredOwnerUid in excludedUids) {
+            chatRepository.markCombinedMergeUnavailable(chatId, userId, rootBudgetId, "The selected primary was excluded from this turn. Choose a remaining primary to combine the saved replies.")
+            return null
+        }
         val pinnedPrimary = chosenWriter ?: combined.requested.preferredOwnerUid?.takeIf { it in activeUids } ?: activeUids.first()
         val acceptedUids = activeUids
         val writerOrder = CombinedOwnerResolver.eligibleOrder(
@@ -189,7 +194,8 @@ class CombinedSynthesisPlanner @Inject constructor(
                             editorialContext.plan?.finalOutputTokens ?: 0,
                             outputSettings?.outputTokens,
                             listOfNotNull(outputSettings?.contextTokens, outputSettings?.profileContextCeilings?.get(leadUid)).minOrNull(),
-                            writerContext
+                            writerContext,
+                            appendContinuations = combined.requested.appendContinuations
                         )
                     } catch (capacity: CombinedInputCapacityException) {
                         if (!permitsLocalAssembly) throw capacity
@@ -301,6 +307,40 @@ class CombinedSynthesisPlanner @Inject constructor(
         )
     }
 
+    /** Called only by the durable wait coordinator after claiming the known-rejected cursor. */
+    suspend fun prepareAppendResume(chatId: Int, priorRunId: String, decision: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision): AgentRunRequest? {
+        if (!dev.chungjungsoo.gptmobile.BuildConfig.COMBINED_APPEND_CONTINUATIONS || !decision.knownNotAccepted || decision.retryAt > System.currentTimeMillis()) return null
+        val prior = chatRepository.observeAgentRuns(chatId).first().singleOrNull { it.runId == priorRunId && it.status == "WAITING_PROVIDER_LIMIT" } ?: return null
+        if (prior.profileUid != decision.profileUid || prior.modelSnapshot != decision.model) return null
+        val profile = settingRepository.fetchPlatformV2s().singleOrNull { it.uid == prior.profileUid && it.enabled } ?: return null
+        val resumed = chatRepository.prepareCombinedAppendResume(priorRunId, profile, decision) ?: return null
+        val context = resumed.combined ?: return null
+        if (!context.requested.appendContinuations || chatRepository.isCombinedTurnCancelled(context.rootBudgetId)) return null
+        val messages = chatRepository.fetchMessagesV2(chatId)
+        val owner = messages.singleOrNull { it.id == prior.assistantMessageId && it.currentRunId == priorRunId && it.ownershipFence == prior.ownershipFence } ?: return null
+        val user = messages.singleOrNull { it.id == prior.userMessageId && it == resumed.userMessage } ?: return null
+        val raw = resumed.encode()
+        val persisted = chatRepository.persistAgentRetry(
+            PersistAgentRetryRequest(
+                user,
+                owner,
+                AgentRunDraft(COMBINED_RUN_PREFIX + UUID.randomUUID().toString(), profile.uid, prior.providerSnapshot, resumed.model, synthesisKey = dev.chungjungsoo.gptmobile.data.research.researchHash(raw), synthesisSnapshot = raw),
+                resumeCombinedFrom = priorRunId,
+                automaticAppendDecision = decision
+            )
+        )
+        return AgentRunRequest(
+            persisted.run.runId,
+            chatId,
+            persisted.assistantMessage,
+            profile.copy(model = resumed.model, temperature = resumed.temperature, systemPrompt = combinedWriterSystemPrompt(resumed.systemPrompt, resumed.deliveryProtocol, resumed.userMessage.content), disableAllTools = true, disableLocalTools = true),
+            resumed.history + resumed.userMessage,
+            resumed.replies + listOf(emptyList()),
+            requireNotNull(resumed.acceptedTools).copy(allToolsDisabled = true, delegation = dev.chungjungsoo.gptmobile.data.model.ConversationDelegationSettings(enabled = false), combined = context),
+            resumed.bindAcceptedStage()
+        )
+    }
+
     suspend fun prepareFallback(chatId: Int, failedRunId: String, userRequested: Boolean = false): AgentRunRequest? {
         val runs = chatRepository.observeAgentRuns(chatId).first()
         val prior = runs.singleOrNull { it.runId == failedRunId } ?: return null
@@ -324,7 +364,7 @@ class CombinedSynthesisPlanner @Inject constructor(
         val attempted = runs.filter { it.userMessageId == prior.userMessageId && it.synthesisKey != null }.mapTo(hashSetOf()) { it.profileUid }
         val profiles = settingRepository.fetchPlatformV2s()
         val outputSettings = if (policy.requested.singlePass) settingRepository.getFeatureSettings().tokenBudget.normalized() else null
-        val next = CombinedWriterPolicy.rank(profiles.filter { it.uid in policy.requested.participantUids && it.uid !in attempted && it.enabled }.map { it.copy(model = policy.requested.requestedModels[it.uid] ?: it.model) }, original.userMessage.content, policy.requested.preferredOwnerUid, dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(original.prompt)).firstNotNullOfOrNull { ranked ->
+        val next = CombinedWriterPolicy.rank(profiles.filter { it.uid in policy.requested.participantUids && it.uid !in attempted && it.enabled }.map { it.copy(model = policy.requested.requestedModels[it.uid] ?: it.model) }, original.userMessage.content, policy.requested.preferredOwnerUid, dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(original.prompt), policy.requested.appendContinuations).firstNotNullOfOrNull { ranked ->
             val writer = profiles.single { it.uid == ranked.uid }
             runCatching { writer to CombinedSuccessorSnapshot.prepare(original, failedRunId, writer, outputSettings?.outputTokens, listOfNotNull(outputSettings?.contextTokens, outputSettings?.profileContextCeilings?.get(writer.uid)).minOrNull()) }.getOrNull()
         } ?: return null

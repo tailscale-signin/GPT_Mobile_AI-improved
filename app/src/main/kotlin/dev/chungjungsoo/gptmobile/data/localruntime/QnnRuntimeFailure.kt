@@ -34,6 +34,7 @@ enum class QnnFailureCode {
     NATIVE_ALLOCATION_FAILED,
     UNSAFE_ARTIFACT,
     PREVIOUS_NATIVE_CRASH,
+    CONSTRAINED_DECODING_FAILURE,
     UNKNOWN_NATIVE_ERROR
 }
 
@@ -50,6 +51,7 @@ class QnnRuntimeFailure(
         QnnFailureCode.PREVIOUS_NATIVE_CRASH -> "QUALIFIED_RUNTIME_OR_ARTIFACT_CHANGE"
         QnnFailureCode.UNSAFE_ARTIFACT -> "REINSTALL_VERIFIED_ARTIFACT"
         QnnFailureCode.NATIVE_ALLOCATION_FAILED -> "SMALLER_COMPATIBLE_MODEL_OR_CONTEXT"
+        QnnFailureCode.CONSTRAINED_DECODING_FAILURE -> "VERIFY_SCHEMA_TOKENIZER_TEMPLATE_AND_SAFE_DECODING_MODE"
         else -> "EXPORT_DIAGNOSTICS_OR_SEPARATE_COMPATIBLE_EDITION"
     }
 }
@@ -63,18 +65,20 @@ internal fun safeQnnDetail(detail: String): String =
 /** Only assign a specific diagnosis when the native/runtime message provides evidence. */
 fun classifyQnnFailure(stage: QnnRuntimeStage, error: Throwable): QnnRuntimeFailure {
     if (error is QnnRuntimeFailure) return error
-    val detail = generateSequence(error) { it.cause?.takeUnless { cause -> cause === it } }.take(8).mapNotNull { it.message?.take(1024) }.joinToString(" ").lowercase()
+    val detail = generateSequence(error) { it.cause?.takeUnless { cause -> cause === it } }.take(8).mapNotNull { it.message?.take(1024) }.joinToString(" ")
+    val classification = detail.lowercase()
     if (error is VirtualMachineError || error is ThreadDeath || error is kotlinx.coroutines.CancellationException) throw error
     val code = when {
-        "interrupted inside native" in detail || "previous qnn native crash" in detail || "quarantin" in detail -> QnnFailureCode.PREVIOUS_NATIVE_CRASH
-        "checksum" in detail || "unsafe artifact" in detail || "truncated" in detail -> QnnFailureCode.UNSAFE_ARTIFACT
-        error is LinkageError || detail.contains("dlopen") || detail.contains("undefined symbol") -> QnnFailureCode.ELF_LINK_FAILURE
-        detail.contains("qnn system") && detail.contains("version") -> QnnFailureCode.QNN_SYSTEM_VERSION_MISMATCH
-        detail.contains("dispatch") && (detail.contains("version") || detail.contains("api")) -> QnnFailureCode.DISPATCH_VERSION_MISMATCH
-        detail.contains("skeleton") || detail.contains("skel") || detail.contains("fastrpc") -> QnnFailureCode.DSP_LIBRARY_UNAVAILABLE
-        detail.contains("dsp") && (detail.contains("init") || detail.contains("queue")) -> QnnFailureCode.DSP_INITIALIZATION_FAILED
-        detail.contains("allocation") || detail.contains("out of memory") -> QnnFailureCode.NATIVE_ALLOCATION_FAILED
-        detail.contains("context") && (detail.contains("limit") || detail.contains("exceed")) -> QnnFailureCode.MODEL_CONTEXT_INCOMPATIBLE
+        isConstrainedDecodingFailure(error) -> QnnFailureCode.CONSTRAINED_DECODING_FAILURE
+        "interrupted inside native" in classification || "previous qnn native crash" in classification || "quarantin" in classification -> QnnFailureCode.PREVIOUS_NATIVE_CRASH
+        "checksum" in classification || "unsafe artifact" in classification || "truncated" in classification -> QnnFailureCode.UNSAFE_ARTIFACT
+        error is LinkageError || classification.contains("dlopen") || classification.contains("undefined symbol") -> QnnFailureCode.ELF_LINK_FAILURE
+        classification.contains("qnn system") && classification.contains("version") -> QnnFailureCode.QNN_SYSTEM_VERSION_MISMATCH
+        classification.contains("dispatch") && (classification.contains("version") || classification.contains("api")) -> QnnFailureCode.DISPATCH_VERSION_MISMATCH
+        classification.contains("skeleton") || classification.contains("skel") || classification.contains("fastrpc") -> QnnFailureCode.DSP_LIBRARY_UNAVAILABLE
+        classification.contains("dsp") && (classification.contains("init") || classification.contains("queue")) -> QnnFailureCode.DSP_INITIALIZATION_FAILED
+        classification.contains("allocation") || classification.contains("out of memory") -> QnnFailureCode.NATIVE_ALLOCATION_FAILED
+        classification.contains("context") && (classification.contains("limit") || classification.contains("exceed")) -> QnnFailureCode.MODEL_CONTEXT_INCOMPATIBLE
         else -> QnnFailureCode.UNKNOWN_NATIVE_ERROR
     }
     val causeStage = when (code) {

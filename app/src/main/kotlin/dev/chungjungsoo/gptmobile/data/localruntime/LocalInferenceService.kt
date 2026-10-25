@@ -25,6 +25,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
@@ -50,38 +51,53 @@ class LocalInferenceService : Service() {
 
     @Volatile private var loadStageStartedAt = 0L
 
+    @Volatile private var loadDeadlineGroup: String? = null
+
     @Volatile private var generatingRequest: String? = null
 
     override fun onCreate() {
         super.onCreate()
         check(isInferenceProcess()) { "Native inference service must run in its private process" }
-        runtime = LocalRuntimeRouter(
-            qnnRuntime = LocalRuntimeQnnImpl(this),
-            liteRtRuntime = LocalRuntimeImpl(this),
-            artifactRuntime = NativeArtifactRuntimeFactory.create(this),
-            settingsSnapshot = { settings },
-            backendSnapshot = { backend }
-        )
+        runtime =
+            LocalRuntimeRouter(
+                qnnRuntime = LocalRuntimeQnnImpl(this),
+                liteRtRuntime = LocalRuntimeImpl(this),
+                artifactRuntime = NativeArtifactRuntimeFactory.create(this),
+                settingsSnapshot = { settings },
+                backendSnapshot = { backend }
+            )
         thread.start()
-        messenger = Messenger(object : Handler(thread.looper) {
-            override fun handleMessage(message: Message) {
-                if (message.sendingUid != Process.myUid()) return
-                val target = message.replyTo ?: return
-                val packet = runCatching { RuntimeWireTransport.read(message) }.getOrElse { return }
-                when (packet.operation) {
-                    "ACK" -> replies[packet.requestId]?.acknowledge(packet.sequence)
-                    "TOOL_RESULT" -> if (packet.generation == generation && packet.requestId == generatingRequest && packet.sessionId == sessionId) toolResults[packet.callId]?.complete(packet)
-                    "CANCEL" -> cancel(packet.requestId)
-                    "SHUTDOWN" -> terminateWorker("CLIENT_SHUTDOWN", packet.requestId)
-                    else -> start(packet, target)
+        messenger =
+            Messenger(
+                object : Handler(thread.looper) {
+                    override fun handleMessage(message: Message) {
+                        if (message.sendingUid != Process.myUid()) return
+                        val target = message.replyTo ?: return
+                        val packet = runCatching { RuntimeWireTransport.read(message) }.getOrElse { return }
+                        when (packet.operation) {
+                            "ACK" -> replies[packet.requestId]?.acknowledge(packet.sequence)
+                            "TOOL_RESULT" ->
+                                if (packet.generation == generation &&
+                                    packet.requestId == generatingRequest &&
+                                    packet.sessionId == sessionId
+                                ) {
+                                    toolResults[packet.callId]?.complete(packet)
+                                }
+                            "CANCEL" -> cancel(packet.requestId)
+                            "SHUTDOWN" -> terminateWorker("CLIENT_SHUTDOWN", packet.requestId)
+                            else -> start(packet, target)
+                        }
+                    }
                 }
-            }
-        })
+            )
     }
 
     override fun onBind(intent: Intent): IBinder = messenger.binder
 
-    private fun start(packet: RuntimeWire, target: Messenger) {
+    private fun start(
+        packet: RuntimeWire,
+        target: Messenger
+    ) {
         val reply = Reply(packet, target)
         if (packet.generation.isNotBlank() && packet.generation != generation) {
             reply.send("ERROR", text = "Inference worker changed. Start a new request; interrupted work is not replayed.")
@@ -92,168 +108,295 @@ class LocalInferenceService : Service() {
             return
         }
         reply.deferTerminal = true
-        val job = scope.launch(start = CoroutineStart.LAZY) {
-            try {
-                if (packet.operation != "PING") QnnEnvironment.initialize(this@LocalInferenceService)
-                when (packet.operation) {
-                    "PING" -> reply.send("RESULT", text = packet.text)
-                    "INSPECT" -> {
-                        validatePath(packet.text)
-                        reply.send("RESULT", capabilities = runtime.inspectModel(packet.text))
+        val job =
+            scope.launch(RuntimeWorkerContext(generation, packet.requestId, packet.physicalAttemptId), start = CoroutineStart.LAZY) {
+                try {
+                    // QNN load/verification prepare their stack in the qualified wrapper. Only
+                    // a generic compiled-package metadata query needs preparation at this boundary.
+                    if (packet.operation == "INSPECT" &&
+                        (packet.spec?.accelerator == LocalAccelerators.NPU || dev.chungjungsoo.gptmobile.data.localmodel.LocalModelPackages.isCompiledNpuPackage(packet.text))
+                    ) {
+                        QnnEnvironment.initialize(this@LocalInferenceService)
                     }
-                    "VERIFY_RESET" -> {
-                        val spec = checkNotNull(packet.spec)
-                        validatePath(spec.modelPath)
-                        runtime.allowVerification(spec)
-                        reply.send("RESULT")
-                    }
-                    "LOAD" -> {
-                        val spec = checkNotNull(packet.spec)
-                        validatePath(spec.modelPath)
-                        require(spec.litertDispatchLibDir == null) { "Dispatch libraries are selected by the qualified runtime" }
-                        require(spec.accelerator in setOf("cpu", "gpu", "opencl", "auto", "npu")) { "Unknown language backend" }
-                        settings = packet.settings ?: AppFeatureSettings()
-                        backend = packet.preferredBackend ?: LocalRuntimeBackend.DEFAULT
-                        sessionId = ""
-                        // A model switch must not retain descriptors owned by the old engine.
-                        // The operation lock keeps generations and inspection out of this boundary.
-                        runtime.unloadEngine()
-                        dev.chungjungsoo.gptmobile.data.localmodel.LinkedModelSources.closeLeases()
-                        loadProgress = null
-                        val monitor = scope.launch {
-                            while (true) {
-                                delay(250)
-                                val progress = loadProgress ?: continue
-                                if (GgufLoadDeadline.expired(progress.stage, loadStageStartedAt, android.os.SystemClock.elapsedRealtime())) {
-                                    reply.send("LOAD_PROGRESS", nativeProgress = progress.copy(stage = "LOAD_STAGE_DEADLINE_EXCEEDED", configuration = "${progress.stage}|${progress.configuration.orEmpty()}"))
-                                    terminateWorker("LOAD_STAGE_DEADLINE_EXCEEDED", packet.requestId)
-                                }
-                            }
+                    when (packet.operation) {
+                        "PING" -> reply.send("RESULT", text = packet.text)
+                        "INSPECT" -> {
+                            validatePath(packet.text)
+                            require(packet.spec == null || packet.spec.modelPath == packet.text) { "Inspection path/configuration mismatch" }
+                            reply.send("RESULT", capabilities = if (packet.spec != null) runtime.inspectModel(packet.spec) else runtime.inspectModel(packet.text))
                         }
-                        runtime.setLoadProgressObserver { progress ->
-                            if (progress.stage != loadProgress?.stage || progress.operationId != loadProgress?.operationId) loadStageStartedAt = android.os.SystemClock.elapsedRealtime()
-                            loadProgress = progress
-                            reply.send("LOAD_PROGRESS", state = runtime.state.value.copy(processIsolated = true, lifecycle = "LOADING", loadProgress = progress, allocationObservation = progress.allocationObservation ?: runtime.state.value.allocationObservation), nativeProgress = progress)
+                        "VERIFY_RESET" -> {
+                            val spec = checkNotNull(packet.spec)
+                            validatePath(spec.modelPath)
+                            runtime.allowVerification(spec)
+                            reply.send("RESULT")
                         }
-                        try {
-                            runtime.loadEngine(spec)
-                        } finally {
-                            monitor.cancel()
-                            runtime.setLoadProgressObserver(null)
+                        "LOAD" -> {
+                            val spec = checkNotNull(packet.spec)
+                            validatePath(spec.modelPath)
+                            require(spec.litertDispatchLibDir == null) { "Dispatch libraries are selected by the qualified runtime" }
+                            require(spec.accelerator in setOf("cpu", "gpu", "opencl", "auto", "npu")) { "Unknown language backend" }
+                            settings = packet.settings ?: AppFeatureSettings()
+                            backend = packet.preferredBackend ?: LocalRuntimeBackend.DEFAULT
+                            sessionId = ""
+                            // A model switch must not retain descriptors owned by the old engine.
+                            // The operation lock keeps generations and inspection out of this boundary.
+                            runtime.unloadEngine()
+                            dev.chungjungsoo.gptmobile.data.localmodel.LinkedModelSources
+                                .closeLeases()
                             loadProgress = null
-                        }
-                        reply.send("RESULT", state = runtime.state.value.copy(processIsolated = true, lifecycle = "READY"))
-                    }
-                    "OPEN" -> {
-                        sessionId = packet.sessionId
-                        val config = checkNotNull(packet.conversation)
-                        runtime.createConversation(
-                            config.config(
-                                if (config.tools.isEmpty()) {
-                                    null
-                                } else {
-                                    LocalToolExecutor { name, arguments ->
-                                        val owner = checkNotNull(generatingRequest) { "No active request owns this tool callback" }
-                                        val ownerReply = checkNotNull(replies[owner])
-                                        val callId = UUID.randomUUID().toString()
-                                        val result = CompletableDeferred<RuntimeWire>()
-                                        toolResults[callId] = result
-                                        try {
-                                            ownerReply.send("TOOL", text = arguments, callId = callId, toolName = name)
-                                            val returned = withTimeout(120_000) { result.await() }
-                                            require(owner == generatingRequest) { "Tool callback outlived its request" }
-                                            ownerReply.send("TOOL_RECEIVED", callId = callId)
-                                            returned.errorCode?.let { throw LocalToolLimitException(it) }
-                                            returned.text
-                                        } finally {
-                                            toolResults.remove(callId)
+                            loadDeadlineGroup = null
+                            val loadStarted = android.os.SystemClock.elapsedRealtime()
+                            val monitor =
+                                scope.launch {
+                                    while (true) {
+                                        delay(250)
+                                        val now = android.os.SystemClock.elapsedRealtime()
+                                        val progress = loadProgress
+                                        val deadline =
+                                            when {
+                                                now - loadStarted >= GgufLoadDeadline.ABSOLUTE_LOAD_MS -> "LOAD_OPERATION_DEADLINE_EXCEEDED"
+                                                progress != null &&
+                                                    GgufLoadDeadline.expired(
+                                                        progress.stage,
+                                                        loadStageStartedAt,
+                                                        now
+                                                    ) -> "LOAD_STAGE_DEADLINE_EXCEEDED"
+                                                else -> null
+                                            }
+                                        if (deadline != null) {
+                                            val retained = progress ?: GgufNativeProgress(-1, "BEFORE_NATIVE_PROGRESS")
+                                            reply.send(
+                                                "LOAD_PROGRESS",
+                                                nativeProgress =
+                                                retained.copy(
+                                                    stage = deadline,
+                                                    configuration = "lastStage=${retained.stage};${retained.configuration.orEmpty()}",
+                                                    deadlineKind = deadline,
+                                                    observedAtMs = now
+                                                )
+                                            )
+                                            terminateWorker(deadline, packet.requestId)
                                         }
                                     }
                                 }
-                            )
-                        )
-                        reply.send("RESULT", state = runtime.state.value.copy(processIsolated = true, lifecycle = "READY", requestedMtp = config.speculative))
-                    }
-                    "GENERATE" -> {
-                        check(packet.sessionId.isNotBlank() && packet.sessionId == sessionId) { "Stale local session" }
-                        generatingRequest = packet.requestId
-                        var terminal: LocalRuntimeEvent? = null
-                        val monitor = scope.launch {
-                            while (jobs[packet.requestId]?.isActive == true) {
-                                delay(10_000)
-                                if (runtime.getHardwareState().thermalState >= DeviceThermalState.SEVERE) cancel(packet.requestId)
+                            runtime.setLoadProgressObserver { progress ->
+                                val group = GgufLoadDeadline.group(progress.stage)
+                                if (group != loadDeadlineGroup || progress.operationId != loadProgress?.operationId) {
+                                    loadStageStartedAt = android.os.SystemClock.elapsedRealtime()
+                                    loadDeadlineGroup = group
+                                }
+                                loadProgress = progress
+                                reply.send(
+                                    "LOAD_PROGRESS",
+                                    state =
+                                    runtime.state.value.copy(
+                                        processIsolated = true,
+                                        lifecycle = "LOADING",
+                                        loadProgress = progress,
+                                        allocationObservation =
+                                        progress.allocationObservation ?: runtime.state.value.allocationObservation
+                                    ),
+                                    nativeProgress = progress
+                                )
                             }
+                            try {
+                                runtime.loadEngine(spec)
+                            } finally {
+                                monitor.cancel()
+                                runtime.setLoadProgressObserver(null)
+                                loadProgress = null
+                            }
+                            reply.send("RESULT", state = runtime.state.value.copy(processIsolated = true, lifecycle = "READY"))
                         }
-                        try {
-                            runtime.sendMessage(packet.text, packet.images).collect { event ->
-                                when (event) {
-                                    is LocalRuntimeEvent.TextDelta -> reply.stream("TEXT", event.text)
-                                    is LocalRuntimeEvent.ThinkingDelta -> reply.stream("THINKING", event.text)
-                                    is LocalRuntimeEvent.PhaseChanged -> {
-                                        reply.send("PHASE", text = event.phase.name, state = runtime.state.value.copy(processIsolated = true), nativeProgress = event.nativeProgress)
-                                        if (event.nativeProgress?.stage == "TIMEOUT_CANCEL_REQUESTED") {
-                                            // Same worker-death bound as explicit cancellation, without discarding the partial native receipt.
-                                            val owner = jobs[packet.requestId]
-                                            scope.launch {
-                                                delay(10_000)
-                                                if (owner?.isCompleted == false) terminateWorker("PREFILL_CANCELLATION_UNACKNOWLEDGED", packet.requestId)
+                        "OPEN" -> {
+                            sessionId = packet.sessionId
+                            val config = checkNotNull(packet.conversation)
+                            runtime.createConversation(
+                                config.config(
+                                    if (config.tools.isEmpty()) {
+                                        null
+                                    } else {
+                                        LocalToolExecutor { name, arguments ->
+                                            val owner = checkNotNull(generatingRequest) { "No active request owns this tool callback" }
+                                            val ownerReply = checkNotNull(replies[owner])
+                                            val callId = UUID.randomUUID().toString()
+                                            val result = CompletableDeferred<RuntimeWire>()
+                                            toolResults[callId] = result
+                                            try {
+                                                ownerReply.send("TOOL", text = arguments, callId = callId, toolName = name)
+                                                val returned = withTimeout(120_000) { result.await() }
+                                                require(owner == generatingRequest) { "Tool callback outlived its request" }
+                                                ownerReply.send("TOOL_RECEIVED", callId = callId)
+                                                returned.errorCode?.let { throw LocalToolLimitException(it) }
+                                                returned.text
+                                            } finally {
+                                                toolResults.remove(callId)
                                             }
                                         }
                                     }
-                                    is LocalRuntimeEvent.Metrics -> reply.send("METRICS", metrics = event.metrics)
-                                    is LocalRuntimeEvent.Error -> terminal = event
-                                    is LocalRuntimeEvent.Drain -> event.acknowledged.complete(Unit)
-                                    LocalRuntimeEvent.Done -> if (terminal == null) terminal = event
+                                )
+                            )
+                            reply.send(
+                                "RESULT",
+                                state =
+                                runtime.state.value.copy(
+                                    processIsolated = true,
+                                    lifecycle = "READY",
+                                    requestedMtp = config.speculative
+                                )
+                            )
+                        }
+                        "GENERATE" -> {
+                            check(packet.sessionId.isNotBlank() && packet.sessionId == sessionId) { "Stale local session" }
+                            generatingRequest = packet.requestId
+                            var terminal: LocalRuntimeEvent? = null
+                            val monitor =
+                                scope.launch {
+                                    while (jobs[packet.requestId]?.isActive == true) {
+                                        delay(10_000)
+                                        if (runtime.getHardwareState().thermalState >= DeviceThermalState.SEVERE) cancel(packet.requestId)
+                                    }
                                 }
+                            try {
+                                val stream =
+                                    if (packet.experiment == null) {
+                                        runtime.sendMessageWithBudget(packet.text, packet.images, packet.safetyTokens)
+                                    } else {
+                                        runtime
+                                            .sendMessageWithBudget(packet.text, packet.images, packet.safetyTokens)
+                                            .flowOn(LocalRuntimeTrialContext(packet.experiment))
+                                    }
+                                stream.collect { event ->
+                                    when (event) {
+                                        is LocalRuntimeEvent.TextDelta -> reply.stream("TEXT", event.text)
+                                        is LocalRuntimeEvent.ThinkingDelta -> reply.stream("THINKING", event.text)
+                                        is LocalRuntimeEvent.PhaseChanged -> {
+                                            reply.send(
+                                                "PHASE",
+                                                text = event.phase.name,
+                                                state = runtime.state.value.copy(processIsolated = true),
+                                                nativeProgress = event.nativeProgress
+                                            )
+                                            if (event.nativeProgress?.stage == "TIMEOUT_CANCEL_REQUESTED") {
+                                                // Same worker-death bound as explicit cancellation, without discarding the partial native receipt.
+                                                val owner = jobs[packet.requestId]
+                                                scope.launch {
+                                                    delay(10_000)
+                                                    if (owner?.isCompleted ==
+                                                        false
+                                                    ) {
+                                                        terminateWorker("PREFILL_CANCELLATION_UNACKNOWLEDGED", packet.requestId)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        is LocalRuntimeEvent.Metrics -> reply.send("METRICS", metrics = event.metrics)
+                                        is LocalRuntimeEvent.Error -> terminal = event
+                                        is LocalRuntimeEvent.Drain -> event.acknowledged.complete(Unit)
+                                        LocalRuntimeEvent.Done -> if (terminal == null) terminal = event
+                                    }
+                                }
+                                // Publish the terminal event only after native completion/cleanup has returned.
+                                val final = terminal
+                                if (final is LocalRuntimeEvent.Error) {
+                                    val code = localRuntimeErrorCode(final.cause)
+                                    val safeToReuse =
+                                        runtime.state.value.engineSpec
+                                            ?.let { runtime.isEngineLoaded(it) } == true
+                                    reply.send(
+                                        "ERROR",
+                                        text = final.message,
+                                        errorCode = code,
+                                        state =
+                                        runtime.state.value.copy(
+                                            processIsolated = true,
+                                            engineHealth = if (safeToReuse) "HEALTHY" else "RESET_REQUIRED"
+                                        )
+                                    )
+                                } else if (final is LocalRuntimeEvent.Done) {
+                                    reply.send("DONE", state = runtime.state.value.copy(processIsolated = true))
+                                } else {
+                                    reply.send("ERROR", text = "Local generation ended without completion")
+                                }
+                            } finally {
+                                monitor.cancel()
                             }
-                            // Publish the terminal event only after native completion/cleanup has returned.
-                            val final = terminal
-                            if (final is LocalRuntimeEvent.Error) {
-                                val code = generateSequence(final.cause) { it.cause }.filterIsInstance<LocalToolLimitException>().firstOrNull()?.code
-                                val safeToReuse = runtime.state.value.engineSpec?.let { runtime.isEngineLoaded(it) } == true
-                                reply.send("ERROR", text = final.message, errorCode = code, state = runtime.state.value.copy(processIsolated = true, engineHealth = if (safeToReuse) "HEALTHY" else "RESET_REQUIRED"))
-                            } else if (final is LocalRuntimeEvent.Done) {
-                                reply.send("DONE", state = runtime.state.value.copy(processIsolated = true))
-                            } else {
-                                reply.send("ERROR", text = "Local generation ended without completion")
+                        }
+                        "CLOSE" -> {
+                            runtime.closeConversation()
+                            sessionId = ""
+                            reply.send("RESULT", state = runtime.state.value.copy(processIsolated = true, lifecycle = "READY"))
+                        }
+                        "UNLOAD" -> {
+                            runtime.unloadEngine()
+                            dev.chungjungsoo.gptmobile.data.localmodel.LinkedModelSources
+                                .closeLeases()
+                            sessionId = ""
+                            reply.send("RESULT", state = LocalRuntimeState(processIsolated = true))
+                        }
+                        else -> error("Unsupported local operation")
+                    }
+                } catch (cancelled: CancellationException) {
+                    withContext(NonCancellable) {
+                        runCatching { runtime.closeConversation() }.onFailure {
+                            if (it is NativeCancellationTimeoutException ||
+                                it is NativeResourceCleanupException
+                            ) {
+                                terminateWorker("NATIVE_CLEANUP_FAILED", packet.requestId)
                             }
-                        } finally {
-                            monitor.cancel()
                         }
                     }
-                    "CLOSE" -> {
-                        runtime.closeConversation()
-                        sessionId = ""
-                        reply.send("RESULT")
+                    val safeToReuse =
+                        withContext(NonCancellable) {
+                            runtime.state.value.engineSpec
+                                ?.let { runtime.isEngineLoaded(it) } == true
+                        }
+                    reply.send(
+                        "CANCELLED",
+                        text = "Local request cancelled after native cleanup",
+                        state =
+                        runtime.state.value.copy(
+                            processIsolated = true,
+                            engineHealth = if (safeToReuse) "HEALTHY" else "RESET_REQUIRED"
+                        )
+                    )
+                } catch (error: Throwable) {
+                    if (error is NativeCancellationTimeoutException ||
+                        error is NativeResourceCleanupException
+                    ) {
+                        terminateWorker("NATIVE_CLEANUP_FAILED", packet.requestId)
                     }
-                    "UNLOAD" -> {
-                        runtime.unloadEngine()
-                        dev.chungjungsoo.gptmobile.data.localmodel.LinkedModelSources.closeLeases()
-                        sessionId = ""
-                        reply.send("RESULT", state = LocalRuntimeState(processIsolated = true))
-                    }
-                    else -> error("Unsupported local operation")
+                    val errorCode =
+                        when (error) {
+                            is LocalContextReplanRequired -> "AUTO_CONTEXT_REPLAN"
+                            is LocalModelConfigurationException -> "MODEL_CONFIGURATION"
+                            is LocalNpuPackageException -> "NPU_PACKAGE"
+                            else -> null
+                        }
+                    reply.send(
+                        "ERROR",
+                        text = error.message ?: "Local worker failed",
+                        errorCode = errorCode,
+                        state =
+                        runtime.state.value.copy(
+                            processIsolated = true,
+                            lifecycle = "FAILED",
+                            admissionReceipt =
+                            (error as? LocalMemoryAdmissionException)?.receipt ?: (error as? LocalContextReplanRequired)?.receipt
+                                ?: runtime.state.value.admissionReceipt
+                        ),
+                        loadAttempts = (error as? LocalLoadFailure)?.attempts.orEmpty(),
+                        contextReplan = error as? LocalContextReplanRequired
+                    )
+                } finally {
+                    if (generatingRequest == packet.requestId) generatingRequest = null
+                    jobs.remove(packet.requestId)
+                    replies.remove(packet.requestId)
+                    operationLock.unlock()
+                    reply.flushTerminal()
                 }
-            } catch (cancelled: CancellationException) {
-                withContext(NonCancellable) { runCatching { runtime.closeConversation() }.onFailure { if (it is NativeCancellationTimeoutException || it is NativeResourceCleanupException) terminateWorker("NATIVE_CLEANUP_FAILED", packet.requestId) } }
-                val safeToReuse = withContext(NonCancellable) { runtime.state.value.engineSpec?.let { runtime.isEngineLoaded(it) } == true }
-                reply.send("CANCELLED", text = "Local request cancelled after native cleanup", state = runtime.state.value.copy(processIsolated = true, engineHealth = if (safeToReuse) "HEALTHY" else "RESET_REQUIRED"))
-            } catch (error: Throwable) {
-                if (error is NativeCancellationTimeoutException || error is NativeResourceCleanupException) terminateWorker("NATIVE_CLEANUP_FAILED", packet.requestId)
-                val errorCode = when (error) {
-                    is LocalModelConfigurationException -> "MODEL_CONFIGURATION"
-                    is LocalNpuPackageException -> "NPU_PACKAGE"
-                    else -> null
-                }
-                reply.send("ERROR", text = error.message ?: "Local worker failed", errorCode = errorCode, state = runtime.state.value.copy(processIsolated = true, lifecycle = "FAILED", admissionReceipt = (error as? LocalMemoryAdmissionException)?.receipt ?: runtime.state.value.admissionReceipt), loadAttempts = (error as? LocalLoadFailure)?.attempts.orEmpty())
-            } finally {
-                if (generatingRequest == packet.requestId) generatingRequest = null
-                jobs.remove(packet.requestId)
-                replies.remove(packet.requestId)
-                operationLock.unlock()
-                reply.flushTerminal()
             }
-        }
         jobs[packet.requestId] = job
         replies[packet.requestId] = reply
         job.start()
@@ -268,16 +411,34 @@ class LocalInferenceService : Service() {
         }
     }
 
-    private fun terminateWorker(reason: String, requestId: String) {
-        runCatching { NativeWorkerTermination.record(File(noBackupFilesDir, "native-worker"), Process.myPid(), requestId, generation, reason, loadProgress ?: runtime.state.value.loadProgress) }
-        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("NativeRuntime", "WORKER_TERMINATION_REQUESTED · pid=${Process.myPid()} · request=$requestId · generation=$generation · reason=$reason · operation=${loadProgress?.operationId ?: -1} · stage=${loadProgress?.stage.orEmpty()}", "W")
+    private fun terminateWorker(
+        reason: String,
+        requestId: String
+    ) {
+        runCatching {
+            NativeWorkerTermination.record(
+                File(noBackupFilesDir, "native-worker"),
+                Process.myPid(),
+                requestId,
+                generation,
+                reason,
+                loadProgress ?: runtime.state.value.loadProgress
+            )
+        }
+        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
+            "NativeRuntime",
+            "WORKER_TERMINATION_REQUESTED · pid=${Process.myPid()} · request=$requestId · generation=$generation · reason=$reason · operation=${loadProgress?.operationId ?: -1} · stage=${loadProgress?.stage.orEmpty()}",
+            "W"
+        )
         Process.killProcess(Process.myPid())
     }
 
     private fun validatePath(path: String) {
         val file = File(path).canonicalFile
         val roots = listOfNotNull(filesDir, noBackupFilesDir, getExternalFilesDir(null)).map { it.canonicalFile }
-        require(file.isFile && roots.any { file.path.startsWith(it.path + File.separator) }) { "Model must be an installed app-owned artifact" }
+        require(
+            file.isFile && roots.any { file.path.startsWith(it.path + File.separator) }
+        ) { "Model must be an installed app-owned artifact" }
     }
 
     override fun onDestroy() {
@@ -288,8 +449,13 @@ class LocalInferenceService : Service() {
         super.onDestroy()
     }
 
-    private inner class Reply(private val request: RuntimeWire, private val target: Messenger) {
+    private inner class Reply(
+        private val request: RuntimeWire,
+        private val target: Messenger
+    ) {
         private var sequence = 0L
+        private val baselineGeneration = runtime.latestExecutionReceipt?.nativeGenerationId
+        private val baselineInspectionId = runtime.latestInspectionReceipt?.inspectionId
         var deferTerminal = false
         private var terminal: RuntimeWire? = null
         private val credits = Semaphore(8)
@@ -299,7 +465,10 @@ class LocalInferenceService : Service() {
             if (outstanding.remove(sequence)) credits.release()
         }
 
-        suspend fun stream(kind: String, text: String) {
+        suspend fun stream(
+            kind: String,
+            text: String
+        ) {
             credits.acquire()
             synchronized(this) {
                 outstanding.add(sequence + 1)
@@ -307,13 +476,72 @@ class LocalInferenceService : Service() {
             }
         }
 
-        @Synchronized fun send(kind: String, text: String = "", metrics: LocalInferenceMetrics? = null, state: LocalRuntimeState? = null, capabilities: LocalModelCapabilities? = null, callId: String = "", toolName: String = "", errorCode: String? = null, loadAttempts: List<LocalLoadAttempt> = emptyList(), nativeProgress: GgufNativeProgress? = null) {
-            val packet = RuntimeWire(
-                operation = kind, requestId = request.requestId, sessionId = request.sessionId, generation = generation, sequence = ++sequence,
-                text = text, metrics = metrics, state = state, capabilities = capabilities, callId = callId, toolName = toolName, errorCode = errorCode, loadAttempts = loadAttempts,
-                processPssBytes = if (kind in setOf("METRICS", "ERROR", "CANCELLED", "RESULT") || nativeProgress?.stage in setOf("PREFILL_BEGIN", "TIMEOUT_CANCEL_REQUESTED", "NATIVE_RETURN")) android.os.Debug.getPss() * 1024 else null,
-                nativeProgress = nativeProgress
-            )
+        @Synchronized fun send(
+            kind: String,
+            text: String = "",
+            metrics: LocalInferenceMetrics? = null,
+            state: LocalRuntimeState? = null,
+            capabilities: LocalModelCapabilities? = null,
+            callId: String = "",
+            toolName: String = "",
+            errorCode: String? = null,
+            loadAttempts: List<LocalLoadAttempt> = emptyList(),
+            nativeProgress: GgufNativeProgress? = null,
+            contextReplan: LocalContextReplanRequired? = null
+        ) {
+            val native =
+                if (request.operation == "GENERATE") {
+                    (nativeProgress?.executionReceipt ?: metrics?.runtimeExecutionReceipt ?: runtime.latestExecutionReceipt)
+                        ?.takeIf { it.nativeGenerationId != null && it.nativeGenerationId != baselineGeneration }
+                        ?.copy(
+                            runtimeRequestId = request.requestId,
+                            workerGenerationId = generation,
+                            physicalAttemptId = request.physicalAttemptId
+                        )
+                } else {
+                    null
+                }
+            val reportedState =
+                state?.copy(
+                    engineLoadReceipt =
+                    (runtime.latestEngineLoadReceipt ?: state.engineLoadReceipt)?.copy(
+                        workerGenerationId = generation,
+                        workerPid = Process.myPid()
+                    )
+                )
+            val packet =
+                RuntimeWire(
+                    operation = kind,
+                    requestId = request.requestId,
+                    sessionId = request.sessionId,
+                    generation = generation,
+                    sequence = ++sequence,
+                    text = text,
+                    metrics = metrics,
+                    state = reportedState,
+                    capabilities = capabilities,
+                    callId = callId,
+                    toolName = toolName,
+                    errorCode = errorCode,
+                    loadAttempts = loadAttempts,
+                    processPssBytes =
+                    if (kind in setOf("METRICS", "ERROR", "CANCELLED", "RESULT") ||
+                        nativeProgress?.stage in setOf("PREFILL_BEGIN", "TIMEOUT_CANCEL_REQUESTED", "NATIVE_RETURN")
+                    ) {
+                        android.os.Debug.getPss() *
+                            1024
+                    } else {
+                        null
+                    },
+                    nativeProgress = nativeProgress,
+                    executionReceipt = native,
+                    inspectionReceipt = runtime.latestInspectionReceipt?.takeIf { it.inspectionId != baselineInspectionId }?.copy(
+                        runtimeRequestId = request.requestId,
+                        workerGenerationId = generation
+                    ),
+                    attemptedContextTokens = contextReplan?.attemptedContextTokens,
+                    suggestedContextTokens = contextReplan?.suggestedContextTokens
+                )
             if (deferTerminal && kind in setOf("RESULT", "DONE", "ERROR", "CANCELLED")) {
                 terminal = packet
             } else {
@@ -329,4 +557,7 @@ class LocalInferenceService : Service() {
     }
 }
 
-internal fun isInferenceProcess(): Boolean = android.app.Application.getProcessName()?.endsWith(":local_inference") == true
+internal fun isInferenceProcess(): Boolean =
+    android.app.Application
+        .getProcessName()
+        ?.endsWith(":local_inference") == true

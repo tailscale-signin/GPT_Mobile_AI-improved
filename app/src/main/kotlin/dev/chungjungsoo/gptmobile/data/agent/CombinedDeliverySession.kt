@@ -126,6 +126,13 @@ internal class CombinedDeliverySession(
         emit(ProviderEvent.Notice("Combining the contributions within your requested scope and checking their support."))
         var accepted = collect(base, progressive)
         validateAccess()
+        val deferred = (accepted.terminal as? ProviderEvent.Failed)?.takeIf { combined?.requested?.appendContinuations == true && it.providerLimit?.knownNotAccepted == true }
+        if (deferred != null) {
+            // Validated records already live in the durable journal. A scheduled append
+            // remains staged and cannot publish a partial fallback as the final answer.
+            emit(deferred)
+            return@flow
+        }
         if (!accepted.text.startsWith(committedPrefix)) {
             emit(ProviderEvent.Failed("Combined continuation cannot replace the committed prefix without a new revision. Original contributions remain available."))
             return@flow
@@ -167,10 +174,12 @@ internal class CombinedDeliverySession(
                 issues.any { it != "LEXICAL_COVERAGE_UNRESOLVED_HINTS" } || checked.verificationNeeds.isNotEmpty() -> "COMPLETED_WITH_LIMITS"
                 else -> "COMPLETED"
             }
-            val wording = withContext(Dispatchers.Default) { combinedWordingSpans(candidate.text, sources) }
-            val represented = wording.flatMapTo(linkedSetOf()) { it.profileUids } + candidate.decoder?.passages.orEmpty().filter { it.matches(candidate.text) && it.semanticLinkStatus == "CONSERVATIVE_LINK_CHECKED" }.flatMapTo(linkedSetOf()) { it.profileUids }
+            val mapping = withContext(Dispatchers.Default) { CombinedAnswerMappings.get(candidate.text, sources) }
+            val mappedPassages = CombinedAnswerMappings.passages(candidate.text, mapping, candidate.decoder?.passages.orEmpty())
+            val represented = mapping.links.flatMapTo(linkedSetOf()) { it.profileUids }
             return CombinedQualityReport(
                 answerDigest = researchHash(candidate.text),
+                claimMapping = mapping,
                 complete = candidate.text.isNotBlank() && providerComplete && framingValid && !material && violations.isEmpty() && !unresolvedResearch,
                 status = when {
                     candidate.text.isBlank() -> "FAILED"
@@ -181,7 +190,7 @@ internal class CombinedDeliverySession(
                     else -> "COMPLETED_WITH_ISSUES"
                 },
                 wordCount = visibleWordCount(candidate.text), issues = issues,
-                passages = candidate.decoder?.passages.orEmpty().filter { it.matches(candidate.text) }.map { passage -> passage.copy(evidenceStatus = CombinedEvidenceVerifier.assess(passage.passageId, candidate.text.substring(passage.start, passage.end), currentEvidence, passage.sourceIds).result) },
+                passages = mappedPassages.map { passage -> passage.copy(evidenceStatus = CombinedEvidenceVerifier.assess(passage.passageId, candidate.text.substring(passage.start, passage.end), currentEvidence, passage.sourceIds).result) },
                 decisions = checked.decisions,
                 sourceUnits = coverageResult.total, lexicalMissing = coverageResult.missing.size,
                 duplicatePassagesRemoved = candidate.decoder?.duplicatesRemoved ?: 0,
@@ -386,28 +395,30 @@ internal class CombinedDeliverySession(
             policy.requestedItems == null &&
             CurrentRequestContract.from(originalRequest).intent == "SUBSTANTIVE"
         if (preserve) {
-            val preserved = withContext(Dispatchers.Default) { CombinedSourcePreservation.assemble(accepted.text, sources) }
+            val preserved = withContext(Dispatchers.Default) { CombinedSourcePreservation.assemble(accepted.text, sources, originalRequest) }
             accepted = accepted.copy(text = preserved.text)
             val preservedRanges = preserved.passages
             val originalPassages = finalReport.passages.filter { old -> preservedRanges.none { it.start < old.end && it.end > old.start } }
+            val finalMapping = withContext(Dispatchers.Default) { CombinedAnswerMappings.get(preserved.text, sources) }
             finalReport = finalReport.copy(
                 answerDigest = researchHash(preserved.text),
+                claimMapping = finalMapping,
                 wordCount = visibleWordCount(preserved.text),
                 passages = originalPassages + preservedRanges,
                 sourceDispositions = preserved.dispositions,
-                sourceAccountingStatus = "COMPLETE_EXACT_SPAN_ACCOUNTING",
+                sourceAccountingStatus = if (sources.any { it.claimExtractionVersion >= 3 }) "COMPLETE_CLAIM_AND_SPAN_ACCOUNTING_V3" else "COMPLETE_CLAIM_AND_SPAN_ACCOUNTING_V2",
                 retainedFragments = preserved.fragments,
-                representedProfileUids = preserved.passages.flatMapTo(linkedSetOf()) { it.profileUids },
+                representedProfileUids = (originalPassages + preserved.passages).flatMapTo(linkedSetOf()) { it.profileUids },
                 sourceLinkStatus = "EXACT_SOURCE_FRAGMENTS_AND_CHECKED_LINKS",
                 // Local preservation finishes the document even if the writer was truncated.
                 // Transport, writer support and semantic coverage retain their own outcomes.
-                complete = preserved.text.isNotBlank() && sources.isNotEmpty(),
-                status = "COMPLETED_WITH_ISSUES",
-                deliveredScopeStatus = "COMPLETED_WITH_LIMITS",
-                verificationReceipts = emptyList(),
-                supportEdges = emptyList(),
-                verificationStatus = "UNVERIFIED",
-                issues = (finalReport.issues + "SOURCE_FRAGMENTS_RETAINED_UNVERIFIED").distinct()
+                complete = if (preserved.fragments > 0) preserved.text.isNotBlank() && sources.isNotEmpty() else finalReport.complete,
+                status = if (preserved.fragments > 0) "COMPLETED_WITH_ISSUES" else finalReport.status,
+                deliveredScopeStatus = if (preserved.fragments > 0) "COMPLETED_WITH_LIMITS" else finalReport.deliveredScopeStatus,
+                verificationReceipts = if (preserved.fragments > 0) emptyList() else finalReport.verificationReceipts,
+                supportEdges = if (preserved.fragments > 0) emptyList() else finalReport.supportEdges,
+                verificationStatus = if (preserved.fragments > 0) "UNVERIFIED" else finalReport.verificationStatus,
+                issues = (finalReport.issues + if (preserved.fragments > 0) listOf("SOURCE_FRAGMENTS_RETAINED_UNVERIFIED") else emptyList()).distinct()
             )
         } else if (preserveSourceContent) {
             finalReport = finalReport.copy(sourceAccountingStatus = "USER_CONSTRAINTS_TAKE_PRECEDENCE")
@@ -426,8 +437,10 @@ internal class CombinedDeliverySession(
             emit(
                 accepted.terminal as? ProviderEvent.Failed ?: if (finalReport.issues.any { it in COMBINED_FRAMING_FAILURES }) {
                     ProviderEvent.Failed("OUTPUT_PROTOCOL_INVALID: The retained answer contains invalid delivery records.", errorCode = "OUTPUT_PROTOCOL_INVALID")
+                } else if (finalReport.protocolComplete) {
+                    ProviderEvent.Failed("COMBINED_REQUIREMENTS_UNMET: The answer finished, but needs editorial correction to meet the request.", errorCode = "COMBINED_REQUIREMENTS_UNMET", transportComplete = true)
                 } else {
-                    ProviderEvent.Failed("COMBINED_PARTIAL: The retained answer has unfinished delivery or required checks.")
+                    ProviderEvent.Failed("COMBINED_RECORD_INCOMPLETE: The retained answer has unfinished delivery.", errorCode = "COMBINED_RECORD_INCOMPLETE")
                 }
             )
         } else {

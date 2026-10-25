@@ -73,7 +73,10 @@ internal fun AssistantChronologicalContent(
     articleCards: @Composable (String) -> Unit = {},
     combinedWording: CombinedWordingPresentation? = null,
     splitForPassageIndicators: Boolean = false,
-    passageIndicators: @Composable (String) -> Unit = {}
+    passageIndicators: @Composable (String) -> Unit = {},
+    combinedManifest: dev.chungjungsoo.gptmobile.data.database.entity.CombinedManifestReference? = null,
+    originalSource: CombinedOriginalSourceReader? = null,
+    loadCombinedBlocks: suspend (dev.chungjungsoo.gptmobile.data.database.entity.CombinedManifestReference, Int, Int) -> List<dev.chungjungsoo.gptmobile.data.agent.CombinedDocumentBlock> = { _, _, _ -> emptyList() }
 ) {
     val events = remember(toolEvents) { toolEvents.associateBy { it.sequence } }
     val recalledSources = remember(timeline, toolEvents, debugMemorySources, debugMode, debugSettings.debugShowMemoryRecall) {
@@ -122,13 +125,18 @@ internal fun AssistantChronologicalContent(
                 }
             }
         }
+        if (originalSource != null) {
+            BoundedOriginalAssistantDocument(contentIdentity, originalSource, proseColor, outputTrace, articleCards)
+        } else if (combinedManifest != null) {
+            BoundedAssistantDocument(combinedManifest.id, combinedManifest, loadCombinedBlocks, combinedWording, proseColor, outputTrace, articleCards)
+        }
         items.forEachIndexed { index, item ->
             key(contentIdentity, index, item.type, item.toolSequence) {
                 when (item.type) {
                     AssistantTimelineItemType.THINKING -> if (expanded && showReasoning) {
                         Text(item.content, Modifier.padding(vertical = 8.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    AssistantTimelineItemType.TEXT -> {
+                    AssistantTimelineItemType.TEXT -> if (combinedManifest == null && originalSource == null) {
                         // Retain the previous committed display while the next streamed
                         // snapshot is prepared. A message key prevents cross-message reuse.
                         val preparedDisplay by produceState(PreparedAssistantDisplay(), item.content, combinedWording != null) {
@@ -144,7 +152,9 @@ internal fun AssistantChronologicalContent(
                             if (isError) {
                                 Text(citationText, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(vertical = 8.dp))
                             } else {
-                                if (isLoading) {
+                                if (response.length > dev.chungjungsoo.gptmobile.data.agent.CombinedDocuments.INLINE_CHARACTERS) {
+                                    BoundedInlineAssistantDocument("$contentIdentity:$index", response, combinedWording, proseColor, outputTrace?.copy(partId = "$index"), articleCards)
+                                } else if (isLoading) {
                                     ChatMarkdown(wording = combinedWording, outputTrace = outputTrace?.copy(partId = "$index"), proseColor = proseColor, memoryValues = recalledSources.map { it.value }, content = response, contentIdentity = "$contentIdentity:$index", streaming = true, animateStreaming = animateResponse, modifier = Modifier.padding(vertical = 8.dp))
                                 } else {
                                     if (!splitForPassageIndicators && !debugSettings.researchFeature.articleCards) {
@@ -203,7 +213,7 @@ internal fun AssistantChronologicalContent(
                 }
             }
         }
-        articleCards(fallbackText)
+        if (combinedManifest == null && originalSource == null && fallbackText.length <= dev.chungjungsoo.gptmobile.data.agent.CombinedDocuments.INLINE_CHARACTERS) articleCards(fallbackText)
     }
 }
 

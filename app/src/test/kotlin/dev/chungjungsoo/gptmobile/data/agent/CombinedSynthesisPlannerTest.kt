@@ -42,6 +42,45 @@ class CombinedSynthesisPlannerTest {
         coEvery { chats.isCombinedTurnCancelled("root") } returns false
     }
 
+    @Test fun excludedFailureIsRemovedOnlyFromThisFrozenMergeWhileChatMembershipAndAcceptedPolicyStayIntact() = runTest {
+        fixture("FAILED")
+        val requested = CombinedPolicyResolver.accept(dev.chungjungsoo.gptmobile.data.model.ConversationCombinedSettings(), listOf("p", "h"), mapOf("p" to "m", "h" to "m"), user.content, singlePass = true, preferredOwnerUid = "p")
+        val execution = CombinedExecutionContext(requested, CombinedPolicyResolver.resolve(requested), "root", chatId = 1)
+        val frozenTurn = CombinedAcceptedTurn(context = execution, tools = ChatMcpToolConfig(combined = execution))
+        coEvery { chats.combinedActiveMembers(1) } returns setOf("p", "h")
+        coEvery { chats.fetchMessagesV2(1) } returns listOf(user, primary, helper.copy(content = "An excluded partial detail remains in the saved profile reply."))
+        every { chats.observeAgentRuns(1) } returns flowOf(
+            listOf(
+                AgentRun("p-run", 1, 2, 3, "p", "CUSTOM", "m", "COMPLETED", synthesisSnapshot = frozenTurn.encode()),
+                AgentRun("h-run", 1, 2, 4, "h", "CUSTOM", "m", "FAILED", synthesisSnapshot = frozenTurn.encode())
+            )
+        )
+        coEvery { settings.fetchPlatformV2s() } returns listOf(dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2(uid = "p", name = "Primary", enabled = true, model = "m"))
+        coEvery { research.exportTurn(1, any(), any()) } returns emptyList()
+        every { chats.observeToolEvents(1) } returns flowOf(emptyList())
+        val decisions = mockk<CombinedCollectionDecisionStore>()
+        coEvery { decisions.excludedProfiles("root") } returns setOf("h")
+        coEvery { decisions.pending("root", any()) } returns emptySet()
+        coEvery { decisions.chosenWriter("root") } returns null
+        every { decisions.decisions } returns kotlinx.coroutines.flow.MutableStateFlow(mapOf("root" to CombinedCollectionDecision("root", excludedProfileUids = setOf("h"))))
+        coEvery { chats.persistAgentRetry(any()) } answers {
+            val request = firstArg<dev.chungjungsoo.gptmobile.data.database.entity.PersistAgentRetryRequest>()
+            val snapshot = kotlinx.serialization.json.Json.decodeFromString<CombinedInputSnapshot>(request.run.synthesisSnapshot!!)
+            assertEquals(listOf("p"), snapshot.sources.map { it.platformUid })
+            assertEquals(primary.content, snapshot.sources.single().content)
+            assertEquals(3, snapshot.sources.single().claimExtractionVersion)
+            assertEquals(listOf("p", "h"), snapshot.combined!!.requested.participantUids)
+            assertEquals(requested.requestedPolicyDigest, snapshot.combined!!.requested.requestedPolicyDigest)
+            val assistant = request.assistantMessage.copy(content = "", currentRunId = request.run.runId)
+            dev.chungjungsoo.gptmobile.data.database.entity.PersistAgentRetryResult(assistant, AgentRun(request.run.runId, 1, 2, 3, "p", "CUSTOM", "m", synthesisKey = request.run.synthesisKey, synthesisSnapshot = request.run.synthesisSnapshot))
+        }
+        val next = CombinedSynthesisPlanner(chats, settings, research, decisions).prepare(1, 2, "root")
+        assertNotNull(next)
+        assertEquals("p", next!!.platform.uid)
+        coVerify(exactly = 0) { chats.updateChatPlatforms(any(), any()) }
+        coVerify(exactly = 1) { chats.persistAgentRetry(any()) }
+    }
+
     @Test fun finalContributorCanPersistAndDispatchSynthesisWithoutAChatViewModel() = runTest {
         fixture("COMPLETED")
         coEvery { settings.fetchPlatformV2s() } returns listOf(dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2(uid = "p", name = "Primary", enabled = true, model = "m"))
@@ -63,6 +102,31 @@ class CombinedSynthesisPlannerTest {
         assertTrue(next.assistantMessages.last().isEmpty())
         assertEquals(2, next.userMessages.last().id)
         coVerify(exactly = 1) { chats.persistAgentRetry(any()) }
+    }
+
+    @Test fun excludingThePrimaryRequiresAnExplicitNewWriterAndCannotRotateToAHealthyHelper() = runTest {
+        fixture("COMPLETED")
+        val requested = CombinedPolicyResolver.accept(dev.chungjungsoo.gptmobile.data.model.ConversationCombinedSettings(), listOf("p", "h"), mapOf("p" to "m", "h" to "m"), user.content, singlePass = true, preferredOwnerUid = "p")
+        val execution = CombinedExecutionContext(requested, CombinedPolicyResolver.resolve(requested), "root", chatId = 1)
+        val frozenTurn = CombinedAcceptedTurn(context = execution, tools = ChatMcpToolConfig(combined = execution))
+        coEvery { chats.combinedActiveMembers(1) } returns setOf("p", "h")
+        coEvery { chats.fetchMessagesV2(1) } returns listOf(user, primary, helper.copy(content = "A complete contribution from the remaining helper."))
+        every { chats.observeAgentRuns(1) } returns flowOf(
+            listOf(
+                AgentRun("p-run", 1, 2, 3, "p", "CUSTOM", "m", "FAILED", synthesisSnapshot = frozenTurn.encode()),
+                AgentRun("h-run", 1, 2, 4, "h", "CUSTOM", "m", "COMPLETED", synthesisSnapshot = frozenTurn.encode())
+            )
+        )
+        coEvery { settings.fetchPlatformV2s() } returns listOf(dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2(uid = "h", name = "Helper", enabled = true, model = "m"))
+        every { chats.observeToolEvents(1) } returns flowOf(emptyList())
+        coEvery { chats.markCombinedMergeUnavailable(1, 2, "root", any()) } returns Unit
+        val decisions = mockk<CombinedCollectionDecisionStore>()
+        coEvery { decisions.excludedProfiles("root") } returns setOf("p")
+        coEvery { decisions.pending("root", any()) } returns emptySet()
+        coEvery { decisions.chosenWriter("root") } returns null
+        assertNull(CombinedSynthesisPlanner(chats, settings, research, decisions).prepare(1, 2, "root"))
+        coVerify(exactly = 1) { chats.markCombinedMergeUnavailable(1, 2, "root", match { it?.contains("Choose a remaining primary") == true }) }
+        coVerify(exactly = 0) { chats.persistAgentRetry(any()) }
     }
 
     @Test fun failedTerminalHelperCannotHoldUpUsableContributions() = runTest {

@@ -4,20 +4,26 @@
   "qualification": "scoped",
   "baseCommit": "de1e67b8536971fda4c1b3401db232e241b544bc",
   "changes": [
-    "Device-local provider activation, scoped personal-tool consent and retired endpoint enforcement",
-    "Persistent rolling quotas, durable never-dispatched provider waits and paused-work UI",
-    "Dedicated Combined final identity, exact source accounting, final staging and on-device assembly",
-    "Room 46 migration, bounded source indexing and integration regression coverage"
+    "Device-local provider activation, scoped personal-data transfer grants, provenance and retired endpoint enforcement",
+    "Persistent request/token reservations, credential/model health, exact deferred Research stages and accepted queue identity",
+    "Dedicated Combined final identity, shared source mapping, optional append continuation and content-addressed paged documents",
+    "Room 47 additive migration, complete document backup/export and bounded final/source UI",
+    "GGUF native backend selection, operation receipts, memory/context admission, cleanup/quarantine and controlled CPU trials",
+    "Versioned benchmark execution, validation, coverage, metric populations and reproducible exports",
+    "Bounded benchmark export serialization, staged Android file saving and a 256 MiB export regression gate",
+    "Identity-bound LiteRT inspection caching, typed structured-output failures, exact-schema readiness and retained fallback provenance",
+    "Suite 10 semantic/format/tool separation, rotated eight-domain intelligence, independent performance modes and execution policies",
+    "Observed backend comparisons, descriptive history, explicit deadline/settings evidence and provisional benchmark UI",
+    "Accept/Decline examination consent, main-thread IO repairs, coalesced metadata inspection and causal diagnostics"
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; its remaining acceptance cases are not represented as passed.",
     "Physical-device performance and a production baseline profile remain unqualified until measured on a reference device.",
+    "Android GPU qualification requires compatible-device receipts for actual offload, prefill, decode, repeated requests and cancel/recovery; host tests do not establish those results.",
+    "Repeated physical NPU/GPU schema completion, reduced warm inspection latency, calibrated memory admission and Full-run performance remain device acceptance gates. The app does not infer runtime-effective settings from requested or SDK-applied values.",
     "Qwen demo backend availability and live authenticated LLM7 generation are not established by deterministic tests.",
     "Optional runtime extraction remains a staged packaging project; this release adds a measured payload inventory without claiming APK size savings.",
-    "Automatic provider resume covers never-dispatched requests; stage-specific continuation after transmitted failures remains incomplete.",
-    "Optional append continuations, complete transfer authorization and derived-query taint, and daily token quota reconciliation remain incomplete.",
-    "Durable block manifests and virtualized long-answer rendering remain incomplete; final staging currently uses memory.",
-    "The three 2026-10-24 design documents are only partially implemented; this integration remains a draft pending the documented design and qualification gates."
+    "Exact recovered France/Portugal wording and report fields, and the earlier benchmark export round-trip, do not establish a complete conversation replay; the later 16-run benchmark export remains unavailable."
   ],
   "requiredWorkflows": [
     "Build Android APK",
@@ -27,8 +33,15 @@
   ],
   "allowedPaths": [
     "app/",
+    "local-gguf-runtime/",
+    "macrobenchmark/",
+    "scripts/",
     "docs/releases/",
     "docs/validation/",
+    ".github/workflows/gguf-native-smoke.yml",
+    ".github/workflows/device-validation.yml",
+    ".github/workflows/pr-validation.yml",
+    ".gitignore",
     "CHANGELOG.md",
     "RELEASE_NOTES.md",
     "release-scope.json"

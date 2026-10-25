@@ -26,7 +26,7 @@ import org.robolectric.annotation.Config
 @Config(application = Application::class, sdk = [34])
 class RoadmapMigrationMatrixTest {
     @Test fun publishedAndIntermediateUpgradePathsPreserveConversationEvidence() = runBlocking {
-        for (version in listOf(10, 27, 28, 29, 30, 31, 32, 33, 35, 38, 39, 40, 41, 42, 43, 44, 45)) {
+        for (version in listOf(10, 27, 28, 29, 30, 31, 32, 33, 35, 38, 39, 40, 41, 42, 43, 44, 45, 46)) {
             val context = RuntimeEnvironment.getApplication()
             val name = "roadmap-migration-$version-${UUID.randomUUID()}.db"
             val file = context.getDatabasePath(name).also { it.parentFile!!.mkdirs() }
@@ -70,6 +70,11 @@ class RoadmapMigrationMatrixTest {
                 old.execSQL("INSERT INTO agent_runs(run_id,chat_id,user_message_id,assistant_message_id,profile_uid,provider_snapshot,model_snapshot,status,created_at$gatewayColumn) VALUES('saved-run',1,1,2,'profile','test','model','COMPLETED',1$gatewayValue)")
                 old.execSQL("INSERT INTO tool_events(event_id,run_id,sequence,call_id,tool_name,model_tool_name,arguments,status,is_error,result) VALUES('saved-event','saved-run',1,'call','read','read','{}','COMPLETED',0,'evidence')")
                 if (version == 45) old.execSQL("UPDATE agent_runs SET synthesis_key = 'historical-final' WHERE run_id = 'saved-run'")
+                if (version == 46) {
+                    old.execSQL("INSERT INTO combined_final_messages(chatId,userMessageId,finalMessageId) VALUES(1,1,2)")
+                    old.execSQL("INSERT INTO provider_waits(runId,fence,scope,retryAt,checkpoint) VALUES('saved-run',0,'saved-scope',1000,'saved checkpoint')")
+                    old.execSQL("INSERT INTO combined_delivery_checkpoints(runId,revisionId,fence,generation,snapshotDigest,snapshotJson,stateJson,renderedAnswer,attributionJson,updatedAt) VALUES('saved-run','revision',0,1,'digest','snapshot','state','retained partial','attribution',1)")
+                }
                 if (version == 35) {
                     old.execSQL("INSERT INTO tool_connections(connection_uid,name,alias,type,endpoint_url,auth_type,secret_ref,oauth_client_id,allow_cleartext,tool_policy,approved_read_tools,created_at,updated_at) VALUES('legacy-marketplace','Legacy server','legacy_server','MCP','https://example.org/mcp','NONE',NULL,NULL,0,'ASK_WRITES','',1,1)")
                 }
@@ -91,6 +96,16 @@ class RoadmapMigrationMatrixTest {
                 if (version == 45) {
                     assertEquals(2, migrated.agentPersistenceDao().combinedFinalMessage(1, 1)?.finalMessageId)
                     assertTrue(migrated.agentPersistenceDao().providerWaits().isEmpty())
+                }
+                if (version == 46) {
+                    assertEquals(2, migrated.agentPersistenceDao().combinedFinalMessage(1, 1)?.finalMessageId)
+                    assertEquals("saved checkpoint", migrated.agentPersistenceDao().rawProviderWait("saved-run")?.checkpoint)
+                    assertTrue(migrated.agentPersistenceDao().providerWaits().isEmpty())
+                    val checkpoint = requireNotNull(migrated.agentPersistenceDao().combinedDeliveryCheckpoint("saved-run", "revision"))
+                    assertEquals(1, checkpoint.storageVersion)
+                    assertEquals("retained partial", checkpoint.renderedAnswer)
+                    assertEquals("snapshot", checkpoint.snapshotJson)
+                    assertEquals("state", checkpoint.stateJson)
                 }
                 if (version == 35) {
                     migrated.openHelper.readableDatabase.query("SELECT marketplace_origin, marketplace_provider_id, marketplace_installation_id FROM tool_connections WHERE connection_uid='legacy-marketplace'").use { row ->

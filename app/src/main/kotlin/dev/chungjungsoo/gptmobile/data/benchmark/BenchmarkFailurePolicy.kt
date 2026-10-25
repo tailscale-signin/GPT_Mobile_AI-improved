@@ -50,3 +50,30 @@ internal fun BenchmarkFailure.outcome(): BenchmarkOutcome = when {
 }
 
 internal fun BenchmarkSample.executionFailure(): Boolean = outcome in setOf(BenchmarkOutcome.ERROR, BenchmarkOutcome.TIMED_OUT, BenchmarkOutcome.QUOTA_BLOCKED, BenchmarkOutcome.POLICY_BLOCKED, BenchmarkOutcome.CANCELED, BenchmarkOutcome.PARTIAL)
+
+/** Case scheduling depends on positive cleanup facts, not on a model-quality grade. */
+internal fun BenchmarkSample.recoveryAction(allowConfirmedRecovery: Boolean = true): BenchmarkRecoveryAction {
+    if (runtimeCleanup?.safeForSuccessor == false || cleanupReceipt == "cleanup_unconfirmed_local_blocked") return BenchmarkRecoveryAction.QUARANTINE_RUNTIME
+    if (outcome == BenchmarkOutcome.CANCELED || failure?.owner == "user") return BenchmarkRecoveryAction.HONOR_USER_STOP
+    if (!executionFailure() || failureCategory == "FIXTURE_INVALID") return BenchmarkRecoveryAction.CONTINUE_INDEPENDENT_CASES
+    if (outcome in setOf(BenchmarkOutcome.QUOTA_BLOCKED, BenchmarkOutcome.POLICY_BLOCKED)) return BenchmarkRecoveryAction.STOP_PROFILE
+    if (allowConfirmedRecovery && runtimeCleanup?.safeForSuccessor == true) {
+        if (outcome == BenchmarkOutcome.PARTIAL && (terminalReceived == true || runtimeExecutions.lastOrNull()?.hasNativeTerminal == true)) return BenchmarkRecoveryAction.CONTINUE_INDEPENDENT_CASES
+        if (outcome in setOf(BenchmarkOutcome.TIMED_OUT, BenchmarkOutcome.ERROR) && runtimeExecutions.isNotEmpty()) return BenchmarkRecoveryAction.CONTINUE_INDEPENDENT_CASES
+    }
+    return BenchmarkRecoveryAction.STOP_PROFILE
+}
+
+internal fun BenchmarkSample.withFailureScope(allowConfirmedRecovery: Boolean): BenchmarkSample {
+    val action = recoveryAction(allowConfirmedRecovery)
+    val scope = when (action) {
+        BenchmarkRecoveryAction.CONTINUE_INDEPENDENT_CASES -> BenchmarkFailureScope.REQUEST
+        BenchmarkRecoveryAction.SKIP_DEPENDENTS -> BenchmarkFailureScope.DEPENDENCY
+        BenchmarkRecoveryAction.QUARANTINE_RUNTIME -> BenchmarkFailureScope.RUNTIME
+        BenchmarkRecoveryAction.STOP_BATCH -> BenchmarkFailureScope.BATCH
+        BenchmarkRecoveryAction.HONOR_USER_STOP -> BenchmarkFailureScope.USER
+        else -> BenchmarkFailureScope.PROFILE
+    }
+    val original = failure ?: if (outcome in setOf(BenchmarkOutcome.PASSED, BenchmarkOutcome.UNSUPPORTED, BenchmarkOutcome.SKIPPED) && action == BenchmarkRecoveryAction.CONTINUE_INDEPENDENT_CASES) return this else BenchmarkFailure(failureCategory ?: "EXECUTION_FAILED", runtimeStage ?: "request", error ?: "The case did not complete successfully.")
+    return copy(failure = original.copy(failureScope = scope, recoveryAction = action, scope = scope.name.lowercase(), owner = if (scope == BenchmarkFailureScope.RUNTIME) "runtime" else original.owner))
+}

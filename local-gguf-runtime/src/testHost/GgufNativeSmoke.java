@@ -7,7 +7,10 @@ public final class GgufNativeSmoke {
     private static void check(boolean value, String message) {
         if (!value) throw new AssertionError(message);
     }
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
+        var diagnostics = java.nio.file.Files.createTempDirectory("gguf-native-smoke-").resolve("native-error.log");
+        GgufNative.configureDiagnosticWorker("host-smoke-worker".getBytes(StandardCharsets.UTF_8));
+        GgufNative.configureDiagnosticFile(diagnostics.toString().getBytes(StandardCharsets.UTF_8));
         check(GgufNative.buildInfo().contains("operationControl=1"), "Packaged build identity missing operation control");
         GgufNative.validateChatTemplate("{% for m in messages %}{{ m.role|upper }}: {{ m.content }}{% endfor %}".getBytes(StandardCharsets.UTF_8));
         try {
@@ -16,6 +19,8 @@ public final class GgufNativeSmoke {
         } catch (IllegalStateException expected) {
             check(expected.getMessage().contains("syntax error"), "Wrong template failure");
         }
+        String templateFailure = java.nio.file.Files.readString(diagnostics);
+        check(templateFailure.contains("syntax error") && templateFailure.contains("host-smoke-worker"), "Native exception was not persisted under the original operation");
         boolean gpu = GgufNative.supportsGpuOffload();
         if (gpu) throw new AssertionError("CPU host smoke unexpectedly enabled GPU offload");
         try {
@@ -31,7 +36,12 @@ public final class GgufNativeSmoke {
             loadOperation, 2, 256, 128, (stage, fraction, elapsed) -> {
                 if (initialLoadStages.isEmpty() || !initialLoadStages.get(initialLoadStages.size() - 1).equals(stage)) initialLoadStages.add(stage);
             }, "cpu");
-        check(initialLoadStages.equals(java.util.List.of("INITIALIZING_BACKEND", "PROBING_DEVICE", "LOADING_WEIGHTS", "PREPARING_TEMPLATE", "ALLOCATING_CONTEXT", "NATIVE_READY")), "Incomplete native load stages: " + initialLoadStages);
+        var primaryStages = initialLoadStages.stream().filter(stage -> !stage.startsWith("REGISTER_")).toList();
+        check(primaryStages.equals(java.util.List.of("INITIALIZING_BACKEND", "PROBING_DEVICE", "LOADING_WEIGHTS", "PREPARING_TEMPLATE", "ALLOCATING_CONTEXT", "NATIVE_READY")), "Incomplete native load stages: " + initialLoadStages);
+        check(initialLoadStages.contains("REGISTER_CPU_BEGIN") && initialLoadStages.contains("REGISTER_CPU_END"), "Registry boundary evidence missing");
+        check(GgufNative.engineReceipt(engine).contains("\"deviceType\":\"CPU\"") && GgufNative.engineReceipt(engine).contains("\"actualRepeatingLayers\":0"), "Native engine identity missing");
+        long[] owned = GgufNative.allocationObservation(engine);
+        check(owned.length == 20 && owned[19] == 2 && owned[3] > 0 && owned[6] == 0 && owned[10] == 0, "CPU allocation ownership receipt invalid: " + Arrays.toString(owned));
         try {
             for (int attempt = 0; attempt < 3; attempt++) {
                 var output = new java.io.ByteArrayOutputStream();
@@ -96,16 +106,30 @@ public final class GgufNativeSmoke {
             check(freshResult[1] > 0 && freshResult[4] != 2, "Stale cancellation stopped a fresh operation");
             long budgetOperation = GgufNative.nextOperationId();
             GgufNative.prepareOperation(engine, budgetOperation);
-            var actualBudget = new java.util.concurrent.atomic.AtomicInteger();
-            long[] boundedReply = GgufNative.generatePrepared(engine, new String[]{"user"},
-                new byte[][]{"Once upon a time".getBytes(StandardCharsets.UTF_8)},
-                8192, 1, 1f, 0f, bytes -> false,
-                (phase,total,processed,sampled,elapsed,code) -> {
-                    if (phase.equals("OUTPUT_BUDGET_ADJUSTED")) actualBudget.set(code);
-                }, budgetOperation);
-            check(actualBudget.get() > 0 && actualBudget.get() < 512, "Exact tokenizer did not reserve reply headroom");
-            check(boundedReply[0] + actualBudget.get() == GgufNative.allocationObservation(engine)[0], "Native reply allocation exceeds context");
-            check(boundedReply[1] == 1 && boundedReply[4] == 2, "Fitting input was rejected because of an oversized output preference");
+            var budgetStages = new java.util.ArrayList<String>();
+            try {
+                GgufNative.generateBudgeted(engine, new String[]{"user"}, new byte[][]{"Once upon a time".getBytes(StandardCharsets.UTF_8)},
+                    16, 1, 1f, 0f, bytes -> { throw new AssertionError("Over-budget request emitted output"); },
+                    (phase,total,processed,sampled,elapsed,code) -> budgetStages.add(phase), 500, budgetOperation);
+                throw new AssertionError("Native tokenizer admitted input + safety + output beyond context");
+            } catch (IllegalStateException expected) {
+                check(expected.getMessage().contains("context limit") && expected.getMessage().contains("safety=500"), "Missing actual budget rejection");
+            }
+            String admissionFailure = java.nio.file.Files.readString(diagnostics);
+            check(admissionFailure.contains("context limit") && admissionFailure.contains("safety=500") && admissionFailure.contains("\"operationId\":" + budgetOperation), "Admission failure lost its operation-local diagnostic");
+            check(budgetStages.contains("NATIVE_ENTRY") && budgetStages.contains("TOKEN_COUNT_MEASURED") && budgetStages.contains("CONTEXT_ADMISSION_REJECTED") && !budgetStages.contains("PREFILL_BEGIN"), "Native admission occurred after prefill");
+            long acceptedOperation = GgufNative.nextOperationId();
+            GgufNative.prepareOperation(engine, acceptedOperation);
+            long[] accepted = GgufNative.generateBudgeted(engine, new String[]{"user"}, new byte[][]{"Once upon a time".getBytes(StandardCharsets.UTF_8)},
+                16, 1, 1f, 0f, bytes -> true, null, 32, acceptedOperation);
+            check(accepted.length == 19 && accepted[18] == 2 && accepted[12] == acceptedOperation, "Native generation receipt identity missing");
+            check(accepted[8] == 16 && accepted[9] == 16 && accepted[10] == 32 && accepted[7] + accepted[9] + accepted[10] <= accepted[11], "Native silently changed output allowance or lost safety");
+            check(accepted[13] == 2 && accepted[14] == 2 && accepted[15] == 256 && accepted[16] == 128, "Effective generation configuration missing");
+            check(GgufNative.generationPromptIdentity(engine, acceptedOperation).startsWith("fnv1a64:"), "Rendered prompt identity unavailable");
+            try {
+                GgufNative.generate(engine, new String[]{"user"}, new byte[][]{"Once upon a time".getBytes(StandardCharsets.UTF_8)}, 8192, 1, 1f, 0f, bytes -> true);
+                throw new AssertionError("Oversized requested output was silently clamped");
+            } catch (IllegalStateException expected) { check(expected.getMessage().contains("context limit"), "Wrong oversized-output rejection"); }
             try {
                 GgufNative.generate(engine, new String[]{"user"}, new byte[][]{"x ".repeat(1000).getBytes(StandardCharsets.UTF_8)}, 64, 1, 1f, 0f, bytes -> true);
                 throw new AssertionError("Oversized prompt admitted");
@@ -141,11 +165,12 @@ public final class GgufNativeSmoke {
             });
         try {
             long[] allocation = GgufNative.allocationObservation(observed);
-            check(allocation.length == 10, "Missing allocation components");
+            check(allocation.length == 20 && allocation[19] == 2, "Missing allocation ownership components");
             check(allocation[0] >= 513 && allocation[0] % 256 == 0, "Effective padded context missing");
             check(allocation[1] == 128 && allocation[2] == 64, "Effective batches differ");
             check(allocation[3] > 0 && allocation[4] > 0 && allocation[5] > 0 && allocation[9] > 0, "Unmeasured native buffers");
             check(allocation[6] == 0 && allocation[7] == 0 && allocation[8] == 0, "CPU buffers reported as device allocations");
+            check(allocation[10] == 0 && allocation[11] == 0 && allocation[12] == 0 && allocation[13] == 0 && allocation[14] == 0 && allocation[15] == 0, "Known CPU allocators were treated as shared or unknown");
             check(loadStages.contains("NATIVE_READY") && fractions.contains(1f), "Load progress never completed");
             System.out.println("native allocation components: " + Arrays.toString(allocation));
         } finally { GgufNative.unload(observed); }

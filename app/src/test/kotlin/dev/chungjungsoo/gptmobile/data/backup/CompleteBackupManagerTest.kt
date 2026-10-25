@@ -27,7 +27,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.ChatAttachment
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
-import io.mockk.every
+import io.mockk.coEvery
 import io.mockk.mockk
 import io.mockk.verify
 import java.io.ByteArrayOutputStream
@@ -75,7 +75,7 @@ class CompleteBackupManagerTest {
         context = RuntimeEnvironment.getApplication()
         database = Room.databaseBuilder(context, ChatDatabaseV2::class.java, "test-${UUID.randomUUID()}.db").build()
         preferences = PreferenceDataStoreFactory.create(scope = scope) { File(context.cacheDir, "${UUID.randomUUID()}.preferences_pb") }
-        every { legacy.getBackupStatus() } returns BackupStatus()
+        coEvery { legacy.getBackupStatus() } returns BackupStatus()
         benchmarkStore = BenchmarkStore(context)
         researchDatabase = Room.inMemoryDatabaseBuilder(context, dev.chungjungsoo.gptmobile.data.research.feature.ResearchDatabase::class.java).build()
         val bodies = dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore(context, researchDatabase)
@@ -122,6 +122,34 @@ class CompleteBackupManagerTest {
             assertFalse(manifest.contains("persistent-password"))
             assertFalse(manifest.contains("changed-password"))
         }
+    }
+
+    @Test
+    fun recoveryCorporaFollowBothHistoryAndResearchBackupSelections() = runBlocking {
+        database.chatRoomDao().addChatRoom(ChatRoomV2(id = 7, title = "saved"))
+        val directory = File(context.filesDir, "research-history/recovery-corpora")
+        val corpus = dev.chungjungsoo.gptmobile.data.agent.RecoveryEvidenceCorpus.Builder().apply {
+            add("tool-result", "result:receipt", "Private saved receipt")
+            add("source", "source:S1", "Retained Research passage")
+        }.build()
+        val reference = dev.chungjungsoo.gptmobile.data.agent.RecoveryEvidenceCorpusStore(directory).retain(7, "7:1", "scope", corpus)
+        val conversations = CompleteBackupSelection(setOf(CompleteBackupSection.CONVERSATIONS))
+        val plain = File(context.cacheDir, "conversation-without-derived-history.gptbackup")
+        assertTrue(manager.backup(Uri.fromFile(plain), conversations, encrypt = false).success)
+        java.util.zip.ZipFile(plain).use { archive ->
+            assertFalse(archive.entries().asSequence().any { it.name.contains("recovery-corpora/") })
+        }
+        val selected = CompleteBackupSelection(setOf(CompleteBackupSection.CONVERSATIONS, CompleteBackupSection.AGENT_HISTORY, CompleteBackupSection.CHAT_RESEARCH))
+        val complete = File(context.cacheDir, "scoped-recovery-corpus.gptbackup")
+        val saved = backupFixture(complete, selected)
+        assertTrue(saved.message, saved.success)
+        java.util.zip.ZipFile(complete).use { archive ->
+            assertTrue(archive.getEntry("internal/research-history/recovery-corpora/$reference") != null)
+        }
+        assertTrue(directory.deleteRecursively())
+        val restored = manager.restore(Uri.fromFile(complete), selection = conversations)
+        assertTrue(restored.message, restored.success)
+        assertFalse(File(directory, reference).exists())
     }
 
     @Test

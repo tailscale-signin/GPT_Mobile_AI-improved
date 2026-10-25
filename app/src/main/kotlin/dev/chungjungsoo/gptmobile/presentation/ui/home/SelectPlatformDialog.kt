@@ -79,7 +79,9 @@ internal fun SelectPlatformDialog(
     var detailsContext by rememberSaveable { mutableStateOf<String?>(null) }
     var help by rememberSaveable { mutableStateOf(false) }
     var confirming by remember { mutableStateOf(false) }
+    val now by dev.chungjungsoo.gptmobile.presentation.common.freeProviderClock()
     val selected = selectedProfileUids(platforms, selectedPlatforms)
+    val confirmed = remember(platforms, selected, now) { confirmedProfileUids(platforms, selected) }
     val labels = remember(platforms) { collectReusableProfileLabels(platforms.map { it.labels }) }
     LaunchedEffect(selected.size) { if (selected.size < 2) combined = false }
     LaunchedEffect(labels) { if (label != null && labels.none { it.key == label }) label = null }
@@ -147,7 +149,7 @@ internal fun SelectPlatformDialog(
                 if (hidden > 0) Text(pluralStringResource(R.plurals.picker_hidden_count, hidden, hidden), style = MaterialTheme.typography.labelSmall)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     TextButton(onClick = onDismissRequest) { Text(stringResource(R.string.cancel)) }
-                    Button(enabled = selected.isNotEmpty() && !confirming, modifier = Modifier.testTag("picker_confirm"), onClick = {
+                    Button(enabled = confirmed.isNotEmpty() && !confirming, modifier = Modifier.testTag("picker_confirm"), onClick = {
                         val valid = confirmedProfileUids(platforms, selected)
                         if (!confirming && valid.isNotEmpty()) {
                             confirming = true

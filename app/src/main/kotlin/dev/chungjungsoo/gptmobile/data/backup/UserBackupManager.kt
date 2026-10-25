@@ -197,7 +197,7 @@ class UserBackupManager(
             data.conversationFolderMembers.forEach { database.conversationFolderDao().move(it) }
 
             if (data.messages.isNotEmpty()) {
-                database.messageDao().insertMessageList(data.messages)
+                database.messageDao().insertMessageList(data.messages.map { dev.chungjungsoo.gptmobile.data.agent.CombinedDocuments.inlinePortable(it) })
             }
 
             data.toolConnections.forEach { connection ->

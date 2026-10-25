@@ -24,7 +24,7 @@ class ProviderLimitResumeWorker @AssistedInject constructor(
     override suspend fun doWork(): Result {
         val scope = inputData.getString("scope") ?: return Result.failure()
         if (!dev.chungjungsoo.gptmobile.presentation.service.AgentRunForegroundService.canStartNow()) return Result.retry()
-        coordinator.resumeProviderRequests(store.ready(scope))
+        coordinator.resumeProviderWaits(store.readyActions(scope))
         return Result.success()
     }
 

@@ -157,6 +157,37 @@ class CombinedWriterRequestPlanTest {
         assertEquals(original.requested, retry.requested)
     }
 
+    @Test fun acceptedAppendAddsOnlyTheCommittedCursorToTheCompleteFrozenEnvelope() {
+        val request = "Explain the result in 10000 words"
+        val user = MessageV2(id = 2, chatId = 1, platformType = null, content = request)
+        val requested = CombinedPolicyResolver.accept(dev.chungjungsoo.gptmobile.data.model.ConversationCombinedSettings(continueLongAnswers = true), listOf(profile.uid), mapOf(profile.uid to profile.model), request, singlePass = true)
+        val context = CombinedExecutionContext(requested, CombinedPolicyResolver.resolve(requested), "root", CombinedRunRole.SYNTHESIS, profile.uid, chatId = 1)
+        val prompt = "All complete frozen contributions and evidence."
+        val system = combinedWriterSystemPrompt(null, "PASSAGES_V3", request)
+        val writer = profile.copy(systemPrompt = system)
+        val plan = CombinedWriterRequestPlan.freeze(profile, request, prompt, system, emptyList(), "PASSAGES_V3", 8192, appendContinuations = true)
+        val frozen = CombinedInputSnapshot(version = 6, userMessage = user, history = emptyList(), replies = emptyList(), sources = emptyList(), prompt = prompt, profileUid = profile.uid, model = profile.model, systemPrompt = "", configKey = "config", deliveryProtocol = "PASSAGES_V3", snapshotId = "snapshot", revisionId = "revision", combined = context, writerRequestPlan = plan).seal()
+        val initial = listOf(ConversationTurn(user.copy(content = prompt), null, true))
+        val protocol = CombinedRecordProtocol(CombinedRecordCheckpoint(snapshotDigest = frozen.inputDigest, revisionId = "revision"), emptySet(), emptySet(), emptySet(), 10000)
+        protocol.accept("""{"type":"passage","seq":1,"id":"P1","text":"Already committed paragraph.","claims":[],"contributors":[],"evidence":[]}""")
+        protocol.markAttemptFinished("OUTPUT_LIMIT")
+        val cursor = protocol.continuationContext()
+        val checkpoint = protocol.checkpoint()
+        val continued = dev.chungjungsoo.gptmobile.data.queue.appendFollowUpContext(initial, "\n\nResume the frozen structured answer using this application-owned cursor: $cursor", checkpoint.records.joinToString("\n") { it.wire })
+        val guard = CombinedWriterDispatchGuard(plan)
+        guard.authorizeContinuation(frozen, checkpoint, writer, initial, continued, cursor)
+        guard.validatePreparedRequest(writer, continued)
+        guard.validateDispatch(receipt(plan.effectiveOutputTokens))
+        assertTrue(continued.single().userMessage.content.startsWith(prompt))
+        assertEquals(plan, guard.plan)
+        assertTrue(runCatching { guard.validateDispatch(receipt(4096)) }.isFailure)
+        assertEquals("COMBINED_WRITER_PLAN_IDENTITY_CHANGED", runCatching { guard.authorizeContinuation(frozen, checkpoint, writer.copy(uid = "other"), initial, continued, cursor) }.exceptionOrNull()?.message)
+        val changed = continued.map { it.copy(userMessage = it.userMessage.copy(content = it.userMessage.content.replace("All complete frozen contributions", "A shortened source summary"))) }
+        assertEquals("COMBINED_APPEND_CORPUS_CHANGED", runCatching { guard.authorizeContinuation(frozen, checkpoint, writer, initial, changed, cursor) }.exceptionOrNull()?.message)
+        assertEquals("COMBINED_APPEND_CURSOR_INVALID", runCatching { guard.authorizeContinuation(frozen, checkpoint, writer, initial, continued, cursor.replace("\"next_sequence\":2", "\"next_sequence\":3")) }.exceptionOrNull()?.message)
+        assertEquals("COMBINED_APPEND_CURSOR_UNAVAILABLE", runCatching { guard.authorizeContinuation(frozen, checkpoint.copy(appendReady = false, lastAttemptOutcome = "IN_FLIGHT"), writer, initial, continued, cursor) }.exceptionOrNull()?.message)
+    }
+
     private fun receipt(output: Int) = RequestAdmission.prepare(
         "{\"messages\":[]}",
         "synthesis",

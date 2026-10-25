@@ -101,7 +101,11 @@ data class CombinedBudgetSnapshot(
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
     val workAccounting: CombinedWorkAccounting? = null,
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
-    val researchWorkerOutcomes: Map<String, Map<String, String>> = emptyMap()
+    val researchWorkerOutcomes: Map<String, Map<String, String>> = emptyMap(),
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val finalizationWriterUid: String? = null,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val finalizationWriterPlanId: String? = null
 ) {
     val charged: CombinedResourceQuota get() = reservations.values.fold(CombinedResourceQuota()) { sum, item -> sum + item.charged }
     val unknownAttemptIds: Set<String> get() = reservations.values.filter { it.status in setOf(CombinedReservationStatus.RESERVED, CombinedReservationStatus.UNKNOWN) }.mapTo(linkedSetOf()) { it.attemptId }
@@ -151,6 +155,14 @@ class CombinedTurnBudget(
     private val childJobs = ConcurrentHashMap<Job, Unit>()
 
     suspend fun snapshot(): CombinedBudgetSnapshot = mutex.withLock { state }
+
+    /** The verified request plan binds the writer even when preflight sends no request. */
+    suspend fun bindAppendWriter(profileUid: String, planId: String) = mutex.withLock {
+        require(state.plan.requested.appendContinuations && profileUid in state.plan.requested.participantUids && planId.isNotBlank()) { "COMBINED_APPEND_NOT_ACCEPTED" }
+        require(!state.closed && !state.cancelled) { "Combined turn is cancelled or closed." }
+        require(state.finalizationWriterUid == null || state.finalizationWriterUid == profileUid && state.finalizationWriterPlanId == planId) { "COMBINED_APPEND_WRITER_CHANGED" }
+        if (state.finalizationWriterUid == null) commit(state.copy(finalizationWriterUid = profileUid, finalizationWriterPlanId = planId))
+    }
 
     /** Queue ownership is not a model attempt or a terminal stage outcome. */
     suspend fun waitingForResource(ownerKey: String, reason: String?) = mutex.withLock {
@@ -202,9 +214,18 @@ class CombinedTurnBudget(
         if (state.cancelled || state.closed) return@withLock CombinedBudgetAdmission.Denied("Combined turn is cancelled or closed; no further dispatch is allowed.")
         if (state.plan.hardLimits.deadlineEpochMillis?.let { now() >= it } == true) return@withLock CombinedBudgetAdmission.Denied("The accepted turn deadline has been reached.")
         if (context.requested.singlePass && (context.role.finalization || context.role == CombinedRunRole.VERIFIER)) {
-            if (context.role != CombinedRunRole.SYNTHESIS) return@withLock CombinedBudgetAdmission.Denied("COMBINED_SINGLE_PASS: Automatic verification, continuation and repair are disabled.")
-            if (state.reservations.values.any { it.role.finalization && it.resources.inputTokens > 0 && it.status != CombinedReservationStatus.RELEASED }) {
+            val append = context.requested.appendContinuations && context.role == CombinedRunRole.CONTINUATION
+            if (context.role != CombinedRunRole.SYNTHESIS && !append) return@withLock CombinedBudgetAdmission.Denied("COMBINED_SINGLE_PASS: Automatic verification, continuation and repair are disabled.")
+            val previous = state.reservations.values.filter { it.role.finalization && it.resources.inputTokens > 0 && it.status != CombinedReservationStatus.RELEASED }
+            if (!append && previous.isNotEmpty()) {
                 return@withLock CombinedBudgetAdmission.Denied("COMBINED_ALREADY_DISPATCHED: This turn's primary request was already admitted. Saved or uncertain output must not be recomputed.")
+            }
+            if (context.requested.appendContinuations && context.profileUid.isNullOrBlank()) return@withLock CombinedBudgetAdmission.Denied("COMBINED_APPEND_WRITER_MISSING")
+            if (append) {
+                val required = context.workItemId?.let { state.pendingWork[it] }
+                if (state.finalizationWriterUid != context.profileUid || state.finalizationWriterPlanId.isNullOrBlank() || previous.any { it.status == CombinedReservationStatus.RESERVED } || required?.role != CombinedRunRole.CONTINUATION || required?.required != true) {
+                    return@withLock CombinedBudgetAdmission.Denied("COMBINED_APPEND_BOUNDARY_REQUIRED: Continue only the saved writer and a controller-authorized unfinished record.")
+                }
             }
         }
         if (attemptId in state.reservations) return@withLock CombinedBudgetAdmission.Denied("Physical attempt ID was already admitted; no action may be repeated.")
@@ -285,7 +306,12 @@ class CombinedTurnBudget(
             }
         }
         val reservation = CombinedReservation(attemptId, owner, context.role, pool, resources, upperCostMicros, now(), effectFingerprint = effectFingerprint)
-        commit(next.copy(reservations = next.reservations + (attemptId to reservation)))
+        commit(
+            next.copy(
+                reservations = next.reservations + (attemptId to reservation),
+                finalizationWriterUid = if (context.requested.appendContinuations && context.role == CombinedRunRole.SYNTHESIS) context.profileUid else next.finalizationWriterUid
+            )
+        )
         CombinedBudgetAdmission.Granted(reservation)
     }
 

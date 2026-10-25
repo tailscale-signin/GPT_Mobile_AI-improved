@@ -54,37 +54,121 @@ internal object PackageDigest {
      * Returns a stable crash-journal identity without rereading a multi-GB immutable
      * installed model on every QNN load. This cache is not publisher validation.
      */
-    fun journalIdentity(file: File, cacheDirectory: File): String {
+    fun journalIdentity(file: File, cacheDirectory: File): String =
+        journalIdentityObserved(file, cacheDirectory).digest
+
+    internal data class IdentityObservation(
+        val digest: String,
+        val strongFileIdentity: String?,
+        val cacheDisposition: String,
+        val bytesHashed: Long,
+        val elapsedMs: Long,
+        val lockWaitMs: Long
+    )
+
+    private data class IdentityReceipt(val identity: String, val digest: String)
+    private val identityReceipts = LinkedHashMap<String, IdentityReceipt>()
+
+    /** Stat/inode/change-time validation is repeated even on memory and persistent cache hits. */
+    @Synchronized
+    internal fun journalIdentityObserved(
+        file: File,
+        cacheDirectory: File,
+        checkCurrent: () -> Unit = {}
+    ): IdentityObservation {
+        val started = System.nanoTime()
+        checkCurrent()
         val canonical = file.canonicalPath
         val size = file.length()
         val modified = file.lastModified()
         val strongIdentity = installedFileIdentity(file)
-        val fileKey = strongIdentity.orEmpty()
+        var lockWaitMs = 0L
+        fun result(digest: String, disposition: String, bytesHashed: Long) = IdentityObservation(
+            digest,
+            strongIdentity,
+            disposition,
+            bytesHashed,
+            (System.nanoTime() - started) / 1_000_000,
+            lockWaitMs
+        )
+        fun unchanged() {
+            checkCurrent()
+            if (strongIdentity != null && strongIdentity != installedFileIdentity(file)) {
+                identityReceipts.remove(canonical)
+                throw IOException("Model changed during identity validation; retry after installation finishes")
+            }
+        }
+        if (strongIdentity != null) {
+            identityReceipts[canonical]?.takeIf { it.identity == strongIdentity }?.let {
+                unchanged()
+                return result(it.digest, "memory_hit", 0)
+            }
+        }
+        check(cacheDirectory.isDirectory || cacheDirectory.mkdirs()) { "Could not prepare model identity cache" }
         val key = sha256(canonical.toByteArray())
         val cache = File(cacheDirectory, "model-identity-$key")
-        val cached = cache.takeIf { it.isFile && it.length() <= 512 }?.readLines().orEmpty()
-        if (strongIdentity != null &&
-            cached.size == 5 &&
-            cached[0] == canonical &&
-            cached[1] == size.toString() &&
-            cached[2] == modified.toString() &&
-            cached[3] == fileKey &&
-            cached[4].matches(Regex("[a-fA-F0-9]{64}"))
-        ) {
-            return cached[4]
+        fun verifyOrReuse(): IdentityObservation {
+            checkCurrent()
+            val cached = cache.takeIf { it.isFile && it.length() <= 8192 }?.readLines().orEmpty()
+            if (strongIdentity != null &&
+                cached.size == 5 &&
+                cached[0] == canonical &&
+                cached[1] == size.toString() &&
+                cached[2] == modified.toString() &&
+                cached[3] == strongIdentity &&
+                cached[4].matches(Regex("[a-fA-F0-9]{64}"))
+            ) {
+                unchanged()
+                identityReceipts[canonical] = IdentityReceipt(strongIdentity, cached[4])
+                return result(cached[4], "disk_hit", 0)
+            }
+            val digest = sha256(file, checkCurrent)
+            unchanged()
+            if (strongIdentity != null) {
+                if (identityReceipts.size >= 128) identityReceipts.remove(identityReceipts.keys.first())
+                identityReceipts[canonical] = IdentityReceipt(strongIdentity, digest)
+                val temporary = File.createTempFile(cache.name, ".tmp", cacheDirectory)
+                try {
+                    temporary.outputStream().use { output ->
+                        output.write(listOf(canonical, size, modified, strongIdentity, digest).joinToString("\n").toByteArray())
+                        output.fd.sync()
+                    }
+                    Files.move(temporary.toPath(), cache.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE)
+                } finally {
+                    temporary.delete()
+                }
+            }
+            return result(digest, if (strongIdentity == null) "identity_unavailable_full_hash" else "miss_full_hash", size)
         }
-        val digest = sha256(file)
-        if (strongIdentity != null && strongIdentity != installedFileIdentity(file)) throw IOException("Model changed during identity validation; retry after installation finishes")
-        val directory = cache.parentFile
-        check(directory != null && (directory.isDirectory || directory.mkdirs())) { "Could not prepare model identity cache" }
-        val temporary = File(cache.parentFile, "${cache.name}.tmp")
-        temporary.writeText(listOf(canonical, size, modified, fileKey, digest).joinToString("\n"))
-        if (!temporary.renameTo(cache)) {
-            temporary.copyTo(cache, overwrite = true)
-            check(temporary.delete()) { "Could not remove temporary model identity cache" }
+        val waitStarted = System.nanoTime()
+        return java.io.RandomAccessFile(File(cacheDirectory, "identity-verification.lock"), "rw").use { lock ->
+            lock.channel.lock().use {
+                lockWaitMs = (System.nanoTime() - waitStarted) / 1_000_000
+                verifyOrReuse()
+            }
         }
-        return digest
     }
+
+    internal fun validateInstalledObserved(
+        file: File,
+        cacheDirectory: File,
+        checkCurrent: () -> Unit = {}
+    ): IdentityObservation {
+        val saved = File(file.parentFile, file.name + ".digest")
+        val expected = if (saved.isFile && saved.length() <= 256) saved.readLines().firstOrNull().orEmpty() else ""
+        if (expected.isNotBlank() && !expected.matches(Regex("[a-fA-F0-9]{64}"))) {
+            throw IOException("Invalid model package checksum metadata")
+        }
+        return journalIdentityObserved(file, cacheDirectory, checkCurrent).also {
+            if (expected.isNotBlank() && !it.digest.equals(expected, true)) {
+                throw IOException("Model package checksum mismatch; native initialization blocked")
+            }
+        }
+    }
+
+    @Synchronized
+    internal fun clearIdentityMemoryReceipts() = identityReceipts.clear()
+
     internal fun installedFileIdentity(file: File): String? = runCatching {
         val attributes = Files.readAttributes(file.toPath(), "unix:dev,ino,ctime,size,lastModifiedTime")
         require(attributes.keys.containsAll(setOf("dev", "ino", "ctime", "size", "lastModifiedTime")))
@@ -92,7 +176,8 @@ internal object PackageDigest {
     }.getOrNull() ?: runCatching {
         // Android's NIO provider may omit the unix view. Os.stat supplies the
         // same inode and nanosecond change/modify identity on supported Android.
-        val stat = android.system.Os.stat(file.canonicalPath)
+        // Keep a leased /proc/self/fd alias readable under its persisted SAF grant.
+        val stat = android.system.Os.stat(file.path)
         "${file.canonicalPath}|${stat.st_dev}|${stat.st_ino}|${stat.st_size}|${stat.st_ctim.tv_sec}:${stat.st_ctim.tv_nsec}|${stat.st_mtim.tv_sec}:${stat.st_mtim.tv_nsec}"
     }.getOrNull()
 

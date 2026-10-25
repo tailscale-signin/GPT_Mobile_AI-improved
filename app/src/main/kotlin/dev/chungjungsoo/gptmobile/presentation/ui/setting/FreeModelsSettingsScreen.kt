@@ -140,16 +140,19 @@ internal fun FreeServiceCard(provider: FreeAiProvider, status: FreeServiceStatus
             }
             if (profiles.isEmpty()) Text("Profile removed · add this service from AI profiles to use it again.", style = MaterialTheme.typography.bodySmall)
             if (selectedProfile != null) {
+                val selectedStatus = FreeCatalogState.generationStatus(provider, selectedProfile.model, dev.chungjungsoo.gptmobile.data.network.freeCredentialIdentity(provider, selectedProfile.token))
+                    ?: status.takeIf { it.readiness == dev.chungjungsoo.gptmobile.data.free.FreeGenerationReadiness.UNTESTED }
+                    ?: FreeServiceStatus()
                 Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.audit_model_for, selectedProfile.name), style = MaterialTheme.typography.titleMedium)
-                if (status.message.isNotBlank()) Text(status.message, style = MaterialTheme.typography.bodySmall)
+                if (selectedStatus.message.isNotBlank()) Text(selectedStatus.message, style = MaterialTheme.typography.bodySmall)
                 Text(details.authentication, style = MaterialTheme.typography.bodySmall)
                 Text(details.limits, style = MaterialTheme.typography.bodySmall)
                 Text(details.transport, style = MaterialTheme.typography.titleSmall)
                 Text(details.privacy, style = MaterialTheme.typography.bodySmall)
                 Text(details.notice, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text("Structured output: ${details.structuredOutput}", style = MaterialTheme.typography.bodySmall)
-                status.servedModel?.let { Text("Last served model: $it", style = MaterialTheme.typography.labelMedium) }
-                status.remaining?.let { Text("Server-reported allowance: $it", style = MaterialTheme.typography.labelMedium) }
+                selectedStatus.servedModel?.let { Text("Last served model: $it", style = MaterialTheme.typography.labelMedium) }
+                selectedStatus.remaining?.let { Text("Server-reported allowance: $it", style = MaterialTheme.typography.labelMedium) }
                 TextButton(onClick = { uri.openUri(details.documentation) }) { Text("Provider documentation & policies") }
                 models.forEach { model ->
                     Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surface) {
@@ -158,7 +161,11 @@ internal fun FreeServiceCard(provider: FreeAiProvider, status: FreeServiceStatus
                             Text("Client tools: ${if (model.tools) "advertised" else "off / unverified"} · Streaming: ${if (model.streaming) "supported by transport" else "queued or buffered"}", style = MaterialTheme.typography.bodySmall)
                             Text("Context: ${model.contextTokens?.toString() ?: "unverified"} · Output capacity: ${model.outputTokens?.toString() ?: "unverified"}", style = MaterialTheme.typography.labelSmall)
                             model.privacy?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-                            profiles.firstOrNull { it.uid == selectedProfileUid }?.let { profile -> TextButton(onClick = { update(profile.copy(model = model.id)) }, enabled = profile.model != model.id) { Text(if (profile.model == model.id) "Selected" else "Use this model") } }
+                            profiles.firstOrNull { it.uid == selectedProfileUid }?.let { profile ->
+                                val block = dev.chungjungsoo.gptmobile.data.network.FreeProviderPreflight.check(profile, model.id)
+                                block?.let { Text(dev.chungjungsoo.gptmobile.presentation.common.freeProviderAvailability(provider, model.id, null, now, profile.token) ?: it.message, style = MaterialTheme.typography.labelSmall) }
+                                TextButton(onClick = { if (dev.chungjungsoo.gptmobile.data.network.FreeProviderPreflight.check(profile, model.id) == null) update(profile.copy(model = model.id)) }, enabled = profile.model != model.id && block == null) { Text(if (profile.model == model.id) "Selected" else "Use this model") }
+                            }
                         }
                     }
                 }

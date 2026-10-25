@@ -10,12 +10,42 @@ import kotlinx.serialization.Serializable
 
 internal const val STANDARD_BENCHMARK_DEADLINE_MS = 90_000L
 
-/** Existing execution limits also define the deadline recorded in the durable attempt. */
-internal fun benchmarkCaseDeadlineMs(mode: BenchmarkMode, test: BenchmarkCase): Long = when {
-    mode != BenchmarkMode.DELEGATION -> STANDARD_BENCHMARK_DEADLINE_MS
-    test.workload == "delegation-paired" -> 360_000L
+/** The recorded total is the same bound used by the runner and the provider request. */
+internal fun benchmarkCaseDeadlineMs(mode: BenchmarkMode, test: BenchmarkCase, suiteVersion: Int = 9): Long = when {
+    test.performanceTrial != null -> test.performanceTrial.deadlineMs.coerceIn(1, 600_000)
+    mode == BenchmarkMode.DELEGATION && test.workload == "delegation-paired" -> 360_000L
+    mode == BenchmarkMode.DELEGATION -> 180_000L
+    suiteVersion < 10 || mode == BenchmarkMode.QUICK -> STANDARD_BENCHMARK_DEADLINE_MS
+    test.workload == "long" || test.workload.contains("context") || test.prompt.length > 12_000 -> 360_000L
+    test.category == "tools" -> 300_000L
     else -> 180_000L
 }
+
+@Serializable
+data class BenchmarkDeadlineReceipt(
+    val totalRequestMs: Long,
+    val policy: String,
+    val suiteVersion: Int,
+    val workload: String,
+    val preflightLimitMs: Long = 60_000,
+    val cleanupWatchdogMs: Long = 15_000,
+    val admissionWaitExcluded: Boolean = true,
+    val phasePolicyScope: String = "Actual native per-generation load/prefill/decode limits, where exposed, remain in runtimeExecutions.configuration.deadlinePolicy; this receipt is the enclosing app request bound."
+)
+
+internal fun benchmarkDeadlineReceipt(mode: BenchmarkMode, test: BenchmarkCase, suiteVersion: Int, readiness: Boolean = false): BenchmarkDeadlineReceipt =
+    BenchmarkDeadlineReceipt(
+        if (readiness) BenchmarkReadinessRunner.PROBE_DEADLINE_MS else benchmarkCaseDeadlineMs(mode, test, suiteVersion),
+        if (readiness) {
+            "benchmark-readiness-deadline-v1"
+        } else if (suiteVersion >= 10) {
+            "benchmark-workload-deadlines-v2"
+        } else {
+            "benchmark-request-deadline-v1"
+        },
+        suiteVersion,
+        test.workload
+    )
 
 @Serializable
 data class BenchmarkPhaseInterval(

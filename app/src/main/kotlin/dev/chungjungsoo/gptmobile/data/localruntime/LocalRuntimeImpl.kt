@@ -68,8 +68,34 @@ class LocalRuntimeImpl(
     @Volatile private var activeBuffer: LocalEventBuffer? = null
     private var conversationMtp: Boolean? = null
     private var conversationResponseFormat: ResponseFormat? = null
+    private var conversationConfig: LocalConversationConfig? = null
+    private var conversationThinking: Boolean? = null
+    private var conversationInstanceId: String? = null
+
+    @Volatile private var engineReceipt: EngineLoadReceipt? = null
+    private val executionReceipt = java.util.concurrent.atomic.AtomicReference<RuntimeExecutionReceipt?>()
+    override val latestEngineLoadReceipt: EngineLoadReceipt? get() = engineReceipt
+    override val latestExecutionReceipt: RuntimeExecutionReceipt? get() = executionReceipt.get()
+    override val executionIdentity: LocalRuntimeExecutionIdentity get() = LocalRuntimeExecutionIdentity(
+        conversationId = conversationInstanceId,
+        engineInstanceId = engineReceipt?.engineInstanceId
+    )
     private val operationJournal by lazy { NativeExitEvidence.journal(context, java.io.File(context.noBackupFilesDir, "local-native-operations")) }
     private var nativeIdentity: String? = null
+
+    private val inspectionCache by lazy {
+        LiteRtInspectionCache(
+            directory = java.io.File(context.noBackupFilesDir, "litert-inspection-cache"),
+            identityDirectory = java.io.File(context.noBackupFilesDir, "model-identity-cache"),
+            environment = LiteRtInspectionEnvironment.current(context),
+            readMetadata = inspectMetadata,
+            beforeNative = { operationJournal.before(it, "INSPECT") },
+            afterNative = { operationJournal.finished() }
+        )
+    }
+
+    @Volatile private var inspectionReceipt: RuntimeInspectionReceipt? = null
+    override val latestInspectionReceipt get() = inspectionReceipt
 
     private val activityManager: ActivityManager? by lazy {
         context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
@@ -99,20 +125,46 @@ class LocalRuntimeImpl(
 
     override fun loadedEngineSpec(): LocalEngineSpec? = loadedSpec
 
-    override suspend fun inspectModel(modelPath: String): LocalModelCapabilities? = withContext(nativeOwner) {
-        val identity = "inspection|" + RuntimeEvidenceIdentity.key(context, LocalEngineSpec(modelPath, "cpu", 1)).toString()
-        operationJournal.before(identity, "INSPECT")
+    override suspend fun inspectModel(modelPath: String): LocalModelCapabilities? = inspectModelInternal(modelPath, null)
+
+    override suspend fun inspectModel(spec: LocalEngineSpec): LocalModelCapabilities? = inspectModelInternal(spec.modelPath, spec)
+
+    private suspend fun inspectModelInternal(modelPath: String, spec: LocalEngineSpec?): LocalModelCapabilities? = withContext(nativeOwner) {
+        check(!lifecycleFailed) { "Native lifecycle is quarantined until this worker restarts." }
+        val activeContext = coroutineContext
+        val baselineInspectionId = inspectionCache.latestReceipt?.inspectionId
+        inspectionReceipt = null
+        val resolutionStarted = SystemClock.elapsedRealtime()
+        var resolutionMs: Long? = null
         try {
-            inspectMetadata(dev.chungjungsoo.gptmobile.data.localmodel.LinkedModelSources.resolveFile(java.io.File(modelPath)).path)
+            val file = dev.chungjungsoo.gptmobile.data.localmodel.LinkedModelSources.resolveFile(java.io.File(modelPath))
+            resolutionMs = SystemClock.elapsedRealtime() - resolutionStarted
+            inspectionCache.inspect(file, spec) { activeContext.ensureActive() }
         } finally {
-            operationJournal.finished()
+            val worker = activeContext[RuntimeWorkerContext]
+            inspectionReceipt = inspectionCache.latestReceipt?.takeIf { it.inspectionId != baselineInspectionId }?.copy(runtimeRequestId = worker?.runtimeRequestId, workerGenerationId = worker?.workerGenerationId, fileResolutionMs = resolutionMs)
+            inspectionReceipt?.let {
+                dev.chungjungsoo.gptmobile.data.diagnostics.LocalRuntimeIncidentHistory.record(
+                    "MODEL_INSPECTION_FINISHED",
+                    mapOf(
+                        "inspectionId" to it.inspectionId, "runtimeRequestId" to (it.runtimeRequestId ?: "unknown"),
+                        "workerGenerationId" to (it.workerGenerationId ?: "unknown"), "outcome" to it.outcome,
+                        "cache" to it.metadataCacheDisposition, "digestCache" to it.digestCacheDisposition,
+                        "fileValidationMs" to it.fileValidationMs.toString(), "digestValidationMs" to it.digestValidationMs.toString(),
+                        "modelBytesHashed" to it.modelBytesHashed.toString(), "opaqueMetadataMs" to it.opaqueMetadataMs.toString(),
+                        "tokenizerMetadataMs" to "unknown", "totalMs" to it.totalMs.toString()
+                    )
+                )
+            }
         }
     }
 
     override suspend fun allowVerification(spec: LocalEngineSpec) = withContext(nativeOwner) {
         check(isInferenceProcess()) { "Verification reset requires the isolated worker" }
         operationJournal.allowVerification(RuntimeEvidenceIdentity.key(context, spec).toString())
-        operationJournal.allowVerification("inspection|" + RuntimeEvidenceIdentity.key(context, LocalEngineSpec(spec.modelPath, "cpu", 1)).toString())
+        inspectionCache.allowVerification(dev.chungjungsoo.gptmobile.data.localmodel.LinkedModelSources.resolveFile(java.io.File(spec.modelPath))) {
+            operationJournal.allowVerification(it)
+        }
     }
 
     override suspend fun loadEngine(spec: LocalEngineSpec) {
@@ -153,10 +205,13 @@ class LocalRuntimeImpl(
             require(spec.maxTokens > 0) { "Local context size must be positive" }
             // Fallback belongs to the router/adapter so it can honor settings and report
             // the real accelerator. Never silently mutate the caller's context budget.
-            val inspected = inspectModel(spec.modelPath)
+            val inspected = inspectModel(spec)
             inspected?.validate(spec)
             unloadEngine()
-            val identity = RuntimeEvidenceIdentity.key(context, spec).toString()
+            val evidenceIdentity = RuntimeEvidenceIdentity.key(context, spec)
+            val identity = evidenceIdentity.toString()
+            val loadStartedAt = SystemClock.elapsedRealtime()
+            val engineInstanceId = "litert-app:" + java.util.UUID.randomUUID().toString()
             val cacheIdentity = if (spec.cacheEnabled) RuntimeEvidenceIdentity.hash(identity) else "disabled"
             operationJournal.before(identity, "LOAD")
             var nextEngine: Engine? = null
@@ -183,6 +238,21 @@ class LocalRuntimeImpl(
                 loadedAccelerator = LocalAccelerators.normalize(spec.accelerator)
                 loadedSpec = spec
                 capabilities = inspected
+                engineReceipt = EngineLoadReceipt(
+                    receiptId = java.util.UUID.randomUUID().toString(),
+                    artifactDigest = evidenceIdentity.artifactDigest,
+                    runtimeRevision = evidenceIdentity.runtimeIdentity,
+                    requestedBackend = spec.accelerator,
+                    actualBackend = null,
+                    engineInstanceId = engineInstanceId,
+                    engineInstanceIdentitySource = "app-owned LiteRT Engine object; SDK native identity unavailable",
+                    requestedContextTokens = spec.maxTokens,
+                    configurationSource = "SDK configuration submitted; native effective settings unavailable",
+                    loadDeadlinePolicy = GgufLoadDeadline.policy.takeIf { coroutineContext[RuntimeWorkerContext] != null },
+                    startedAtElapsedMs = loadStartedAt,
+                    completedAtElapsedMs = SystemClock.elapsedRealtime(),
+                    outcome = "initialized"
+                )
             } catch (error: Throwable) {
                 nextEngine?.let { if (it.isInitialized()) runCatching { it.close() } }
                 throw error
@@ -197,9 +267,23 @@ class LocalRuntimeImpl(
         withContext(nativeOwner) {
             check(!lifecycleFailed) { "Native lifecycle is quarantined until this worker restarts." }
             val currentEngine = engine ?: error("LiteRT-LM engine is not loaded")
+            val structured = config.finalResponseSchemaJson != null
+            val appliedThinking = if (structured) false else config.thinkingEnabled
+            if (structured) {
+                require(loadedSpec?.speculativeDecoding == false) {
+                    "Structured output requires speculative decoding disabled before engine initialization"
+                }
+                require(
+                    config.structuredOutputMode != LocalStructuredOutputMode.PROMPT_JSON_VERIFIED_V1 ||
+                        config.structuredOutputProbe ||
+                        !config.structuredOutputCompatibilityKey.isNullOrBlank()
+                ) {
+                    "Prompt JSON mode requires a successful exact-configuration compatibility probe"
+                }
+            }
             capabilities?.let { supported ->
                 require(config.tools.isEmpty() || supported.tools != false) { "This export does not support native tool calling. Use chat only or choose a tools-capable artifact." }
-                require(config.thinkingEnabled != true || supported.thinking != false) { "This export does not support thinking mode." }
+                require(appliedThinking != true || supported.thinking != false) { "This export does not support thinking mode." }
             }
             require(config.maxOutputTokens == null || config.maxOutputTokens in 1 until (loadedSpec?.maxTokens ?: Int.MAX_VALUE)) {
                 "The output budget must leave room for the prompt within this export's context."
@@ -215,12 +299,12 @@ class LocalRuntimeImpl(
                     }) { activeRequestJob }
                 )
             }
-            val requestedMtp = config.speculativeDecoding ?: loadedSpec?.speculativeDecoding
+            val requestedMtp = if (structured) false else config.speculativeDecoding ?: loadedSpec?.speculativeDecoding
             require(requestedMtp != true || capabilities?.speculative == true) { "This artifact has no verified drafter support." }
             val responseFormat = config.finalResponseSchemaJson?.let { schema ->
                 require(schema.toByteArray().size <= 32 * 1024) { "Final-response schema exceeds 32 KiB" }
                 require(kotlinx.serialization.json.Json.parseToJsonElement(schema) is kotlinx.serialization.json.JsonObject)
-                ResponseFormat.json(schema)
+                if (config.structuredOutputMode == LocalStructuredOutputMode.NATIVE_JSON_SAFE_V1) ResponseFormat.json(schema) else null
             }
             conversationMtp = requestedMtp
             nativeIdentity?.let { operationJournal.before(it, "OPEN") }
@@ -240,7 +324,7 @@ class LocalRuntimeImpl(
                             enableResponseFormat = responseFormat != null,
                             maxOutputToken = config.maxOutputTokens,
                             enableSpeculativeDecoding = requestedMtp,
-                            thinkingConfig = config.thinkingEnabled?.let { ThinkingConfig(enableThinking = it) },
+                            thinkingConfig = appliedThinking?.let { ThinkingConfig(enableThinking = it) },
                             samplerConfig = if (LocalAccelerators.shouldApplySampler(loadedAccelerator)) {
                                 SamplerConfig(
                                     topK = config.sampler.topK,
@@ -256,6 +340,9 @@ class LocalRuntimeImpl(
                 coroutineContext.ensureActive()
                 conversation = nextConversation
                 conversationResponseFormat = responseFormat
+                conversationConfig = config
+                conversationThinking = appliedThinking
+                conversationInstanceId = "litert-conversation:" + java.util.UUID.randomUUID().toString()
             } catch (error: Throwable) {
                 nextConversation?.let { runCatching { it.close() } }
                 conversation = null
@@ -285,6 +372,39 @@ class LocalRuntimeImpl(
         val firstTokenTimeMs = AtomicLong(0L)
         val firstVisibleTimeMs = AtomicLong(0L)
         val segmentId = java.util.UUID.randomUUID().toString()
+        val configured = conversationConfig
+        val schemaCapture = configured?.finalResponseSchemaJson?.let(::LocalStructuredOutputCapture)
+        val schemaDigest = configured?.finalResponseSchemaJson?.let(RuntimeEvidenceIdentity::hash)
+        val generation = GenerationConfigReceipt(
+            generationId = segmentId,
+            nativeOperationId = null,
+            engineInstanceId = engineReceipt?.engineInstanceId,
+            requestedSampler = configured?.sampler,
+            requestedOutputTokens = configured?.maxOutputTokens,
+            appliedSampler = configured?.sampler?.takeIf { LocalAccelerators.shouldApplySampler(loadedAccelerator) },
+            appliedOutputTokens = configured?.maxOutputTokens,
+            requestedResponseSchemaDigest = schemaDigest,
+            appliedResponseSchemaDigest = schemaDigest.takeIf { conversationResponseFormat != null },
+            structuredOutputMode = configured?.structuredOutputMode?.name?.takeIf { schemaDigest != null },
+            structuredOutputCompatibilityKey = configured?.structuredOutputCompatibilityKey,
+            requestedThinking = configured?.thinkingEnabled,
+            appliedThinking = conversationThinking,
+            requestedSpeculativeDecoding = configured?.speculativeDecoding,
+            appliedSpeculativeDecoding = conversationMtp,
+            configurationSource = "SDK_CONFIGURATION_NOT_NATIVE_ACKNOWLEDGMENT",
+            observedAtElapsedMs = startTimeMs
+        )
+        executionReceipt.set(
+            RuntimeExecutionReceipt(
+                nativeGenerationId = segmentId,
+                engineInstanceId = engineReceipt?.engineInstanceId,
+                generationIdentitySource = "app-assigned SDK request; SDK native generation identity unavailable",
+                adapterInvokedAtElapsedMs = startTimeMs,
+                configuration = generation,
+                engineLoad = engineReceipt,
+                observedAtElapsedMs = startTimeMs
+            )
+        )
         val chunkCount = AtomicInteger(0)
         val totalCharacters = AtomicInteger(0)
         val finished = AtomicBoolean(false)
@@ -318,13 +438,15 @@ class LocalRuntimeImpl(
                             if (thought.isNotEmpty()) offerText(thought, true)
                             if (visible.isNotEmpty()) {
                                 firstVisibleTimeMs.compareAndSet(0L, now)
+                                schemaCapture?.append(visible)
+                                executionReceipt.updateAndGet { it?.copy(firstVisibleTextAtElapsedMs = it.firstVisibleTextAtElapsedMs ?: now, observedAtElapsedMs = now) }
                                 chunkCount.incrementAndGet()
                                 totalCharacters.addAndGet(visible.length)
                                 offerText(visible, false)
                             }
                         }
 
-                        override fun onDone() {
+                        private fun finish(error: Throwable?) {
                             if (!finished.compareAndSet(false, true)) return
                             nativeScope.launch {
                                 try {
@@ -340,6 +462,23 @@ class LocalRuntimeImpl(
                                     } else {
                                         null
                                     }
+                                    val failure = error?.let(::structuredNativeFailure) ?: schemaCapture?.failure()
+                                    val terminalKind = when {
+                                        error != null -> "native_error"
+                                        failure != null -> "structured_output_rejected"
+                                        else -> "sdk_done"
+                                    }
+                                    val receipt = executionReceipt.updateAndGet {
+                                        it?.copy(
+                                            nativeEntered = native?.decodeTokens?.takeIf { it > 0 }?.let { true },
+                                            nativeReturned = true,
+                                            nativeReturnedAtElapsedMs = end,
+                                            terminalKind = terminalKind,
+                                            promptTokens = native?.prefillTokens?.toLong(),
+                                            sampledTokens = native?.decodeTokens?.toLong(),
+                                            observedAtElapsedMs = end
+                                        )
+                                    }
                                     offer(
                                         LocalRuntimeEvent.Metrics(
                                             LocalInferenceMetrics(
@@ -354,29 +493,30 @@ class LocalRuntimeImpl(
                                                 firstVisibleAnswerMs = firstVisibleTimeMs.get().takeIf { it > 0 }?.minus(startTimeMs),
                                                 decodeDurationMs = firstTokenTimeMs.get().takeIf { it > 0 }?.let { end - it },
                                                 segmentId = segmentId,
-                                                requestedMtp = conversationMtp
+                                                requestedMtp = conversationMtp,
+                                                finishReason = terminalKind,
+                                                generationConfigReceipt = generation,
+                                                runtimeExecutionReceipt = receipt
                                             )
                                         )
                                     )
-                                    acknowledgeNativeTerminal(completion) { offer(LocalRuntimeEvent.Done) }
+                                    acknowledgeNativeTerminal(completion) {
+                                        offer(if (failure == null) LocalRuntimeEvent.Done else LocalRuntimeEvent.Error(failure.message ?: "Local inference failed", failure))
+                                    }
                                 } finally {
                                     completion.complete(Unit)
                                 }
                             }
                         }
 
-                        override fun onError(throwable: Throwable) {
-                            if (!finished.compareAndSet(false, true)) return
-                            acknowledgeNativeTerminal(completion) {
-                                buffer.offer(LocalRuntimeEvent.Error(throwable.message ?: "Local inference failed", throwable))
-                            }
-                        }
+                        override fun onDone() = finish(null)
+                        override fun onError(throwable: Throwable) = finish(throwable)
                     }
                     val responseFormat = conversationResponseFormat
-                    if (responseFormat == null) {
+                    if (configured?.finalResponseSchemaJson == null) {
                         activeConversation.sendMessageAsync(contentsOf(text, images), callback)
                     } else {
-                        activeConversation.sendMessageAsync(contentsOf(text, images), callback, responseFormat = responseFormat)
+                        activeConversation.sendMessageAsync(contentsOf(text, images), callback, thinkingConfig = ThinkingConfig(enableThinking = false), responseFormat = responseFormat)
                     }
                 } catch (failure: Throwable) {
                     if (!enteredNative && finished.compareAndSet(false, true)) {
@@ -384,7 +524,7 @@ class LocalRuntimeImpl(
                     } else {
                         // JNI may have started before throwing. Keep ownership until an actual
                         // native terminal callback or the existing isolated-worker quarantine.
-                        buffer.offer(LocalRuntimeEvent.Error("Native start outcome is unknown; awaiting safe shutdown", failure))
+                        buffer.offer(LocalRuntimeEvent.Error("Native start outcome is unknown; awaiting safe shutdown: ${safeQnnDetail(failure.message.orEmpty())}", structuredNativeFailure(failure)))
                         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("LocalModel", "NATIVE_START_OUTCOME_UNKNOWN · cause=${failure.javaClass.simpleName}", "E")
                     }
                 }
@@ -436,13 +576,19 @@ class LocalRuntimeImpl(
 
     override fun hasOpenConversation(): Boolean = conversation != null
 
-    override suspend fun isEngineLoaded(spec: LocalEngineSpec): Boolean = !lifecycleFailed && engine != null && loadedSpec?.engineConfiguration() == spec.engineConfiguration()
+    override suspend fun isEngineLoaded(spec: LocalEngineSpec): Boolean = withContext(nativeOwner) {
+        !lifecycleFailed && loadedSpec?.engineConfiguration() == spec.engineConfiguration() && engine?.isInitialized() == true
+    }
 
     override suspend fun closeConversation() {
         awaitNativeCompletion()
         withContext(nativeOwner) {
             val closing = conversation
             conversation = null
+            conversationInstanceId = null
+            conversationConfig = null
+            conversationResponseFormat = null
+            conversationThinking = null
             try {
                 closing?.close()
             } catch (failure: Throwable) {
@@ -456,6 +602,10 @@ class LocalRuntimeImpl(
         withContext(nativeOwner) {
             val closing = conversation
             conversation = null
+            conversationInstanceId = null
+            conversationConfig = null
+            conversationResponseFormat = null
+            conversationThinking = null
             try {
                 closing?.close()
             } catch (failure: Throwable) {
@@ -470,6 +620,7 @@ class LocalRuntimeImpl(
             }
             loadedSpec = null
             capabilities = null
+            engineReceipt = null
             loadedAccelerator = LocalAccelerators.CPU
         }
     }

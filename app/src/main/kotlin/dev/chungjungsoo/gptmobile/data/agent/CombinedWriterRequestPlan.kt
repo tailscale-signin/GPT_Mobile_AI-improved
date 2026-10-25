@@ -13,9 +13,12 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.CoroutineContext
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 
 /**
@@ -88,11 +91,12 @@ data class CombinedWriterRequestPlan(
             plannedOutputTokens: Int,
             userOutputLimit: Int? = null,
             userContextLimit: Int? = null,
-            writerContext: CombinedWriterContext? = null
+            writerContext: CombinedWriterContext? = null,
+            appendContinuations: Boolean = false
         ): CombinedWriterRequestPlan {
-            CombinedProviderEligibility.unavailableReason(profile, request, writer = true)?.let { error(it) }
-            CombinedWriterPolicy.unavailableReason(profile, request)?.let { error(it) }
-            val required = CombinedWriterPolicy.requiredOutput(request, profile)
+            CombinedProviderEligibility.unavailableReason(profile, request, writer = true, appendContinuations = appendContinuations)?.let { error(it) }
+            CombinedWriterPolicy.unavailableReason(profile, request, appendContinuations = appendContinuations)?.let { error(it) }
+            val required = CombinedWriterPolicy.requiredOutput(request, profile, appendContinuations)
             val requested = maxOf(required, plannedOutputTokens)
             val output = minOf(ProviderRouteCapacity.output(profile, requested), userOutputLimit?.takeIf { it > 0 } ?: Int.MAX_VALUE)
             require(output >= required) { "The selected writer needs $required generation tokens including reasoning and record framing; its accepted limit is $output. Choose a writer or raise the limit before starting." }
@@ -134,16 +138,44 @@ internal class CombinedInputCapacityException(message: String) : IllegalArgument
 /** Propagates through invocation wrappers to both local and remote physical dispatch. */
 internal class CombinedWriterDispatchGuard(val plan: CombinedWriterRequestPlan) : AbstractCoroutineContextElement(Key) {
     private val prepared = AtomicBoolean(false)
+    private val admittedPlan = java.util.concurrent.atomic.AtomicReference(plan)
 
     fun validatePreparedRequest(profile: PlatformV2, turns: List<ConversationTurn>) {
         prepared.set(false)
-        plan.validatePreparedRequest(profile, turns)
+        admittedPlan.get().validatePreparedRequest(profile, turns)
         prepared.set(true)
     }
 
     fun validateDispatch(receipt: RequestAdmissionReceipt) {
         check(prepared.get()) { "COMBINED_WRITER_PREPARED_ENVELOPE_UNAVAILABLE" }
-        plan.validateDispatch(receipt)
+        admittedPlan.get().validateDispatch(receipt)
+    }
+
+    /** Only an application-owned saved cursor can extend the original complete request. */
+    fun authorizeContinuation(snapshot: CombinedInputSnapshot, state: CombinedRecordCheckpoint, profile: PlatformV2, initialTurns: List<ConversationTurn>, continued: List<ConversationTurn>, cursor: String) {
+        require(dev.chungjungsoo.gptmobile.BuildConfig.COMBINED_APPEND_CONTINUATIONS && snapshot.combined?.requested?.appendContinuations == true) { "COMBINED_APPEND_NOT_ACCEPTED" }
+        require(snapshot.writerRequestPlan == plan && state.snapshotDigest == snapshot.inputDigest && state.appendReady && !state.ended && state.noProgressAttempts < 2) { "COMBINED_APPEND_CURSOR_UNAVAILABLE" }
+        require(state.lastAttemptOutcome in setOf("COMPLETED", "OUTPUT_LIMIT", "KNOWN_PROVIDER_REJECTION")) { "COMBINED_APPEND_REMOTE_COMPLETION_UNKNOWN" }
+        require(state.retryAtMillis?.let { System.currentTimeMillis() >= it } != false) { "COMBINED_APPEND_PROVIDER_WAIT" }
+        plan.validate(snapshot)
+        plan.validatePreparedRequest(profile, initialTurns)
+        require(continued.size == initialTurns.size && continued.dropLast(1) == initialTurns.dropLast(1)) { "COMBINED_APPEND_HISTORY_CHANGED" }
+        val original = initialTurns.last()
+        val current = continued.last()
+        require(current.copy(userMessage = current.userMessage.copy(content = original.userMessage.content)) == original && current.userMessage.content.startsWith(original.userMessage.content + "\n\nResume the frozen structured answer using this application-owned cursor: ")) { "COMBINED_APPEND_CORPUS_CHANGED" }
+        val descriptor = Json.parseToJsonElement(cursor) as? JsonObject ?: error("COMBINED_APPEND_CURSOR_INVALID")
+        require((descriptor["protocol"] as? JsonPrimitive)?.content == state.protocol && (descriptor["next_sequence"] as? JsonPrimitive)?.intOrNull == state.lastSequence + 1) { "COMBINED_APPEND_CURSOR_INVALID" }
+        require((descriptor["committed_ids"] as? JsonArray)?.map { (it as? JsonPrimitive)?.content } == state.records.map { it.id }) { "COMBINED_APPEND_CURSOR_INVALID" }
+        require(continued == dev.chungjungsoo.gptmobile.data.queue.appendFollowUpContext(initialTurns, "\n\nResume the frozen structured answer using this application-owned cursor: $cursor", state.records.joinToString("\n") { it.wire }, emptyList())) { "COMBINED_APPEND_CORPUS_CHANGED" }
+        // The original prompt contains every frozen source. Only the durable cursor and
+        // committed records are added; provider admission still measures all actual bytes.
+        prepared.set(false)
+        admittedPlan.set(
+            plan.copy(
+                promptDigest = combinedDigest(current.userMessage.content),
+                preparedContextDigest = plan.preparedContextDigest?.let { CombinedWriterContext.digest(continued) }
+            )
+        )
     }
 
     companion object Key : CoroutineContext.Key<CombinedWriterDispatchGuard>

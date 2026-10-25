@@ -32,11 +32,46 @@ internal data class WireConversation(
     val thinking: Boolean?,
     val speculative: Boolean?,
     val finalResponseSchemaJson: String? = null,
-    val allowAutomaticRecovery: Boolean = true
+    val allowAutomaticRecovery: Boolean = true,
+    val structuredOutputMode: dev.chungjungsoo.gptmobile.data.localruntime.LocalStructuredOutputMode = dev.chungjungsoo.gptmobile.data.localruntime.LocalStructuredOutputMode.NATIVE_JSON_SAFE_V1,
+    val structuredOutputCompatibilityKey: String? = null,
+    val structuredOutputProbe: Boolean = false
 ) {
-    fun config(executor: LocalToolExecutor?) = LocalConversationConfig(sampler, systemPrompt, history, tools, constrained, executor, outputTokens, thinking, speculative, finalResponseSchemaJson, allowAutomaticRecovery)
+    fun config(executor: LocalToolExecutor?) =
+        LocalConversationConfig(
+            sampler,
+            systemPrompt,
+            history,
+            tools,
+            constrained,
+            executor,
+            outputTokens,
+            thinking,
+            speculative,
+            finalResponseSchemaJson,
+            allowAutomaticRecovery,
+            structuredOutputMode,
+            structuredOutputCompatibilityKey,
+            structuredOutputProbe
+        )
+
     companion object {
-        fun from(config: LocalConversationConfig) = WireConversation(config.sampler, config.systemPrompt, config.initialMessages, config.tools, config.isConstrainedDecodingEnabled, config.maxOutputTokens, config.thinkingEnabled, config.speculativeDecoding, config.finalResponseSchemaJson, config.allowAutomaticRecovery)
+        fun from(config: LocalConversationConfig) =
+            WireConversation(
+                config.sampler,
+                config.systemPrompt,
+                config.initialMessages,
+                config.tools,
+                config.isConstrainedDecodingEnabled,
+                config.maxOutputTokens,
+                config.thinkingEnabled,
+                config.speculativeDecoding,
+                config.finalResponseSchemaJson,
+                config.allowAutomaticRecovery,
+                config.structuredOutputMode,
+                config.structuredOutputCompatibilityKey,
+                config.structuredOutputProbe
+            )
     }
 }
 
@@ -62,20 +97,36 @@ internal data class RuntimeWire(
     val errorCode: String? = null,
     val loadAttempts: List<dev.chungjungsoo.gptmobile.data.localruntime.LocalLoadAttempt> = emptyList(),
     val processPssBytes: Long? = null,
-    val nativeProgress: dev.chungjungsoo.gptmobile.data.localruntime.GgufNativeProgress? = null
+    val nativeProgress: dev.chungjungsoo.gptmobile.data.localruntime.GgufNativeProgress? = null,
+    val safetyTokens: Int = 0,
+    val physicalAttemptId: String? = null,
+    val attemptedContextTokens: Int? = null,
+    val suggestedContextTokens: Int? = null,
+    val experiment: dev.chungjungsoo.gptmobile.data.localruntime.CpuExperimentTrial? = null,
+    val executionReceipt: dev.chungjungsoo.gptmobile.data.localruntime.RuntimeExecutionReceipt? = null,
+    val cleanupReceipt: dev.chungjungsoo.gptmobile.data.localruntime.RuntimeCleanupReceipt? = null,
+    val inspectionReceipt: dev.chungjungsoo.gptmobile.data.localruntime.RuntimeInspectionReceipt? = null
 )
 
 /** Large input travels through an unlinked app-private descriptor, never a Binder byte array. */
 internal object RuntimeWireTransport {
-    private val json = Json {
-        ignoreUnknownKeys = true
-        encodeDefaults = false
-    }
+    private val json =
+        Json {
+            ignoreUnknownKeys = true
+            encodeDefaults = false
+        }
     const val MAX_PAYLOAD_BYTES = 32 * 1024 * 1024
 
-    fun send(context: Context, target: Messenger, packet: RuntimeWire, replyTo: Messenger? = null) {
+    fun send(
+        context: Context,
+        target: Messenger,
+        packet: RuntimeWire,
+        replyTo: Messenger? = null
+    ) {
         val content = json.encodeToString(packet)
-        require(content.toByteArray(Charsets.UTF_8).size <= MAX_PAYLOAD_BYTES) { "Local request exceeds the IPC payload limit; reduce attached images or history." }
+        require(content.toByteArray(Charsets.UTF_8).size <= MAX_PAYLOAD_BYTES) {
+            "Local request exceeds the IPC payload limit; reduce attached images or history."
+        }
         var descriptor: ParcelFileDescriptor? = null
         try {
             val data = Bundle()
@@ -108,21 +159,22 @@ internal object RuntimeWireTransport {
     fun read(message: Message): RuntimeWire {
         val data = message.data
         val descriptor = data.getParcelable<ParcelFileDescriptor>("fd")
-        val content = if (descriptor != null) {
-            ParcelFileDescriptor.AutoCloseInputStream(descriptor).use { stream ->
-                val output = java.io.ByteArrayOutputStream()
-                val buffer = ByteArray(8192)
-                while (true) {
-                    val count = stream.read(buffer)
-                    if (count < 0) break
-                    require(output.size() + count <= MAX_PAYLOAD_BYTES) { "Local IPC input is too large" }
-                    output.write(buffer, 0, count)
+        val content =
+            if (descriptor != null) {
+                ParcelFileDescriptor.AutoCloseInputStream(descriptor).use { stream ->
+                    val output = java.io.ByteArrayOutputStream()
+                    val buffer = ByteArray(8192)
+                    while (true) {
+                        val count = stream.read(buffer)
+                        if (count < 0) break
+                        require(output.size() + count <= MAX_PAYLOAD_BYTES) { "Local IPC input is too large" }
+                        output.write(buffer, 0, count)
+                    }
+                    output.toString("UTF-8")
                 }
-                output.toString("UTF-8")
+            } else {
+                data.getString("json").orEmpty()
             }
-        } else {
-            data.getString("json").orEmpty()
-        }
         return json.decodeFromString<RuntimeWire>(content).also {
             require(it.version == 1 && it.requestId.length in 1..128 && it.sessionId.length <= 128) { "Unsupported local IPC protocol" }
         }

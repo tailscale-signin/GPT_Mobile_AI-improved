@@ -40,7 +40,7 @@ class BenchmarkExecutionCoordinator @Inject constructor(
             dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Benchmark", dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.redact(failure.message ?: "Benchmark worker failed."), "E")
         }
     )
-    private val preferences = appContext.getSharedPreferences("benchmark_execution_v1", Context.MODE_PRIVATE)
+    private val preferences by lazy { appContext.getSharedPreferences("benchmark_execution_v1", Context.MODE_PRIVATE) }
 
     internal val progressMutable = kotlinx.coroutines.flow.MutableStateFlow<BenchmarkProgress?>(null)
     internal val errorMutable = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
@@ -60,13 +60,14 @@ class BenchmarkExecutionCoordinator @Inject constructor(
     private var foregroundReady: CompletableDeferred<Unit>? = null
 
     init {
-        if (preferences.getBoolean(KEY_RUNNING, false)) {
-            preferences.edit().putBoolean(KEY_RUNNING, false).apply()
-            preferences.edit().putString("status", "INTERRUPTED").apply()
-            errorMutable.value = "The previous benchmark was interrupted when Android stopped the app. Its completed runs remain saved."
-        }
-        recovery = scope.launch {
+        recovery = scope.launch(Dispatchers.IO) {
             try {
+                if (preferences.getBoolean(KEY_RUNNING, false)) {
+                    check(preferences.edit().putBoolean(KEY_RUNNING, false).putString("status", "INTERRUPTED").commit()) {
+                        "Could not retain the interrupted benchmark disposition."
+                    }
+                    errorMutable.value = "The previous benchmark was interrupted when Android stopped the app. Its completed runs remain saved."
+                }
                 benchmarkStore.markInterruptedRuns()
                 benchmarkStore.recoverBatches()
             } catch (failure: Exception) {
@@ -99,7 +100,11 @@ class BenchmarkExecutionCoordinator @Inject constructor(
                 recoveryFailure?.let { throw it }
                 withTimeout(10_000) { prepare() }
                 withTimeout(10_000) { ready.await() }
-                preferences.edit().putBoolean(KEY_RUNNING, true).putString("session_id", id).putString("status", "RUNNING").commit()
+                withContext(Dispatchers.IO) {
+                    check(preferences.edit().putBoolean(KEY_RUNNING, true).putString("session_id", id).putString("status", "RUNNING").commit()) {
+                        "Could not save benchmark execution ownership."
+                    }
+                }
                 block()
             } catch (failure: BenchmarkStorageFailure) {
                 currentCoroutineContext().ensureActive()
@@ -110,32 +115,41 @@ class BenchmarkExecutionCoordinator @Inject constructor(
         // Reserve ownership before Android can deliver a service cancellation.
         active = job
         job.invokeOnCompletion { failure ->
-            synchronized(this) {
-                if (active === job) {
-                    val durable = benchmarkStore.batches.value.firstOrNull { it.id == id }?.state
-                    val outcome = when {
-                        durable == BenchmarkBatchState.STORAGE_PAUSED -> durable.name
-                        durable == BenchmarkBatchState.STOPPED || durable == BenchmarkBatchState.INTERRUPTED -> durable.name
-                        stopReason != null -> "STOPPED"
-                        failure is kotlinx.coroutines.CancellationException -> "INTERRUPTED"
-                        failure is BenchmarkStorageFailure -> "STORAGE_PAUSED"
-                        failure != null -> "FAILED"
-                        else -> durable?.name ?: "FINISHED"
+            scope.launch(Dispatchers.IO) {
+                synchronized(this@BenchmarkExecutionCoordinator) {
+                    if (active === job) {
+                        val durable = benchmarkStore.batches.value.firstOrNull { it.id == id }?.state
+                        val outcome = when {
+                            durable == BenchmarkBatchState.STORAGE_PAUSED -> durable.name
+                            durable == BenchmarkBatchState.STOPPED || durable == BenchmarkBatchState.INTERRUPTED -> durable.name
+                            stopReason != null -> "STOPPED"
+                            failure is kotlinx.coroutines.CancellationException -> "INTERRUPTED"
+                            failure is BenchmarkStorageFailure -> "STORAGE_PAUSED"
+                            failure != null -> "FAILED"
+                            else -> durable?.name ?: "FINISHED"
+                        }
+                        preferences.edit().putBoolean(KEY_RUNNING, false).putString("status", outcome).apply()
+                        if (failure != null && failure !is kotlinx.coroutines.CancellationException) publishFailure(failure)
+                        if (ready.isCompleted) appContext.stopService(Intent(appContext, BenchmarkForegroundService::class.java))
+                        foregroundReady = null
+                        active = null
+                        progressMutable.value = null
+                        // Publish idle last so observers can read the final outcome.
+                        sessionMutable.value = null
                     }
-                    preferences.edit().putBoolean(KEY_RUNNING, false).putString("status", outcome).apply()
-                    if (failure != null && failure !is kotlinx.coroutines.CancellationException) publishFailure(failure)
-                    if (ready.isCompleted) appContext.stopService(Intent(appContext, BenchmarkForegroundService::class.java))
-                    foregroundReady = null
-                    active = null
-                    progressMutable.value = null
-                    // Publish idle last so observers can read the final outcome.
-                    sessionMutable.value = null
                 }
             }
         }
         try {
             ContextCompat.startForegroundService(appContext, Intent(appContext, BenchmarkForegroundService::class.java).putExtra(BenchmarkForegroundService.EXTRA_SESSION_ID, id))
         } catch (error: Exception) {
+            // No service accepted this reservation and the lazy body has not run.
+            // Clear the owned reservation synchronously; its later completion cannot clear a successor.
+            if (active === job) {
+                active = null
+                foregroundReady = null
+                progressMutable.value = null
+            }
             job.cancel()
             sessionMutable.value = null
             errorMutable.value = "Android could not start background benchmark tracking: ${dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.redact(error.message ?: "service unavailable").take(300)}"

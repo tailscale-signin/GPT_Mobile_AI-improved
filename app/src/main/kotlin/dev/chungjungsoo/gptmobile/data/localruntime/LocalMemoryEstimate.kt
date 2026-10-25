@@ -12,11 +12,16 @@ internal data class LocalMemoryEstimate(
     val components: Map<String, Long> = emptyMap(),
     val requestedContextTokens: Int = contextTokens,
     val planIdentity: String? = null,
-    val systemMemory: LocalSystemMemorySnapshot? = null
+    val systemMemory: LocalSystemMemorySnapshot? = null,
+    val memoryPlan: MemoryPlanReceipt? = null
 ) {
     val budget: LocalMemoryBudget get() = LocalMemoryBudget(requiredBytes, reserveBytes, availableBytes)
 
-    fun receipt(stage: String, accepted: Boolean, existingEngineResident: Boolean = false) = LocalAdmissionReceipt(
+    fun receipt(
+        stage: String,
+        accepted: Boolean,
+        existingEngineResident: Boolean = false
+    ) = LocalAdmissionReceipt(
         stage = stage,
         accepted = accepted,
         requiredBytes = requiredBytes,
@@ -29,25 +34,32 @@ internal data class LocalMemoryEstimate(
         components = components,
         requestedContextTokens = requestedContextTokens,
         planIdentity = planIdentity,
-        systemMemory = systemMemory
+        systemMemory = systemMemory,
+        memoryPlan = memoryPlan
     )
 
-    fun rejection(detail: String, stage: String = "load", nativeLoadAttempted: Boolean = false): LocalMemoryAdmissionException {
+    fun rejection(
+        detail: String,
+        stage: String = "load",
+        nativeLoadAttempted: Boolean = false
+    ): LocalMemoryAdmissionException {
         val configuredReserveMb = reserveBytes / MIB
         val recommendedFits = budget.fitsWithReserve(DEFAULT_MEMORY_RESERVE_MB * MIB)
-        val recovery = if (configuredReserveMb > DEFAULT_MEMORY_RESERVE_MB && recommendedFits) {
-            "The configured Memory reserve is $configuredReserveMb MB. The current estimate fits " +
-                "with the app's recommended 768 MB default. In Local Models → Settings → Memory, tap " +
-                "'Use recommended 768 MB' and retry. This changes the reserve, not the model's context."
-        } else {
-            "Free device memory, release idle models, or choose a smaller compatible export. " +
-                "Use Auto context for a resizable GGUF model. Fixed-context exports require a compatible smaller export."
-        }
-        val verification = if (nativeLoadAttempted) {
-            "The engine was already loaded, but this request was blocked before generation."
-        } else {
-            "The native engine was not loaded, so runtime compatibility is still unverified."
-        }
+        val recovery =
+            if (configuredReserveMb > DEFAULT_MEMORY_RESERVE_MB && recommendedFits) {
+                "The configured Memory reserve is $configuredReserveMb MB. The current estimate fits " +
+                    "with the app's recommended 768 MB default. In Local Models → Settings → Memory, tap " +
+                    "'Use recommended 768 MB' and retry. This changes the reserve, not the model's context."
+            } else {
+                "Free device memory, release idle models, or choose a smaller compatible export. " +
+                    "Use Auto context for a resizable GGUF model. Fixed-context exports require a compatible smaller export."
+            }
+        val verification =
+            if (nativeLoadAttempted) {
+                "The engine was already loaded, but this request was blocked before generation."
+            } else {
+                "The native engine was not loaded, so runtime compatibility is still unverified."
+            }
         return LocalMemoryAdmissionException(
             "MEMORY_ADMISSION_REJECTED · stage=$stage · requiredBytes=$requiredBytes · reserveBytes=$reserveBytes · " +
                 "availableBytes=${availableBytes ?: "unknown"} · totalBudgetBytes=${budget.totalBytes} · " +
@@ -59,7 +71,10 @@ internal data class LocalMemoryEstimate(
     }
 }
 
-internal class LocalMemoryAdmissionException(message: String, val receipt: LocalAdmissionReceipt? = null) : IllegalStateException(message)
+internal class LocalMemoryAdmissionException(
+    message: String,
+    val receipt: LocalAdmissionReceipt? = null
+) : IllegalStateException(message)
 
 /** Isolated-process transports may wrap the original preflight exception. */
 internal fun Throwable.isLocalMemoryAdmissionFailure(): Boolean =

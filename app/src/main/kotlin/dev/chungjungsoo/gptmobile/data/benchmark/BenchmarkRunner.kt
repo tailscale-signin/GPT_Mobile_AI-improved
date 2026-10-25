@@ -15,6 +15,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 
+@kotlinx.serialization.Serializable
 data class BenchmarkCase(
     val id: String,
     val label: String,
@@ -27,28 +28,42 @@ data class BenchmarkCase(
     val benchmarkReview: Boolean = false,
     val calculatorExpression: String? = null,
     val imageCode: String? = null,
-    val attachments: List<dev.chungjungsoo.gptmobile.data.model.ChatAttachment> = emptyList()
+    val attachments: List<dev.chungjungsoo.gptmobile.data.model.ChatAttachment> = emptyList(),
+    val validatorVersion: String = "benchmark-validator-v3",
+    val outputPolicy: String = "STRICT_RAW_ANSWER_V1",
+    val dependsOn: Set<String> = emptySet(),
+    val repeatIndex: Int? = null,
+    val cpuExperiment: dev.chungjungsoo.gptmobile.data.localruntime.CpuExperimentTrial? = null,
+    val fixtureSetVersion: Int? = null,
+    val fixtureRotationSeed: Long? = null,
+    val intelligenceQuestions: List<BenchmarkIntelligenceQuestion> = emptyList(),
+    val responseSchemaJson: String? = null,
+    val performanceTrial: BenchmarkPerformanceTrial? = null
 ) {
-    val requestCategory: String get() = if (category == IntelligenceBenchmark.CATEGORY && !id.startsWith("intelligence-batch-")) "intelligence_individual" else category
+    val requestCategory: String get() = if (performanceTrial != null) {
+        "performance_${performanceTrial.dimension.name.lowercase()}"
+    } else if (category == IntelligenceBenchmark.CATEGORY && !id.startsWith("intelligence-batch-")) {
+        "intelligence_individual"
+    } else {
+        category
+    }
+    val contentHash: String get() = benchmarkHash(listOf(category, prompt, expected, workload, validatorVersion, outputPolicy, imageCode).joinToString("\u0000"))
 }
 
 fun benchmarkSuite(mode: BenchmarkMode, contextTokens: Int? = null): List<BenchmarkCase> = BenchmarkWorkloadPlanner.adapt(
-    when (mode) {
-        BenchmarkMode.DELEGATION -> delegationBenchmarkSuite()
-        BenchmarkMode.QUICK -> BenchmarkSuiteRegistry.quick
-        BenchmarkMode.DIAGNOSTIC -> BenchmarkCapabilitySuite.cases
-        else -> BenchmarkSuiteRegistry.full
-    },
+    BenchmarkSuiteRegistry.cases(mode, 0),
     contextTokens,
     reserveTokens = 1280
 )
 
 /** Historical suites keep their original manifest; old measurements never join a new plan. */
 internal fun benchmarkSuiteForRun(run: BenchmarkRun): List<BenchmarkCase> {
+    run.caseManifest?.let { return it }
+    if (run.mode == BenchmarkMode.CPU_EXPERIMENT) return BenchmarkCpuExperiment.cases(run.id)
     if (run.mode == BenchmarkMode.DELEGATION && run.delegationSuiteVersion == 2) return delegationBenchmarkSuite(run.delegationPlan ?: BenchmarkMode.QUICK, paired = true)
     if (run.mode == BenchmarkMode.DELEGATION && run.delegationSuiteVersion == 1) return delegationBenchmarkSuite(run.delegationPlan ?: BenchmarkMode.QUICK)
     if (run.suiteVersion == 6) return BenchmarkWorkloadPlanner.adapt(BenchmarkSuiteRegistry.historical(run.mode), run.fixtureContextTokens)
-    if (run.suiteVersion >= 7) return BenchmarkWorkloadPlanner.adapt(benchmarkSuiteForVersion(run.suiteVersion, run.mode), run.fixtureContextTokens, if (run.suiteVersion >= 8) 1280 else 1024)
+    if (run.suiteVersion >= 7) return BenchmarkWorkloadPlanner.adapt(benchmarkSuiteForVersion(run.suiteVersion, run.mode, run.fixtureRotationSeed ?: 0), run.fixtureContextTokens, if (run.suiteVersion >= 8) 1280 else 1024)
     if (run.mode == BenchmarkMode.DELEGATION) return benchmarkSuite(run.mode, run.fixtureContextTokens)
     val legacy = if (run.mode == BenchmarkMode.QUICK) {
         listOf(
@@ -71,7 +86,8 @@ class BenchmarkRunner(
     private val now: () -> Long = { System.nanoTime() / 1_000_000 },
     private val timeoutMs: Long = STANDARD_BENCHMARK_DEADLINE_MS,
     private val allowReconnect: Boolean = false,
-    private val onInterrupted: (BenchmarkSample) -> Unit = {}
+    private val onInterrupted: (BenchmarkSample) -> Unit = {},
+    private val observeRuntime: () -> dev.chungjungsoo.gptmobile.data.localruntime.RuntimeExecutionReceipt? = { null }
 ) {
     suspend fun run(test: BenchmarkCase, supportsTools: Boolean): BenchmarkSample {
         val first = runOnce(test, supportsTools, timeoutMs)
@@ -80,7 +96,7 @@ class BenchmarkRunner(
         val transient = first.error.orEmpty().lowercase().let { message ->
             listOf("connection abort", "connection reset", "broken pipe", "unexpected end of stream").any { it in message }
         }
-        if (first.outcome != BenchmarkOutcome.ERROR || !transient || first.outputCharacters > 0 || first.outputTokens > 0 || first.toolCalls > 0 || remaining <= 0) return first
+        if (first.outcome != BenchmarkOutcome.ERROR || !transient || first.outputCharacters > 0 || first.outputTokens > 0 || first.toolCalls > 0 || first.runtimeExecutions.any { it.knownDispatched } || first.phaseIntervals.any { it.nativeStage == "NATIVE_ENTRY" } || remaining <= 0) return first
         // One new session, within the original deadline, only before any text/tool activity.
         val retry = runOnce(test, supportsTools, remaining)
         return retry.copy(
@@ -91,7 +107,11 @@ class BenchmarkRunner(
             outputTokens = first.outputTokens + retry.outputTokens,
             estimatedTokens = first.estimatedTokens || retry.estimatedTokens,
             reconnectAttempts = 1,
-            retryDurationMs = first.durationMs + retry.retryDurationMs
+            retryDurationMs = first.durationMs + retry.retryDurationMs,
+            runtimeExecutions = first.runtimeExecutions + retry.runtimeExecutions,
+            localSegments = first.localSegments + retry.localSegments,
+            rounds = first.rounds + retry.rounds,
+            generationDurationMs = benchmarkNativeGenerationDuration(first.runtimeExecutions + retry.runtimeExecutions)
         )
     }
 
@@ -122,6 +142,12 @@ class BenchmarkRunner(
         val text = StringBuilder()
         val segments = mutableListOf<dev.chungjungsoo.gptmobile.data.localruntime.LocalInferenceMetrics>()
         val rounds = mutableListOf<BenchmarkRoundMetrics>()
+        val executionReceipts = linkedMapOf<String, dev.chungjungsoo.gptmobile.data.localruntime.RuntimeExecutionReceipt>()
+        val observedNativeOperations = mutableSetOf<Long>()
+        val roundNativeOperations = mutableSetOf<Long>()
+        var nativeEntryObserved = false
+        var nativeTerminalObserved = false
+        var validation: BenchmarkValidationResult? = null
         var configured: ProviderEvent.RequestConfigured? = null
         var first: Long? = null
         var firstChunkCharacters = 0
@@ -153,9 +179,21 @@ class BenchmarkRunner(
         var nativeMetrics: dev.chungjungsoo.gptmobile.data.localruntime.NativeInferenceMetrics? = null
         val calls = linkedMapOf<String, ProviderEvent.ToolCall>()
         val successful = mutableSetOf<String>()
-        val code = test.expected.takeIf { test.calculatorExpression != null } ?: "PKG-${UUID.randomUUID().toString().take(8)}"
+        val code = test.expected.takeIf { test.calculatorExpression != null || test.workload == "permanent_error_decision" } ?: "PKG-${UUID.randomUUID().toString().take(8)}"
         val scenario = BenchmarkToolScenario(test, code)
         val expectedErrors = mutableSetOf<String>()
+        fun captureExecution(observed: dev.chungjungsoo.gptmobile.data.localruntime.RuntimeExecutionReceipt? = observeRuntime()) {
+            val receipt = observed ?: return
+            if (receipt.nativeOperationId !in observedNativeOperations || receipt.observedAtElapsedMs?.let { it < started } == true) return
+            val key = listOf(receipt.workerGenerationId, receipt.runtimeRequestId, receipt.physicalAttemptId, receipt.nativeOperationId).joinToString("|")
+            val previous = executionReceipts[key]
+            executionReceipts[key] = receipt.retainingBenchmarkFacts(previous)
+            nativeEntryObserved = nativeEntryObserved || receipt.knownDispatched
+            if (receipt.nativeOperationId in roundNativeOperations && receipt.hasNativeTerminal) {
+                nativeTerminalObserved = true
+                if (finishReason == null && receipt.terminalKind == "output_limit") finishReason = "output_limit"
+            }
+        }
         fun roundInputSource() = if (roundInputUsage.value != null) roundInputUsage.source else "unknown"
         fun roundOutputSource() = if (roundOutputUsage.value != null) {
             roundOutputUsage.source
@@ -172,8 +210,11 @@ class BenchmarkRunner(
             "unknown"
         }
         fun sample(outcome: BenchmarkOutcome, error: String? = null): BenchmarkSample {
+            captureExecution()
             val measuredAt = now()
             val intervals = phases.snapshot(measuredAt)
+            val raw = text.toString()
+            val output = if (test.category == "tools") benchmarkOutputView(raw) else BenchmarkOutputView(raw.trim(), listOf(BenchmarkOutputPart(BenchmarkOutputChannel.FINAL_ANSWER, 0, raw.length)), true, false)
             return BenchmarkSample(
                 test.id, test.label, test.category, outcome, (measuredAt - started).coerceAtLeast(0), first,
                 tokens + if (roundAccounted) 0 else roundTokens ?: ((text.length - roundStart + 3) / 4),
@@ -192,8 +233,8 @@ class BenchmarkRunner(
                 effectiveRequestOutputTokens = effectiveRequestOutputTokens,
                 requestedReasoningEffort = requestedReasoningEffort,
                 completionKind = when {
-                    finishReason in setOf("length", "MAX_TOKENS") && test.category == "speed" -> "benchmark_cutoff"
-                    finishReason in setOf("length", "MAX_TOKENS") -> "output_limit"
+                    finishReason?.lowercase() in setOf("length", "max_tokens", "output_limit") && (test.category == "speed" || test.performanceTrial?.acceptsOutputLimit == true) -> "benchmark_cutoff"
+                    finishReason?.lowercase() in setOf("length", "max_tokens", "output_limit") -> "output_limit"
                     outcome == BenchmarkOutcome.ERROR -> "interrupted_or_failed"
                     outcome == BenchmarkOutcome.PASSED || outcome == BenchmarkOutcome.FAILED -> "complete"
                     else -> "unknown"
@@ -206,11 +247,11 @@ class BenchmarkRunner(
                 languageBackend = configured?.languageBackend,
                 visionBackend = configured?.visionBackend,
                 finalResponseFormat = configured?.finalResponseFormat,
-                requestDispatched = if (chunks > 0 || calls.isNotEmpty() || terminalReceived || rounds.isNotEmpty()) true else null,
-                terminalReceived = terminalReceived,
+                requestDispatched = if (nativeEntryObserved || chunks > 0 || calls.isNotEmpty() || terminalReceived || rounds.isNotEmpty()) true else null,
+                terminalReceived = terminalReceived || nativeTerminalObserved,
                 canonicalAnswer = text.toString(), answerHash = truncatedAnswerHash ?: benchmarkHash(text.toString()), answerLength = maxOf(observedAnswerLength, text.length), answerTruncated = truncatedAnswerHash != null,
                 fixtureHash = benchmarkHash(test.id + "\u0000" + test.prompt + "\u0000" + test.expected),
-                validatorVersion = "benchmark-validator-v3",
+                validatorVersion = test.validatorVersion,
                 deliveryMode = if (chunks > 1) {
                     "streaming"
                 } else if (chunks == 1) {
@@ -227,7 +268,20 @@ class BenchmarkRunner(
                 phaseIntervalsTruncated = phases.truncated,
                 reasoningTokens = (rounds.mapNotNull { it.reasoningTokens } + if (roundAccounted) emptyList() else listOfNotNull(roundReasoningUsage.value?.toInt())).takeIf { it.isNotEmpty() }?.sumOf { it.toLong() }?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt(),
                 reasoningTokenSource = benchmarkCombinedTokenSource(rounds.map { it.reasoningTokenSource } + if (roundAccounted) emptyList() else listOf(if (roundReasoningUsage.value == null) "unknown" else roundReasoningUsage.source)),
-                reasoningTokenConfidence = benchmarkCombinedConfidence(rounds.map { it.reasoningTokenConfidence } + if (roundAccounted) emptyList() else listOf(benchmarkUsageConfidence(roundReasoningUsage)))
+                reasoningTokenConfidence = benchmarkCombinedConfidence(rounds.map { it.reasoningTokenConfidence } + if (roundAccounted) emptyList() else listOf(benchmarkUsageConfidence(roundReasoningUsage))),
+                validation = validation,
+                runtimeExecutions = executionReceipts.values.toList(),
+                outputParts = output.parts,
+                finalAnswer = output.finalAnswer,
+                repetitionDiagnostic = benchmarkRepetitionDiagnostic(output.finalAnswer),
+                fixtureContentHash = test.contentHash,
+                repeatIndex = test.repeatIndex,
+                requestAdmitted = true.takeIf { nativeEntryObserved || chunks > 0 || calls.isNotEmpty() },
+                nativeMetricScope = "last_segment; token totals aggregate the adapter invocation",
+                generationDurationMs = benchmarkNativeGenerationDuration(executionReceipts.values.toList()),
+                intelligenceSemantics = benchmarkIntelligenceEvidence(test, text.toString(), outcome in setOf(BenchmarkOutcome.PASSED, BenchmarkOutcome.FAILED)),
+                toolAssessment = if (test.category == "tools") scenario.assess(calls.values.toList(), successful, expectedErrors, output.finalAnswer, text.toString(), outcome in setOf(BenchmarkOutcome.PASSED, BenchmarkOutcome.FAILED)) else null,
+                performanceTrial = test.performanceTrial
             )
         }
         try {
@@ -251,6 +305,9 @@ class BenchmarkRunner(
                     roundReasoningUsage = ProviderUsageCounter()
                     roundAccounted = false
                     var completed = false
+                    terminalReceived = false
+                    nativeTerminalObserved = false
+                    roundNativeOperations.clear()
                     finishReason = null
                     phases.transition("provider_request", rounds.size)
                     session.streamRound(tools.map { it.definition }, exchanges.toList()).collect { event ->
@@ -301,14 +358,31 @@ class BenchmarkRunner(
                                 roundInputTokens = roundInputUsage.value?.toInt() ?: 0
                                 roundTokens = roundOutputUsage.value?.toInt()
                             }
-                            is ProviderEvent.PhaseChanged -> phases.transition(event.phase.name.lowercase(), rounds.size, event.nativeProgress)
+                            is ProviderEvent.PhaseChanged -> {
+                                phases.transition(event.phase.name.lowercase(), rounds.size, event.nativeProgress)
+                                event.nativeProgress?.let { native ->
+                                    if (native.operationId > 0 && (native.stage == "NATIVE_ENTRY" || native.stage.startsWith("PREFILL_") || native.stage.startsWith("DECODE_") || native.stage == "NATIVE_RETURN")) {
+                                        observedNativeOperations += native.operationId
+                                        roundNativeOperations += native.operationId
+                                        nativeEntryObserved = true
+                                        if (native.stage == "NATIVE_RETURN") nativeTerminalObserved = true
+                                    }
+                                }
+                                captureExecution()
+                            }
                             is ProviderEvent.LocalMetrics -> {
                                 segments.add(event.metrics)
                                 nativeMetrics = event.metrics.native?.takeIf { it.isValid }
+                                event.metrics.runtimeExecutionReceipt?.nativeOperationId?.let { operation ->
+                                    observedNativeOperations += operation
+                                    roundNativeOperations += operation
+                                }
+                                captureExecution(event.metrics.runtimeExecutionReceipt ?: observeRuntime())
                             }
                             is ProviderEvent.Failed -> {
                                 providerFailure = event
                                 providerFailureStage = phases.phase
+                                terminalReceived = terminalReceived || event.transportComplete
                             }
                             ProviderEvent.Completed -> {
                                 completed = true
@@ -317,7 +391,14 @@ class BenchmarkRunner(
                             else -> Unit
                         }
                     }
-                    val throughputCutoff = test.category == "speed" && finishReason in setOf("length", "MAX_TOKENS") && text.length >= 100 && calls.isEmpty()
+                    captureExecution()
+                    val performanceCutoff = test.performanceTrial?.acceptsOutputLimit == true &&
+                        calls.isEmpty() &&
+                        text.isNotBlank() &&
+                        executionReceipts.values.any { it.nativeOperationId in roundNativeOperations && it.hasNativeTerminal && it.terminalKind == "output_limit" } &&
+                        segments.sumOf { it.native?.decodeTokens?.coerceAtLeast(0) ?: 0 } >= (test.performanceTrial?.minimumNativeOutputTokens ?: Int.MAX_VALUE) &&
+                        (providerFailure == null || providerFailure?.errorCode in setOf("OUTPUT_LIMIT", "LOCAL_OUTPUT_LIMIT"))
+                    val throughputCutoff = performanceCutoff || test.category == "speed" && finishReason?.lowercase() in setOf("length", "max_tokens", "output_limit") && text.length >= 100 && calls.isEmpty()
                     providerFailure?.let {
                         if (it.errorCode == "POLICY_BLOCKED") throw BenchmarkPolicyBlockedException(it.message)
                         if (!throughputCutoff) error(it.message)
@@ -360,14 +441,17 @@ class BenchmarkRunner(
                 ).copy(failureCategory = "REQUEST_DEADLINE_EXCEEDED", failure = BenchmarkFailure("REQUEST_DEADLINE_EXCEEDED", phases.phase, "Exceeded ${limitMs / 1000}s per-test deadline", owner = "request", retryable = true), runtimeStage = phases.phase, timingEligible = false, throughputExclusion = "REQUEST_DEADLINE_EXCEEDED")
             }
             phases.transition("validation")
-            val answer = text.toString().trim()
+            val rawAnswer = text.toString()
+            val outputView = if (test.category == "tools") benchmarkOutputView(rawAnswer) else BenchmarkOutputView(rawAnswer.trim(), emptyList(), true, false)
+            val answer = if (test.outputPolicy == "TYPED_PROGRESS_V1" && outputView.protocolComplete) outputView.finalAnswer else rawAnswer.trim()
             check(!invalidBenchmarkEnvelope(answer)) { "OUTPUT_PROTOCOL_INVALID: Provider protocol metadata is not a benchmark answer." }
-            val intelligenceGrade = if (test.id.startsWith("intelligence-batch-")) IntelligenceBenchmark.evaluateBatch(test, answer) else null
+            val intelligenceGrade = if (test.id.startsWith("intelligence-batch-")) IntelligenceBenchmark.evaluateBatch(test, answer, test.fixtureSetVersion ?: IntelligenceBenchmark.VERSION) else null
             val timedFixture = test.category == "speed" && listOf("short", "medium", "long").any { test.id.startsWith("speed-$it-") }
             val referenceUnits = ReferenceTextTokenizer.starts(answer).size
             val insufficientTiming = timedFixture && referenceUnits < BenchmarkSuiteRegistry.MIN_TIMING_REFERENCE_UNITS
-            val passed = when (test.category) {
-                IntelligenceBenchmark.CATEGORY -> if (test.id.startsWith("intelligence-batch-")) intelligenceGrade!!.answers.values.all { it } else IntelligenceBenchmark.matches(answer, checkNotNull(test.expected))
+            val basePassed = when (test.category) {
+                IntelligenceBenchmark.CATEGORY -> if (test.id.startsWith("intelligence-batch-")) intelligenceGrade!!.answers.values.all { it } && (test.validatorVersion != "benchmark-validator-v5" || intelligenceGrade.formatCompliant) else IntelligenceBenchmark.matches(answer, checkNotNull(test.expected))
+                "performance" -> calls.isEmpty() && answer.isNotBlank() && benchmarkPerformanceAnswerValid(test, answer) && segments.sumOf { it.native?.decodeTokens?.coerceAtLeast(0) ?: 0 } >= (test.performanceTrial?.minimumNativeOutputTokens ?: 0)
                 "speed" -> validBenchmarkSpeedAnswer(test, answer) && calls.isEmpty() && (!test.id.startsWith("speed-short-") && !test.id.startsWith("speed-medium-") && !test.id.startsWith("speed-long-") || !insufficientTiming)
                 "json" -> runCatching { Json.parseToJsonElement(answer) == Json.parseToJsonElement(test.expected ?: "{\"status\":\"ready\",\"count\":3,\"items\":[\"red\",\"green\",\"blue\"]}") }.getOrDefault(false)
                 "tools" -> scenario.passed(calls.values.toList(), successful, expectedErrors) && answer == code
@@ -380,13 +464,26 @@ class BenchmarkRunner(
                     }
                     )
             }
+            val expected = if (test.category == "tools") code else test.expected
+            val details = benchmarkValidation(test, rawAnswer, answer, expected, basePassed, if (test.category == "tools") scenario.passed(calls.values.toList(), successful, expectedErrors) else null)
+            val passed = basePassed && (test.validatorVersion !in setOf("benchmark-validator-v4", "benchmark-validator-v5") || details.formatCompliant != false && details.protocolCompliant != false)
+            val exclusions = buildList {
+                if (test.category == "speed") {
+                    addAll(details.reasons)
+                    if (!passed) add("TASK_NOT_PASSED")
+                    if (insufficientTiming) add("INSUFFICIENT_OUTPUT")
+                    if (chunks <= 1 || first == null || (lastChunk?.minus(started) ?: 0) <= first!!) add("NO_MEASURABLE_DECODE_INTERVAL")
+                }
+            }.distinct()
+            validation = details.copy(gradePassed = passed, timingExclusions = exclusions)
             val result = sample(
                 if (passed) BenchmarkOutcome.PASSED else BenchmarkOutcome.FAILED,
                 when {
                     insufficientTiming -> "Insufficient timing sample: $referenceUnits reference units produced; ${BenchmarkSuiteRegistry.MIN_TIMING_REFERENCE_UNITS} required."
+                    intelligenceGrade != null && !intelligenceGrade.parseable -> "Semantic intelligence ungraded: output is not parseable JSON; raw JSON compliance failed."
                     intelligenceGrade != null -> "${intelligenceGrade.answers.values.count { it }}/${intelligenceGrade.answers.size} correct; raw JSON compliance: ${intelligenceGrade.formatCompliant}; parseable: ${intelligenceGrade.parseable}."
                     passed -> null
-                    else -> "Response did not meet the fixture's expected result."
+                    else -> details.reasons.joinToString("; ").ifBlank { "Response did not meet the fixture's expected result." }
                 }
             ).copy(
                 intelligenceAnswers = intelligenceGrade?.answers.orEmpty(),
@@ -403,30 +500,43 @@ class BenchmarkRunner(
                     else -> null
                 }
             )
+            if (finishReason?.lowercase() in setOf("length", "max_tokens", "output_limit") && test.category != "speed" && test.performanceTrial?.acceptsOutputLimit != true) {
+                return result.copy(outcome = BenchmarkOutcome.PARTIAL, intelligenceSemantics = benchmarkIntelligenceEvidence(test, rawAnswer, complete = false), validation = validation?.copy(gradePassed = false), failureCategory = "OUTPUT_LIMIT", failure = BenchmarkFailure("OUTPUT_LIMIT", "generation", "The final answer reached its output limit.", owner = "request", scope = "request", failureScope = BenchmarkFailureScope.REQUEST), timingEligible = false)
+            }
             return if (passed) result else result.copy(failureCategory = if (insufficientTiming) "INSUFFICIENT_TIMING_SAMPLE" else "MODEL_QUALITY")
         } catch (cancel: CancellationException) {
             onInterrupted(sample(BenchmarkOutcome.CANCELED, "Request interrupted; observed output is retained.").copy(timingEligible = false, throughputExclusion = "INTERRUPTED"))
             throw cancel
         } catch (error: Exception) {
+            captureExecution()
             val qnn = generateSequence<Throwable>(error) { it.cause }
                 .filterIsInstance<dev.chungjungsoo.gptmobile.data.localruntime.QnnRuntimeFailure>()
                 .firstOrNull()
             val detail = error.message.orEmpty()
             val reportedQnnStage = Regex("QNN ([A-Z_]+) failed \\[").find(detail)?.groupValues?.getOrNull(1)
-            val classified = benchmarkFailure(error, qnn?.stage?.name?.lowercase() ?: reportedQnnStage?.lowercase() ?: providerFailureStage ?: phases.phase)
+            val classified = benchmarkFailure(error, qnn?.stage?.name?.lowercase() ?: reportedQnnStage?.lowercase() ?: providerFailureStage ?: phases.phase).let { inferred ->
+                providerFailure?.errorCode?.takeIf { it.matches(Regex("[A-Z][A-Z0-9_]{0,79}")) }?.let { inferred.copy(code = it) } ?: inferred
+            }
             val outcome = when {
-                classified.code == "NO_VISIBLE_ANSWER" || text.isBlank() && finishReason in setOf("length", "MAX_TOKENS") -> BenchmarkOutcome.ERROR
-                finishReason in setOf("length", "MAX_TOKENS") && text.isNotBlank() -> BenchmarkOutcome.PARTIAL
+                classified.code == "NO_VISIBLE_ANSWER" || text.isBlank() && finishReason?.lowercase() in setOf("length", "max_tokens", "output_limit") -> BenchmarkOutcome.ERROR
+                finishReason?.lowercase() in setOf("length", "max_tokens", "output_limit") && text.isNotBlank() -> BenchmarkOutcome.PARTIAL
                 else -> classified.outcome()
             }
-            val failure = if (text.isBlank() && finishReason in setOf("length", "MAX_TOKENS")) classified.copy(code = "NO_VISIBLE_ANSWER") else classified
+            val failure = when {
+                text.isBlank() && finishReason?.lowercase() in setOf("length", "max_tokens", "output_limit") -> classified.copy(code = "NO_VISIBLE_ANSWER")
+                outcome == BenchmarkOutcome.PARTIAL -> classified.copy(code = "OUTPUT_LIMIT", owner = "request", scope = "request", failureScope = BenchmarkFailureScope.REQUEST)
+                else -> classified
+            }
+            val raw = text.toString()
+            val output = benchmarkOutputView(raw)
+            validation = benchmarkValidation(test, raw, if (test.outputPolicy == "TYPED_PROGRESS_V1" && output.protocolComplete) output.finalAnswer else raw.trim(), if (test.category == "tools") code else test.expected, false, if (test.category == "tools") scenario.passed(calls.values.toList(), successful, expectedErrors) else null, listOf(failure.code))
             return sample(outcome, failure.message).copy(
                 failureCategory = failure.code,
                 failure = failure,
                 runtimeStage = failure.stage,
                 requestDispatched = when {
-                    chunks > 0 || calls.isNotEmpty() || rounds.isNotEmpty() -> true
-                    failure.code in setOf("RESOURCE_ADMISSION", "NATIVE_QUARANTINED", "COOLDOWN_ACTIVE", "POLICY_BLOCKED") -> false
+                    nativeEntryObserved || chunks > 0 || calls.isNotEmpty() || rounds.isNotEmpty() -> true
+                    failure.code in setOf("RESOURCE_ADMISSION", "NATIVE_QUARANTINED", "COOLDOWN_ACTIVE", "POLICY_BLOCKED", "STRUCTURED_OUTPUT_MODE_UNSUPPORTED", "STRUCTURED_OUTPUT_COMPATIBILITY_CHANGED") -> false
                     else -> null
                 },
                 timingEligible = false,
@@ -459,12 +569,17 @@ suspend fun runBenchmarkSuite(
     onSample: suspend (BenchmarkSample) -> Unit,
     stopOnError: Boolean = true
 ): String? {
+    val saved = mutableMapOf<String, BenchmarkSample>()
     for ((index, test) in suite.withIndex()) {
-        val sample = runCase(index, test)
+        val dependency = test.dependsOn.mapNotNull(saved::get).firstOrNull { !it.completed }
+        val sample = if (dependency == null) runCase(index, test) else BenchmarkSample(test.id, test.label, test.category, BenchmarkOutcome.SKIPPED, error = "Required predecessor ${dependency.testId} did not complete.", failureCategory = "SKIPPED_DEPENDENCY", requestDispatched = false, warmup = test.warmup, workload = test.workload)
+        saved[test.id] = sample
         onSample(sample)
+        val action = sample.recoveryAction()
         val reason = when {
+            action == BenchmarkRecoveryAction.CONTINUE_INDEPENDENT_CASES -> null
             benchmarkInfrastructureFailure(sample) -> "Provider or runtime is unavailable; remaining cases were skipped. ${sample.error.orEmpty()}"
-            sample.executionFailure() && sample.failureCategory != "FIXTURE_INVALID" -> sample.error ?: "The provider could not complete the benchmark request."
+            action != BenchmarkRecoveryAction.SKIP_DEPENDENTS -> sample.error ?: "The provider could not complete the benchmark request."
             else -> null
         }
         if (reason != null) {

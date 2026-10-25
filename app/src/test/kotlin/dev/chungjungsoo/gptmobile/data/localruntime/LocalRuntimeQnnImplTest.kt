@@ -18,6 +18,69 @@ class LocalRuntimeQnnImplTest {
         override fun loadFinished() = Unit
     }
 
+    @Test fun wrapperPreservesInspectionExecutionAndCleanupEvidenceWithoutInventingBackendFacts() = runTest {
+        val executed = RuntimeExecutionReceipt(runtimeRequestId = "request", workerGenerationId = "worker", nativeEntered = false)
+        val cleanup = RuntimeCleanupReceipt("test", quarantined = true)
+        val identity = LocalRuntimeExecutionIdentity(workerGenerationId = "worker")
+        val inspected = RuntimeInspectionReceipt("inspection", "runtime", "device", "firmware", "npu", "configuration", 10, 20, "PASSED")
+        var inspectedSpec: LocalEngineSpec? = null
+        val delegate = object : LocalRuntime by FakeLocalRuntime() {
+            override val latestExecutionReceipt get() = executed
+            override val latestCleanupReceipt get() = cleanup
+            override val latestInspectionReceipt get() = inspected
+            override val executionIdentity get() = identity
+            override val isNativeOperationBusy get() = true
+            override suspend fun inspectModel(spec: LocalEngineSpec): LocalModelCapabilities? {
+                inspectedSpec = spec
+                return null
+            }
+            override suspend fun cleanupAfterRequest(origin: String) = cleanup
+        }
+        val qnn = LocalRuntimeQnnImpl(delegate, noOpGuard, { ready }, enabled = true)
+        qnn.inspectModel(spec)
+        assertEquals(spec, inspectedSpec)
+        org.junit.Assert.assertSame(inspected, qnn.latestInspectionReceipt)
+        org.junit.Assert.assertSame(executed, qnn.latestExecutionReceipt)
+        org.junit.Assert.assertSame(cleanup, qnn.cleanupAfterRequest("benchmark"))
+        assertEquals(identity, qnn.executionIdentity)
+        assertTrue(qnn.isNativeOperationBusy)
+        assertFalse(qnn.latestCleanupReceipt!!.safeForSuccessor)
+        assertEquals(null, qnn.latestEngineLoadReceipt)
+    }
+
+    @Test fun structuredValidationErrorsRetainTheirCategoryAndRawPartialText() = runTest {
+        for (code in listOf(LocalStructuredOutputFailure.MALFORMED, LocalStructuredOutputFailure.SCHEMA_MISMATCH, LocalStructuredOutputFailure.VALIDATION_LIMIT)) {
+            val original = LocalStructuredOutputFailure(code, "raw response retained")
+            val native = FakeLocalRuntime().apply { scriptedEvents = listOf(listOf(LocalRuntimeEvent.TextDelta("{broken"), LocalRuntimeEvent.Error(original.message.orEmpty(), original))) }
+            val qnn = LocalRuntimeQnnImpl(native, noOpGuard, { ready }, enabled = true)
+            qnn.loadEngine(spec)
+            qnn.createConversation(LocalConversationConfig(LocalSamplerConfig(1, 1f, 0f), null, emptyList()))
+            val events = qnn.sendMessage("JSON").toList()
+            assertEquals("{broken", events.filterIsInstance<LocalRuntimeEvent.TextDelta>().single().text)
+            org.junit.Assert.assertSame(original, events.filterIsInstance<LocalRuntimeEvent.Error>().single().cause)
+        }
+    }
+
+    @Test fun nativeGrammarFailureUsesTheConstrainedDecodingCode() = runTest {
+        val original = LocalStructuredOutputFailure(LocalStructuredOutputFailure.CONSTRAINED_DECODING_FAILURE, "failed to commit token: parser error: token does not satisfy the grammar")
+        val native = FakeLocalRuntime().apply { scriptedEvents = listOf(listOf(LocalRuntimeEvent.Error(original.message.orEmpty(), original))) }
+        val qnn = LocalRuntimeQnnImpl(native, noOpGuard, { ready }, enabled = true)
+        qnn.loadEngine(spec)
+        val failure = qnn.sendMessage("JSON").toList().filterIsInstance<LocalRuntimeEvent.Error>().single().cause as QnnRuntimeFailure
+        assertEquals(QnnFailureCode.CONSTRAINED_DECODING_FAILURE, failure.code)
+        org.junit.Assert.assertSame(original, failure.cause)
+    }
+
+    @Test fun selectedNpuWithTextAndDoneDoesNotClaimBackendAndCleanupQualification() = runTest {
+        val native = FakeLocalRuntime().apply { scriptedEvents = listOf(listOf(LocalRuntimeEvent.TextDelta("answer"), LocalRuntimeEvent.Done)) }
+        val qnn = LocalRuntimeQnnImpl(native, noOpGuard, { ready }, enabled = true)
+        qnn.loadEngine(spec)
+        qnn.sendMessage("hello").toList()
+        assertFalse(QnnExecutionEvidence.executionQualified)
+        assertTrue(QnnExecutionEvidence.lastStatus.contains("completed=true"))
+        assertTrue(QnnExecutionEvidence.lastStatus.contains("actualBackend=unknown"))
+    }
+
     @Test fun configurationRejectionIsNotMisreportedAsNativeInitializationFailure() = runTest {
         val original = LocalModelConfigurationException("This export has no verified speculative-decoding support")
         val native = FakeLocalRuntime().apply { failLoadEngineIf = { original } }

@@ -55,21 +55,12 @@ internal fun runtimeVersionIsNewer(required: String, installed: String): Boolean
 }
 
 internal object LiteRtModelInspector {
-    private data class Cached(val identity: String?, val metadata: LocalModelCapabilities)
-    private val cache = LinkedHashMap<String, Cached>()
-
+    /** Called only by LiteRtInspectionCache after current file and digest validation. */
     @Synchronized
     fun inspect(path: String): LocalModelCapabilities {
-        // Descriptor aliases must retain their /proc/self/fd target; canonicalizing
-        // would turn a SAF grant back into an inaccessible raw storage path.
         val candidate = File(path)
         val file = if (dev.chungjungsoo.gptmobile.data.localmodel.LinkedModelSources.isOpenAlias(candidate)) candidate.absoluteFile else candidate.canonicalFile
         val key = file.path
-        val identity = dev.chungjungsoo.gptmobile.data.localmodel.PackageDigest.installedFileIdentity(file)
-        cache[key]?.takeIf { identity != null && it.identity == identity }?.let { return it.metadata }
-        dev.chungjungsoo.gptmobile.data.localmodel.PackageDigest.validateInstalled(file)
-        val validation = LocalModelValidator.validate(key)
-        require(validation is ModelValidationResult.Valid) { "Model integrity preflight failed: $validation" }
         return ModelInfo.from(key).use { info ->
             require(info !is ModelInfo.Embedding) { "This is an embedding model. Choose a text-generation artifact for chat." }
             val llm = info as? ModelInfo.Llm
@@ -85,9 +76,6 @@ internal object LiteRtModelInspector {
                 minRuntimeVersion = info.minRuntimeVersion(),
                 visionBackends = if (info.inputModalities().vision) info.supportedBackends(Modality.VISION).map { it.name.lowercase() }.toSet() else emptySet()
             )
-        }.also {
-            if (cache.size >= 32) cache.remove(cache.keys.first())
-            if (identity != null && identity == dev.chungjungsoo.gptmobile.data.localmodel.PackageDigest.installedFileIdentity(file)) cache[key] = Cached(identity, it)
         }
     }
 }

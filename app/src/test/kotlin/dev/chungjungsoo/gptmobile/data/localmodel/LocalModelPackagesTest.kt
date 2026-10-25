@@ -76,7 +76,7 @@ class LocalModelPackagesTest {
         assertFalse(LocalAccelerators.isNpuEligible(imported.supportedAccelerators, imported.socToModelFiles, "SM8650"))
     }
 
-    @Test fun legacyContentAddressedImportRecoversOriginalSocWithoutRewritingWeights() {
+    @Test fun legacyContentAddressedImportRecoversOriginalSocWithoutRewritingWeights() = kotlinx.coroutines.runBlocking {
         val id = "local_legacy"
         val legacy = CatalogEntry(
             id = id,
@@ -108,7 +108,7 @@ class LocalModelPackagesTest {
         assertFalse(unrelated.supportedAccelerators.contains("npu"))
     }
 
-    @Test fun genericImportAndParentDirectoryNeverProvideNpuEvidence() {
+    @Test fun genericImportAndParentDirectoryNeverProvideNpuEvidence() = kotlinx.coroutines.runBlocking {
         val generic = LocalModelPackages.forImportedLiteRtModel(
             "local_generic",
             "gemma-4-E2B-it.litertlm",

@@ -33,6 +33,7 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkExecutionPolicy
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkMode
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 
@@ -66,7 +67,7 @@ internal fun BenchmarkAction(label: String, icon: ImageVector, selected: Boolean
 }
 
 @Composable
-internal fun BenchmarkPlanPicker(mode: BenchmarkMode, enabled: Boolean = true, includeDiagnostics: Boolean = false, onSelect: (BenchmarkMode) -> Unit) {
+internal fun BenchmarkPlanPicker(mode: BenchmarkMode, enabled: Boolean = true, includeDiagnostics: Boolean = false, includeCpuExperiment: Boolean = false, includePerformance: Boolean = false, onSelect: (BenchmarkMode) -> Unit) {
     Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         listOf(BenchmarkMode.QUICK, BenchmarkMode.FULL).forEach { option ->
             val active = mode == option
@@ -82,16 +83,46 @@ internal fun BenchmarkPlanPicker(mode: BenchmarkMode, enabled: Boolean = true, i
                         if (active) Icon(Icons.Rounded.CheckCircle, "Selected", tint = MaterialTheme.colorScheme.primary)
                     }
                     Text(option.label, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    Text(if (option == BenchmarkMode.QUICK) "5 tests" else "50 tests", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                    Text("${dev.chungjungsoo.gptmobile.data.benchmark.benchmarkSuite(option).size} planned cases", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
                     Text(if (option == BenchmarkMode.QUICK) "Every category once" else "Repeated, deeper coverage", style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
+    }
+    if (includePerformance) {
+        OutlinedButton(onClick = { onSelect(BenchmarkMode.PERFORMANCE) }, enabled = enabled, modifier = Modifier.fillMaxWidth().semantics { selected = mode == BenchmarkMode.PERFORMANCE }) {
+            Text("Local performance · ${dev.chungjungsoo.gptmobile.data.benchmark.benchmarkSuite(BenchmarkMode.PERFORMANCE).size} planned cases")
+        }
+        if (mode == BenchmarkMode.PERFORMANCE) Text("Measures cold and warm start, prefill, decode, first visible text, sustained throughput and cleanup on this device. Performance and intelligence results remain separate.", style = MaterialTheme.typography.bodySmall)
     }
     if (includeDiagnostics) {
         OutlinedButton(onClick = { onSelect(BenchmarkMode.DIAGNOSTIC) }, enabled = enabled, modifier = Modifier.fillMaxWidth().semantics { selected = mode == BenchmarkMode.DIAGNOSTIC }) {
             Text("Capability diagnostics · ${dev.chungjungsoo.gptmobile.data.benchmark.benchmarkSuite(BenchmarkMode.DIAGNOSTIC).size} offline tests")
         }
         if (mode == BenchmarkMode.DIAGNOSTIC) Text("Individual reasoning, raw and calculator-assisted arithmetic, tool contracts and attached-image reading. Separate from Full timing scores; no live network tools.", style = MaterialTheme.typography.bodySmall)
+        if (includeCpuExperiment) {
+            OutlinedButton(onClick = { onSelect(BenchmarkMode.CPU_EXPERIMENT) }, enabled = enabled, modifier = Modifier.fillMaxWidth().semantics { selected = mode == BenchmarkMode.CPU_EXPERIMENT }) {
+                Text("CPU thread comparison · ${dev.chungjungsoo.gptmobile.data.benchmark.benchmarkSuite(BenchmarkMode.CPU_EXPERIMENT).size} planned cases")
+            }
+            if (mode == BenchmarkMode.CPU_EXPERIMENT) Text("Explicit on-device experiment: 2, 4, 6 and 8 CPU threads, with repeated cold and cache-hot trials. Results retain measured reuse, thermal state and actual native configuration; ordinary model scores remain separate.", style = MaterialTheme.typography.bodySmall)
+        }
     }
+}
+
+/** Test extent and request policy are independent choices. */
+@Composable
+internal fun BenchmarkPolicyPicker(policy: BenchmarkExecutionPolicy, enabled: Boolean = true, onSelect: (BenchmarkExecutionPolicy) -> Unit) {
+    Text("Request settings", style = MaterialTheme.typography.titleSmall)
+    BenchmarkExecutionPolicy.entries.forEach { option ->
+        OutlinedButton(onClick = { onSelect(option) }, enabled = enabled, modifier = Modifier.fillMaxWidth().semantics { selected = policy == option }) {
+            Text(option.label)
+        }
+    }
+    Text(
+        when (policy) {
+            BenchmarkExecutionPolicy.DETERMINISTIC_CAPABILITY_V1 -> "Uses recorded benchmark overrides for comparable capability tests. Saved chat settings stay unchanged."
+            BenchmarkExecutionPolicy.PROFILE_SETTINGS_V1 -> "Uses each selected profile's saved chat settings. Results have a separate policy and comparison population."
+        },
+        style = MaterialTheme.typography.bodySmall
+    )
 }

@@ -219,7 +219,7 @@ class HomeViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     val unreadChatIds = completedGenerations.map { rows -> rows.mapTo(mutableSetOf()) { it.visibleChatId } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
-    private var pinnedOrder = pinnedOrderStore.read()
+    private var pinnedOrder: List<Int> = emptyList()
 
     private data class ProgressRows(val chatId: Int, val runs: List<dev.chungjungsoo.gptmobile.data.database.entity.AgentRun>, val messages: List<dev.chungjungsoo.gptmobile.data.database.entity.MessageV2>)
     private val progressRows = chatListState.map { it.chats.map { row -> row.id }.sorted() }.distinctUntilChanged().flatMapLatest { ids ->
@@ -277,6 +277,19 @@ class HomeViewModel @Inject constructor(
         )
 
     init {
+        pinnedOrderStore.order.onEach { order ->
+            pinnedOrder = order
+            _chatListState.update { it.copy(chats = sortChats(it.chats)) }
+        }.launchIn(viewModelScope)
+        viewModelScope.launch {
+            try {
+                pinnedOrderStore.read()
+            } catch (canceled: kotlinx.coroutines.CancellationException) {
+                throw canceled
+            } catch (error: Exception) {
+                _folderError.value = "Pinned conversation order could not be loaded."
+            }
+        }
         settingRepository.observePlatformV2s().onEach { platforms ->
             val selected = _platformState.value.filterIndexed { index, _ -> _chatListState.value.selectedPlatforms.getOrElse(index) { false } }.map { it.uid }.toSet()
             dev.chungjungsoo.gptmobile.data.readiness.ReadinessHints.selectProfiles(selected.toList())
@@ -446,20 +459,30 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    fun toggleChatFavorite(chatId: Int, isFavorite: Boolean) {
+    private fun updatePinnedConversations(block: suspend () -> Unit) {
         viewModelScope.launch {
-            pinnedOrder = if (isFavorite) movePinnedConversation(pinnedOrder, chatId, 0) else pinnedOrder - chatId
-            pinnedOrderStore.save(pinnedOrder)
+            try {
+                block()
+            } catch (canceled: kotlinx.coroutines.CancellationException) {
+                throw canceled
+            } catch (error: Exception) {
+                _folderError.value = "Pinned conversations could not be updated. Please try again."
+            }
+        }
+    }
+
+    fun toggleChatFavorite(chatId: Int, isFavorite: Boolean) {
+        updatePinnedConversations {
+            pinnedOrderStore.update { order -> if (isFavorite) movePinnedConversation(order, chatId, 0) else order - chatId }
             chatRepository.setChatFavorite(chatId, isFavorite)
             fetchChats()
         }
     }
 
     fun moveConversationPin(chatId: Int, targetIndex: Int) {
-        viewModelScope.launch {
+        updatePinnedConversations {
             val currentPins = _chatListState.value.chats.filter { it.isFavorite }.map { it.id }
-            pinnedOrder = if (targetIndex < 0) pinnedOrder - chatId else movePinnedConversation((pinnedOrder.filter { it in currentPins } + currentPins).distinct(), chatId, targetIndex)
-            pinnedOrderStore.save(pinnedOrder)
+            pinnedOrderStore.update { order -> if (targetIndex < 0) order - chatId else movePinnedConversation((order.filter { it in currentPins } + currentPins).distinct(), chatId, targetIndex) }
             chatRepository.setChatFavorite(chatId, targetIndex >= 0)
             fetchChats()
         }
@@ -607,10 +630,9 @@ class HomeViewModel @Inject constructor(
         val state = _chatListState.value
         val selected = state.chats.filterIndexed { index, _ -> state.selectedChats.getOrElse(index) { false } }
         if (selected.isEmpty()) return
-        viewModelScope.launch {
+        updatePinnedConversations {
             val ids = foldersRepository.setPinnedMany(selected.mapTo(mutableSetOf()) { it.id }, pinned)
-            pinnedOrder = if (pinned) (ids + pinnedOrder).distinct() else pinnedOrder - ids.toSet()
-            pinnedOrderStore.save(pinnedOrder)
+            pinnedOrderStore.update { order -> if (pinned) (ids + order).distinct() else order - ids.toSet() }
             disableSelectionMode()
             fetchChats()
         }

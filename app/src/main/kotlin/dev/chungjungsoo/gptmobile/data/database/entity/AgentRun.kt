@@ -139,7 +139,8 @@ data class PersistAgentRetryRequest(
     val resumeCombinedFrom: String? = null,
     val replaceCombinedCorpus: Boolean = false,
     val freezeCombinedSources: Boolean = false,
-    val successorOfRunId: String? = null
+    val successorOfRunId: String? = null,
+    val automaticAppendDecision: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision? = null
 )
 
 data class PersistAgentRetryResult(

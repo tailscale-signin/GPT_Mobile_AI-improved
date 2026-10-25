@@ -206,6 +206,10 @@ class AgentRunner(
             }
             val roundFailure = round.failure
             if (roundFailure != null) {
+                if (round.providerLimit != null) {
+                    emit(AgentRunEvent.Provider(ProviderEvent.Failed(roundFailure, round.progressDeadline, round.errorCode, round.failureTransportComplete, round.providerLimit)))
+                    return
+                }
                 val protocolFailure = round.errorCode == "TOOL_PROTOCOL_INVALID_FRAME" ||
                     listOf(
                         "Tool arguments were not valid JSON",
@@ -234,7 +238,7 @@ class AgentRunner(
                     kotlinx.coroutines.delay(1000)
                     continue
                 }
-                emit(AgentRunEvent.Provider(ProviderEvent.Failed(roundFailure, round.progressDeadline, round.errorCode, round.failureTransportComplete)))
+                emit(AgentRunEvent.Provider(ProviderEvent.Failed(roundFailure, round.progressDeadline, round.errorCode, round.failureTransportComplete, round.providerLimit)))
                 return
             }
             round.calls.forEach { emit(AgentRunEvent.Provider(it)) }
@@ -661,7 +665,8 @@ class AgentRunner(
         val progressDeadline: ProgressDeadlineOutcome? = null,
         val batchRejection: String? = null,
         val errorCode: String? = null,
-        val failureTransportComplete: Boolean = false
+        val failureTransportComplete: Boolean = false,
+        val providerLimit: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision? = null
     )
 
     private fun recoverableRoundFailure(message: String, hasToolContext: Boolean): Boolean = (
@@ -701,6 +706,7 @@ class AgentRunner(
         var progressDeadline: ProgressDeadlineOutcome? = null
         var failureCode: String? = null
         var failureTransportComplete = false
+        var providerLimit: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision? = null
         var textEmitted = false
         val answerCandidate = StringBuilder()
         var toolDefinitionsRejected = false
@@ -814,6 +820,7 @@ class AgentRunner(
                     progressDeadline = event.progressDeadline
                     failureCode = event.errorCode
                     failureTransportComplete = event.transportComplete
+                    providerLimit = event.providerLimit
                 }
 
                 is ProviderEvent.Notice -> emit(AgentRunEvent.Notice(event.message, event.persistent, event.researchDelivery))
@@ -852,7 +859,7 @@ class AgentRunner(
         // Do not emit from finally: a cancelled or failed consumer cannot accept
         // another event. Genuine provider failures still retain observed usage.
         emitRoundUsage()
-        return RoundResult(calls, completed, failure, textEmitted, toolDefinitionsRejected, batchRejected, maxOf(admission.observed, parserObservedCalls), progressDeadline, batchRejection, failureCode, failureTransportComplete)
+        return RoundResult(calls, completed, failure, textEmitted, toolDefinitionsRejected, batchRejected, maxOf(admission.observed, parserObservedCalls), progressDeadline, batchRejection, failureCode, failureTransportComplete, providerLimit)
     }
 
     private fun toolResultText(result: AgentToolResult): String = when (val content = result.content) {
@@ -975,6 +982,8 @@ class AgentRunner(
             }
             ToolObservationRetention.bound(if (tool.managesExecutionBudget) result else result.copy(content = boundContent(result.content)))
         } catch (error: CancellationException) {
+            throw error
+        } catch (error: dev.chungjungsoo.gptmobile.data.research.ResearchProviderDeferred) {
             throw error
         } catch (error: Exception) {
             AgentToolResult(

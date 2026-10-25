@@ -14,11 +14,13 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 
 /** Rechecks retained-source permissions at the physical boundary after queueing and serialization. */
-internal class RequestAuthorizationGuard(val revision: String, val validate: suspend () -> Unit) : AbstractCoroutineContextElement(Key) {
+internal class RequestAuthorizationGuard(val revision: String, val authority: CapturedProviderAuthority?, val validate: suspend () -> Unit) : AbstractCoroutineContextElement(Key) {
+    constructor(revision: String, validate: suspend () -> Unit) : this(revision, null, validate)
+
     companion object Key : CoroutineContext.Key<RequestAuthorizationGuard>
 }
 
-internal fun AgentProviderSession.withRequestAuthorization(revision: String, validate: suspend () -> Unit): AgentProviderSession {
+internal fun AgentProviderSession.withRequestAuthorization(revision: String, authority: CapturedProviderAuthority? = null, validate: suspend () -> Unit): AgentProviderSession {
     val delegate = this
     return object : AgentProviderSession by delegate {
         override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> =
@@ -26,7 +28,7 @@ internal fun AgentProviderSession.withRequestAuthorization(revision: String, val
                 // Check before constructing a native session as well as at its physical boundary.
                 validate()
                 emitAll(delegate.streamRound(tools, exchanges))
-            }.flowOn(RequestAuthorizationGuard(revision, validate)).catch { error ->
+            }.flowOn(RequestAuthorizationGuard(revision, authority, validate)).catch { error ->
                 if (error is SavedEvidenceAccessDenied) {
                     // An expected access change is a terminal result, not a process-level failure.
                     emit(ProviderEvent.Failed(error.message.orEmpty()))

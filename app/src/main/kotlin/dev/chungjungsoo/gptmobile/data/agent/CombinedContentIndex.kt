@@ -2,6 +2,8 @@ package dev.chungjungsoo.gptmobile.data.agent
 
 import dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse
 import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
+import dev.chungjungsoo.gptmobile.data.diagnostics.CombinedOperationOwner
+import dev.chungjungsoo.gptmobile.data.diagnostics.CombinedOperationTrace
 
 /** One immutable extraction shared by prompt, decoding, coverage and local assessment. */
 internal data class CombinedContentIndex(val records: List<CombinedClaimRecord>) {
@@ -25,7 +27,9 @@ internal object CombinedContentIndexes {
         val candidates = sources.flatMapIndexed { index, source ->
             val sourceKey = key[index]
             val cached = synchronized(entries) { sourceEntries[sourceKey] }
-            val records = cached?.records ?: CombinedClaimSemantics.extractRecords(listOf(source)).also { extracted ->
+            val records = cached?.records ?: CombinedOperationTrace.measure("source_extraction", CombinedOperationOwner(digest = sourceKey.digest, profileUid = source.platformUid)) {
+                CombinedClaimSemantics.extractRecords(listOf(source))
+            }.also { extracted ->
                 if (source.content.length <= 262_144) {
                     synchronized(entries) {
                         if (sourceKey !in sourceEntries) {

@@ -57,7 +57,9 @@ data class RequestAdmissionReceipt(
     val capacityChecked: Boolean,
     val reasoning: ReasoningDecision? = null,
     val physicalAttemptId: String? = null,
-    val messageValidatorRevision: String = "unvalidated"
+    val messageValidatorRevision: String = "unvalidated",
+    val promptBudget: PromptBudgetReceipt? = null,
+    val requestDeadline: RequestDeadlineReceipt? = null
 )
 
 /** Holds the actual admitted bytes. This digest is internal and must never label a redacted export. */
@@ -85,20 +87,26 @@ object RequestAdmission {
         requireKnownCapacity: Boolean = false,
         serializerRevision: String = "provider-json-v1",
         reasoning: ReasoningDecision? = null,
-        messageValidatorRevision: String = "unvalidated"
+        messageValidatorRevision: String = "unvalidated",
+        promptBudget: PromptBudgetReceipt? = null,
+        requestDeadline: RequestDeadlineReceipt? = null
     ): PreparedModelRequest {
         require(role.isNotBlank() && permissionRevision.isNotBlank())
         require(outputTokens == null || outputTokens > 0)
-        val promptWithSafety = Math.addExact(measurement.promptTokens, measurement.uncertaintyTokens)
+        require(promptBudget == null || promptBudget.promptTokens == measurement.promptTokens && promptBudget.safetyTokens == measurement.uncertaintyTokens && promptBudget.outputAllowanceTokens == outputTokens && promptBudget.contextTokens == capacity.contextTokens) { "PROMPT_BUDGET_IDENTITY_CHANGED" }
+        val reservedInput = promptBudget?.toolResultReserveTokens ?: 0
+        val safety = Math.addExact(measurement.uncertaintyTokens, reservedInput)
+        val promptWithSafety = Math.addExact(measurement.promptTokens, safety)
         val total = outputTokens?.let { Math.addExact(promptWithSafety, it) }
+        val detail = promptBudget?.let { " ${it.explain()}." }.orEmpty()
         check(!requireKnownCapacity || capacity.contextTokens != null && outputTokens != null) { "CAPACITY_UNVERIFIED: configure a route capacity or verify the serving model before budget-sensitive inference" }
-        capacity.inputTokens?.let { check(promptWithSafety <= it) { "INPUT_CAPACITY_EXCEEDED: the complete input is retained; no inference was sent" } }
-        capacity.outputTokens?.let { check(outputTokens != null && outputTokens <= it) { "OUTPUT_CAPACITY_EXCEEDED: re-plan the writing stage without discarding its goal" } }
+        capacity.inputTokens?.let { check(promptWithSafety <= it) { "INPUT_CAPACITY_EXCEEDED: the complete input is retained; no inference was sent.$detail" } }
+        capacity.outputTokens?.let { check(outputTokens != null && outputTokens <= it) { "OUTPUT_CAPACITY_EXCEEDED: re-plan the writing stage without discarding its goal.$detail" } }
         capacity.contextTokens?.let { ceiling ->
-            check(promptWithSafety < ceiling) { "CONTEXT_CAPACITY_EXCEEDED: no space remains for output; the input was not truncated" }
-            if (total != null) check(total <= ceiling) { "CONTEXT_CAPACITY_EXCEEDED: prompt + output + safety exceed the serving context; no inference was sent" }
+            check(promptWithSafety < ceiling) { "CONTEXT_CAPACITY_EXCEEDED: no space remains for output; the input was not truncated.$detail" }
+            if (total != null) check(total <= ceiling) { "CONTEXT_CAPACITY_EXCEEDED: prompt + output + safety exceed the serving context; no inference was sent.$detail" }
         }
-        val receipt = RequestAdmissionReceipt(role, serializerRevision, capacity.fingerprint, permissionRevision, measurement.promptTokens, outputTokens, measurement.uncertaintyTokens, capacity.contextTokens, capacity.provenance, measurement.kind, total != null && capacity.contextTokens != null, reasoning, messageValidatorRevision = messageValidatorRevision)
+        val receipt = RequestAdmissionReceipt(role, serializerRevision, capacity.fingerprint, permissionRevision, measurement.promptTokens, outputTokens, safety, capacity.contextTokens, capacity.provenance, measurement.kind, total != null && capacity.contextTokens != null, reasoning, messageValidatorRevision = messageValidatorRevision, promptBudget = promptBudget, requestDeadline = requestDeadline)
         return PreparedModelRequest(payload, receipt, researchHash(payload))
     }
 

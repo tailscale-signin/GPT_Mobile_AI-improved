@@ -92,6 +92,25 @@ interface ChatRepository {
 
     suspend fun validateBenchmarkProfile(platform: PlatformV2) = Unit
 
+    /** Preparation evidence is independent of the counted benchmark case population. */
+    suspend fun benchmarkReadiness(
+        profile: PlatformV2,
+        requiresTools: Boolean,
+        responseSchemaJson: String?
+    ): dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkReadinessReceipt {
+        val required = setOf("configuration", "model_header", "initialization", "tokenizer", "memory") +
+            (if (responseSchemaJson != null) setOf("json") else emptySet()) +
+            (if (requiresTools) setOf("tools") else emptySet())
+        val now = System.currentTimeMillis()
+        return dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkReadinessReceipt(
+            now,
+            now,
+            required.map { dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkReadinessCheck(it, dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkReadinessStatus.UNKNOWN, "This provider does not report readiness evidence.") },
+            required,
+            executionPolicy = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkRequestContext]?.executionPolicy
+        )
+    }
+
     suspend fun completeChat(
         userMessages: List<MessageV2>,
         assistantMessages: List<List<MessageV2>>,
@@ -119,11 +138,17 @@ interface ChatRepository {
 
     suspend fun prepareCombinedRetry(runId: String, platform: PlatformV2): dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot? = null
 
+    suspend fun prepareCombinedAppendResume(runId: String, platform: PlatformV2, decision: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision): dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot? = null
+
     suspend fun fetchDebugRecords(chatId: Int): kotlinx.serialization.json.JsonObject = kotlinx.serialization.json.JsonObject(emptyMap())
     suspend fun combinedActiveMembers(chatId: Int): Set<String>? = null
     suspend fun reopenCombinedContributor(runId: String): Boolean = false
     suspend fun reconcileCombinedQueuedContributor(runId: String): String? = null
     suspend fun fetchMessagesV2(chatId: Int): List<MessageV2>
+    suspend fun fetchMessageReferencesV2(chatId: Int): List<MessageV2> = fetchMessagesV2(chatId)
+    suspend fun resolveCombinedMessage(message: MessageV2): MessageV2 = message
+    suspend fun combinedDocumentBlocks(reference: dev.chungjungsoo.gptmobile.data.database.entity.CombinedManifestReference, first: Int, count: Int): List<dev.chungjungsoo.gptmobile.data.agent.CombinedDocumentBlock> = emptyList()
+    suspend fun combinedSourceBlocks(reference: dev.chungjungsoo.gptmobile.data.database.entity.CombinedManifestReference, source: dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse, first: Int, count: Int): List<dev.chungjungsoo.gptmobile.data.agent.CombinedDocumentBlock> = emptyList()
 
     /** Missing/deleted rooms and temporary chats never authorize durable Research storage. */
     suspend fun researchPersistenceAllowed(chatId: Int): Boolean = false

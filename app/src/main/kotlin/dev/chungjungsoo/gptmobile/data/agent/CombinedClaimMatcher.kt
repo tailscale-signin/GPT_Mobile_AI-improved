@@ -20,11 +20,15 @@ internal object CombinedClaimMatcher {
         val restrictions: Set<String>,
         val ordered: String,
         val qualifiers: CombinedClaimQualifiers = CombinedClaimQualifiers(),
-        val eventActions: Set<String> = emptySet()
+        val eventActions: Set<String> = emptySet(),
+        val eventClauses: List<String> = emptyList(),
+        val measurements: List<String> = emptyList()
     )
 
     private val word = Regex("[\\p{L}\\p{N}]+(?:[’'][\\p{L}\\p{N}]+)?")
-    private val numeric = Regex("(?<![\\p{L}\\d])[+−-]?(?:\\d{1,3}(?:[,\\u00a0 ]\\d{3})+(?:\\.\\d+)?|\\d+(?:\\.\\d+)?)(?:\\s*%)?(?![\\p{L}\\d])")
+    private const val MEASUREMENT_UNITS = "mg|kg|g|ml|l|ppm|hours?|minutes?|days?|weeks?|months?|years?|kilometers?|kilometres?|degrees?"
+    private val measurementUnit = Regex("^\\s*($MEASUREMENT_UNITS)\\b")
+    private val numeric = Regex("(?<![\\p{L}\\d])[+−-]?(?:\\d{1,3}(?:[,\\u00a0 ]\\d{3})+(?:\\.\\d+)?|\\d+(?:\\.\\d+)?)(?:\\s*%)?(?:(?![\\p{L}\\d])|(?=(?:$MEASUREMENT_UNITS)\\b))")
     private val contraction = Regex("\\b([\\p{L}]+)n't\\b")
     private val bound = Regex("\\b(at least|at most|more than|less than|no more than|no less than)\\b")
     private val stop = setOf(
@@ -76,7 +80,8 @@ internal object CombinedClaimMatcher {
         val words = word.findAll(normalized).map { canonical(it.value) }.toList()
         val qualifiers = CombinedClaimSemantics.qualifiers(text)
         val numericText = Regex("\\b(?:[a-z]{2,}-[0-9]+|(?:il|nrf)[ ]?[0-9]+|[a-z]+[0-9]+)\\b").replace(normalized, " ")
-        val quantities = numeric.findAll(numericText).map { match ->
+        val numericMatches = numeric.findAll(numericText).toList()
+        val quantities = numericMatches.map { match ->
             match.value.replace(",", "").replace(" ", "").replace(160.toChar().toString(), "").replace('−', '-')
                 .removePrefix("+")
         }.toList()
@@ -89,7 +94,13 @@ internal object CombinedClaimMatcher {
             restrictions = words.filter { it in restrictions }.toSet() + bound.findAll(normalized).map { it.value.replace(" ", "") },
             ordered = words.filter { it !in stop }.joinToString(" "),
             qualifiers = qualifiers,
-            eventActions = CombinedHistoricalEvent.actions(text)
+            eventActions = CombinedHistoricalEvent.actions(text),
+            eventClauses = if (words.any { it in negatives || it in hedges || it in restrictions } || qualifiers.uncertainty.isNotEmpty()) emptyList() else CombinedClaimClauses.spans(text).takeIf { it.size > 1 }?.map { it.comparisonText }.orEmpty(),
+            measurements = numericMatches.mapIndexedNotNull { index, match ->
+                measurementUnit.find(numericText.substring(match.range.last + 1))?.groupValues?.get(1)?.let { unit ->
+                    quantities[index] + ":" + unit.removeSuffix("s")
+                }
+            }
         )
     }
 
@@ -102,6 +113,7 @@ internal object CombinedClaimMatcher {
         // A bag of numbers loses their associations (12 homes / 14 schools vs the reverse).
         // Ambiguous reorderings remain unresolved instead of silently proving coverage.
         if (source.numbers.isNotEmpty() && source.orderedNumbers != answer.orderedNumbers) return false
+        if (source.measurements.isNotEmpty() && source.measurements != answer.measurements) return false
         return true
     }
 
@@ -124,11 +136,16 @@ internal object CombinedClaimMatcher {
     fun match(source: String, answer: String): Match {
         val sourceFingerprint = fingerprint(source)
         val direct = match(sourceFingerprint, fingerprint(answer))
-        if (direct >= Match.PARAPHRASE) return direct
+        if (direct >= Match.PARAPHRASE && sourceFingerprint.eventClauses.isEmpty()) return direct
         // Keep strict number/qualifier checks on each candidate clause. Never compare
         // number sets across a merged sentence or relax date associations globally.
-        return CombinedClaimClauses.spans(answer).maxOfOrNull { match(sourceFingerprint, fingerprint(it.text)) }
-            ?.let { maxOf(direct, it) } ?: direct
+        val answerClauses = CombinedClaimClauses.spans(answer).map { fingerprint(it.comparisonText) }
+        val sourceClauses = sourceFingerprint.eventClauses.ifEmpty { listOf(source) }.map(::fingerprint)
+        val matches = sourceClauses.map { part -> answerClauses.maxOfOrNull { match(part, it) } ?: Match.NONE }
+        // A full-sentence bag of terms can look identical after two event objects swap
+        // dates. Once independent clauses exist, every association must survive.
+        val aligned = matches.minOrNull() ?: Match.NONE
+        return if (sourceFingerprint.eventClauses.isNotEmpty()) aligned else maxOf(direct, aligned)
     }
 
     /**
@@ -136,8 +153,14 @@ internal object CombinedClaimMatcher {
      * itself a contradiction; the surrounding subject must have substantial overlap.
      */
     fun possibleConflict(first: Fingerprint, second: Fingerprint): Boolean {
+        if (first.eventClauses.isNotEmpty() || second.eventClauses.isNotEmpty()) {
+            val firstParts = first.eventClauses.map(::fingerprint).ifEmpty { listOf(first) }
+            val secondParts = second.eventClauses.map(::fingerprint).ifEmpty { listOf(second) }
+            return firstParts.any { a -> secondParts.any { b -> possibleConflict(a, b) } }
+        }
         if (first.eventActions.isNotEmpty() && second.eventActions.isNotEmpty() && first.eventActions.intersect(second.eventActions).isEmpty()) return false
-        if (CombinedClaimSemantics.applicabilityConflicts(first.qualifiers, second.qualifiers).isNotEmpty()) return false
+        val sameDatedEvent = first.eventActions.intersect(second.eventActions).isNotEmpty() && (first.numbers + second.numbers).all { it.matches(Regex("[12][0-9]{3}")) }
+        if (CombinedClaimSemantics.applicabilityConflicts(first.qualifiers, second.qualifiers).any { it != "TIME_SCOPE_MISMATCH" || !sameDatedEvent }) return false
         if (first.terms.size < 3 || second.terms.size < 3) return false
         val sharedTerms = first.terms.intersect(second.terms)
         val shared = sharedTerms.size

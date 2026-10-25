@@ -72,7 +72,13 @@ internal suspend fun writeChatDebugExport(
     val combinedAnalysis = messages.asSequence().filter { it.effectiveRunId()?.startsWith("combined-synthesis:") == true || it.effectiveCombinedSources().isNotEmpty() }.map { message ->
         val answer = ConversationSubject.withoutMetadata(message.effectiveContent())
         val sources = message.effectiveCombinedSources()
+        val claimMapping = dev.chungjungsoo.gptmobile.data.agent.CombinedAnswerMappings.get(answer, sources)
+        val claimIndex = dev.chungjungsoo.gptmobile.data.agent.CombinedContentIndexes.get(sources)
         buildJsonObject {
+            put("claimMappingVersion", claimMapping.version)
+            put("claimMappingAnswerDigest", claimMapping.answerDigest)
+            put("claimMappingCorpusDigest", claimMapping.corpusDigest)
+            put("claimMappingEvaluated", claimMapping.evaluated)
             put("messageId", message.id)
             put("runId", message.effectiveRunId())
             put("answerCharacters", answer.length)
@@ -96,20 +102,26 @@ internal suspend fun writeChatDebugExport(
                 "sources",
                 JsonArray(
                     sources.map { source ->
-                        val coverage = dev.chungjungsoo.gptmobile.data.agent.CombinedContentCoverage(listOf(source)).check(answer)
-                        val missing = coverage.missing
+                        val claims = claimMapping.claims.filter { source.platformUid in it.profileUids }
+                        val missing = claims.filterNot { it.fullyLinked }
                         buildJsonObject {
                             put("profileUid", source.platformUid)
                             put("profileName", source.platformName)
                             put("completionStatus", source.completionStatus)
                             put("sourceCharacters", source.content.length)
-                            put("candidateUnits", coverage.total)
-                            put("matchedUnits", coverage.total - missing.size)
+                            put("candidateUnits", claims.size)
+                            put("matchedUnits", claims.count { it.fullyLinked })
+                            put("linkedUnits", claims.count { it.links.isNotEmpty() })
+                            put("partiallyMatchedUnits", claims.count { it.status == "PARTIAL" })
+                            put("unmatchedUnits", claims.count { it.status == "UNMATCHED" })
+                            put("notEvaluatedUnits", claims.count { it.status == "NOT_EVALUATED" })
+                            // Compatibility field means unresolved, never confirmed omissions.
                             put("missingUnits", missing.size)
-                            put("exactMatches", coverage.exactMatches)
-                            put("paraphraseMatches", coverage.paraphraseMatches)
-                            put("tentativeMatches", coverage.tentativeMatches)
-                            put("missingSamples", JsonArray(missing.take(12).map { JsonPrimitive(exportedBody(it.text).take(240)) }))
+                            put("missingUnitsMeaning", "UNRESOLVED_NOT_PROVEN_OMITTED")
+                            put("exactMatches", claims.count { it.status == "EXACT" })
+                            put("paraphraseMatches", claims.count { it.status == "PARAPHRASE" })
+                            put("tentativeMatches", claims.count { it.status == "PARTIAL" })
+                            put("missingSamples", JsonArray(missing.take(12).map { JsonPrimitive(exportedBody(claimIndex.byId[it.claimId]?.proposition.orEmpty()).take(240)) }))
                         }
                     }
                 )

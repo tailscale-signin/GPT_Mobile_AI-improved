@@ -893,7 +893,7 @@ internal class LocalDelegationCoordinator(
             // Progressing tool work may extend the adaptive runtime, but never the hard deadline.
             val requestRuntimeSeconds = if (progressive == null) minOf(runtimeSeconds, hardRuntimeSeconds) else hardRuntimeSeconds
             val deferred = async(
-                context = dev.chungjungsoo.gptmobile.data.network.WorkerRequestBudget(requestRuntimeSeconds * 1000L, physicalRequests, durableReservation = { ledger?.reserveDelegation("http_attempts", java.util.UUID.randomUUID().toString(), 48, reviewReserve) != false }),
+                context = dev.chungjungsoo.gptmobile.data.network.WorkerRequestBudget(requestRuntimeSeconds * 1000L, physicalRequests, clock = nowMs, durableReservation = { ledger?.reserveDelegation("http_attempts", java.util.UUID.randomUUID().toString(), 48, reviewReserve) != false }, queuedAtMillis = queuedAt),
                 start = CoroutineStart.LAZY
             ) {
                 if (progressive == null) {

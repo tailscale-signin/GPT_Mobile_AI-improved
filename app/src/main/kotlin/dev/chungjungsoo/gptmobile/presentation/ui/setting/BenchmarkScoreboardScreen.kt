@@ -106,7 +106,7 @@ internal fun BenchmarkScoreboardPanel(kind: ScoreboardKind, onRun: () -> Unit, v
                         Text("Best complete run · one entry per provider + model", style = MaterialTheme.typography.bodySmall)
                     }
                 }
-                Text("${entries.size} models  ·  ${if (plan == BenchmarkMode.QUICK) "5 tests · provisional" else "50 tests · full coverage"}", style = MaterialTheme.typography.labelLarge)
+                Text("${entries.size} models · ${plan.label} plan · measured coverage in each result", style = MaterialTheme.typography.labelLarge)
             }
         }
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -125,6 +125,7 @@ internal fun BenchmarkScoreboardPanel(kind: ScoreboardKind, onRun: () -> Unit, v
         }
         OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("Find a model or provider") }, leadingIcon = { Icon(Icons.Rounded.Search, null) })
         if (community.loading && online) CircularProgressIndicator()
+        Text("Current capability rankings use deterministic benchmark settings. Saved-profile-policy results remain separate in Results and History. Historical entries retain their recorded policy version; missing settings and semantic evidence are not inferred.", style = MaterialTheme.typography.bodySmall)
         if (online && community.updatedAt > 0) Text("${if (community.cached) "Saved copy" else "Updated"} · ${scoreboardDate(community.updatedAt)}", style = MaterialTheme.typography.labelSmall)
         if (online) community.message?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
         if (filtered.isEmpty() && (!online || (!community.loading && community.hasSnapshot))) {
@@ -291,7 +292,7 @@ internal fun ScoreboardScores(entry: ScoreboardEntry, previous: ScoreboardEntry?
             if (metric.unit == "/100") {
                 BenchmarkRatingBar(metric.label + if (metric.weight > 0) " · ${metric.weight}%" else "", metric.value, previous = previous?.metrics?.firstOrNull { it.label == metric.label }?.value, missing = if (metric.label == "Consistency") "Full repetitions needed" else "Not measured")
             } else {
-                MetricLine(metric.label, metric.value?.let { "%.1f %s".format(it, metric.unit) } ?: "Not observed")
+                MetricLine(metric.label, benchmarkMetricText(metric.value, metric.unit, 1))
             }
         }
     }

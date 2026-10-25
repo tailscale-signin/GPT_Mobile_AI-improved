@@ -30,7 +30,10 @@ data class CombinedWordingPresentation(
     val sources: List<CombinedModelResponse>,
     val profileColors: Map<String, Color>,
     val passages: List<dev.chungjungsoo.gptmobile.data.agent.CombinedPassageRecord> = emptyList(),
-    val fullAnswer: String = ""
+    val fullAnswer: String = "",
+    val inspectionSources: List<CombinedModelResponse> = sources,
+    val profileMarkers: Map<String, String> = emptyMap(),
+    val loadSourceBlocks: (suspend (CombinedModelResponse, Int, Int) -> List<dev.chungjungsoo.gptmobile.data.agent.CombinedDocumentBlock>)? = null
 )
 
 data class MappedProfileSpan(val start: Int, val end: Int, val profileUid: String, val profileUids: Set<String> = setOf(profileUid))
@@ -60,6 +63,18 @@ data class MarkdownSourceMap(
             start >= 0 && fullAnswer.indexOf(original, start + 1) < 0
         }
         val validPassages = if (fullAnswerOffset == null) emptyList() else passages.filter { it.matches(fullAnswer) }
+        if (fullAnswerOffset != null && validPassages.any { it.origin.startsWith("LOCAL_CLAIM_MAPPING_V") }) {
+            // Current revisions use the identical map as the inspector/export. Old stored
+            // revisions retain their compatibility path below; model labels cannot opt in.
+            val mapping = dev.chungjungsoo.gptmobile.data.agent.CombinedAnswerMappings.get(fullAnswer, sources)
+            return mapping.links.filter { includeShared || it.profileUids.size == 1 }.flatMap { link ->
+                runs.mapNotNull { run ->
+                    val start = maxOf(link.start - fullAnswerOffset, run.sourceStart)
+                    val end = minOf(link.end - fullAnswerOffset, run.sourceEnd)
+                    if (start >= end) null else MappedProfileSpan(run.transformedStart + start - run.sourceStart, run.transformedStart + end - run.sourceStart, link.profileUids.sorted().first(), link.profileUids)
+                }
+            }
+        }
         val scoped = validPassages.filter { it.linkVersion >= 1 }
         val knownUids = sources.mapTo(hashSetOf()) { it.platformUid }
         val links = scoped.flatMap { passage ->

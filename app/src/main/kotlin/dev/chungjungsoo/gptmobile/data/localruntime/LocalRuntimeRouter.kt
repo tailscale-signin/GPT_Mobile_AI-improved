@@ -29,21 +29,38 @@ class LocalRuntimeRouter(
     override val state = _state.asStateFlow()
 
     @Volatile private var activeLoadedRuntime: LocalRuntime? = null
+
+    @Volatile private var lastAttemptRuntime: LocalRuntime? = null
     private var requestedSpec: LocalEngineSpec? = null
     private var delegatedSpec: LocalEngineSpec? = null
     private var preferenceAtLoad: LocalRuntimeBackend? = null
     private var tuningAtLoad: LocalEngineTuning? = null
 
-    override suspend fun inspectModel(modelPath: String): LocalModelCapabilities? = if (modelPath.endsWith("manifest.json")) {
-        checkNotNull(artifactRuntime) { "This build does not include an artifact runtime" }.inspectModel(modelPath)
-    } else {
-        liteRtRuntime.inspectModel(modelPath)
+    @Volatile private var lastInspectionRuntime: LocalRuntime? = null
+    override val latestInspectionReceipt get() = lastInspectionRuntime?.latestInspectionReceipt
+
+    override suspend fun inspectModel(modelPath: String): LocalModelCapabilities? {
+        val target = if (modelPath.endsWith("manifest.json")) checkNotNull(artifactRuntime) { "This build does not include an artifact runtime" } else liteRtRuntime
+        lastInspectionRuntime = target
+        return target.inspectModel(modelPath)
+    }
+
+    override suspend fun inspectModel(spec: LocalEngineSpec): LocalModelCapabilities? {
+        val target = when {
+            spec.modelPath.endsWith("manifest.json") -> checkNotNull(artifactRuntime) { "This build does not include an artifact runtime" }
+            spec.accelerator.equals(LocalAccelerators.NPU, true) -> qnnRuntime
+            else -> liteRtRuntime
+        }
+        lastInspectionRuntime = target
+        return target.inspectModel(spec)
     }
 
     override val deviceRamGb: Long get() = liteRtRuntime.deviceRamGb
+
     override fun getHardwareState(): DeviceHardwareState = liteRtRuntime.getHardwareState()
-    override fun getAdaptiveThrottlingPolicy(): AdaptiveThrottlingPolicy =
-        liteRtRuntime.getAdaptiveThrottlingPolicy()
+
+    override fun getAdaptiveThrottlingPolicy(): AdaptiveThrottlingPolicy = liteRtRuntime.getAdaptiveThrottlingPolicy()
+
     override fun loadedEngineSpec(): LocalEngineSpec? = state.value.engineSpec
 
     override suspend fun allowVerification(spec: LocalEngineSpec) {
@@ -62,7 +79,13 @@ class LocalRuntimeRouter(
                 null
             } else {
                 { progress ->
-                    _state.value = state.value.copy(lifecycle = "LOADING", loadProgress = progress, allocationObservation = progress.allocationObservation ?: state.value.allocationObservation)
+                    _state.value =
+                        state.value.copy(
+                            lifecycle = "LOADING",
+                            loadProgress = progress,
+                            allocationObservation =
+                            progress.allocationObservation ?: state.value.allocationObservation
+                        )
                     observer(progress)
                 }
             }
@@ -72,32 +95,44 @@ class LocalRuntimeRouter(
     override suspend fun loadEngine(requested: LocalEngineSpec) {
         if (isEngineLoaded(requested)) return
         val tuning = featureSettings().localEngineTuning()
-        val spec = if (requested.tuningLocked) {
-            requested
-        } else {
-            requested.copy(
-                cpuThreads = tuning.cpuThreads,
-                ggufBatchTokens = tuning.ggufBatchTokens,
-                ggufMicroBatchTokens = minOf(tuning.ggufMicroBatchTokens, tuning.ggufBatchTokens),
-                ggufPromptThreads = tuning.ggufPromptThreads,
-                cacheEnabled = tuning.cacheEnabled,
-                speculativeDecoding = tuning.speculativeDecoding,
-                nativeMetricsEnabled = tuning.nativeMetricsEnabled
-            )
-        }
+        val spec =
+            if (requested.tuningLocked) {
+                requested
+            } else {
+                requested.copy(
+                    cpuThreads = tuning.cpuThreads,
+                    ggufBatchTokens = tuning.ggufBatchTokens,
+                    ggufMicroBatchTokens = minOf(tuning.ggufMicroBatchTokens, tuning.ggufBatchTokens),
+                    ggufPromptThreads = tuning.ggufPromptThreads,
+                    cacheEnabled = tuning.cacheEnabled,
+                    speculativeDecoding = requested.speculativeDecoding ?: tuning.speculativeDecoding,
+                    nativeMetricsEnabled = requested.nativeMetricsEnabled || tuning.nativeMetricsEnabled
+                )
+            }
         val preferred = preferredBackend()
         unloadEngine()
         try {
             if (spec.modelPath.endsWith("manifest.json")) {
                 val runtime = checkNotNull(artifactRuntime) { "This build does not include an artifact runtime" }
-                dev.chungjungsoo.gptmobile.data.localruntime.RuntimeCapabilityRegistry.requireRuntime(dev.chungjungsoo.gptmobile.data.localmodel.ArtifactManifestStore.read(java.io.File(spec.modelPath)).runtime)
+                dev.chungjungsoo.gptmobile.data.localruntime.RuntimeCapabilityRegistry.requireRuntime(
+                    dev.chungjungsoo.gptmobile.data.localmodel.ArtifactManifestStore
+                        .read(java.io.File(spec.modelPath))
+                        .runtime
+                )
+                lastAttemptRuntime = runtime
+                lastInspectionRuntime = runtime
                 runtime.loadEngine(spec)
-                val family = dev.chungjungsoo.gptmobile.data.localmodel.ArtifactManifestStore.read(java.io.File(spec.modelPath)).runtime
+                val family =
+                    dev.chungjungsoo.gptmobile.data.localmodel.ArtifactManifestStore
+                        .read(java.io.File(spec.modelPath))
+                        .runtime
                 activate(
                     runtime,
                     if (family == dev.chungjungsoo.gptmobile.data.localmodel.ArtifactRuntime.GENIEX_QAIRT) {
                         LocalRuntimeBackend.GENIEX_QAIRT
-                    } else if (family == dev.chungjungsoo.gptmobile.data.localmodel.ArtifactRuntime.LLAMA_CPP || !dev.chungjungsoo.gptmobile.BuildConfig.GENIEX_ENABLED) {
+                    } else if (family == dev.chungjungsoo.gptmobile.data.localmodel.ArtifactRuntime.LLAMA_CPP ||
+                        !dev.chungjungsoo.gptmobile.BuildConfig.GENIEX_ENABLED
+                    ) {
                         LocalRuntimeBackend.LLAMA_CPP
                     } else {
                         LocalRuntimeBackend.GENIEX_LLAMA_CPP
@@ -110,6 +145,8 @@ class LocalRuntimeRouter(
             }
             if (LocalAccelerators.normalize(spec.accelerator) == LocalAccelerators.NPU) {
                 try {
+                    lastAttemptRuntime = qnnRuntime
+                    lastInspectionRuntime = qnnRuntime
                     qnnRuntime.loadEngine(spec)
                     activate(qnnRuntime, LocalRuntimeBackend.QUALCOMM_QNN, requested, spec, preferred)
                     return
@@ -119,7 +156,9 @@ class LocalRuntimeRouter(
                     if (error !is Exception && error !is LinkageError) throw error
                     qnnRuntime.unloadEngine()
                     if (error is LocalModelConfigurationException) throw error
-                    if (dev.chungjungsoo.gptmobile.data.localmodel.LocalModelPackages.isCompiledNpuPackage(spec.modelPath)) {
+                    if (dev.chungjungsoo.gptmobile.data.localmodel.LocalModelPackages
+                            .isCompiledNpuPackage(spec.modelPath)
+                    ) {
                         throw LocalNpuPackageException(error)
                     }
                     if (!featureSettings().qnnAutomaticFallback) {
@@ -146,22 +185,37 @@ class LocalRuntimeRouter(
         }
     }
 
-    private suspend fun loadLiteRt(spec: LocalEngineSpec, prior: Throwable? = null): LocalEngineSpec {
+    private suspend fun loadLiteRt(
+        spec: LocalEngineSpec,
+        prior: Throwable? = null
+    ): LocalEngineSpec {
+        lastInspectionRuntime = liteRtRuntime
         val metadata = liteRtRuntime.inspectModel(spec.modelPath)
         val accelerators = compatibleFallbacks(spec.accelerator, metadata?.backends)
         val attempts = mutableListOf<LocalLoadAttempt>()
         if (prior != null) attempts += LocalLoadAttempt.failed("npu", "initialize", prior)
         var primaryError: Throwable? = prior
         val excluded = listOf(spec.accelerator, LocalAccelerators.CPU).distinct().filter { it !in accelerators }
-        val exclusions = excluded.map {
-            LocalLoadAttempt(it, "capability_preflight", "UnsupportedBackend", "This package does not declare $it support. Download a separate compatible export.", skipped = true)
-        }
+        val exclusions =
+            excluded.map {
+                LocalLoadAttempt(
+                    it,
+                    "capability_preflight",
+                    "UnsupportedBackend",
+                    "This package does not declare $it support. Download a separate compatible export.",
+                    skipped = true
+                )
+            }
         for (accelerator in accelerators) {
-            val candidate = spec.copy(
-                accelerator = accelerator,
-                litertDispatchLibDir = spec.litertDispatchLibDir.takeIf { accelerator == LocalAccelerators.NPU }
-            )
+            val candidate =
+                spec.copy(
+                    accelerator = accelerator,
+                    litertDispatchLibDir = spec.litertDispatchLibDir.takeIf { accelerator == LocalAccelerators.NPU }
+                )
             try {
+                metadata?.validate(candidate)
+                lastAttemptRuntime = liteRtRuntime
+                lastInspectionRuntime = liteRtRuntime
                 liteRtRuntime.loadEngine(candidate)
                 return candidate
             } catch (cancelled: CancellationException) {
@@ -175,7 +229,9 @@ class LocalRuntimeRouter(
             }
         }
         val failure = LocalLoadFailure(attempts + exclusions, primaryError)
-        if (dev.chungjungsoo.gptmobile.data.localmodel.LocalModelPackages.isCompiledNpuPackage(spec.modelPath)) {
+        if (dev.chungjungsoo.gptmobile.data.localmodel.LocalModelPackages
+                .isCompiledNpuPackage(spec.modelPath)
+        ) {
             throw LocalNpuPackageException(failure)
         }
         throw failure
@@ -193,8 +249,18 @@ class LocalRuntimeRouter(
         requestedSpec = requested
         delegatedSpec = delegated
         preferenceAtLoad = preference
-        tuningAtLoad = LocalEngineTuning(delegated.cpuThreads, delegated.cacheEnabled, delegated.speculativeDecoding, delegated.nativeMetricsEnabled)
-        _state.value = LocalRuntimeState(backend, runtime.loadedEngineSpec() ?: delegated, runtime.latestBackendFallbackReason ?: fallbackReason, preference, allocationObservation = runtime.latestAllocationObservation, loadProgress = state.value.loadProgress)
+        tuningAtLoad =
+            LocalEngineTuning(delegated.cpuThreads, delegated.cacheEnabled, delegated.speculativeDecoding, delegated.nativeMetricsEnabled)
+        _state.value =
+            LocalRuntimeState(
+                backend,
+                runtime.loadedEngineSpec() ?: delegated,
+                runtime.latestBackendFallbackReason ?: fallbackReason,
+                preference,
+                allocationObservation = runtime.latestAllocationObservation,
+                loadProgress = state.value.loadProgress,
+                engineLoadReceipt = runtime.latestEngineLoadReceipt
+            )
     }
 
     override suspend fun isEngineLoaded(spec: LocalEngineSpec): Boolean {
@@ -209,14 +275,35 @@ class LocalRuntimeRouter(
         return delegatedSpec?.let { runtime.isEngineLoaded(it) } == true
     }
 
+    override val latestEngineLoadReceipt get() =
+        (activeLoadedRuntime ?: lastAttemptRuntime)?.latestEngineLoadReceipt
+            ?: state.value.engineLoadReceipt
+    override val latestExecutionReceipt get() = (activeLoadedRuntime ?: lastAttemptRuntime)?.latestExecutionReceipt
+    override val latestCleanupReceipt get() = (activeLoadedRuntime ?: lastAttemptRuntime)?.latestCleanupReceipt
+    override val executionIdentity get() = activeLoadedRuntime?.executionIdentity ?: LocalRuntimeExecutionIdentity()
+
+    override suspend fun cleanupAfterRequest(origin: String): RuntimeCleanupReceipt =
+        activeLoadedRuntime?.cleanupAfterRequest(origin)
+            ?: RuntimeCleanupReceipt(origin, failureReason = "No observed active runtime cleanup")
+
     override suspend fun createConversation(config: LocalConversationConfig) {
         checkNotNull(activeLoadedRuntime) { "Local engine is not loaded" }.createConversation(config)
         _state.value = _state.value.copy(requestedMtp = config.speculativeDecoding)
     }
 
-    override fun sendMessage(text: String, images: List<ByteArray>): Flow<LocalRuntimeEvent> {
+    override fun sendMessage(
+        text: String,
+        images: List<ByteArray>
+    ): Flow<LocalRuntimeEvent> = sendMessageWithBudget(text, images, 0)
+
+    override fun sendMessageWithBudget(
+        text: String,
+        images: List<ByteArray>,
+        safetyTokens: Int
+    ): Flow<LocalRuntimeEvent> {
         val runtime = activeLoadedRuntime ?: return flowOf(LocalRuntimeEvent.Error("Local engine is not loaded"))
-        return runtime.sendMessage(text, images)
+        return runtime
+            .sendMessageWithBudget(text, images, safetyTokens)
             .onEach { refreshEffectiveEngine(runtime) }
             .onCompletion { refreshEffectiveEngine(runtime) }
     }
@@ -225,16 +312,19 @@ class LocalRuntimeRouter(
         if (runtime !== activeLoadedRuntime) return
         val actual = runtime.loadedEngineSpec() ?: return
         val previous = delegatedSpec ?: return
-        if (actual == previous) return
+        if (actual == previous && _state.value.engineLoadReceipt == runtime.latestEngineLoadReceipt) return
         delegatedSpec = actual
-        _state.value = _state.value.copy(
-            engineSpec = actual,
-            fallbackReason = runtime.latestBackendFallbackReason ?: if (actual.accelerator != previous.accelerator) {
-                "${previous.accelerator.uppercase()} generation failed; using ${actual.accelerator.uppercase()}"
-            } else {
-                _state.value.fallbackReason
-            }
-        )
+        _state.value =
+            _state.value.copy(
+                engineSpec = actual,
+                engineLoadReceipt = runtime.latestEngineLoadReceipt,
+                fallbackReason =
+                runtime.latestBackendFallbackReason ?: if (actual.accelerator != previous.accelerator) {
+                    "${previous.accelerator.uppercase()} generation failed; using ${actual.accelerator.uppercase()}"
+                } else {
+                    _state.value.fallbackReason
+                }
+            )
     }
 
     override fun cancelActive() {
@@ -263,6 +353,7 @@ class LocalRuntimeRouter(
     }
 
     private suspend fun featureSettings() = settingsSnapshot?.invoke() ?: checkNotNull(settingRepository).getFeatureSettings()
+
     private suspend fun preferredBackend() = backendSnapshot?.invoke() ?: checkNotNull(settingRepository).getLocalRuntimeBackend()
 
     private companion object {
@@ -282,12 +373,13 @@ internal data class LocalEngineTuning(
 
 internal fun dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings.localEngineTuning(
     availableCores: Int = Runtime.getRuntime().availableProcessors()
-): LocalEngineTuning = LocalEngineTuning(
-    localCpuThreads.takeIf { it > 0 }?.coerceIn(1, availableCores.coerceIn(1, 64)),
-    localModelCache,
-    localSpeculativeDecoding.enabled,
-    localNativeMetrics,
-    ggufBatchTokens.takeIf { it in setOf(64, 128, 256) } ?: 256,
-    ggufMicroBatchTokens.takeIf { it in setOf(64, 128, 256) }?.coerceAtMost(ggufBatchTokens.coerceIn(64, 256)) ?: 128,
-    ggufPromptThreads.takeIf { it > 0 }?.coerceIn(1, availableCores.coerceIn(1, 64))
-)
+): LocalEngineTuning =
+    LocalEngineTuning(
+        localCpuThreads.takeIf { it > 0 }?.coerceIn(1, availableCores.coerceIn(1, 64)),
+        localModelCache,
+        localSpeculativeDecoding.enabled,
+        localNativeMetrics,
+        ggufBatchTokens.takeIf { it in setOf(64, 128, 256) } ?: 256,
+        ggufMicroBatchTokens.takeIf { it in setOf(64, 128, 256) }?.coerceAtMost(ggufBatchTokens.coerceIn(64, 256)) ?: 128,
+        ggufPromptThreads.takeIf { it > 0 }?.coerceIn(1, availableCores.coerceIn(1, 64))
+    )

@@ -135,7 +135,12 @@ class BenchmarkRunnerTest {
     @Test
     fun imageDiagnosticRequiresAnAttachmentAndIndividualQuestionsDoNotRequestBatchSchemas() {
         val suite = benchmarkSuite(BenchmarkMode.DIAGNOSTIC)
-        assertEquals(36, suite.count { it.category == IntelligenceBenchmark.CATEGORY })
+        assertEquals(48, suite.count { it.category == IntelligenceBenchmark.CATEGORY })
+        val historical = benchmarkSuiteForVersion(9, BenchmarkMode.DIAGNOSTIC)
+        assertEquals(36, historical.count { it.category == IntelligenceBenchmark.CATEGORY })
+        assertEquals(10, historical.count { it.category != IntelligenceBenchmark.CATEGORY })
+        assertEquals(14, suite.count { it.category != IntelligenceBenchmark.CATEGORY })
+        assertTrue(suite.map { it.id }.containsAll(historical.filter { it.category != IntelligenceBenchmark.CATEGORY }.map { it.id }))
         assertTrue(suite.filter { it.category == IntelligenceBenchmark.CATEGORY }.all { it.requestCategory == "intelligence_individual" })
         val image = suite.single { it.imageCode != null }
         assertFalse(image.prompt.contains(image.expected!!))

@@ -13,6 +13,25 @@ import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class CombinedResponseStateTest {
+    @Test fun selectedHistoricalAnswerUsesItsOwnOutcomeWhileLatestAttemptFailsRunsOrWaits() {
+        val synthesis = response("lead", "New unfinished answer", "combined-synthesis:new").copy(
+            activeRevisionIndex = 0,
+            revisions = listOf(AssistantRevision("The saved complete answer.", createdAt = 1, runId = "combined-synthesis:old"))
+        )
+        val latestStates = mapOf(
+            AgentRunStatus.FAILED to CombinedResponseStatus.FAILED,
+            AgentRunStatus.RUNNING to CombinedResponseStatus.GENERATING,
+            AgentRunStatus.WAITING_PROVIDER_LIMIT to CombinedResponseStatus.PAUSED
+        )
+        latestStates.forEach { (state, expected) ->
+            val runs = mapOf("combined-synthesis:old" to run("combined-synthesis:old", AgentRunStatus.COMPLETED), "combined-synthesis:new" to run("combined-synthesis:new", state))
+            assertEquals(CombinedResponseStatus.COMPLETED, combinedAnswerStatus(synthesis, emptyList(), runs))
+            assertEquals(expected, combinedAnswerStatus(synthesis.copy(activeRevisionIndex = -1), emptyList(), runs))
+        }
+        val failedHistory = mapOf("combined-synthesis:old" to run("combined-synthesis:old", AgentRunStatus.FAILED), "combined-synthesis:new" to run("combined-synthesis:new", AgentRunStatus.COMPLETED))
+        assertEquals(CombinedResponseStatus.FAILED, combinedAnswerStatus(synthesis, emptyList(), failedHistory))
+    }
+
     @Test
     fun `archived Combined source tabs use only that revision snapshot`() {
         val archived = CombinedModelResponse("old", "Old profile", content = "Original contribution", attemptId = "original-run")

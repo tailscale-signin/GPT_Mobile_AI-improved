@@ -1,9 +1,15 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
+import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
+import dev.chungjungsoo.gptmobile.data.database.entity.effectiveCombinedManifest
+import dev.chungjungsoo.gptmobile.data.database.entity.effectiveContent
+import dev.chungjungsoo.gptmobile.data.database.entity.effectiveRunId
+import dev.chungjungsoo.gptmobile.data.database.entity.effectiveTimeline
+import dev.chungjungsoo.gptmobile.data.research.researchHash
 import kotlinx.serialization.Serializable
 
 @Serializable
-enum class CombinedRecoveryCategory { REASONING_STALL, EMPTY_OUTPUT, MALFORMED_RECORD, QUEUE_PENDING, NETWORK_TRANSIENT, PROVIDER_UNAVAILABLE, INCOMPLETE_RECORD, AUTHORITY_REJECTED, BUDGET_EXHAUSTED, UNKNOWN }
+enum class CombinedRecoveryCategory { REASONING_STALL, EMPTY_OUTPUT, MALFORMED_RECORD, QUEUE_PENDING, NETWORK_TRANSIENT, PROVIDER_UNAVAILABLE, INCOMPLETE_RECORD, REQUIREMENTS_UNMET, AUTHORITY_REJECTED, BUDGET_EXHAUSTED, UNKNOWN }
 
 @Serializable
 data class CombinedRecoveryFailure(
@@ -16,6 +22,34 @@ data class CombinedRecoveryFailure(
     val rotateWriter: Boolean get() = decision == "TRY_ELIGIBLE_WRITER"
 
     companion object {
+        /** Interpret the selected saved revision without changing its original receipts. */
+        fun retained(message: MessageV2, terminalError: String? = null): CombinedRecoveryFailure? {
+            val timeline = message.effectiveTimeline()
+            val recorded = timeline.lastOrNull { it.combinedFailure != null }?.combinedFailure
+                ?: terminalError?.let { fromCode(it.substringBefore(':')) }
+                ?: return null
+            if (recorded.category != CombinedRecoveryCategory.INCOMPLETE_RECORD) return recorded
+            val report = timeline.lastOrNull { it.combinedQuality != null }?.combinedQuality ?: return recorded
+            if (!report.finalAssessment ||
+                !report.protocolComplete ||
+                report.complete ||
+                !(report.correctionRequired || report.lengthCompliance == "UNMET" || report.topicCoverage == "UNMET")
+            ) {
+                return recorded
+            }
+            val reference = message.effectiveCombinedManifest()
+            val digest = if (reference == null) {
+                researchHash(message.effectiveContent())
+            } else {
+                // Compact document headers must not hydrate the answer during rendering.
+                if (reference.runId != message.effectiveRunId() || reference.revisionId != report.revisionId || reference.bodyLength <= 0) return recorded
+                if (reference.materialized && researchHash(message.effectiveContent()) != reference.bodyDigest) return recorded
+                reference.bodyDigest
+            }
+            if (report.answerDigest.isBlank() || report.answerDigest != digest) return recorded
+            return fromCode("COMBINED_REQUIREMENTS_UNMET")
+        }
+
         fun from(event: ProviderEvent.Failed): CombinedRecoveryFailure = fromCode(event.errorCode?.substringBefore(':') ?: event.message.substringBefore(':').takeIf { it.matches(Regex("[A-Z][A-Z0-9_]+")) })
         fun fromCode(code: String?): CombinedRecoveryFailure {
             val category = when (code) {
@@ -25,7 +59,8 @@ data class CombinedRecoveryFailure(
                 "QUEUE_JOB_PENDING" -> CombinedRecoveryCategory.QUEUE_PENDING
                 "NETWORK_ERROR", "network_error", "DNS_RESOLUTION_FAILED", "QUEUE_STREAM_DISCONNECTED", "408", "500", "502", "503", "504" -> CombinedRecoveryCategory.NETWORK_TRANSIENT
                 "COMBINED_PROVIDER_UNAVAILABLE", "PROVIDER_UNAVAILABLE", "HOSTED_GENERATION_FAILED", "LOCAL_COOLDOWN_ACTIVE", "PROVIDER_RATE_LIMITED", "429" -> CombinedRecoveryCategory.PROVIDER_UNAVAILABLE
-                "COMBINED_PARTIAL", "COMBINED_RECORD_RECOVERY_LIMIT" -> CombinedRecoveryCategory.INCOMPLETE_RECORD
+                "COMBINED_PARTIAL", "COMBINED_RECORD_INCOMPLETE", "COMBINED_RECORD_RECOVERY_LIMIT" -> CombinedRecoveryCategory.INCOMPLETE_RECORD
+                "COMBINED_REQUIREMENTS_UNMET" -> CombinedRecoveryCategory.REQUIREMENTS_UNMET
                 "AUTHENTICATION_REQUIRED", "AUTHENTICATION_REJECTED", "PROVIDER_CLIENT_RESTRICTED", "401", "403", "COMBINED_STAGE_IDENTITY_REJECTED", "COMBINED_SUCCESSOR_AUTHORITY_CHANGED", "COMBINED_SUCCESSOR_TRANSFER_DENIED", "COMBINED_SUCCESSOR_CORPUS_CHANGED" -> CombinedRecoveryCategory.AUTHORITY_REJECTED
                 "COMBINED_DELIVERY_LIMIT", "COMBINED_BUDGET_EXHAUSTED" -> CombinedRecoveryCategory.BUDGET_EXHAUSTED
                 else -> CombinedRecoveryCategory.UNKNOWN
@@ -35,9 +70,18 @@ data class CombinedRecoveryFailure(
                 when (category) {
                     CombinedRecoveryCategory.REASONING_STALL, CombinedRecoveryCategory.EMPTY_OUTPUT, CombinedRecoveryCategory.MALFORMED_RECORD, CombinedRecoveryCategory.QUEUE_PENDING, CombinedRecoveryCategory.NETWORK_TRANSIENT, CombinedRecoveryCategory.PROVIDER_UNAVAILABLE -> "TRY_ELIGIBLE_WRITER"
                     CombinedRecoveryCategory.INCOMPLETE_RECORD -> "RESUME_SAVED_RECORD"
+                    CombinedRecoveryCategory.REQUIREMENTS_UNMET -> "REVIEW_COMPLETED_ANSWER"
                     else -> "STOP"
                 },
-                remoteJobStatus = if (category == CombinedRecoveryCategory.QUEUE_PENDING) "PENDING" else "UNKNOWN"
+                localAttemptStatus = if (category == CombinedRecoveryCategory.REQUIREMENTS_UNMET) "COMPLETED_WITH_ISSUES" else "FAILED",
+                remoteJobStatus = if (category == CombinedRecoveryCategory.QUEUE_PENDING) {
+                    "PENDING"
+                } else if (category == CombinedRecoveryCategory.REQUIREMENTS_UNMET) {
+                    "COMPLETED"
+                } else {
+                    "UNKNOWN"
+                },
+                deliveryStatus = if (category == CombinedRecoveryCategory.REQUIREMENTS_UNMET) "COMPLETE_NEEDS_CORRECTION" else "INCOMPLETE"
             )
         }
     }

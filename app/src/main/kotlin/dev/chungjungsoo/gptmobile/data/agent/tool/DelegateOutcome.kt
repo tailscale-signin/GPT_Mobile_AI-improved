@@ -30,7 +30,8 @@ internal class DelegateGenerationException(
     partialText: String = "",
     val transportComplete: Boolean = false,
     val schemaValid: Boolean = false,
-    val stageAccepted: Boolean = false
+    val stageAccepted: Boolean = false,
+    val providerLimit: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision? = null
 ) : IllegalStateException("${kind.name}: $message") {
     /** Private checkpoint material; never part of the exception message or evidence. */
     val partialText: String = boundedDelegatePartial(partialText)

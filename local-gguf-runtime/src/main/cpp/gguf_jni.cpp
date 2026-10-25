@@ -12,6 +12,7 @@
 #include <cstdio>
 #if GGUF_OPENCL
 #include <CL/cl.h>
+#include "gguf_opencl_trace.h"
 #endif
 #if GGML_USE_VULKAN
 #include <vulkan/vulkan.h>
@@ -19,6 +20,11 @@
 #include "ggml-backend.h"
 #include "gguf_chat_template.h"
 #include "gguf_prefill_governor.h"
+#include "gguf_runtime_contract.h"
+#include <sstream>
+#include <iomanip>
+#include <functional>
+#include <unistd.h>
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -39,6 +45,17 @@ struct Engine {
     int requestedLayers = 0;
     std::string backend = "cpu";
     std::string deviceInfo;
+    std::string deviceName = "CPU";
+    std::string deviceRegistry = "CPU";
+    std::string deviceType = "CPU";
+    int deviceIndex = 0;
+    std::string driverIdentity;
+    int threads = 0;
+    int promptThreads = 0;
+    int microBatchTokens = 0;
+    std::string templateIdentity;
+    std::string tokenizerIdentity;
+    std::string lastPromptIdentity;
     std::unique_ptr<GgufChatTemplate> chatTemplate;
     std::atomic<bool> stop{false};
     std::atomic<jlong> operation{0};
@@ -56,40 +73,93 @@ std::once_flag initialized, vulkanInitialized, openclInitialized;
 using Clock = std::chrono::steady_clock;
 long elapsed(Clock::time_point from) { return std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - from).count(); }
 std::mutex errorMutex;
-std::string nativeError;
+GgufOperationErrors nativeErrors;
 std::string nativeErrorPath;
+std::string diagnosticWorkerGeneration;
+std::vector<std::string> previousWorkerDiagnostics;
+std::atomic<int64_t> probeSequence{0};
+std::mutex traceMutex;
+std::function<void(const std::string &)> traceObserver;
+int64_t occurredAtMs() { return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count(); }
+std::string jsonText(const std::string & text) {
+    std::string out = "\"";
+    for (unsigned char c : text) {
+        if (c == '\\' || c == '"') { out += '\\'; out += static_cast<char>(c); }
+        else if (c == '\n') out += "\\n";
+        else if (c == '\r') out += "\\r";
+        else if (c == '\t') out += "\\t";
+        else if (c < 32) out += " ";
+        else out += static_cast<char>(c);
+    }
+    return out + "\"";
+}
+std::string diagnosticJson(const GgufOperationError & value) {
+    return "{\"operationId\":" + std::to_string(value.operation) + ",\"occurredAtMillis\":" + std::to_string(value.occurredAtMs) +
+        ",\"stageObservedAtMillis\":" + std::to_string(value.stageObservedAtMs) + ",\"processId\":" + std::to_string(getpid()) +
+        ",\"workerGenerationId\":" + (diagnosticWorkerGeneration.empty() ? "null" : jsonText(diagnosticWorkerGeneration)) + ",\"backend\":" + jsonText(value.backend) + ",\"stage\":" + jsonText(value.stage) +
+        ",\"errors\":" + jsonText(value.errors) + ",\"warnings\":" + jsonText(value.warnings) + "}";
+}
+void persistNativeDiagnostics(bool historyChanged = true, bool sync = false) {
+    if (nativeErrorPath.empty()) return;
+    auto write = [sync](const std::string & path, const std::string & content) {
+        if (FILE * output = std::fopen(path.c_str(), "wb")) {
+            std::fwrite(content.data(), 1, content.size(), output); std::fflush(output); if (sync) fsync(fileno(output)); std::fclose(output);
+        }
+    };
+    write(nativeErrorPath, diagnosticJson(nativeErrors.active()));
+    if (!historyChanged) return;
+    std::vector<std::string> rows = previousWorkerDiagnostics;
+    for (const auto & old : nativeErrors.archived()) rows.push_back(diagnosticJson(old));
+    if (rows.size() > 8) rows.erase(rows.begin(), rows.end() - 8);
+    std::string history;
+    for (const auto & row : rows) history += row + "\n";
+    write(nativeErrorPath + ".history", history);
+}
+void beginNativeDiagnostics(int64_t operation, const std::string & backend) {
+    std::lock_guard<std::mutex> lock(errorMutex);
+    nativeErrors.begin(operation, backend.substr(0, 64), occurredAtMs());
+    persistNativeDiagnostics();
+}
+void nativeStage(const std::string & stage) {
+    { std::lock_guard<std::mutex> lock(errorMutex); nativeErrors.stage(stage, occurredAtMs()); persistNativeDiagnostics(false, stage.rfind("OPENCL_", 0) == 0 || stage.rfind("REGISTER_", 0) == 0); }
+    std::lock_guard<std::mutex> lock(traceMutex);
+    if (traceObserver) traceObserver(stage);
+}
+std::string stableIdentity(const std::string & value) {
+    uint64_t hash = 14695981039346656037ULL;
+    for (unsigned char byte : value) { hash ^= byte; hash *= 1099511628211ULL; }
+    std::ostringstream output; output << "fnv1a64:" << std::hex << std::setfill('0') << std::setw(16) << hash;
+    return output.str();
+}
 void initialize() {
 #if GGUF_OPENCL && defined(__ANDROID__)
     setenv("OCL_ICD_FILENAMES", "libOpenCL.so", 0);
 #endif
     llama_log_set([](ggml_log_level level, const char * text, void *) {
-        if (level != GGML_LOG_LEVEL_ERROR || !text) return;
+        if ((level != GGML_LOG_LEVEL_ERROR && level != GGML_LOG_LEVEL_WARN) || !text) return;
         std::lock_guard<std::mutex> lock(errorMutex);
-        nativeError += text;
-        if (nativeError.size() > 4096) nativeError.erase(0, nativeError.size() - 4096);
-        if (!nativeErrorPath.empty()) {
-            if (FILE * output = std::fopen(nativeErrorPath.c_str(), "wb")) {
-                std::fwrite(nativeError.data(), 1, nativeError.size(), output);
-                std::fflush(output); std::fclose(output);
-            }
-        }
+        nativeErrors.append(text, level == GGML_LOG_LEVEL_ERROR);
+        persistNativeDiagnostics();
     }, nullptr);
     llama_backend_init();
 }
 // Global initialization now registers CPU only (see select_backends.cmake).
 // A blocked vendor initializer is contained in the disposable inference worker.
 void initializeBackend(const std::string & backend) {
+    nativeStage("REGISTER_CPU_BEGIN");
     std::call_once(initialized, initialize);
+    nativeStage("REGISTER_CPU_END");
 #if GGML_USE_VULKAN
-    if (backend == "gpu" && getenv("GGML_DISABLE_VULKAN") == nullptr) std::call_once(vulkanInitialized, [] { ggml_backend_register(ggml_backend_vk_reg()); });
+    if (backend == "gpu" && getenv("GGML_DISABLE_VULKAN") == nullptr) { nativeStage("REGISTER_VULKAN_BEGIN"); std::call_once(vulkanInitialized, [] { ggml_backend_register(ggml_backend_vk_reg()); }); nativeStage("REGISTER_VULKAN_END"); }
 #endif
 #if GGUF_OPENCL
-    if (backend == "opencl") std::call_once(openclInitialized, [] { ggml_backend_register(ggml_backend_opencl_reg()); });
+    if (backend == "opencl") { nativeStage("REGISTER_OPENCL_BEGIN"); nativeStage("OPENCL_LOADER_pinned_static_ICD_vendor_libOpenCL.so"); std::call_once(openclInitialized, [] { ggml_backend_register(ggml_backend_opencl_reg()); }); nativeStage("REGISTER_OPENCL_END"); }
 #endif
 }
 void fail(JNIEnv * env, const char * message) {
     std::string detail(message);
-    { std::lock_guard<std::mutex> lock(errorMutex); if (!nativeError.empty()) detail += " | native: " + nativeError; }
+    { std::lock_guard<std::mutex> lock(errorMutex); if (nativeErrors.active().errors.find(message) == std::string::npos) { if (!nativeErrors.active().errors.empty()) nativeErrors.append("\n", true); nativeErrors.append(message, true); } }
+    { std::lock_guard<std::mutex> lock(errorMutex); const auto & current = nativeErrors.active(); detail += " | operation=" + std::to_string(current.operation) + ";backend=" + current.backend + ";stage=" + current.stage; if (!current.errors.empty()) detail += " | native: " + current.errors; persistNativeDiagnostics(); }
     std::string category = "UNKNOWN";
     if (detail.find("GGUF_GPU_DEVICE_UNAVAILABLE") != std::string::npos) category = "DEVICE_UNAVAILABLE";
     else if (detail.find("createComputePipeline") != std::string::npos || detail.find("CL_BUILD_PROGRAM_FAILURE") != std::string::npos) category = "SHADER_COMPILATION";
@@ -112,26 +182,29 @@ std::string backendName(JNIEnv * env, jstring value) {
 }
 ggml_backend_dev_t selectedDevice(const std::string & backend) {
     if (backend != "gpu" && backend != "opencl") return nullptr;
-    const char * wanted = backend == "opencl" ? "OpenCL" : "Vulkan";
+    const char * wanted = gguf_requested_registry(backend);
     auto reg = ggml_backend_reg_by_name(wanted);
     if (!reg) return nullptr;
     for (size_t i = 0; i < ggml_backend_reg_dev_count(reg); ++i) {
         auto dev = ggml_backend_reg_dev_get(reg, i);
-        if (ggml_backend_dev_type(dev) == GGML_BACKEND_DEVICE_TYPE_GPU) return dev;
+        if (gguf_accelerator_eligible(dev, backend)) return dev;
     }
     return nullptr;
 }
-std::string driverInfo(const std::string & backend) {
+std::string driverInfo(const std::string & backend, const std::string & expectedDescription = "") {
 #if GGUF_OPENCL
     if (backend == "opencl") {
         cl_platform_id platforms[8]; cl_uint count = 0;
         if (clGetPlatformIDs(8, platforms, &count) == CL_SUCCESS) for (cl_uint i = 0; i < std::min(count, 8u); ++i) {
-            cl_device_id device;
-            if (clGetDeviceIDs(platforms[i], CL_DEVICE_TYPE_GPU, 1, &device, nullptr) != CL_SUCCESS) continue;
-            char name[512] = {}, driver[512] = {};
-            clGetDeviceInfo(device, CL_DEVICE_NAME, sizeof(name), name, nullptr);
-            clGetDeviceInfo(device, CL_DRIVER_VERSION, sizeof(driver), driver, nullptr);
-            return std::string(name) + ";driver=" + driver;
+            cl_device_id devices[16]; cl_uint devicesCount = 0;
+            if (clGetDeviceIDs(platforms[i], CL_DEVICE_TYPE_GPU, 16, devices, &devicesCount) != CL_SUCCESS) continue;
+            for (cl_uint j = 0; j < std::min(devicesCount, 16u); ++j) {
+                char name[512] = {}, driver[512] = {};
+                if (clGetDeviceInfo(devices[j], CL_DEVICE_NAME, sizeof(name), name, nullptr) != CL_SUCCESS) continue;
+                if (!expectedDescription.empty() && expectedDescription != name) continue;
+                if (clGetDeviceInfo(devices[j], CL_DRIVER_VERSION, sizeof(driver), driver, nullptr) != CL_SUCCESS) continue;
+                return std::string(name) + ";driver=" + driver;
+            }
         }
     }
 #endif
@@ -143,8 +216,12 @@ std::string driverInfo(const std::string & backend) {
             uint32_t count = 8; VkPhysicalDevice devices[8]; std::string result;
             auto status = vkEnumeratePhysicalDevices(instance, &count, devices);
             if ((status == VK_SUCCESS || status == VK_INCOMPLETE) && count > 0) {
-                VkPhysicalDeviceProperties properties; vkGetPhysicalDeviceProperties(devices[0], &properties);
-                result = std::string(properties.deviceName) + ";driver=" + std::to_string(properties.driverVersion) + ";api=" + std::to_string(properties.apiVersion);
+                for (uint32_t i = 0; i < std::min(count, 8u); ++i) {
+                    VkPhysicalDeviceProperties properties; vkGetPhysicalDeviceProperties(devices[i], &properties);
+                    if (!expectedDescription.empty() && expectedDescription != properties.deviceName) continue;
+                    result = std::string(properties.deviceName) + ";driver=" + std::to_string(properties.driverVersion) + ";api=" + std::to_string(properties.apiVersion);
+                    break;
+                }
             }
             vkDestroyInstance(instance, nullptr); return result;
         }
@@ -176,22 +253,57 @@ extern "C" JNIEXPORT jstring JNICALL Java_dev_melo_gguf_GgufNative_buildInfo(JNI
 
 extern "C" JNIEXPORT jboolean JNICALL Java_dev_melo_gguf_GgufNative_supportsGpuOffload(JNIEnv * env, jclass) {
     try {
+        beginNativeDiagnostics(-1 - probeSequence.fetch_add(1), "gpu");
         initializeBackend("gpu");
         return selectedDevice("gpu") ? JNI_TRUE : JNI_FALSE;
     } catch (const std::exception & e) { fail(env, e.what()); return JNI_FALSE; }
 }
 
+extern "C" JNIEXPORT void JNICALL Java_dev_melo_gguf_GgufNative_configureDiagnosticWorker(JNIEnv * env, jclass, jbyteArray value) {
+    try {
+        const auto worker = bytes(env, value);
+        if (worker.size() > 128) throw std::runtime_error("Invalid diagnostic worker identity");
+        std::lock_guard<std::mutex> lock(errorMutex);
+        if (!diagnosticWorkerGeneration.empty() && diagnosticWorkerGeneration != worker) throw std::runtime_error("Native worker identity cannot change within one process");
+        diagnosticWorkerGeneration = worker;
+    } catch (const std::exception & e) { fail(env, e.what()); }
+}
 extern "C" JNIEXPORT void JNICALL Java_dev_melo_gguf_GgufNative_configureDiagnosticFile(JNIEnv * env, jclass, jbyteArray path) {
-    try { std::lock_guard<std::mutex> lock(errorMutex); nativeErrorPath = bytes(env, path); }
-    catch (const std::exception & e) { fail(env, e.what()); }
+    try {
+        const auto nextPath = bytes(env, path);
+        if (nextPath.empty() || nextPath.size() > 4096) throw std::runtime_error("Invalid diagnostic file path");
+        std::lock_guard<std::mutex> lock(errorMutex);
+        if (nativeErrorPath != nextPath) {
+            auto read = [](const std::string & file, size_t maximum) {
+                std::string value;
+                if (FILE * input = std::fopen(file.c_str(), "rb")) {
+                    std::fseek(input, 0, SEEK_END); const long count = std::ftell(input); std::rewind(input);
+                    if (count > 0 && static_cast<size_t>(count) <= maximum) { value.resize(count); if (std::fread(value.data(), 1, count, input) != static_cast<size_t>(count)) value.clear(); }
+                    std::fclose(input);
+                }
+                return value;
+            };
+            previousWorkerDiagnostics.clear();
+            std::istringstream history(read(nextPath + ".history", 160 * 1024));
+            for (std::string line; std::getline(history, line);) if (!line.empty() && line.size() <= 20 * 1024 && line.front() == '{') previousWorkerDiagnostics.push_back(line);
+            const auto previous = read(nextPath, 20 * 1024);
+            if (!previous.empty()) previousWorkerDiagnostics.push_back(previous.front() == '{' ? previous :
+                "{\"operationId\":null,\"occurredAtMillis\":null,\"stageObservedAtMillis\":null,\"processId\":null,\"workerGenerationId\":null,\"backend\":null,\"stage\":\"LEGACY_UNKNOWN\",\"errors\":" + jsonText(previous.substr(0, 4096)) + ",\"warnings\":\"\"}");
+            if (previousWorkerDiagnostics.size() > 8) previousWorkerDiagnostics.erase(previousWorkerDiagnostics.begin(), previousWorkerDiagnostics.end() - 8);
+        }
+        nativeErrorPath = nextPath;
+        persistNativeDiagnostics();
+    } catch (const std::exception & e) { fail(env, e.what()); }
 }
 extern "C" JNIEXPORT jboolean JNICALL Java_dev_melo_gguf_GgufNative_supportsBackend(JNIEnv * env, jclass, jstring backend) {
-    try { const auto name = backendName(env, backend); initializeBackend(name); return name == "cpu" || selectedDevice(name) ? JNI_TRUE : JNI_FALSE; }
+    try { const auto name = backendName(env, backend); beginNativeDiagnostics(-1 - probeSequence.fetch_add(1), name); initializeBackend(name); return name == "cpu" || selectedDevice(name) ? JNI_TRUE : JNI_FALSE; }
     catch (const std::exception & e) { fail(env, e.what()); return JNI_FALSE; }
 }
 
 extern "C" JNIEXPORT void JNICALL Java_dev_melo_gguf_GgufNative_validateChatTemplate(JNIEnv * env, jclass, jbyteArray templateBytes) {
     try {
+        beginNativeDiagnostics(-1 - probeSequence.fetch_add(1), "template");
+        nativeStage("VALIDATING_TEMPLATE");
         GgufChatTemplate::validateSyntax(bytes(env, templateBytes));
     } catch (const std::exception & e) { fail(env, e.what()); }
 }
@@ -224,6 +336,7 @@ struct LoadProgressObserver {
         int percent = fraction >= 0 ? static_cast<int>(fraction * 100) : -1;
         if (fraction >= 0 && percent == lastPercent && lastPhase == phase) return !cancelLoad.load();
         lastPercent = percent;
+        if (lastPhase != phase) { std::lock_guard<std::mutex> errorLock(errorMutex); nativeErrors.stage(phase, occurredAtMs()); persistNativeDiagnostics(false); }
         lastPhase = phase;
         JNIEnv * env = nullptr;
         bool attached = vm->GetEnv(reinterpret_cast<void **>(&env), JNI_VERSION_1_6) != JNI_OK;
@@ -242,21 +355,33 @@ struct LoadProgressObserver {
         return !failed && !cancelLoad.load();
     }
 };
+struct ScopedLoadTrace {
+    explicit ScopedLoadTrace(LoadProgressObserver & observer) {
+        std::lock_guard<std::mutex> lock(traceMutex);
+        traceObserver = [&observer](const std::string & stage) { observer.emit(stage.c_str(), -1); };
+    }
+    ~ScopedLoadTrace() { std::lock_guard<std::mutex> lock(traceMutex); traceObserver = nullptr; }
+};
+}
+extern "C" void gptmobile_opencl_trace(const char * api, bool before, int code) {
+    nativeStage(std::string("OPENCL_") + api + (before ? "_BEGIN" : "_END_rc_" + std::to_string(code)));
 }
 
 extern "C" JNIEXPORT jlong JNICALL Java_dev_melo_gguf_GgufNative_loadBackendProgress(JNIEnv * env, jclass, jbyteArray path, jint contextTokens, jint threads, jint gpuLayers, jlong operationId, jint promptThreads, jint batchTokens, jint microBatchTokens, jobject progress, jstring backendValue) {
     try {
+        beginNativeDiagnostics(operationId, backendName(env, backendValue));
         if (contextTokens < 128 || contextTokens > 32768 || threads < 1 || threads > 64 || gpuLayers < 0 || gpuLayers > 999) throw std::runtime_error("Unsupported GGUF context, thread, or GPU layer limit");
         if (promptThreads < 1 || promptThreads > 64 || (batchTokens != 64 && batchTokens != 128 && batchTokens != 256) || (microBatchTokens != 64 && microBatchTokens != 128 && microBatchTokens != 256) || microBatchTokens > batchTokens) throw std::runtime_error("Invalid GGUF prompt thread or batch configuration");
         const auto backend = backendName(env, backendValue);
         LoadProgressObserver observer(env, progress, operationId);
+        ScopedLoadTrace tracing(observer);
         if (!observer.emit("INITIALIZING_BACKEND", -1)) throw std::runtime_error("GGUF load canceled");
         initializeBackend(backend);
         if (!observer.emit("PROBING_DEVICE", -1)) throw std::runtime_error("GGUF load canceled");
         if (backend != "cpu" && backend != "gpu" && backend != "opencl") throw std::runtime_error("Unsupported GGUF backend");
         auto device = gpuLayers > 0 ? selectedDevice(backend) : nullptr;
         if (gpuLayers > 0 && !device) throw std::runtime_error("GGUF_GPU_DEVICE_UNAVAILABLE: selected GPU backend has no compatible device");
-        { std::lock_guard<std::mutex> lock(errorMutex); nativeError.clear(); }
+        nativeStage("PROBING_DEVICE");
         if (loadOperation != operationId || cancelLoad) throw std::runtime_error("GGUF load canceled before entry");
         auto engine = std::make_shared<Engine>();
         auto mp = llama_model_default_params();
@@ -264,7 +389,23 @@ extern "C" JNIEXPORT jlong JNICALL Java_dev_melo_gguf_GgufNative_loadBackendProg
         mp.devices = selected;
         engine->backend = backend;
         engine->requestedLayers = gpuLayers;
-        engine->deviceInfo = device ? std::string(ggml_backend_dev_name(device)) + ";" + ggml_backend_dev_description(device) + ";" + driverInfo(backend) : "CPU";
+        if (device) {
+            ggml_backend_dev_props props{}; ggml_backend_dev_get_props(device, &props);
+            const auto type = ggml_backend_dev_type(device);
+            const std::string registry = ggml_backend_reg_name(ggml_backend_dev_backend_reg(device));
+            size_t index = 0;
+            auto reg = ggml_backend_dev_backend_reg(device);
+            while (index < ggml_backend_reg_dev_count(reg) && ggml_backend_reg_dev_get(reg, index) != device) ++index;
+            engine->deviceName = ggml_backend_dev_description(device);
+            engine->deviceRegistry = registry;
+            engine->deviceType = type == GGML_BACKEND_DEVICE_TYPE_IGPU ? "IGPU" : "GPU";
+            engine->deviceIndex = static_cast<int>(index);
+            engine->driverIdentity = driverInfo(backend, engine->deviceName);
+            if (engine->driverIdentity == "driver=unavailable") engine->driverIdentity.clear();
+            engine->deviceInfo = std::string(ggml_backend_dev_name(device)) + ";description=" + ggml_backend_dev_description(device) +
+                ";registry=" + registry + ";deviceType=" + (type == GGML_BACKEND_DEVICE_TYPE_IGPU ? "IGPU" : "GPU") +
+                ";deviceIndex=" + std::to_string(index) + ";deviceId=" + (props.device_id ? props.device_id : "unknown") + ";" + (engine->driverIdentity.empty() ? "driver=unavailable" : engine->driverIdentity);
+        } else engine->deviceInfo = "CPU;registry=CPU;deviceType=CPU;deviceIndex=0;driver=unavailable";
         observer.emit("LOADING_WEIGHTS", 0);
         mp.n_gpu_layers = gpuLayers;
         mp.progress_callback = [](float fraction, void * data) { return static_cast<LoadProgressObserver *>(data)->emit("LOADING_WEIGHTS", fraction); };
@@ -280,6 +421,8 @@ extern "C" JNIEXPORT jlong JNICALL Java_dev_melo_gguf_GgufNative_loadBackendProg
         const char * tmpl = llama_model_chat_template(engine->model, nullptr);
         if (!tmpl || !*tmpl) throw std::runtime_error("GGUF has no embedded chat template; import a chat-tuned GGUF export");
         const auto vocab = llama_model_get_vocab(engine->model);
+        engine->templateIdentity = "embedded-jinja:" + stableIdentity(tmpl);
+        engine->tokenizerIdentity = "llama.cpp-vocab:" + std::to_string(llama_vocab_type(vocab)) + ":" + std::to_string(llama_vocab_n_tokens(vocab));
         const auto tokenText = [vocab](llama_token token) -> std::string {
             if (token == LLAMA_TOKEN_NULL) return "";
             std::string piece(256, '\0');
@@ -304,6 +447,9 @@ extern "C" JNIEXPORT jlong JNICALL Java_dev_melo_gguf_GgufNative_loadBackendProg
         engine->cpuOnly = gpuLayers == 0;
         cp.n_threads = threads;
         cp.n_threads_batch = promptThreads;
+        engine->threads = threads;
+        engine->promptThreads = promptThreads;
+        engine->microBatchTokens = microBatchTokens;
         cp.offload_kqv = gpuLayers > 0;
         cp.op_offload = gpuLayers > 0;
         cp.no_perf = false;
@@ -327,7 +473,7 @@ extern "C" JNIEXPORT jlong JNICALL Java_dev_melo_gguf_GgufNative_loadConfiguredP
     env->DeleteLocalRef(backend); return result;
 }
 extern "C" JNIEXPORT jstring JNICALL Java_dev_melo_gguf_GgufNative_backendDeviceInfo(JNIEnv * env, jclass, jstring value) {
-    try { std::call_once(initialized, initialize); return env->NewStringUTF(driverInfo(backendName(env, value)).c_str()); }
+    try { const auto backend = backendName(env, value); beginNativeDiagnostics(-1 - probeSequence.fetch_add(1), backend); std::call_once(initialized, initialize); return env->NewStringUTF(driverInfo(backend).c_str()); }
     catch (const std::exception & e) { fail(env, e.what()); return nullptr; }
 }
 extern "C" JNIEXPORT jstring JNICALL Java_dev_melo_gguf_GgufNative_executionInfo(JNIEnv * env, jclass, jlong handle) {
@@ -336,12 +482,29 @@ extern "C" JNIEXPORT jstring JNICALL Java_dev_melo_gguf_GgufNative_executionInfo
         int layers = 0;
         for (int i = 0; i < llama_model_n_layer(engine->model); ++i) {
             auto device = engine->model->dev_layer(i);
-            if (device && ggml_backend_dev_type(device) == GGML_BACKEND_DEVICE_TYPE_GPU) ++layers;
+            if (gguf_accelerator_eligible(device, engine->backend)) ++layers;
         }
         std::string buffers;
         for (const auto & entry : llama_get_memory_breakdown(engine->context)) { if (!buffers.empty()) buffers += ","; buffers += ggml_backend_buft_name(entry.first); }
-        const std::string info = "buffers=" + buffers + ";backend=" + engine->backend + ";device=" + engine->deviceInfo + ";requestedLayers=" + std::to_string(engine->requestedLayers) + ";actualRepeatingLayers=" + std::to_string(layers);
+        const std::string info = "buffers=" + buffers + ";backend=" + engine->backend + ";device=" + engine->deviceInfo + ";requestedLayers=" + std::to_string(engine->requestedLayers) + ";actualRepeatingLayers=" + std::to_string(layers) + ";templateIdentity=" + engine->templateIdentity + ";tokenizerIdentity=" + engine->tokenizerIdentity + ";threads=" + std::to_string(engine->threads) + ";promptThreads=" + std::to_string(engine->promptThreads) + ";batch=" + std::to_string(llama_n_batch(engine->context)) + ";microbatch=" + std::to_string(llama_n_ubatch(engine->context));
         return env->NewStringUTF(info.c_str());
+    } catch (const std::exception & e) { fail(env, e.what()); return nullptr; }
+}
+
+extern "C" JNIEXPORT jstring JNICALL Java_dev_melo_gguf_GgufNative_engineReceipt(JNIEnv * env, jclass, jlong handle) {
+    try {
+        auto engine = get(handle);
+        int layers = 0;
+        for (int i = 0; i < llama_model_n_layer(engine->model); ++i) if (gguf_accelerator_eligible(engine->model->dev_layer(i), engine->backend)) ++layers;
+        const std::string value = "{\"backend\":" + jsonText(layers > 0 ? engine->backend : "cpu") +
+            ",\"registry\":" + jsonText(engine->deviceRegistry) + ",\"device\":" + jsonText(engine->deviceName) +
+            ",\"deviceType\":" + jsonText(engine->deviceType) + ",\"deviceIndex\":" + std::to_string(engine->deviceIndex) +
+            ",\"driver\":" + (engine->driverIdentity.empty() ? "null" : jsonText(engine->driverIdentity)) +
+            ",\"actualRepeatingLayers\":" + std::to_string(layers) + ",\"threads\":" + std::to_string(engine->threads) +
+            ",\"promptThreads\":" + std::to_string(engine->promptThreads) + ",\"batch\":" + std::to_string(llama_n_batch(engine->context)) +
+            ",\"microbatch\":" + std::to_string(llama_n_ubatch(engine->context)) + ",\"context\":" + std::to_string(llama_n_ctx(engine->context)) +
+            ",\"templateIdentity\":" + jsonText(engine->templateIdentity) + ",\"tokenizerIdentity\":" + jsonText(engine->tokenizerIdentity) + "}";
+        return env->NewStringUTF(value.c_str());
     } catch (const std::exception & e) { fail(env, e.what()); return nullptr; }
 }
 
@@ -349,35 +512,46 @@ extern "C" JNIEXPORT jlong JNICALL Java_dev_melo_gguf_GgufNative_loadConfigured(
     return Java_dev_melo_gguf_GgufNative_loadConfiguredProgress(env, type, path, contextTokens, threads, gpuLayers, operationId, promptThreads, batchTokens, microBatchTokens, nullptr);
 }
 
+// The pinned CPU and CPU_Mapped allocators deliberately expose a null device.
+// Compare their exact allocator identities; is_host also includes GPU-owned buffers.
+int allocationOwner(ggml_backend_buffer_type_t type) {
+    if (auto device = ggml_backend_buft_get_device(type)) return gguf_allocation_owner(ggml_backend_dev_type(device));
+    if (type == ggml_backend_cpu_buffer_type()) return 0;
+    static const auto mappedCpuType = [] {
+        auto descriptor = ggml_backend_cpu_buffer_from_ptr(nullptr, 0);
+        auto mappedType = ggml_backend_buffer_get_type(descriptor);
+        ggml_backend_buffer_free(descriptor);
+        return mappedType;
+    }();
+    return type == mappedCpuType ? 0 : 3;
+}
+
 extern "C" JNIEXPORT jlongArray JNICALL Java_dev_melo_gguf_GgufNative_allocationObservation(JNIEnv * env, jclass, jlong handle) {
     try {
         auto engine = get(handle);
         std::lock_guard<std::mutex> lock(engine->generation);
-        jlong values[10] = { static_cast<jlong>(llama_n_ctx(engine->context)), static_cast<jlong>(llama_n_batch(engine->context)), static_cast<jlong>(llama_n_ubatch(engine->context)), 0, 0, 0, 0, 0, 0, static_cast<jlong>(llama_model_size(engine->model)) };
+        jlong values[20] = { static_cast<jlong>(llama_n_ctx(engine->context)), static_cast<jlong>(llama_n_batch(engine->context)), static_cast<jlong>(llama_n_ubatch(engine->context)), 0, 0, 0, 0, 0, 0, static_cast<jlong>(llama_model_size(engine->model)) };
         for (const auto & entry : llama_get_memory_breakdown(engine->context)) {
-            const int offset = ggml_backend_buft_is_host(entry.first) ? 3 : 6;
+            const int owner = allocationOwner(entry.first);
+            const int offset = owner == 0 ? 3 : owner == 1 ? 6 : owner == 2 ? 10 : 13;
             values[offset] += entry.second.model;
             values[offset + 1] += entry.second.context;
             values[offset + 2] += entry.second.compute;
+            if (ggml_backend_buft_is_host(entry.first)) {
+                values[16] += entry.second.model; values[17] += entry.second.context; values[18] += entry.second.compute;
+            }
         }
-        jlongArray result = env->NewLongArray(10);
-        if (result) env->SetLongArrayRegion(result, 0, 10, values);
+        values[19] = 2; // Ownership schema; accessibility is an overlapping dimension.
+        jlongArray result = env->NewLongArray(20);
+        if (result) env->SetLongArrayRegion(result, 0, 20, values);
         return result;
     } catch (const std::exception & e) { fail(env, e.what()); return nullptr; }
 }
 
-extern "C" JNIEXPORT jlongArray JNICALL Java_dev_melo_gguf_GgufNative_generatePrepared(JNIEnv * env, jclass, jlong handle, jobjectArray roles, jobjectArray contents, jint outputLimit, jint topK, jfloat topP, jfloat temperature, jobject callback, jobject progress, jlong operationId) {
+extern "C" JNIEXPORT jlongArray JNICALL Java_dev_melo_gguf_GgufNative_generateBudgeted(JNIEnv * env, jclass, jlong handle, jobjectArray roles, jobjectArray contents, jint outputLimit, jint topK, jfloat topP, jfloat temperature, jobject callback, jobject progress, jint safetyTokens, jlong operationId) {
     try {
-        auto engine = get(handle);
-        std::unique_lock<std::mutex> lease(engine->generation, std::try_to_lock);
-        if (!lease.owns_lock()) throw std::runtime_error("GGUF generation is already running");
-        if (engine->operation != operationId) throw std::runtime_error("Stale GGUF operation rejected");
-        if (engine->stop) {
-            jlong values[] = {0, 0, 0, 0, 2, 0, 0};
-            auto result = env->NewLongArray(7);
-            env->SetLongArrayRegion(result, 0, 7, values);
-            return result;
-        }
+        beginNativeDiagnostics(operationId, "generation");
+        std::shared_ptr<Engine> engine;
         const auto operationStart = Clock::now();
         jmethodID onProgress = nullptr;
         if (progress) {
@@ -387,12 +561,28 @@ extern "C" JNIEXPORT jlongArray JNICALL Java_dev_melo_gguf_GgufNative_generatePr
             if (!onProgress) return nullptr;
         }
         auto report = [&](const char * phase, jlong total, jlong processed, jlong sampled, int code = 0) {
+            { std::lock_guard<std::mutex> lock(errorMutex); nativeErrors.stage(phase, occurredAtMs()); }
             if (!progress || env->ExceptionCheck()) return;
             auto name = env->NewStringUTF(phase);
             env->CallVoidMethod(progress, onProgress, name, total, processed, sampled, static_cast<jlong>(elapsed(operationStart)), code);
             env->DeleteLocalRef(name);
-            if (env->ExceptionCheck()) engine->stop = true;
+            if (env->ExceptionCheck() && engine) engine->stop = true;
         };
+        report("NATIVE_ENTRY", -1, -1, 0);
+        if (env->ExceptionCheck()) return nullptr;
+        engine = get(handle);
+        { std::lock_guard<std::mutex> lock(errorMutex); nativeErrors.backend(engine->backend); }
+        std::unique_lock<std::mutex> lease(engine->generation, std::try_to_lock);
+        if (!lease.owns_lock()) throw std::runtime_error("GGUF generation is already running");
+        if (engine->operation != operationId) throw std::runtime_error("Stale GGUF operation rejected");
+        if (engine->stop) {
+            report("NATIVE_RETURN", -1, 0, 0, 2);
+            jlong values[] = {0, 0, 0, 0, 2, 0, 0};
+            auto result = env->NewLongArray(7);
+            env->SetLongArrayRegion(result, 0, 7, values);
+            return result;
+        }
+
         report("RENDER_BEGIN", -1, -1, 0);
         if (!roles || !contents || !callback || outputLimit <= 0 || outputLimit > 8192) throw std::runtime_error("Invalid GGUF generation parameters");
         const int count = env->GetArrayLength(roles);
@@ -421,15 +611,18 @@ extern "C" JNIEXPORT jlongArray JNICALL Java_dev_melo_gguf_GgufNative_generatePr
         const auto vocab = llama_model_get_vocab(engine->model);
         const int tokenCount = -llama_tokenize(vocab, prompt.data(), prompt.size(), nullptr, 0, true, true);
         const auto capacity = llama_n_ctx(engine->context);
-        if (tokenCount <= 0 || static_cast<uint64_t>(tokenCount) >= capacity) {
+        engine->lastPromptIdentity = stableIdentity(prompt);
+        report("TOKEN_COUNT_MEASURED", tokenCount, 0, 0);
+        report("ADMISSION_SAFETY_TOKENS", tokenCount, 0, 0, safetyTokens);
+        report("ADMISSION_OUTPUT_TOKENS", tokenCount, 0, 0, outputLimit);
+        report("ADMISSION_CONTEXT_TOKENS", tokenCount, 0, 0, static_cast<int>(capacity));
+        if (!gguf_prompt_fits(tokenCount, safetyTokens, outputLimit, capacity)) {
+            report("CONTEXT_ADMISSION_REJECTED", tokenCount, 0, 0, static_cast<int>(capacity));
             throw std::runtime_error("GGUF context limit: rendered input=" + std::to_string(tokenCount) +
-                " tokens, capacity=" + std::to_string(capacity) + "; input retained; select a larger compatible context");
+                "; safety=" + std::to_string(safetyTokens) + "; requested output=" + std::to_string(outputLimit) +
+                "; capacity=" + std::to_string(capacity) + "; no prefill was dispatched; adjust the explicit request budget");
         }
-        // Kotlin estimates cannot know a model's exact tokenizer/template cost.
-        // Output is a maximum, so reduce only that allowance after tokenization;
-        // never reject a prompt that fits merely because its requested reply does not.
-        const int effectiveOutputLimit = std::min<int>(outputLimit, capacity - tokenCount);
-        if (effectiveOutputLimit != outputLimit) report("OUTPUT_BUDGET_ADJUSTED", tokenCount, 0, 0, effectiveOutputLimit);
+        const int effectiveOutputLimit = outputLimit;
         std::vector<llama_token> tokens(tokenCount);
         if (llama_tokenize(vocab, prompt.data(), prompt.size(), tokens.data(), tokens.size(), true, true) != tokenCount) throw std::runtime_error("GGUF tokenization failed");
         report("TOKENIZE_END", tokenCount, 0, 0);
@@ -501,16 +694,24 @@ extern "C" JNIEXPORT jlongArray JNICALL Java_dev_melo_gguf_GgufNative_generatePr
         if (engine->stop) stop = 2;
         if (stop == 0 || stop == 1) engine->committedTokens = std::move(decodedTokens);
         report("NATIVE_RETURN", tokenCount, input, output, static_cast<int>(stop));
-        jlong values[] = {input, output, prefillMs, elapsed(decodeStart), stop, static_cast<jlong>(reused), input - static_cast<jlong>(reused)};
-        auto result = env->NewLongArray(7);
-        env->SetLongArrayRegion(result, 0, 7, values);
+        int offloaded = 0;
+        for (int i = 0; i < llama_model_n_layer(engine->model); ++i) if (gguf_accelerator_eligible(engine->model->dev_layer(i), engine->backend)) ++offloaded;
+        jlong values[] = {input, output, prefillMs, elapsed(decodeStart), stop, static_cast<jlong>(reused), input - static_cast<jlong>(reused), tokenCount, outputLimit, effectiveOutputLimit, safetyTokens, capacity, operationId, engine->threads, engine->promptThreads, llama_n_batch(engine->context), llama_n_ubatch(engine->context), offloaded, 2};
+        auto result = env->NewLongArray(19);
+        env->SetLongArrayRegion(result, 0, 19, values);
         return result;
     } catch (const std::exception & e) { fail(env, e.what()); return nullptr; }
+}
+
+extern "C" JNIEXPORT jstring JNICALL Java_dev_melo_gguf_GgufNative_generationPromptIdentity(JNIEnv * env, jclass, jlong handle, jlong operationId) {
+    try { auto engine = get(handle); if (engine->operation != operationId) throw std::runtime_error("Stale GGUF prompt receipt"); return env->NewStringUTF(engine->lastPromptIdentity.c_str()); }
+    catch (const std::exception & e) { fail(env, e.what()); return nullptr; }
 }
 
 extern "C" JNIEXPORT void JNICALL Java_dev_melo_gguf_GgufNative_prepareOperation(JNIEnv * env, jclass, jlong handle, jlong id) {
     try {
         std::lock_guard<std::mutex> lock(operationMutex);
+        beginNativeDiagnostics(id, handle == 0 ? "load" : "generation");
         if (id <= 0) throw std::runtime_error("Invalid GGUF operation identity");
         if (handle == 0) { loadOperation = id; cancelLoad = false; }
         else {

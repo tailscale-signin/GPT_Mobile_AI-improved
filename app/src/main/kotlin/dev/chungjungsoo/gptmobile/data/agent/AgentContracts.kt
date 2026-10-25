@@ -14,7 +14,7 @@ sealed interface ProviderEvent {
     data class CombinedQuality(val report: CombinedQualityReport) : ProviderEvent
     data class ToolCall(val callId: String, val name: String, val arguments: JsonObject) : ProviderEvent
     data class ToolResult(val call: ToolCall, val result: AgentToolResult) : ProviderEvent
-    data class Failed(val message: String, val progressDeadline: ProgressDeadlineOutcome? = null, val errorCode: String? = null, val transportComplete: Boolean = false) : ProviderEvent
+    data class Failed(val message: String, val progressDeadline: ProgressDeadlineOutcome? = null, val errorCode: String? = null, val transportComplete: Boolean = false, val providerLimit: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision? = null) : ProviderEvent
     data class Notice(val message: String, val persistent: Boolean = false, val researchDelivery: dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryReceipt? = null) : ProviderEvent
     data class PhaseChanged(val phase: dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase, val nativeProgress: dev.chungjungsoo.gptmobile.data.localruntime.GgufNativeProgress? = null) : ProviderEvent
     data class LocalMetrics(val metrics: dev.chungjungsoo.gptmobile.data.localruntime.LocalInferenceMetrics) : ProviderEvent
@@ -97,7 +97,8 @@ data class AgentToolResult(
     val dispatched: Boolean = true,
     val assistMetadata: List<JsonObject> = emptyList(),
     val media: List<AgentToolMedia> = emptyList(),
-    val optionalAssistKey: String? = null
+    val optionalAssistKey: String? = null,
+    val personalData: List<dev.chungjungsoo.gptmobile.data.permissions.PersonalDataProvenance> = emptyList()
 )
 
 /** Managed content reference, never an arbitrary local path or remote download instruction. */

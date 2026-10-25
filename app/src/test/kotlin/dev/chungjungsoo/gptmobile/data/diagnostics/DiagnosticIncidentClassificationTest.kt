@@ -43,4 +43,13 @@ class DiagnosticIncidentClassificationTest {
         assertEquals(model.id, child.id)
         assertFalse(child.first)
     }
+
+    @Test fun capturedAndroidTagSurvivesRecorderPrefixNormalizationForClassification() {
+        val prefix = "eventId=record-1 · monoNs=42 · bootMs=9 · processId=123 · processName=app · "
+        assertEquals("platform_codec_capability", classifyDiagnostic("W", "Android", prefix + "W/AudioCapabilities(123): Unsupported mime audio/example").category)
+        assertEquals("graphics_driver_failure", classifyDiagnostic("I", "Android", prefix + "I/AdrenoVK-0(123): Pipeline create failed").category)
+        assertEquals("performance", classifyDiagnostic("I", "Android", prefix + "I/Choreographer(123): Skipped 35 frames!").category)
+        assertEquals("platform_job_hint", classifyDiagnostic("W", "Android", prefix + "W/JobInfo(123): Requested important-while-foreground flag for job116 is ignored and takes no effect").category)
+        assertEquals("Pipeline create failed", diagnosticEventMessage(prefix + "I/AdrenoVK-0(123): Pipeline create failed"))
+    }
 }

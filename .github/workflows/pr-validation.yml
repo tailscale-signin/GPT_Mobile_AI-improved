@@ -34,7 +34,7 @@ jobs:
     name: Unit tests and Android lint
     runs-on: ubuntu-latest
     # Leave time for diagnostics after the individually bounded validation steps.
-    timeout-minutes: 80
+    timeout-minutes: 100
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -112,7 +112,8 @@ jobs:
 
       - name: Run Android Lint
         id: android_lint
-        timeout-minutes: 20
+        # The expanded app's cold local lint pass took 19m29s; retain useful headroom.
+        timeout-minutes: 30
         shell: bash
         run: |
           set -o pipefail
@@ -125,7 +126,9 @@ jobs:
         run: |
           set -o pipefail
           ./gradlew -I scripts/heap-stress.init.gradle :app:testDebugUnitTest --no-daemon \
-            --tests '*ResearchSessionStoreHeapTest' --tests '*StreamingDebugBundleTest' 2>&1 | tee heap.log
+            --tests '*ResearchSessionStoreHeapTest' --tests '*StreamingDebugBundleTest' \
+            --tests '*BenchmarkStreamingExportHeapTest' \
+            --tests '*BenchmarkColdStreamingExportHeapTest' 2>&1 | tee heap.log
 
       - name: Publish Test Results
         uses: mikepenz/action-junit-report@a9170d5795813c01ab4901ffb045b52bab4ab09d # v6.5.0

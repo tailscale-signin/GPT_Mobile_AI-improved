@@ -36,7 +36,7 @@ class BenchmarkScoreboardTest {
         assertEquals(benchmarkSuiteForRun(source), benchmarkSuiteForRun(restored))
         val submission = checkNotNull(BenchmarkScoreboard.fromRun(restored))
         assertEquals(2, submission.schemaVersion)
-        assertEquals(BenchmarkSuiteRegistry.VERSION, submission.suiteVersion)
+        assertEquals(9, submission.suiteVersion)
         assertNotNull(BenchmarkScoreboard.evaluate(submission))
     }
 
@@ -109,10 +109,10 @@ class BenchmarkScoreboardTest {
 
     private fun run(id: String) = BenchmarkRun(
         id, "SECRET-uid", "SECRET-profile", "OPENAI", "model", "SECRET-config", false,
-        BenchmarkMode.QUICK, 100, suiteVersion = BenchmarkSuiteRegistry.VERSION, measurementVersion = 2, plannedTrials = 5,
+        BenchmarkMode.QUICK, 100, suiteVersion = 9, executionPolicy = BenchmarkExecutionPolicy.DETERMINISTIC_CAPABILITY_V1, measurementVersion = 2, plannedTrials = 5,
         device = "SECRET-device",
-        samples = benchmarkSuite(BenchmarkMode.QUICK).map { test ->
-            BenchmarkSample(test.id, test.label, test.category, BenchmarkOutcome.PASSED, durationMs = 500, firstTextMs = 100, lastTextMs = 500, chunks = 2, referenceDecodeTokens = 20, preview = "SECRET-response", error = "SECRET-endpoint", workload = test.workload, intelligenceAnswers = if (test.category == "intelligence") BenchmarkScoreboard.domains.associateWith { true } else emptyMap())
+        samples = benchmarkSuiteForVersion(9, BenchmarkMode.QUICK).map { test ->
+            BenchmarkSample(test.id, test.label, test.category, BenchmarkOutcome.PASSED, durationMs = 500, firstTextMs = 100, lastTextMs = 500, chunks = 2, referenceDecodeTokens = 20, preview = "SECRET-response", error = "SECRET-endpoint", workload = test.workload, intelligenceParseable = true.takeIf { test.category == "intelligence" }, intelligenceAnswers = if (test.category == "intelligence") BenchmarkScoreboard.domains.associateWith { true } else emptyMap())
         }
     )
 }

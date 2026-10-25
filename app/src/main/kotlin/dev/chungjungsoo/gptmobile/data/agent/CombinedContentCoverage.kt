@@ -12,72 +12,42 @@ import java.util.Locale
  * paraphrases count as represented, but semantic entailment / source truth is not certified.
  * Ambiguous wording stays pending, never silently accepted as full coverage.
  */
-internal class CombinedContentCoverage(sources: List<CombinedModelResponse>, request: String = "", preserveAll: Boolean = false) {
-    private val scoped = sources.any { it.claimExtractionVersion >= 2 }
-    data class Unit(val text: String, val profileUids: Set<String>)
+internal class CombinedContentCoverage(private val sources: List<CombinedModelResponse>, request: String = "", preserveAll: Boolean = false) {
+    data class Unit(val text: String, val profileUids: Set<String>, val claimId: String = "")
     data class Result(
         val total: Int,
         val missing: List<Unit>,
         val exactMatches: Int = 0,
         val paraphraseMatches: Int = 0,
         val tentativeMatches: Int = 0,
-        val evaluated: Boolean = true
+        val evaluated: Boolean = true,
+        val partialMatches: Int = 0,
+        val mappingVersion: Int = 1
     ) {
         val accepted: Boolean get() = evaluated && total > 0 && missing.isEmpty()
     }
 
     val units: List<Unit> = if (request.isNotBlank() && CurrentRequestContract.from(request).intent in setOf("GREETING", "TEST", "PROVIDER_TEST")) {
         emptyList()
-    } else if (preserveAll) {
-        CombinedClaimSemantics.records(sources).map { Unit(it.proposition, it.profileUids) }
-    } else if (request.isNotBlank()) {
-        CombinedEditorialInventory.select(CombinedClaimSemantics.records(sources), request, CombinedAnswerPolicy.from(request)).map { Unit(it.proposition, it.profileUids) }
-    } else if (scoped) {
-        CombinedClaimSemantics.records(sources).map { Unit(it.proposition, it.profileUids) }
     } else {
-        sources.flatMap { source ->
-            sentences(sourceCoverageText(source.content)).filter { tokens(it).isNotEmpty() }
-                .map { Unit(it, setOf(source.platformUid)) }
-        }.groupBy { normalized(it.text) to CombinedClaimMatcher.fingerprint(it.text) }.values.map { copies ->
-            Unit(copies.first().text, copies.flatMap { it.profileUids }.toSet())
-        }
+        val records = CombinedContentIndexes.get(sources).records
+        val selected = if (!preserveAll && request.isNotBlank()) CombinedEditorialInventory.select(records, request, CombinedAnswerPolicy.from(request)) else records
+        selected.map { Unit(it.proposition, it.profileUids, it.id) }
     }
 
     fun check(answer: String): Result {
-        // Do not pool unrelated sentences: their combined terms/numbers can manufacture
-        // apparent coverage of a claim that no individual answer sentence actually makes.
-        val candidates = (if (scoped) CombinedSourceClaims.units(answer).map { it.text } else sentences(answer)).distinct().map {
-            val normalized = normalized(it)
-            normalized to CombinedClaimMatcher.fingerprint(it)
-        }
-        if (units.size.toLong() * candidates.size > 1_000_000L) return Result(units.size, emptyList(), evaluated = false)
-        val missing = mutableListOf<Unit>()
-        var exact = 0
-        var paraphrases = 0
-        var tentative = 0
-        units.forEach { unit ->
-            val phrase = normalized(unit.text)
-            val source = CombinedClaimMatcher.fingerprint(unit.text)
-            val matched = candidates.asSequence().map { (candidateText, fingerprint) ->
-                // Only identical short claims bypass the minimum lexical-size threshold.
-                // A substring inside a denial must still pass polarity/quantity checks.
-                if (phrase.isNotBlank() && phrase == candidateText && source == fingerprint) {
-                    CombinedClaimMatcher.Match.EXACT
-                } else {
-                    CombinedClaimMatcher.match(source, fingerprint)
-                }
-            }.maxByOrNull { it.ordinal } ?: CombinedClaimMatcher.Match.NONE
-            when (matched) {
-                CombinedClaimMatcher.Match.EXACT -> exact++
-                CombinedClaimMatcher.Match.PARAPHRASE -> paraphrases++
-                CombinedClaimMatcher.Match.POSSIBLE -> {
-                    tentative++
-                    missing += unit
-                }
-                CombinedClaimMatcher.Match.NONE -> missing += unit
-            }
-        }
-        return Result(units.size, missing, exact, paraphrases, tentative)
+        val mapping = CombinedAnswerMappings.get(answer, sources)
+        if (!mapping.evaluated) return Result(units.size, emptyList(), evaluated = false)
+        val mapped = mapping.claims.associateBy { it.claimId }
+        val statuses = units.map { mapped[it.claimId]?.status ?: "UNMATCHED" }
+        return Result(
+            total = units.size,
+            missing = units.filter { mapped[it.claimId]?.fullyLinked != true },
+            exactMatches = statuses.count { it == "EXACT" },
+            paraphraseMatches = statuses.count { it == "PARAPHRASE" },
+            partialMatches = statuses.count { it == "PARTIAL" },
+            mappingVersion = mapping.version
+        )
     }
 
     companion object {

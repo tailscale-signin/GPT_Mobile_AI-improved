@@ -100,7 +100,7 @@ interface AgentRunDao : RunPolicySnapshotAccess {
 
     @Query(
         "UPDATE agent_runs SET status = 'INTERRUPTED', completed_at = :completedAt " +
-            "WHERE status IN ('QUEUED', 'RUNNING')"
+            "WHERE status IN ('QUEUED', 'RUNNING') AND NOT (status = 'QUEUED' AND started_at IS NULL AND EXISTS (SELECT 1 FROM provider_waits w WHERE w.runId = agent_runs.run_id AND w.fence = agent_runs.ownership_fence))"
     )
     suspend fun interruptActiveRuns(completedAt: Long): Int
 

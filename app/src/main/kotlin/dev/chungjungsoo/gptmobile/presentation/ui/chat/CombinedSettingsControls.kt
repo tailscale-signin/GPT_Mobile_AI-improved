@@ -7,9 +7,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.saveable.Saver
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
@@ -68,6 +70,20 @@ fun CombinedSettingsControls(
             enabled = enabled && normalized.isSupported,
             onChange = { onChange(normalized.copy(effort = it)) }
         )
+        if (dev.chungjungsoo.gptmobile.BuildConfig.COMBINED_APPEND_CONTINUATIONS) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Continue long answers", style = MaterialTheme.typography.titleSmall)
+                    Text("Uses additional requests to finish the same answer.", style = MaterialTheme.typography.bodySmall)
+                }
+                Switch(
+                    checked = normalized.continueLongAnswers,
+                    onCheckedChange = { onChange(normalized.copy(continueLongAnswers = it)) },
+                    enabled = enabled && normalized.isSupported,
+                    modifier = Modifier.testTag("combined_continue_long_answers").semantics { contentDescription = "Continue long answers" }
+                )
+            }
+        }
         Text("After saving, changes on this tab apply to new requests. Running and queued requests keep their original Combined setup.", style = MaterialTheme.typography.bodySmall)
     }
 }

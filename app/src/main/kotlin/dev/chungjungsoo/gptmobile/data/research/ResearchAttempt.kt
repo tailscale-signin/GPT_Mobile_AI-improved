@@ -7,6 +7,7 @@ enum class ResearchAttemptState {
     ACCEPTED,
     BLOCKED_CONFIGURATION,
     WAITING_RESOURCE,
+    WAITING_PROVIDER_LIMIT,
     SEARCHING,
     FETCHING,
     ANALYZING,
@@ -23,7 +24,7 @@ enum class ResearchAttemptState {
 }
 
 @Serializable
-enum class ResearchNextAction { SCHEDULE, WAIT_FOR_RESOURCE, REVIEW_CONFIGURATION, RETRY_ACQUISITION, RETRY_DELIVERY, RECONCILE_REQUESTS, EXPLICIT_RESUME, NONE }
+enum class ResearchNextAction { SCHEDULE, WAIT_FOR_RESOURCE, WAIT_FOR_PROVIDER, REVIEW_CONFIGURATION, RETRY_ACQUISITION, RETRY_DELIVERY, RECONCILE_REQUESTS, EXPLICIT_RESUME, NONE }
 
 @Serializable
 data class ResearchAttempt(
@@ -104,6 +105,7 @@ data class ResearchExecutionRecord(
         val action = when (state) {
             ResearchAttemptState.ACCEPTED -> ResearchNextAction.SCHEDULE
             ResearchAttemptState.WAITING_RESOURCE -> ResearchNextAction.WAIT_FOR_RESOURCE
+            ResearchAttemptState.WAITING_PROVIDER_LIMIT -> ResearchNextAction.WAIT_FOR_PROVIDER
             ResearchAttemptState.BLOCKED_CONFIGURATION -> ResearchNextAction.REVIEW_CONFIGURATION
             ResearchAttemptState.FAILED_NO_EVIDENCE -> ResearchNextAction.RETRY_ACQUISITION
             ResearchAttemptState.FAILED_DELIVERY -> ResearchNextAction.RETRY_DELIVERY

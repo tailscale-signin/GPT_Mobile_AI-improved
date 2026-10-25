@@ -12,6 +12,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -25,6 +26,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
+import dev.chungjungsoo.gptmobile.data.model.delegationFor
 import dev.chungjungsoo.gptmobile.data.research.feature.AppraisalJudgment
 import dev.chungjungsoo.gptmobile.data.research.feature.ExaminationRequest
 import dev.chungjungsoo.gptmobile.data.research.feature.ExaminationStage
@@ -44,6 +46,7 @@ fun ResearchArticleDialog(workId: String, versionId: String? = null, authority: 
     val jobs by viewModel.jobs.collectAsStateWithLifecycle()
     val focusedJob by viewModel.focusedJob.collectAsStateWithLifecycle()
     val admitting by viewModel.admissionInProgress.collectAsStateWithLifecycle()
+    val consent by viewModel.examinationConsent.collectAsStateWithLifecycle()
     var profileUid by rememberSaveable(workId) { mutableStateOf(initialProfileUid) }
     val configuredCrawlerUid = dev.chungjungsoo.gptmobile.data.research.feature.ResearchProfileResolver.examinerUid(features, chatId, currentTools())
     LaunchedEffect(configuredCrawlerUid) {
@@ -55,6 +58,9 @@ fun ResearchArticleDialog(workId: String, versionId: String? = null, authority: 
     val examinationActive = relevantJobs.any { it.stage in dev.chungjungsoo.gptmobile.data.research.feature.ExaminationLifecycle.active }
     val selection = dev.chungjungsoo.gptmobile.data.research.feature.ResearchProfileResolver.selection(profileUid, profiles)
     val selectedProfile = selection.profile
+    androidx.compose.runtime.DisposableEffect(workId, displayedVersionId, authority, profileUid) {
+        onDispose { viewModel.declineExaminationConsent() }
+    }
     val examinationBlocker = dev.chungjungsoo.gptmobile.data.research.feature.examinerSelectionIssue(selection) ?: if (selectedProfile != null) {
         dev.chungjungsoo.gptmobile.data.research.feature.examinationAdmission(features, selectedProfile, ExaminationRequest(workId, profileUid, chatId, origin = dev.chungjungsoo.gptmobile.data.research.feature.ExaminationOrigin.USER_EXAMINE), currentTools())
     } else {
@@ -137,9 +143,12 @@ fun ResearchArticleDialog(workId: String, versionId: String? = null, authority: 
                             }
                         }
                         examinationBlocker?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error) }
+                        if (selectedProfile != null && features.delegationFor(profileUid).deepResearch.academicSources) {
+                            TextButton(onClick = { viewModel.revokePapersConsent(profileUid) }, enabled = !admitting) { Text("Revoke Papers and studies consent") }
+                        }
                         val selection = androidx.compose.runtime.remember(relevantJobs, profileUid, version.versionId) { examinationPrimarySelection(relevantJobs, profileUid, version.versionId) }
                         val completed = selection.action == ExaminationPrimaryAction.EXAMINE_AGAIN
-                        androidx.compose.material3.Button(onClick = { viewModel.examine(ExaminationRequest(workId, profileUid, chatId, version.versionId, authority, reexamine = completed, resumeJobId = selection.resumeJobId), currentTools) }, modifier = Modifier.fillMaxWidth(), enabled = examinationBlocker == null && !examinationActive && !admitting) {
+                        androidx.compose.material3.Button(onClick = { viewModel.requestExamination(ExaminationRequest(workId, profileUid, chatId, version.versionId, authority, reexamine = completed, resumeJobId = selection.resumeJobId), currentTools) }, modifier = Modifier.fillMaxWidth(), enabled = (examinationBlocker == null || examinationBlocker == dev.chungjungsoo.gptmobile.data.research.feature.EXAMINATION_PAPERS_CONSENT_REQUIRED) && !examinationActive && !admitting) {
                             Text(
                                 if (admitting) {
                                     "Starting examination…"
@@ -228,6 +237,9 @@ fun ResearchArticleDialog(workId: String, versionId: String? = null, authority: 
                 }
             }
         }
+    }
+    consent?.takeIf { it.profileUid == profileUid }?.let { prompt ->
+        PapersAndStudiesConsentDialog(prompt.profileName, onAccept = { viewModel.acceptExaminationConsent(prompt.id) }, onDecline = viewModel::declineExaminationConsent)
     }
 }
 

@@ -78,9 +78,9 @@ class CompleteBackupManager @Inject constructor(
         context.noBackupFilesDir,
         File(context.noBackupFilesDir, RESTORE_JOURNAL_FILE)
     )
-    fun getBackupStatus() = legacy.getBackupStatus()
+    suspend fun getBackupStatus() = legacy.getBackupStatus()
 
-    fun recentBackups(): List<RecentBackup> {
+    suspend fun recentBackups(): List<RecentBackup> = withContext(Dispatchers.IO) {
         val prefs = context.getSharedPreferences(BACKUP_UI_PREFS, Context.MODE_PRIVATE)
         val entries = (0 until RECENT_BACKUP_HISTORY_LIMIT).mapNotNull { index ->
             val uri = prefs.getString("recent_${index}_uri", null) ?: return@mapNotNull null
@@ -92,7 +92,7 @@ class CompleteBackupManager @Inject constructor(
             )
         }.sortedByDescending { it.savedAtEpochMs }
         val latestFolder = entries.firstOrNull()?.folderKey.orEmpty()
-        return entries
+        entries
             .filter { latestFolder.isBlank() || it.folderKey == latestFolder }
             .take(3)
     }
@@ -149,17 +149,17 @@ class CompleteBackupManager @Inject constructor(
         check(editor.commit()) { "Could not save recent backup history." }
     }
 
-    fun savedSelection(): CompleteBackupSelection {
+    suspend fun savedSelection(): CompleteBackupSelection = withContext(Dispatchers.IO) {
         val raw = context.getSharedPreferences(BACKUP_UI_PREFS, Context.MODE_PRIVATE)
             .getStringSet("sections", null)
-            ?: return CompleteBackupSelection()
+            ?: return@withContext CompleteBackupSelection()
         val sections = raw.mapNotNull { runCatching { CompleteBackupSection.valueOf(it) }.getOrNull() }.toSet()
         // Older defaults saved Settings without Tools even though the UI now
         // presents them as one group. Include installs in that saved choice.
-        return CompleteBackupSelection(if (CompleteBackupSection.SETTINGS in sections) sections + CompleteBackupSection.TOOLS else sections).normalized()
+        CompleteBackupSelection(if (CompleteBackupSection.SETTINGS in sections) sections + CompleteBackupSection.TOOLS else sections).normalized()
     }
 
-    fun saveSelection(selection: CompleteBackupSelection) {
+    suspend fun saveSelection(selection: CompleteBackupSelection) = withContext(Dispatchers.IO) {
         val names = selection.normalized().sections.mapTo(mutableSetOf()) { it.name }
         check(
             context.getSharedPreferences(BACKUP_UI_PREFS, Context.MODE_PRIVATE)
@@ -288,6 +288,13 @@ class CompleteBackupManager @Inject constructor(
                 File(context.filesDir, "research-history").listFiles().orEmpty()
                     .filter { it.isFile && it.name.matches(Regex("[a-f0-9]{64}\\.(json|source|budget|ledger|index|chunk|cursor|claim|fence|task|resume|checkpoint)")) && it.length() <= 512 * 1024 }
                     .forEach { sources["internal/research-history/${it.name}"] = it }
+            }
+            // A recovery corpus can contain both tool history and captured Research evidence.
+            // Omitted sections must not be reintroduced through a derived recovery reference.
+            if (selected.includes(CompleteBackupSection.AGENT_HISTORY) && selected.includes(CompleteBackupSection.CHAT_RESEARCH)) {
+                File(context.filesDir, "research-history/recovery-corpora").listFiles().orEmpty()
+                    .filter { it.isFile && it.name.matches(Regex("[1-9][0-9]*-[a-f0-9]{64}\\.recovery-(corpus|piece)")) }
+                    .forEach { sources["internal/research-history/recovery-corpora/${it.name}"] = it }
             }
             if (selected.sections.any { it in dev.chungjungsoo.gptmobile.data.research.feature.ResearchBackup.SECTIONS }) {
                 sources.putAll(requireNotNull(researchBackup) { "Research backup is unavailable" }.export(selected, work))
@@ -544,7 +551,9 @@ class CompleteBackupManager @Inject constructor(
             .asSequence()
             .filterNot { it == "database.sqlite" || it == "tool-statistics.json" || it == "research-feature.json" || it == "research-statistics.ndjson" }
             .filter { path ->
-                if (path.startsWith("internal/research-history/")) {
+                if (path.startsWith("internal/research-history/recovery-corpora/")) {
+                    effective.includes(CompleteBackupSection.AGENT_HISTORY) && effective.includes(CompleteBackupSection.CHAT_RESEARCH)
+                } else if (path.startsWith("internal/research-history/")) {
                     effective.includes(CompleteBackupSection.CONVERSATIONS) || (researchSnapshot != null && path.substringAfterLast('/') in researchSnapshot.versions.flatMap { json.decodeFromString<List<String>>(it.bodyChunksJson) })
                 } else if (path == "internal/benchmark-results/benchmark-results.json") {
                     CompleteBackupSection.STATISTICS in effective.sections

@@ -173,9 +173,10 @@ class InvocationLedger @Inject constructor(
     ): AgentProviderSession = object : AgentProviderSession {
         override val handlesToolsInternally = session.handlesToolsInternally
         override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
+            val researchTrace = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.research.ResearchStageTrace]
             val features = settings?.getFeatureSettings()
             val spend = features?.spendBudget ?: SpendBudgetSettings()
-            val retainAccounting = combined != null || forceAccounting || preparedAssistEvidence.isNotEmpty() || totalLimit != Int.MAX_VALUE || spend.enforced || LocalDiagnosticsPolicy.enabled
+            val retainAccounting = researchTrace != null || combined != null || forceAccounting || preparedAssistEvidence.isNotEmpty() || totalLimit != Int.MAX_VALUE || spend.enforced || LocalDiagnosticsPolicy.enabled
             if (!retainAccounting && !LocalDiagnosticsPolicy.enabled) {
                 emitAll(session.streamRound(tools, exchanges))
                 return@flow
@@ -224,10 +225,11 @@ class InvocationLedger @Inject constructor(
                 }
                 return@flow
             }
-            val dispatch = dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext(exchanges.flatMap { it.results }.flatMap { it.assistMetadata }.toSet(), parentRunId, record.id, preparedAssistEvidence)
+            val dispatch = dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext(exchanges.flatMap { it.results }.flatMap { it.assistMetadata }.toSet(), parentRunId, record.id, preparedAssistEvidence, researchTrace)
             val combinedAccounting = combined?.let {
                 CombinedInvocationAccounting(it, requireNotNull(combinedBudgets ?: dev.chungjungsoo.gptmobile.data.agent.CombinedTurnBudgetStore.installedOrNull()) { "Combined budget store is unavailable; no dispatch is allowed." }, price, dao, record, totalLimit, spend)
             }
+            researchTrace?.invocation(record.id)
             onInvocation(record.id)
             dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(parentRunId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.INVOCATION_STARTED, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticRole.from(kind), invocationId = record.id)
             dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "Request ${record.id} · profileType=$provider · model=$model · runtime=not_resolved_at_dispatch · $kind · input estimate=${record.inputTokens} · parentRunId=$parentRunId · turnKey=$turnKey · requestKind=$kind · profileUid=${profileUid.orEmpty()} · requestedOutputCap=$outputLimit")
@@ -359,6 +361,19 @@ class InvocationLedger @Inject constructor(
                         status = "NOT_DISPATCHED"
                     }
                     dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(parentRunId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.INVOCATION_FINISHED, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticRole.from(kind), invocationId = record.id, inputTokens = input?.toLong(), outputTokens = output?.toLong(), visibleBytes = visibleBytes, reasoningBytes = reasoningBytes, elapsedMillis = (System.nanoTime() - started) / 1_000_000, successful = status == "COMPLETED", measured = !estimatedUsage())
+                    researchTrace?.usage(
+                        dev.chungjungsoo.gptmobile.data.research.ResearchUsageObservation(
+                            invocationId = record.id,
+                            inputTokens = if (entirelyUnsent) 0 else retainedInput().toLong(),
+                            outputTokens = if (entirelyUnsent) 0 else retainedOutput().toLong(),
+                            inputSource = inputSource,
+                            outputSource = outputSource,
+                            visibleOutputEstimate = (visibleBytes + 2) / 3,
+                            reasoningTokens = providerReasoningTokens?.toLong(),
+                            firstTextMillis = first,
+                            durationMillis = ((System.nanoTime() - started) / 1_000_000).coerceAtLeast(0)
+                        )
+                    )
                     val recordedOutput = if (entirelyUnsent) 0 else retainedOutput()
                     dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "Finished ${record.id} · incidentId=${record.id} · status=$status · durationMs=${(System.nanoTime() - started) / 1_000_000} · output=$recordedOutput · estimated=${estimatedUsage()} · inputSource=$inputSource · outputSource=$outputSource · visibleBytes=$visibleBytes · reasoningBytes=$reasoningBytes · usageBreakdownReliable=false · reportedReasoningTokens=${providerReasoningTokens ?: "unknown"} · toolCallTokens=unknown · visibleOutputTokens=unknown · finishReason=${finishReason ?: "unreported"} · settingsConfirmed=$settingsConfirmed · parentRunId=$parentRunId · turnKey=$turnKey · requestKind=$kind", if (status in setOf("COMPLETED", "CANCELED")) "I" else "W")
                     try {

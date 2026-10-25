@@ -254,7 +254,9 @@ class CombinedDeliverySessionTest {
             val decoder = CombinedPassageDecoder(sources, CombinedEvidenceLedger(), 10000)
             val deltas = payload.chunked(size).flatMap { decoder.accept(it) } + decoder.accept("", true)
             assertEquals("Chunk size $size", answer, deltas.joinToString(""))
-            assertTrue(decoder.passages.single().profileUids.isEmpty())
+            // The shared matcher now recognizes this conservative financed/funded paraphrase.
+            assertEquals(setOf("alpha"), decoder.passages.single().profileUids)
+            assertTrue(decoder.passages.single().links.all { it.matches(answer) })
         }
     }
 

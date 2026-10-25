@@ -13,6 +13,7 @@ internal class CombinedRecordRecoverySession(
     private val protocol: CombinedRecordProtocol,
     private val maxContinuations: Int,
     private val restored: Boolean = false,
+    private val acceptedAppend: Boolean = false,
     private val validateAccess: suspend () -> Unit,
     private val save: suspend (CombinedRecordCheckpoint) -> Unit,
     private val observeAttempt: (Boolean, Int) -> Unit = { _, _ -> },
@@ -23,7 +24,7 @@ internal class CombinedRecordRecoverySession(
 
     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
         var continuations = protocol.checkpoint().recoveryAttempts
-        var noProgress = 0
+        var noProgress = if (acceptedAppend) protocol.checkpoint().noProgressAttempts else 0
         var pendingCharacters = 0
         var savedAt = System.nanoTime()
         if (restored) {
@@ -33,28 +34,46 @@ internal class CombinedRecordRecoverySession(
                 emit(ProviderEvent.Completed)
                 return@flow
             }
-            if (continuations >= maxContinuations || checkpoint.failure != null && !protocol.canRecoverMalformed) {
-                emit(ProviderEvent.Failed("${checkpoint.failure ?: "COMBINED_RECORD_RECOVERY_LIMIT"}: Saved records remain available; this stream requires an explicit new revision."))
-                return@flow
+            if (acceptedAppend && checkpoint.lastAttemptOutcome == null && checkpoint.records.isEmpty() && checkpoint.pending.isEmpty()) {
+                // The initial cursor was saved before any physical attempt was started.
+            } else {
+                if (acceptedAppend && (!checkpoint.appendReady || checkpoint.lastAttemptOutcome !in setOf("COMPLETED", "OUTPUT_LIMIT", "KNOWN_PROVIDER_REJECTION"))) {
+                    emit(ProviderEvent.Failed("COMBINED_APPEND_REMOTE_COMPLETION_UNKNOWN: The previous request's completion is unknown. Saved passages remain available; review before retrying.", errorCode = "COMBINED_APPEND_REMOTE_COMPLETION_UNKNOWN"))
+                    return@flow
+                }
+                if (acceptedAppend && checkpoint.retryAtMillis?.let { System.currentTimeMillis() < it } == true) {
+                    emit(ProviderEvent.Failed("COMBINED_APPEND_PROVIDER_WAIT: The saved provider reset deadline has not arrived.", errorCode = "COMBINED_APPEND_PROVIDER_WAIT"))
+                    return@flow
+                }
+                if (continuations >= maxContinuations || noProgress >= 2 || checkpoint.failure != null && !protocol.canRecoverMalformed) {
+                    emit(ProviderEvent.Failed("${checkpoint.failure ?: "COMBINED_RECORD_RECOVERY_LIMIT"}: Saved records remain available; this stream requires an explicit new revision."))
+                    return@flow
+                }
+                validateAccess()
+                val context = protocol.continuationContext(repairMalformed = protocol.canRecoverMalformed)
+                save(protocol.checkpoint())
+                continuations++
+                active = continuation(protocol.checkpoint(), context)
             }
-            validateAccess()
-            val context = protocol.continuationContext(repairMalformed = protocol.canRecoverMalformed)
-            save(protocol.checkpoint())
-            continuations++
-            active = continuation(protocol.checkpoint(), context)
         }
         while (true) {
             validateAccess()
             val before = protocol.checkpoint()
+            if (acceptedAppend) {
+                protocol.markAttemptStarted()
+                save(protocol.checkpoint())
+            }
             var complete = false
             var failure: ProviderEvent.Failed? = null
             var finishReason: String? = null
             var rejectedRecord: CombinedRecordFailure? = null
             var reasoningObserved = false
+            var textObserved = false
             try {
                 active.streamRound(emptyList(), emptyList()).withSummedRequestUsage().collect { event ->
                     when (event) {
                         is ProviderEvent.TextDelta -> {
+                            textObserved = textObserved || event.text.isNotBlank()
                             if (protocol.failureReason == null) {
                                 val records = protocol.accept(event.text)
                                 // The transaction includes raw fragments, sequence, text and attribution records.
@@ -67,7 +86,12 @@ internal class CombinedRecordRecoverySession(
                                     savedAt = System.nanoTime()
                                 }
                                 records.forEach { emit(ProviderEvent.TextDelta(it.wire + "\n")) }
-                                protocol.failureReason?.let { reason -> throw CombinedRecordFailure(reason).also { rejectedRecord = it } }
+                                protocol.failureReason?.let { reason ->
+                                    rejectedRecord = CombinedRecordFailure(reason)
+                                    if (!acceptedAppend) throw requireNotNull(rejectedRecord)
+                                }
+                            } else if (acceptedAppend) {
+                                protocol.retainRejected(event.text)
                             }
                         }
                         is ProviderEvent.ToolCall, is ProviderEvent.ToolResult -> throw CombinedRecordFailure("COMBINED_TOOL_REQUEST_REJECTED")
@@ -87,6 +111,7 @@ internal class CombinedRecordRecoverySession(
                     }
                 }
             } catch (error: Exception) {
+                if (acceptedAppend) protocol.markAttemptFinished("UNKNOWN")
                 withContext(NonCancellable) {
                     try {
                         save(protocol.checkpoint())
@@ -100,19 +125,48 @@ internal class CombinedRecordRecoverySession(
                 if (error !== rejectedRecord) throw error
                 failure = ProviderEvent.Failed("OUTPUT_PROTOCOL_INVALID: ${error.message.orEmpty()}", errorCode = "OUTPUT_PROTOCOL_INVALID")
             }
-            val after = protocol.checkpoint()
-            val passagesAdded = after.records.drop(before.records.size).count { record ->
-                val parsed = kotlinx.serialization.json.Json.parseToJsonElement(record.wire) as? kotlinx.serialization.json.JsonObject
-                (parsed?.get("type") as? kotlinx.serialization.json.JsonPrimitive)?.content == "passage"
+            if (rejectedRecord != null && failure == null) {
+                failure = ProviderEvent.Failed("OUTPUT_PROTOCOL_INVALID: ${rejectedRecord?.message.orEmpty()}", errorCode = "OUTPUT_PROTOCOL_INVALID", transportComplete = complete)
             }
+            fun passageText(record: CombinedCommittedRecord): String? {
+                val parsed = kotlinx.serialization.json.Json.parseToJsonElement(record.wire) as? kotlinx.serialization.json.JsonObject
+                if ((parsed?.get("type") as? kotlinx.serialization.json.JsonPrimitive)?.content != "passage") return null
+                return (parsed["text"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.trim()?.replace(Regex("\\s+"), " ")
+            }
+            val previousPassages = before.records.mapNotNull(::passageText).toSet()
+            val newPassages = protocol.checkpoint().records.drop(before.records.size).mapNotNull(::passageText)
+            val passagesAdded = if (acceptedAppend) newPassages.distinct().count { it !in previousPassages } else newPassages.size
             observeAttempt(reasoningObserved, passagesAdded)
+            val outputLimit = finishReason in setOf("length", "max_tokens", "MAX_TOKENS", "output_limit") || failure?.let { dev.chungjungsoo.gptmobile.data.agent.tool.isProviderOutputLimitFailure(it.message) } == true
+            if (acceptedAppend && (textObserved || reasoningObserved) && failure?.providerLimit?.knownNotAccepted == true) {
+                failure = failure?.copy(providerLimit = failure?.providerLimit?.copy(knownNotAccepted = false))
+            }
+            val knownRejection = failure?.providerLimit?.takeIf { it.knownNotAccepted && !textObserved && !reasoningObserved }
+            if (acceptedAppend) {
+                val knownBoundary = complete || failure?.transportComplete == true || finishReason in setOf("length", "max_tokens", "MAX_TOKENS", "output_limit")
+                protocol.markAttemptFinished(
+                    when {
+                        knownRejection != null -> "KNOWN_PROVIDER_REJECTION"
+                        outputLimit && knownBoundary -> "OUTPUT_LIMIT"
+                        complete && (failure == null || rejectedRecord != null) -> "COMPLETED"
+                        else -> "UNKNOWN"
+                    },
+                    knownRejection?.retryAt
+                )
+                if (knownRejection == null) protocol.recordProgress(passagesAdded > 0)
+            }
+            val after = protocol.checkpoint()
             save(after)
             if (failure == null && complete && after.ended && after.pending.isBlank()) {
                 emit(ProviderEvent.Completed)
                 return@flow
             }
-            val outputLimit = finishReason in setOf("length", "max_tokens", "MAX_TOKENS", "output_limit") || failure?.let { dev.chungjungsoo.gptmobile.data.agent.tool.isProviderOutputLimitFailure(it.message) } == true
-            val recoverable = protocol.canRecoverMalformed || outputLimit || (failure == null && complete && !after.ended)
+            if (acceptedAppend && knownRejection != null) {
+                // The durable wait owner schedules this exact cursor; never spin or sleep here.
+                emit(requireNotNull(failure))
+                return@flow
+            }
+            val recoverable = (protocol.canRecoverMalformed || outputLimit || (failure == null && complete && !after.ended)) && (!acceptedAppend || after.appendReady)
             noProgress = if (passagesAdded == 0) noProgress + 1 else 0
             if (!recoverable || continuations >= maxContinuations || noProgress >= 2 || after.failure != null && !protocol.canRecoverMalformed) {
                 emit(
@@ -129,7 +183,7 @@ internal class CombinedRecordRecoverySession(
                 return@flow
             }
             validateAccess()
-            val context = (if (reasoningObserved && passagesAdded == 0) "WRITER_RECOVERY_DIRECT: The previous attempt produced reasoning without an answer passage. Do not repeat analysis or inventory accounting. Write the next complete, short answer paragraph immediately, following the current task and outline. Emit decisions only for material disagreements. " else "") + protocol.continuationContext(repairMalformed = protocol.canRecoverMalformed)
+            val context = (if (!acceptedAppend && reasoningObserved && passagesAdded == 0) "WRITER_RECOVERY_DIRECT: The previous attempt produced reasoning without an answer passage. Do not repeat analysis or inventory accounting. Write the next complete, short answer paragraph immediately, following the current task and outline. Emit decisions only for material disagreements. " else "") + protocol.continuationContext(repairMalformed = protocol.canRecoverMalformed)
             save(protocol.checkpoint())
             continuations++
             emit(ProviderEvent.Notice("Continuing the unfinished answer from saved record ${after.lastSequence + 1}."))

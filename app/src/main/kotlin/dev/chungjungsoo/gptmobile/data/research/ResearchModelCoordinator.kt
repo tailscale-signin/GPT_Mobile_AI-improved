@@ -36,7 +36,9 @@ data class ResearchModelEvent(
     val checkpointId: String? = null,
     val providerHost: String = "",
     val finishReason: String? = null,
-    val requestId: String? = null
+    val requestId: String? = null,
+    val providerLimit: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision? = null,
+    val metrics: ResearchStageMetrics? = null
 )
 
 internal enum class ResearchAdmission {
@@ -56,7 +58,7 @@ internal enum class ResearchAdmission {
     PROVIDER_UNAVAILABLE
 }
 
-internal class ResearchAdmissionRejected(val admission: ResearchAdmission) : IllegalStateException(admission.name)
+internal class ResearchAdmissionRejected(val admission: ResearchAdmission, val providerLimit: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision? = null) : IllegalStateException(admission.name)
 
 internal data class ResearchModelRequestBudget(val outputTokens: Int, val inputTokens: Int = Int.MAX_VALUE, val bounded: Boolean = false)
 
@@ -84,6 +86,7 @@ internal data class ResearchModelEndpoint(
     val admission: (suspend () -> ResearchAdmission)? = null,
     val providerHost: String = "",
     val requestBudget: (Int) -> ResearchModelRequestBudget = { ResearchModelRequestBudget(it) },
+    val providerLimit: (suspend () -> dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision?)? = null,
     val generate: suspend (ResearchModelStage, String, Int) -> ResearchModelReply
 )
 
@@ -96,7 +99,7 @@ internal class ResearchModelCoordinator(
     private val onEvent: suspend (ResearchModelEvent) -> Unit = {},
     private val wallClock: () -> Long = System::currentTimeMillis,
     private val monotonicClock: () -> Long = { System.nanoTime() / 1_000_000 },
-    healthScope: String? = null,
+    private val healthScope: String? = null,
     private val retainPartial: (suspend (String, String, String) -> String?)? = null
 ) {
     private data class CircuitKey(val profileUid: String, val modelKey: String, val stage: ResearchModelStage)
@@ -112,6 +115,7 @@ internal class ResearchModelCoordinator(
     private val failures = health?.first ?: java.util.concurrent.ConcurrentHashMap<CircuitKey, FailureState>()
     private val sharedFailures = health?.second ?: java.util.concurrent.ConcurrentHashMap<String, FailureState>()
     private val history = mutableListOf<ResearchModelEvent>()
+    private val stageTraces = java.util.concurrent.ConcurrentHashMap<String, ResearchStageTrace>()
     private val successfulStages = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val incompleteStages = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     fun completedStage(stage: String): Boolean = stage.uppercase(java.util.Locale.ROOT).let { it in successfulStages && it !in incompleteStages }
@@ -124,13 +128,15 @@ internal class ResearchModelCoordinator(
     }
 
     private suspend fun record(event: ResearchModelEvent) {
-        if (event.outcome == "SUCCESS") successfulStages.add(event.stage)
+        val measured = stageTraces[event.id]?.snapshot() ?: event.metrics
+        val observed = event.copy(metrics = measured, invocationId = event.invocationId ?: measured?.invocationIds?.lastOrNull())
+        if (observed.outcome == "SUCCESS") successfulStages.add(observed.stage)
         synchronized(history) {
-            history.removeAll { it.id == event.id }
-            history += event
+            history.removeAll { it.id == observed.id }
+            history += observed
             if (history.size > 200) history.removeAt(0)
         }
-        onEvent(event)
+        onEvent(observed)
     }
 
     private fun enterCircuit(key: CircuitKey): Boolean {
@@ -159,23 +165,25 @@ internal class ResearchModelCoordinator(
         incompleteStages.add(stage.name)
     }
 
-    suspend fun generate(stage: ResearchModelStage, prompt: String, cap: Int, extractedBy: String = ""): ResearchModelReply? = try {
-        attemptGenerate(stage, prompt, cap, extractedBy).also { if (it == null) incompleteStages.add(stage.name) }
+    suspend fun generate(stage: ResearchModelStage, prompt: String, cap: Int, extractedBy: String = "", workItemId: String? = null): ResearchModelReply? = try {
+        attemptGenerate(stage, prompt, cap, extractedBy, workItemId).also { if (it == null) incompleteStages.add(stage.name) }
     } catch (failure: Throwable) {
         incompleteStages.add(stage.name)
         throw failure
     }
 
-    private suspend fun attemptGenerate(stage: ResearchModelStage, prompt: String, cap: Int, extractedBy: String): ResearchModelReply? {
+    private suspend fun attemptGenerate(stage: ResearchModelStage, prompt: String, cap: Int, extractedBy: String, workItemId: String?): ResearchModelReply? {
         if (!stillEnabled() || cap <= 0) return null
         val candidates = (if (stage == ResearchModelStage.REVIEW) listOfNotNull(reviewer) + workers else workers).distinctBy { it.profileUid }
+        val deferred = mutableListOf<dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision>()
         for (target in candidates) {
             if (!stillEnabled()) return null
             val event = ResearchModelEvent(UUID.randomUUID().toString(), stage.name, target.profileUid, target.model, target.local, "QUEUED", wallClock(), inputTokensEstimate = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(prompt))
+            val trace = ResearchStageTrace(healthScope.orEmpty(), researchHash("${healthScope.orEmpty()}|${stage.name}|${workItemId ?: researchHash(prompt)}"), event.id)
             val circuit = CircuitKey(target.profileUid, target.modelKey, stage)
             val sharedKey = "${target.profileUid}:${target.modelKey}"
             if (sharedFailures[sharedKey]?.let { it.count >= 2 && monotonicClock() < it.retryAt } == true || !enterCircuit(circuit)) {
-                record(event.copy(outcome = "SKIPPED", reason = "MODEL_CIRCUIT_OPEN"))
+                record(event.copy(outcome = "SKIPPED", reason = "MODEL_CIRCUIT_OPEN", metrics = trace.snapshot()))
                 continue
             }
             fun failed(shared: Boolean = false) {
@@ -185,12 +193,19 @@ internal class ResearchModelCoordinator(
             val started = monotonicClock()
             var phase = "READINESS"
             var networkLease: Long? = null
+            stageTraces[event.id] = trace
             try {
                 val admission = withTimeoutOrNull(minOf(5000L, deadlineMillis ?: ResearchTimeouts.MODEL_MS)) {
                     target.admission?.invoke() ?: if (target.available()) ResearchAdmission.ADMITTED else ResearchAdmission.MODEL_NOT_ADMITTED
                 } ?: ResearchAdmission.READINESS_TIMEOUT
                 if (admission != ResearchAdmission.ADMITTED) {
-                    record(event.copy(outcome = "SKIPPED", reason = admission.name, failurePhase = phase, failureCategory = "ADMISSION"))
+                    val limit = if (admission == ResearchAdmission.PROVIDER_COOLDOWN) target.providerLimit?.invoke() else null
+                    if (limit?.knownNotAccepted == true) {
+                        deferred += limit
+                        record(event.copy(outcome = "WAITING_PROVIDER_LIMIT", reason = limit.category, failurePhase = phase, failureCategory = "RATE_LIMITED", providerLimit = limit))
+                    } else {
+                        record(event.copy(outcome = "SKIPPED", reason = admission.name, failurePhase = phase, failureCategory = "ADMISSION"))
+                    }
                     continue
                 }
                 val requestBudget = target.requestBudget(cap)
@@ -207,7 +222,9 @@ internal class ResearchModelCoordinator(
                 }
                 record(event.copy(outcome = "RUNNING", providerHost = target.providerHost))
                 phase = "GENERATION"
-                val reply = withTimeoutOrNull(target.timeoutMillis ?: deadlineMillis ?: stageDeadline(stage)) { target.generate(stage, prompt, requestBudget.outputTokens) }
+                val reply = withTimeoutOrNull(target.timeoutMillis ?: deadlineMillis ?: stageDeadline(stage)) {
+                    kotlinx.coroutines.withContext(trace) { target.generate(stage, prompt, requestBudget.outputTokens) }
+                }
                 if (!stillEnabled()) {
                     record(event.copy(outcome = "CANCELLED", durationMs = elapsed(started), reason = "PERMISSION_REVOKED"))
                     return null
@@ -259,9 +276,21 @@ internal class ResearchModelCoordinator(
                 kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) { record(event.copy(outcome = "CANCELLED", durationMs = elapsed(started), reason = "PARENT_CANCELLED")) }
                 throw cancelled
             } catch (rejected: ResearchAdmissionRejected) {
-                record(event.copy(outcome = "SKIPPED", durationMs = elapsed(started), reason = rejected.admission.name, failurePhase = phase, failureCategory = "ADMISSION"))
+                val limit = rejected.providerLimit
+                if (limit?.knownNotAccepted == true) {
+                    deferred += limit
+                    record(event.copy(outcome = "WAITING_PROVIDER_LIMIT", durationMs = elapsed(started), reason = limit.category, failurePhase = phase, failureCategory = "RATE_LIMITED", providerLimit = limit))
+                } else {
+                    record(event.copy(outcome = "SKIPPED", durationMs = elapsed(started), reason = rejected.admission.name, failurePhase = phase, failureCategory = "ADMISSION"))
+                }
             } catch (error: Exception) {
                 val delegated = error as? dev.chungjungsoo.gptmobile.data.agent.tool.DelegateGenerationException
+                val limit = delegated?.providerLimit
+                if (limit?.knownNotAccepted == true && delegated.partialText.isBlank()) {
+                    deferred += limit
+                    record(event.copy(outcome = "WAITING_PROVIDER_LIMIT", reason = limit.category, failurePhase = phase, failureCategory = "RATE_LIMITED", providerLimit = limit, durationMs = elapsed(started)))
+                    continue
+                }
                 val category = failureCategory(error)
                 val dns = generateSequence<Throwable>(error) { it.cause?.takeUnless { cause -> cause === it } }.take(16).any { it is java.net.UnknownHostException } || error.message.orEmpty().contains("UnknownHostException") || error.message.orEmpty().contains("DNS", true)
                 if (dns && target.providerHost.isNotBlank()) dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.failed(target.providerHost, java.net.UnknownHostException("DNS resolution failed"))
@@ -287,12 +316,16 @@ internal class ResearchModelCoordinator(
                     )
                 )
             } finally {
+                stageTraces.remove(event.id)
                 networkLease?.let { dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.release(it) }
                 // A canceled or inadmissible half-open probe must not strand the stage indefinitely.
                 failures.computeIfPresent(circuit) { _, state ->
                     if (state.probe) state.copy(probe = false, retryAt = monotonicClock() + 30_000L) else state
                 }
             }
+        }
+        deferred.minByOrNull { it.retryAt }?.let { limit ->
+            throw ResearchProviderDeferred(ResearchDeferredStage(healthScope.orEmpty(), stage.name, researchHash(prompt), limit, workItemId))
         }
         return null
     }

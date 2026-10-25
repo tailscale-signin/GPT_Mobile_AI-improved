@@ -65,6 +65,12 @@ class NewChatViewModel @Inject constructor(
     fun toggleProfile(uid: String) {
         val profile = profiles.value.firstOrNull { it.uid == uid && it.enabled } ?: return
         val current = selectedUids.value
+        if (uid !in current) {
+            dev.chungjungsoo.gptmobile.data.network.FreeProviderPreflight.check(profile)?.let {
+                _error.value = it.message
+                return
+            }
+        }
         val next = if (type == NewChatType.SINGLE) {
             if (current.singleOrNull() == uid) emptyList() else listOf(uid)
         } else if (uid in current) {

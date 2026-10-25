@@ -41,29 +41,55 @@ class PlannedLocalRuntime(
     @Volatile
     private var admissionFailure: String? = null
 
-    private suspend fun artifactIdentity(spec: LocalEngineSpec): String = kotlinx.coroutines.withContext(Dispatchers.IO) {
-        RuntimeEvidenceIdentity.artifactDigest(File(spec.modelPath), File(context.noBackupFilesDir, "model-identity-cache"))
-    }
+    private suspend fun artifactIdentity(spec: LocalEngineSpec): String =
+        kotlinx.coroutines.withContext(Dispatchers.IO) {
+            RuntimeEvidenceIdentity.artifactDigest(File(spec.modelPath), File(context.noBackupFilesDir, "model-identity-cache"))
+        }
+
     init {
         stateScope.launch {
             delegate.state.collect { actual ->
                 synchronized(stateLock) {
                     val blocked = admissionFailure
-                    mutableState.value = actual.copy(
-                        decision = mutableState.value.decision,
-                        admissionReceipt = actual.admissionReceipt ?: mutableState.value.admissionReceipt?.let { receipt -> if (actual.loadProgress != null || actual.allocationObservation != null) receipt.copy(nativeLoadDispatched = true) else receipt },
-                        requestedMtp = effective?.speculativeDecoding,
-                        lifecycle = if (blocked != null) "FAILED" else actual.lifecycle,
-                        fallbackReason = blocked ?: actual.fallbackReason ?: tuningNotice
-                    )
+                    mutableState.value =
+                        actual.copy(
+                            decision = mutableState.value.decision,
+                            admissionReceipt =
+                            actual.admissionReceipt
+                                ?: mutableState.value.admissionReceipt?.let { receipt ->
+                                    if (actual.loadProgress != null ||
+                                        actual.allocationObservation != null
+                                    ) {
+                                        receipt.copy(nativeLoadDispatched = true)
+                                    } else {
+                                        receipt
+                                    }
+                                },
+                            requestedMtp = effective?.speculativeDecoding,
+                            lifecycle = if (blocked != null) "FAILED" else actual.lifecycle,
+                            fallbackReason = blocked ?: actual.fallbackReason ?: tuningNotice
+                        )
                 }
             }
         }
     }
 
-    private fun requireAdmission(estimate: LocalMemoryEstimate, stage: String, nativeLoadAttempted: Boolean, accelerator: String? = delegate.loadedEngineSpec()?.accelerator) {
-        val rejection = admission.evaluate(getHardwareState(), estimate.availableBytes, estimate.requiredBytes, estimate.reserveBytes, optional = false)
-        mutableState.value = state.value.copy(admissionReceipt = estimate.receipt(stage, rejection == null, delegate.loadedEngineSpec() != null))
+    private fun requireAdmission(
+        estimate: LocalMemoryEstimate,
+        stage: String,
+        nativeLoadAttempted: Boolean,
+        accelerator: String? = delegate.loadedEngineSpec()?.accelerator
+    ) {
+        val rejection =
+            admission.evaluate(
+                getHardwareState(),
+                estimate.availableBytes,
+                estimate.requiredBytes,
+                estimate.reserveBytes,
+                optional = false
+            )
+        mutableState.value =
+            state.value.copy(admissionReceipt = estimate.receipt(stage, rejection == null, delegate.loadedEngineSpec() != null))
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
             "LocalModel",
             "LOCAL_MEMORY_PREFLIGHT · stage=$stage · status=${if (rejection == null) "ADMITTED" else "REJECTED"}" +
@@ -74,11 +100,14 @@ class PlannedLocalRuntime(
                 " · contextTokens=${estimate.contextTokens} · estimate=${estimate.method} · nativeLoadAttempted=$nativeLoadAttempted"
         )
         if (rejection != null) {
-            val failure = if (rejection.reason == LocalAdmissionReason.MEMORY) {
-                estimate.rejection(rejection.message, stage, nativeLoadAttempted)
-            } else {
-                IllegalStateException("${rejection.reason}_ADMISSION_REJECTED · stage=$stage · nativeLoadAttempted=$nativeLoadAttempted. ${rejection.message}")
-            }
+            val failure =
+                if (rejection.reason == LocalAdmissionReason.MEMORY) {
+                    estimate.rejection(rejection.message, stage, nativeLoadAttempted)
+                } else {
+                    IllegalStateException(
+                        "${rejection.reason}_ADMISSION_REJECTED · stage=$stage · nativeLoadAttempted=$nativeLoadAttempted. ${rejection.message}"
+                    )
+                }
             synchronized(stateLock) {
                 admissionFailure = failure.message
                 mutableState.value = state.value.copy(lifecycle = "FAILED", fallbackReason = failure.message)
@@ -89,7 +118,13 @@ class PlannedLocalRuntime(
             if (admissionFailure != null) {
                 admissionFailure = null
                 val actual = delegate.state.value
-                mutableState.value = actual.copy(decision = state.value.decision, requestedMtp = effective?.speculativeDecoding, fallbackReason = actual.fallbackReason ?: tuningNotice)
+                mutableState.value =
+                    actual.copy(
+                        decision = state.value.decision,
+                        requestedMtp = effective?.speculativeDecoding,
+                        fallbackReason =
+                        actual.fallbackReason ?: tuningNotice
+                    )
             }
         }
     }
@@ -101,54 +136,225 @@ class PlannedLocalRuntime(
         val current = settings.getFeatureSettings()
         val tuning = current.localEngineTuning()
         val capabilities = delegate.inspectModel(spec.modelPath)
-        val speculative = compatibleSpeculativeDecoding(tuning.speculativeDecoding, capabilities)
-        val tuned = if (spec.tuningLocked) spec else spec.copy(cpuThreads = tuning.cpuThreads, ggufBatchTokens = tuning.ggufBatchTokens, ggufMicroBatchTokens = minOf(tuning.ggufMicroBatchTokens, tuning.ggufBatchTokens), ggufPromptThreads = tuning.ggufPromptThreads, cacheEnabled = tuning.cacheEnabled, speculativeDecoding = speculative, nativeMetricsEnabled = tuning.nativeMetricsEnabled, tuningLocked = true)
-        tuningNotice = if (!spec.tuningLocked && tuning.speculativeDecoding == true && tuned.speculativeDecoding == false) {
-            "Speculative decoding is unavailable for this package; using ordinary decoding."
-        } else {
-            null
-        }
-        var evidenceKey: RuntimeQualificationKey? = null
-        val decision = run {
-            evidence.load()
-            val key = RuntimeEvidenceIdentity.key(context, tuned, tuned.samplerIdentity, tuned.workload)
-            evidenceKey = key
-            val allowed = evidence.runtimeQualifications.value.filter {
-                it.plan.languageBackend in capabilities?.backends.orEmpty() &&
-                    (it.plan.speculativeDecoding != true || capabilities?.speculative == true)
+        val speculative = spec.speculativeDecoding ?: compatibleSpeculativeDecoding(tuning.speculativeDecoding, capabilities)
+        val tuned =
+            if (spec.tuningLocked) {
+                spec
+            } else {
+                spec.copy(
+                    cpuThreads = tuning.cpuThreads,
+                    ggufBatchTokens = tuning.ggufBatchTokens,
+                    ggufMicroBatchTokens = minOf(tuning.ggufMicroBatchTokens, tuning.ggufBatchTokens),
+                    ggufPromptThreads = tuning.ggufPromptThreads,
+                    cacheEnabled = tuning.cacheEnabled,
+                    speculativeDecoding = speculative,
+                    nativeMetricsEnabled = spec.nativeMetricsEnabled || tuning.nativeMetricsEnabled,
+                    tuningLocked = true
+                )
             }
-            planner.select(if (spec.tuningLocked) LocalExecutionPolicy.PROFILE else current.localExecutionPolicy, RuntimeEvidenceIdentity.plan(key), key, allowed, spec.expectedOutputTokens, delegate.loadedEngineSpec()?.let { state.value.decision?.selected?.id })
-        }
-        val chosen = tuned.copy(accelerator = decision?.selected?.languageBackend ?: tuned.accelerator, speculativeDecoding = decision?.selected?.speculativeDecoding ?: tuned.speculativeDecoding, admissionReserveBytes = current.localMemoryReserveMb.coerceIn(256, 4096) * 1024L * 1024)
+        tuningNotice =
+            if (!spec.tuningLocked && spec.speculativeDecoding == null && tuning.speculativeDecoding == true && tuned.speculativeDecoding == false) {
+                "Speculative decoding is unavailable for this package; using ordinary decoding."
+            } else {
+                null
+            }
+        var evidenceKey: RuntimeQualificationKey? = null
+        val decision =
+            run {
+                evidence.load()
+                val key = RuntimeEvidenceIdentity.key(context, tuned, tuned.samplerIdentity, tuned.workload)
+                evidenceKey = key
+                val allowed =
+                    evidence.runtimeQualifications.value.filter {
+                        it.plan.languageBackend in capabilities?.backends.orEmpty() &&
+                            (it.plan.speculativeDecoding != true || capabilities?.speculative == true) &&
+                            (spec.speculativeDecoding == null || it.plan.speculativeDecoding == spec.speculativeDecoding)
+                    }
+                planner
+                    .select(
+                        if (spec.tuningLocked) LocalExecutionPolicy.PROFILE else current.localExecutionPolicy,
+                        RuntimeEvidenceIdentity.plan(
+                            key
+                        ),
+                        key,
+                        allowed,
+                        spec.expectedOutputTokens,
+                        delegate.loadedEngineSpec()?.let {
+                            state.value.decision
+                                ?.selected
+                                ?.id
+                        }
+                    )
+            }
+        val chosen =
+            tuned.copy(
+                accelerator = decision?.selected?.languageBackend ?: tuned.accelerator,
+                speculativeDecoding =
+                spec.speculativeDecoding ?: decision?.selected?.speculativeDecoding ?: tuned.speculativeDecoding,
+                admissionReserveBytes =
+                current.localMemoryReserveMb.coerceIn(256, 4096) * 1024L * 1024
+            )
+        delegate.inspectModel(chosen)
         val warm = delegate.loadedEngineSpec()
         val assetBytes = withContext(Dispatchers.IO) { localModelAssetBytes(File(spec.modelPath)) }
-        val estimate = if (warm?.engineConfiguration() == chosen.engineConfiguration()) {
-            128L * 1024 * 1024
-        } else {
-            assetBytes + chosen.maxTokens * maxOf(256L * 1024, capabilities?.kvBytesPerToken ?: 0L) + 128L * 1024 * 1024 + (if (chosen.speculativeDecoding == true) assetBytes / 3 else 0) + (if (spec.isVisionEnabled) 256L * 1024 * 1024 else 0)
-        }
-        val isGguf = spec.modelPath.endsWith(".gguf", true) || spec.modelPath.endsWith("manifest.json") && dev.chungjungsoo.gptmobile.data.localmodel.ArtifactManifestStore.read(File(spec.modelPath)).runtime == dev.chungjungsoo.gptmobile.data.localmodel.ArtifactRuntime.LLAMA_CPP
-        val calibrationArtifact = withContext(Dispatchers.IO) { if (isGguf && spec.modelPath.endsWith("manifest.json")) dev.chungjungsoo.gptmobile.data.localmodel.ArtifactManifestStore.read(File(spec.modelPath)).let { manifest -> manifest.files.first { it.path == manifest.entryFile }.sha256 } else artifact }
-        val calibrationKey = LocalMemoryCalibrationStore.key(calibrationArtifact, chosen)
-        val calibration = withContext(Dispatchers.IO) { if (isGguf) LocalMemoryCalibrationStore(File(context.noBackupFilesDir, "local-memory-calibration")).read(calibrationKey) else null }
-        val components = if (isGguf && warm?.engineConfiguration() != chosen.engineConfiguration()) ggufMemoryComponents(assetBytes, chosen.maxTokens, capabilities?.kvBytesPerToken ?: 0, chosen.ggufBatchTokens, chosen.ggufMicroBatchTokens, GgufCpuThreads.resolve(chosen.ggufPromptThreads ?: chosen.cpuThreads, Runtime.getRuntime().availableProcessors()), chosen.accelerator, calibration) else emptyMap()
-        val memoryEstimate = LocalMemoryEstimate(
-            if (components.isEmpty()) estimate else maxOf(estimate, components.totalMemoryBytes()),
-            current.localMemoryReserveMb.coerceIn(256, 4096) * 1024L * 1024,
-            availableMemory(),
-            chosen.maxTokens,
+        val estimate =
             if (warm?.engineConfiguration() == chosen.engineConfiguration()) {
-                "warm_incremental_reserve"
-            } else if (calibration != null) {
-                "conservative_component_calibrated"
+                128L * 1024 * 1024
             } else {
-                "conservative_unmeasured"
-            },
-            components,
-            spec.maxTokens,
-            calibrationKey,
-            systemMemory = LocalWorkloadAdmission.memorySnapshot(context)
-        )
+                assetBytes + chosen.maxTokens * maxOf(256L * 1024, capabilities?.kvBytesPerToken ?: 0L) + 128L * 1024 * 1024 +
+                    (if (chosen.speculativeDecoding == true) assetBytes / 3 else 0) +
+                    (if (spec.isVisionEnabled) 256L * 1024 * 1024 else 0)
+            }
+        val isGguf =
+            spec.modelPath.endsWith(".gguf", true) ||
+                spec.modelPath.endsWith("manifest.json") &&
+                dev.chungjungsoo.gptmobile.data.localmodel.ArtifactManifestStore
+                    .read(File(spec.modelPath))
+                    .runtime ==
+                dev.chungjungsoo.gptmobile.data.localmodel.ArtifactRuntime.LLAMA_CPP
+        val calibrationArtifact =
+            withContext(Dispatchers.IO) {
+                if (isGguf &&
+                    spec.modelPath.endsWith("manifest.json")
+                ) {
+                    dev.chungjungsoo.gptmobile.data.localmodel.ArtifactManifestStore.read(File(spec.modelPath)).let { manifest ->
+                        manifest.files
+                            .first {
+                                it.path ==
+                                    manifest.entryFile
+                            }.sha256
+                    }
+                } else {
+                    artifact
+                }
+            }
+        val calibrationKey = LocalMemoryCalibrationStore.key(calibrationArtifact, chosen)
+        val calibration =
+            withContext(Dispatchers.IO) {
+                if (isGguf) {
+                    LocalMemoryCalibrationStore(
+                        File(context.noBackupFilesDir, "local-memory-calibration")
+                    ).read(calibrationKey)
+                } else {
+                    null
+                }
+            }
+        val components =
+            if (isGguf &&
+                warm?.engineConfiguration() != chosen.engineConfiguration()
+            ) {
+                ggufMemoryComponents(
+                    assetBytes,
+                    chosen.maxTokens,
+                    capabilities?.kvBytesPerToken ?: 0,
+                    chosen.ggufBatchTokens,
+                    chosen.ggufMicroBatchTokens,
+                    GgufCpuThreads.resolve(
+                        chosen.ggufPromptThreads ?: chosen.cpuThreads,
+                        Runtime.getRuntime().availableProcessors()
+                    ),
+                    chosen.accelerator,
+                    calibration,
+                    geometryKnown =
+                    capabilities?.kvBytesPerToken != null
+                ).withContextHysteresis(chosen.contextPolicy)
+            } else {
+                emptyMap()
+            }
+        val snapshotBytes = availableMemory()
+        val planReceipt =
+            if (isGguf) {
+                MemoryPlanReceipt(
+                    planId = calibrationKey,
+                    artifactDigest = calibrationArtifact,
+                    runtimeRevision = dev.melo.gguf.GgufNative.REVISION,
+                    selectedBackend = chosen.accelerator,
+                    contextPolicy = chosen.contextPolicy,
+                    contextTokens = chosen.maxTokens,
+                    requestedContextTokens = spec.maxTokens,
+                    kvBytesPerToken = capabilities?.kvBytesPerToken,
+                    kvType =
+                    "f16".takeIf {
+                        capabilities?.kvBytesPerToken !=
+                            null
+                    },
+                    geometryEvidence =
+                    if (capabilities?.kvBytesPerToken !=
+                        null
+                    ) {
+                        "validated_uniform_metadata"
+                    } else if (calibration?.schemaVersion ==
+                        2
+                    ) {
+                        "exact_shape_native_high_water"
+                    } else {
+                        "unknown_conservative"
+                    },
+                    requestedOffloadLayers = chosen.ggufGpuLayers.takeIf { LocalAccelerators.isGpu(chosen.accelerator) } ?: 0,
+                    actualOffloadLayers =
+                    delegate.latestEngineLoadReceipt?.actualOffloadLayers.takeIf {
+                        warm?.engineConfiguration() ==
+                            chosen.engineConfiguration()
+                    },
+                    residentEngineReuse = warm?.engineConfiguration() == chosen.engineConfiguration(),
+                    residentEngineInstanceId =
+                    delegate.executionIdentity.engineInstanceId.takeIf {
+                        warm?.engineConfiguration() ==
+                            chosen.engineConfiguration()
+                    },
+                    mappedModelFileBytes = assetBytes,
+                    components = components,
+                    calibrationSchemaVersion = calibration?.schemaVersion,
+                    uncertaintyBasis = "component_margin_plus_user_reserve;PSS_not_added",
+                    availableBytes = snapshotBytes,
+                    reserveBytes = chosen.admissionReserveBytes,
+                    observedAtMillis = System.currentTimeMillis(),
+                    observedAtElapsedMs = android.os.SystemClock.elapsedRealtime()
+                )
+            } else {
+                null
+            }
+        val memoryEstimate =
+            LocalMemoryEstimate(
+                if (components.isEmpty()) estimate else components.totalMemoryBytes(),
+                current.localMemoryReserveMb.coerceIn(256, 4096) * 1024L * 1024,
+                snapshotBytes,
+                chosen.maxTokens,
+                if (warm?.engineConfiguration() == chosen.engineConfiguration()) {
+                    "warm_incremental_reserve"
+                } else if (calibration != null) {
+                    "conservative_component_calibrated"
+                } else {
+                    "conservative_unmeasured"
+                },
+                components,
+                spec.maxTokens,
+                calibrationKey,
+                systemMemory = LocalWorkloadAdmission.memorySnapshot(context),
+                memoryPlan = planReceipt
+            )
+        if (isGguf && chosen.contextPolicy == "AUTO" && components.isNotEmpty() && memoryEstimate.budget.hasShortfall) {
+            val suggestion =
+                runCatching {
+                    memoryFeasibleContext(
+                        chosen.maxTokens - 1,
+                        assetBytes,
+                        snapshotBytes,
+                        chosen.admissionReserveBytes + AUTO_CONTEXT_HYSTERESIS_BYTES,
+                        kvBytesPerToken = capabilities?.kvBytesPerToken ?: 256L * 1024,
+                        batch = chosen.ggufBatchTokens,
+                        microBatch = chosen.ggufMicroBatchTokens,
+                        threads =
+                        GgufCpuThreads.resolve(
+                            chosen.ggufPromptThreads ?: chosen.cpuThreads,
+                            Runtime.getRuntime().availableProcessors()
+                        ),
+                        accelerator = chosen.accelerator,
+                        geometryKnown = capabilities?.kvBytesPerToken != null
+                    )
+                }.getOrNull()
+            if (suggestion != null) throw LocalContextReplanRequired(chosen.maxTokens, suggestion, memoryEstimate.receipt("load", false))
+        }
         mutableState.value = state.value.copy(decision = decision)
         requireAdmission(memoryEstimate, stage = "load", nativeLoadAttempted = false, accelerator = chosen.accelerator)
         mutableState.value = state.value.copy(lifecycle = "LOADING", decision = decision)
@@ -159,27 +365,72 @@ class PlannedLocalRuntime(
             requested = spec
             preference = current.localExecutionPolicy to tuning
             val actual = delegate.state.value
-            val actualDecision = decision?.let {
-                if (actual.engineSpec?.accelerator == it.selected.languageBackend) it else it.copy(qualification = QualificationStatus.NOT_TESTED, reason = "Runtime used a fallback; its configuration requires separate measurement")
-            }
-            mutableState.value = actual.copy(decision = actualDecision?.copy(actualLanguageBackend = actual.engineSpec?.accelerator), lifecycle = "READY", admissionReceipt = state.value.admissionReceipt, requestedMtp = chosen.speculativeDecoding, fallbackReason = actual.fallbackReason ?: tuningNotice)
+            val actualDecision =
+                decision?.let {
+                    if (actual.engineSpec?.accelerator ==
+                        it.selected.languageBackend
+                    ) {
+                        it
+                    } else {
+                        it.copy(
+                            qualification = QualificationStatus.NOT_TESTED,
+                            reason = "Runtime used a fallback; its configuration requires separate measurement"
+                        )
+                    }
+                }
+            mutableState.value =
+                actual.copy(
+                    decision = actualDecision?.copy(actualLanguageBackend = actual.engineSpec?.accelerator),
+                    lifecycle = "READY",
+                    admissionReceipt = state.value.admissionReceipt,
+                    requestedMtp = chosen.speculativeDecoding,
+                    fallbackReason =
+                    actual.fallbackReason ?: tuningNotice
+                )
             if (actualDecision != null && evidenceKey != null) {
-                evidence.saveRuntimeDecision(RuntimePlanDecisionRecord(java.util.UUID.randomUUID().toString(), System.currentTimeMillis(), evidenceKey, actualDecision, actual.engineSpec?.accelerator))
+                evidence.saveRuntimeDecision(
+                    RuntimePlanDecisionRecord(
+                        java.util.UUID
+                            .randomUUID()
+                            .toString(),
+                        System.currentTimeMillis(),
+                        evidenceKey,
+                        actualDecision,
+                        actual.engineSpec?.accelerator
+                    )
+                )
             }
         } catch (error: Throwable) {
             requested = null
             effective = null
-            mutableState.value = delegate.state.value.copy(decision = decision, lifecycle = "FAILED", admissionReceipt = state.value.admissionReceipt, fallbackReason = error.message)
+            mutableState.value =
+                delegate.state.value.copy(
+                    decision = decision,
+                    lifecycle = "FAILED",
+                    admissionReceipt = state.value.admissionReceipt,
+                    fallbackReason = error.message
+                )
             throw error
         }
     }
 
-    override suspend fun contextForRequest(profileUid: String, modelPath: String, maximum: Int): Int {
-        val resizableGguf = withContext(Dispatchers.IO) {
-            modelPath.endsWith(".gguf", ignoreCase = true) ||
-                modelPath.endsWith("manifest.json") &&
-                dev.chungjungsoo.gptmobile.data.localmodel.ArtifactManifestStore.read(File(modelPath)).runtime == dev.chungjungsoo.gptmobile.data.localmodel.ArtifactRuntime.LLAMA_CPP
-        }
+    override suspend fun contextPolicyForRequest(profileUid: String): String =
+        (settings.getFeatureSettings().localContextPreferences[profileUid] ?: LocalContextPreference()).validated().policy
+
+    override suspend fun contextForRequest(
+        profileUid: String,
+        modelPath: String,
+        maximum: Int
+    ): Int {
+        val resizableGguf =
+            withContext(Dispatchers.IO) {
+                modelPath.endsWith(".gguf", ignoreCase = true) ||
+                    modelPath.endsWith("manifest.json") &&
+                    dev.chungjungsoo.gptmobile.data.localmodel.ArtifactManifestStore
+                        .read(File(modelPath))
+                        .runtime ==
+                    dev.chungjungsoo.gptmobile.data.localmodel.ArtifactRuntime.LLAMA_CPP
+            }
         if (!resizableGguf) return maximum
         val preferences = settings.getFeatureSettings()
         val preference = (preferences.localContextPreferences[profileUid] ?: LocalContextPreference()).validated()
@@ -194,49 +445,118 @@ class PlannedLocalRuntime(
             effective = null
         }
         val bytes = withContext(Dispatchers.IO) { localModelAssetBytes(File(modelPath)) }
-        val geometry = delegate.inspectModel(modelPath)?.kvBytesPerToken ?: 256L * 1024
-        val accelerator = settings.fetchPlatformV2s().firstOrNull { it.uid == profileUid }?.accelerator?.let(LocalAccelerators::normalize) ?: LocalAccelerators.CPU
+        val knownGeometry = delegate.inspectModel(modelPath)?.kvBytesPerToken
+        val geometry = knownGeometry ?: 256L * 1024
+        val accelerator =
+            settings
+                .fetchPlatformV2s()
+                .firstOrNull { it.uid == profileUid }
+                ?.accelerator
+                ?.let(LocalAccelerators::normalize)
+                ?: LocalAccelerators.CPU
         val tuning = preferences.localEngineTuning()
-        return memoryFeasibleContext(maximum, bytes, availableMemory(), preferences.localMemoryReserveMb.coerceIn(256, 4096) * 1024L * 1024, manual, geometry, tuning.ggufBatchTokens, tuning.ggufMicroBatchTokens, GgufCpuThreads.resolve(tuning.ggufPromptThreads ?: tuning.cpuThreads, Runtime.getRuntime().availableProcessors()), accelerator)
+        return memoryFeasibleContext(
+            maximum,
+            bytes,
+            availableMemory(),
+            preferences.localMemoryReserveMb.coerceIn(256, 4096) * 1024L * 1024 +
+                if (manual ==
+                    null
+                ) {
+                    AUTO_CONTEXT_HYSTERESIS_BYTES
+                } else {
+                    0
+                },
+            manual,
+            geometry,
+            tuning.ggufBatchTokens,
+            tuning.ggufMicroBatchTokens,
+            GgufCpuThreads.resolve(
+                tuning.ggufPromptThreads ?: tuning.cpuThreads,
+                Runtime.getRuntime().availableProcessors()
+            ),
+            accelerator,
+            geometryKnown =
+            knownGeometry != null
+        )
     }
 
     override suspend fun isEngineLoaded(spec: LocalEngineSpec): Boolean {
         val current = settings.getFeatureSettings()
-        return requested == spec && artifactAtLoad == artifactIdentity(spec) && (spec.tuningLocked || preference == current.localExecutionPolicy to current.localEngineTuning()) && effective?.let { delegate.isEngineLoaded(it) } == true
+        return requested == spec &&
+            artifactAtLoad == artifactIdentity(spec) &&
+            (spec.tuningLocked || preference == current.localExecutionPolicy to current.localEngineTuning()) &&
+            effective?.let { delegate.isEngineLoaded(it) } == true
     }
 
-    override suspend fun createConversation(config: LocalConversationConfig) = delegate.createConversation(config.copy(speculativeDecoding = config.speculativeDecoding ?: effective?.speculativeDecoding))
-
-    override fun sendMessage(text: String, images: List<ByteArray>): Flow<LocalRuntimeEvent> = flow {
-        val current = settings.getFeatureSettings()
-        val loaded = delegate.loadedEngineSpec()
-        val estimate = LocalMemoryEstimate(
-            requiredBytes = 64L * 1024 * 1024,
-            reserveBytes = current.localMemoryReserveMb.coerceIn(256, 4096) * 1024L * 1024,
-            availableBytes = availableMemory(),
-            contextTokens = loaded?.maxTokens ?: 0,
-            method = "generation_incremental_reserve",
-            systemMemory = LocalWorkloadAdmission.memorySnapshot(context)
+    override suspend fun createConversation(config: LocalConversationConfig) =
+        delegate.createConversation(
+            config.copy(
+                speculativeDecoding =
+                config.speculativeDecoding ?: effective?.speculativeDecoding
+            )
         )
-        requireAdmission(estimate, stage = "generate", nativeLoadAttempted = loaded != null)
-        mutableState.value = state.value.copy(decision = state.value.decision?.copy(requestCompleted = null))
-        delegate.sendMessage(text, images).collect { event ->
-            mutableState.value = state.value.copy(
-                lifecycle = delegate.state.value.lifecycle,
-                decision = state.value.decision?.let { decision ->
-                    decision.copy(
-                        actualLanguageBackend = delegate.state.value.engineSpec?.accelerator,
-                        requestCompleted = when (event) {
-                            LocalRuntimeEvent.Done -> true
-                            is LocalRuntimeEvent.Error -> false
-                            else -> decision.requestCompleted
+
+    override fun sendMessage(
+        text: String,
+        images: List<ByteArray>
+    ): Flow<LocalRuntimeEvent> = sendMessageWithBudget(text, images, 0)
+
+    override fun sendMessageWithBudget(
+        text: String,
+        images: List<ByteArray>,
+        safetyTokens: Int
+    ): Flow<LocalRuntimeEvent> =
+        flow {
+            val current = settings.getFeatureSettings()
+            val loaded = delegate.loadedEngineSpec()
+            val estimate =
+                LocalMemoryEstimate(
+                    requiredBytes = 64L * 1024 * 1024,
+                    reserveBytes = current.localMemoryReserveMb.coerceIn(256, 4096) * 1024L * 1024,
+                    availableBytes = availableMemory(),
+                    contextTokens = loaded?.maxTokens ?: 0,
+                    method = "generation_incremental_reserve",
+                    systemMemory = LocalWorkloadAdmission.memorySnapshot(context)
+                )
+            requireAdmission(estimate, stage = "generate", nativeLoadAttempted = loaded != null)
+            mutableState.value = state.value.copy(decision = state.value.decision?.copy(requestCompleted = null))
+            delegate.sendMessageWithBudget(text, images, safetyTokens).collect { event ->
+                mutableState.value =
+                    state.value.copy(
+                        lifecycle = delegate.state.value.lifecycle,
+                        decision =
+                        state.value.decision?.let { decision ->
+                            decision.copy(
+                                actualLanguageBackend =
+                                delegate.state.value.engineSpec
+                                    ?.accelerator,
+                                requestCompleted =
+                                when (event) {
+                                    LocalRuntimeEvent.Done -> true
+                                    is LocalRuntimeEvent.Error -> false
+                                    else -> decision.requestCompleted
+                                }
+                            )
                         }
                     )
-                }
-            )
-            emit(if (event is LocalRuntimeEvent.Metrics) event.copy(metrics = event.metrics.copy(planId = state.value.decision?.selected?.id)) else event)
+                emit(
+                    if (event is LocalRuntimeEvent.Metrics) {
+                        event.copy(
+                            metrics =
+                            event.metrics.copy(
+                                planId =
+                                state.value.decision
+                                    ?.selected
+                                    ?.id
+                            )
+                        )
+                    } else {
+                        event
+                    }
+                )
+            }
         }
-    }
 
     override fun cancelActive() {
         mutableState.value = state.value.copy(lifecycle = "CANCELLING")
@@ -259,5 +579,7 @@ class PlannedLocalRuntime(
 }
 
 /** A global speed preference must not prevent ordinary decoding on another package. */
-internal fun compatibleSpeculativeDecoding(requested: Boolean?, capabilities: LocalModelCapabilities?): Boolean? =
-    if (requested == true && capabilities?.speculative != true) false else requested
+internal fun compatibleSpeculativeDecoding(
+    requested: Boolean?,
+    capabilities: LocalModelCapabilities?
+): Boolean? = if (requested == true && capabilities?.speculative != true) false else requested

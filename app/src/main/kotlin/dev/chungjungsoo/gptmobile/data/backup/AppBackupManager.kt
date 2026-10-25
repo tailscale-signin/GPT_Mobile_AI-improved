@@ -327,7 +327,7 @@ class AppBackupManager @Inject constructor(
         runCatching {
             val chatRooms = chatRoomV2Dao.getChatRooms() + chatRoomV2Dao.getArchivedChatRooms()
             val allMessages = chatRooms.flatMap { room ->
-                messageV2Dao.loadMessages(room.id)
+                messageV2Dao.loadMessages(room.id).map { dev.chungjungsoo.gptmobile.data.agent.CombinedDocuments.inlinePortable(it) }
             }
             val allModels = chatRooms.flatMap { room ->
                 chatPlatformModelV2Dao.getByChatId(room.id)
@@ -399,7 +399,7 @@ class AppBackupManager @Inject constructor(
                 payload.conversationFolderMembers.forEach { database.conversationFolderDao().move(it) }
 
                 if (payload.messages.isNotEmpty()) {
-                    messageV2Dao.addMessages(*payload.messages.toTypedArray())
+                    messageV2Dao.addMessages(*payload.messages.map { dev.chungjungsoo.gptmobile.data.agent.CombinedDocuments.inlinePortable(it) }.toTypedArray())
                 }
 
                 database.replyPublicationDao().restore(payload.replyPublications)
@@ -431,11 +431,11 @@ class AppBackupManager @Inject constructor(
     /**
      * Returns the latest backup status (timestamp and count).
      */
-    fun getBackupStatus(): BackupStatus {
+    suspend fun getBackupStatus(): BackupStatus = withContext(Dispatchers.IO) {
         val prefs = context.getSharedPreferences(PREFS_BACKUP_METADATA, Context.MODE_PRIVATE)
         val lastEpoch = prefs.getLong(KEY_LAST_BACKUP_TIME, 0L)
         val count = prefs.getInt(KEY_BACKUP_COUNT, 0)
-        return BackupStatus(
+        BackupStatus(
             lastBackupEpochMs = if (lastEpoch > 0L) lastEpoch else null,
             backupCount = count
         )

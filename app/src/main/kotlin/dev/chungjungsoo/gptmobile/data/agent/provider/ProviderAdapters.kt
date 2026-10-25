@@ -743,6 +743,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                         val llamaReasoningParser = if (isLlama || isNvidia) GroqReasoningParser() else null
                         var deliveredPayload = false
                         var protocolErrorCode: String? = null
+                        var providerLimitDecision: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision? = null
                         var observedModel: String? = null
                         var observedBackend: String? = null
                         var observedReasoning = false
@@ -835,6 +836,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                                     roundFailed = true
                                     streamInterrupted = true
                                     lastFailedMessage = error.message
+                                    providerLimitDecision = error.providerLimit
                                     protocolErrorCode = error.type?.uppercase()?.takeIf { category -> dev.chungjungsoo.gptmobile.data.network.FreeFailureCategory.entries.any { it.name == category } }
                                         ?: error.code ?: error.type ?: protocolErrorCode
                                     canRotate = ApiCredentialRotator.containsQuotaOrRateLimitMessage(error.message)
@@ -907,7 +909,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                         } else if (canRotate && !deliveredPayload && attempt < attempts - 1) {
                             break
                         } else {
-                            emit(ProviderEvent.Failed(lastFailedMessage ?: "Provider request failed", errorCode = protocolErrorCode, transportComplete = !streamInterrupted && terminalReceived && protocolErrorCode == null && lastFinishReason == "length"))
+                            emit(ProviderEvent.Failed(lastFailedMessage ?: "Provider request failed", errorCode = protocolErrorCode, transportComplete = !streamInterrupted && terminalReceived && protocolErrorCode == null && lastFinishReason == "length", providerLimit = providerLimitDecision))
                             return@flow
                         }
                     }
@@ -1415,7 +1417,7 @@ private fun dev.chungjungsoo.gptmobile.data.dto.ApiState.toProviderEvent(): Prov
     is dev.chungjungsoo.gptmobile.data.dto.ApiState.Success -> ProviderEvent.TextDelta(textChunk)
     is dev.chungjungsoo.gptmobile.data.dto.ApiState.Thinking -> ProviderEvent.ThinkingDelta(thinkingChunk)
     is dev.chungjungsoo.gptmobile.data.dto.ApiState.Notice -> null
-    is dev.chungjungsoo.gptmobile.data.dto.ApiState.Error -> ProviderEvent.Failed(message)
+    is dev.chungjungsoo.gptmobile.data.dto.ApiState.Error -> ProviderEvent.Failed(message, providerLimit = providerLimit)
     else -> null
 }
 

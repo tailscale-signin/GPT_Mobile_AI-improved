@@ -14,16 +14,18 @@ public final class GgufNative {
     /** Fraction -1 denotes an indeterminate initialization stage; 0..1 denotes measured load progress. */
     public interface LoadProgress { void onProgress(String phase, float fraction, long elapsedMs); }
     public static native long loadConfiguredProgress(byte[] path, int contextTokens, int threads, int gpuLayers, long operationId, int promptThreads, int batchTokens, int microBatchTokens, LoadProgress progress);
-    /** Effective context/batch/microbatch, host model/context/compute, device model/context/compute, tensor bytes. */
+    /** Context/batches, CPU-owned, dedicated-GPU-owned, tensor bytes, shared, unknown, host-accessible overlays, ownership schema. */
     public static native long[] allocationObservation(long handle);
     public interface Callback { boolean onBytes(byte[] utf8); }
     /** True when the packaged backend discovers a compatible GPU on this device. */
     public static native boolean supportsGpuOffload();
     public static native String buildInfo();
     public static native void configureDiagnosticFile(byte[] path);
+    public static native void configureDiagnosticWorker(byte[] workerGenerationId);
     public static native boolean supportsBackend(String backend);
     public static native String backendDeviceInfo(String backend);
     public static native String executionInfo(long handle);
+    public static native String engineReceipt(long handle);
     public static native long loadBackendProgress(byte[] path, int contextTokens, int threads, int gpuLayers, long operationId, int promptThreads, int batchTokens, int microBatchTokens, LoadProgress progress, String backend);
     /** Parses only the embedded template; does not load model weights or allocate an engine. */
     public static native void validateChatTemplate(byte[] template);
@@ -43,7 +45,13 @@ public final class GgufNative {
         prepareOperation(handle, operation);
         return generatePrepared(handle, roles, contents, outputTokens, topK, topP, temperature, callback, null, operation);
     }
-    public static native long[] generatePrepared(long handle, String[] roles, byte[][] contents, int outputTokens, int topK, float topP, float temperature, Callback callback, Progress progress, long operationId);
+    /** Legacy compatibility view; the budgeted boundary retains the full native receipt. */
+    public static long[] generatePrepared(long handle, String[] roles, byte[][] contents, int outputTokens, int topK, float topP, float temperature, Callback callback, Progress progress, long operationId) {
+        long[] receipt = generateBudgeted(handle, roles, contents, outputTokens, topK, topP, temperature, callback, progress, 0, operationId);
+        return receipt == null ? null : java.util.Arrays.copyOf(receipt, 7);
+    }
+    public static native long[] generateBudgeted(long handle, String[] roles, byte[][] contents, int outputTokens, int topK, float topP, float temperature, Callback callback, Progress progress, int safetyTokens, long operationId);
+    public static native String generationPromptIdentity(long handle, long operationId);
     public static native void cancel(long handle);
     public static native void unload(long handle);
 }

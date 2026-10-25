@@ -135,6 +135,8 @@ extensions.configure<ApplicationExtension> {
         buildConfigField("String", "GENIEX_VERSION", "\"${libs.versions.geniex.get()}\"")
         // Independent rollback controls. Mandatory parser/admission hard caps remain enabled.
         buildConfigField("boolean", "COMBINED_SECTION_RECOVERY", providers.gradleProperty("combinedSectionRecovery").map { (it != "false").toString() }.getOrElse("true"))
+        // Available as an explicit per-conversation choice; existing and new chats stay strict by default.
+        buildConfigField("boolean", "COMBINED_APPEND_CONTINUATIONS", providers.gradleProperty("combinedAppendContinuations").map { (it != "false").toString() }.getOrElse("true"))
         buildConfigField("boolean", "MCP_ROUTE_RECOVERY", providers.gradleProperty("mcpRouteRecovery").map { (it != "false").toString() }.getOrElse("true"))
         buildConfigField("boolean", "TOOL_STORM_FINALIZATION", providers.gradleProperty("toolStormFinalization").map { (it != "false").toString() }.getOrElse("true"))
         minSdk = 31

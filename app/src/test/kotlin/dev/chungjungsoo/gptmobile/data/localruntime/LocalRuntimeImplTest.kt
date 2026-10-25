@@ -8,6 +8,7 @@ import com.google.ai.edge.litertlm.Conversation
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.ExperimentalApi
+import com.google.ai.edge.litertlm.Message
 import com.google.ai.edge.litertlm.MessageCallback
 import io.mockk.every
 import io.mockk.mockk
@@ -51,25 +52,31 @@ class LocalRuntimeImplTest {
         val wire = dev.chungjungsoo.gptmobile.data.localruntime.ipc.WireConversation.from(config)
         assertEquals(schema, wire.config(null).finalResponseSchemaJson)
         val engine = mockk<Engine>(relaxed = true)
+        every { engine.isInitialized() } returns true
         val conversation = mockk<Conversation>(relaxed = true)
         every { engine.createConversation(any()) } answers {
-            assertTrue(firstArg<com.google.ai.edge.litertlm.ConversationConfig>().enableResponseFormat)
+            val applied = firstArg<com.google.ai.edge.litertlm.ConversationConfig>()
+            assertTrue(applied.enableResponseFormat)
+            assertEquals(false, applied.enableSpeculativeDecoding)
+            assertEquals(false, applied.thinkingConfig?.enableThinking)
             conversation
         }
-        every { conversation.sendMessageAsync(any<Contents>(), any<MessageCallback>(), responseFormat = any()) } answers {
+        every { conversation.sendMessageAsync(any<Contents>(), any<MessageCallback>(), thinkingConfig = any(), responseFormat = any()) } answers {
+            secondArg<MessageCallback>().onMessage(Message.model(Contents.of("{\"answer\":\"ready\"}")))
             secondArg<MessageCallback>().onDone()
         }
         val runtime = LocalRuntimeImpl(RuntimeEnvironment.getApplication(), inspectMetadata = { null }) { engine }
-        runtime.loadEngine(spec("cpu"))
+        runtime.loadEngine(spec("cpu").copy(speculativeDecoding = false))
         runtime.createConversation(config)
         assertTrue(runtime.sendMessage("Return JSON").toList().any { it is LocalRuntimeEvent.Done })
-        verify(exactly = 1) { conversation.sendMessageAsync(any<Contents>(), any<MessageCallback>(), responseFormat = any()) }
+        verify(exactly = 1) { conversation.sendMessageAsync(any<Contents>(), any<MessageCallback>(), thinkingConfig = any(), responseFormat = any()) }
         runtime.unloadEngine()
     }
 
     @Test
     fun sdkReceivesTheExactBudgetAndVisionBackend() = runTest {
         val engine = mockk<Engine>(relaxed = true)
+        every { engine.isInitialized() } returns true
         val configs = mutableListOf<EngineConfig>()
         val runtime = LocalRuntimeImpl(RuntimeEnvironment.getApplication(), inspectMetadata = { null }) {
             configs += it
@@ -87,6 +94,7 @@ class LocalRuntimeImplTest {
     @Test
     fun cpuLanguageModelKeepsGpuVisionForMultimodalPackages() = runTest {
         val engine = mockk<Engine>(relaxed = true)
+        every { engine.isInitialized() } returns true
         val configs = mutableListOf<EngineConfig>()
         val runtime = LocalRuntimeImpl(RuntimeEnvironment.getApplication(), inspectMetadata = { null }) {
             configs += it
@@ -115,6 +123,7 @@ class LocalRuntimeImplTest {
     @Test
     fun gpuFailureDoesNotHideACpuRetry() = runTest {
         val engine = mockk<Engine>(relaxed = true)
+        every { engine.isInitialized() } returns true
         every { engine.initialize() } throws IllegalStateException("GPU unavailable")
         val configs = mutableListOf<EngineConfig>()
         val runtime = LocalRuntimeImpl(RuntimeEnvironment.getApplication(), inspectMetadata = { null }) {
@@ -130,6 +139,7 @@ class LocalRuntimeImplTest {
     @Test
     fun cancelledInitializationReleasesItsNativeEngine() = runTest {
         val engine = mockk<Engine>(relaxed = true)
+        every { engine.isInitialized() } returns true
         every { engine.initialize() } throws CancellationException("cancelled")
         every { engine.isInitialized() } returns true
         val runtime = LocalRuntimeImpl(RuntimeEnvironment.getApplication(), inspectMetadata = { null }) { engine }
@@ -142,6 +152,7 @@ class LocalRuntimeImplTest {
     @Test
     fun nativeCancellationIsNotReportedAsSuccessfulCompletion() = runTest {
         val engine = mockk<Engine>(relaxed = true)
+        every { engine.isInitialized() } returns true
         val conversation = mockk<Conversation>(relaxed = true)
         every { engine.createConversation(any()) } returns conversation
         every { conversation.sendMessageAsync(any<Contents>(), any<MessageCallback>()) } answers {
@@ -158,6 +169,7 @@ class LocalRuntimeImplTest {
     @Test
     fun unacknowledgedNativeWorkCannotBeReusedAfterSynchronousFailure() = runTest {
         val engine = mockk<Engine>(relaxed = true)
+        every { engine.isInitialized() } returns true
         val conversation = mockk<Conversation>(relaxed = true)
         every { engine.createConversation(any()) } returns conversation
         every { conversation.sendMessageAsync(any<Contents>(), any<MessageCallback>()) } throws IllegalStateException("send failed")
@@ -174,6 +186,7 @@ class LocalRuntimeImplTest {
     @Test
     fun conversationCreationFailureClearsTheClosedConversation() = runTest {
         val engine = mockk<Engine>(relaxed = true)
+        every { engine.isInitialized() } returns true
         val conversation = mockk<Conversation>(relaxed = true)
         every { engine.createConversation(any()) } returns conversation andThenThrows IllegalStateException("KV cache")
         val runtime = LocalRuntimeImpl(RuntimeEnvironment.getApplication(), inspectMetadata = { null }) { engine }
@@ -190,6 +203,7 @@ class LocalRuntimeImplTest {
     @Test
     fun nativeCountersAreCollectedOnlyWhenEnabled() = runTest {
         val engine = mockk<Engine>(relaxed = true)
+        every { engine.isInitialized() } returns true
         val conversation = mockk<Conversation>(relaxed = true)
         every { engine.createConversation(any()) } returns conversation
         every { conversation.sendMessageAsync(any<Contents>(), any<MessageCallback>()) } answers { secondArg<MessageCallback>().onDone() }
@@ -214,6 +228,7 @@ class LocalRuntimeImplTest {
     @Test
     fun counterFailureDoesNotDiscardCompletedResponse() = runTest {
         val engine = mockk<Engine>(relaxed = true)
+        every { engine.isInitialized() } returns true
         val conversation = mockk<Conversation>(relaxed = true)
         every { engine.createConversation(any()) } returns conversation
         every { conversation.sendMessageAsync(any<Contents>(), any<MessageCallback>()) } answers { secondArg<MessageCallback>().onDone() }
@@ -231,6 +246,7 @@ class LocalRuntimeImplTest {
     fun lifecycleCallsKeepOneOwnerAndCleanupFailureCannotBeHidden() = runTest {
         val owners = mutableSetOf<String>()
         val engine = mockk<Engine>(relaxed = true)
+        every { engine.isInitialized() } returns true
         val conversation = mockk<Conversation>(relaxed = true)
         every { engine.initialize() } answers { owners += Thread.currentThread().name }
         every { engine.createConversation(any()) } answers {
@@ -247,5 +263,66 @@ class LocalRuntimeImplTest {
         assertTrue(runCatching { runtime.closeConversation() }.exceptionOrNull() is NativeResourceCleanupException)
         assertFalse(runtime.hasOpenConversation())
         assertEquals(setOf("litert-lifecycle-owner"), owners)
+    }
+
+    @OptIn(ExperimentalApi::class)
+    @Test
+    fun malformedNativeJsonRetainsExactRawDeltasAndMetricsWithoutPassing() = runTest {
+        val engine = mockk<Engine>(relaxed = true)
+        every { engine.isInitialized() } returns true
+        val conversation = mockk<Conversation>(relaxed = true)
+        every { engine.createConversation(any()) } returns conversation
+        val raw = "{\"{\"status\":\"ready\"}"
+        every { conversation.sendMessageAsync(any<Contents>(), any<MessageCallback>(), thinkingConfig = any(), responseFormat = any()) } answers {
+            secondArg<MessageCallback>().onMessage(Message.model(Contents.of(raw.take(2))))
+            secondArg<MessageCallback>().onMessage(Message.model(Contents.of(raw.drop(2))))
+            secondArg<MessageCallback>().onDone()
+        }
+        every { conversation.getBenchmarkInfo() } returns BenchmarkInfo(0.0, .1, 20, 10, 100.0, 25.0)
+        val runtime = LocalRuntimeImpl(RuntimeEnvironment.getApplication(), inspectMetadata = { null }) { engine }
+        runtime.loadEngine(spec("gpu").copy(speculativeDecoding = false, nativeMetricsEnabled = true))
+        runtime.createConversation(LocalConversationConfig(LocalSamplerConfig(1, 1f, 0f), null, emptyList(), maxOutputTokens = 128, thinkingEnabled = true, speculativeDecoding = true, finalResponseSchemaJson = "{\"type\":\"object\"}"))
+        val events = runtime.sendMessage("JSON").toList()
+        assertEquals(raw, events.filterIsInstance<LocalRuntimeEvent.TextDelta>().joinToString("") { it.text })
+        assertFalse(events.any { it is LocalRuntimeEvent.Done })
+        assertEquals(LocalStructuredOutputFailure.MALFORMED, (events.filterIsInstance<LocalRuntimeEvent.Error>().single().cause as LocalStructuredOutputFailure).code)
+        val metrics = events.filterIsInstance<LocalRuntimeEvent.Metrics>().single().metrics
+        assertEquals(10, metrics.native?.decodeTokens)
+        val receipt = metrics.generationConfigReceipt!!
+        assertEquals(false, receipt.appliedThinking)
+        assertEquals(false, receipt.appliedSpeculativeDecoding)
+        assertEquals(128, receipt.appliedOutputTokens)
+        assertNull(receipt.effectiveSampler)
+        assertNull(receipt.effectiveOutputTokens)
+        assertNull(receipt.effectiveResponseSchemaDigest)
+        assertTrue(receipt.nativeAcknowledgedFields.isEmpty())
+        assertNull(runtime.latestEngineLoadReceipt?.actualBackend)
+        assertNull(runtime.executionIdentity.driverIdentity)
+        runtime.unloadEngine()
+    }
+
+    @Test fun structuredOutputCannotReuseAnEngineInitializedWithSpeculation() = runTest {
+        val engine = mockk<Engine>(relaxed = true)
+        every { engine.isInitialized() } returns true
+        val runtime = LocalRuntimeImpl(RuntimeEnvironment.getApplication(), inspectMetadata = { null }) { engine }
+        runtime.loadEngine(spec("cpu").copy(speculativeDecoding = true))
+        val failure = runCatching { runtime.createConversation(LocalConversationConfig(LocalSamplerConfig(1, 1f, 0f), null, emptyList(), finalResponseSchemaJson = "{}")) }.exceptionOrNull()
+        assertTrue(failure?.message.orEmpty().contains("before engine initialization"))
+        verify(exactly = 0) { engine.createConversation(any()) }
+        runtime.unloadEngine()
+    }
+
+    @Test fun promptJsonRequiresQualificationAndInitializedHealthIsRechecked() = runTest {
+        val engine = mockk<Engine>(relaxed = true)
+        every { engine.isInitialized() } returns true
+        val runtime = LocalRuntimeImpl(RuntimeEnvironment.getApplication(), inspectMetadata = { null }) { engine }
+        val requested = spec("cpu").copy(speculativeDecoding = false)
+        runtime.loadEngine(requested)
+        val failure = runCatching { runtime.createConversation(LocalConversationConfig(LocalSamplerConfig(1, 1f, 0f), null, emptyList(), finalResponseSchemaJson = "{}", structuredOutputMode = LocalStructuredOutputMode.PROMPT_JSON_VERIFIED_V1)) }.exceptionOrNull()
+        assertTrue(failure?.message.orEmpty().contains("compatibility probe"))
+        assertTrue(runtime.isEngineLoaded(requested))
+        every { engine.isInitialized() } returns false
+        assertFalse(runtime.isEngineLoaded(requested))
+        runtime.unloadEngine()
     }
 }

@@ -26,7 +26,7 @@ enum class FreeFailureCategory(val action: String) {
     NETWORK_ERROR("Check your connection and retry")
 }
 
-open class FreeProviderException(val category: FreeFailureCategory, message: String) : IllegalStateException(message)
+open class FreeProviderException(val category: FreeFailureCategory, message: String, val providerLimit: ProviderLimitDecision? = null) : IllegalStateException(message)
 
 data class FreePreflightOutcome(val category: FreeFailureCategory, val message: String, val retryAt: Long? = null, val cooldown: FreeCooldown? = null)
 
@@ -35,20 +35,27 @@ object FreeProviderPreflight {
         provider.unavailableReason?.let {
             return FreePreflightOutcome(if (provider == FreeAiProvider.OPENCODE) FreeFailureCategory.PROVIDER_CLIENT_RESTRICTED else FreeFailureCategory.PROVIDER_APPROVAL_REQUIRED, it)
         }
-        val cooldown = FreeAiRequestLimiter.shared.savedCooldown(provider, model, freeCredentialIdentity(provider, token))
-        if (cooldown != null) return FreePreflightOutcome(FreeFailureCategory.LOCAL_COOLDOWN_ACTIVE, cooldown.blockedMessage(provider), cooldown.retryAt, cooldown)
+        val identity = freeCredentialIdentity(provider, token)
+        val (cooldown, localDeadline) = try {
+            val evidence = FreeAiRequestLimiter.shared.savedCooldown(provider, model, identity)
+            evidence to if (evidence != null) FreeAiRequestLimiter.shared.cooldownUntilMillis(provider, model, identity) else FreeAiRequestLimiter.shared.exhaustedAllowanceUntilMillis(provider, model, identity)
+        } catch (_: IllegalStateException) {
+            return FreePreflightOutcome(FreeFailureCategory.PROVIDER_UNAVAILABLE, "Saved provider limits are unavailable. Try reopening the app.")
+        }
+        if (cooldown != null) {
+            val eligibleAt = localDeadline ?: cooldown.retryAt
+            return FreePreflightOutcome(FreeFailureCategory.LOCAL_COOLDOWN_ACTIVE, cooldown.copy(retryAt = eligibleAt).blockedMessage(provider), eligibleAt, cooldown)
+        }
         if (provider.requiresUserToken && token.isNullOrBlank() && !hasStoredToken) return FreePreflightOutcome(FreeFailureCategory.AUTHENTICATION_REQUIRED, "${provider.displayName}: Add API token in this AI profile’s settings.")
-        val localDeadline = FreeAiRequestLimiter.shared.cooldownUntilMillis(provider, model, freeCredentialIdentity(provider, token))
-        if (localDeadline != null && localDeadline - System.currentTimeMillis() > 60_000) return FreePreflightOutcome(FreeFailureCategory.LOCAL_COOLDOWN_ACTIVE, "${provider.displayName}: local request allowance is temporarily exhausted. Next eligible retry: ${java.time.Instant.ofEpochMilli(localDeadline)}. Choose another provider.", localDeadline)
-        FreeCatalogState.generationUnavailableReason(provider, model)?.let {
-            return FreePreflightOutcome(FreeFailureCategory.PROVIDER_UNAVAILABLE, it, FreeCatalogState.status.value[provider]?.retryAt)
+        if (localDeadline != null) return FreePreflightOutcome(FreeFailureCategory.LOCAL_COOLDOWN_ACTIVE, "${provider.displayName}: local request allowance is temporarily exhausted. Next eligible retry: ${java.time.Instant.ofEpochMilli(localDeadline)}. Choose another provider.", localDeadline)
+        FreeCatalogState.generationUnavailableReason(provider, model, identity)?.let {
+            return FreePreflightOutcome(FreeFailureCategory.PROVIDER_UNAVAILABLE, it, FreeCatalogState.generationStatus(provider, model, identity)?.retryAt)
         }
         return null
     }
 
     fun check(profile: PlatformV2, model: String = profile.model): FreePreflightOutcome? {
-        if (profile.compatibleType != ClientType.FREE) return null
-        val provider = FreeAiProvider.fromApiUrl(profile.apiUrl) ?: return FreePreflightOutcome(FreeFailureCategory.REQUEST_INVALID, "Choose a supported Free provider.")
+        val provider = FreeAiProvider.fromApiUrl(profile.apiUrl) ?: return if (profile.compatibleType == ClientType.FREE) FreePreflightOutcome(FreeFailureCategory.REQUEST_INVALID, "Choose a supported Free provider.") else null
         return check(provider, model, profile.token, !profile.secretRef.isNullOrBlank())
     }
 
@@ -59,7 +66,8 @@ object FreeProviderPreflight {
                 category = outcome.category
                 cooldown = outcome.cooldown
             }
-            throw FreeProviderException(outcome.category, outcome.message)
+            val profile = PlatformV2(name = "", uid = config.profileUid.orEmpty(), apiUrl = config.apiUrl, model = model, token = config.token, compatibleType = ClientType.FREE)
+            throw FreeProviderException(outcome.category, outcome.message, providerLimitDecision(profile, outcome))
         }
     }
 }
@@ -70,7 +78,7 @@ internal fun freeCredentialIdentity(provider: FreeAiProvider, token: String?): S
         "anonymous"
     } else {
         token?.takeIf { it.isNotBlank() }?.let {
-            java.security.MessageDigest.getInstance("SHA-256").digest(it.toByteArray()).joinToString("") { byte -> "%02x".format(byte) }
+            FreeQuotaIdentity.protectDigest(java.security.MessageDigest.getInstance("SHA-256").digest(it.toByteArray()).joinToString("") { byte -> "%02x".format(byte) })
         } ?: if (provider.requiresUserToken) "unknown" else "anonymous"
     }
 

@@ -77,13 +77,13 @@ object LocalModelPackages {
      * Pre-fix imports used a generic model.litertlm name. Recover the original
      * identity only from app-owned metadata in the matching hash-ID directory.
      */
-    fun isCompiledNpuPackage(modelPath: String): Boolean {
-        if (isNpuFile(modelPath)) return true
+    suspend fun isCompiledNpuPackage(modelPath: String): Boolean = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        if (isNpuFile(modelPath)) return@withContext true
         val file = File(modelPath)
-        if (!file.isFile || !file.name.equals("model.litertlm", ignoreCase = true)) return false
-        val revision = file.parentFile ?: return false
-        val installedEntry = LocalModelMetadata.readFromDirectory(revision) ?: return false
-        return installedEntry.id.startsWith("local_") &&
+        if (!file.isFile || !file.name.equals("model.litertlm", ignoreCase = true)) return@withContext false
+        val revision = file.parentFile ?: return@withContext false
+        val installedEntry = LocalModelMetadata.readFromDirectory(revision) ?: return@withContext false
+        installedEntry.id.startsWith("local_") &&
             revision.parentFile?.name == installedEntry.id &&
             installedEntry.variantLabel.equals("LITERT_LM", ignoreCase = true) &&
             npuSoc(installedEntry.displayName) != null

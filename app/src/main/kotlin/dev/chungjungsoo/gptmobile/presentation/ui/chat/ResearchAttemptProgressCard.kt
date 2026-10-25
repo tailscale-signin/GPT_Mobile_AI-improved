@@ -33,6 +33,7 @@ internal fun ResearchAttemptProgressCard(
         ResearchAttemptState.ACCEPTED -> "Research accepted"
         ResearchAttemptState.BLOCKED_CONFIGURATION -> "Research needs attention"
         ResearchAttemptState.WAITING_RESOURCE -> "Research waiting for resources"
+        ResearchAttemptState.WAITING_PROVIDER_LIMIT -> "Research waiting for the provider limit to reset"
         ResearchAttemptState.SEARCHING -> "Research searching for sources"
         ResearchAttemptState.FETCHING -> "Research reading sources"
         ResearchAttemptState.ANALYZING -> "Research analyzing evidence"

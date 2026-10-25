@@ -62,16 +62,12 @@ class SettingViewModelV2 @Inject constructor(
     val featureSettings: StateFlow<AppFeatureSettings> = settingRepository.observeFeatureSettings()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AppFeatureSettings())
 
-    private val _backupStatus = MutableStateFlow(completeBackupManager.getBackupStatus())
+    private val _backupStatus = MutableStateFlow(BackupStatus())
     val backupStatus: StateFlow<BackupStatus> = _backupStatus.asStateFlow()
 
     private val backupProtectionMutex = Mutex()
-    private val _backupUi = MutableStateFlow(
-        BackupUiState(
-            selection = completeBackupManager.savedSelection(),
-            recentBackups = completeBackupManager.recentBackups()
-        )
-    )
+    private val backupSelectionMutex = Mutex()
+    private val _backupUi = MutableStateFlow(BackupUiState(isBusy = true))
     val backupUi: StateFlow<BackupUiState> = _backupUi.asStateFlow()
 
     private val _dialogState = MutableStateFlow(DialogState())
@@ -82,11 +78,32 @@ class SettingViewModelV2 @Inject constructor(
 
     init {
         fetchPlatforms()
-        refreshBackupStatus()
+        viewModelScope.launch {
+            try {
+                _backupStatus.value = completeBackupManager.getBackupStatus()
+                val selection = completeBackupManager.savedSelection()
+                val recent = completeBackupManager.recentBackups()
+                _backupUi.update { it.copy(selection = selection, recentBackups = recent) }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                _backupUi.update { it.copy(message = "Saved backup settings could not be loaded.", isError = true) }
+            } finally {
+                _backupUi.update { it.copy(isBusy = false) }
+            }
+        }
     }
 
     fun refreshBackupStatus() {
-        _backupStatus.value = completeBackupManager.getBackupStatus()
+        viewModelScope.launch {
+            try {
+                _backupStatus.value = completeBackupManager.getBackupStatus()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                _backupUi.update { it.copy(message = "Backup history could not be refreshed.", isError = true) }
+            }
+        }
     }
 
     fun updateLocalRuntimeBackend(backend: LocalRuntimeBackend) {
@@ -301,9 +318,11 @@ class SettingViewModelV2 @Inject constructor(
         if (_backupUi.value.isBusy) return
         refreshBackupStatus()
         _dialogState.update { it.copy(isBackupRestoreDialogOpen = true) }
-        _backupUi.update { it.copy(isBusy = true, recentBackups = completeBackupManager.recentBackups()) }
+        _backupUi.update { it.copy(isBusy = true) }
         viewModelScope.launch {
             try {
+                val recent = completeBackupManager.recentBackups()
+                _backupUi.update { it.copy(recentBackups = recent) }
                 backupProtectionMutex.withLock { loadBackupProtection() }
             } catch (error: CancellationException) {
                 throw error
@@ -341,10 +360,10 @@ class SettingViewModelV2 @Inject constructor(
         if (_backupUi.value.isBusy) return
         _backupUi.update {
             BackupUiState(
-                selection = completeBackupManager.savedSelection(),
+                selection = it.selection,
                 passwordProtectionEnabled = it.passwordProtectionEnabled,
                 backupPassword = it.backupPassword,
-                recentBackups = completeBackupManager.recentBackups()
+                recentBackups = it.recentBackups
             )
         }
         _dialogState.update { it.copy(isBackupRestoreDialogOpen = false) }
@@ -370,10 +389,22 @@ class SettingViewModelV2 @Inject constructor(
         }
     }
 
+    private fun persistBackupSelection(selection: CompleteBackupSelection) {
+        viewModelScope.launch {
+            try {
+                backupSelectionMutex.withLock { completeBackupManager.saveSelection(selection) }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                _backupUi.update { it.copy(message = "Could not save backup selection. The current selection is still available for this backup.", isError = true) }
+            }
+        }
+    }
+
     fun updateBackupSection(section: CompleteBackupSection, enabled: Boolean) {
-        if (!_backupUi.value.isWorking) {
+        if (!_backupUi.value.isBusy && !_backupUi.value.isWorking) {
             val next = _backupUi.value.selection.toggled(section, enabled)
-            completeBackupManager.saveSelection(next)
+            persistBackupSelection(next)
             _backupUi.update {
                 it.copy(
                     selection = next,
@@ -389,21 +420,21 @@ class SettingViewModelV2 @Inject constructor(
         if (_backupUi.value.isBusy || _backupUi.value.isWorking) return
         val next = group?.let { _backupUi.value.selection.toggled(it, enabled) }
             ?: if (enabled) CompleteBackupSelection.ALL else CompleteBackupSelection(emptySet())
-        completeBackupManager.saveSelection(next)
+        persistBackupSelection(next)
         _backupUi.update { it.copy(selection = next, message = null, isError = false) }
     }
 
     fun selectAllBackupSections() {
-        if (!_backupUi.value.isWorking) {
-            completeBackupManager.saveSelection(CompleteBackupSelection.ALL)
+        if (!_backupUi.value.isBusy && !_backupUi.value.isWorking) {
+            persistBackupSelection(CompleteBackupSelection.ALL)
             _backupUi.update { it.copy(selection = CompleteBackupSelection.ALL, message = null, isError = false) }
         }
     }
 
     fun clearBackupSections() {
-        if (!_backupUi.value.isWorking) {
+        if (!_backupUi.value.isBusy && !_backupUi.value.isWorking) {
             val empty = CompleteBackupSelection(emptySet())
-            completeBackupManager.saveSelection(empty)
+            persistBackupSelection(empty)
             _backupUi.update {
                 it.copy(selection = empty, message = null, isError = false)
             }
@@ -593,7 +624,8 @@ class SettingViewModelV2 @Inject constructor(
                     )
                 }
                 refreshBackupStatus()
-                _backupUi.update { it.copy(recentBackups = completeBackupManager.recentBackups()) }
+                val recent = completeBackupManager.recentBackups()
+                _backupUi.update { it.copy(recentBackups = recent) }
                 if (result.success) {
                     fetchPlatforms()
                     if (restoring) {

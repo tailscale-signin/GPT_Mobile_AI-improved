@@ -10,6 +10,7 @@ import java.io.File
 internal object CompleteBackupDatabase {
     fun snapshot(source: SupportSQLiteDatabase, target: File) {
         RunPolicySnapshotDatabase.validateReferences(source)
+        dev.chungjungsoo.gptmobile.data.database.CombinedDocumentDatabase.validateReferences(source)
         SQLiteDatabase.openOrCreateDatabase(target, null).use { copy ->
             copy.execSQL("DROP TABLE IF EXISTS android_metadata")
             copy.beginTransaction()
@@ -76,6 +77,7 @@ internal object CompleteBackupDatabase {
         source.query("PRAGMA integrity_check").use { require(it.moveToFirst() && it.getString(0) == "ok") { "Damaged backup database." } }
         source.query("PRAGMA foreign_key_check").use { require(!it.moveToFirst()) { "Backup contains broken data relationships." } }
         RunPolicySnapshotDatabase.validateReferences(source)
+        dev.chungjungsoo.gptmobile.data.database.CombinedDocumentDatabase.validateReferences(source)
     }
 
     fun restore(source: SupportSQLiteDatabase, destination: SupportSQLiteDatabase) {
@@ -98,7 +100,11 @@ internal object CompleteBackupDatabase {
     }
 
     fun retainSections(database: SupportSQLiteDatabase, selection: CompleteBackupSelection) {
-        val selectedTables = tablesFor(selection.normalized())
+        val selected = selection.normalized()
+        val selectedTables = tablesFor(selected)
+        if (selected.includes(CompleteBackupSection.CONVERSATIONS) && !selected.includes(CompleteBackupSection.AGENT_HISTORY)) {
+            dev.chungjungsoo.gptmobile.data.database.CombinedDocumentDatabase.retainPublishedOnly(database)
+        }
         database.execSQL("UPDATE pending_prompts SET paused = 1 WHERE userMessageId IS NULL")
         database.execSQL("UPDATE tool_approvals SET state = 'INTERRUPTED' WHERE state IN ('PENDING', 'APPROVED', 'EXECUTING')")
         database.execSQL("UPDATE model_invocations SET status = 'INTERRUPTED' WHERE status = 'RUNNING'")
@@ -151,6 +157,10 @@ internal object CompleteBackupDatabase {
             }
         }
 
+        if (selection.normalized().includes(CompleteBackupSection.CONVERSATIONS) && !selection.normalized().includes(CompleteBackupSection.AGENT_HISTORY)) {
+            dev.chungjungsoo.gptmobile.data.database.CombinedDocumentDatabase.retainPublishedOnly(destination)
+            destination.execSQL("UPDATE agent_runs SET status='INTERRUPTED', terminal_error='BACKUP_RESTORED' WHERE status IN ('QUEUED', 'RUNNING', 'WAITING_PROVIDER_LIMIT')")
+        }
         if (CompleteBackupSection.AGENT_HISTORY in selection.normalized().sections) {
             RunPolicySnapshotDatabase.normalizeInlineRecords(destination)
             destination.execSQL(
@@ -192,6 +202,12 @@ internal object CompleteBackupDatabase {
                 addAll(listOf("knowledge_projects", "knowledge_project_chats", "knowledge_documents", "knowledge_chunks"))
                 add("messages_v2")
                 add("chat_platform_model_v2")
+                // Manifest-owned runs are document identities even when execution history is omitted.
+                add("agent_runs")
+                add("combined_final_messages")
+                add("combined_final_manifests")
+                add("combined_final_block_index")
+                add("combined_durable_blocks")
             }
             if (CompleteBackupSection.PLATFORMS in sections) {
                 add("platform_v2")
@@ -212,6 +228,10 @@ internal object CompleteBackupDatabase {
                 add("agent_run_policy_refs")
                 add("answer_segments")
                 add("combined_delivery_checkpoints")
+                add("combined_delivery_records")
+                add("combined_final_manifests")
+                add("combined_final_block_index")
+                add("combined_durable_blocks")
                 add("combined_final_messages")
                 add("tool_events")
                 add("tool_approvals")

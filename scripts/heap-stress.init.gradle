@@ -20,7 +20,7 @@ gradle.projectsEvaluated {
             gateTest.systemProperty 'gptmobile.heapStress', 'true'
             // Restrict class scanning as well as --tests filtering: otherwise
             // forkEvery=1 starts a JVM for every unrelated test class first.
-            gateTest.setIncludes(['**/ResearchSessionStoreHeapTest.class', '**/StreamingDebugBundleTest.class'] as Set)
+            gateTest.setIncludes(['**/ResearchSessionStoreHeapTest.class', '**/StreamingDebugBundleTest.class', '**/BenchmarkStreamingExportHeapTest.class', '**/BenchmarkColdStreamingExportHeapTest.class'] as Set)
             gateTest.reports.junitXml.outputLocation.set(gateProject.layout.buildDirectory.dir('test-results/heapRecovery'))
             gateTest.reports.html.outputLocation.set(gateProject.layout.buildDirectory.dir('reports/tests/heapRecovery'))
             gateTest.binaryResultsDirectory.set(gateProject.layout.buildDirectory.dir('test-results/heapRecovery/binary'))

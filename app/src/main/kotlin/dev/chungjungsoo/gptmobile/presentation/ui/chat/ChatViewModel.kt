@@ -127,9 +127,17 @@ class ChatViewModel @Inject constructor(
     fun loadOlderMessages() {
         visibleHistoryTurns.update { (it.toLong() + 40).coerceAtMost(Int.MAX_VALUE.toLong()).toInt() }
     }
+    suspend fun resolveCombinedMessage(message: MessageV2): MessageV2 = chatRepository.resolveCombinedMessage(message)
+
+    suspend fun combinedDocumentBlocks(reference: dev.chungjungsoo.gptmobile.data.database.entity.CombinedManifestReference, first: Int, count: Int): List<dev.chungjungsoo.gptmobile.data.agent.CombinedDocumentBlock> =
+        chatRepository.combinedDocumentBlocks(reference, first, count)
+
+    suspend fun combinedSourceBlocks(reference: dev.chungjungsoo.gptmobile.data.database.entity.CombinedManifestReference, source: dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse, first: Int, count: Int): List<dev.chungjungsoo.gptmobile.data.agent.CombinedDocumentBlock> =
+        chatRepository.combinedSourceBlocks(reference, source, first, count)
+
     private suspend fun completeWindowMessages(grouped: GroupedMessages): List<MessageV2> {
         val older = if (windowStartId > 0) chatRepository.fetchMessagesV2(_chatRoom.value.id).filter { it.id < windowStartId } else emptyList()
-        return older + persistableMessages(grouped)
+        return (older + persistableMessages(grouped)).map { chatRepository.resolveCombinedMessage(it) }
     }
 
     val pendingDelegationRecovery get() = delegationRecoveryInteractions.pending
@@ -147,7 +155,9 @@ class ChatViewModel @Inject constructor(
         val profileName: String,
         val toolId: String,
         val toolName: String,
-        val profileSnapshot: dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2? = null
+        val profileSnapshot: dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2? = null,
+        val chatId: Int? = null,
+        val dataCategory: dev.chungjungsoo.gptmobile.data.permissions.PersonalDataCategory = dev.chungjungsoo.gptmobile.data.permissions.personalDataCategory(toolId)
     )
     private val _pendingFreeToolConsent = MutableStateFlow<FreeToolConsentRequest?>(null)
     val pendingFreeToolConsent = _pendingFreeToolConsent.asStateFlow()
@@ -985,11 +995,12 @@ class ChatViewModel @Inject constructor(
 
         viewModelScope.launch {
             val freeProfile = settingRepository.fetchPlatformV2s()
+                .map(::resolvePlatformModel)
                 .firstOrNull {
                     it.uid in _activePlatformUids.value &&
-                        it.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.FREE &&
+                        (it.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.FREE || dev.chungjungsoo.gptmobile.data.permissions.ProviderPrivacyPolicy.forProfile(it) != null) &&
                         !it.disableAllTools &&
-                        !freeModelToolConsentStore.isGranted(it, toolId)
+                        !freeModelToolConsentStore.isGranted(it, toolId, _chatRoom.value.id)
                 }
             if (freeProfile == null) {
                 _chatToolConfig.update { it.withToolEnabled(toolId) }
@@ -1001,27 +1012,54 @@ class ChatViewModel @Inject constructor(
                     profileName = freeProfile.name,
                     toolId = toolId,
                     toolName = available?.name ?: toolId,
-                    profileSnapshot = freeProfile
+                    profileSnapshot = freeProfile,
+                    chatId = _chatRoom.value.id
                 )
             }
         }
     }
 
-    fun confirmFreeToolConsent() {
+    fun confirmFreeToolConsent(rememberForProfile: Boolean = false) = confirmFreeToolConsent(dev.chungjungsoo.gptmobile.data.permissions.PersonalDataGrantOptions(rememberForProfile = rememberForProfile))
+
+    fun confirmFreeToolConsent(options: dev.chungjungsoo.gptmobile.data.permissions.PersonalDataGrantOptions) {
         val request = _pendingFreeToolConsent.value ?: return
-        runCatching { freeModelToolConsentStore.grant(requireNotNull(request.profileSnapshot), request.toolId) }
-            .onSuccess {
+        viewModelScope.launch {
+            val captured = request.profileSnapshot ?: return@launch
+            val current = settingRepository.fetchPlatformV2s().singleOrNull { it.uid == request.profileUid }?.let(::resolvePlatformModel)
+            if (_pendingFreeToolConsent.value != request ||
+                current == null ||
+                !current.enabled ||
+                current.disableAllTools ||
+                current.uid !in _activePlatformUids.value ||
+                request.chatId != _chatRoom.value.id ||
+                !dev.chungjungsoo.gptmobile.data.agent.sameRecoveryDestination(captured, current) ||
+                dev.chungjungsoo.gptmobile.data.permissions.ProviderPrivacyPolicy.scope(current) != dev.chungjungsoo.gptmobile.data.permissions.ProviderPrivacyPolicy.scope(captured)
+            ) {
                 _pendingFreeToolConsent.value = null
-                if (unlockingAllTools) {
-                    enableAllChatTools()
-                } else {
-                    // Continue collecting consent separately for each actual recipient.
-                    toggleChatTool(request.toolId)
-                }
+                _attachmentNotice.value = "The profile or conversation changed. Review the tool permission again."
+                return@launch
             }
-            .onFailure {
+            runCatching {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    check(_pendingFreeToolConsent.value == request) { "The sharing request was dismissed." }
+                    val category = dev.chungjungsoo.gptmobile.data.permissions.personalDataCategory(request.toolId)
+                    freeModelToolConsentStore.grant(
+                        current,
+                        request.toolId,
+                        chatId = request.chatId.takeUnless { options.rememberForProfile },
+                        expiresAt = System.currentTimeMillis() + (if (options.rememberForProfile) 30L else 1L) * 24 * 60 * 60_000L,
+                        categories = if (category == dev.chungjungsoo.gptmobile.data.permissions.PersonalDataCategory.PRECISE_LOCATION && !options.preciseLocation) setOf(dev.chungjungsoo.gptmobile.data.permissions.PersonalDataCategory.COARSE_LOCATION) else dev.chungjungsoo.gptmobile.data.permissions.personalDataCategories(request.toolId),
+                        healthRangeDays = options.healthRangeDays.takeIf { category == dev.chungjungsoo.gptmobile.data.permissions.PersonalDataCategory.HEALTH }
+                    )
+                }
+            }.onSuccess {
+                if (_pendingFreeToolConsent.value != request) return@onSuccess
+                _pendingFreeToolConsent.value = null
+                if (unlockingAllTools) enableAllChatTools() else toggleChatTool(request.toolId)
+            }.onFailure {
                 _attachmentNotice.value = "Could not save this tool permission."
             }
+        }
     }
 
     fun dismissFreeToolConsent() {
@@ -1033,7 +1071,7 @@ class ChatViewModel @Inject constructor(
         val byId = displayed.associateBy { it.id }
         viewModelScope.launch {
             captured.filter { it.chatId == chatRoom.value.id }.forEach { item ->
-                byId[item.assistantMessageId]?.let { generationCompletionStore.acknowledge(item, it.content) }
+                byId[item.assistantMessageId]?.let { generationCompletionStore.acknowledge(item, chatRepository.resolveCombinedMessage(it).content) }
             }
         }
     }
@@ -1154,14 +1192,14 @@ class ChatViewModel @Inject constructor(
 
     fun enableAllChatTools() {
         viewModelScope.launch {
-            val profiles = settingRepository.fetchPlatformV2s().filter {
-                it.uid in _activePlatformUids.value && (it.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.FREE || dev.chungjungsoo.gptmobile.data.permissions.ProviderPrivacyPolicy.forProfile(it) != null) && !it.disableAllTools && !it.disableRemoteTools
+            val profiles = settingRepository.fetchPlatformV2s().map(::resolvePlatformModel).filter {
+                it.uid in _activePlatformUids.value && (it.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.FREE || dev.chungjungsoo.gptmobile.data.permissions.ProviderPrivacyPolicy.forProfile(it) != null) && !it.disableAllTools
             }
             for (tool in _availableChatTools.value.filter { dev.chungjungsoo.gptmobile.data.permissions.FreeToolDataPolicy.requiresPersonalPermission(it.id) }) {
-                val profile = profiles.firstOrNull { dev.chungjungsoo.gptmobile.data.permissions.ProviderPrivacyPolicy.forProfile(it)?.personalDataAllowed == true && !freeModelToolConsentStore.isGranted(it, tool.id) }
+                val profile = profiles.firstOrNull { dev.chungjungsoo.gptmobile.data.permissions.ProviderPrivacyPolicy.forProfile(it)?.personalDataAllowed == true && !freeModelToolConsentStore.isGranted(it, tool.id, _chatRoom.value.id) }
                 if (profile != null) {
                     unlockingAllTools = true
-                    _pendingFreeToolConsent.value = FreeToolConsentRequest(profile.uid, profile.name, tool.id, tool.name, profile)
+                    _pendingFreeToolConsent.value = FreeToolConsentRequest(profile.uid, profile.name, tool.id, tool.name, profile, _chatRoom.value.id)
                     return@launch
                 }
             }
@@ -1169,7 +1207,7 @@ class ChatViewModel @Inject constructor(
             _chatToolConfig.update { config ->
                 val allowed = _availableChatTools.value.filter { tool ->
                     !dev.chungjungsoo.gptmobile.data.permissions.FreeToolDataPolicy.requiresPersonalPermission(tool.id) ||
-                        profiles.all { freeModelToolConsentStore.isGranted(it, tool.id) }
+                        profiles.all { freeModelToolConsentStore.isGranted(it, tool.id, _chatRoom.value.id) }
                 }.mapTo(hashSetOf()) { it.id }
                 config.copy(disabledToolIds = _availableChatTools.value.map { it.id }.toSet() - allowed, enabledToolIds = allowed, allToolsDisabled = false)
             }
@@ -1222,13 +1260,13 @@ class ChatViewModel @Inject constructor(
                 _availableChatTools.value = available + builtIn
 
                 // Personal tools require a recipient-scoped grant and a route that permits them.
-                val freeProfiles = profiles.filter { it.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.FREE || dev.chungjungsoo.gptmobile.data.permissions.ProviderPrivacyPolicy.forProfile(it) != null }
+                val freeProfiles = profiles.map(::resolvePlatformModel).filter { it.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.FREE || dev.chungjungsoo.gptmobile.data.permissions.ProviderPrivacyPolicy.forProfile(it) != null }
                 if (freeProfiles.isNotEmpty()) {
                     val lockedMcpIds = (available + builtIn)
                         .filter { tool ->
                             dev.chungjungsoo.gptmobile.data.permissions.FreeToolDataPolicy.requiresPersonalPermission(tool.id) &&
                                 freeProfiles.any { profile ->
-                                    !freeModelToolConsentStore.isGranted(profile, tool.id)
+                                    !freeModelToolConsentStore.isGranted(profile, tool.id, _chatRoom.value.id)
                                 }
                         }
                         .mapTo(mutableSetOf()) { it.id }
@@ -1268,18 +1306,21 @@ class ChatViewModel @Inject constructor(
     }
 
     fun openAssistantMessageEditDialog(turnIndex: Int, platformIndex: Int) {
-        val assistantMessage = _groupedMessages.value.assistantMessages
+        val selected = _groupedMessages.value.assistantMessages
             .getOrNull(turnIndex)
             ?.getOrNull(platformIndex)
             ?: return
-        _messageEditSession.update {
-            MessageEditSession(
-                message = assistantMessage,
-                role = MessageEditRole.ASSISTANT,
-                turnIndex = turnIndex,
-                platformIndex = platformIndex,
-                attachments = assistantMessage.attachments.map(ChatAttachmentDraft::fromAttachment)
-            )
+        viewModelScope.launch {
+            val assistantMessage = chatRepository.resolveCombinedMessage(selected)
+            _messageEditSession.update {
+                MessageEditSession(
+                    message = assistantMessage,
+                    role = MessageEditRole.ASSISTANT,
+                    turnIndex = turnIndex,
+                    platformIndex = platformIndex,
+                    attachments = assistantMessage.attachments.map(ChatAttachmentDraft::fromAttachment)
+                )
+            }
         }
     }
 
@@ -1381,7 +1422,7 @@ class ChatViewModel @Inject constructor(
                         try {
                             require(next.primaryProfileUid in accepted.context.requested.participantUids) { "For this saved turn, choose one of its accepted profiles or regenerate with the new selection." }
                             agentRunCoordinator.withChatGate(committedRoom.id) {
-                                val latest = chatRepository.fetchMessagesV2(committedRoom.id)
+                                val latest = chatRepository.fetchMessageReferencesV2(committedRoom.id)
                                 require(latest.none { it.linkedMessageId == selectedTurn && it.isCombinedSynthesis() }) { "Final writing has already started. Use a new answer revision to change its writer." }
                                 combinedCollectionDecisions?.chooseWriter(accepted.context.rootBudgetId, next.primaryProfileUid, accepted.context.persistBudget)
                                 resumeResearchForUserTurn(selectedTurn, "user-selected-writer")
@@ -1477,7 +1518,8 @@ class ChatViewModel @Inject constructor(
             if (row.any { it.isCombinedSynthesis() }) return@flatMap emptyList()
             val accepted = acceptedCombinedTurn(user.id) ?: return@flatMap emptyList()
             if (!accepted.context.requested.singlePass) return@flatMap emptyList()
-            val activeRows = row.filter { it.platformType in _activePlatformUids.value && it.platformType in accepted.context.requested.participantUids }
+            val excluded = combinedCollectionDecisions?.decisions?.value?.get(accepted.context.rootBudgetId)?.excludedProfileUids.orEmpty()
+            val activeRows = row.filter { it.platformType in _activePlatformUids.value && it.platformType in accepted.context.requested.participantUids && it.platformType !in excluded }
             if (activeRows.any { _agentRunsById.value[it.currentRunId]?.status == AgentRunStatus.CANCELED }) return@flatMap emptyList()
             combinedProfileFailures(user.id, user.content, activeRows, _agentRunsById.value, _platformsInApp.value.associate { it.uid to it.name }, accepted.context.requested.requestedModels)
                 .filterNot { reviewingCombinedFailureTurn != user.id && combinedCollectionDecisions?.acknowledged(accepted.context.rootBudgetId, it.attemptId) == true }
@@ -1513,8 +1555,38 @@ class ChatViewModel @Inject constructor(
         val grouped = _groupedMessages.value
         val index = grouped.userMessages.indexOfFirst { it.id == userId }
         val user = grouped.userMessages.getOrNull(index) ?: return false
-        val row = grouped.assistantMessages.getOrNull(index).orEmpty().filter { it.platformType in _activePlatformUids.value }
+        val root = acceptedCombinedTurn(userId)?.context?.rootBudgetId
+        val excluded = combinedCollectionDecisions?.decisions?.value?.get(root)?.excludedProfileUids.orEmpty()
+        val row = grouped.assistantMessages.getOrNull(index).orEmpty().filter { it.platformType in _activePlatformUids.value && it.platformType !in excluded }
         return combinedSynthesisInputs(row, _agentRunsById.value, _platformsInApp.value.associate { it.uid to it.name }, _chatPlatformModels.value, user.content) != null
+    }
+
+    fun excludeCombinedFailureForTurn(userId: Int, profileUid: String) {
+        val failure = _combinedFailures.value.firstOrNull { it.userMessageId == userId && it.profileUid == profileUid } ?: return
+        if (failure.retrying || failure.applicationFailure) return
+        val accepted = acceptedCombinedTurn(userId) ?: return
+        val decisions = combinedCollectionDecisions ?: return
+        viewModelScope.launch {
+            try {
+                val excluded = agentRunCoordinator.withChatGate(_chatRoom.value.id) {
+                    val rows = chatRepository.fetchMessagesV2(_chatRoom.value.id).filter { it.linkedMessageId == userId && it.platformType != null }
+                    if (rows.any { it.isCombinedSynthesis() } || rows.singleOrNull { it.platformType == profileUid }?.currentRunId != failure.attemptId) return@withChatGate false
+                    val excludedUids = decisions.excludedProfiles(accepted.context.rootBudgetId)
+                    val remaining = accepted.context.requested.participantUids.filter { it in _activePlatformUids.value && it !in excludedUids && it != profileUid }
+                    check(remaining.isNotEmpty()) { "At least one profile must remain included in this turn." }
+                    decisions.excludeProfile(accepted.context.rootBudgetId, profileUid, accepted.context.persistBudget)
+                    true
+                }
+                if (excluded) {
+                    refreshCombinedFailures()
+                    agentRunCoordinator.resumeCombinedCollection(_chatRoom.value.id, userId, accepted.context.rootBudgetId, "USER_EXCLUDE_THIS_TURN")
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                _attachmentNotice.value = error.message ?: "Could not save your choice. Your replies are retained."
+            }
+        }
     }
 
     fun combineAvailableResults(userId: Int) {
@@ -1658,7 +1730,7 @@ class ChatViewModel @Inject constructor(
                             researchSessionStore.resumeExecution(recovery.rootWorkId, "profile-retry:${it.attempt.attemptId}", !_chatRoom.value.isTemporary)
                         }
                         if (accepted?.context?.requested?.singlePass == true && previousRun != null) {
-                            val durable = chatRepository.fetchMessagesV2(userMessage.chatId)
+                            val durable = chatRepository.fetchMessageReferencesV2(userMessage.chatId)
                             require(durable.singleOrNull { it.id == currentAssistantMessage.id }?.currentRunId == previousRun.runId && durable.none { it.linkedMessageId == userMessage.id && it.isCombinedSynthesis() }) { "This contribution changed or the final answer already started. Use a new answer revision." }
                             reconciledAnswer = chatRepository.reconcileCombinedQueuedContributor(previousRun.runId)
                             require(chatRepository.reopenCombinedContributor(previousRun.runId)) { "This turn was cancelled or already combined. Start a new turn; saved replies are retained." }
@@ -1748,7 +1820,7 @@ class ChatViewModel @Inject constructor(
                     persist = { chatRepository.regenerateCombinedTurn(user, owner, runs, accepted) },
                     startProvider = { persisted ->
                         _agentRunsById.update { it + persisted.runs.associateBy(AgentRun::runId) }
-                        val refreshed = chatRepository.fetchMessagesV2(user.chatId).filter { it.linkedMessageId == user.id && it.platformType != null }.associateBy { it.platformType }
+                        val refreshed = chatRepository.fetchMessageReferencesV2(user.chatId).filter { it.linkedMessageId == user.id && it.platformType != null }.associateBy { it.platformType }
                         _groupedMessages.update { grouped ->
                             val index = grouped.userMessages.indexOfFirst { it.id == user.id }
                             if (index < 0) {
@@ -2137,11 +2209,17 @@ class ChatViewModel @Inject constructor(
         val draft = question.text.toString()
         val live = agentRunCoordinator.streamMessages.value.values.filter { it.chatId == room.id }.toList()
         val baseRecords = chatRepository.fetchDebugRecords(room.id)
-        val records = kotlinx.serialization.json.JsonObject(baseRecords + ("researchLifecycle" to (researchSessionStore?.featureDiagnostics(room.id) ?: kotlinx.serialization.json.JsonObject(emptyMap()))))
+        val records = kotlinx.serialization.json.JsonObject(
+            baseRecords + mapOf(
+                "researchLifecycle" to (researchSessionStore?.featureDiagnostics(room.id) ?: kotlinx.serialization.json.JsonObject(emptyMap())),
+                "researchProfileStatistics" to kotlinx.serialization.json.Json { encodeDefaults = true }.encodeToJsonElement(kotlinx.serialization.serializer<Map<String, List<dev.chungjungsoo.gptmobile.data.research.ResearchProfileStatistics>>>(), researchProfileStatistics.value),
+                "researchStatisticsScope" to kotlinx.serialization.json.JsonPrimitive("Selected chat; retained stage telemetry. Missing legacy correlation stays unknown, and serialized request preparation alone is not transmission.")
+            )
+        )
         val messages = withContext(Dispatchers.IO) {
             chatRepository.fetchMessagesV2(room.id).associateBy { it.id }.toMutableMap().apply {
-                visible.filter { it.id > 0 }.forEach { put(it.id, it) }
-                live.filter { it.id > 0 }.forEach { put(it.id, it) }
+                visible.filter { it.id > 0 }.forEach { put(it.id, chatRepository.resolveCombinedMessage(it)) }
+                live.filter { it.id > 0 }.forEach { put(it.id, chatRepository.resolveCombinedMessage(it)) }
             }.values.toList().plus(visible.filter { it.id <= 0 }).sortedWith(compareBy<MessageV2> { it.createdAt }.thenBy { it.id })
         }
         val dependencyIds = buildSet {
@@ -2653,7 +2731,7 @@ class ChatViewModel @Inject constructor(
     }
 
     private suspend fun fetchGroupedMessages(chatId: Int): GroupedMessages {
-        val messages = chatRepository.fetchMessagesV2(chatId).sortedBy { it.createdAt }
+        val messages = chatRepository.fetchMessageReferencesV2(chatId).sortedBy { it.createdAt }
         return groupPersistedMessages(messages, enabledPlatformsInChat, chatId)
     }
 

@@ -1,22 +1,32 @@
-# GPT Mobile AI 0.9.60.0 (build 128) — integration draft
+# GPT Mobile AI 0.9.60.0 (build 128) — integration candidate
 
-This candidate integrates the latest Research/free-provider branch with provider privacy controls, durable pre-dispatch waits, and Combined source-preserving delivery.
+This candidate extends provider privacy, durable Research recovery and source-preserving Combined answers, and integrates the supplied GGUF/benchmark reliability requirements and October 24 benchmark audit.
 
-- Free routes require a device-local policy acknowledgement unless verified for no retention. Personal-tool grants are scoped to their recipient and cannot authorize prohibited routes.
-- PorchLM and OpenCode are retired from executable selectors and dispatch. Saved conversations remain available.
-- Rolling request limits and observed cooldowns survive restart. Never-dispatched requests can wait durably, with permission/input rechecks and cancellation before resuming.
-- Combined uses a dedicated final message, retains contributor records, stages strict finals, and records exact source spans. Capacity or private-source transfer limits can use on-device source assembly without a writer request.
-- Room schema 46 adds final identities and provider waits. The source branch's Research/HF diagnostics and typed failure handling are included.
+- Bind activation and personal-data transfer to the current recipient, model, credential, profile/chat, category, range and expiry. Carry provenance through tool results, derived queries, delegation and final dispatch. Retired PorchLM/OpenCode routes remain blocked while history is retained.
+- Persist atomic request/token reservations, settlement, cooldowns and credential/model health. Retain accepted queue identity across permission changes; known quota-deferred Research resumes its exact unfinished stage with the saved evidence and budget.
+- Preserve the originally accepted permissions through asynchronous quota resume and another wait. Revalidate the current scheduling deadline without changing the original provider evidence or losing the pause to clock sampling drift.
+- Preserve Combined sources and revisions, make append continuation an explicit versioned option, and store large documents in reusable verified pages. Final and contributor views read bounded pages; full copy/export and conversation backups retain the complete text.
+- Use one claim-to-answer map for attribution, inspection and coverage. Preserve event/date relationships, uncertainty, disagreement and raw contributor wording while removing repeated editorial metadata from prompts.
+- Recognize the original France answer's named events with parenthetical dates as partial source contributions. Interpret completed saved answers that miss requirements as needing an explicit revision, while retaining their historical reports.
+- Show an Accept / Decline pop-up when the selected paper examination needs consent; acceptance revalidates the original request.
+- Separate native engine configuration, generation configuration, execution and cleanup receipts. Add bounded automatic-context replanning, measured prompt admission, typed deadlines, exact Verify recovery and controlled CPU thread/cache experiments.
+- Require a productive GPU generation before increasing an existing qualified offload setting; cancelled samples remain diagnostic evidence and cannot qualify the increase.
+- Version benchmark validators and reporting, preserve historical grades, distinguish executed from skipped cases, and qualify timing only from eligible observations. Move identified disk reads off UI paths and retain causal diagnostic identities.
+- Cache validated LiteRT inspection by artifact and runtime/device identity, retain inspection sub-stage evidence, and preserve constrained-decoding failures as typed errors. Structured requests disable thinking/speculative decoding, retain unmodified decoder output and require exact-schema readiness before a prompt-based fallback.
+- Add suite 10 with separate semantic, format, tool and performance evidence, recorded fixture rotations across eight intelligence domains, and distinct deterministic/saved-profile policies. Retain earlier suite manifests and grades.
+- Add cold/warm, prefill, decode, first-visible, sustained and cleanup trials; show descriptive distributions, comparable history, observed backend matrices and post-cleanup memory trends. Show provisional/unranked status and unknown effective settings explicitly, with separate client, worker, process and native deadline policies.
+- Stream benchmark exports from canonical records into a completed private file before saving through Android's document picker. Preserve full raw evidence and redaction, contain picker/provider failures, and retain a checked export for retry after interruption. A dedicated 256 MiB regression covers large benchmark histories.
+- Keep cold exports bounded after restart, including canonical rows larger than an Android cursor window, without loading all raw answers or parsing a stale backup mirror.
+- Upgrade Room additively to schema 47; published schema 46 remains unchanged.
 
-See [implementation scope](docs/releases/0.9.60.0.md) and [validation record](docs/validation/release-0.9.60.0.md). This branch is a draft, not a signed or published release.
+See the [implementation scope](docs/releases/0.9.60.0.md), [validation record](docs/validation/release-0.9.60.0.md), [design ledger](docs/validation/0.9.60.0-design-coverage.md), [GGUF/benchmark ledger](docs/validation/0.9.60.0-gguf-benchmark-coverage.md) and [extended audit ledger](docs/validation/0.9.60.0-benchmark-audit-extended-coverage.md). Candidate implementation, automated validation and device qualification are tracked separately.
 
 ## Qualification limits
 
 - Unified Reliability v2 is not complete; its remaining acceptance cases are not represented as passed.
 - Physical-device performance and a production baseline profile remain unqualified until measured on a reference device.
+- Android GPU qualification requires compatible-device receipts for actual offload, prefill, decode, repeated requests and cancel/recovery; host tests do not establish those results.
+- Repeated physical NPU/GPU schema completion, reduced warm inspection latency, calibrated memory admission and Full-run performance remain device acceptance gates. The app does not infer runtime-effective settings from requested or SDK-applied values.
 - Qwen demo backend availability and live authenticated LLM7 generation are not established by deterministic tests.
 - Optional runtime extraction remains a staged packaging project; this release adds a measured payload inventory without claiming APK size savings.
-- Automatic provider resume covers never-dispatched requests; stage-specific continuation after transmitted failures remains incomplete.
-- Optional append continuations, complete transfer authorization and derived-query taint, and daily token quota reconciliation remain incomplete.
-- Durable block manifests and virtualized long-answer rendering remain incomplete; final staging currently uses memory.
-- The three 2026-10-24 design documents are only partially implemented; this integration remains a draft pending the documented design and qualification gates.
+- Exact recovered France/Portugal wording and report fields, and the earlier benchmark export round-trip, do not establish a complete conversation replay; the later 16-run benchmark export remains unavailable. See the [continuation review](docs/validation/0.9.60.0-continuation-review.md).

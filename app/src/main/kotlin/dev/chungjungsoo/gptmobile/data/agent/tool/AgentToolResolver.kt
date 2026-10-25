@@ -137,10 +137,13 @@ class AgentToolResolver @Inject constructor(
         delegate: (suspend (PlatformV2, String, Int) -> String)? = null,
         onConnectionError: (String) -> Unit = {},
         examinationRunKey: String? = null,
-        cachedCataloguesOnly: Boolean = false
+        cachedCataloguesOnly: Boolean = false,
+        requestedModel: String? = null
     ): List<ResolvedAgentTool> {
         val platforms = settingRepository.fetchPlatformV2s()
         val platform = platforms.firstOrNull { it.uid == profileUid }
+        // Keep registered identity checks separate from the actual model receiving tool data.
+        val consentPlatform = platform?.copy(model = requestedModel?.trim()?.takeIf(String::isNotBlank) ?: platform.model)
 
         // If master disableAllTools is toggled, return no tools immediately
         if (platform?.disableAllTools == true) {
@@ -151,7 +154,7 @@ class AgentToolResolver @Inject constructor(
             return emptyList()
         }
 
-        val freeProfile = platform?.let { it.compatibleType == ClientType.FREE || dev.chungjungsoo.gptmobile.data.permissions.ProviderPrivacyPolicy.forProfile(it) != null } == true
+        val freeProfile = consentPlatform?.let { it.compatibleType == ClientType.FREE || dev.chungjungsoo.gptmobile.data.permissions.ProviderPrivacyPolicy.forProfile(it) != null } == true
         val disableRemote = platform?.disableRemoteTools == true
         val disableLocal = platform?.disableLocalTools == true
         val featureSettings = settingRepository.getFeatureSettings()
@@ -251,7 +254,7 @@ class AgentToolResolver @Inject constructor(
                     false
                 }
                 if (memoryAvailable) {
-                    val tool = UnifiedMemoryTool(factVault, memoryGraph, memoryDocuments, userMessage, platform.isPrivateDestination())
+                    val tool = UnifiedMemoryTool(factVault, memoryGraph, memoryDocuments, userMessage, (consentPlatform ?: platform).isPrivateDestination())
                     resolved += tool.resolved(null, "Memory", tool.definition.name)
                 }
             }
@@ -466,7 +469,7 @@ class AgentToolResolver @Inject constructor(
             }
         }
 
-        val finalized = finalizeResolvedTools(resolved, profileUid, platform, featureSettings, bindings, chatToolConfig, freeProfile, disableRemote, disableLocal, onConnectionError)
+        val finalized = finalizeResolvedTools(resolved, profileUid, platform, featureSettings, bindings, chatToolConfig, freeProfile, disableRemote, disableLocal, onConnectionError, chatId = userMessage?.chatId, consentPlatform = consentPlatform)
         val catalogTask = githubCatalogTask(profileUid, userMessage, hasGitHubRepositoryContext)
         val coldBindings = if (cachedCataloguesOnly && allowRemoteMcp && userMessage != null) {
             bindings.filter { binding ->
@@ -479,9 +482,9 @@ class AgentToolResolver @Inject constructor(
             emptyList()
         }
         if (coldBindings.isEmpty()) {
-            if (finalized.none { it.nativeGitHub }) return attachCrawlers(finalized, profileUid, platform, featureSettings, userMessage, chatToolConfig)
+            if (finalized.none { it.nativeGitHub }) return attachCrawlers(finalized, profileUid, platform, featureSettings, userMessage, chatToolConfig, consentPlatform)
             val directory = dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog(finalized.map { it.tool.definition }, catalogTask)
-            return attachCrawlers(finalized, profileUid, platform, featureSettings, userMessage, chatToolConfig) + ResolvedAgentTool(directory, null, "Authorized tool directory", directory.definition.name, directory.definition.name, progressiveCatalog = directory)
+            return attachCrawlers(finalized, profileUid, platform, featureSettings, userMessage, chatToolConfig, consentPlatform) + ResolvedAgentTool(directory, null, "Authorized tool directory", directory.definition.name, directory.definition.name, progressiveCatalog = directory)
         }
         val discovered = java.util.concurrent.ConcurrentHashMap<String, ResolvedAgentTool>()
         val attemptedConnections = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
@@ -518,7 +521,7 @@ class AgentToolResolver @Inject constructor(
             }
             // Recheck after I/O. Old grants/credentials cannot publish tools to a newer turn authority.
             check(settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid } == platform && settingRepository.getFeatureSettings() == live && toolConnectionRepository.listBindingsWithConnections(profileUid) == currentBindings) { "Tool permissions changed during discovery." }
-            val admitted = finalizeResolvedTools(loaded, profileUid, platform, live, currentBindings, chatToolConfig, freeProfile, disableRemote, disableLocal, onConnectionError, finalized.filter { it.nativeGitHub })
+            val admitted = finalizeResolvedTools(loaded, profileUid, platform, live, currentBindings, chatToolConfig, freeProfile, disableRemote, disableLocal, onConnectionError, finalized.filter { it.nativeGitHub }, chatId = userMessage?.chatId, consentPlatform = consentPlatform)
             admitted.forEach { next ->
                 val previous = finalized.firstOrNull { it.modelToolName == next.modelToolName } ?: discovered[next.modelToolName]
                 check(previous == null || previous.connectionUid == next.connectionUid && previous.realToolName == next.realToolName) { "Ambiguous discovered tool alias; no action dispatched." }
@@ -526,15 +529,24 @@ class AgentToolResolver @Inject constructor(
             }
             aggregateWebSearch(finalized + discovered.values).map { it.tool.definition }
         })
-        return attachCrawlers(finalized, profileUid, platform, featureSettings, userMessage, chatToolConfig) + ResolvedAgentTool(directory, null, "Authorized tool directory", directory.definition.name, directory.definition.name, dynamicTools = { finalized + discovered.values }, progressiveCatalog = directory)
+        return attachCrawlers(finalized, profileUid, platform, featureSettings, userMessage, chatToolConfig, consentPlatform) + ResolvedAgentTool(directory, null, "Authorized tool directory", directory.definition.name, directory.definition.name, dynamicTools = { finalized + discovered.values }, progressiveCatalog = directory)
     }
 
-    private suspend fun attachCrawlers(tools: List<ResolvedAgentTool>, profileUid: String, platform: PlatformV2?, features: AppFeatureSettings, message: MessageV2?, chat: ChatMcpToolConfig?): List<ResolvedAgentTool> {
+    private suspend fun attachCrawlers(tools: List<ResolvedAgentTool>, profileUid: String, platform: PlatformV2?, features: AppFeatureSettings, message: MessageV2?, chat: ChatMcpToolConfig?, consentPlatform: PlatformV2? = platform): List<ResolvedAgentTool> {
         val context = documentContext ?: return tools
         if (message == null || platform == null || platform.disableAllTools || platform.disableRemoteTools || chat?.allToolsDisabled == true || chat?.isToolEnabled(listOf("crawler", ToolPluginId.CRAWLERS)) == false || !features.isToolPluginEnabledForProfile(profileUid, ToolPluginId.CRAWLERS)) return tools
         val scope = dev.chungjungsoo.gptmobile.data.crawl.CrawlScope(profileUid, message.chatId, "${message.chatId}:${message.id}:${message.createdAt}", dev.chungjungsoo.gptmobile.data.crawl.crawlHash(features.toString() + platform.toString()), factVault?.scopeForChat(message.chatId)?.isTemporary == false)
-        return dev.chungjungsoo.gptmobile.data.crawl.CrawlerIntegration.attach(context, scope, features, tools) {
+        val attached = dev.chungjungsoo.gptmobile.data.crawl.CrawlerIntegration.attach(context, scope, features, tools) {
             settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid } == platform && settingRepository.getFeatureSettings() == features
+        }
+        // Attachment replaces the native reader with a cache and introduces direct engines.
+        // Guard the resulting surface too, before a derived URL reaches any of them.
+        return attached.map { resolved ->
+            if (resolved.connectionUid == null && resolved.realToolName in setOf("read_url", "crawler", "jina_crawler_fetch")) {
+                resolved.copy(tool = dev.chungjungsoo.gptmobile.data.permissions.ProvenanceGuardedTool(resolved.tool, consentPlatform ?: platform, resolved.realToolName, personal = false, external = true) { freeModelToolConsentStore?.grantFor(consentPlatform ?: platform, resolved.realToolName, message.chatId) })
+            } else {
+                resolved
+            }
         }
     }
 
@@ -619,9 +631,12 @@ class AgentToolResolver @Inject constructor(
         disableRemote: Boolean,
         disableLocal: Boolean,
         onConnectionError: (String) -> Unit,
-        nativeGitHubAlternatives: List<ResolvedAgentTool> = emptyList()
+        nativeGitHubAlternatives: List<ResolvedAgentTool> = emptyList(),
+        chatId: Int? = null,
+        consentPlatform: PlatformV2? = platform
     ): List<ResolvedAgentTool> {
         fun implicitlyPublic(tool: ResolvedAgentTool): Boolean {
+            if (tool.nativeGitHub) return !tool.nativeGitHubAuthenticated
             if (tool.connectionUid == null) return !dev.chungjungsoo.gptmobile.data.permissions.FreeToolDataPolicy.requiresPersonalPermission(tool.realToolName)
             // A remote schema or a tool named "web_search" is not a public-data grant.
             return tool.isWebSearchEngine() &&
@@ -659,8 +674,8 @@ class AgentToolResolver @Inject constructor(
                 val publicTool = implicitlyPublic(tool)
                 !freeProfile ||
                     publicTool ||
-                    platform != null &&
-                    freeModelToolConsentStore?.isGranted(platform, tool.connectionUid?.let { "$it:${tool.realToolName}" } ?: tool.realToolName) == true
+                    consentPlatform != null &&
+                    freeModelToolConsentStore?.isGranted(consentPlatform, tool.connectionUid?.let { "$it:${tool.realToolName}" } ?: tool.realToolName, chatId) == true
             }
             .filterForToolPolicy("CHAT_TOOL_SELECTION") { tool ->
                 if (chatToolConfig == null) {
@@ -770,6 +785,7 @@ class AgentToolResolver @Inject constructor(
             .map { resolved ->
                 if (!freeProfile ||
                     platform == null ||
+                    consentPlatform == null ||
                     implicitlyPublic(resolved)
                 ) {
                     return@map resolved
@@ -780,17 +796,38 @@ class AgentToolResolver @Inject constructor(
                     val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
                     current != null &&
                         current.enabled &&
-                        dev.chungjungsoo.gptmobile.data.permissions.ProviderPrivacyPolicy.scope(current) == dev.chungjungsoo.gptmobile.data.permissions.ProviderPrivacyPolicy.scope(platform) &&
-                        freeModelToolConsentStore?.isGranted(current, id) == true
+                        dev.chungjungsoo.gptmobile.data.agent.sameRecoveryDestination(platform, current) &&
+                        freeModelToolConsentStore?.isGranted(current.copy(model = consentPlatform.model), id, chatId) == true
                 }
                 resolved.copy(
-                    tool = dev.chungjungsoo.gptmobile.data.permissions.PersonalDataGuardedTool(resolved.tool, permitted),
+                    tool = dev.chungjungsoo.gptmobile.data.permissions.PersonalDataGuardedTool(resolved.tool, permitted, grantLookup = { freeModelToolConsentStore?.grantFor(consentPlatform, id, chatId) }),
                     canReuseResult = { permitted() && previous?.invoke() != false }
                 )
+            }
+            .map { resolved ->
+                if (consentPlatform == null) return@map resolved
+                val id = resolved.connectionUid?.let { "$it:${resolved.realToolName}" } ?: resolved.realToolName
+                val control = resolved.realToolName in setOf("delegate_to_model", "read_recovery_context", "discover_tools")
+                val personal = !control && !implicitlyPublic(resolved)
+                val external = !control && (resolved.connectionUid != null || resolved.nativeGitHub || resolved.nativeMarketplace || resolved.tool.definition.capabilities.any { it in setOf(dev.chungjungsoo.gptmobile.data.agent.AgentToolCapability.WEB_SEARCH, dev.chungjungsoo.gptmobile.data.agent.AgentToolCapability.PAGE_READER) } || resolved.realToolName in setOf("web_search", "read_url", "news", "deep_research_search_papers", "deep_research_get_paper", "deep_research_read_paper", "deep_research_citations"))
+                resolved.copy(tool = dev.chungjungsoo.gptmobile.data.permissions.ProvenanceGuardedTool(resolved.tool, consentPlatform, id, personal, external) { freeModelToolConsentStore?.grantFor(consentPlatform, id, chatId) })
             }
             .map { resolved -> if (statistics == null) resolved else resolved.copy(tool = observedChild(resolved.tool, resolved.realToolName, resolved.connectionUid)) }
             .sortedBy { it.modelToolName }
         return GitHubProviderPolicy.select(authorized, nativeGitHubAlternatives, bindings.mapNotNull { it.connection }.distinctBy { it.connectionUid })
+    }
+
+    /** Old saved histories have no labels. Derive conservative categories from their actual tool bindings. */
+    internal suspend fun retainedPersonalDataSources(sources: List<dev.chungjungsoo.gptmobile.data.permissions.PersonalDataToolSource>, chatId: Int): List<dev.chungjungsoo.gptmobile.data.permissions.PersonalDataProvenance> {
+        check(sources.size <= 2048) { "PERSONAL_DATA_SCOPE_TOO_LARGE: Review a smaller saved conversation before sharing it." }
+        val bindings = sources.filter { it.connectionUid != null }.map { it.profileUid }.distinct().associateWith { toolConnectionRepository.listBindingsWithConnections(it) }
+        return sources.mapNotNull { source ->
+            val id = source.connectionUid?.let { "$it:${source.toolName}" } ?: source.toolName
+            val control = source.toolName in setOf("delegate_to_model", "read_recovery_context", "discover_tools")
+            val public = if (source.connectionUid == null) !dev.chungjungsoo.gptmobile.data.permissions.FreeToolDataPolicy.requiresPersonalPermission(source.toolName) else bindings[source.profileUid].orEmpty().any { it.binding.connectionUid == source.connectionUid && it.connection?.type in ToolConnectionType.WEB_SEARCH_TYPES }
+            if (control || public) return@mapNotNull null
+            dev.chungjungsoo.gptmobile.data.permissions.PersonalDataProvenance(sourceToolId = id, sourceProfileUid = source.profileUid, sourceRef = dev.chungjungsoo.gptmobile.data.research.researchHash("legacy:$chatId:${source.profileUid}:$id"), categories = setOf(dev.chungjungsoo.gptmobile.data.permissions.personalDataCategory(id)), retentionChatId = chatId)
+        }
     }
 
     private fun observedChild(tool: AgentTool, name: String = tool.definition.name, connection: String? = null): AgentTool =

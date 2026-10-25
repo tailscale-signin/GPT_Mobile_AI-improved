@@ -41,4 +41,12 @@ class QnnRuntimeFailureTest {
         assertThrows(OutOfMemoryError::class.java) { classifyQnnFailure(QnnRuntimeStage.ENGINE_INIT, OutOfMemoryError()) }
         assertThrows(kotlinx.coroutines.CancellationException::class.java) { classifyQnnFailure(QnnRuntimeStage.ENGINE_INIT, kotlinx.coroutines.CancellationException()) }
     }
+
+    @Test fun grammarFailureRetainsItsNativeTokenAndDoesNotBecomeAnUnknownError() {
+        val failure = classifyQnnFailure(QnnRuntimeStage.DECODE, IllegalStateException("failed to commit token: parser error: token \"▁Reasoning\" doesn't satisfy the grammar"))
+        assertEquals(QnnFailureCode.CONSTRAINED_DECODING_FAILURE, failure.code)
+        assertEquals(QnnRuntimeStage.DECODE, failure.stage)
+        assertTrue(failure.nativeDetail.contains("▁Reasoning"))
+        assertEquals("VERIFY_SCHEMA_TOKENIZER_TEMPLATE_AND_SAFE_DECODING_MODE", failure.suggestedRecoveryType)
+    }
 }

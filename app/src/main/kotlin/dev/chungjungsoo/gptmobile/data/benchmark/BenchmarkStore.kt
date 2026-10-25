@@ -8,6 +8,7 @@ import dev.chungjungsoo.gptmobile.data.localruntime.QualificationStatus
 import dev.chungjungsoo.gptmobile.data.localruntime.RuntimePlanDecisionRecord
 import dev.chungjungsoo.gptmobile.data.localruntime.RuntimeQualificationResult
 import dev.chungjungsoo.gptmobile.data.localruntime.RuntimeTrial
+import java.io.OutputStream
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineExceptionHandler
@@ -16,6 +17,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -26,6 +28,10 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.intOrNull
 
@@ -44,6 +50,17 @@ internal data class BenchmarkBackupPayload(
     val attempts: List<BenchmarkAttempt> = emptyList(),
     val batchEvents: List<BenchmarkBatchEvent> = emptyList()
 )
+
+private enum class BenchmarkExportTable(val table: String, val order: String) {
+    RUNS("benchmark_runs", "startedAt DESC"),
+    SCORES("benchmark_snapshots", "generation DESC"),
+    TRIALS("runtime_trials", "timestamp DESC, id"),
+    QUALIFICATIONS("runtime_qualifications", "rowid"),
+    DECISIONS("runtime_decisions", "timestamp DESC"),
+    BATCHES("benchmark_batches", "createdAt DESC"),
+    ATTEMPTS("benchmark_attempts", "batchId, ordinal, rowid"),
+    EVENTS("benchmark_batch_events", "batchId, sequence")
+}
 
 internal class BenchmarkStorageFailure(cause: Throwable) : Exception("Canonical benchmark storage is unavailable; the queue is paused.", cause)
 
@@ -67,7 +84,8 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
     private var mirrorJob: kotlinx.coroutines.Job? = null
     private var scoreJob: kotlinx.coroutines.Job? = null
     private val mutex = Mutex()
-    private var activeRevisions: Map<String, String>? = preferences.getString("active_revisions", null)?.let { runCatching { json.decodeFromString<Map<String, String>>(it) }.getOrNull() }
+    private var activeRevisions: Map<String, String>? = null
+    private var enrollmentLoaded = false
     private val mutableHistory = MutableStateFlow<List<BenchmarkRun>>(emptyList())
     val history = mutableHistory.asStateFlow()
     private val mutableWarning = MutableStateFlow<String?>(null)
@@ -124,8 +142,16 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
         mutex.withLock { loadLocked() }
     }
 
+    /** Keep the small metadata read on an existing mutex/IO path, not ViewModel construction. */
+    private fun loadEnrollmentLocked() {
+        if (enrollmentLoaded) return
+        activeRevisions = preferences.getString("active_revisions", null)?.let { runCatching { json.decodeFromString<Map<String, String>>(it) }.getOrNull() }
+        enrollmentLoaded = true
+    }
+
     private suspend fun loadLocked() {
         if (loaded) return
+        loadEnrollmentLocked()
         // Canonical rows are read independently of optional preferences recovery.
         val records = dao.runs()
         val stored = records.mapNotNull { runCatching { json.decodeFromString<BenchmarkRun>(it.payload) }.getOrNull() }
@@ -173,6 +199,7 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
 
     internal suspend fun updateEnrollment(revisions: Map<String, String>) = withContext(Dispatchers.IO) {
         mutex.withLock {
+            loadEnrollmentLocked()
             if (revisions == activeRevisions) return@withLock
             activeRevisions = revisions.toMap()
             check(preferences.edit().putString("active_revisions", json.encodeToString(revisions)).commit()) { "Could not save benchmark enrollment." }
@@ -209,7 +236,27 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
                 loadLocked()
                 val saved = dao.batches().firstOrNull { it.id == batch.id }?.let { json.decodeFromString<BenchmarkBatch>(it.payload) }
                 // A concurrent Stop action cannot be overwritten by a case checkpoint.
-                val effectiveBatch = if (event in setOf("CASE_STARTED", "CASE_FINISHED", "PREFLIGHT", "PREFLIGHT_CLEANUP")) batch.copy(stopOrigin = saved?.stopOrigin ?: batch.stopOrigin) else batch
+                val accepted = if (saved == null && event == "MANIFEST_SAVED" && batch.suiteVersion >= 9) {
+                    val current = batch.copy(measurementVersion = 4, scoringVersion = 4, recoveryPolicy = "INDEPENDENT_CASES_AFTER_CONFIRMED_CLEANUP_V1")
+                    if (batch.suiteVersion >= 10) {
+                        val policy = batch.executionPolicy ?: BenchmarkExecutionPolicy.DETERMINISTIC_CAPABILITY_V1
+                        val seed = batch.fixtureRotationSeed ?: benchmarkHash(batch.id).take(12).toLong(16)
+                        current.copy(
+                            executionPolicy = policy,
+                            fixtureRotationSeed = seed,
+                            caseManifest = batch.caseManifest ?: when (batch.mode) {
+                                BenchmarkMode.CPU_EXPERIMENT, BenchmarkMode.DELEGATION -> null
+                                else -> benchmarkSuiteForVersion(batch.suiteVersion, batch.mode, seed)
+                            },
+                            items = batch.items.map { it.copy(configKey = benchmarkConfigKey(it.profile, batch.localEnvironment, policy)) }
+                        )
+                    } else {
+                        current
+                    }
+                } else {
+                    batch
+                }
+                val effectiveBatch = if (event in setOf("CASE_STARTED", "CASE_FINISHED", "CASE_NOT_ADMITTED", "CASE_INTERRUPTED", "PREFLIGHT", "PREFLIGHT_CLEANUP", "PREFLIGHT_INTERRUPTED", "READINESS_CHECKPOINT", "READINESS_FINISHED")) accepted.copy(stopOrigin = saved?.stopOrigin ?: accepted.stopOrigin) else accepted
                 var effectiveRun = run?.copy(samples = run.samples.map { sample -> sample.copy(attemptId = sample.attemptId ?: "${run.id}:${sample.testId}:0") })
                 val existing = dao.attempts(batch.id).map { json.decodeFromString<BenchmarkAttempt>(it.payload) }.associateBy { it.id }.toMutableMap()
                 val changed = attempts.map { it.id }.toMutableSet()
@@ -319,11 +366,12 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
             val terminal = when {
                 !allCasesCommitted -> BenchmarkQueueState.INTERRUPTED
                 old.stopOrigin == BenchmarkStopOrigin.USER_SKIP -> BenchmarkQueueState.SKIPPED
-                savedRun!!.samples.any { it.executionFailure() || it.cleanupReceipt == "cleanup_unconfirmed_local_blocked" } -> BenchmarkQueueState.FAILED
+                savedRun!!.samples.any { it.recoveryAction(old.recoveryPolicy == "INDEPENDENT_CASES_AFTER_CONFIRMED_CLEANUP_V1") !in setOf(BenchmarkRecoveryAction.CONTINUE_INDEPENDENT_CASES, BenchmarkRecoveryAction.SKIP_DEPENDENTS) } -> BenchmarkQueueState.FAILED
                 else -> BenchmarkQueueState.COMPLETED
             }
             val now = System.currentTimeMillis()
-            val recoveredRun = savedRun?.takeIf { allCasesCommitted }?.copy(finished = true, state = terminal.name, canceled = false, cancellationOrigin = if (terminal == BenchmarkQueueState.SKIPPED) BenchmarkStopOrigin.USER_SKIP else null, endedAt = now, stoppedReason = if (terminal == BenchmarkQueueState.COMPLETED) null else savedRun.samples.firstOrNull { it.executionFailure() }?.error)
+            val retainedFailure = savedRun?.samples?.firstOrNull { it.outcome in setOf(BenchmarkOutcome.FAILED, BenchmarkOutcome.PARTIAL) || it.executionFailure() || it.runtimeCleanup?.safeForSuccessor == false }
+            val recoveredRun = savedRun?.takeIf { allCasesCommitted }?.copy(finished = true, state = if (terminal == BenchmarkQueueState.COMPLETED && retainedFailure != null) "COMPLETED_WITH_FAILURES" else terminal.name, canceled = false, cancellationOrigin = if (terminal == BenchmarkQueueState.SKIPPED) BenchmarkStopOrigin.USER_SKIP else null, endedAt = now, stoppedReason = if (terminal == BenchmarkQueueState.COMPLETED) null else savedRun.samples.firstOrNull { it.executionFailure() }?.error)
             val recovered = old.copy(
                 state = if (old.state == BenchmarkBatchState.STORAGE_PAUSED) {
                     old.state
@@ -335,7 +383,7 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
                 activeOrdinal = null,
                 endedAt = now,
                 stopOrigin = old.stopOrigin ?: BenchmarkStopOrigin.PROCESS_INTERRUPTION,
-                items = old.items.map { if (it.state == BenchmarkQueueState.RUNNING) it.copy(state = terminal, endedAt = now, activeCaseId = null, completedCases = savedRun?.samples?.size ?: it.completedCases, failure = if (allCasesCommitted) savedRun?.samples?.firstOrNull { sample -> sample.executionFailure() }?.failure else BenchmarkFailure("PROCESS_INTERRUPTION", "unknown", "Android interrupted this profile; an in-flight request may have reached its provider.")) else it }
+                items = old.items.map { if (it.state == BenchmarkQueueState.RUNNING) it.copy(state = terminal, endedAt = now, activeCaseId = null, completedCases = savedRun?.samples?.size ?: it.completedCases, failure = if (allCasesCommitted) retainedFailure?.let { sample -> sample.failure ?: BenchmarkFailure(sample.failureCategory ?: "MODEL_QUALITY", sample.runtimeStage ?: "validation", sample.error ?: "A case did not meet its fixture requirements.", scope = "request", failureScope = BenchmarkFailureScope.REQUEST) } else BenchmarkFailure("PROCESS_INTERRUPTION", "unknown", "Android interrupted this profile; an in-flight request may have reached its provider.")) else it }
             )
             val interrupted = savedAttempts.filter { it.state == "STARTED" }.map { it.copy(state = "INTERRUPTED", dispatchUncertain = true) }
             checkpoint(recovered.copy(state = recovered.completionState()), recoveredRun, interrupted, "RECOVERED")
@@ -383,7 +431,7 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
         val next = prepared?.copy(generation = previous + 1) ?: withContext(Dispatchers.Default) {
             DynamicScoreEngine.snapshot(runs, previous + 1, System.currentTimeMillis(), activeRevisions)
         }
-        if (next.rows == mutableSnapshot.value?.rows) return
+        if (next.rows == mutableSnapshot.value?.rows && next.policy == mutableSnapshot.value?.policy && next.enrollment == mutableSnapshot.value?.enrollment) return
         dao.publish(runs.map { BenchmarkRunRecord(it.id, it.startedAt, json.encodeToString(it)) }, BenchmarkSnapshotRecord(next.generation, next.createdAt, json.encodeToString(next)))
         mutableSnapshot.value = next
     }
@@ -402,7 +450,7 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
                     runs = mutableHistory.value,
                     scoreTable = mutableSnapshot.value,
                     scoreHistory = if (includeScoreHistory) dao.snapshots().map { json.decodeFromString<BenchmarkScoreSnapshot>(it.payload) } else emptyList(),
-                    enrollment = if (includeScoreHistory) activeRevisions else null,
+                    enrollment = activeRevisions ?: mutableSnapshot.value?.enrollment ?: mutableSnapshot.value?.rows?.takeIf { it.isNotEmpty() }?.associate { it.profileUid to it.revision },
                     runtimeTrials = mutableRuntimeTrials.value,
                     runtimeQualifications = mutableQualifications.value,
                     runtimeDecisions = dao.runtimeDecisions().map { json.decodeFromString<RuntimePlanDecisionRecord>(it.payload) },
@@ -412,6 +460,172 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
                 )
             )
         }
+    }
+
+    /** Export never hydrates/re-publishes history or parses an obsolete canonical backup mirror. */
+    suspend fun writeExport(
+        output: OutputStream,
+        detailed: Boolean = false
+    ) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            loadEnrollmentLocked()
+            val cancellation = kotlin.coroutines.coroutineContext
+            val canonical =
+                dao.canonicalInitialized() ||
+                    database.openHelper.readableDatabase.query("SELECT EXISTS(SELECT 1 FROM benchmark_runs)").use { cursor ->
+                        cursor.moveToFirst() && cursor.getInt(0) != 0
+                    }
+            // SharedPreferences already owns its backing String. Only an uninitialized legacy
+            // store needs its JSON; export neither migrates it nor creates another history tree.
+            val legacyHistory = if (canonical) null else preferences.getString("history", null)
+
+            fun records(table: BenchmarkExportTable): Sequence<JsonElement> =
+                sequence {
+                    val rows =
+                        when (table) {
+                            BenchmarkExportTable.ATTEMPTS -> "SELECT records.rowid FROM benchmark_attempts records LEFT JOIN benchmark_batches batches ON records.batchId = batches.id ORDER BY batches.createdAt DESC, records.ordinal, records.rowid"
+                            BenchmarkExportTable.EVENTS -> "SELECT records.rowid FROM benchmark_batch_events records LEFT JOIN benchmark_batches batches ON records.batchId = batches.id ORDER BY batches.createdAt DESC, records.sequence"
+                            else -> "SELECT rowid FROM ${table.table} ORDER BY ${table.order}"
+                        }
+                    // Only row identifiers are retained. Do not suspend a live cursor across
+                    // yield: a destination failure can abandon a Sequence before its finally runs.
+                    val ids =
+                        database.openHelper.readableDatabase.query(rows).use { cursor ->
+                            buildList {
+                                while (cursor.moveToNext()) {
+                                    cancellation.ensureActive()
+                                    add(cursor.getLong(0))
+                                }
+                            }
+                        }
+                    ids.forEach { rowId ->
+                        cancellation.ensureActive()
+                        yield(readExportRecord(table, rowId, cancellation))
+                    }
+                }
+
+            fun originalRuns(): Sequence<JsonElement> =
+                if (legacyHistory ==
+                    null
+                ) {
+                    records(BenchmarkExportTable.RUNS)
+                } else {
+                    benchmarkLegacyExportRecords(legacyHistory) { cancellation.ensureActive() }
+                }
+
+            fun completeRuns(): Sequence<BenchmarkRun> =
+                originalRuns().map { benchmarkExportJson.decodeFromJsonElement(BenchmarkRun.serializer(), it) }
+            val comparisons = completeRuns().map(::benchmarkExportComparisonRun).toList()
+            val batches =
+                records(BenchmarkExportTable.BATCHES)
+                    .map {
+                        benchmarkExportJson
+                            .decodeFromJsonElement(
+                                BenchmarkBatch.serializer(),
+                                it
+                            ).copy(
+                                items = emptyList(),
+                                delegationPrimary = null,
+                                delegationReviewer = null,
+                                delegationSettings = null,
+                                caseManifest = null
+                            )
+                    }.toList()
+            val rawScore =
+                database.openHelper.readableDatabase
+                    .query(
+                        "SELECT rowid FROM benchmark_snapshots WHERE generation = (SELECT generation FROM benchmark_current WHERE id = 1)"
+                    ).use { cursor ->
+                        if (cursor.moveToFirst()) {
+                            readExportRecord(
+                                BenchmarkExportTable.SCORES,
+                                cursor.getLong(0),
+                                cancellation
+                            )
+                        } else {
+                            JsonNull
+                        }
+                    }
+            val snapshot =
+                rawScore
+                    .takeUnless {
+                        it == JsonNull
+                    }?.let { benchmarkExportJson.decodeFromJsonElement(BenchmarkScoreSnapshot.serializer(), it) }
+            val enrollment =
+                activeRevisions ?: snapshot?.enrollment
+                    ?: snapshot?.rows?.takeIf { it.isNotEmpty() }?.associate { it.profileUid to it.revision }
+            val source = BenchmarkExportSource(comparisons, batches, snapshot, enrollment, rawScore, readCompleteRuns = ::completeRuns)
+
+            fun storedRecords(table: BenchmarkExportTable): BenchmarkExportRecords =
+                benchmarkExportRecords {
+                    val originals = if (table == BenchmarkExportTable.RUNS) originalRuns() else records(table)
+                    originals.forEach { original ->
+                        cancellation.ensureActive()
+                        // Never normalize a raw record with its body-free comparison projection.
+                        val normalized =
+                            when (table) {
+                                BenchmarkExportTable.RUNS ->
+                                    benchmarkExportJson.encodeToJsonElement(
+                                        BenchmarkRun.serializer(),
+                                        benchmarkExportJson.decodeFromJsonElement(BenchmarkRun.serializer(), original)
+                                    )
+                                BenchmarkExportTable.BATCHES ->
+                                    benchmarkExportJson.encodeToJsonElement(
+                                        BenchmarkBatch.serializer(),
+                                        benchmarkExportJson.decodeFromJsonElement(BenchmarkBatch.serializer(), original)
+                                    )
+                                else -> null
+                            }
+                        add(if (normalized == null) original else preserveBenchmarkExportUnknown(original, normalized))
+                    }
+                }
+            val writer = BenchmarkStreamingExport(output)
+            writeBenchmarkExport(writer, source, detailed) { fields ->
+                fields.put("runs", storedRecords(BenchmarkExportTable.RUNS))
+                fields.put("scoreTable", rawScore)
+                if (detailed) fields.put("scoreHistory", storedRecords(BenchmarkExportTable.SCORES))
+                fields.put(
+                    "enrollment",
+                    enrollment?.let {
+                        JsonObject(
+                            it.mapValues { (_, value) ->
+                                JsonPrimitive(value)
+                            }
+                        )
+                    } ?: JsonNull
+                )
+                fields.put("runtimeTrials", storedRecords(BenchmarkExportTable.TRIALS))
+                fields.put("runtimeQualifications", storedRecords(BenchmarkExportTable.QUALIFICATIONS))
+                fields.put("runtimeDecisions", storedRecords(BenchmarkExportTable.DECISIONS))
+                fields.put("batches", storedRecords(BenchmarkExportTable.BATCHES))
+                fields.put("attempts", storedRecords(BenchmarkExportTable.ATTEMPTS))
+                if (detailed) fields.put("batchEvents", storedRecords(BenchmarkExportTable.EVENTS))
+            }
+            cancellation.ensureActive()
+            writer.finish()
+        }
+    }
+
+    /** SQLite substr offsets count code points; no full payload enters a CursorWindow. */
+    private fun readExportRecord(table: BenchmarkExportTable, rowId: Long, cancellation: kotlin.coroutines.CoroutineContext): JsonElement {
+        val payload = StringBuilder()
+        var offset = 1L
+        val chunkCharacters = 64 * 1024
+        while (true) {
+            cancellation.ensureActive()
+            val chunk = database.openHelper.readableDatabase.query(
+                "SELECT substr(payload, ?, ?) FROM ${table.table} WHERE rowid = ?",
+                arrayOf<Any>(offset, chunkCharacters, rowId)
+            ).use { cursor ->
+                check(cursor.moveToFirst()) { "Benchmark export record disappeared from its snapshot." }
+                cursor.getString(0)
+            }
+            payload.append(chunk)
+            val characters = chunk.codePointCount(0, chunk.length)
+            if (characters < chunkCharacters) break
+            offset += characters
+        }
+        return benchmarkExportJson.parseToJsonElement(payload.toString())
     }
 
     /** Restore benchmark history and rebuild the dynamic score tables from their source runs. */

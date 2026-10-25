@@ -111,7 +111,8 @@ class HealthConnectTool(
                 HealthQuery(now.minusSeconds(1), now, clock.zone)
             } else {
                 try {
-                    HealthQuery.parse(arguments, now, clock.zone)
+                    currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.health.AuthorizedHealthQuery]?.takeIf { it.arguments == arguments }?.query
+                        ?: HealthQuery.parse(arguments, now, clock.zone)
                 } catch (invalid: IllegalArgumentException) {
                     return failure("invalid_arguments", invalid.message ?: "Invalid query arguments.")
                 }

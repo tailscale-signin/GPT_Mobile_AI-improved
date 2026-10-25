@@ -17,6 +17,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ApiStateFlowExtensionsTest {
+    @Test fun typedProviderLimitSurvivesReducerWithoutLosingPartialOutput() = runBlocking {
+        val limit = dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision("TEST", "p", "model", 1000L, "scope", "PROVIDER_RATE_LIMITED", true)
+        var answer = ""
+        val result = flowOf(ApiState.Success("Retained paragraph"), ApiState.Error("Capacity unavailable", providerLimit = limit), ApiState.Success("Must not appear"))
+            .collectApiStateUpdates(onUpdate = { content, _, _ -> answer = content })
+        assertEquals(ApiStateFlowOutcome.Failed("Capacity unavailable", limit), result)
+        assertEquals("Retained paragraph", answer)
+    }
+
     @Test fun modelProgressIsBatchedWithoutDroppingTheFinalCheckpoint() = runBlocking {
         var updates = 0
         var timeline = emptyList<AssistantTimelineItem>()

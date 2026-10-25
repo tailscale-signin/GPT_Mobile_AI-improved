@@ -32,11 +32,135 @@ import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class FreeQueuedTransportTest {
+    @Test fun resumedPollingCannotResetTheAcceptedJobDeadline() {
+        assertEquals(500L, queueRemainingWaitMillis(1000, 1200500, 1200, null))
+        assertEquals(200L, queueRemainingWaitMillis(1000, 1200500, 1200, 200))
+        assertThrows(IllegalStateException::class.java) { queueRemainingWaitMillis(1000, 1201000, 1200, null) }
+        assertEquals(15000L, queueRemainingWaitMillis(null, 1000, 0, null))
+    }
+
+    @Test fun cancelledAcceptedJobRetainsItsScopedUnconfirmedCleanupReceipt() = runBlocking {
+        val accepted = CompletableDeferred<Unit>()
+        var submissions = 0
+        val cancelledIds = mutableListOf<String>()
+        val run = java.util.UUID.randomUUID().toString()
+        val client = HttpClient(
+            MockEngine { wire ->
+                when {
+                    wire.url.encodedPath.endsWith("/status/models") -> respond(workerCatalog)
+                    wire.method == HttpMethod.Post -> {
+                        submissions++
+                        respond("""{"id":"cancel-receipt-job"}""")
+                    }
+                    wire.method == HttpMethod.Delete -> {
+                        cancelledIds += wire.url.encodedPath
+                        respond("{}", io.ktor.http.HttpStatusCode.ServiceUnavailable)
+                    }
+                    else -> {
+                        accepted.complete(Unit)
+                        kotlinx.coroutines.awaitCancellation()
+                    }
+                }
+            }
+        ) { install(HttpTimeout) }
+        try {
+            val network = mockk<NetworkClient>()
+            every { network.invoke() } returns client
+            val config = ProviderRequestConfig(FreeAiProvider.AI_HORDE.apiUrl, null, freeProvider = FreeAiProvider.AI_HORDE, profileUid = "horde", queueScope = "73:1:$run")
+            val task = launch(dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext(emptySet(), run)) {
+                OpenAIAPIImpl(network).streamChatCompletion(request("automatic"), 30, config).collect()
+            }
+            kotlinx.coroutines.withTimeout(5000) { accepted.await() }
+            task.cancel()
+            task.join()
+            val saved = dev.chungjungsoo.gptmobile.data.free.FreeQueueJobs.forRun(run, 73, "horde", false)!!
+            assertEquals(1, submissions)
+            assertEquals(listOf("/api/v2/generate/text/status/cancel-receipt-job"), cancelledIds)
+            assertEquals("CANCELLED", saved.state)
+            assertEquals("cancel-receipt-job", saved.cleanup?.jobId)
+            assertEquals(503, saved.cleanup?.responseStatus)
+            assertEquals(false, saved.cleanup?.transportAcknowledged)
+            assertNull(saved.cleanup?.remoteTerminalConfirmed)
+            org.junit.Assert.assertTrue(saved.cleanup?.durationMillis != null)
+            org.junit.Assert.assertTrue(OpenAIAPIImpl(network).checkSavedHordeJob(run, 73, config).contains("unconfirmed"))
+        } finally {
+            client.close()
+        }
+    }
+
     @org.junit.Before fun resetHealth() {
         dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.resetForTest()
     }
     private val gradioConfig = javaClass.getResource("/free/gradio/qwen-config.json")!!.readText()
     private val workerCatalog = """[{"name":"koboldcpp/Qwen2.5-7B-Instruct","count":1}]"""
+
+    @Test fun changedPermissionResumesTheAcceptedJobUnderCurrentAuthorityWithoutAnotherPost() = runBlocking {
+        var allowed = true
+        var submissions = 0
+        val polls = mutableListOf<String>()
+        val client = HttpClient(
+            MockEngine { wire ->
+                when {
+                    wire.url.encodedPath.endsWith("/status/models") -> respond(workerCatalog)
+                    wire.method == HttpMethod.Post -> {
+                        submissions++
+                        allowed = false
+                        respond("""{"id":"policy-change-job"}""")
+                    }
+                    else -> {
+                        polls += wire.url.encodedPath
+                        respond("""{"done":true,"generations":[{"text":"Saved complete answer","model":"worker/model"}]}""")
+                    }
+                }
+            }
+        ) { install(HttpTimeout) }
+        try {
+            val network = mockk<NetworkClient>()
+            every { network.invoke() } returns client
+            val api = OpenAIAPIImpl(network)
+            val runId = java.util.UUID.randomUUID().toString()
+            val config = ProviderRequestConfig(FreeAiProvider.AI_HORDE.apiUrl, null, freeProvider = FreeAiProvider.AI_HORDE, profileUid = "horde", queueScope = "71:1:$runId", permissionRevision = "before")
+            val dispatch = dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext(emptySet(), runId)
+            val guard = dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard("current") { check(allowed) { "DISPATCH_POLICY_CHANGED" } }
+            val failed = kotlinx.coroutines.withContext(dispatch + guard) { api.streamChatCompletion(request("automatic"), 30, config).toList() }
+            org.junit.Assert.assertTrue(failed.last().error?.message.orEmpty().contains("DISPATCH_POLICY_CHANGED"))
+            assertEquals(1, submissions)
+            org.junit.Assert.assertTrue(polls.isEmpty())
+            allowed = true
+            val resumed = kotlinx.coroutines.withContext(dispatch + guard) { api.streamChatCompletion(request("automatic"), 30, config.copy(permissionRevision = "after")).toList() }
+            assertEquals("Saved complete answer", resumed.flatMap { it.choices.orEmpty() }.mapNotNull { it.effectiveDelta.content }.joinToString(""))
+            assertEquals(1, submissions)
+            assertEquals(listOf("/api/v2/generate/text/status/policy-change-job"), polls)
+        } finally {
+            client.close()
+        }
+    }
+
+    @Test fun legacyAcceptedJobCannotDisappearWhenItsPermissionRevisionChanges() = runBlocking {
+        val run = java.util.UUID.randomUUID().toString()
+        dev.chungjungsoo.gptmobile.data.free.FreeQueueJobs.save(
+            dev.chungjungsoo.gptmobile.data.free.FreeQueueJob("legacy-$run", "legacy-job", "QUEUED", chatId = 72, protocol = "HORDE", ownerRunId = run, profileUid = "horde", requestedModel = "automatic")
+        )
+        var requests = 0
+        val client = HttpClient(
+            MockEngine {
+                requests++
+                error("A legacy receipt must be reviewed before any new submission")
+            }
+        ) { install(HttpTimeout) }
+        try {
+            val network = mockk<NetworkClient>()
+            every { network.invoke() } returns client
+            val config = ProviderRequestConfig(FreeAiProvider.AI_HORDE.apiUrl, null, freeProvider = FreeAiProvider.AI_HORDE, profileUid = "horde", queueScope = "72:1:$run", permissionRevision = "new")
+            val result = kotlinx.coroutines.withContext(dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext(emptySet(), run)) {
+                OpenAIAPIImpl(network).streamChatCompletion(request("automatic"), 30, config).toList()
+            }
+            org.junit.Assert.assertTrue(result.last().error?.message.orEmpty().contains("QUEUE_RECEIPT_REVIEW_REQUIRED"))
+            assertEquals(0, requests)
+        } finally {
+            client.close()
+        }
+    }
 
     @Test fun checkingPendingSavedJobUsesOnlyGetAndCannotPublishOverNewWriter() = runBlocking {
         val key = java.util.UUID.randomUUID().toString()

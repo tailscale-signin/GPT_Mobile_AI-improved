@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.research
 
 import dev.chungjungsoo.gptmobile.data.model.DeepResearchSettings
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonPrimitive
@@ -78,7 +79,7 @@ class ResearchEvidenceTest {
         assertEquals(0, restored.attempts)
     }
 
-    @Test fun versionOneSnapshotsMigrateToVersionFiveWithoutLosingReadableEvidence() {
+    @Test fun versionOneSnapshotsMigrateToVersionSixWithoutLosingReadableEvidence() {
         val passage = "A stable passage retained from the old snapshot format."
         val legacy = buildJsonObject {
             put("version", 1)
@@ -106,10 +107,10 @@ class ResearchEvidenceTest {
         assertEquals("https://example.org/page", restored.sources.single().canonicalUrl)
         assertEquals(passage, restored.sources.single().passage)
         assertEquals(0, restored.targetSources)
-        assertEquals(5, restored.json()["version"]?.jsonPrimitive?.int)
+        assertEquals(6, restored.json()["version"]?.jsonPrimitive?.int)
     }
 
-    @Test fun versionTwoSnapshotsMigrateToVersionFiveWithoutLosingEvidence() {
+    @Test fun versionTwoSnapshotsMigrateToVersionSixWithoutLosingEvidence() {
         val source = ResearchSource("S1", "https://example.org/page", "Version two page", "Read", "A readable passage from the version two snapshot.")
         val original = ResearchSnapshot("Version two task", sources = listOf(source), updatedAt = 1234)
         val legacy = buildJsonObject {
@@ -124,7 +125,7 @@ class ResearchEvidenceTest {
         assertEquals(original, restored)
         assertTrue(restored.sources.single().readable)
         assertEquals(0, restored.targetSources)
-        assertEquals(5, restored.json()["version"]?.jsonPrimitive?.int)
+        assertEquals(6, restored.json()["version"]?.jsonPrimitive?.int)
         assertEquals(restored, ResearchSnapshot.parse(restored.json()))
     }
 
@@ -132,11 +133,12 @@ class ResearchEvidenceTest {
         val source = ResearchSource("S1", "https://example.org/page", "Current page", "Read", "A readable passage from the current snapshot.")
         val original = ResearchSnapshot("Maximum research", sources = listOf(source), updatedAt = 1234, targetSources = 300)
 
-        val restored = ResearchSnapshot.parse(original.json())!!
+        val legacy = JsonObject(original.json() + ("version" to kotlinx.serialization.json.JsonPrimitive(5)))
+        val restored = ResearchSnapshot.parse(legacy)!!
 
         assertEquals(original, restored)
         assertEquals(300, restored.targetSources)
-        assertEquals(5, restored.json()["version"]?.jsonPrimitive?.int)
+        assertEquals(6, restored.json()["version"]?.jsonPrimitive?.int)
     }
 
     @Test fun stableSourceIdsAndFailureDetailsSurviveRoundTrip() {

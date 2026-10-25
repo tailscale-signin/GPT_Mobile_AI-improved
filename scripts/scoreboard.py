@@ -7,8 +7,8 @@ import re
 PROVIDERS = {"OPENAI", "ANTHROPIC", "GOOGLE", "GROQ", "OPENROUTER", "OLLAMA", "CUSTOM", "LLAMA", "FREE", "NVIDIA"}
 DOMAINS = {"Math", "Logic", "Reading", "Planning", "Code reasoning", "Knowledge"}
 OUTCOMES = {"PASSED", "FAILED", "ERROR", "TIMED_OUT"}
-ROOT_KEYS = {"schemaVersion", "id", "kind", "plan", "suiteVersion", "startedAt", "provider", "model", "primaryProvider", "primaryModel", "reviewerProvider", "reviewerModel", "trials", "issueNumber", "effectiveConfigHash", "comparisonContextHash", "measurementVersion", "scoringVersion", "backend", "accelerator", "capabilityManifest", "loadRegime", "cacheRegime"}
-TRIAL_DEFAULTS = dict(firstTextMs=None, speed=None, inputTokens=0, outputTokens=0, estimatedTokens=False, toolCalls=0, successfulToolCalls=0, intelligence={}, reviewerScore=None, workerCalls=0, searches=0, pagesRead=0, handoffCharacters=0, primaryInputTokens=0, primaryOutputTokens=0, reviewerCalls=0, reviewerInputTokens=0, reviewerOutputTokens=0, outputCapViolations=0)
+ROOT_KEYS = {"schemaVersion", "id", "kind", "plan", "suiteVersion", "startedAt", "provider", "model", "primaryProvider", "primaryModel", "reviewerProvider", "reviewerModel", "trials", "issueNumber", "effectiveConfigHash", "comparisonContextHash", "measurementVersion", "scoringVersion", "backend", "accelerator", "capabilityManifest", "loadRegime", "cacheRegime", "executionPolicy", "fixtureRotationSeed", "fixtureSetVersion", "fixtureManifestHash"}
+TRIAL_DEFAULTS = dict(firstTextMs=None, speed=None, inputTokens=0, outputTokens=0, estimatedTokens=False, toolCalls=0, successfulToolCalls=0, intelligence={}, reviewerScore=None, workerCalls=0, searches=0, pagesRead=0, handoffCharacters=0, primaryInputTokens=0, primaryOutputTokens=0, reviewerCalls=0, reviewerInputTokens=0, reviewerOutputTokens=0, outputCapViolations=0, intelligenceParseable=None, intelligenceFormatCompliant=None)
 FAMILIES = ["delegation-compact", "delegation-tools", "delegation-research", "delegation-chunks", "delegation-handoff", "delegation-stopping", "delegation-ownership", "delegation-progress"]
 
 
@@ -20,11 +20,11 @@ def manifest(kind, plan, version=7):
         return {"speed-0": ("speed", "short"), "instruction": ("task", "instruction"), "json": ("json", "structured"), "tool": ("tools", "tools"), "intelligence-batch-0": ("intelligence", "Six domains")}
     result = {f"speed-{band}-{seed}": ("speed", band) for band in ("short", "medium", "long") for seed in range(6)}
     result.update({key: ("task", family) for key, family in [("instruction-0", "instruction"), ("logic-0", "logic"), ("context", "recall"), ("extract-0", "extraction"), ("abstain-0", "abstention"), ("instruction-1", "instruction"), ("logic-1", "logic"), ("recall-1", "recall")]})
-    if version == 8:
+    if version in {8, 9, 10}:
         result = {f"speed-{band}-{seed}": ("speed", band) for band in ("short", "medium", "long") for seed in range(6)}
         result.update({f"{family}-{seed}": ("task", workload) for seed in range(2) for family, workload in (("instruction", "instruction"), ("logic", "logic"), ("extract", "extraction"), ("recall", "recall"), ("abstain", "abstention"))})
     result.update({f"json-{i}": ("json", "structured") for i in range(6)})
-    result.update({f"tool-{i}": ("tools", "tools") for i in range(10 if version == 8 else 12)})
+    result.update({f"tool-{i}": ("tools", "tools") for i in range(10 if version in {8, 9, 10} else 12)})
     result.update({f"intelligence-batch-{i}": ("intelligence", "Six domains") for i in range(6)})
     return result
 
@@ -46,10 +46,10 @@ def validate(data, *, submitted=False):
     require(type(data) is dict and not data.keys() - ROOT_KEYS, "Unknown or private fields in submission.")
     data = dict(data)
     data.setdefault("schemaVersion", 1)
-    require(type(data["schemaVersion"]) is int and data["schemaVersion"] in {1, 2}, "Unsupported scoreboard version.")
+    require(type(data["schemaVersion"]) is int and data["schemaVersion"] in {1, 2, 3}, "Unsupported scoreboard version.")
     require(type(data.get("kind")) is str and data.get("kind") in {"MODEL", "DELEGATION"} and type(data.get("plan")) is str and data.get("plan") in {"QUICK", "FULL"}, "Unsupported test plan.")
     delegation = data["kind"] == "DELEGATION"
-    require(type(data.get("suiteVersion")) is int and data["suiteVersion"] in ({1} if delegation else {6, 7, 8}), "Unsupported suite version.")
+    require(type(data.get("suiteVersion")) is int and data["suiteVersion"] in ({1} if delegation else {6, 7, 8, 9, 10}), "Unsupported suite version.")
     require(isinstance(data.get("id"), str) and re.fullmatch(r"[A-Za-z0-9-]{1,80}", data["id"]), "Invalid run ID.")
     require(integer(data.get("startedAt"), 0, 253402300799999), "Invalid run timestamp.")
     require(type(data.get("provider")) is str and data.get("provider") in PROVIDERS and model(data.get("model")), "Only remote provider/model identities are accepted.")
@@ -62,10 +62,15 @@ def validate(data, *, submitted=False):
             require(data.get(role + "Provider") is None and data.get(role + "Model") is None, "Unexpected delegation identity.")
     if delegation:
         require(data["model"].lower() != data["reviewerModel"].lower(), "Reviewer must use a different model.")
-    if data["schemaVersion"] == 2:
+    if data["schemaVersion"] >= 2:
         for field in ("effectiveConfigHash", "comparisonContextHash"):
             require(isinstance(data.get(field), str) and re.fullmatch(r"[a-f0-9]{64}", data[field]), "Missing or invalid public comparison identity.")
         require(integer(data.get("measurementVersion"), 1, 100) and integer(data.get("scoringVersion"), 1, 100), "Invalid measurement policy.")
+    require(data.get("executionPolicy") in (None, "DETERMINISTIC_CAPABILITY_V1"), "Saved-profile policy is a separate ranking domain.")
+    if not delegation and data["suiteVersion"] >= 10:
+        require(data["schemaVersion"] == 3 and data.get("executionPolicy") == "DETERMINISTIC_CAPABILITY_V1", "Explicit capability policy is required for suite ten.")
+        require(data.get("fixtureSetVersion") == 4 and integer(data.get("fixtureRotationSeed"), 0, 9_223_372_036_854_775_807), "Missing fixture rotation provenance.")
+        require(isinstance(data.get("fixtureManifestHash"), str) and re.fullmatch(r"[a-f0-9]{64}", data["fixtureManifestHash"]), "Missing fixture manifest digest.")
     for field in ("backend", "accelerator", "loadRegime", "cacheRegime"):
         require(data.get(field) is None or isinstance(data[field], str) and re.fullmatch(r"[A-Za-z0-9 _./-]{1,80}", data[field]), "Invalid public execution context.")
     capabilities = data.get("capabilityManifest", [])
@@ -96,7 +101,12 @@ def validate(data, *, submitted=False):
             require(t["reviewerScore"] is not None and t["reviewerCalls"] > 0, "Missing independent reviewer assessment.")
         answers = t["intelligence"]
         require(type(answers) is dict and all(type(v) is bool for v in answers.values()), "Invalid intelligence answers.")
-        require(set(answers) == (DOMAINS if expected[t["id"]][0] == "intelligence" else set()), "Incomplete intelligence coverage.")
+        domains = DOMAINS | {"Multilingual", "Grounded reasoning"} if data["suiteVersion"] >= 10 else DOMAINS
+        require(set(answers) == (domains if expected[t["id"]][0] == "intelligence" else set()), "Incomplete intelligence coverage.")
+        for field in ("intelligenceParseable", "intelligenceFormatCompliant"):
+            require(t[field] is None or type(t[field]) is bool, "Invalid intelligence observation.")
+        if data["schemaVersion"] >= 3 and expected[t["id"]][0] == "intelligence":
+            require(t["intelligenceParseable"] is True, "Unparseable intelligence is ungraded, not zero accuracy.")
         normalized.append(t)
     # Omit default trial fields in the public index; the Android decoder shares these defaults.
     data["trials"] = [{key: value for key, value in t.items() if key not in TRIAL_DEFAULTS or value != TRIAL_DEFAULTS[key]} for t in normalized]
@@ -118,12 +128,12 @@ def score(data):
         reviewer = sum(t["reviewerScore"] or 0 for t in trials) / len(trials)
         return min(accuracy, .50 * accuracy + .15 * tools + .15 * research + .20 * reviewer)
     category = {name: [t for t in trials if expected[t["id"]][0] == name] for name in ("task", "json", "tools", "intelligence")}
-    intelligence = 100 * sum(sum(t["intelligence"].values()) for t in category["intelligence"]) / (len(category["intelligence"]) * 6)
+    intelligence = 100 * sum(sum(t["intelligence"].values()) for t in category["intelligence"]) / (len(category["intelligence"]) * (8 if data["suiteVersion"] >= 10 else 6))
     return min(completion, .35 * passed(category["task"]) + .20 * passed(category["json"]) + .20 * passed(category["tools"]) + .15 * intelligence + .10 * completion)
 
 
 def identity(data):
-    return (data["kind"], data["plan"], data["suiteVersion"], data["provider"], data["model"], data.get("effectiveConfigHash"), data.get("comparisonContextHash"), data.get("backend"), data.get("accelerator"), tuple(sorted(data.get("capabilityManifest", []))))
+    return (data["kind"], data["plan"], data["suiteVersion"], data["provider"], data["model"], data.get("effectiveConfigHash"), data.get("comparisonContextHash"), data.get("backend"), data.get("accelerator"), tuple(sorted(data.get("capabilityManifest", []))), data.get("executionPolicy"), data.get("fixtureRotationSeed"))
 
 
 def best(entries):

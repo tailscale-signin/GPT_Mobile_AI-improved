@@ -55,6 +55,18 @@ class ResponseRecoveryContextTest {
 
     private val run = AgentRun("old-run", 1, 1, 2, "old-profile", "LLAMA", "qwen", status = "FAILED")
 
+    @Test fun failedStageRetryUsesAnIndexWithoutInliningTheFailedAnswer() = runTest {
+        val failedAnswer = "UNVERIFIED_FAILED_RESPONSE ".repeat(500)
+        val message = MessageV2(id = 2, chatId = 1, content = failedAnswer, platformType = "old-profile", currentRunId = run.runId)
+        val recovery = ResponseRecoveryContext(listOf(run), listOf(message), emptyList())
+        val prefix = (recovery.authorizedPrefix(6000, minimalRetry = true) as RecoveryPrefix.Allowed).text
+        assertTrue(prefix.length <= 1536)
+        assertFalse(prefix.contains("UNVERIFIED_FAILED_RESPONSE"))
+        assertTrue(prefix.contains("read_recovery_context"))
+        assertTrue(recovery.content.contains(failedAnswer.trimEnd()))
+        assertTrue(prefix.contains("Do not repeat completed actions"))
+    }
+
     @Test
     fun completedActionsReuseTheirSavedResultWithoutRunningAgain() = runTest {
         var calls = 0

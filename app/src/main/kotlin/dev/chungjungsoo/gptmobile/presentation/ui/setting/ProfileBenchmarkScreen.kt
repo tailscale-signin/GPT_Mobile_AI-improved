@@ -61,6 +61,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkExecutionPolicy
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkMode
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkOutcome
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkRating
@@ -68,8 +69,6 @@ import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkRun
 import dev.chungjungsoo.gptmobile.data.benchmark.benchmarkConfigKey
 import dev.chungjungsoo.gptmobile.data.benchmark.benchmarkRating
 import dev.chungjungsoo.gptmobile.data.benchmark.benchmarkSuite
-import dev.chungjungsoo.gptmobile.data.benchmark.comparableRuns
-import dev.chungjungsoo.gptmobile.data.benchmark.delegationBenchmarkRating
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
@@ -88,13 +87,32 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
     val debugMode by viewModel.debugMode.collectAsStateWithLifecycle()
     val exporting by viewModel.exporting.collectAsStateWithLifecycle()
     val exportNotice by viewModel.exportNotice.collectAsStateWithLifecycle()
+    val exportError by viewModel.exportError.collectAsStateWithLifecycle()
+    val retainedExport by viewModel.retainedExport.collectAsStateWithLifecycle()
     var detailedExport by rememberSaveable { mutableStateOf(false) }
+    var choosingExportDestination by rememberSaveable { mutableStateOf(false) }
+    var retainedArtifactId by rememberSaveable { mutableStateOf<String?>(null) }
     val exportLauncher = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/json")) { uri ->
-        if (uri != null) viewModel.exportBenchmarks(uri, detailedExport)
+        choosingExportDestination = false
+        if (uri != null) viewModel.exportBenchmarks(uri, detailedExport, retainedArtifactId) else viewModel.exportDestinationCanceled()
+        retainedArtifactId = null
+    }
+    val requestExport: (Boolean, BenchmarkExportArtifact?) -> Unit = { detailed, retained ->
+        if (!viewModel.exporting.value && !choosingExportDestination) {
+            detailedExport = detailed
+            retainedArtifactId = retained?.id
+            choosingExportDestination = true
+            val fileName = retained?.fileName ?: "${if (detailed) "benchmark-debug" else "benchmarks"}-${System.currentTimeMillis()}.json"
+            if (!launchBenchmarkExportDestination(fileName, { exportLauncher.launch(it) }, viewModel::exportDestinationFailed)) {
+                choosingExportDestination = false
+                retainedArtifactId = null
+            }
+        }
     }
     val profiles by viewModel.profiles.collectAsStateWithLifecycle()
     val profile by viewModel.selected.collectAsStateWithLifecycle()
     val history by viewModel.history.collectAsStateWithLifecycle()
+    val legacyReport by viewModel.legacyReport.collectAsStateWithLifecycle()
     val batches by viewModel.batches.collectAsStateWithLifecycle()
     val session by viewModel.benchmarkSession.collectAsStateWithLifecycle()
     val retests by viewModel.retests.collectAsStateWithLifecycle()
@@ -103,6 +121,8 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
     val pairedComparison by viewModel.pairedComparison.collectAsStateWithLifecycle()
     val delegationSettings by viewModel.delegationSettings.collectAsStateWithLifecycle()
     val snapshot by viewModel.scoreSnapshot.collectAsStateWithLifecycle()
+    val resultPresentations by viewModel.resultPresentations.collectAsStateWithLifecycle()
+    val backendComparisons by viewModel.backendComparisons.collectAsStateWithLifecycle()
     val health by dev.chungjungsoo.gptmobile.data.agent.LocalToolHealth.state.collectAsStateWithLifecycle()
     val delegates by viewModel.delegates.collectAsStateWithLifecycle()
     val benchmarkReviewers by viewModel.benchmarkReviewers.collectAsStateWithLifecycle()
@@ -121,6 +141,7 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
     val rangeLabel = if (days == 0) "stored history" else "$days days"
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var mode by rememberSaveable { mutableStateOf(BenchmarkMode.QUICK) }
+    var executionPolicy by rememberSaveable { mutableStateOf(BenchmarkExecutionPolicy.DETERMINISTIC_CAPABILITY_V1) }
     var delegationBoard by rememberSaveable { mutableStateOf(false) }
     var delegationMode by rememberSaveable { mutableStateOf(BenchmarkMode.QUICK) }
     var performanceOrder by rememberSaveable { mutableStateOf(PerformanceOrder.LATENCY) }
@@ -131,12 +152,20 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
     androidx.compose.runtime.LaunchedEffect(debugMode) { if (!debugMode && tab == 7) tab = 6 }
     val selected = profile
     val local = selected?.compatibleType == ClientType.LITERT_LM
+    val cpuExperimentEligible = selectedBenchmarks.isNotEmpty() && selectedBenchmarks.all { it.compatibleType == ClientType.LITERT_LM }
+    androidx.compose.runtime.LaunchedEffect(mode, tab, local, cpuExperimentEligible) {
+        if (mode in setOf(BenchmarkMode.CPU_EXPERIMENT, BenchmarkMode.PERFORMANCE) && tab == 0 && !cpuExperimentEligible) mode = BenchmarkMode.QUICK
+    }
     val tint = benchmarkTint(local)
-    val profileHistory = remember(history, selected?.uid) { history.filter { it.profileUid == selected?.uid } }
-    val matching = remember(profileHistory, selected, mode, localEnvironment) { selected?.let { comparableRuns(profileHistory, it, mode, localEnvironment) }.orEmpty() }
-    val activeRetest = retests.filter { it.current.profileUid == selected?.uid && it.current.revision == selected?.let { profile -> benchmarkConfigKey(profile, localEnvironment) } && it.current.cohort.startsWith(mode.name + "|") }
+    val profileHistory = remember(history, selected?.uid) { benchmarkHistoryForSelection(history, selected?.uid) }
+    val matching = remember(profileHistory, selected, mode, localEnvironment, executionPolicy) {
+        val key = selected?.let { benchmarkConfigKey(it, localEnvironment, executionPolicy) }
+        profileHistory.filter { it.configKey == key && it.mode == mode && it.executionPolicy == executionPolicy && it.suiteVersion == dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkSuiteRegistry.VERSION && it.finished && !it.canceled && it.stoppedReason == null }.sortedByDescending { it.startedAt }.take(5)
+    }
+    val policyRunIds = remember(history, executionPolicy) { history.filter { it.executionPolicy == executionPolicy }.map { it.id }.toSet() }
+    val activeRetest = retests.filter { it.current.profileUid == selected?.uid && it.current.revision == selected?.let { profile -> benchmarkConfigKey(profile, localEnvironment, executionPolicy) } && it.current.cohort.startsWith(mode.name + "|") && it.current.sourceRunIds.all { id -> id in policyRunIds } }
         .maxByOrNull { retest -> history.firstOrNull { it.id == retest.current.sourceRunIds.firstOrNull() }?.startedAt ?: 0 }
-    val activeScore = snapshot?.rows?.filter { it.profileUid == selected?.uid && it.revision == selected?.let { profile -> benchmarkConfigKey(profile, localEnvironment) } && it.cohort.startsWith(mode.name + "|") }?.maxByOrNull { row -> history.filter { it.id in row.sourceRunIds }.maxOfOrNull { it.startedAt } ?: 0 }
+    val activeScore = snapshot?.rows?.filter { it.profileUid == selected?.uid && it.revision == selected?.let { profile -> benchmarkConfigKey(profile, localEnvironment, executionPolicy) } && it.cohort.startsWith(mode.name + "|") && it.sourceRunIds.all { id -> id in policyRunIds } }?.maxByOrNull { row -> history.filter { it.id in row.sourceRunIds }.maxOfOrNull { it.startedAt } ?: 0 }
         ?: activeRetest?.current
     val previousScore = activeRetest?.previous
     val rating = remember(matching, local, activeScore) {
@@ -174,6 +203,26 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                     }
                 }
             }
+            exportError?.let { message ->
+                item {
+                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
+                        Column(Modifier.padding(16.dp)) {
+                            Text(message, color = MaterialTheme.colorScheme.onErrorContainer)
+                            TextButton(onClick = viewModel::dismissExportError) { Text("Dismiss") }
+                        }
+                    }
+                }
+            }
+            exportNotice?.let { notice -> item { Text(notice, color = MaterialTheme.colorScheme.primary) } }
+            retainedExport?.takeUnless { exporting }?.let { retained ->
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("A retained benchmark export is available to save.", style = MaterialTheme.typography.titleSmall)
+                        Text(retained.fileName, style = MaterialTheme.typography.bodySmall)
+                        TextButton(onClick = { requestExport(retained.detailed, retained) }, enabled = !choosingExportDestination) { Text("Save retained export") }
+                    }
+                }
+            }
             progress?.let { current ->
                 item {
                     BenchmarkPanel(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_73d63d9b5c, current.profileName)) {
@@ -195,11 +244,12 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                         viewModel::cancel,
                         onResume = { viewModel.resumeRemaining(batch.id) },
                         onRetry = { viewModel.retryFailed(batch.id) },
-                        onResults = { tab = 5 },
-                        onExport = {
-                            detailedExport = false
-                            exportLauncher.launch("benchmarks-${System.currentTimeMillis()}.json")
-                        }
+                        onResults = {
+                            mode = batch.mode
+                            tab = 5
+                        },
+                        runs = history,
+                        onExport = { requestExport(false, null) }
                     )
                 }
             }
@@ -215,11 +265,17 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                 item {
                     SettingsPanel("Export benchmark data") {
                         Text("Save every stored run, sample, score table and local runtime qualification. Includes all profiles and dates, regardless of the current filters.")
-                        Button(onClick = {
-                            detailedExport = false
-                            exportLauncher.launch("benchmarks-${System.currentTimeMillis()}.json")
-                        }, enabled = !exporting && ready) { Text(if (exporting) "Exporting…" else "Export all benchmark data") }
-                        exportNotice?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
+                        Button(onClick = { requestExport(false, null) }, enabled = !exporting && !choosingExportDestination && ready) {
+                            Text(
+                                if (exporting) {
+                                    "Exporting…"
+                                } else if (choosingExportDestination) {
+                                    "Choose a destination…"
+                                } else {
+                                    "Export all benchmark data"
+                                }
+                            )
+                        }
                     }
                 }
             } else if (tab == 7 && debugMode) {
@@ -227,10 +283,7 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                     SettingsPanel("Diagnostic benchmark") {
                         Text("Runs the full test suite and records per-test memory, thermal and battery samples alongside timings, tokens, tool results and score dimensions. Provider usage is billed normally.")
                         Button(onClick = viewModel::startDebugBenchmark, enabled = selected != null && ready && progress == null) { Text("Run full diagnostic benchmark") }
-                        TextButton(onClick = {
-                            detailedExport = true
-                            exportLauncher.launch("benchmark-debug-${System.currentTimeMillis()}.json")
-                        }, enabled = !exporting && ready) { Text("Export diagnostic data & score breakdown") }
+                        TextButton(onClick = { requestExport(true, null) }, enabled = !exporting && !choosingExportDestination && ready) { Text("Export diagnostic data & score breakdown") }
                     }
                 }
                 items(history.filter { it.diagnosticMode }, key = { "debug.${it.id}" }) { run ->
@@ -250,6 +303,33 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                 item { BenchmarkAction(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_fee0cd4cdb), Icons.Rounded.BarChart, onClick = { tab = 1 }) }
             } else if (tab == 4 && delegationBoard) {
                 item { BenchmarkScoreboardPanel(dev.chungjungsoo.gptmobile.data.benchmark.ScoreboardKind.DELEGATION, onRun = { delegationBoard = false }) }
+            } else if (tab == 5) {
+                benchmarkResultsContent(
+                    mode = mode,
+                    enabled = progress == null,
+                    profiles = profiles,
+                    results = resultPresentations,
+                    scoreRows = snapshot?.rows.orEmpty(),
+                    retests = retests,
+                    backendComparisons = backendComparisons,
+                    onMode = { mode = it },
+                    onRun = { tab = 0 }
+                )
+            } else if (tab == 3) {
+                item { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_e8466c66e4, profileHistory.size), style = MaterialTheme.typography.titleLarge) }
+                item { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_34e19fef52), style = MaterialTheme.typography.bodySmall) }
+                if (profileHistory.isEmpty()) item { BenchmarkPanel(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_0a995dffa4)) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_133bb74c5a)) } }
+                items(profileHistory, key = { it.id }) { run ->
+                    BenchmarkHistoryCard(run, selected?.let { profile -> run.executionPolicy?.let { run.configKey == benchmarkConfigKey(profile, localEnvironment, it) } } == true, progress == null, { deleteId = run.id }, snapshot?.rows?.firstOrNull { it.sourceRunIds == listOf(run.id) })
+                }
+                legacyReport?.let { report ->
+                    item {
+                        BenchmarkPanel(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_3e4530108b)) {
+                            Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_79142200ad), style = MaterialTheme.typography.labelSmall)
+                            Text(report, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
             } else if (selected == null) {
                 item { BenchmarkPanel(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_8a75f92384)) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_e992833393)) } }
             } else {
@@ -315,7 +395,8 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                     0 -> {
                         item {
                             BenchmarkPanel(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_4b446a5e52)) {
-                                BenchmarkPlanPicker(mode, progress == null, includeDiagnostics = true) { mode = it }
+                                BenchmarkPlanPicker(mode, progress == null, includeDiagnostics = true, includeCpuExperiment = cpuExperimentEligible, includePerformance = cpuExperimentEligible) { mode = it }
+                                BenchmarkPolicyPicker(executionPolicy, progress == null) { executionPolicy = it }
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Column(Modifier.weight(1f)) {
                                         Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_cc97ecc157), style = MaterialTheme.typography.titleSmall)
@@ -376,7 +457,7 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                                     }
                                 }
                                 Button(
-                                    onClick = { viewModel.startStandardBatch(mode) },
+                                    onClick = { viewModel.startStandardBatch(mode, executionPolicy) },
                                     enabled = ready && progress == null && selectedBenchmarks.isNotEmpty(),
                                     modifier = Modifier.fillMaxWidth(),
                                     colors = ButtonDefaults.buttonColors(containerColor = tint, contentColor = if (tint.luminance() > .5f) Color.Black else Color.White)
@@ -387,7 +468,7 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                                         Modifier.padding(start = 8.dp)
                                     )
                                 }
-                                BenchmarkAction(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_c8624a55ae, (selected.name).toString()), Icons.Rounded.PlayArrow, onClick = { viewModel.start(mode) }, enabled = ready && progress == null, modifier = Modifier.fillMaxWidth())
+                                BenchmarkAction(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_c8624a55ae, (selected.name).toString()), Icons.Rounded.PlayArrow, onClick = { viewModel.start(mode, executionPolicy = executionPolicy) }, enabled = ready && progress == null, modifier = Modifier.fillMaxWidth())
                                 if (activeRequests && progress == null) Text("The queue will wait for current work and yield between trials to interactive requests.", style = MaterialTheme.typography.labelSmall)
                                 Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_f0a6512884), style = MaterialTheme.typography.labelSmall)
                             }
@@ -480,32 +561,6 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                             }
                         }
                     }
-                    5 -> {
-                        items(snapshot?.rows.orEmpty().filter { it.cohort.startsWith(mode.name + "|") }, key = { it.resultId.ifBlank { "${it.profileUid}.${it.revision}.${it.cohort}" } }) { row ->
-                            BenchmarkResultCard(row, profiles.firstOrNull { it.uid == row.profileUid }?.name ?: "Retained profile")
-                        }
-                        item { BenchmarkPlanPicker(mode, progress == null, includeDiagnostics = true) { mode = it } }
-                        item {
-                            BenchmarkSideBySide(snapshot?.rows.orEmpty().filter { it.cohort.startsWith(mode.name + "|") }.map { row -> retests.firstOrNull { it.current.resultId == row.resultId }?.current ?: row }, profiles, retests)
-                        }
-                        item { BenchmarkAction(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_08d721ca13), Icons.Rounded.PlayArrow, onClick = { tab = 0 }, modifier = Modifier.fillMaxWidth()) }
-                    }
-                    3 -> {
-                        item { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_e8466c66e4, profileHistory.size), style = MaterialTheme.typography.titleLarge) }
-                        item { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_34e19fef52), style = MaterialTheme.typography.bodySmall) }
-                        if (profileHistory.isEmpty()) item { BenchmarkPanel(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_0a995dffa4)) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_133bb74c5a)) } }
-                        items(profileHistory, key = { it.id }) { run ->
-                            BenchmarkHistoryCard(run, run.configKey == benchmarkConfigKey(selected, localEnvironment), progress == null, { deleteId = run.id })
-                        }
-                        viewModel.legacyReport?.let { report ->
-                            item {
-                                BenchmarkPanel(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_3e4530108b)) {
-                                    Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_79142200ad), style = MaterialTheme.typography.labelSmall)
-                                    Text(report, style = MaterialTheme.typography.bodySmall)
-                                }
-                            }
-                        }
-                    }
                 }
             }
         }
@@ -578,7 +633,7 @@ private fun BenchmarkScoreCard(rating: BenchmarkRating, local: Boolean, runs: In
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 BenchmarkTypeBadge(local)
-                Text(rating.grade, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                Text(if (rating.score == null) "Provisional · Unranked" else rating.grade, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                 Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_4ee0073c2e, mode.label, runs, rating.measuredWeight), style = MaterialTheme.typography.bodySmall)
                 Text(
                     if (rating.score == null) {
@@ -623,11 +678,10 @@ private fun EverydayPerformanceCard(row: ProfilePerformance, local: Boolean, onC
 }
 
 @Composable
-private fun BenchmarkHistoryCard(run: BenchmarkRun, current: Boolean, canDelete: Boolean, onDelete: () -> Unit) {
+private fun BenchmarkHistoryCard(run: BenchmarkRun, current: Boolean, canDelete: Boolean, onDelete: () -> Unit, acceptedScore: dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkScoreRow? = null) {
     var expanded by rememberSaveable(run.id) { mutableStateOf(false) }
-    val rating = remember(run) { benchmarkRating(listOf(run)) }
     val portable = remember(run) { dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkScoreboard.fromRun(run)?.let(dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkScoreboard::evaluate) }
-    val score = portable?.score?.roundToInt() ?: if (run.mode == BenchmarkMode.DELEGATION) delegationBenchmarkRating(listOf(run)).score else rating.score
+    val score = acceptedScore?.takeIf { it.verified }?.overall?.takeIf { it.isFinite() }
     Card(onClick = { expanded = !expanded }, shape = RoundedCornerShape(20.dp)) {
         Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -640,14 +694,15 @@ private fun BenchmarkHistoryCard(run: BenchmarkRun, current: Boolean, canDelete:
                     } else if (!run.finished) {
                         androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_ec8913fc87)
                     } else {
-                        score?.let { "$it / 100" } ?: androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_635663cefb)
+                        score?.let { benchmarkMetricText(it, "/ 100", 1) } ?: "Provisional · Unranked"
                     },
                     color = benchmarkTint(run.local),
                     fontWeight = FontWeight.SemiBold
                 )
             }
             Text("${run.mode.label}${run.delegationPlan?.let { " · ${it.label}" }.orEmpty()} · ${benchmarkDate(run.startedAt)}", style = MaterialTheme.typography.titleSmall)
-            if (portable != null) Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_bba707bfe8), style = MaterialTheme.typography.labelSmall)
+            Text("Request policy: ${run.executionPolicy?.label ?: "Unknown (historical)"} · overall ${score?.let { benchmarkMetricText(it, "/ 100", 1) } ?: "not available"}", style = MaterialTheme.typography.labelSmall)
+            if (portable != null) Text("Historical portable capability score: ${benchmarkMetricText(portable.score, "/ 100", 1)} · its retained scoreboard policy", style = MaterialTheme.typography.labelSmall)
             Text(run.model, style = MaterialTheme.typography.bodySmall)
             Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_be0ee8da37, run.samples.count { it.outcome == BenchmarkOutcome.PASSED }, run.samples.size, dev.chungjungsoo.gptmobile.data.benchmark.benchmarkSuiteForRun(run).size, if (current) androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_c328dc1cfc) else androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_41e72c8d79)), style = MaterialTheme.typography.labelSmall)
             run.stoppedReason?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }

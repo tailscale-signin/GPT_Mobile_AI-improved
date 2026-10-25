@@ -82,6 +82,15 @@ class PlannedLocalRuntimeTest {
         assertNull(runtime.state.value.fallbackReason)
     }
 
+    @Test fun explicitUnlockedRequestMtpOffSurvivesTheProfilePlanner() = runTest {
+        val native = FakeLocalRuntime().apply { capabilities = LocalModelCapabilities(backends = setOf("gpu"), speculative = true) }
+        val runtime = planned(native)
+        runtime.loadEngine(LocalEngineSpec(modelPath("safe-structured.litertlm"), "gpu", 1024, speculativeDecoding = false, nativeMetricsEnabled = true))
+        assertEquals(false, native.loadEngineCalls.single().speculativeDecoding)
+        assertTrue(native.loadEngineCalls.single().nativeMetricsEnabled)
+        assertNull(runtime.state.value.fallbackReason)
+    }
+
     @Test fun unknownSupportNeverForcesOnAndExplicitOffOrDefaultRemainUnchanged() {
         assertEquals(false, compatibleSpeculativeDecoding(true, null))
         assertEquals(false, compatibleSpeculativeDecoding(true, LocalModelCapabilities()))

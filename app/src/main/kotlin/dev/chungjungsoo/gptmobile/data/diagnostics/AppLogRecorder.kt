@@ -21,10 +21,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
-data class AppLogEntry(val time: Long, val level: String, val tag: String, val message: String, val eventId: String = java.util.UUID.randomUUID().toString(), val monotonicNanos: Long = System.nanoTime(), val bootMillis: Long? = runCatching { android.os.SystemClock.elapsedRealtime() }.getOrNull(), val processId: Int = runCatching { Process.myPid() }.getOrDefault(-1)) {
+data class AppLogEntry(val time: Long, val level: String, val tag: String, val message: String, val eventId: String = java.util.UUID.randomUUID().toString(), val monotonicNanos: Long = System.nanoTime(), val bootMillis: Long? = runCatching { android.os.SystemClock.elapsedRealtime() }.getOrNull(), val processId: Int = runCatching { Process.myPid() }.getOrDefault(-1), val processName: String? = runCatching { Application.getProcessName() }.getOrNull()) {
     fun line(): String {
         val lines = message.lines()
-        return "${Instant.ofEpochMilli(time)} $level/$tag: eventId=$eventId · monoNs=$monotonicNanos · bootMs=${bootMillis ?: "unknown"} · processId=$processId · ${lines.first()}" +
+        return "${Instant.ofEpochMilli(time)} $level/$tag: eventId=$eventId · monoNs=$monotonicNanos · bootMs=${bootMillis ?: "unknown"} · processId=$processId · processName=${processName ?: "unknown"} · ${lines.first()}" +
             lines.drop(1).mapIndexed { index, line -> "\nparentEventId=$eventId · sequence=${index + 1} · $line" }.joinToString("")
     }
 }
@@ -237,21 +237,26 @@ object AppLogRecorder {
         // Independent exports cannot overwrite a file still being shared/read.
         val target = File.createTempFile("app-diagnostics-", if (structured) ".jsonl" else ".log", folder)
         try {
+            val exportedAt = System.currentTimeMillis()
+            val incidents = DiagnosticIncidentTracker()
             target.bufferedWriter().use { output ->
                 if (structured) output.appendLine(structuredDiagnosticLine("${Instant.now()} I/Export: version=${BuildConfig.VERSION_NAME} · build=${BuildConfig.VERSION_CODE} · package=${BuildConfig.APPLICATION_ID} · appCommit=${BuildConfig.APP_COMMIT} · variant=${BuildConfig.BUILD_TYPE} · droppedRecords=${droppedRecords.get()} · vendor_log_available=false · process=${Process.myPid()}"))
                 historicalExitMetadata(context).forEach { line ->
-                    output.appendLine(if (structured) structuredDiagnosticLine(line, "android_exit_history") else line)
+                    output.appendLine(if (structured) structuredDiagnosticLine(line, "android_exit_history", exportedAtMillis = exportedAt) else line)
                 }
                 dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.snapshot().forEach { failure ->
-                    val line = "${Instant.ofEpochMilli(failure.time)} W/FreeProviderFailure: " + kotlinx.serialization.json.Json.encodeToString(dev.chungjungsoo.gptmobile.data.free.FreeProviderFailureRecord.serializer(), failure)
-                    output.appendLine(if (structured) structuredDiagnosticLine(line, "provider_failure") else line)
+                    val line = providerFailureLine(failure)
+                    val identity = diagnosticEventIdentity(line)
+                    val association = incidents.accept(line, identity, null)
+                    output.appendLine(if (structured) structuredDiagnosticLine(line, "provider_failure", captureIdentity = identity, incidentId = association.id, incidentRoot = association.first, exportedAtMillis = exportedAt) else line)
                 }
                 LocalRuntimeIncidentHistory.snapshot().forEach { incident ->
-                    val line = "${Instant.now()} I/LocalRuntimeIncident: $incident"
-                    output.appendLine(if (structured) structuredDiagnosticLine(line, "runtime_incident_history") else line)
+                    val line = runtimeIncidentLine(incident)
+                    val identity = diagnosticEventIdentity(line)
+                    val association = incidents.accept(line, identity, null)
+                    output.appendLine(if (structured) structuredDiagnosticLine(line, "runtime_incident_history", captureIdentity = identity, incidentId = association.id, incidentRoot = association.first, exportedAtMillis = exportedAt) else line)
                 }
                 val seen = mutableSetOf<String>()
-                val incidents = DiagnosticIncidentTracker()
                 var parent: String? = null
                 var sequence = 0
                 snapshot.forEach { (source, bytes) ->
@@ -268,7 +273,7 @@ object AppLogRecorder {
                             }
                             val identity = if (root) parent!! else "${parent ?: source}:$sequence"
                             val incident = incidents.accept(line, identity, parent.takeUnless { root })
-                            output.appendLine(if (structured) structuredDiagnosticLine(line, source, !seen.add(identity), parent.takeUnless { root }, sequence, identity, incident.id, incident.first) else line)
+                            output.appendLine(if (structured) structuredDiagnosticLine(line, source, !seen.add(identity), parent.takeUnless { root }, sequence, identity, incident.id, incident.first, exportedAtMillis = exportedAt) else line)
                         }
                     }
                 }
@@ -308,7 +313,7 @@ object AppLogRecorder {
         }.onFailure { record("AnrTraceSummary", "coverage=unavailable · reason=trace_access_failed", "W") }
     }
 
-    /** Bounded platform metadata only: never collect trace streams, descriptions, or process names. */
+    /** Bounded platform metadata and app-owned process names; no traces or system descriptions. */
     private fun historicalExitMetadata(context: Context): List<String> {
         val prefix = "${Instant.now()} I/ProcessExit: "
         if (android.os.Build.VERSION.SDK_INT < 30) return listOf(prefix + "coverage=unsupported")
@@ -320,7 +325,7 @@ object AppLogRecorder {
                 listOf(prefix + "coverage=no_records · reason=unknown")
             } else {
                 exits.map { exit ->
-                    prefix + "coverage=available · exitTime=${exit.timestamp} · reasonCode=${exit.reason} · statusCode=${exit.status} · cause=${if (exit.reason == android.app.ApplicationExitInfo.REASON_SIGNALED) {
+                    "${Instant.ofEpochMilli(exit.timestamp)} I/ProcessExit: coverage=available · exitTime=${exit.timestamp} · occurredAtMillis=${exit.timestamp} · processId=${exit.pid} · processName=${exit.processName?.takeIf { it == context.packageName || it.startsWith(context.packageName + ":") } ?: "unknown"} · workerExitConfirmed=true · workerExitEvidence=ANDROID_APPLICATION_EXIT_INFO · reasonCode=${exit.reason} · statusCode=${exit.status} · cause=${if (exit.reason == android.app.ApplicationExitInfo.REASON_SIGNALED) {
                         "UNKNOWN_CAUSE"
                     } else if (exit.reason == android.app.ApplicationExitInfo.REASON_LOW_MEMORY) {
                         "OS_LOW_MEMORY"

@@ -62,6 +62,10 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
         dev.chungjungsoo.gptmobile.data.chat.ReplyPublication::class,
         dev.chungjungsoo.gptmobile.data.database.entity.AnswerSegment::class,
         dev.chungjungsoo.gptmobile.data.database.entity.CombinedDeliveryCheckpoint::class,
+        dev.chungjungsoo.gptmobile.data.database.entity.CombinedDurableBlock::class,
+        dev.chungjungsoo.gptmobile.data.database.entity.CombinedDeliveryRecord::class,
+        dev.chungjungsoo.gptmobile.data.database.entity.CombinedFinalManifest::class,
+        dev.chungjungsoo.gptmobile.data.database.entity.CombinedFinalBlockIndex::class,
         ToolEvent::class,
         LocalModel::class,
         OpenRouterBatchCacheEntity::class,
@@ -77,10 +81,11 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
         dev.chungjungsoo.gptmobile.data.memory.MemoryGraphObservationRecord::class,
         dev.chungjungsoo.gptmobile.data.memory.MemoryGraphRelationRecord::class
     ],
-    version = 46,
+    version = 47,
     exportSchema = true
 )
 @TypeConverters(
+    dev.chungjungsoo.gptmobile.data.database.entity.CombinedManifestReferenceConverter::class,
     StringListConverter::class,
     ChatAttachmentListConverter::class,
     AssistantRevisionListConverter::class,

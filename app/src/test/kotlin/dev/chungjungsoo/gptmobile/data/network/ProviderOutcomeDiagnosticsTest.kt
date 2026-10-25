@@ -12,6 +12,37 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProviderOutcomeDiagnosticsTest {
+    @Test fun aRealResponseClosesTheSharedEpisodeButKeepsItsFailureIdentity() {
+        var now = 1000L
+        val episodes = NetworkFailureEpisodes { now }
+        episodes.networkChanged("network", "VALIDATED")
+        val dispatched = episodes.current()
+        val first = episodes.dnsFailure("one.invalid", dispatched)
+        now += 100
+        episodes.dnsFailure("two.invalid", dispatched)
+        now += 100
+        val recovered = requireNotNull(episodes.responseReceived(dispatched))
+        assertEquals(first.episodeId, recovered.episodeId)
+        assertEquals(2, recovered.distinctHosts)
+        assertEquals(1000L, recovered.firstFailureAt)
+        assertEquals(1100L, recovered.lastFailureAt)
+        assertEquals(1200L, recovered.responseAt)
+        assertEquals(listOf(recovered), episodes.recoveries())
+        assertNull(episodes.responseReceived(dispatched))
+        assertNotEquals(first.episodeId, episodes.dnsFailure("one.invalid", dispatched).episodeId)
+    }
+
+    @Test fun aResponseFromAnOldNetworkCannotCloseTheCurrentNetworkIncident() {
+        val episodes = NetworkFailureEpisodes { 1000L }
+        episodes.networkChanged("old", "VALIDATED")
+        val stale = episodes.current()
+        episodes.networkChanged("new", "UNVALIDATED")
+        val current = episodes.dnsFailure("one.invalid")
+        assertNull(episodes.responseReceived(stale))
+        assertEquals(current.episodeId, episodes.dnsFailure("two.invalid").episodeId)
+        assertTrue(episodes.recoveries().isEmpty())
+    }
+
     @Test fun reasoningOnlyLengthTerminationIsAnErrorRatherThanPartialAnswer() {
         val result = requireNotNull(freeResponseOutcome(FreeAiProvider.BLOCKRUN, false, false, false, true, true))
         assertEquals("reasoning_budget_exhausted", result.error?.type)

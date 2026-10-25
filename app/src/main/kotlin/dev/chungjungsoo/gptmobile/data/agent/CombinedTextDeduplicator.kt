@@ -20,22 +20,22 @@ internal object CombinedTextDeduplicator {
 
             val lines = trimmed.lines()
             val keptLines = lines.filter { line ->
-                val heading = line.trim().takeIf { it.matches(Regex("^#{1,6}\\\\s+.+$")) }
+                val heading = line.trim().takeIf { it.matches(Regex("^#{1,6}\\s+.+$")) }
                 if (heading == null) {
                     true
                 } else {
-                    seenHeadings.add(heading.lowercase().replace(Regex("\\\\s+"), " "))
+                    seenHeadings.add(heading.lowercase().replace(Regex("\\s+"), " "))
                 }
             }
             if (keptLines.isEmpty()) continue
 
-            val kept = keptLines.joinToString("\\n").trim()
+            val kept = keptLines.joinToString("\n").trim()
             if (kept.isEmpty()) continue
             val key = kept.lowercase().replace(Regex("\\\\s+"), " ").trim()
             if (key.length >= 24 && !seenParagraphs.add(key)) continue
             output += kept
         }
 
-        return output.joinToString("\\n\\n").trim()
+        return output.joinToString("\n\n").trim()
     }
 }

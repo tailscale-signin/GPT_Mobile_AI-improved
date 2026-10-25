@@ -29,5 +29,43 @@ class CombinedOwnerResolverTest {
         assertEquals(emptyList<String>(), CombinedOwnerResolver.eligibleOrder(sources, listOf("only"), "only", emptySet()))
     }
 
+    @Test fun acceptedPrimaryStillReceivesSynthesisWhenItsCollectionResponseIsMissing() {
+        val sources = listOf(source("peer"))
+        assertEquals(
+            listOf("primary", "peer"),
+            CombinedOwnerResolver.synthesisDispatchOrder(
+                sources,
+                listOf("primary", "peer"),
+                "primary",
+                setOf("primary", "peer"),
+                singlePass = true
+            )
+        )
+    }
+
+    @Test fun missingPrimaryIsNotAddedWhenItWasNotAcceptedOrIsDisabled() {
+        val sources = listOf(source("peer"))
+        assertEquals(
+            listOf("peer"),
+            CombinedOwnerResolver.synthesisDispatchOrder(
+                sources,
+                listOf("peer"),
+                "primary",
+                setOf("primary", "peer"),
+                singlePass = true
+            )
+        )
+        assertEquals(
+            listOf("peer"),
+            CombinedOwnerResolver.synthesisDispatchOrder(
+                sources,
+                listOf("primary", "peer"),
+                "primary",
+                setOf("peer"),
+                singlePass = true
+            )
+        )
+    }
+
     private fun source(uid: String, status: String = "COMPLETED") = CombinedModelResponse(uid, uid, content = "A usable original contribution.", completionStatus = status)
 }

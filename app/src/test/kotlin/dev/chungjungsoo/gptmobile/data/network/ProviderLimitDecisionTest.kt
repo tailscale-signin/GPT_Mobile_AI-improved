@@ -22,7 +22,7 @@ class ProviderLimitDecisionTest {
         assertEquals(deadline, decision.retryAt)
         assertEquals("profile", decision.profileUid)
         assertEquals("model", decision.model)
-        assertEquals(FreeFailureCategory.LOCAL_COOLDOWN_ACTIVE.name, decision.category)
+        assertEquals(FreeFailureCategory.LOCAL_ALLOWANCE_EXHAUSTED.name, decision.category)
         assertTrue(decision.knownNotAccepted)
     }
 

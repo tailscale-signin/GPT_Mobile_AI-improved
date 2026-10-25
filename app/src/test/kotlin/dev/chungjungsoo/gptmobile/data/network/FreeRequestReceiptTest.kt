@@ -75,4 +75,28 @@ class FreeRequestReceiptTest {
             file.parentFile.deleteRecursively()
         }
     }
+
+    @Test fun sleepCountsTowardCooldownAndRebootReconstructsANewElapsedOrigin() {
+        var wall = 1_000_000L
+        var elapsed = 900_000L
+        val file = Files.createTempDirectory("sleep-quota").resolve("state.json").toFile()
+        try {
+            val provider = FreeAiProvider.OVHCLOUD
+            val limiter = FreeAiRequestLimiter(elapsedMillis = { elapsed }, nowMillis = { wall }).also { it.initialize(file) }
+            repeat(2) { limiter.reserve(provider, "model") }
+            // elapsedRealtime advances during deep sleep, unlike the previous nanoTime clock.
+            wall += 45_000
+            elapsed += 45_000
+            assertEquals(wall + 15_000, limiter.exhaustedAllowanceUntilMillis(provider, "model"))
+            // Reboot resets the monotonic origin. Only the remaining wall deadline is restored.
+            var rebootElapsed = 100L
+            val restarted = FreeAiRequestLimiter(elapsedMillis = { rebootElapsed }, nowMillis = { wall }).also { it.initialize(file) }
+            assertEquals(wall + 15_000, restarted.exhaustedAllowanceUntilMillis(provider, "model"))
+            wall += 15_000
+            rebootElapsed += 15_000
+            assertNull(restarted.exhaustedAllowanceUntilMillis(provider, "model"))
+        } finally {
+            file.parentFile.deleteRecursively()
+        }
+    }
 }

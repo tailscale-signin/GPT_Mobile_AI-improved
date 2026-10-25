@@ -78,11 +78,10 @@ object AppLogRecorder {
         val previousHandler = Thread.getDefaultUncaughtExceptionHandler()
         if (previousHandler != null) {
             Thread.setDefaultUncaughtExceptionHandler { thread, failure ->
-                // Keep application frames even when the async queue cannot drain. Do not log
-                // exception messages, which can contain private document or request data.
+                // Keep sanitized method frames, including framework-only failures, even
+                // when the async queue cannot drain. Exception messages stay private.
                 runCatching {
-                    val frames = failure.stackTrace.filter { it.className.startsWith("dev.chungjungsoo.gptmobile") }.take(40)
-                    checkpoint("AppCrash", "type=${failure.javaClass.name} · thread=${thread.name.take(80)}\n" + frames.joinToString("\n"))
+                    checkpoint("AppCrash", crashDiagnosticSummary(failure, thread.name), level = "F")
                 }
                 previousHandler.uncaughtException(thread, failure)
             }
@@ -185,9 +184,9 @@ object AppLogRecorder {
     }
 
     /** IO-thread startup markers survive an abort before the async log queue drains. */
-    internal fun checkpoint(tag: String, message: String) {
+    internal fun checkpoint(tag: String, message: String, level: String = "I") {
         if (!mutableEnabled.value || privateSessions.isNotEmpty()) return
-        val entry = AppLogEntry(System.currentTimeMillis(), "I", tag.take(64), diagnosticMessageForStorage(message))
+        val entry = AppLogEntry(System.currentTimeMillis(), level, tag.take(64), diagnosticMessageForStorage(message))
         synchronized(fileLock) {
             if (!mutableEnabled.value || privateSessions.isNotEmpty()) return
             recent.addLast(entry)
@@ -405,7 +404,10 @@ internal fun redactLogMessage(message: String): String {
     listOf("ChatRoomV2", "MessageV2", "PlatformV2").forEach { type ->
         text = text.replace(Regex("""\b$type\([^\r\n)]*\)"""), "$type([redacted])")
     }
-    text = text.replace(Regex("(?i)(authorization|proxy-authorization|cookie|set-cookie|x-api-key|x-goog-api-key|x-subscription-token|mcp-session-id|anthropic-organization-id|anthropic-workspace-id|openai-organization|openai-project|x-organization-id|x-workspace-id)\\s*[:=]\\s*[^\\r\\n]+"), "$1: [redacted]")
+    // Match complete quoted keys as well as raw headers; keep JSON siblings and
+    // escaping valid so safe provider records remain structurally exportable.
+    text = text.replace(Regex("""(?i)("(?:authorization|proxy-authorization|cookie|set-cookie|x-api-key|x-goog-api-key|x-subscription-token|mcp-session-id|anthropic-organization-id|anthropic-workspace-id|openai-organization|openai-project|x-organization-id|x-workspace-id|api_?key|access_?token|refresh_?token|password|client_?secret)"\s*:\s*)"(?:\\.|[^"\\])*"""")) { match -> "${match.groupValues[1]}\"[redacted]\"" }
+    text = text.replace(Regex("(?i)(?<![A-Za-z0-9_-])(authorization|proxy-authorization|cookie|set-cookie|x-api-key|x-goog-api-key|x-subscription-token|mcp-session-id|anthropic-organization-id|anthropic-workspace-id|openai-organization|openai-project|x-organization-id|x-workspace-id)\\s*[:=]\\s*[^\\r\\n]+"), "$1: [redacted]")
     text = text.replace(Regex("(?i)(bearer|basic)\\s+[a-z0-9._~+/=-]+"), "$1 [redacted]")
     text = text.replace(Regex("(?i)([\\\"]?(?:api_?key|access_?token|refresh_?token|password|client_?secret)[\\\"]?\\s*[:=]\\s*[\\\"]?)[^\\\"\\s,}]+"), "$1[redacted]")
     text = text.replace(Regex("\\b(?:sk-|hf_|ghp_|github_pat_)[A-Za-z0-9_-]{8,}"), "[redacted]")

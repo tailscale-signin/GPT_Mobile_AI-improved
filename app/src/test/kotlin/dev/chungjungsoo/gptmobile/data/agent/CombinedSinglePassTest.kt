@@ -47,6 +47,39 @@ class CombinedSinglePassTest {
         assertTrue(budget.reserve(ctx, "duplicate", CombinedResourceQuota(10, 10)) is CombinedBudgetAdmission.Denied)
     }
 
+    @Test fun consumedSinglePassRequiresANewRevisionAndRestorationCannotAdvertiseAnImpossibleRetry() = runTest {
+        val ctx = context().forRole(CombinedRunRole.SYNTHESIS)
+        val budget = CombinedTurnBudgetStore.inMemory().open(ctx)
+        assertTrue(budget.reserve(ctx, "writer", CombinedResourceQuota(10, 10)) is CombinedBudgetAdmission.Granted)
+        budget.settle("writer", CombinedUsage(CombinedResourceQuota(10, 8)))
+        budget.finishStage("finalization", "PARTIAL", "COMBINED_REQUIREMENTS_UNMET")
+        val saved = budget.snapshot()
+        assertFalse(saved.retryEligible)
+        assertEquals(CombinedBudgetRecoveryAction.NEW_REVISION_REQUIRED, saved.recoveryAction)
+        assertEquals("NEW_REVISION_REQUIRED", saved.deliveryStatus)
+        // Historical snapshots may have persisted the old overly broad flag.
+        val restored = CombinedTurnBudget(Json.decodeFromString(Json.encodeToString(saved.copy(retryEligible = true))))
+        assertFalse(restored.snapshot().retryEligible)
+        assertTrue(restored.reserve(ctx, "forbidden-replay", CombinedResourceQuota(10, 10)) is CombinedBudgetAdmission.Denied)
+        val acceptedRevision = ctx.copy(rootBudgetId = "explicit-new-revision")
+        val fresh = CombinedTurnBudgetStore.inMemory().open(acceptedRevision)
+        assertTrue(fresh.reserve(acceptedRevision, "new-writer", CombinedResourceQuota(10, 10)) is CombinedBudgetAdmission.Granted)
+    }
+
+    @Test fun knownNotDispatchedFailureCanRetryAndClearsTheStaleFailureWhileWriting() = runTest {
+        val ctx = context().forRole(CombinedRunRole.SYNTHESIS)
+        val budget = CombinedTurnBudgetStore.inMemory().open(ctx)
+        assertTrue(budget.reserve(ctx, "preflight", CombinedResourceQuota(10, 10)) is CombinedBudgetAdmission.Granted)
+        budget.releaseNotDispatched("preflight")
+        budget.finishStage("finalization", "FAILED", "PROVIDER_LIMIT_BEFORE_DISPATCH")
+        assertTrue(budget.snapshot().retryEligible)
+        assertEquals(CombinedBudgetRecoveryAction.RETRY_BEFORE_DISPATCH, budget.snapshot().recoveryAction)
+        assertTrue(budget.reserve(ctx, "eligible-writer", CombinedResourceQuota(10, 10)) is CombinedBudgetAdmission.Granted)
+        assertFalse(budget.snapshot().retryEligible)
+        assertEquals(CombinedBudgetRecoveryAction.NONE, budget.snapshot().recoveryAction)
+        assertEquals("WRITING", budget.snapshot().deliveryStatus)
+    }
+
     @Test fun explicitContributorRetryReopensOnlySelectedStageWithoutResettingCharges() = runTest {
         val ctx = context()
         val budget = CombinedTurnBudgetStore.inMemory().open(ctx)
@@ -77,8 +110,8 @@ class CombinedSinglePassTest {
         val session = CombinedDeliverySession(base, listOf(CombinedModelResponse("p", "Primary", content = original)), 10000, validateAccess = {}, originalRequest = "List the top 10 reasons", combined = context().forRole(CombinedRunRole.SYNTHESIS), verify = { error("Verifier must never run") }, repairDraft = { error("Repair must never run") }) { _, _ -> error("Legacy repair must never run") }
         val events = session.streamRound(emptyList(), emptyList()).toList()
         assertEquals(1, generations)
-        assertEquals(original, events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
-        val report = events.filterIsInstance<ProviderEvent.CombinedQuality>().last().report
+        assertEquals(original, events.combinedAnswerText())
+        val report = events.combinedReport()
         assertFalse(report.complete)
         assertEquals("PARTIAL", report.deliveredScopeStatus)
         assertEquals(0, report.repairRounds)

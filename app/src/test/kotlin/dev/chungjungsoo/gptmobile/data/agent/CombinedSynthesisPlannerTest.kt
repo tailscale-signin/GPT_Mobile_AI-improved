@@ -68,7 +68,7 @@ class CombinedSynthesisPlannerTest {
             val snapshot = kotlinx.serialization.json.Json.decodeFromString<CombinedInputSnapshot>(request.run.synthesisSnapshot!!)
             assertEquals(listOf("p"), snapshot.sources.map { it.platformUid })
             assertEquals(primary.content, snapshot.sources.single().content)
-            assertEquals(3, snapshot.sources.single().claimExtractionVersion)
+            assertEquals(4, snapshot.sources.single().claimExtractionVersion)
             assertEquals(listOf("p", "h"), snapshot.combined!!.requested.participantUids)
             assertEquals(requested.requestedPolicyDigest, snapshot.combined!!.requested.requestedPolicyDigest)
             val assistant = request.assistantMessage.copy(content = "", currentRunId = request.run.runId)

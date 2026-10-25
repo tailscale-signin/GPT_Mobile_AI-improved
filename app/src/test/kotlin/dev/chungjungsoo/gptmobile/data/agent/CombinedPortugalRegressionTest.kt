@@ -65,7 +65,7 @@ class CombinedPortugalRegressionTest {
         }
         val session = CombinedDeliverySession(provider, sources, 20000, validateAccess = {}, originalRequest = request, combined = context, verify = { error("No verifier request") }, repairDraft = { error("No rewrite request") }) { _, _ -> error("No continuation request") }
         val events = session.streamRound(emptyList(), emptyList()).toList()
-        val report = events.filterIsInstance<ProviderEvent.CombinedQuality>().last().report
+        val report = events.combinedReport()
         assertEquals(1, generations)
         assertTrue("${report.wordCount} words: ${report.issues}", report.complete)
         assertTrue(report.wordCount in 450..550)
@@ -85,7 +85,7 @@ class CombinedPortugalRegressionTest {
             override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = kotlinx.coroutines.flow.flowOf(ProviderEvent.TextDelta(answer), ProviderEvent.Completed)
         }
         val session = CombinedDeliverySession(provider, sources, 20000, validateAccess = {}, originalRequest = request, combined = context) { _, _ -> error("No rewrite request") }
-        val report = session.streamRound(emptyList(), emptyList()).toList().filterIsInstance<ProviderEvent.CombinedQuality>().last().report
+        val report = session.streamRound(emptyList(), emptyList()).toList().combinedReport()
         assertFalse(report.complete)
         assertEquals("PARTIAL", report.deliveredScopeStatus)
         assertEquals("UNMET", report.lengthCompliance)

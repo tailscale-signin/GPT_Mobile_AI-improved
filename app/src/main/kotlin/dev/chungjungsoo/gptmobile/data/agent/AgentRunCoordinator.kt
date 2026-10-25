@@ -6,6 +6,7 @@ import android.os.SystemClock
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chungjungsoo.gptmobile.data.chat.GenerationCompletionStore
 import dev.chungjungsoo.gptmobile.data.context.withCombinedOutcome
+import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunTerminalError
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
@@ -161,7 +162,7 @@ class AgentRunCoordinator @Inject constructor(
 
     suspend fun removeCombinedProfile(chatId: Int, profileUid: String) {
         val ids = _activeRuns.value.values.filter { it.chatId == chatId && it.profileUid == profileUid }.mapTo(hashSetOf()) { it.runId } + deferredStarts.values.filter { it.chatId == chatId && it.platform.uid == profileUid }.map { it.runId }
-        terminalizeAndCancel(ids + providerWaits?.pendingIds(chatId, profileUid).orEmpty(), false, dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.SUPERSEDED_GENERATION)
+        terminalizeAndCancel(ids + providerWaits?.pendingIds(chatId, profileUid).orEmpty() + remoteWaitingIds(chatId, profileUid), false, dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.SUPERSEDED_GENERATION)
     }
 
     suspend fun tryAnotherCombinedWriter(chatId: Int, runId: String): Boolean = withChatGate(chatId) {
@@ -327,7 +328,7 @@ class AgentRunCoordinator @Inject constructor(
         val runIds = _activeRuns.value.values
             .filter { it.chatId == chatId }
             .mapTo(mutableSetOf(), ActiveAgentRun::runId) + deferredStarts.values.filter { it.chatId == chatId }.map { it.runId }
-        scope.launch { terminalizeAndCancel(runIds + providerWaits?.pendingIds(chatId).orEmpty(), isInterrupted = false) }
+        scope.launch { terminalizeAndCancel(runIds + providerWaits?.pendingIds(chatId).orEmpty() + remoteWaitingIds(chatId), isInterrupted = false) }
     }
 
     fun cancelRuns(runIds: Set<String>) {
@@ -335,7 +336,7 @@ class AgentRunCoordinator @Inject constructor(
     }
 
     fun cancelAll() {
-        scope.launch { terminalizeAndCancel(jobs.keys.toSet() + deferredStarts.keys + providerWaits?.pendingIds().orEmpty(), isInterrupted = false) }
+        scope.launch { terminalizeAndCancel(jobs.keys.toSet() + deferredStarts.keys + providerWaits?.pendingIds().orEmpty() + remoteWaitingIds(), isInterrupted = false) }
     }
 
     fun interruptAll() {
@@ -347,7 +348,7 @@ class AgentRunCoordinator @Inject constructor(
             .filter { it.chatId == chatId }
             .mapTo(mutableSetOf(), ActiveAgentRun::runId) + deferredStarts.values.filter { it.chatId == chatId }.map { it.runId }
         withContext(NonCancellable) {
-            terminalizeAndCancel(runIds + providerWaits?.pendingIds(chatId).orEmpty(), isInterrupted = false, origin = origin)
+            terminalizeAndCancel(runIds + providerWaits?.pendingIds(chatId).orEmpty() + remoteWaitingIds(chatId), isInterrupted = false, origin = origin)
         }
     }
 
@@ -374,8 +375,23 @@ class AgentRunCoordinator @Inject constructor(
         }
     }
 
+    private suspend fun remoteWaitingRuns(): List<AgentRun> = try {
+        chatRepository.waitingRemoteAgentRuns()
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (failure: Exception) {
+        // A broken durable-wait journal must not prevent Stop from cancelling live jobs.
+        AppLogRecorder.record("Agent", "REMOTE_WAIT_JOURNAL_READ_FAILED · reason=${failure.javaClass.simpleName}", "W")
+        emptyList()
+    }
+
+    private suspend fun remoteWaitingIds(chatId: Int? = null, profileUid: String? = null): Set<String> = remoteWaitingRuns()
+        .filter { (chatId == null || it.chatId == chatId) && (profileUid == null || it.profileUid == profileUid) }
+        .mapTo(linkedSetOf()) { it.runId }
+
     private suspend fun terminalizeAndCancel(runIds: Set<String>, isInterrupted: Boolean, origin: dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin = dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.USER_WHOLE_RUN) {
         if (runIds.isEmpty()) return
+        val waitingRemote = remoteWaitingRuns().filter { it.runId in runIds }.associateBy { it.runId }
         val researchRoots = runIds.mapNotNull { researchLifecycles[it] }.distinctBy { it.rootWorkId }
         val cancelCombined = !isInterrupted &&
             origin in setOf(
@@ -384,7 +400,7 @@ class AgentRunCoordinator @Inject constructor(
                 dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.PERMISSION_REVOKED
             )
         cancelCombinedRootsAndRuns(
-            roots = if (cancelCombined) runIds.mapNotNull { combinedRoots[it] ?: deferredStarts[it]?.chatToolConfig?.combined?.rootBudgetId } + providerWaits?.combinedRoots(runIds).orEmpty() else emptyList(),
+            roots = if (cancelCombined) runIds.mapNotNull { combinedRoots[it] ?: deferredStarts[it]?.chatToolConfig?.combined?.rootBudgetId ?: CombinedAcceptedTurn.context(waitingRemote[it]?.synthesisSnapshot)?.rootBudgetId } + providerWaits?.combinedRoots(runIds).orEmpty() else emptyList(),
             cancelRoot = chatRepository::cancelCombinedTurn,
             onRootFailure = { root, failure -> AppLogRecorder.record("Combined", "CANCELLATION_JOURNAL_FAILED · root=$root · reason=${failure.javaClass.simpleName}", "W") }
         ) {
@@ -399,9 +415,18 @@ class AgentRunCoordinator @Inject constructor(
                             runId = runId,
                             status = if (isInterrupted) AgentRunStatus.INTERRUPTED else AgentRunStatus.CANCELED,
                             completedAt = completedAt,
-                            terminalError = if (isInterrupted) AgentRunTerminalError.SERVICE_STOPPED else null
+                            terminalError = when {
+                                isInterrupted -> AgentRunTerminalError.SERVICE_STOPPED
+                                runId in waitingRemote -> "LOCAL_WAIT_CANCELLED_REMOTE_TERMINATION_UNCONFIRMED"
+                                else -> null
+                            }
                         )
                     }
+                }
+            }
+            if (!isInterrupted) {
+                waitingRemote.values.distinctBy { it.chatId }.forEach { run ->
+                    _notices.tryEmit(AgentRunNotice(run.chatId, run.runId, "Stopped waiting locally. The remote provider has not confirmed cancellation; the saved job receipt is retained.", true))
                 }
             }
             if (isInterrupted || cancelCombined) {
@@ -623,7 +648,7 @@ class AgentRunCoordinator @Inject constructor(
             val accepted = execution.accepted
             val ownedIds = execution.attempt.dispatchedRunIds + execution.receipts.filter { it.attemptId == lifecycle.attempt.attemptId && it.generation == lifecycle.attempt.generation }.mapNotNull { it.runId }
             val turnRuns = chatRepository.observeAgentRuns(request.chatId).first().filter { it.userMessageId == accepted.originatingUserMessageId || it.runId in ownedIds }
-            val active = turnRuns.any { it.runId != request.runId && it.status in setOf(AgentRunStatus.QUEUED, AgentRunStatus.RUNNING, AgentRunStatus.WAITING_PROVIDER_LIMIT, "STOPPING") }
+            val active = turnRuns.any { it.runId != request.runId && it.status in setOf(AgentRunStatus.QUEUED, AgentRunStatus.RUNNING, AgentRunStatus.WAITING_PROVIDER_LIMIT, AgentRunStatus.WAITING_REMOTE_JOB, "STOPPING") }
             val currentRuns = turnRuns.filter { it.runId in ownedIds }
             val allBlocked = currentRuns.isNotEmpty() &&
                 currentRuns.all { run ->
@@ -783,6 +808,21 @@ class AgentRunCoordinator @Inject constructor(
                         }
                         replaced != null
                     },
+                    onCombinedAnswer = { content, thoughts, timeline ->
+                        require(content.startsWith(committedPrefix)) { "A final Combined bundle attempted to replace its committed prefix." }
+                        // Drain drafts before the final transaction so an older conflated
+                        // checkpoint cannot subsequently overwrite the attribution bundle.
+                        checkpoints.drain()
+                        val bundled = assistantMessage.copy(content = content, thoughts = thoughts, timeline = recoveryMarkers + timeline)
+                        val committed = withContext(NonCancellable) { chatRepository.checkpointCombinedAnswer(bundled) }
+                        checkpoints = newCheckpoints()
+                        if (committed) {
+                            assistantMessage = bundled
+                            firstAnswerCheckpoint = true
+                            lastCheckpointAt = SystemClock.elapsedRealtime()
+                        }
+                        committed
+                    },
                     onPhaseChanged = { phase ->
                         _activeRuns.update { runs ->
                             val current = runs[request.runId]
@@ -811,10 +851,15 @@ class AgentRunCoordinator @Inject constructor(
                 if (limit != null && pauseForProvider(limit)) return@coroutineScope
                 val terminal = outcome.toTerminalUpdate()
                 val completedAt = currentEpochSeconds()
-                val terminalMessage = terminalAgentMessage(assistantMessage, terminal.error, completedAt).withCombinedOutcome(terminal.status)
+                val waitingRemote = terminal.status == AgentRunStatus.WAITING_REMOTE_JOB
+                val terminalMessage = terminalAgentMessage(assistantMessage, terminal.error.takeUnless { waitingRemote }, completedAt).withCombinedOutcome(terminal.status)
                 val committed = withContext(NonCancellable) {
                     traceReducedOutput(terminalMessage)
                     chatRepository.commitAgentRun(terminalMessage, request.runId, terminal.status, completedAt, terminal.error)
+                }
+                if (committed && waitingRemote) {
+                    _notices.tryEmit(AgentRunNotice(request.chatId, request.runId, "The remote job is still waiting. Its job ID and any answer are saved; check its status or continue without this profile.", true))
+                    return@coroutineScope
                 }
                 committedForHandoff = committed
                 if (committed) settleResearchOutcome(request, researchLifecycle, terminalMessage, terminal.status, terminal.error)
@@ -946,7 +991,7 @@ internal fun terminalAgentMessage(message: MessageV2, error: String?, completedA
 internal fun ApiStateFlowOutcome.toTerminalUpdate(): AgentRunTerminalUpdate = when (this) {
     ApiStateFlowOutcome.Completed -> AgentRunTerminalUpdate(AgentRunStatus.COMPLETED, null)
 
-    is ApiStateFlowOutcome.Failed -> AgentRunTerminalUpdate(AgentRunStatus.FAILED, message)
+    is ApiStateFlowOutcome.Failed -> AgentRunTerminalUpdate(if (errorCode == "QUEUE_JOB_PENDING") AgentRunStatus.WAITING_REMOTE_JOB else AgentRunStatus.FAILED, message)
 
     ApiStateFlowOutcome.Incomplete -> AgentRunTerminalUpdate(
         AgentRunStatus.FAILED,

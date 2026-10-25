@@ -5,6 +5,8 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 
+internal enum class ContinuationTrigger { PROVIDER_OUTPUT_LIMIT, REQUESTED_LENGTH, STREAM_INTERRUPTED, RESTORED_DRAFT }
+
 /** Bounded text-only continuations. Completed actions are evidence, never replayed. */
 internal class OutputLimitRecoverySession(
     private var active: AgentProviderSession,
@@ -18,6 +20,7 @@ internal class OutputLimitRecoverySession(
     private val maxAnswerCharacters: Int = 1_048_576,
     private val combined: CombinedExecutionContext? = null,
     private val saveProgress: suspend (draft: String, index: Int, outputCap: Int?, reason: String) -> Unit = { _, _, _, _ -> },
+    private val onContinuationTrigger: (ContinuationTrigger) -> Unit = {},
     private val continuation: suspend (String, List<AgentToolExchange>) -> AgentProviderSession
 ) : AgentProviderSession {
     private var continuations = 0
@@ -26,6 +29,7 @@ internal class OutputLimitRecoverySession(
     private val answer = StringBuilder(initialDraft)
     private val retainedCharacterLimit = maxAnswerCharacters.takeIf { it > 0 } ?: Int.MAX_VALUE
     private val continuationLimit = if (combined == null) maxContinuations.coerceIn(0, 16) else maxContinuations.coerceAtLeast(0)
+    private var completedAnswerLength: Int? = null
 
     private fun visibleWords(): Int = if (combined == null) LongResponsePolicy.countWords(answer.toString()) else CombinedWordCounter.count(answer.toString())
 
@@ -45,6 +49,7 @@ internal class OutputLimitRecoverySession(
         if (resumePending) {
             resumePending = false
             emit(ProviderEvent.TextDelta(answer.toString()))
+            onContinuationTrigger(ContinuationTrigger.RESTORED_DRAFT)
             active = continuation(answer.toString(), evidence)
             continuations = 1
         }
@@ -115,6 +120,15 @@ internal class OutputLimitRecoverySession(
             saveProgress(answer.toString(), continuations, effectiveOutputCap, "SEGMENT_COMMITTED")
             val limitFailure = failure?.let { dev.chungjungsoo.gptmobile.data.agent.tool.isProviderOutputLimitFailure(it.message) } == true ||
                 reportedFinishReason in setOf("length", "max_tokens", "MAX_TOKENS")
+            if (completed && !limitFailure && failure == null && pendingCalls.isEmpty() && answer.isNotBlank()) completedAnswerLength = answer.length
+            suspend fun retainedFailure(original: ProviderEvent.Failed) {
+                val recovering = continuations > 0 || transientRetries > 0
+                val earlierComplete = completedAnswerLength == answer.length && recovering
+                if (completedAnswerLength != null && recovering) {
+                    emit(ProviderEvent.Notice("The earlier answer is saved. Its additional continuation did not finish; any unmet length requirement still applies.", persistent = true))
+                }
+                emit(if (earlierComplete) original.copy(transportComplete = true, errorCode = original.errorCode ?: "CONTINUATION_REQUIREMENT_UNMET") else original)
+            }
             if (limitFailure && answer.isBlank() && !continueEmptyOutput) {
                 saveProgress(answer.toString(), continuations, effectiveOutputCap, "FAILED")
                 emit(failure ?: ProviderEvent.Failed("The model reached its output limit without a visible answer. Check reasoning and output settings before retrying."))
@@ -123,7 +137,7 @@ internal class OutputLimitRecoverySession(
             lowYieldLimitRounds = if (limitFailure && (reportedOutputTokens ?: 0) >= 1024 && novel.toByteArray(Charsets.UTF_8).size <= 256) lowYieldLimitRounds + 1 else 0
             if (lowYieldLimitRounds >= 2) {
                 saveProgress(answer.toString(), continuations, effectiveOutputCap, "PARTIAL")
-                emit(ProviderEvent.Failed("OUTPUT_CONTINUATION_NO_VISIBLE_PROGRESS: Two output-limited requests produced negligible visible output. The partial answer and evidence are saved. Check the profile's reasoning and output settings before explicitly retrying."))
+                retainedFailure(ProviderEvent.Failed("OUTPUT_CONTINUATION_NO_VISIBLE_PROGRESS: Two output-limited requests produced negligible visible output. The partial answer and evidence are saved. Check the profile's reasoning and output settings before explicitly retrying."))
                 return@flow
             }
             val transientFailure = failure != null &&
@@ -135,7 +149,7 @@ internal class OutputLimitRecoverySession(
                 transientRetries < 2
             if (failure != null && !limitFailure && !transientFailure) {
                 saveProgress(answer.toString(), continuations, effectiveOutputCap, if (answer.isNotEmpty()) "PARTIAL" else "FAILED")
-                emit(requireNotNull(failure))
+                retainedFailure(requireNotNull(failure))
                 return@flow
             }
             val needsMore = if (combined == null) LongResponsePolicy.needsMore(answer.toString(), targetWords) else targetWords?.let { visibleWords() < it } == true
@@ -148,7 +162,7 @@ internal class OutputLimitRecoverySession(
             }
             if ((!transientFailure && continuations >= continuationLimit) || answer.length >= retainedCharacterLimit || (!transientFailure && continuing && novel.isBlank())) {
                 saveProgress(answer.toString(), continuations, effectiveOutputCap, "PARTIAL")
-                emit(
+                retainedFailure(
                     ProviderEvent.Failed(
                         "The response is incomplete after bounded continuation (${visibleWords()} words" +
                             (targetWords?.let { " of approximately $it requested" } ?: "") + "). The partial answer and completed evidence are saved; no tool actions were repeated."
@@ -164,13 +178,20 @@ internal class OutputLimitRecoverySession(
                 continuations++
             }
             if (!transientFailure) emit(ProviderEvent.Notice("Continuing the response ($continuations/$continuationLimit) from the saved answer and completed evidence.", false))
+            val trigger = when {
+                transientFailure -> ContinuationTrigger.STREAM_INTERRUPTED
+                limitFailure -> ContinuationTrigger.PROVIDER_OUTPUT_LIMIT
+                else -> ContinuationTrigger.REQUESTED_LENGTH
+            }
+            onContinuationTrigger(trigger)
+            saveProgress(answer.toString(), continuations, effectiveOutputCap, trigger.name)
             active = try {
                 continuation(answer.toString(), evidence)
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
                 saveProgress(answer.toString(), continuations, effectiveOutputCap, "PARTIAL")
-                emit(ProviderEvent.Failed("Automatic continuation could not fit the context or reach the provider. The partial answer and completed tool results are saved."))
+                retainedFailure(ProviderEvent.Failed("Automatic continuation could not fit the context or reach the provider. The partial answer and completed tool results are saved."))
                 return@flow
             }
         }

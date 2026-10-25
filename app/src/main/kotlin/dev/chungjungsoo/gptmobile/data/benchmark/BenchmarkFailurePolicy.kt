@@ -1,5 +1,8 @@
 package dev.chungjungsoo.gptmobile.data.benchmark
 
+import dev.chungjungsoo.gptmobile.data.network.FreeAiRateLimitException
+import dev.chungjungsoo.gptmobile.data.network.FreeProviderException
+import dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision
 import dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
@@ -7,16 +10,37 @@ import kotlinx.coroutines.TimeoutCancellationException
 /** Typed pre-dispatch denial; its message must never enter fixture answer grading. */
 internal class BenchmarkPolicyBlockedException(message: String) : IllegalStateException(message)
 
+/** Keep adapter outcomes typed through stream collection instead of reparsing UI prose. */
+internal class BenchmarkProviderFailureException(
+    message: String,
+    val errorCode: String? = null,
+    val providerLimit: ProviderLimitDecision? = null
+) : IllegalStateException(message)
+
+internal class BenchmarkUnsupportedConfigurationException(message: String) : IllegalStateException(message)
+
 /** An availability failure stops one profile; a completed wrong answer never does. */
 internal fun benchmarkFailure(error: Throwable, stage: String = "request"): BenchmarkFailure {
     val message = DiagnosticRedactor.redact(error.message ?: error.javaClass.simpleName).take(500)
     val causes = generateSequence(error) { it.cause }.toList()
-    val effectiveStage = if (error is BenchmarkPolicyBlockedException) "admission" else causes.filterIsInstance<dev.chungjungsoo.gptmobile.data.localruntime.QnnRuntimeFailure>().firstOrNull()?.stage?.name?.lowercase() ?: stage
+    val providerFailure = causes.filterIsInstance<BenchmarkProviderFailureException>().firstOrNull()
+    val freeFailure = causes.filterIsInstance<FreeProviderException>().firstOrNull()
+    val limit = providerFailure?.providerLimit ?: freeFailure?.providerLimit
+    val rateLimit = causes.filterIsInstance<FreeAiRateLimitException>().firstOrNull()
+    val providerCode = (providerFailure?.errorCode ?: freeFailure?.category?.name ?: rateLimit?.let { dev.chungjungsoo.gptmobile.data.network.freeFailureCategory(it).name })?.uppercase()
+    val effectiveStage = if (causes.any { it is BenchmarkPolicyBlockedException || it is BenchmarkUnsupportedConfigurationException }) "admission" else causes.filterIsInstance<dev.chungjungsoo.gptmobile.data.localruntime.QnnRuntimeFailure>().firstOrNull()?.stage?.name?.lowercase() ?: stage
     val text = causes.joinToString(" ") { "${it.javaClass.simpleName} ${it.message.orEmpty()}" }.lowercase()
     val code = when {
-        error is BenchmarkPolicyBlockedException -> "POLICY_BLOCKED"
+        causes.any { it is BenchmarkPolicyBlockedException } || providerCode == "POLICY_BLOCKED" -> "POLICY_BLOCKED"
+        causes.any { it is BenchmarkUnsupportedConfigurationException } -> "UNSUPPORTED_OUTPUT_CONTRACT"
         error is TimeoutCancellationException -> "${effectiveStage.uppercase()}_DEADLINE_EXCEEDED"
         error is CancellationException -> "CHILD_OPERATION_ABORTED"
+        providerCode == "QUEUE_JOB_PENDING" -> "REMOTE_JOB_PENDING"
+        providerCode == "LOCAL_COOLDOWN_ACTIVE" -> "COOLDOWN_ACTIVE"
+        providerCode == "LOCAL_ALLOWANCE_EXHAUSTED" -> "LOCAL_ALLOWANCE_BLOCKED"
+        providerCode == "PROVIDER_RATE_LIMITED" -> "QUOTA_BLOCKED"
+        providerCode in setOf("CACHED_UNUSABLE_RESPONSE", "STREAM_DEGRADED", "HOSTED_GENERATION_FAILED", "PROVIDER_PAYLOAD_ERROR", "REASONING_BUDGET_EXHAUSTED", "NO_VISIBLE_ANSWER") -> requireNotNull(providerCode)
+        providerFailure?.errorCode?.matches(Regex("[A-Z][A-Z0-9_]{0,79}")) == true -> requireNotNull(providerFailure.errorCode)
         "memory_admission" in text -> "RESOURCE_ADMISSION"
         "quarantin" in text -> "NATIVE_QUARANTINED"
         "binding" in text && ("expired" in text || "unavailable" in text) -> "SERVICE_BINDING_EXPIRED"
@@ -37,13 +61,19 @@ internal fun benchmarkFailure(error: Throwable, stage: String = "request"): Benc
         "native" in text || "load" in text || "qnn" in text -> "NATIVE_EXECUTION_FAILED"
         else -> "EXECUTION_FAILED"
     }
-    val next = Regex("next eligible retry: ([^ ]+)", RegexOption.IGNORE_CASE).find(message)?.groupValues?.getOrNull(1)?.let { runCatching { java.time.Instant.parse(it).toEpochMilli() }.getOrNull() }
-    return BenchmarkFailure(code, effectiveStage, message, retryable = code !in setOf("UNSUPPORTED_CAPABILITY", "FIXTURE_INVALID", "POLICY_BLOCKED"), nextEligibleAt = next)
+    val next = limit?.retryAt ?: causes.filterIsInstance<FreeAiRateLimitException>().firstOrNull()?.retryAt ?: retryTimestampFromLegacyMessage(message)
+    return BenchmarkFailure(code, effectiveStage, message, retryable = !code.startsWith("UNSUPPORTED_") && code !in setOf("FIXTURE_INVALID", "POLICY_BLOCKED", "CACHED_UNUSABLE_RESPONSE", "HOSTED_GENERATION_FAILED"), nextEligibleAt = next)
 }
+
+/** Compatibility for older persisted failures; punctuation is never part of an ISO instant. */
+internal fun retryTimestampFromLegacyMessage(message: String): Long? =
+    Regex("next eligible retry:\\s*(\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,9})?(?:Z|[+-]\\d{2}:\\d{2}))", RegexOption.IGNORE_CASE)
+        .find(message)?.groupValues?.getOrNull(1)?.let { runCatching { java.time.Instant.parse(it).toEpochMilli() }.getOrNull() }
 
 internal fun BenchmarkFailure.outcome(): BenchmarkOutcome = when {
     code == "POLICY_BLOCKED" -> BenchmarkOutcome.POLICY_BLOCKED
-    code == "QUOTA_BLOCKED" || code == "COOLDOWN_ACTIVE" -> BenchmarkOutcome.QUOTA_BLOCKED
+    code in setOf("QUOTA_BLOCKED", "COOLDOWN_ACTIVE", "LOCAL_ALLOWANCE_BLOCKED") -> BenchmarkOutcome.QUOTA_BLOCKED
+    code in setOf("REMOTE_JOB_PENDING", "STREAM_DEGRADED") -> BenchmarkOutcome.PARTIAL
     code.startsWith("UNSUPPORTED_") -> BenchmarkOutcome.UNSUPPORTED
     code.endsWith("DEADLINE_EXCEEDED") -> BenchmarkOutcome.TIMED_OUT
     else -> BenchmarkOutcome.ERROR

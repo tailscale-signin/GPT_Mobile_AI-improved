@@ -706,7 +706,7 @@ class ChatViewModel @Inject constructor(
         pendingRunDispatches > 0 ||
             pendingMessageGrouping > 0 ||
             _loadingStates.value.any { it != LoadingState.Idle } ||
-            agentRunCoordinator.activeRuns.value.values.any { it.chatId == _chatRoom.value.id }
+            agentRunCoordinator.activeRuns.value.any { (runId, run) -> run.chatId == _chatRoom.value.id && _agentRunsById.value[runId]?.status != AgentRunStatus.WAITING_REMOTE_JOB }
 
     private fun drainPromptQueueIfIdle() {
         if (durablePromptQueue != null) return
@@ -1596,6 +1596,15 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 agentRunCoordinator.withChatGate(_chatRoom.value.id) {
+                    val pendingProfiles = _combinedFailures.value.filter { it.userMessageId == userId && it.category == "QUEUED_JOB" }.map { it.profileUid }
+                    if (pendingProfiles.isNotEmpty()) {
+                        val decisions = requireNotNull(combinedCollectionDecisions)
+                        val excluded = decisions.excludedProfiles(accepted.context.rootBudgetId)
+                        check(accepted.context.requested.participantUids.any { it in _activePlatformUids.value && it !in excluded && it !in pendingProfiles }) {
+                            "All remaining profiles are waiting for remote jobs. Check their saved status or select another profile before combining."
+                        }
+                        pendingProfiles.forEach { decisions.excludeProfile(accepted.context.rootBudgetId, it, accepted.context.persistBudget) }
+                    }
                     combinedCollectionDecisions?.acknowledge(accepted.context.rootBudgetId, attempts, accepted.context.persistBudget)
                     resumeResearchForUserTurn(userId, "user-combine-available")
                 }
@@ -3519,7 +3528,7 @@ internal fun loadingStatesForLatestAssistant(
 ): List<ChatViewModel.LoadingState> = List(platformCount) { platformIndex ->
     val runId = latestAssistantRow?.getOrNull(platformIndex)?.currentRunId
     val status = runId?.let(runsById::get)?.status
-    if (runId in activeRunIds || status == AgentRunStatus.QUEUED || status == AgentRunStatus.RUNNING || status == AgentRunStatus.WAITING_PROVIDER_LIMIT) {
+    if (status != AgentRunStatus.WAITING_REMOTE_JOB && (runId in activeRunIds || status == AgentRunStatus.QUEUED || status == AgentRunStatus.RUNNING || status == AgentRunStatus.WAITING_PROVIDER_LIMIT)) {
         ChatViewModel.LoadingState.Loading
     } else {
         ChatViewModel.LoadingState.Idle

@@ -258,9 +258,10 @@ interface AgentPersistenceDao :
     suspend fun upsertCombinedDeliveryCheckpoint(row: dev.chungjungsoo.gptmobile.data.database.entity.CombinedDeliveryCheckpoint)
 
     @Transaction
-    suspend fun commitCombinedDeliveryCheckpoint(row: dev.chungjungsoo.gptmobile.data.database.entity.CombinedDeliveryCheckpoint, expectedGeneration: Long, synthesisKey: String): Boolean {
+    suspend fun commitCombinedDeliveryCheckpoint(row: dev.chungjungsoo.gptmobile.data.database.entity.CombinedDeliveryCheckpoint, expectedGeneration: Long, synthesisKey: String, expectedRunStatus: String = "RUNNING"): Boolean {
+        require(expectedRunStatus in setOf("RUNNING", "WAITING_REMOTE_JOB"))
         val run = recoveryRun(row.runId) ?: return false
-        if (run.status != "RUNNING" || run.ownershipFence != row.fence || run.synthesisKey != synthesisKey || !validCombinedPublication(run)) return false
+        if (run.status != expectedRunStatus || run.ownershipFence != row.fence || run.synthesisKey != synthesisKey || !validCombinedPublication(run)) return false
         val message = rawRecoveryMessage(run.assistantMessageId) ?: return false
         if (message.currentRunId != row.runId || message.ownershipFence != row.fence) return false
         val old = rawCombinedDeliveryCheckpoint(row.runId, row.revisionId)
@@ -1181,9 +1182,12 @@ interface AgentPersistenceDao :
         runId: String,
         status: String,
         completedAt: Long,
-        terminalError: String?
+        terminalError: String?,
+        expectedRunStatus: String = "RUNNING"
     ): Boolean {
+        require(expectedRunStatus in setOf("RUNNING", "WAITING_REMOTE_JOB"))
         val run = recoveryRun(runId) ?: return false
+        if (run.status != expectedRunStatus && !(expectedRunStatus == "RUNNING" && run.status == "QUEUED" && status != "COMPLETED")) return false
         val expected = rawRecoveryMessage(run.assistantMessageId) ?: return false
         if (expected.currentRunId != runId || expected.ownershipFence != run.ownershipFence || assistantMessage.ownershipFence != run.ownershipFence) return false
         val current = dev.chungjungsoo.gptmobile.data.agent.CombinedDocuments.resolve(this, expected.decodedArchiveText())
@@ -1193,7 +1197,7 @@ interface AgentPersistenceDao :
         return dev.chungjungsoo.gptmobile.data.diagnostics.CombinedOperationTrace.measure(
             "database_publication",
             dev.chungjungsoo.gptmobile.data.diagnostics.CombinedOperationOwner(messageId = selected.id, runId = runId, revisionId = staged?.manifest?.revisionId, digest = staged?.manifest?.bodyDigest)
-        ) { commitFinishedMessage(selected, runId, status, completedAt, terminalError, expected, staged) }
+        ) { commitFinishedMessage(selected, runId, status, completedAt, terminalError, expected, staged, expectedRunStatus) }
     }
 
     @Transaction
@@ -1204,11 +1208,13 @@ interface AgentPersistenceDao :
         completedAt: Long,
         terminalError: String?,
         expectedCurrent: MessageV2,
-        staged: dev.chungjungsoo.gptmobile.data.agent.StagedCombinedDocument?
+        staged: dev.chungjungsoo.gptmobile.data.agent.StagedCombinedDocument?,
+        expectedRunStatus: String = "RUNNING"
     ): Boolean {
-        require(status in setOf("COMPLETED", "FAILED", "CANCELED", "INTERRUPTED"))
+        require(status in setOf("COMPLETED", "FAILED", "CANCELED", "INTERRUPTED", "WAITING_REMOTE_JOB"))
+        require(expectedRunStatus in setOf("RUNNING", "WAITING_REMOTE_JOB"))
         val run = recoveryRun(runId) ?: return false
-        if (run.status != "RUNNING" && !(run.status == "QUEUED" && status != "COMPLETED")) return false
+        if (run.status != expectedRunStatus && !(expectedRunStatus == "RUNNING" && run.status == "QUEUED" && status != "COMPLETED")) return false
         val current = rawRecoveryMessage(run.assistantMessageId) ?: return false
         if (current != expectedCurrent) return false
         if (current.ownershipFence != run.ownershipFence ||
@@ -1226,8 +1232,8 @@ interface AgentPersistenceDao :
         preserveCombinedPrefix(persisted)
         rawUpdateMessage(persisted)
         publishReply(run, selected, status, completedAt)
-        updateRunStatus(runId, status, run.startedAt, completedAt, terminalError)
-        if (run.synthesisKey != null && status != "COMPLETED") restoreCombinedCandidate(runId)
+        updateRunStatus(runId, status, run.startedAt, completedAt.takeUnless { status == "WAITING_REMOTE_JOB" }, terminalError)
+        if (run.synthesisKey != null && status !in setOf("COMPLETED", "WAITING_REMOTE_JOB")) restoreCombinedCandidate(runId)
         cancelActiveToolEvents(runId, completedAt)
         if (getChatRoom(run.chatId)?.isArchived == true) setArchivedWithCompression(run.chatId, true)
         return true

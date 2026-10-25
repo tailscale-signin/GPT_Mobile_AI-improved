@@ -178,6 +178,191 @@ class CombinedDocumentStoreTest {
         }
     }
 
+    @Test fun processInterruptionBeforeAndAfterBundleCommitNeverPublishesTextWithoutItsMap() = runBlocking {
+        val name = "combined-bundle-${UUID.randomUUID()}"
+        var db = database(name)
+        try {
+            seed(db)
+            val message = finalMessage("Exact evidence with attribution.\n\n".repeat(1500))
+            val expected = requireNotNull(db.agentPersistenceDao().rawRecoveryMessage(3))
+            val run = requireNotNull(db.agentPersistenceDao().recoveryRun(runId))
+            val staged = requireNotNull(CombinedDocuments.stage(db.agentPersistenceDao(), message, run, "WRITING"))
+            db.close()
+            db = database(name)
+            assertEquals("", db.messageDao().rawMessage(3)!!.content)
+            assertNull(db.messageDao().rawMessage(3)!!.combinedManifest)
+            assertEquals(0L, db.agentPersistenceDao().combinedFinalManifest(staged.manifest.id)!!.committedAt)
+            assertTrue(db.agentPersistenceDao().commitRunningMessageCheckpoint(message, expected, staged))
+            db.close()
+            db = database(name)
+            val compact = requireNotNull(db.messageDao().rawMessage(3))
+            val reference = requireNotNull(compact.combinedManifest)
+            val restored = requireNotNull(db.messageDao().message(3))
+            assertEquals(message.content, restored.content)
+            assertEquals(message.timeline.last().combinedQuality, restored.timeline.last().combinedQuality)
+            assertEquals("revision", reference.revisionId)
+            assertTrue(CombinedDocuments.blocks(db.messageDao(), reference, 0, 1).single().passages.isNotEmpty())
+        } finally {
+            db.close()
+            RuntimeEnvironment.getApplication().deleteDatabase(name)
+        }
+    }
+
+    @Test fun textOnlyDraftReopensWithConservativeAttributionAndNeverClaimsFinalCompletion() = runBlocking {
+        val name = "combined-provisional-${UUID.randomUUID()}"
+        var db = database(name)
+        try {
+            seed(db)
+            val evidence = "The preserved evidence has a specific durable attribution."
+            val retainedSource = source.copy(content = evidence, sourceDigest = researchHash(evidence))
+            val body = (evidence + "\n\n").repeat(800)
+            val draft = finalMessage(body).copy(combinedSources = listOf(retainedSource), timeline = listOf(AssistantTimelineItem(AssistantTimelineItemType.TEXT, content = body)))
+            assertTrue(db.agentPersistenceDao().checkpointRunningMessage(draft))
+            val reference = requireNotNull(db.messageDao().rawMessage(3)!!.combinedManifest)
+            assertEquals("revision", reference.revisionId)
+            assertEquals(CombinedAttributionRecovery.PENDING, db.agentPersistenceDao().combinedFinalManifest(reference.id)!!.completeness)
+            db.close()
+            db = database(name)
+            val restored = requireNotNull(db.messageDao().message(3))
+            val report = requireNotNull(restored.timeline.last().combinedQuality)
+            assertEquals(body, restored.content)
+            assertEquals(researchHash(body), report.answerDigest)
+            assertEquals(CombinedAttributionRecovery.RECOVERED, report.status)
+            assertFalse(report.complete)
+            assertFalse(report.factualAccuracyVerified)
+            assertTrue(report.passages.isNotEmpty())
+            val page = CombinedDocuments.blocks(db.messageDao(), reference, 0, 1).single()
+            assertTrue(page.passages.isNotEmpty())
+            assertTrue(page.passages.all { it.matches(page.text) && it.profileUids == setOf("p") })
+        } finally {
+            db.close()
+            RuntimeEnvironment.getApplication().deleteDatabase(name)
+        }
+    }
+
+    @Test fun absentRetainedSourcesKeepAttributionPendingWithoutInventingColours() = runBlocking {
+        val db = database()
+        try {
+            seed(db)
+            val body = "An answer whose original source snapshots are unavailable.\n\n".repeat(800)
+            val draft = finalMessage(body).copy(combinedSources = emptyList(), timeline = listOf(AssistantTimelineItem(AssistantTimelineItemType.TEXT, content = body)))
+            assertTrue(db.agentPersistenceDao().checkpointRunningMessage(draft))
+            val restored = requireNotNull(db.messageDao().message(3))
+            val report = requireNotNull(restored.timeline.last().combinedQuality)
+            assertEquals(body, restored.content)
+            assertEquals(CombinedAttributionRecovery.PENDING, report.status)
+            assertTrue(report.passages.isEmpty())
+            assertFalse(report.complete)
+            val reference = requireNotNull(restored.combinedManifest)
+            assertEquals(CombinedAttributionRecovery.PENDING, CombinedDocuments.blocks(db.messageDao(), reference, 0, 1).single().attributionStatus)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test fun legacySyntheticRevisionWithNullQualityRecoversItsSavedSourceMap() = runBlocking {
+        val db = database()
+        try {
+            seed(db)
+            val dao = db.agentPersistenceDao()
+            val evidence = "The original contributor supplied this exact recoverable evidence."
+            val body = (evidence + "\n\n").repeat(650)
+            val draft = finalMessage(body).copy(
+                combinedSources = listOf(source.copy(content = evidence, sourceDigest = researchHash(evidence))),
+                timeline = listOf(AssistantTimelineItem(AssistantTimelineItemType.TEXT, content = body))
+            )
+            val expected = requireNotNull(dao.rawRecoveryMessage(3))
+            val staged = requireNotNull(CombinedDocuments.stage(dao, draft, requireNotNull(dao.recoveryRun(runId)), "WRITING"))
+            val fields = Json.decodeFromString<CombinedStoredFields>(CombinedPayload.read(dao, runId, staged.manifest.metadataPayload))
+            val metadata = CombinedPayload.write(dao, runId, Json.encodeToString(fields.copy(timeline = fields.timeline.filterNot { it.combinedQuality != null })))
+            val legacyManifest = staged.manifest.copy(
+                id = "legacy:${staged.manifest.id}",
+                revisionId = "$runId:4",
+                metadataPayload = metadata.encode(),
+                metadataDigest = metadata.digest,
+                provenanceDigest = researchHash("null"),
+                completeness = "COMPLETED"
+            )
+            dao.insertCombinedFinalManifest(legacyManifest)
+            var first = 0
+            while (first < staged.manifest.blockCount) {
+                val rows = dao.combinedFinalBlockIndexPage(staged.manifest.id, first, 8)
+                dao.insertCombinedFinalBlockIndexes(rows.map { it.copy(manifestId = legacyManifest.id) })
+                first += rows.size
+            }
+            val legacy = StagedCombinedDocument(draft, staged.compact.copy(timeline = staged.compact.timeline.filterNot { it.combinedQuality != null }, combinedManifest = legacyManifest.reference()), legacyManifest)
+            assertTrue(dao.commitRunningMessageCheckpoint(draft, expected, legacy))
+            val restored = requireNotNull(db.messageDao().message(3))
+            val report = requireNotNull(restored.timeline.last().combinedQuality)
+            assertEquals(CombinedAttributionRecovery.RECOVERED, report.status)
+            assertFalse(report.revisionId == "$runId:4")
+            assertFalse(report.complete)
+            assertTrue(report.passages.isNotEmpty())
+            assertTrue(CombinedDocuments.blocks(dao, legacyManifest.reference(), 0, 1).single().passages.isNotEmpty())
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test fun waitingRemoteJobCanAtomicallyImportOneCompletedBundleAndCannotSettleTwice() = runBlocking {
+        val db = database()
+        try {
+            seed(db)
+            val dao = db.agentPersistenceDao()
+            val empty = requireNotNull(dao.recoveryMessage(3))
+            assertTrue(dao.finishRunningWithMessage(empty, runId, "WAITING_REMOTE_JOB", 10, "QUEUE_JOB_PENDING: Saved remote job"))
+            assertEquals("WAITING_REMOTE_JOB", dao.recoveryRun(runId)!!.status)
+            assertNull(dao.recoveryRun(runId)!!.completedAt)
+            val completed = finalMessage("The remote answer and its attribution are imported together.\n\n".repeat(800))
+            assertTrue(dao.finishRunningWithMessage(completed, runId, "COMPLETED", 20, null, expectedRunStatus = "WAITING_REMOTE_JOB"))
+            assertEquals("COMPLETED", dao.recoveryRun(runId)!!.status)
+            assertEquals(completed.content, dao.recoveryMessage(3)!!.content)
+            assertEquals(completed.timeline.last().combinedQuality, dao.recoveryMessage(3)!!.timeline.last().combinedQuality)
+            assertFalse(dao.finishRunningWithMessage(completed, runId, "COMPLETED", 21, null, expectedRunStatus = "WAITING_REMOTE_JOB"))
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test fun waitingRemoteSettlementRejectsAChangedFenceAndKeepsAnEarlierAnswerOnFailure() = runBlocking {
+        val db = database()
+        try {
+            seed(db)
+            val dao = db.agentPersistenceDao()
+            val earlier = finalMessage("The successful initial answer must remain visible.")
+            assertTrue(dao.finishRunningWithMessage(earlier, runId, "WAITING_REMOTE_JOB", 10, "QUEUE_JOB_PENDING: Continuation waiting"))
+            assertTrue(dao.finishRunningWithMessage(earlier, runId, "FAILED", 20, "HOSTED_GENERATION_FAILED", expectedRunStatus = "WAITING_REMOTE_JOB"))
+            assertEquals(earlier.content, dao.recoveryMessage(3)!!.content)
+            dao.updateRunStatus(runId, "RUNNING", 1, null, null)
+            assertEquals(1, dao.advanceCombinedFence(runId, 4, 5))
+            dao.updateRunStatus(runId, "WAITING_REMOTE_JOB", 1, null, "QUEUE_JOB_PENDING")
+            assertFalse(dao.finishRunningWithMessage(earlier, runId, "COMPLETED", 21, null, expectedRunStatus = "WAITING_REMOTE_JOB"))
+            assertEquals(earlier.content, dao.rawRecoveryMessage(3)!!.content)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test fun cachedRemoteRecordsAreDurableBeforeTheWaitingAnswerIsPublished() = runBlocking {
+        val db = database()
+        try {
+            seed(db)
+            val dao = db.agentPersistenceDao()
+            dao.updateRunStatus(runId, "WAITING_REMOTE_JOB", 1, null, "QUEUE_JOB_PENDING")
+            val store = CombinedRecordStore.open(dao, runId, snapshot, "revision", 100_000, false, expectedRunStatus = "WAITING_REMOTE_JOB")
+            store.protocol.accept("""{"type":"passage","seq":1,"id":"P1","text":"Saved remote evidence.","claims":[],"contributors":[],"evidence":[]}""" + "\n" + """{"type":"end","seq":2,"id":"END","lastSeq":1}""")
+            store.protocol.markAttemptFinished("COMPLETED")
+            store.save(store.protocol.checkpoint())
+            assertEquals("Saved remote evidence.", dao.combinedDeliveryCheckpoint(runId, "revision")!!.renderedAnswer)
+            assertEquals("WAITING_REMOTE_JOB", dao.recoveryRun(runId)!!.status)
+            assertEquals("", dao.rawRecoveryMessage(3)!!.content)
+            val reopened = CombinedRecordStore.open(dao, runId, snapshot, "revision", 100_000, false, expectedRunStatus = "WAITING_REMOTE_JOB")
+            assertTrue(reopened.protocol.checkpoint().ended)
+        } finally {
+            db.close()
+        }
+    }
+
     @Test fun normalizedCheckpointKeepsPendingAndAppendMetadataWithoutAWholeBodyRow() = runBlocking {
         val db = database()
         try {

@@ -53,8 +53,8 @@ class CombinedDeliverySessionTest {
         put("claims", JsonArray(claims.map(::JsonPrimitive)))
         put("sources", JsonArray(emptyList()))
     }.toString() + "\n"
-    private fun List<ProviderEvent>.answer() = filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text }
-    private fun List<ProviderEvent>.quality() = filterIsInstance<ProviderEvent.CombinedQuality>().last().report
+    private fun List<ProviderEvent>.answer() = combinedAnswerText()
+    private fun List<ProviderEvent>.quality() = combinedReport()
 
     @Test fun lexicalMissesAreHintsAndNeverTriggerAppendixOrRegeneration() = runTest {
         var repairs = 0

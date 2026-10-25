@@ -46,7 +46,7 @@ internal fun combinedResponseStatus(
     preparing: Boolean = false
 ): CombinedResponseStatus = when {
     run?.status in setOf(AgentRunStatus.FAILED, AgentRunStatus.CANCELED, AgentRunStatus.INTERRUPTED) -> CombinedResponseStatus.FAILED
-    run?.status == AgentRunStatus.WAITING_PROVIDER_LIMIT -> CombinedResponseStatus.PAUSED
+    run?.status in setOf(AgentRunStatus.WAITING_PROVIDER_LIMIT, AgentRunStatus.WAITING_REMOTE_JOB) -> CombinedResponseStatus.PAUSED
     run?.status in setOf(AgentRunStatus.QUEUED, AgentRunStatus.RUNNING) || preparing -> CombinedResponseStatus.GENERATING
     message?.content.isNullOrBlank() || isAssistantErrorMessage(message.content) -> CombinedResponseStatus.FAILED
     else -> CombinedResponseStatus.COMPLETED
@@ -122,7 +122,7 @@ internal fun combinedResponseProfiles(
                 when (source.completionStatus) {
                     AgentRunStatus.COMPLETED -> CombinedResponseStatus.COMPLETED
                     AgentRunStatus.QUEUED, AgentRunStatus.RUNNING -> CombinedResponseStatus.GENERATING
-                    AgentRunStatus.WAITING_PROVIDER_LIMIT -> CombinedResponseStatus.PAUSED
+                    AgentRunStatus.WAITING_PROVIDER_LIMIT, AgentRunStatus.WAITING_REMOTE_JOB -> CombinedResponseStatus.PAUSED
                     else -> CombinedResponseStatus.FAILED
                 }
             } else if (run?.status == AgentRunStatus.COMPLETED && response != null && CombinedContributionUsability.assess(run.status, response.content, allowPartial = true, finishReason = response.timeline.lastOrNull { it.generation != null }?.generation?.finishReason).usablePartial) {

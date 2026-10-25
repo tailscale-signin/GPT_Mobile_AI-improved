@@ -62,7 +62,7 @@ internal class FreeQueuedTransport(private val client: HttpClient, private val p
         val scope = config.queueScope ?: context[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.queueScope ?: java.util.UUID.randomUUID().toString()
         val key = researchHash("$scope|${config.profileUid}|${config.permissionRevision}|${provider.name}|${config.queuePersistent}|$identityPayload")
         val requestKey = researchHash("$scope|${config.profileUid}|${provider.name}|${config.queuePersistent}|$identityPayload")
-        val submission = FreeQueueJob(key, chatId = scope.substringBefore(':').toIntOrNull(), protocol = if (provider == FreeAiProvider.HUGGING_FACE) "GRADIO_CALL_V2" else "HORDE", ownerRunId = context[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.queueScope, profileUid = config.profileUid, requestedModel = request.model, requestKey = requestKey)
+        val submission = FreeQueueJob(key, chatId = scope.substringBefore(':').toIntOrNull(), protocol = if (provider == FreeAiProvider.HUGGING_FACE) "GRADIO_CALL_V2" else "HORDE", ownerRunId = context[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.queueScope, profileUid = config.profileUid, requestedModel = request.model, requestKey = requestKey, requestRole = config.requestRole, continuationPrefixDigest = queueContinuationPrefixDigest(request, config.requestRole), invocationId = context[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.queueInvocationId)
         FreeQueueJobs.withJob(requestKey) {
             var job = FreeQueueJobs.read(key, config.queuePersistent) ?: FreeQueueJobs.forRequest(requestKey, config.queuePersistent)
             if (job == null && submission.ownerRunId != null && submission.chatId != null && submission.profileUid != null) {
@@ -94,7 +94,18 @@ internal class FreeQueuedTransport(private val client: HttpClient, private val p
             if (job != null) {
                 val retainedJob = job
                 retainedJob.id?.let { context[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.queueJob("${provider.name}:$it", resumed = true, cached = retainedJob.answer != null) }
-                check(System.currentTimeMillis() - job.createdAt < 20 * 60_000) { "Queued job expired. Start a new generation; the previous submission will not be repeated." }
+                if (job.state == "FAILED") throw QueueTerminalFailure("The saved remote generation failed. It cannot be resumed; choose another healthy route or explicitly start a new generation.")
+                if (provider == FreeAiProvider.AI_HORDE && job.id != null && job.answer == null && System.currentTimeMillis() - job.createdAt >= 20 * 60_000) {
+                    config.freeDiagnostics?.terminal = false
+                    throw QueuePendingFailure(requireNotNull(job.id), "The local polling allowance ended. Use Check queued job to inspect the saved remote job, or continue without this profile.")
+                }
+                check(System.currentTimeMillis() - job.createdAt < 20 * 60_000) { "Queued receipt exceeded the local retrieval allowance. Check the saved receipt before explicitly starting a new generation; remote expiry is unverified." }
+                // Horde exposes a read-only status endpoint. A prior lost connection does
+                // not invalidate its receipt; Space event streams have no such guarantee.
+                if (provider == FreeAiProvider.AI_HORDE && job.id != null && job.state == "DISCONNECTED") {
+                    job = job.copy(state = "QUEUED")
+                    FreeQueueJobs.save(requireNotNull(job), config.queuePersistent)
+                }
                 check(job.state !in setOf("SUBMITTING", "CANCELLED", "FAILED", "EXPIRED", "READING", "DISCONNECTED")) { "QUEUE_RECEIPT_NOT_RESUMABLE: Queued submission is ${job.state.lowercase()}. It cannot be resumed; explicitly start a new generation." }
                 check(provider != FreeAiProvider.HUGGING_FACE || job.answer != null || job.protocol == "GRADIO_CALL_V2") {
                     "QUEUE_RECEIPT_NOT_RESUMABLE: The saved Space receipt uses the previous session protocol. Explicitly start a new generation."
@@ -211,8 +222,14 @@ internal class FreeQueuedTransport(private val client: HttpClient, private val p
                         FreeQueueJobs.save(job!!.copy(state = "DISCONNECTED"), config.queuePersistent)
                         throw QueueTerminalFailure("QUEUE_STREAM_DISCONNECTED: Space result retrieval timed out. The receipt is retained; this protocol does not guarantee reconnect. Explicitly start a new generation.", remoteTerminal = null)
                     }
-                    if (job?.id != null) config.freeDiagnostics?.category = FreeFailureCategory.QUEUE_JOB_PENDING
-                    error(if (job?.id != null) "QUEUE_JOB_PENDING: ${provider.displayName} is still queued or generating. Its job ID was saved; retry the unchanged request to check that job." else "QUEUE_SUBMISSION_UNCERTAIN: ${provider.displayName} timed out before a job ID was confirmed. No resumable job is available; any uncertain submission will not be repeated automatically.")
+                    job?.id?.let { id ->
+                        config.freeDiagnostics?.apply {
+                            category = FreeFailureCategory.QUEUE_JOB_PENDING
+                            terminal = false
+                        }
+                        throw QueuePendingFailure(id, "${provider.displayName} is still queued or generating. Its receipt is saved. Check queued job, resume the unchanged request, or continue without this profile.")
+                    }
+                    error("QUEUE_SUBMISSION_UNCERTAIN: ${provider.displayName} timed out before a job ID was confirmed. No resumable job is available; any uncertain submission will not be repeated automatically.")
                 }
                 throw cancelled
             } catch (failed: QueueTerminalFailure) {
@@ -275,7 +292,7 @@ internal class FreeQueuedTransport(private val client: HttpClient, private val p
                 }
                 result.flag("done") == true -> {
                     val generation = (result["generations"] as? JsonArray)?.firstOrNull() as? JsonObject
-                    val answer = dev.chungjungsoo.gptmobile.presentation.ui.thinking.ThinkingParser.parse(generation?.text("text").orEmpty()).displayContent
+                    val answer = dev.chungjungsoo.gptmobile.presentation.ui.thinking.ThinkingParser.parse(generation?.let { hordeGenerationAnswer(it, model) }.orEmpty()).displayContent
                     FreeQueueJobs.save(current.copy(state = if (answer.isBlank()) "FAILED" else "COMPLETE", answer = answer.takeIf { it.isNotBlank() }, servedModel = generation?.text("model")), config.queuePersistent)
                     "Saved provider result (not a Combined answer):\n\n${answer.ifBlank { "The provider returned no answer text." }}"
                 }
@@ -350,19 +367,19 @@ internal class FreeQueuedTransport(private val client: HttpClient, private val p
                     result = checkedJson(client.get("${hordeBase(model)}/status/$id"), config, model)
                 }
                 val generation = (result["generations"] as? JsonArray)?.firstOrNull() as? JsonObject ?: error("AI Horde completed with no generation")
-                val answer = if (image) {
-                    val url = requireNotNull(generation.text("img"))
-                    val uri = java.net.URI(url)
-                    require(uri.scheme == "https" && !uri.host.isNullOrBlank() && uri.userInfo == null && !url.contains(Regex("[\\s<>\\[\\]()]"))) { "Image job returned an invalid image URL" }
-                    "![AI Horde generated image]($url)"
-                } else {
-                    generation.text("text").orEmpty()
-                }
-                return answer to generation.text("model")
+                return hordeGenerationAnswer(generation, model) to generation.text("model")
             }
             emit(ChatCompletionChunk(applicationNotice = "AI Horde: ${if ((result["processing"] as? JsonPrimitive)?.intOrNull?.let { it > 0 } == true) "generating" else "queued"} · position ${result.text("queue_position") ?: "unknown"} · estimated wait ${result.text("wait_time") ?: "unknown"} s"))
             delay(6000)
         }
+    }
+
+    private fun hordeGenerationAnswer(generation: JsonObject, model: String): String {
+        if (model != "horde-image") return generation.text("text").orEmpty()
+        val url = requireNotNull(generation.text("img"))
+        val uri = java.net.URI(url)
+        require(uri.scheme == "https" && !uri.host.isNullOrBlank() && uri.userInfo == null && !url.contains(Regex("[\\s<>\\[\\]()]"))) { "Image job returned an invalid image URL" }
+        return "![AI Horde generated image]($url)"
     }
 
     private suspend fun validateGradioSchema(config: ProviderRequestConfig, model: String): GradioInputContract {
@@ -526,7 +543,16 @@ internal class FreeQueuedTransport(private val client: HttpClient, private val p
     }
 }
 
-internal class QueueTerminalFailure(message: String, val remoteTerminal: Boolean? = true) : IllegalStateException("QUEUE_TERMINAL: $message")
+internal class QueueTerminalFailure(message: String, val remoteTerminal: Boolean? = true) : IllegalStateException((if (remoteTerminal == true) "HOSTED_GENERATION_FAILED: " else "") + "QUEUE_TERMINAL: $message")
+
+internal class QueuePendingFailure(val jobId: String, message: String) : FreeProviderException(FreeFailureCategory.QUEUE_JOB_PENDING, "QUEUE_JOB_PENDING: $message")
+
+internal fun queueContinuationPrefixDigest(request: ChatCompletionRequest, role: String): String? {
+    if (!role.contains("continuation")) return null
+    return request.messages.lastOrNull { it.role == dev.chungjungsoo.gptmobile.data.dto.openai.common.Role.ASSISTANT }?.content
+        ?.takeIf { it.all { content -> content is TextContent } }?.filterIsInstance<TextContent>()
+        ?.joinToString("\n") { it.text }?.takeIf(String::isNotBlank)?.let(::researchHash)
+}
 
 /** A resumed poll keeps the original accepted job's age limit and worker deadline. */
 internal fun queueRemainingWaitMillis(createdAt: Long?, now: Long, timeoutSeconds: Int, workerRemainingMillis: Long?): Long {

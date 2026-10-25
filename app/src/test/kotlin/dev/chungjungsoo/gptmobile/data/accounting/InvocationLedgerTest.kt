@@ -20,6 +20,24 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class InvocationLedgerTest {
+    @Test fun localPollingEndPersistsRemoteWaitInsteadOfInventingAGenerationFailure() = runTest {
+        val saved = mutableListOf<ModelInvocation>()
+        val dao = mockk<InvocationDao>(relaxed = true)
+        every { dao.recent() } returns flowOf(emptyList())
+        coEvery { dao.save(any()) } answers { saved += firstArg<ModelInvocation>() }
+        val database = mockk<ChatDatabaseV2>()
+        every { database.invocationDao() } returns dao
+        val provider = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                val dispatch = requireNotNull(kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext])
+                assertTrue(dispatch.queueInvocationId != null)
+                emit(ProviderEvent.Failed("QUEUE_JOB_PENDING: remote receipt saved", errorCode = "QUEUE_JOB_PENDING"))
+            }
+        }
+        InvocationLedger(database).wrap(provider, "parent", "turn", "FREE", "model", "primary", 100, 500, 1000).streamRound(emptyList(), emptyList()).toList()
+        assertEquals("WAITING_REMOTE_JOB", saved.last().status)
+    }
+
     @Test fun benchmarkAllowanceDenialsArePreDispatchPolicyFailuresWithoutAnswerText() = runTest {
         for (denial in listOf(SpendAllowanceReached("Spending allowance exhausted."), TokenAllowanceReached())) {
             val dao = mockk<InvocationDao>(relaxed = true)

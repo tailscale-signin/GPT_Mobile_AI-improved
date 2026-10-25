@@ -59,8 +59,8 @@ class CombinedTaskRegressionTest {
         assertEquals(listOf("france"), CombinedAnswerPolicy.from(requests.first()).task!!.subjects)
         val interrupted = CombinedDeliverySession(session(portugal, ProviderEvent.Failed("COMBINED_PARTIAL: output limit")), listOf(CombinedModelResponse("p", "Portugal", content = portugal)), 10000, validateAccess = {}, maxRepairRounds = 0, originalRequest = requests.last()) { _, _ -> error("No repair") }
         val interruptedEvents = interrupted.streamRound(emptyList(), emptyList()).toList()
-        assertFalse(interruptedEvents.filterIsInstance<ProviderEvent.CombinedQuality>().last().report.complete)
-        assertTrue(interruptedEvents.filterIsInstance<ProviderEvent.TextDelta>().any { it.text == portugal })
+        assertFalse(interruptedEvents.combinedReport().complete)
+        assertEquals(portugal, interruptedEvents.combinedAnswerText())
         assertEquals(emptyList<Int>(), CombinedTaskContract.relevantHistoryIndices("History of Germany", requests))
         val sources = listOf(CombinedModelResponse("g", "Germany draft", content = germany))
         var repairs = 0
@@ -73,8 +73,8 @@ class CombinedTaskRegressionTest {
         }) { _, _ -> error("Use targeted repair") }
         val events = delivery.streamRound(emptyList(), emptyList()).toList()
         assertEquals(1, repairs)
-        assertEquals(germany, events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
-        assertTrue(events.filterIsInstance<ProviderEvent.CombinedQuality>().last().report.complete)
+        assertEquals(germany, events.combinedAnswerText())
+        assertTrue(events.combinedReport().complete)
         assertEquals(ProviderEvent.Completed, events.last())
     }
 
@@ -82,7 +82,7 @@ class CombinedTaskRegressionTest {
         val sources = listOf(CombinedModelResponse("g", "Germany draft", content = germany))
         val delivery = CombinedDeliverySession(session(portugal), sources, 10000, validateAccess = {}, maxRepairRounds = 0, originalRequest = "History of Germany") { _, _ -> error("No repair") }
         val events = delivery.streamRound(emptyList(), emptyList()).toList()
-        val report = events.filterIsInstance<ProviderEvent.CombinedQuality>().last().report
+        val report = events.combinedReport()
         assertFalse(report.complete)
         assertTrue(report.correctionRequired)
         assertTrue(events.last() is ProviderEvent.Failed)
@@ -124,7 +124,7 @@ class CombinedTaskRegressionTest {
         assertTrue(policy.violations(text).isEmpty())
         val delivery = CombinedDeliverySession(session(text), listOf(CombinedModelResponse("f", "France", content = text)), 20000, validateAccess = {}, originalRequest = policy.task!!.request) { _, _ -> error("Complete answer must not need a repair") }
         val events = delivery.streamRound(emptyList(), emptyList()).toList()
-        assertTrue(events.filterIsInstance<ProviderEvent.CombinedQuality>().last().report.complete)
+        assertTrue(events.combinedReport().complete)
         assertEquals(ProviderEvent.Completed, events.last())
     }
 

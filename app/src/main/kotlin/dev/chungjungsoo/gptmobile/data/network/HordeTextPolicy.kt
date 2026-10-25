@@ -21,10 +21,14 @@ internal object HordeTextPolicy {
     }
 
     fun select(catalog: JsonArray, requested: String): String? = catalog.filterIsInstance<JsonObject>()
-        .filter { ((it["count"] as? JsonPrimitive)?.intOrNull ?: 0) > 0 }
-        .mapNotNull { (it["name"] as? JsonPrimitive)?.contentOrNull }
-        .filter { format(it) != null && (requested == "automatic" || it == requested) }
-        .sorted().firstOrNull()
+        .mapNotNull { model ->
+            val name = (model["name"] as? JsonPrimitive)?.contentOrNull ?: return@mapNotNull null
+            val workers = (model["count"] as? JsonPrimitive)?.intOrNull ?: return@mapNotNull null
+            (name to workers).takeIf { workers > 0 && format(name) != null && (requested == "automatic" || name == requested) }
+        }
+        // Live worker count is known availability, not a prediction of answer quality
+        // or queue time. Keep an explicit model choice exact and use name only for ties.
+        .sortedWith(compareByDescending<Pair<String, Int>> { it.second }.thenBy { it.first }).firstOrNull()?.first
 
     fun prompt(request: ChatCompletionRequest): String {
         val format = requireNotNull(format(request.model)) { "AI Horde model has no reviewed instruction template. Choose an available Qwen2/2.5 Instruct or Llama3 Instruct worker." }

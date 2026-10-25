@@ -4,7 +4,7 @@ import java.util.concurrent.ConcurrentHashMap
 
 /** Observations expire and are scoped to actual endpoint/model/routing, never a provider-wide promise. */
 internal object CombinedWriterObservations {
-    data class Observation(val reasoningDisabled: String, val reasoningOnlyAttempts: Int, val updatedAt: Long, val completedPassages: Int = 0, val malformedAttempts: Int = 0, val emptyAttempts: Int = 0, val queueDelays: Int = 0, val reasoningControl: String = "UNVERIFIED", val servedModel: String? = null, val backend: String? = null, val minimumUsefulOutputAllowance: Int? = null, val stalledOutputAllowance: Int? = null, val reasoningTokensHighWater: Int = 0, val completeAnswers: Int = 0, val incompleteAnswers: Int = 0, val observedPassages: Int = 0)
+    data class Observation(val reasoningDisabled: String, val reasoningOnlyAttempts: Int, val updatedAt: Long, val completedPassages: Int = 0, val malformedAttempts: Int = 0, val emptyAttempts: Int = 0, val queueDelays: Int = 0, val reasoningControl: String = "UNVERIFIED", val servedModel: String? = null, val backend: String? = null, val minimumUsefulOutputAllowance: Int? = null, val stalledOutputAllowance: Int? = null, val reasoningTokensHighWater: Int = 0, val completeAnswers: Int = 0, val incompleteAnswers: Int = 0, val observedPassages: Int = 0, val disableRequested: Boolean? = null, val transmitsDisable: Boolean? = null, val providerControlSupport: String = "UNVERIFIED", val reasoningObserved: Boolean? = null)
     private val resolved = ConcurrentHashMap<String, String>()
     private val observed = ConcurrentHashMap<String, Observation>()
     fun get(key: String): Observation? = observed[resolved[key] ?: key]?.takeIf { System.currentTimeMillis() - it.updatedAt < 24 * 60 * 60_000L }
@@ -12,10 +12,8 @@ internal object CombinedWriterObservations {
         if (observed.size >= 256 && !observed.containsKey(key)) observed.clear()
         val previous = get(key)
         observed[resolved[key] ?: key] = Observation(
-            if ((previous?.reasoningTokensHighWater ?: 0) > 0) {
-                "NOT_HONORED"
-            } else if (reasoning) {
-                if (previous?.reasoningControl != null && previous.reasoningControl != "UNVERIFIED") "NOT_HONORED" else "DISABLE_UNVERIFIED"
+            if ((previous?.reasoningTokensHighWater ?: 0) > 0 || reasoning) {
+                if (previous?.transmitsDisable == true) "NOT_HONORED" else "DISABLE_UNVERIFIED"
             } else if (visiblePassages > 0) {
                 "OBSERVED_NO_REASONING"
             } else {
@@ -31,7 +29,9 @@ internal object CombinedWriterObservations {
             reasoningControl = previous?.reasoningControl ?: "UNVERIFIED", servedModel = previous?.servedModel, backend = previous?.backend,
             minimumUsefulOutputAllowance = previous?.minimumUsefulOutputAllowance,
             stalledOutputAllowance = if (reasoning && visiblePassages == 0) listOfNotNull(previous?.stalledOutputAllowance, outputAllowance).maxOrNull() else previous?.stalledOutputAllowance,
-            reasoningTokensHighWater = previous?.reasoningTokensHighWater ?: 0, completeAnswers = previous?.completeAnswers ?: 0, incompleteAnswers = previous?.incompleteAnswers ?: 0
+            reasoningTokensHighWater = previous?.reasoningTokensHighWater ?: 0, completeAnswers = previous?.completeAnswers ?: 0, incompleteAnswers = previous?.incompleteAnswers ?: 0,
+            disableRequested = previous?.disableRequested, transmitsDisable = previous?.transmitsDisable, providerControlSupport = previous?.providerControlSupport ?: "UNVERIFIED",
+            reasoningObserved = if (reasoning || (previous?.reasoningTokensHighWater ?: 0) > 0) true else false.takeIf { visiblePassages > 0 } ?: previous?.reasoningObserved
         )
     }
     fun recordUsage(key: String, reasoningTokens: Int?, finishReason: String? = null, outputAllowance: Int? = null) {
@@ -40,7 +40,8 @@ internal object CombinedWriterObservations {
         val previous = get(key) ?: Observation("UNKNOWN", 0, System.currentTimeMillis())
         observed[resolved[key] ?: key] = previous.copy(
             updatedAt = System.currentTimeMillis(),
-            reasoningDisabled = if ((reasoningTokens ?: 0) > 0) "NOT_HONORED" else previous.reasoningDisabled,
+            reasoningDisabled = if ((reasoningTokens ?: 0) > 0) if (previous.transmitsDisable == true) "NOT_HONORED" else "DISABLE_UNVERIFIED" else previous.reasoningDisabled,
+            reasoningObserved = true.takeIf { (reasoningTokens ?: 0) > 0 } ?: previous.reasoningObserved,
             reasoningTokensHighWater = maxOf(previous.reasoningTokensHighWater, reasoningTokens ?: 0),
             stalledOutputAllowance = if (limited) listOfNotNull(previous.stalledOutputAllowance, outputAllowance?.takeIf { it > 0 }).maxOrNull() else previous.stalledOutputAllowance
         )
@@ -61,12 +62,12 @@ internal object CombinedWriterObservations {
         val previous = get(key) ?: Observation("UNKNOWN", 0, System.currentTimeMillis())
         observed[resolved[key] ?: key] = previous.copy(updatedAt = System.currentTimeMillis(), malformedAttempts = previous.malformedAttempts + if (category == CombinedRecoveryCategory.MALFORMED_RECORD) 2 else 0, queueDelays = previous.queueDelays + if (category == CombinedRecoveryCategory.QUEUE_PENDING) 1 else 0)
     }
-    fun recordRoute(key: String, model: String?, backend: String?, control: String?, reasoning: Boolean): String {
+    fun recordRoute(key: String, model: String?, backend: String?, control: String?, reasoning: Boolean, disableRequested: Boolean = true, transmitsDisable: Boolean = control in setOf("reasoning.enabled=false", "chat_template_kwargs.enable_thinking=false", "reasoning_effort=none"), providerControlSupport: String = "UNVERIFIED"): String {
         if (resolved.size >= 256 && !resolved.containsKey(key)) resolved.clear()
         val actual = "$key|served=${model ?: "unreported"}|backend=${backend ?: "unreported"}"
         resolved[key] = actual
         val prior = observed[actual] ?: Observation("UNKNOWN", 0, System.currentTimeMillis())
-        observed[actual] = prior.copy(updatedAt = System.currentTimeMillis(), reasoningDisabled = if (reasoning && control != null) "NOT_HONORED" else prior.reasoningDisabled, reasoningControl = control ?: "UNVERIFIED", servedModel = model, backend = backend)
+        observed[actual] = prior.copy(updatedAt = System.currentTimeMillis(), reasoningDisabled = if (reasoning) if (transmitsDisable) "NOT_HONORED" else "DISABLE_UNVERIFIED" else prior.reasoningDisabled, reasoningControl = control ?: "UNVERIFIED", servedModel = model, backend = backend, disableRequested = disableRequested, transmitsDisable = transmitsDisable, providerControlSupport = providerControlSupport, reasoningObserved = true.takeIf { reasoning } ?: prior.reasoningObserved)
         return actual
     }
     internal fun clearForTest() {

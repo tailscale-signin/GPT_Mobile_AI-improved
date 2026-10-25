@@ -31,7 +31,7 @@ internal suspend fun ProviderLimitDecision.bindAuthority(guard: dev.chungjungsoo
 }
 
 internal fun providerLimitDecision(profile: PlatformV2, outcome: FreePreflightOutcome): ProviderLimitDecision? {
-    if (outcome.category !in setOf(FreeFailureCategory.LOCAL_COOLDOWN_ACTIVE, FreeFailureCategory.PROVIDER_RATE_LIMITED)) return null
+    if (outcome.category !in setOf(FreeFailureCategory.LOCAL_COOLDOWN_ACTIVE, FreeFailureCategory.LOCAL_ALLOWANCE_EXHAUSTED, FreeFailureCategory.PROVIDER_RATE_LIMITED)) return null
     val provider = FreeAiProvider.fromApiUrl(profile.apiUrl) ?: return null
     val retryAt = outcome.retryAt ?: return null
     val identity = freeCredentialIdentity(provider, profile.token)
@@ -51,13 +51,13 @@ internal fun providerLimitDecision(config: ProviderRequestConfig, model: String,
     (error as? FreeProviderException)?.providerLimit?.let { return if (receivedPayload) it.copy(knownNotAccepted = false) else it }
     val provider = config.freeProvider ?: return null
     val category = config.freeDiagnostics?.category ?: freeFailureCategory(error)
-    if (category !in setOf(FreeFailureCategory.LOCAL_COOLDOWN_ACTIVE, FreeFailureCategory.PROVIDER_RATE_LIMITED)) return null
+    if (category !in setOf(FreeFailureCategory.LOCAL_COOLDOWN_ACTIVE, FreeFailureCategory.LOCAL_ALLOWANCE_EXHAUSTED, FreeFailureCategory.PROVIDER_RATE_LIMITED)) return null
     val identity = freeCredentialIdentity(provider, config.token)
     val retryAt = (error as? FreeAiRateLimitException)?.retryAt
         ?: runCatching { FreeAiRequestLimiter.shared.cooldownUntilMillis(provider, model, identity) }.getOrNull()
         ?: return null
     val cooldown = config.freeDiagnostics?.cooldown
-    val localRejection = error is FreeAiRateLimitException || category == FreeFailureCategory.LOCAL_COOLDOWN_ACTIVE
+    val localRejection = error is FreeAiRateLimitException && error.localBlock || category in setOf(FreeFailureCategory.LOCAL_COOLDOWN_ACTIVE, FreeFailureCategory.LOCAL_ALLOWANCE_EXHAUSTED)
     val rejectedHttp = cooldown?.status == 429 || provider == FreeAiProvider.POLLINATIONS && cooldown?.status == 402
     return ProviderLimitDecision(
         provider.name,

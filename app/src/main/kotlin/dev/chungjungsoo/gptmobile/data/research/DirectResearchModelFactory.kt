@@ -72,6 +72,7 @@ internal object DirectResearchModelFactory {
                 dev.chungjungsoo.gptmobile.data.network.FreeProviderPreflight.check(current, target.model)?.let { blocked ->
                     return when (blocked.category) {
                         dev.chungjungsoo.gptmobile.data.network.FreeFailureCategory.LOCAL_COOLDOWN_ACTIVE,
+                        dev.chungjungsoo.gptmobile.data.network.FreeFailureCategory.LOCAL_ALLOWANCE_EXHAUSTED,
                         dev.chungjungsoo.gptmobile.data.network.FreeFailureCategory.PROVIDER_RATE_LIMITED -> ResearchAdmission.PROVIDER_COOLDOWN
                         else -> ResearchAdmission.PROVIDER_UNAVAILABLE
                     }

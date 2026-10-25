@@ -96,7 +96,7 @@ class CombinedSourcePreservationTest {
         assertEquals(1, CombinedSourcePreservation.assemble("The treatment improves symptoms.", listOf(qualified)).fragments)
     }
 
-    @Test fun sourcePreservingFinalIsStagedAndFailedWriterKeepsEverySourceBlock() = runTest {
+    @Test fun sourceAccountingIsAtomicAndNeverPromotesAFailedWriterByCopyingSources() = runTest {
         val source = CombinedModelResponse("a", "A", content = "The estimate is 42 ± 3.\n\nA qualification applies only in winter.")
         var displayed = false
         val base = object : AgentProviderSession {
@@ -111,18 +111,28 @@ class CombinedSourcePreservationTest {
         val events = mutableListOf<ProviderEvent>()
         session.streamRound(emptyList(), emptyList()).collect {
             events += it
-            if (it is ProviderEvent.TextDelta) displayed = true
+            if (it is ProviderEvent.TextDelta || it is ProviderEvent.CombinedAnswer) displayed = true
         }
-        val text = events.filterIsInstance<ProviderEvent.TextDelta>().single().text
-        val report = events.filterIsInstance<ProviderEvent.CombinedQuality>().last().report
-        assertTrue(text.startsWith("An overview."))
+        val final = events.filterIsInstance<ProviderEvent.CombinedAnswer>().single()
+        val text = final.text
+        val report = final.report
+        assertTrue(events.none { it is ProviderEvent.TextDelta })
+        assertEquals("An overview.", text)
         assertEquals(2, report.sourceDispositions.size)
         report.sourceDispositions.forEach { d ->
-            assertEquals(source.content.substring(d.sourceStart, d.sourceEnd), text.substring(d.finalStart, d.finalEnd))
+            assertTrue(source.content.substring(d.sourceStart, d.sourceEnd).isNotBlank())
+            assertEquals("UNRESOLVED_LINK", d.disposition)
+            assertEquals(d.finalStart, d.finalEnd)
         }
+        assertEquals(dev.chungjungsoo.gptmobile.data.research.researchHash(text), report.answerDigest)
+        assertEquals(report.answerDigest, report.writerAnswerDigest)
+        assertEquals(text.length, report.displayedCharacters)
+        assertEquals(0, report.locallyAddedCharacters)
+        assertEquals(0, report.retainedFragments)
+        assertFalse(report.complete)
         assertFalse(report.protocolComplete)
         assertEquals("UNVERIFIED", report.verificationStatus)
-        assertEquals(ProviderEvent.Completed, events.last())
+        assertTrue(events.last() is ProviderEvent.Failed)
     }
 
     @Test fun retainedBlocksPreserveIndentedCodeAndMarkdownHardBreaks() {

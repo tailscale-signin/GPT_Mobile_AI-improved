@@ -8,6 +8,25 @@ import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class StructuredDiagnosticExportTest {
+    @Test fun nestedProviderRecordRemainsAnObjectWhenMessageContainsFieldSyntax() {
+        val payload = """{"status":429,"message":"Quota code=DAILY · retryAt=tomorrow, quoted \\\"value=inside\\\"","resetHeaders":{"x-reset":"123"}}"""
+        val result = Json.parseToJsonElement(structuredDiagnosticLine("2026-10-24T12:00:00Z W/Provider: PROVIDER_FAILED · provider=LLM7 · record=$payload · durationMs=15")).jsonObject
+        val fields = result.getValue("fields").jsonObject
+        assertEquals(Json.parseToJsonElement(payload), fields.getValue("record"))
+        assertEquals("15", fields.getValue("durationMs").jsonPrimitive.content)
+        assertFalse(fields.containsKey("code"))
+        assertFalse(fields.containsKey("retryAt"))
+    }
+
+    @Test fun arraysRemainStructuredAndTruncatedFieldCountsAreExplicit() {
+        val result = Json.parseToJsonElement(structuredDiagnosticLine("2026-10-24T12:00:00Z I/Checks: CHECKED · issues=[\"code=FIRST\",\"code=SECOND\"] · count=2")).jsonObject
+        assertEquals(Json.parseToJsonElement("[\"code=FIRST\",\"code=SECOND\"]"), result.getValue("fields").jsonObject.getValue("issues"))
+        val many = (1..70).joinToString(" · ") { "field$it=$it" }
+        val fields = Json.parseToJsonElement(structuredDiagnosticLine("2026-10-24T12:00:00Z I/Checks: $many")).jsonObject.getValue("fields").jsonObject
+        assertEquals("64", fields.getValue("field64").jsonPrimitive.content)
+        assertEquals("6", fields.getValue("_fieldCountOmitted").jsonPrimitive.content)
+    }
+
     @Test fun recorderPrefixDoesNotContaminateProcessIdOrEventClassification() {
         val record = Json.parseToJsonElement(structuredDiagnosticLine("2026-10-21T12:00:00Z I/MCP: eventId=abc-123 monoNs=900 bootMs=800 processId=7654 DISCOVERY_NEGOTIATION · outcome=legacy_fallback")).jsonObject
         assertEquals("7654", record.getValue("fields").jsonObject.getValue("processId").jsonPrimitive.content)

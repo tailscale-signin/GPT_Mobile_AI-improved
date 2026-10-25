@@ -15,6 +15,10 @@ enum class CombinedBudgetPool { BASELINE, FINALIZATION, OPTIONAL }
 @Serializable
 enum class CombinedReservationStatus { RESERVED, SETTLED, UNKNOWN, RELEASED }
 
+/** Recovery permissions are independent of whether an answer contains usable text. */
+@Serializable
+enum class CombinedBudgetRecoveryAction { NONE, RETRY_BEFORE_DISPATCH, RETRY_WITHIN_BUDGET, RESUME_COMMITTED_RECORDS, NEW_REVISION_REQUIRED }
+
 @Serializable
 data class CombinedUsage(
     val resources: CombinedResourceQuota,
@@ -105,7 +109,9 @@ data class CombinedBudgetSnapshot(
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
     val finalizationWriterUid: String? = null,
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
-    val finalizationWriterPlanId: String? = null
+    val finalizationWriterPlanId: String? = null,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val recoveryAction: CombinedBudgetRecoveryAction = CombinedBudgetRecoveryAction.NONE
 ) {
     val charged: CombinedResourceQuota get() = reservations.values.fold(CombinedResourceQuota()) { sum, item -> sum + item.charged }
     val unknownAttemptIds: Set<String> get() = reservations.values.filter { it.status in setOf(CombinedReservationStatus.RESERVED, CombinedReservationStatus.UNKNOWN) }.mapTo(linkedSetOf()) { it.attemptId }
@@ -121,8 +127,30 @@ data class CombinedBudgetSnapshot(
                 else -> recorded.substringBefore(':')
             }
         }.groupingBy { it }.eachCount()
+        val finalOutcome = stageOutcomes["finalization"]?.substringBefore(':')
+        val previousDispatch = reservations.values.any { it.role.finalization && it.resources.inputTokens > 0 && it.status != CombinedReservationStatus.RELEASED }
+        val canResume = plan.requested.appendContinuations &&
+            finalizationWriterUid != null &&
+            !finalizationWriterPlanId.isNullOrBlank() &&
+            reservations.values.none { it.role.finalization && it.status == CombinedReservationStatus.RESERVED } &&
+            pendingWork.values.any { it.role == CombinedRunRole.CONTINUATION && it.required && it.id !in terminal }
+        val action = when {
+            closed || cancelled || finalOutcome in setOf("COMPLETED", "CANCELLED", "BUDGET_BLOCKED") -> CombinedBudgetRecoveryAction.NONE
+            finalOutcome == null && !retryEligible -> CombinedBudgetRecoveryAction.NONE
+            !plan.requested.singlePass -> CombinedBudgetRecoveryAction.RETRY_WITHIN_BUDGET
+            !previousDispatch -> CombinedBudgetRecoveryAction.RETRY_BEFORE_DISPATCH
+            canResume -> CombinedBudgetRecoveryAction.RESUME_COMMITTED_RECORDS
+            else -> CombinedBudgetRecoveryAction.NEW_REVISION_REQUIRED
+        }
         return copy(
             resourceWaits = resourceWaits - terminal,
+            recoveryAction = action,
+            retryEligible = action in setOf(CombinedBudgetRecoveryAction.RETRY_BEFORE_DISPATCH, CombinedBudgetRecoveryAction.RETRY_WITHIN_BUDGET, CombinedBudgetRecoveryAction.RESUME_COMMITTED_RECORDS),
+            deliveryStatus = when (action) {
+                CombinedBudgetRecoveryAction.NEW_REVISION_REQUIRED -> "NEW_REVISION_REQUIRED"
+                CombinedBudgetRecoveryAction.RESUME_COMMITTED_RECORDS -> "RECORD_RESUME_AVAILABLE"
+                else -> deliveryStatus
+            },
             workAccounting = CombinedWorkAccounting(
                 terminal.size, statuses["COMPLETED"] ?: 0, statuses["FAILED"] ?: 0,
                 statuses["PARTIAL"] ?: 0, statuses["SKIPPED"] ?: 0, statuses["CANCELLED"] ?: 0,
@@ -309,7 +337,10 @@ class CombinedTurnBudget(
         commit(
             next.copy(
                 reservations = next.reservations + (attemptId to reservation),
-                finalizationWriterUid = if (context.requested.appendContinuations && context.role == CombinedRunRole.SYNTHESIS) context.profileUid else next.finalizationWriterUid
+                finalizationWriterUid = if (context.requested.appendContinuations && context.role == CombinedRunRole.SYNTHESIS) context.profileUid else next.finalizationWriterUid,
+                stageOutcomes = if (context.role.finalization) next.stageOutcomes - "finalization" else next.stageOutcomes,
+                deliveryStatus = if (context.role.finalization) "WRITING" else next.deliveryStatus,
+                retryEligible = if (context.role.finalization) false else next.retryEligible
             )
         )
         CombinedBudgetAdmission.Granted(reservation)
@@ -425,8 +456,9 @@ class CombinedTurnBudget(
         require(outcome in TERMINAL_OUTCOMES)
         val recorded = if (reason.isNullOrBlank()) outcome else "$outcome:${reason.take(300)}"
         if (state.stageOutcomes[ownerKey] == recorded) return@withLock
-        // A failed/partial merge can be explicitly retried within its accepted budget. Keep its
-        // unused final reserve protected until delivery or a closed/cancelled root ends the task.
+        // Preserve the remaining reserve for authorized record recovery or a legacy
+        // repair. withWorkAccounting derives retry permissions from actual admission;
+        // a dispatched single-pass writer requires a newly accepted revision.
         val release = ownerKey != "finalization" || outcome in setOf("COMPLETED", "CANCELLED", "BUDGET_BLOCKED")
         val stageItems = state.pendingWork.filterValues { it.kind == CombinedWorkKind.STAGE && it.assignedOwnerKey == ownerKey }.keys + ownerKey
         commit(

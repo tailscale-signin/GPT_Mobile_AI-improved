@@ -1,6 +1,8 @@
 package dev.chungjungsoo.gptmobile.data.diagnostics
 
 import java.time.Instant
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
@@ -89,19 +91,50 @@ internal fun structuredDiagnosticLine(
 }
 
 private fun diagnosticFields(message: String): JsonObject {
-    val fields = fieldPattern.findAll(message).take(64).toList()
+    // Embedded JSON can contain prose such as "error code=429". Only recognize
+    // field separators outside JSON objects, arrays and quoted strings.
+    val topLevel = BooleanArray(message.length)
+    var depth = 0
+    var quoted = false
+    var escaped = false
+    message.forEachIndexed { index, character ->
+        topLevel[index] = depth == 0 && !quoted
+        if (quoted) {
+            if (escaped) {
+                escaped = false
+            } else if (character == '\\') {
+                escaped = true
+            } else if (character == '"') {
+                quoted = false
+            }
+        } else {
+            when (character) {
+                '"' -> quoted = true
+                '{', '[' -> depth++
+                '}', ']' -> depth = (depth - 1).coerceAtLeast(0)
+            }
+        }
+    }
+    val fields = fieldPattern.findAll(message).filter { topLevel[it.groups[1]!!.range.first] }.toList()
     return buildJsonObject {
-        fields.forEachIndexed { index, field ->
+        fields.take(64).forEachIndexed { index, field ->
             val key = field.groupValues[1]
             val end = fields.getOrNull(index + 1)?.range?.first ?: message.length
             val formattedValue = message.substring(field.range.last + 1, end).trim().trimEnd('·').trim()
             val value = if (key in setOf("eventId", "parentEventId", "monoNs", "bootMs", "processId", "processName")) formattedValue.takeWhile { !it.isWhitespace() && it != '·' } else formattedValue
+            val nested = if (value.startsWith('{') || value.startsWith('[')) runCatching { Json.parseToJsonElement(value) }.getOrNull() else null
             when {
+                nested is JsonObject || nested is JsonArray -> put(key, nested)
                 value == "true" || value == "false" -> put(key, value.toBooleanStrict())
                 value == "null" -> put(key, null as String?)
                 (key == "processId" || !key.endsWith("Id", ignoreCase = true)) && value.toLongOrNull() != null -> put(key, value.toLong())
                 else -> put(key, JsonPrimitive(value))
             }
+        }
+        if (fields.size > 64) {
+            put("_fieldCountTotal", fields.size)
+            put("_fieldCountRetained", 64)
+            put("_fieldCountOmitted", fields.size - 64)
         }
     }
 }

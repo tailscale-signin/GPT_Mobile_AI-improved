@@ -13,6 +13,18 @@ import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class CombinedResponseStateTest {
+    @Test fun pendingRemoteJobIsPausedAndOffersStatusWithoutDuplicateRetry() {
+        val message = response("lead", "", "waiting")
+        val waiting = run("waiting", AgentRunStatus.WAITING_REMOTE_JOB).copy(terminalError = "QUEUE_JOB_PENDING: Job receipt saved")
+        val runs = mapOf(waiting.runId to waiting)
+        assertEquals(CombinedResponseStatus.PAUSED, combinedResponseStatus(message, waiting))
+        val decision = combinedProfileFailures(1, "Question", listOf(message), runs, emptyMap(), emptyMap()).single()
+        assertEquals("QUEUED_JOB", decision.category)
+        assertEquals("Waiting for remote job", decision.shortStatus(0))
+        assertFalse(decision.retryAllowed)
+        assertEquals(listOf(ChatViewModel.LoadingState.Idle), loadingStatesForLatestAssistant(1, listOf(message), runs, setOf(waiting.runId)))
+    }
+
     @Test fun selectedHistoricalAnswerUsesItsOwnOutcomeWhileLatestAttemptFailsRunsOrWaits() {
         val synthesis = response("lead", "New unfinished answer", "combined-synthesis:new").copy(
             activeRevisionIndex = 0,

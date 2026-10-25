@@ -170,6 +170,13 @@ interface ChatRepository {
     suspend fun finishInterruptedAgentRun(runId: String, status: String, completedAt: Long, terminalError: String?): Boolean = false
     suspend fun commitAgentRun(message: MessageV2, runId: String, status: String, completedAt: Long, terminalError: String?): Boolean
     suspend fun updateAgentMessage(message: MessageV2)
+
+    /** A final Combined body and report must be durable before the reducer publishes them. */
+    suspend fun checkpointCombinedAnswer(message: MessageV2): Boolean {
+        updateAgentMessage(message)
+        return true
+    }
+    suspend fun waitingRemoteAgentRuns(): List<AgentRun> = emptyList()
     suspend fun interruptActiveAgentRuns(completedAt: Long): Int
     suspend fun bindGatewayJob(runId: String, jobId: String, baseUrl: String): Boolean
     suspend fun advanceGatewaySequence(runId: String, sequence: Int): Boolean

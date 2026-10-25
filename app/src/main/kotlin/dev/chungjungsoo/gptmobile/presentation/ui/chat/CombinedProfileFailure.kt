@@ -22,10 +22,27 @@ data class CombinedProfileFailure(
 
 internal fun CombinedProfileFailure.shortStatus(now: Long): String = when {
     retrying -> "Retrying…"
+    category == "QUEUED_JOB" -> "Waiting for remote job"
+    category == "CACHED_UNUSABLE_RESPONSE" -> "Cached answer unavailable"
+    category == "HOSTED_GENERATION_FAILED" -> "Provider generation failed"
+    category == "PROVIDER_PAYLOAD_ERROR" -> "Invalid provider response"
+    category == "STREAM_DEGRADED" -> "Reply partially recovered"
+    category == "NO_VISIBLE_ANSWER" -> "No answer returned"
+    category == "REASONING_BUDGET_EXHAUSTED" -> "No answer within output allowance"
     category == "SAVED_POLICY_UNAVAILABLE" -> "Saved request unavailable"
     applicationFailure -> "App paused"
     !retryAllowed -> "Not supported"
-    (retryAfterMillis ?: 0) > now -> "Rate limited"
+    (retryAfterMillis ?: 0) > now -> {
+        val remaining = (retryAfterMillis!! - now).coerceAtLeast(1)
+        val seconds = remaining / 1000 + if (remaining % 1000 > 0) 1 else 0
+        val countdown = when {
+            seconds >= 3600 -> "${seconds / 3600}h ${(seconds % 3600) / 60}m"
+            seconds >= 60 -> "${(seconds + 59) / 60}m"
+            else -> "${seconds}s"
+        }
+        "Rate limited · $countdown left"
+    }
+    category == "RATE_LIMIT" && retryAfterMillis != null -> "Retry available"
     category.contains("INCOMPLETE") || category.contains("OUTPUT") || reason.contains("incomplete", true) -> "Reply incomplete"
     else -> "Unavailable"
 }
@@ -55,11 +72,13 @@ internal fun combinedProfileFailures(
     val incompatible = !classified.retryAllowed
     val retryAt = classified.retryAfterMillis
     val reason = when {
+        run.status == AgentRunStatus.WAITING_REMOTE_JOB || classified.category == "QUEUED_JOB" -> "The remote job is still queued or generating. Check its saved status or continue without this profile."
+        classified.category == "CACHED_UNUSABLE_RESPONSE" -> "The provider replayed the same cached generation without an answer. Choose a different model, supported settings or provider."
         savedPolicyUnavailable || classified.category == "SAVED_POLICY_UNAVAILABLE" -> "Saved request data is unavailable. Restore its complete backup or start a new request; other replies are saved."
         appFailure -> "App execution paused. Open the app to resume."
         incompatible -> "This model or configuration is incompatible. Change it before retrying."
         details.contains("Tool choice is none", true) -> "The provider returned a tool call although tools were disabled."
-        details.contains("QUEUE_JOB_PENDING", true) || details.contains("DNS", true) -> "Connection lost. Check any saved queued job before submitting again."
+        details.contains("DNS", true) -> "DNS could not reach the provider. Check the connection before retrying."
         Regex("\\b50[234]\\b").containsMatchIn(details) -> "The provider is temporarily unavailable. Retry this profile."
         details.contains("timeout", true) || details.contains("timed out", true) -> "The provider did not finish in time. Retry this profile."
         retryAt != null -> "Provider rate limit. Retry after ${java.time.Instant.ofEpochMilli(retryAt).atZone(java.time.ZoneId.systemDefault()).format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss z"))}."
@@ -69,5 +88,5 @@ internal fun combinedProfileFailures(
         assessed.usablePartial -> "The answer is incomplete."
         else -> details.take(180)
     }
-    CombinedProfileFailure(userMessageId, uid, names[uid]?.takeIf { it.isNotBlank() } ?: "Saved profile", models[uid] ?: run.modelSnapshot, message.currentRunId, reason, details, !incompatible, appFailure, retryAt, classified.category)
+    CombinedProfileFailure(userMessageId, uid, names[uid]?.takeIf { it.isNotBlank() } ?: "Saved profile", models[uid] ?: run.modelSnapshot, message.currentRunId, reason, details, !incompatible && run.status != AgentRunStatus.WAITING_REMOTE_JOB, appFailure, retryAt, if (run.status == AgentRunStatus.WAITING_REMOTE_JOB) "QUEUED_JOB" else classified.category)
 }

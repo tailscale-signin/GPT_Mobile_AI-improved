@@ -103,6 +103,17 @@ internal fun AssistantChronologicalContent(
     } else {
         timeline
     }
+    val answerIdentity = AssistantRendererIdentity(
+        contentIdentity,
+        outputTrace?.runId,
+        outputTrace?.fence,
+        combinedManifest?.revisionId ?: timeline.lastOrNull { it.combinedQuality != null }?.combinedQuality?.revisionId,
+        when {
+            originalSource != null -> "source:${originalSource.source.platformUid}:${originalSource.source.originalDocument?.payloadId}"
+            combinedManifest != null -> "document:${combinedManifest.id}"
+            else -> "inline"
+        }
+    )
     Column(Modifier.fillMaxWidth().padding(12.dp)) {
         if (showExecutionTrace || isLoading) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -125,13 +136,18 @@ internal fun AssistantChronologicalContent(
                 }
             }
         }
-        if (originalSource != null) {
-            BoundedOriginalAssistantDocument(contentIdentity, originalSource, proseColor, outputTrace, articleCards)
-        } else if (combinedManifest != null) {
-            BoundedAssistantDocument(combinedManifest.id, combinedManifest, loadCombinedBlocks, combinedWording, proseColor, outputTrace, articleCards)
+        key(answerIdentity) {
+            if (originalSource != null) {
+                BoundedOriginalAssistantDocument(answerIdentity, originalSource, proseColor, outputTrace, articleCards)
+            } else if (combinedManifest != null) {
+                BoundedAssistantDocument(answerIdentity, combinedManifest, loadCombinedBlocks, combinedWording, proseColor, outputTrace, articleCards)
+            }
+        }
+        if (combinedManifest == null && originalSource == null && timeline.lastOrNull { it.combinedQuality != null }?.combinedQuality?.status == dev.chungjungsoo.gptmobile.data.agent.CombinedAttributionRecovery.PENDING) {
+            Text("Source attribution is pending. The saved answer is preserved, but its source links could not be reconstructed.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 8.dp))
         }
         items.forEachIndexed { index, item ->
-            key(contentIdentity, index, item.type, item.toolSequence) {
+            key(if (item.type == AssistantTimelineItemType.TEXT) answerIdentity else contentIdentity, index, item.type, item.toolSequence) {
                 when (item.type) {
                     AssistantTimelineItemType.THINKING -> if (expanded && showReasoning) {
                         Text(item.content, Modifier.padding(vertical = 8.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -153,14 +169,14 @@ internal fun AssistantChronologicalContent(
                                 Text(citationText, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(vertical = 8.dp))
                             } else {
                                 if (response.length > dev.chungjungsoo.gptmobile.data.agent.CombinedDocuments.INLINE_CHARACTERS) {
-                                    BoundedInlineAssistantDocument("$contentIdentity:$index", response, combinedWording, proseColor, outputTrace?.copy(partId = "$index"), articleCards)
+                                    BoundedInlineAssistantDocument("$answerIdentity:$index", response, combinedWording, proseColor, outputTrace?.copy(partId = "$index"), articleCards)
                                 } else if (isLoading) {
-                                    ChatMarkdown(wording = combinedWording, outputTrace = outputTrace?.copy(partId = "$index"), proseColor = proseColor, memoryValues = recalledSources.map { it.value }, content = response, contentIdentity = "$contentIdentity:$index", streaming = true, animateStreaming = animateResponse, modifier = Modifier.padding(vertical = 8.dp))
+                                    ChatMarkdown(wording = combinedWording, outputTrace = outputTrace?.copy(partId = "$index"), proseColor = proseColor, memoryValues = recalledSources.map { it.value }, content = response, contentIdentity = "$answerIdentity:$index", streaming = true, animateStreaming = animateResponse, modifier = Modifier.padding(vertical = 8.dp))
                                 } else {
                                     if (!splitForPassageIndicators && !debugSettings.researchFeature.articleCards) {
                                         // Standard and Combined replies without citation cards use
                                         // one Markdown tree: no paragraph splitting or extra work.
-                                        ChatMarkdown(wording = combinedWording, outputTrace = outputTrace?.copy(partId = "$index"), proseColor = proseColor, memoryValues = recalledSources.map { it.value }, content = response, contentIdentity = "$contentIdentity:$index", streaming = false, modifier = Modifier.padding(vertical = 8.dp))
+                                        ChatMarkdown(wording = combinedWording, outputTrace = outputTrace?.copy(partId = "$index"), proseColor = proseColor, memoryValues = recalledSources.map { it.value }, content = response, contentIdentity = "$answerIdentity:$index", streaming = false, modifier = Modifier.padding(vertical = 8.dp))
                                     } else {
                                         val prepared by produceState<PreparedResearchBlocks?>(null, response, splitForPassageIndicators) {
                                             value = withContext(Dispatchers.Default) {
@@ -170,10 +186,10 @@ internal fun AssistantChronologicalContent(
                                         val blocks = prepared?.takeIf { it.response == response && it.splitParagraphs == splitForPassageIndicators }?.blocks
                                         if (blocks == null) {
                                             // Keep prose responsive while preparing citation boundaries.
-                                            ChatMarkdown(wording = combinedWording, outputTrace = outputTrace?.copy(partId = "$index:pending"), proseColor = proseColor, memoryValues = recalledSources.map { it.value }, content = response, contentIdentity = "$contentIdentity:$index:pending", streaming = false, modifier = Modifier.padding(vertical = 8.dp))
+                                            ChatMarkdown(wording = combinedWording, outputTrace = outputTrace?.copy(partId = "$index:pending"), proseColor = proseColor, memoryValues = recalledSources.map { it.value }, content = response, contentIdentity = "$answerIdentity:$index:pending", streaming = false, modifier = Modifier.padding(vertical = 8.dp))
                                         } else {
                                             blocks.forEachIndexed { blockIndex, block ->
-                                                ChatMarkdown(wording = combinedWording, outputTrace = outputTrace?.copy(partId = "$index:$blockIndex"), proseColor = proseColor, memoryValues = recalledSources.map { it.value }, content = block.text, contentIdentity = "$contentIdentity:$index:$blockIndex", streaming = false, modifier = Modifier.padding(vertical = 8.dp))
+                                                ChatMarkdown(wording = combinedWording, outputTrace = outputTrace?.copy(partId = "$index:$blockIndex"), proseColor = proseColor, memoryValues = recalledSources.map { it.value }, content = block.text, contentIdentity = "$answerIdentity:$index:$blockIndex", streaming = false, modifier = Modifier.padding(vertical = 8.dp))
                                                 passageIndicators(block.text)
                                             }
                                         }

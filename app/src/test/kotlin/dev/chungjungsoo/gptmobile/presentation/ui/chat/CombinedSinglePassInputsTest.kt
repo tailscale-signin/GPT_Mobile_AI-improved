@@ -28,7 +28,7 @@ class CombinedSinglePassInputsTest {
         val ctx = CombinedExecutionContext(requested, rootBudgetId = "root")
         val prompt = Json.parseToJsonElement(combinedSynthesisPrompt(requested.userPrompt, sources, combined = ctx)).jsonObject
         assertEquals("FULL_CONTRIBUTIONS_V1", prompt.getValue("input_representation").jsonPrimitive.content)
-        assertEquals("FULL_SPANS_V1", prompt.getValue("source_preservation").jsonPrimitive.content)
+        assertEquals("INTEGRATED_RELEVANT_CLAIMS_V2", prompt.getValue("source_preservation").jsonPrimitive.content)
         val bodies = prompt.getValue("contributions").jsonArray
         assertEquals(6, bodies.size)
         sources.forEachIndexed { index, source ->
@@ -39,6 +39,16 @@ class CombinedSinglePassInputsTest {
             assertTrue(body.getValue("included_in_input").jsonPrimitive.boolean)
         }
         assertTrue(prompt.getValue("answer_outline").jsonArray.isNotEmpty())
+        val claims = prompt.getValue("claim_inventory").jsonArray.map { it.jsonObject }
+        assertTrue(claims.isNotEmpty())
+        claims.forEach { claim ->
+            assertTrue(claim.getValue("text").jsonPrimitive.content.isNotBlank())
+            assertTrue("qualifiers" in claim)
+            assertTrue(claim.getValue("contributors").jsonArray.isNotEmpty())
+            assertTrue(claim.getValue("source_ranges_utf16").jsonArray.isNotEmpty())
+        }
+        assertTrue(prompt.getValue("preservation_instruction").jsonPrimitive.content.contains("one coherent answer"))
+        assertTrue(prompt.getValue("preservation_instruction").jsonPrimitive.content.contains("Explicit user"))
     }
 
     @Test fun legacyPoliciesDoNotSilentlyOptIntoSourceAssembly() {

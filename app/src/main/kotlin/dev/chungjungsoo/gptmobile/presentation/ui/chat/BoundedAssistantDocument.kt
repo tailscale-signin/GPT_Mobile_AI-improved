@@ -155,6 +155,9 @@ private fun DocumentViewport(
             val block = loaded.block
             when {
                 block != null -> {
+                    if (index == 0 && block.attributionStatus == dev.chungjungsoo.gptmobile.data.agent.CombinedAttributionRecovery.PENDING) {
+                        Text("Source attribution is pending. The saved answer is preserved, but its source links could not be reconstructed.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 8.dp))
+                    }
                     val prefix = remember(block) { block.openingFence + block.tableHeader }
                     val display = remember(block) { prefix + block.text + block.closingFence }
                     val presentation = remember(wording, block) {

@@ -22,6 +22,12 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentRunCoordinatorTest {
+    @Test fun pendingRemoteJobRemainsWaitingInsteadOfBecomingAFailedSegment() {
+        val result = dev.chungjungsoo.gptmobile.util.ApiStateFlowOutcome.Failed("Still pending", errorCode = "QUEUE_JOB_PENDING").toTerminalUpdate()
+        assertEquals(AgentRunStatus.WAITING_REMOTE_JOB, result.status)
+        assertEquals("Still pending", result.error)
+    }
+
     @Test fun combinedTerminalErrorIsMetadataAndNeverEntersTheCommittedAnswer() {
         val partial = MessageV2(content = "Saved chapter", platformType = "primary", currentRunId = "combined-synthesis:run")
         val terminal = terminalAgentMessage(partial, "Provider disconnected", 42)

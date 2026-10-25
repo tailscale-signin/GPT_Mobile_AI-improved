@@ -25,11 +25,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
@@ -44,7 +40,7 @@ import dev.chungjungsoo.gptmobile.presentation.common.AppGlassSurface
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDialog
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import dev.chungjungsoo.gptmobile.presentation.common.appOverlayTokens
-import kotlinx.coroutines.delay
+import dev.chungjungsoo.gptmobile.presentation.common.freeProviderClock
 
 /** One turn-level decision. Closing has the same durable acknowledgement as Continue. */
 @Composable
@@ -54,15 +50,10 @@ internal fun CombinedFailuresDialog(
     onRetry: (Int, String) -> Unit,
     onRemove: (String) -> Unit,
     onContinue: () -> Unit,
-    onExclude: (Int, String) -> Unit = { _, _ -> }
+    onExclude: (Int, String) -> Unit = { _, _ -> },
+    onCheckQueuedJob: (String) -> Unit = {}
 ) {
-    var now by remember { mutableStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(failures.map { it.retryAfterMillis }) {
-        failures.mapNotNull { it.retryAfterMillis }.filter { it > now }.distinct().sorted().forEach { deadline ->
-            delay((deadline - System.currentTimeMillis()).coerceAtLeast(0))
-            now = System.currentTimeMillis()
-        }
-    }
+    val now by freeProviderClock()
     val density = LocalDensity.current
     val safeInsets = WindowInsets.safeDrawing
     val safeHeight = LocalConfiguration.current.screenHeightDp.dp - with(density) { (safeInsets.getTop(density) + safeInsets.getBottom(density)).toDp() }
@@ -97,16 +88,17 @@ internal fun CombinedFailuresDialog(
                             Column(Modifier.weight(1f).semantics { liveRegion = LiveRegionMode.Polite }) {
                                 Text(failure.profileName, style = MaterialTheme.typography.titleSmall)
                                 Text(failure.shortStatus(now), style = MaterialTheme.typography.bodySmall)
+                                if (failure.category in setOf("QUEUED_JOB", "CACHED_UNUSABLE_RESPONSE", "STREAM_DEGRADED")) Text(failure.reason, style = MaterialTheme.typography.bodySmall)
                             }
                             IconButton(
-                                onClick = { onRetry(failure.userMessageId, failure.profileUid) },
-                                enabled = failure.retryAllowed && !failure.retrying && (failure.retryAfterMillis ?: 0) <= now,
+                                onClick = { if (failure.category == "QUEUED_JOB") failure.attemptId?.let(onCheckQueuedJob) else onRetry(failure.userMessageId, failure.profileUid) },
+                                enabled = (failure.category == "QUEUED_JOB" && failure.attemptId != null || failure.retryAllowed) && !failure.retrying && (failure.retryAfterMillis ?: 0) <= now,
                                 modifier = Modifier.size(48.dp)
                             ) {
                                 if (failure.retrying) {
                                     CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                                 } else {
-                                    Icon(Icons.Rounded.Refresh, "Retry ${failure.profileName}")
+                                    Icon(Icons.Rounded.Refresh, if (failure.category == "QUEUED_JOB") "Check queued job for ${failure.profileName}" else "Retry ${failure.profileName}")
                                 }
                             }
                             IconButton(
@@ -118,7 +110,7 @@ internal fun CombinedFailuresDialog(
                         TextButton(
                             onClick = { onExclude(failure.userMessageId, failure.profileUid) },
                             enabled = !failure.retrying && !failure.applicationFailure
-                        ) { Text("Exclude ${failure.profileName} from this turn") }
+                        ) { Text(if (failure.category == "QUEUED_JOB") "Continue without ${failure.profileName}" else "Exclude ${failure.profileName} from this turn") }
                     }
                 }
                 Button(onClick = onContinue, modifier = Modifier.fillMaxWidth()) { Text("Continue") }

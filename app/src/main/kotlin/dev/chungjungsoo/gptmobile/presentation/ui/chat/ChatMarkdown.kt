@@ -23,7 +23,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -38,9 +40,9 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.layout
@@ -153,6 +155,8 @@ fun ChatMarkdown(
     val isDarkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val clipboardContext = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
+    val interactionOwner = remember(contentIdentity) { MarkdownInteractionOwner() }
+    DisposableEffect(interactionOwner) { onDispose { interactionOwner.dispose() } }
     val displayMathNonce = remember(contentIdentity) { UUID.randomUUID().toString().replace("-", "") }
     var attributionSelection by remember(contentIdentity) { mutableStateOf<Pair<String, Set<String>>?>(null) }
     attributionSelection?.let { (passage, owners) ->
@@ -229,6 +233,9 @@ fun ChatMarkdown(
     val parsed = rendered.parsed
     val firstDrawn = remember(outputTrace?.runId, outputTrace?.fence) { java.util.concurrent.atomic.AtomicBoolean() }
     val combinedMarkdown = rendered.markdown
+    val renderedDigest = rendered.contentDigest
+    val profileIndex = rendered.profileIndex
+    SideEffect { interactionOwner.update(renderedDigest) }
     val memoryRanges = rendered.memoryRanges
     val inlineMathByPlaceholder = remember(parsed.inlineMath) {
         parsed.inlineMath.associateBy { it.placeholder }
@@ -245,26 +252,32 @@ fun ChatMarkdown(
     // One timestamp per arriving chunk, rather than one boxed Long per character.
     val arrivalSegments = remember(contentIdentity) { mutableStateListOf<Pair<Int, Long>>() }
     var arrivalLength by remember(contentIdentity) { mutableIntStateOf(0) }
-    var hasStreamed by remember(contentIdentity) { mutableStateOf(streaming && animateStreaming) }
-    var fadeClock by remember(contentIdentity) { mutableLongStateOf(android.os.SystemClock.uptimeMillis()) }
+    val hasStreamed = remember(contentIdentity) { mutableStateOf(streaming && animateStreaming) }
+    val fadeClock = remember(contentIdentity) { mutableLongStateOf(android.os.SystemClock.uptimeMillis()) }
     LaunchedEffect(combinedMarkdown.length, streaming, animateStreaming) {
-        if (streaming && animateStreaming) hasStreamed = true
+        if (streaming && animateStreaming) hasStreamed.value = true
         val now = android.os.SystemClock.uptimeMillis()
         if (combinedMarkdown.length < arrivalLength) {
             arrivalSegments.clear()
             arrivalLength = 0
         }
         if (combinedMarkdown.length > arrivalLength) {
-            if (hasStreamed) arrivalSegments.add(arrivalLength to now)
+            if (hasStreamed.value) arrivalSegments.add(arrivalLength to now)
             arrivalLength = combinedMarkdown.length
         }
-        while (hasStreamed && arrivalSegments.lastOrNull()?.let { fadeClock - it.second < STREAM_FADE_DURATION_MS } == true) {
-            fadeClock = android.os.SystemClock.uptimeMillis()
-            // Settled text is fully opaque and needs no per-frame history scan.
-            while (arrivalSegments.size > 1 && fadeClock - arrivalSegments[1].second >= STREAM_FADE_DURATION_MS) {
-                arrivalSegments.removeAt(0)
+        val animating = hasStreamed.value && arrivalSegments.lastOrNull()?.let { now - it.second < STREAM_FADE_DURATION_MS } == true
+        val releaseEffect = if (animating) dev.chungjungsoo.gptmobile.data.diagnostics.RenderingEffectDiagnostics.enter(dev.chungjungsoo.gptmobile.data.diagnostics.RenderingEffectDiagnostics.Effect.STREAMING_FADE) else null
+        try {
+            while (hasStreamed.value && arrivalSegments.lastOrNull()?.let { fadeClock.longValue - it.second < STREAM_FADE_DURATION_MS } == true) {
+                fadeClock.longValue = android.os.SystemClock.uptimeMillis()
+                // Settled text is fully opaque and needs no per-frame history scan.
+                while (arrivalSegments.size > 1 && fadeClock.longValue - arrivalSegments[1].second >= STREAM_FADE_DURATION_MS) {
+                    arrivalSegments.removeAt(0)
+                }
+                delay(STREAM_FADE_TICK_MS)
             }
-            delay(STREAM_FADE_TICK_MS)
+        } finally {
+            releaseEffect?.invoke()
         }
     }
     val targetYellow = SuggestionHighlightManager.HIGHLIGHT_YELLOW
@@ -273,7 +286,7 @@ fun ChatMarkdown(
     val sourceLinkRanges = remember(combinedMarkdown) {
         Regex("""\[[^\]\n]*]\([^)\n]+\)|https?://[^\s<>]+""").findAll(combinedMarkdown).map { it.range }.toList()
     }
-    val annotator = remember(sourceLinkRanges, memoryRanges, rendered.profileIndex, provenance, wording, proseColor, inlineMathByPlaceholder, highlightSentence, highlightProgress, normalTextColor, hasStreamed, fadeClock, arrivalSegments.size) {
+    val annotator = remember(sourceLinkRanges, memoryRanges, rendered.profileIndex, provenance, wording, proseColor, inlineMathByPlaceholder, highlightSentence, highlightProgress, normalTextColor, interactionOwner, renderedDigest) {
         markdownAnnotator { source, child ->
             val text = source.substring(child.startOffset, child.endOffset)
             val hasMath = containsInlineMathPlaceholder(text)
@@ -284,7 +297,7 @@ fun ChatMarkdown(
             val streamVisibleText = streamVisibleMarkdownTokenText(child.type, text)
 
             val memorySpans = memoryRanges.filter { it.first < child.endOffset && it.last >= child.startOffset }
-            val profileSpans = rendered.profileIndex.overlapping(child.startOffset, child.endOffset)
+            val profileSpans = profileIndex.overlapping(child.startOffset, child.endOffset)
             if (!hasSentenceHighlight && streamVisibleText != null && (proseColor != null || profileSpans.isNotEmpty())) {
                 appendTextWithInlineMath(this, streamVisibleText, inlineMathByPlaceholder) { from, to, outputStart ->
                     val startOffset = child.startOffset + from
@@ -302,7 +315,7 @@ fun ChatMarkdown(
                             if (wording != null && sourceLinkRanges.none { it.first < child.endOffset && it.last >= child.startOffset }) {
                                 addLink(
                                     androidx.compose.ui.text.LinkAnnotation.Clickable("combined:${span.start}:${span.end}") {
-                                        attributionSelection = combinedMarkdown.substring(span.start, span.end) to span.profileUids
+                                        if (interactionOwner.accepts(renderedDigest)) attributionSelection = combinedMarkdown.substring(span.start, span.end) to span.profileUids
                                     },
                                     from,
                                     to
@@ -314,31 +327,18 @@ fun ChatMarkdown(
                 true
             } else if (!hasMath && streamVisibleText != null && memorySpans.isNotEmpty()) {
                 val start = length
-                if (hasStreamed) {
-                    appendStreamFadedText(streamVisibleText, child.startOffset, arrivalSegments, fadeClock, normalTextColor)
-                } else {
-                    append(streamVisibleText)
-                }
+                append(streamVisibleText)
                 memorySpans.forEach { range ->
                     val from = maxOf(range.first, child.startOffset)
                     val to = minOf(range.last + 1, child.endOffset)
                     if (to > from) {
                         addStyle(
-                            SpanStyle(color = DebugMemoryPink.copy(alpha = if (hasStreamed) streamAlphaAtOffset(from, arrivalSegments, fadeClock) else 1f)),
+                            SpanStyle(color = DebugMemoryPink),
                             start + (from - child.startOffset).coerceAtMost(streamVisibleText.length),
                             start + (to - child.startOffset).coerceAtMost(streamVisibleText.length)
                         )
                     }
                 }
-                true
-            } else if (!hasMath && !hasSentenceHighlight && hasStreamed && streamVisibleText != null) {
-                appendStreamFadedText(
-                    text = streamVisibleText,
-                    sourceStartOffset = child.startOffset,
-                    arrivalSegments = arrivalSegments,
-                    nowMs = fadeClock,
-                    color = normalTextColor
-                )
                 true
             } else if (!hasMath && !hasSentenceHighlight) {
                 false
@@ -394,10 +394,12 @@ fun ChatMarkdown(
             }
         }
     }
-    val copyCodeToClipboard: (String) -> Unit = remember(clipboardContext, scope) {
+    val copyCodeToClipboard: (String) -> Unit = remember(clipboardContext, scope, interactionOwner) {
         { code ->
-            scope.launch {
-                dev.chungjungsoo.gptmobile.util.SafeClipboard.copy(clipboardContext, code, CLIPBOARD_LABEL_CODE)
+            if (interactionOwner.active) {
+                scope.launch {
+                    dev.chungjungsoo.gptmobile.util.SafeClipboard.copy(clipboardContext, code, CLIPBOARD_LABEL_CODE)
+                }
             }
         }
     }
@@ -408,10 +410,18 @@ fun ChatMarkdown(
         annotator,
         hasStreamed,
         fadeClock,
-        arrivalSegments.size
+        arrivalSegments,
+        profileIndex,
+        wording,
+        combinedMarkdown,
+        interactionOwner,
+        renderedDigest
     ) {
-        fun structureAlpha(offset: Int): Float =
-            if (hasStreamed) streamAlphaAtOffset(offset, arrivalSegments, fadeClock) else 1f
+        // Read the animation clock only in the graphics layer. A fade tick must not
+        // rebuild annotations, reparse Markdown, or measure settled paragraphs.
+        fun Modifier.streamFade(startOffset: Int): Modifier = graphicsLayer {
+            alpha = if (hasStreamed.value) streamAlphaAtOffset(startOffset, arrivalSegments, fadeClock.longValue) else 1f
+        }
 
         markdownComponents(
             table = { model ->
@@ -423,7 +433,7 @@ fun ChatMarkdown(
                     LocalUriHandler.current,
                     null
                 )
-                Column(modifier = Modifier.alpha(structureAlpha(model.node.startOffset))) {
+                Column(modifier = Modifier.streamFade(model.node.startOffset)) {
                     MarkdownTable(
                         content = model.content,
                         node = model.node,
@@ -452,11 +462,11 @@ fun ChatMarkdown(
                             )
                         }
                     )
-                    CombinedSharedSourceMarkers(combinedMarkdown, rendered.profileIndex.overlapping(model.node.startOffset, model.node.endOffset), wording) { passage, owners -> attributionSelection = passage to owners }
+                    CombinedSharedSourceMarkers(combinedMarkdown, profileIndex.overlapping(model.node.startOffset, model.node.endOffset), wording) { passage, owners -> if (interactionOwner.accepts(renderedDigest)) attributionSelection = passage to owners }
                 }
             },
             codeBlock = {
-                Box(modifier = Modifier.alpha(structureAlpha(it.node.startOffset))) {
+                Box(modifier = Modifier.streamFade(it.node.startOffset)) {
                     MarkdownCodeBlock(it.content, it.node, it.typography.code) { code, language, style ->
                         val cleanLang = language?.trim()?.lowercase()
                         val isHtmlOrSvg = cleanLang == "html" || cleanLang == "htm" || cleanLang == "svg"
@@ -484,7 +494,7 @@ fun ChatMarkdown(
                 }
             },
             codeFence = {
-                Box(modifier = Modifier.alpha(structureAlpha(it.node.startOffset))) {
+                Box(modifier = Modifier.streamFade(it.node.startOffset)) {
                     MarkdownCodeFence(it.content, it.node, it.typography.code) { code, language, style ->
                         val cleanLang = language?.trim()?.lowercase()
                         val isHtmlOrSvg = cleanLang == "html" || cleanLang == "htm" || cleanLang == "svg"
@@ -522,7 +532,7 @@ fun ChatMarkdown(
                         modifier = Modifier
                             .fillMaxWidth()
                             .wrapContentHeight()
-                            .alpha(structureAlpha(model.node.startOffset))
+                            .streamFade(model.node.startOffset)
                     ) {
                         displayMathBlocks.forEach { displayMath ->
                             DisplayMathView(
@@ -534,9 +544,9 @@ fun ChatMarkdown(
                         }
                     }
                 } else {
-                    Column {
+                    Column(Modifier.streamFade(model.node.startOffset)) {
                         DefaultParagraph(model.content, model.node, model.typography.paragraph, annotator)
-                        CombinedSharedSourceMarkers(combinedMarkdown, rendered.profileIndex.overlapping(model.node.startOffset, model.node.endOffset), wording) { passage, owners -> attributionSelection = passage to owners }
+                        CombinedSharedSourceMarkers(combinedMarkdown, profileIndex.overlapping(model.node.startOffset, model.node.endOffset), wording) { passage, owners -> if (interactionOwner.accepts(renderedDigest)) attributionSelection = passage to owners }
                     }
                 }
             }
@@ -544,9 +554,10 @@ fun ChatMarkdown(
     }
     val context = androidx.compose.ui.platform.LocalContext.current
     val externalHandler = LocalUriHandler.current
-    val sourceHandler = remember(context, externalHandler) {
+    val sourceHandler = remember(context, externalHandler, interactionOwner) {
         object : androidx.compose.ui.platform.UriHandler {
             override fun openUri(uri: String) {
+                if (!interactionOwner.active) return
                 val parsedUri = android.net.Uri.parse(uri)
                 if (parsedUri.scheme == "gptmobile" && parsedUri.host == "knowledge") {
                     context.startActivity(android.content.Intent(context, dev.chungjungsoo.gptmobile.presentation.ui.setting.KnowledgeSourceActivity::class.java).setData(parsedUri))
@@ -592,7 +603,7 @@ fun ChatMarkdown(
                         }
                     }.drawWithContent {
                         drawContent()
-                        if (!awaitingContent && parserState is MarkdownParseState.Success && combinedMarkdown.isNotBlank()) {
+                        if (interactionOwner.accepts(renderedDigest) && !awaitingContent && parserState is MarkdownParseState.Success && combinedMarkdown.isNotBlank()) {
                             onContentDrawn?.invoke()
                             if (outputTrace != null && firstDrawn.compareAndSet(false, true)) dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(outputTrace.runId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.FIRST_VISIBLE_TEXT, fence = outputTrace.fence)
                         }
@@ -618,35 +629,6 @@ internal fun streamVisibleMarkdownTokenText(
     MarkdownTokenTypes.EXCLAMATION_MARK -> "!"
     MarkdownTokenTypes.BACKTICK -> "`"
     else -> null
-}
-
-private fun AnnotatedString.Builder.appendStreamFadedText(
-    text: String,
-    sourceStartOffset: Int,
-    arrivalSegments: List<Pair<Int, Long>>,
-    nowMs: Long,
-    color: Color
-) {
-    val outputStart = length
-    append(text)
-    if (text.isEmpty() || arrivalSegments.isEmpty()) return
-
-    val sourceEndOffset = sourceStartOffset + text.length
-    arrivalSegments.forEachIndexed { index, (segmentOffset, arrivedAt) ->
-        val nextOffset = arrivalSegments.getOrNull(index + 1)?.first ?: Int.MAX_VALUE
-        val overlapStart = maxOf(sourceStartOffset, segmentOffset)
-        val overlapEnd = minOf(sourceEndOffset, nextOffset)
-        if (overlapStart >= overlapEnd) return@forEachIndexed
-
-        val alpha = streamAlpha(arrivedAt, nowMs)
-        if (alpha >= 0.999f) return@forEachIndexed
-
-        addStyle(
-            SpanStyle(color = color.copy(alpha = alpha)),
-            outputStart + (overlapStart - sourceStartOffset),
-            outputStart + (overlapEnd - sourceStartOffset)
-        )
-    }
 }
 
 private fun streamAlphaAtOffset(

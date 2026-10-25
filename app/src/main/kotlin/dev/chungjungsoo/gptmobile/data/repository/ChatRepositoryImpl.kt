@@ -59,6 +59,7 @@ import dev.chungjungsoo.gptmobile.data.chat.decodedArchiveText
 import dev.chungjungsoo.gptmobile.data.context.ContextBuilder
 import dev.chungjungsoo.gptmobile.data.context.ConversationTurn
 import dev.chungjungsoo.gptmobile.data.context.ProviderContextPolicy
+import dev.chungjungsoo.gptmobile.data.context.withCombinedOutcome
 import dev.chungjungsoo.gptmobile.data.context.withRequestAuthorization
 import dev.chungjungsoo.gptmobile.data.conversation.ConversationTitleSummarizer
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao
@@ -653,6 +654,7 @@ class ChatRepositoryImpl(
         }
         val defaultBudget = dev.chungjungsoo.gptmobile.data.benchmark.benchmarkCompletionBudget(platform, benchmarkCategory)
         val outputBudget = if (requested.executionPolicy == BenchmarkExecutionPolicy.PROFILE_SETTINGS_V1) platform.maxTokens else defaultBudget
+        dev.chungjungsoo.gptmobile.data.benchmark.requireBenchmarkOutputContract(platform, benchmarkCategory, outputBudget)
         val target = dev.chungjungsoo.gptmobile.data.benchmark.benchmarkProfile(platform, tools.isNotEmpty(), benchmarkCategory, requested.executionPolicy)
         val local = target.compatibleType == ClientType.LITERT_LM
         val mode = dev.chungjungsoo.gptmobile.data.localruntime.LocalStructuredOutputMode.valueOf(requested.structuredOutputMode.name)
@@ -4131,6 +4133,7 @@ class ChatRepositoryImpl(
                 openPrimarySession(plan.turns, kind, textOnly = true, combinedOverride = execution, extraInstruction = if (!appendAccepted && recovery.startsWith("WRITER_RECOVERY_DIRECT:")) "Produce the next complete answer passage now. Keep analysis minimal; the task outline and evidence are already prepared. Do not emit planning or duplicate decisions." else "")
             }
         }
+        var continuationTrigger = dev.chungjungsoo.gptmobile.data.agent.ContinuationTrigger.RESTORED_DRAFT
         val continuedSession = if (frozenResume?.deliveryProtocol == "PASSAGES_V3") {
             recordRecovery(firstSession, frozenResume, frozenResume.liveRevisionId(runId), true, { multipassFinalTurns.get() ?: contextPlan.turns }, "structured_output_continuation", chatToolConfig?.combined)
         } else {
@@ -4146,7 +4149,8 @@ class ChatRepositoryImpl(
                 effectiveOutputCap = resolvedOutputCap,
                 maxAnswerCharacters = budgetSettings.responseCharacterLimit,
                 combined = chatToolConfig?.combined,
-                saveProgress = { draft, index, cap, reason -> checkpoint?.save(draft, index, cap, reason) }
+                saveProgress = { draft, index, cap, reason -> checkpoint?.save(draft, index, cap, reason) },
+                onContinuationTrigger = { continuationTrigger = it }
             ) { draft, exchanges ->
                 val turns = dev.chungjungsoo.gptmobile.data.queue.appendFollowUpContext(
                     multipassFinalTurns.get() ?: contextPlan.turns,
@@ -4163,7 +4167,7 @@ class ChatRepositoryImpl(
                 } else {
                     dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.plan(turns, requestPlatform.systemPrompt.orEmpty(), emptyList(), limits)
                 }
-                openPrimarySession(continuationPlan.turns, "output_limit_continuation", textOnly = true)
+                openPrimarySession(continuationPlan.turns, continuationTrigger.name.lowercase() + "_continuation", textOnly = true)
             }
         }
         val initialSession = if (comprehensiveEditorial) {
@@ -4624,10 +4628,16 @@ class ChatRepositoryImpl(
                         if (editorialPass) dev.chungjungsoo.gptmobile.data.agent.CombinedWriterObservations.recordDelivery(observationKey, providerEvent.report, resolvedOutputCap)
                         emit(ApiState.CombinedQuality(providerEvent.report))
                     }
+                    is ProviderEvent.CombinedAnswer -> {
+                        dev.chungjungsoo.gptmobile.data.agent.CombinedAnswerPublication.validate(providerEvent.text, providerEvent.report, providerEvent.formatVersion)
+                        providerTextSeen = providerTextSeen || providerEvent.text.isNotBlank()
+                        if (editorialPass) dev.chungjungsoo.gptmobile.data.agent.CombinedWriterObservations.recordDelivery(observationKey, providerEvent.report, resolvedOutputCap)
+                        emit(ApiState.CombinedAnswer(providerEvent.text, providerEvent.report, providerEvent.formatVersion))
+                    }
                     is ProviderEvent.Failed -> {
                         val recovery = if (runId.startsWith("combined-synthesis:")) dev.chungjungsoo.gptmobile.data.agent.CombinedRecoveryFailure.from(providerEvent) else null
                         recovery?.let { dev.chungjungsoo.gptmobile.data.agent.CombinedWriterObservations.recordFailure(observationKey, it.category) }
-                        emit(ApiState.Error(providerEvent.message, providerEvent.progressDeadline, combinedFailure = recovery, providerLimit = providerEvent.providerLimit?.bindAuthority(dispatchAuthority)))
+                        emit(ApiState.Error(providerEvent.message, providerEvent.progressDeadline, combinedFailure = recovery, providerLimit = providerEvent.providerLimit?.bindAuthority(dispatchAuthority), errorCode = providerEvent.errorCode))
                     }
                     is ProviderEvent.Notice -> emit(ApiState.Notice(providerEvent.message, providerEvent.persistent, providerEvent.researchDelivery))
                     is ProviderEvent.PhaseChanged -> {
@@ -4964,7 +4974,7 @@ class ChatRepositoryImpl(
         return combined
     }
 
-    override suspend fun checkCombinedQueuedJob(runId: String): String {
+    override suspend fun checkCombinedQueuedJob(runId: String): String = withContext(Dispatchers.IO) {
         val run = requireNotNull(agentPersistenceDao.recoveryRun(runId))
         val snapshot = run.synthesisSnapshot?.takeIf { run.synthesisKey != null }?.let { raw ->
             require(dev.chungjungsoo.gptmobile.data.research.researchHash(raw) == run.synthesisKey)
@@ -4980,7 +4990,61 @@ class ChatRepositoryImpl(
             openAIAPI.checkSavedHordeJob(runId, run.chatId, dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig(profile.apiUrl, null, freeProvider = provider, profileUid = profile.uid, queuePersistent = agentPersistenceDao.getChatRoom(run.chatId)?.isTemporary == false))
         }
         authority.validate()
-        return result
+        val receipt = dev.chungjungsoo.gptmobile.data.free.FreeQueueJobs.forRun(runId, run.chatId, run.profileUid, agentPersistenceDao.getChatRoom(run.chatId)?.isTemporary == false)
+            ?: return@withContext result
+        if (run.status != AgentRunStatus.WAITING_REMOTE_JOB || receipt.state !in setOf("COMPLETE", "COMPLETED", "FAILED", "CANCELLED", "EXPIRED")) return@withContext result
+        val current = agentPersistenceDao.recoveryMessage(run.assistantMessageId) ?: return@withContext result
+        if (current.currentRunId != runId || current.ownershipFence != run.ownershipFence) return@withContext "$result\n\nA newer answer owns this message. The inspected receipt was retained without replacing it."
+        val now = System.currentTimeMillis() / 1000
+        var status = when (receipt.state) {
+            "COMPLETE", "COMPLETED" -> AgentRunStatus.COMPLETED
+            "CANCELLED" -> AgentRunStatus.CANCELED
+            else -> AgentRunStatus.FAILED
+        }
+        var failure: String? = when (receipt.state) {
+            "FAILED" -> "HOSTED_GENERATION_FAILED: The saved remote job ended without a usable answer."
+            "CANCELLED" -> if (receipt.cleanup?.remoteTerminalConfirmed == true) "REMOTE_JOB_CANCELLED" else "LOCAL_WAIT_CANCELLED_REMOTE_TERMINATION_UNCONFIRMED"
+            "EXPIRED" -> "QUEUE_RECEIPT_EXPIRED: The locally retained result is unavailable; remote expiry is unverified."
+            else -> null
+        }
+        val updated = if (status == AgentRunStatus.COMPLETED) {
+            val recovered = try {
+                val answer = requireNotNull(receipt.answer?.takeIf(String::isNotBlank)) { "QUEUE_RESULT_EMPTY: The remote job returned no visible answer." }
+                if (snapshot != null) {
+                    val checkpoint = agentPersistenceDao.combinedDeliveryCheckpoint(runId, snapshot.liveRevisionId(runId))
+                    val records = checkpoint?.let { kotlinx.serialization.json.Json.decodeFromString<dev.chungjungsoo.gptmobile.data.agent.CombinedRecordCheckpoint>(it.stateJson) }
+                    dev.chungjungsoo.gptmobile.data.agent.QueuedAnswerRecovery.combined(answer, current.content, receipt.continuationPrefixDigest, snapshot, runId, records) { authority.validate() }
+                } else {
+                    dev.chungjungsoo.gptmobile.data.agent.QueuedAnswerRecoveryResult(dev.chungjungsoo.gptmobile.data.agent.QueuedAnswerRecovery.plain(current.content, answer, receipt.continuationPrefixDigest))
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: IllegalArgumentException) {
+                authority.validate()
+                dev.chungjungsoo.gptmobile.data.agent.QueuedAnswerRecoveryResult(current.content, failure = error.message ?: "QUEUE_RESULT_REVIEW_REQUIRED")
+            } catch (error: IllegalStateException) {
+                authority.validate()
+                dev.chungjungsoo.gptmobile.data.agent.QueuedAnswerRecoveryResult(current.content, failure = error.message ?: "QUEUE_RESULT_REVIEW_REQUIRED")
+            }
+            recovered.recordCheckpoint?.let { records ->
+                authority.validate()
+                val frozen = requireNotNull(snapshot)
+                val store = dev.chungjungsoo.gptmobile.data.agent.CombinedRecordStore.open(agentPersistenceDao, runId, frozen, frozen.liveRevisionId(runId), Int.MAX_VALUE, resume = false, expectedRunStatus = AgentRunStatus.WAITING_REMOTE_JOB)
+                store.save(records)
+            }
+            failure = recovered.failure
+            if (failure != null) status = if (failure!!.startsWith("QUEUE_RESULT_REVIEW_REQUIRED")) AgentRunStatus.INTERRUPTED else AgentRunStatus.FAILED
+            if (recovered.text == current.content && recovered.report == null && failure != null) current else dev.chungjungsoo.gptmobile.data.agent.QueuedAnswerRecovery.message(current, recovered)
+        } else {
+            current
+        }
+        authority.validate()
+        val terminal = dev.chungjungsoo.gptmobile.data.agent.terminalAgentMessage(dev.chungjungsoo.gptmobile.data.agent.QueuedAnswerRecovery.clearPending(updated), failure, now).withCombinedOutcome(status)
+        val committed = agentPersistenceDao.finishRunningWithMessage(terminal, runId, status, now, failure, expectedRunStatus = AgentRunStatus.WAITING_REMOTE_JOB)
+        if (!committed) return@withContext "$result\n\nThe saved result was not applied because this answer's owner or state changed."
+        settleCombinedStage(runId, terminal, status, failure)
+        AppLogRecorder.record("FreeProviders", "QUEUED_RESULT_SETTLED · runId=$runId · invocationId=${receipt.invocationId.orEmpty()} · jobId=${receipt.id.orEmpty()} · status=$status · originalPollTimingRetained=true · generationResubmitted=false")
+        if (status == AgentRunStatus.COMPLETED) "$result\n\nThe saved result is now part of this conversation. This job was not resubmitted." else "$result\n\n${failure.orEmpty()} The saved answer and receipt remain available."
     }
 
     override suspend fun prepareCombinedRetry(runId: String, platform: PlatformV2): dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot? = withContext(Dispatchers.IO) {
@@ -5249,6 +5313,9 @@ class ChatRepositoryImpl(
         terminalError: String?
     ): Boolean {
         val committed = agentPersistenceDao.finishRunningWithMessage(message, runId, status, completedAt, terminalError)
+        // A locally disconnected poll is not a terminal provider outcome. Preserve the
+        // reservation and original remote job until an explicit check or cancellation.
+        if (status == AgentRunStatus.WAITING_REMOTE_JOB) return committed
         if (committed) {
             settleCombinedStage(runId, message, status, terminalError)
             dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.let { journal ->
@@ -5296,6 +5363,18 @@ class ChatRepositoryImpl(
     }
 
     override suspend fun updateAgentMessage(message: MessageV2) {
+        checkpointAgentMessage(message)
+    }
+
+    override suspend fun checkpointCombinedAnswer(message: MessageV2): Boolean {
+        val report = requireNotNull(message.timeline.lastOrNull { it.combinedQuality != null }?.combinedQuality) { "COMBINED_FINAL_REPORT_MISSING" }
+        dev.chungjungsoo.gptmobile.data.agent.CombinedAnswerPublication.validate(message.content, report)
+        val contributors = message.combinedSources.mapTo(hashSetOf()) { it.platformUid }
+        require(report.passages.all { passage -> contributors.containsAll(passage.profileUids) && passage.links.all { contributors.containsAll(it.profileUids) } }) { "COMBINED_FINAL_CONTRIBUTOR_REFERENCE_MISSING" }
+        return checkpointAgentMessage(message)
+    }
+
+    private suspend fun checkpointAgentMessage(message: MessageV2): Boolean {
         val previousVisible = agentPersistenceDao.recoveryMessage(message.id)?.content
         val committed = agentPersistenceDao.checkpointRunningMessage(message)
         if (committed && message.content != previousVisible) {
@@ -5306,9 +5385,12 @@ class ChatRepositoryImpl(
                 if (message.content.isNotEmpty()) dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(run, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.SEGMENT_COMMITTED, fence = message.ownershipFence, visibleBytes = message.content.toByteArray(Charsets.UTF_8).size.toLong())
             }
         }
+        return committed
     }
 
     override suspend fun interruptActiveAgentRuns(completedAt: Long): Int = agentRunDao.interruptActiveRuns(completedAt)
+
+    override suspend fun waitingRemoteAgentRuns(): List<AgentRun> = agentRunDao.observeActive().first().filter { it.status == AgentRunStatus.WAITING_REMOTE_JOB }
 
     override suspend fun bindGatewayJob(runId: String, jobId: String, baseUrl: String): Boolean =
         agentRunDao.bindGatewayJob(runId, jobId, baseUrl) == 1

@@ -16,6 +16,7 @@ import kotlinx.serialization.json.JsonPrimitive
 internal class RequestDispatchContext(private val candidates: Set<JsonObject>, private val runId: String? = null, private val invocationId: String? = null, private val preparedEvidence: Set<JsonObject> = emptySet(), private val researchTrace: dev.chungjungsoo.gptmobile.data.research.ResearchStageTrace? = null) : AbstractCoroutineContextElement(Key) {
     companion object Key : CoroutineContext.Key<RequestDispatchContext>
     val queueScope: String? get() = runId ?: invocationId
+    val queueInvocationId: String? get() = invocationId
     private val physicalOrdinal = java.util.concurrent.atomic.AtomicLong()
     val receipts = CopyOnWriteArrayList<RequestAdmissionReceipt>()
     val includedProducers = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()

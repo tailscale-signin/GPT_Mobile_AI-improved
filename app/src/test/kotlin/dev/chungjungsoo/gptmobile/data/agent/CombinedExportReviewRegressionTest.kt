@@ -29,7 +29,7 @@ class CombinedExportReviewRegressionTest {
         }
         val session = CombinedDeliverySession(provider, sources, 20000, validateAccess = {}, originalRequest = requested.userPrompt, combined = CombinedExecutionContext(requested, rootBudgetId = "review-short")) { _, _ -> error("No hidden rewrite") }
         val events = session.streamRound(emptyList(), emptyList()).toList()
-        val report = events.filterIsInstance<ProviderEvent.CombinedQuality>().last().report
+        val report = events.combinedReport()
         assertTrue(report.protocolComplete)
         assertFalse(report.complete)
         assertEquals("UNMET", report.lengthCompliance)

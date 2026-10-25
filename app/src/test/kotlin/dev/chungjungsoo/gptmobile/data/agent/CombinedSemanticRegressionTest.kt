@@ -265,7 +265,7 @@ class CombinedSemanticRegressionTest {
         val incorrect = "The randomized pilot trial of inhaled hydrogen improved clinical outcomes in human patients."
         val rows = listOf(source(incorrect))
         val events = CombinedDeliverySession(session(passage(incorrect, "E1")), rows, 10000, validateAccess = {}, evidence = ledger(evidenceText), structured = true, combined = context(), revisionId = "initial") { _, _ -> session("Unfinished correction", false) }.streamRound(emptyList(), emptyList()).toList()
-        val quality = events.filterIsInstance<ProviderEvent.CombinedQuality>().last().report
+        val quality = events.combinedReport()
         assertTrue(quality.correctionRequired)
         assertEquals("PARTIAL", quality.deliveredScopeStatus)
         assertFalse(quality.complete || quality.factualAccuracyVerified)
@@ -297,9 +297,9 @@ class CombinedSemanticRegressionTest {
         assertTrue(committed != null)
         assertEquals("initial", committed!!.previousRevisionId)
         assertTrue(committed!!.revisionId != "initial")
-        assertEquals(incorrect, events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
+        assertEquals(incorrect, events.combinedAnswerText())
         assertTrue(committed!!.text.contains(correct))
-        assertFalse(events.filterIsInstance<ProviderEvent.CombinedQuality>().last().report.correctionRequired)
+        assertFalse(events.combinedReport().correctionRequired)
     }
 
     @Test fun explicitLargeResponseIsNotCappedAtSixteenContinuationSegments() {

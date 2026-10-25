@@ -28,7 +28,8 @@ data class CombinedDocumentBlock(
     val passages: List<CombinedPassageRecord>,
     val openingFence: String = "",
     val closingFence: String = "",
-    val tableHeader: String = ""
+    val tableHeader: String = "",
+    val attributionStatus: String = "RECORDED"
 )
 
 @Serializable
@@ -49,6 +50,7 @@ data class StagedCombinedDocument(val original: MessageV2, val compact: MessageV
 internal object CombinedDocuments {
     const val INLINE_CHARACTERS = 32_768
     private const val PREVIEW_CHARACTERS = 256
+    private val recoveryReports = LinkedHashMap<String, CombinedQualityReport?>(2, 0.75f, true)
 
     fun needsDocument(message: MessageV2): Boolean = (message.currentRunId?.startsWith("combined-synthesis:") == true || message.combinedSources.isNotEmpty() || message.revisions.any { it.combinedManifest != null }) &&
         (
@@ -68,11 +70,24 @@ internal object CombinedDocuments {
     private suspend fun stageDocument(dao: CombinedDocumentDao, message: MessageV2, run: AgentRun, completeness: String, force: Boolean): StagedCombinedDocument? = withContext(Dispatchers.Default) {
         if (!force && !needsDocument(message)) return@withContext null
         require(message.currentRunId == run.runId && message.id == run.assistantMessageId && message.ownershipFence == run.ownershipFence)
-        val source = if (message.content.length > PREVIEW_CHARACTERS || message.combinedManifest?.materialized == true || (message.content.isEmpty() && message.combinedManifest?.bodyLength != 0)) message else resolve(dao, message)
-        val report = source.timeline.lastOrNull { it.combinedQuality != null }?.combinedQuality
-        require(report == null || report.answerDigest.isBlank() || report.answerDigest == researchHash(source.content)) { "COMBINED_MANIFEST_ANSWER_DIGEST" }
-        require(report?.passages.orEmpty().all { it.matches(source.content) && it.links.all { link -> link.matches(source.content) && link.start >= it.start && link.end <= it.end } }) { "COMBINED_MANIFEST_SOURCE_RANGE" }
-        val revisionId = report?.revisionId?.takeIf(String::isNotBlank) ?: "${run.runId}:${run.ownershipFence}"
+        val materialized = if (message.combinedManifest == null || message.content.length > PREVIEW_CHARACTERS || message.combinedManifest.materialized || (message.content.isEmpty() && message.combinedManifest.bodyLength != 0)) message else resolve(dao, message)
+        val recorded = materialized.timeline.lastOrNull { it.combinedQuality != null }?.combinedQuality
+        val revision = recorded?.revisionId?.takeIf { it.isNotBlank() && !it.startsWith("recovered:") } ?: frozenRevision(run) ?: recorded?.revisionId?.takeIf(String::isNotBlank) ?: "pending:${run.runId}:${run.ownershipFence}"
+        val report = recorded?.copy(revisionId = revision, answerDigest = recorded.answerDigest.ifBlank { researchHash(materialized.content) }) ?: CombinedAttributionRecovery.pending(materialized.content, revision)
+        val source = when {
+            recorded == null -> materialized.copy(timeline = materialized.timeline + AssistantTimelineItem(AssistantTimelineItemType.NOTICE, combinedQuality = report))
+            recorded != report -> materialized.copy(timeline = materialized.timeline.map { if (it.combinedQuality == recorded) it.copy(combinedQuality = report) else it })
+            else -> materialized
+        }
+        require(report.answerDigest == researchHash(source.content)) { "COMBINED_MANIFEST_ANSWER_DIGEST" }
+        require(report.passages.all { it.matches(source.content) && it.links.all { link -> link.matches(source.content) && link.start >= it.start && link.end <= it.end } }) { "COMBINED_MANIFEST_SOURCE_RANGE" }
+        val revisionId = revision
+        val storedCompleteness = when {
+            recorded == null || report.status == CombinedAttributionRecovery.PENDING || report.status == "WRITING" && report.claimMapping == null -> CombinedAttributionRecovery.PENDING
+            report.status == CombinedAttributionRecovery.RECOVERED -> CombinedAttributionRecovery.RECOVERED
+            completeness == "COMPLETED" && !report.complete -> "PARTIAL"
+            else -> completeness
+        }
         val body = CombinedPayload.write(dao, run.runId, source.content)
         val textReferences = linkedMapOf<Int, String>()
         val metadataTimeline = source.timeline.mapIndexed { index, item ->
@@ -98,12 +113,12 @@ internal object CombinedDocuments {
         val fields = CombinedStoredFields(source.thoughts, metadataTimeline, textReferences, storedSources, archivedRevisions)
         val metadata = CombinedPayload.write(dao, run.runId, Json.encodeToString(fields))
         val provenanceDigest = researchHash(Json.encodeToString(report))
-        val id = "combined-document:" + researchHash(listOf(run.runId, source.id.toString(), run.ownershipFence.toString(), revisionId, body.digest, metadata.digest, completeness, "document_format_v2").joinToString("\u0000"))
+        val id = "combined-document:" + researchHash(listOf(run.runId, source.id.toString(), run.ownershipFence.toString(), revisionId, body.digest, metadata.digest, storedCompleteness, "document_format_v2").joinToString("\u0000"))
         val indexes = ArrayList<CombinedFinalBlockIndex>(body.count)
         for ((sequence, frame) in CombinedMarkdownPaging.frames(source.content).withIndex()) {
             val start = frame.start
             val text = source.content.substring(start, frame.end)
-            val attribution = CombinedBlockAttribution(slicePassages(source.content, start, frame.end, report?.passages.orEmpty()), frame.openingFence, frame.closingFence, frame.tableHeader)
+            val attribution = CombinedBlockAttribution(slicePassages(source.content, start, frame.end, report.passages), frame.openingFence, frame.closingFence, frame.tableHeader)
             val attributionReference = CombinedPayload.write(dao, run.runId, Json.encodeToString(attribution))
             val index = CombinedFinalBlockIndex(id, sequence, start, start + text.length, researchHash(text), attributionReference.encode(), "")
             indexes += index.copy(digest = indexDigest(index))
@@ -111,7 +126,7 @@ internal object CombinedDocuments {
         val manifest = CombinedFinalManifest(
             id, run.runId, source.id, revisionId, run.synthesisKey.orEmpty(), run.ownershipFence,
             body.encode(), metadata.encode(), researchHash(indexes.joinToString("\n") { it.digest }),
-            body.length, body.count, body.digest, provenanceDigest, metadata.digest, completeness, 0
+            body.length, body.count, body.digest, provenanceDigest, metadata.digest, storedCompleteness, 0
         )
         dao.insertCombinedFinalManifest(manifest)
         val retained = requireNotNull(dao.combinedFinalManifest(id))
@@ -181,6 +196,7 @@ internal object CombinedDocuments {
     private suspend fun readBlocks(dao: CombinedDocumentDao, reference: CombinedManifestReference, first: Int, count: Int): List<CombinedDocumentBlock> = withContext(Dispatchers.Default) {
         require(count in 1..CombinedPayload.PAGE_BATCH)
         val manifest = checkedManifest(dao, reference)
+        val recovered = recoveryReport(dao, manifest)
         val rows = CombinedPayload.page(dao, manifest.runId, CombinedPayload.reference(manifest.bodyPayload), first, count)
         val indexes = dao.combinedFinalBlockIndexPage(manifest.id, first, rows.size.coerceAtLeast(1))
         require(indexes.size == rows.size) { "COMBINED_BLOCK_INDEX_MISSING" }
@@ -188,7 +204,19 @@ internal object CombinedDocuments {
             require(index.sequence == row.sequence && index.start == row.start && index.end == row.start + row.text.length && index.textDigest == row.digest && index.digest == indexDigest(index)) { "COMBINED_BLOCK_INDEX_INTEGRITY" }
             val attribution = Json.decodeFromString<CombinedBlockAttribution>(CombinedPayload.read(dao, manifest.runId, index.attributionPayload))
             require(attribution.passages.all { it.matches(row.text) && it.links.all { link -> link.matches(row.text) && link.start >= it.start && link.end <= it.end } }) { "COMBINED_BLOCK_SOURCE_INTEGRITY" }
-            CombinedDocumentBlock(row.sequence, row.start, row.text, row.digest, attribution.passages, attribution.openingFence, attribution.closingFence, attribution.tableHeader)
+            val passages = recovered?.passages?.mapNotNull { passage ->
+                // Clip against a bounded block without retaining the complete body in the cache.
+                val start = maxOf(passage.start, row.start)
+                val end = minOf(passage.end, row.start + row.text.length)
+                if (start >= end) return@mapNotNull null
+                val links = passage.links.mapNotNull { link ->
+                    val from = maxOf(start, link.start)
+                    val to = minOf(end, link.end)
+                    if (from >= to) null else link.copy(start = from - row.start, end = to - row.start, digest = researchHash(row.text.substring(from - row.start, to - row.start)))
+                }
+                passage.copy(start = start - row.start, end = end - row.start, digest = researchHash(row.text.substring(start - row.start, end - row.start)), origin = "DURABLE_BLOCK_MAPPING_V1", links = links)
+            } ?: attribution.passages
+            CombinedDocumentBlock(row.sequence, row.start, row.text, row.digest, passages, attribution.openingFence, attribution.closingFence, attribution.tableHeader, recovered?.sourceLinkStatus ?: "RECORDED")
         }
     }
 
@@ -227,7 +255,17 @@ internal object CombinedDocuments {
         val reference = message.combinedManifest
         if (reference == null || reference.materialized) {
             val revisions = message.revisions.map { resolveRevision(dao, message, it) }
-            return@withContext if (revisions == message.revisions) message else message.copy(revisions = revisions)
+            val report = message.timeline.lastOrNull { it.combinedQuality != null }?.combinedQuality
+            val needsRecovery = message.currentRunId?.startsWith("combined-synthesis:") == true &&
+                message.content.isNotBlank() &&
+                CombinedAttributionRecovery.needed(report)
+            val timeline = if (needsRecovery) {
+                val recovered = CombinedAttributionRecovery.reconstruct(message.content, message.combinedSources, report?.revisionId?.takeIf(String::isNotBlank) ?: "recovered:${message.currentRunId}:${researchHash(message.content)}", report)
+                message.timeline.filterNot { it.combinedQuality != null } + AssistantTimelineItem(AssistantTimelineItemType.NOTICE, combinedQuality = recovered)
+            } else {
+                message.timeline
+            }
+            return@withContext if (revisions == message.revisions && timeline == message.timeline) message else message.copy(revisions = revisions, timeline = timeline)
         }
         val manifest = checkedManifest(dao, reference)
         require(manifest.finalMessageId == message.id) { "COMBINED_MANIFEST_MESSAGE_IDENTITY" }
@@ -246,7 +284,53 @@ internal object CombinedDocuments {
                 source.copy(content = CombinedPayload.read(dao, original.runId, sourcePayload(original).encode()), originalDocument = null)
             } ?: source
         }
-        message.copy(content = body, thoughts = fields.thoughts, timeline = timeline, combinedSources = sources, revisions = revisions, combinedManifest = reference.copy(materialized = true))
+        val report = timeline.lastOrNull { it.combinedQuality != null }?.combinedQuality
+        val restoredTimeline = if (CombinedAttributionRecovery.needed(report)) {
+            val recovered = CombinedAttributionRecovery.reconstruct(body, sources, report?.revisionId?.takeIf(String::isNotBlank) ?: "recovered:${manifest.runId}:${manifest.bodyDigest}", report)
+            cacheRecoveryReport(manifest.id, recovered)
+            timeline.filterNot { it.combinedQuality != null } + AssistantTimelineItem(AssistantTimelineItemType.NOTICE, combinedQuality = recovered)
+        } else {
+            timeline
+        }
+        message.copy(content = body, thoughts = fields.thoughts, timeline = restoredTimeline, combinedSources = sources, revisions = revisions, combinedManifest = reference.copy(materialized = true))
+    }
+
+    private fun frozenRevision(run: AgentRun): String? {
+        val frozen = run.synthesisSnapshot ?: return null
+        if (researchHash(frozen) != run.synthesisKey) return null
+        return runCatching { Json { ignoreUnknownKeys = true }.decodeFromString<CombinedInputSnapshot>(frozen).liveRevisionId(run.runId) }.getOrNull()
+    }
+
+    private suspend fun recoveryReport(dao: CombinedDocumentDao, manifest: CombinedFinalManifest): CombinedQualityReport? {
+        synchronized(recoveryReports) { if (recoveryReports.containsKey(manifest.id)) return recoveryReports[manifest.id] }
+        if (manifest.completeness !in setOf(CombinedAttributionRecovery.PENDING, "WRITING") && manifest.provenanceDigest != researchHash("null")) return null
+        val metadata = CombinedPayload.read(dao, manifest.runId, manifest.metadataPayload)
+        require(researchHash(metadata) == manifest.metadataDigest) { "COMBINED_MANIFEST_METADATA" }
+        val fields = Json.decodeFromString<CombinedStoredFields>(metadata)
+        require(researchHash(Json.encodeToString(fields.timeline.lastOrNull { it.combinedQuality != null }?.combinedQuality)) == manifest.provenanceDigest) { "COMBINED_MANIFEST_PROVENANCE" }
+        val recorded = fields.timeline.lastOrNull { it.combinedQuality != null }?.combinedQuality
+        if (!CombinedAttributionRecovery.needed(recorded)) {
+            cacheRecoveryReport(manifest.id, null)
+            return null
+        }
+        val sources = fields.sources.map { source ->
+            source.originalDocument?.let { original ->
+                require(original.runId == manifest.runId) { "COMBINED_SOURCE_RUN_CHANGED" }
+                source.copy(content = CombinedPayload.read(dao, original.runId, sourcePayload(original).encode()), originalDocument = null)
+            } ?: source
+        }
+        val body = CombinedPayload.read(dao, manifest.runId, manifest.bodyPayload)
+        val revision = fields.timeline.lastOrNull { it.combinedQuality != null }?.combinedQuality?.revisionId?.takeIf(String::isNotBlank) ?: "recovered:${manifest.runId}:${manifest.bodyDigest}"
+        val report = CombinedAttributionRecovery.reconstruct(body, sources, revision, recorded)
+        cacheRecoveryReport(manifest.id, report)
+        return report
+    }
+
+    private fun cacheRecoveryReport(manifestId: String, report: CombinedQualityReport?) {
+        synchronized(recoveryReports) {
+            recoveryReports[manifestId] = report?.copy(claimMapping = null)
+            while (recoveryReports.size > 2) recoveryReports.remove(recoveryReports.keys.first())
+        }
     }
 
     private suspend fun resolveRevision(dao: CombinedDocumentDao, message: MessageV2, revision: AssistantRevision): AssistantRevision {

@@ -7,6 +7,12 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class HordeTextPolicyTest {
+    @Test fun automaticSelectionUsesLiveAvailabilityWithoutChangingAnExplicitModel() {
+        val catalog = Json.parseToJsonElement("""[{"name":"a/Qwen2.5-7B-Instruct","count":1},{"name":"z/Llama-3.1-8B-Instruct","count":4}]""").jsonArray
+        assertEquals("z/Llama-3.1-8B-Instruct", HordeTextPolicy.select(catalog, "automatic"))
+        assertEquals("a/Qwen2.5-7B-Instruct", HordeTextPolicy.select(catalog, "a/Qwen2.5-7B-Instruct"))
+    }
+
     @Test fun automaticSelectionRequiresActiveSupportedInstructionWorkers() {
         val catalog = Json.parseToJsonElement(
             """[

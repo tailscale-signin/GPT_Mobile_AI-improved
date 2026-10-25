@@ -306,10 +306,14 @@ class InvocationLedger @Inject constructor(
                                 finishReason = event.finishReason?.take(80) ?: finishReason
                                 settingsConfirmed = settingsConfirmed || event.effectiveSettingsConfirmed
                             }
-                            ProviderEvent.Completed -> if (status !in setOf("FAILED", "PARTIAL")) status = "COMPLETED"
+                            ProviderEvent.Completed -> if (status !in setOf("FAILED", "PARTIAL", "WAITING_REMOTE_JOB")) status = "COMPLETED"
                             is ProviderEvent.Failed -> {
-                                status = if (generatedBytes > 0 && dev.chungjungsoo.gptmobile.data.agent.tool.isProviderOutputLimitFailure(event.message)) "PARTIAL" else "FAILED"
-                                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "Segment ${record.id} · status=$status · ${event.message}", if (status == "PARTIAL") "I" else "E")
+                                status = when {
+                                    event.errorCode == "QUEUE_JOB_PENDING" -> "WAITING_REMOTE_JOB"
+                                    generatedBytes > 0 && (dev.chungjungsoo.gptmobile.data.agent.tool.isProviderOutputLimitFailure(event.message) || event.errorCode == "STREAM_DEGRADED" || event.transportComplete) -> "PARTIAL"
+                                    else -> "FAILED"
+                                }
+                                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "Segment ${record.id} · status=$status · ${event.message}", if (status in setOf("PARTIAL", "WAITING_REMOTE_JOB")) "I" else "E")
                             }
                             else -> Unit
                         }
@@ -360,7 +364,7 @@ class InvocationLedger @Inject constructor(
                         outputSource = "not_dispatched"
                         status = "NOT_DISPATCHED"
                     }
-                    dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(parentRunId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.INVOCATION_FINISHED, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticRole.from(kind), invocationId = record.id, inputTokens = input?.toLong(), outputTokens = output?.toLong(), visibleBytes = visibleBytes, reasoningBytes = reasoningBytes, elapsedMillis = (System.nanoTime() - started) / 1_000_000, successful = status == "COMPLETED", measured = !estimatedUsage())
+                    dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(parentRunId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.INVOCATION_FINISHED, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticRole.from(kind), invocationId = record.id, inputTokens = input?.toLong(), outputTokens = output?.toLong(), visibleBytes = visibleBytes, reasoningBytes = reasoningBytes, elapsedMillis = (System.nanoTime() - started) / 1_000_000, successful = (status == "COMPLETED").takeUnless { status == "WAITING_REMOTE_JOB" }, measured = !estimatedUsage())
                     researchTrace?.usage(
                         dev.chungjungsoo.gptmobile.data.research.ResearchUsageObservation(
                             invocationId = record.id,
@@ -375,7 +379,7 @@ class InvocationLedger @Inject constructor(
                         )
                     )
                     val recordedOutput = if (entirelyUnsent) 0 else retainedOutput()
-                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "Finished ${record.id} · incidentId=${record.id} · status=$status · durationMs=${(System.nanoTime() - started) / 1_000_000} · output=$recordedOutput · estimated=${estimatedUsage()} · inputSource=$inputSource · outputSource=$outputSource · visibleBytes=$visibleBytes · reasoningBytes=$reasoningBytes · usageBreakdownReliable=false · reportedReasoningTokens=${providerReasoningTokens ?: "unknown"} · toolCallTokens=unknown · visibleOutputTokens=unknown · finishReason=${finishReason ?: "unreported"} · settingsConfirmed=$settingsConfirmed · parentRunId=$parentRunId · turnKey=$turnKey · requestKind=$kind", if (status in setOf("COMPLETED", "CANCELED")) "I" else "W")
+                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "Finished ${record.id} · incidentId=${record.id} · status=$status · durationMs=${(System.nanoTime() - started) / 1_000_000} · output=$recordedOutput · estimated=${estimatedUsage()} · inputSource=$inputSource · outputSource=$outputSource · visibleBytes=$visibleBytes · reasoningBytes=$reasoningBytes · usageBreakdownReliable=false · reportedReasoningTokens=${providerReasoningTokens ?: "unknown"} · toolCallTokens=unknown · visibleOutputTokens=unknown · finishReason=${finishReason ?: "unreported"} · settingsConfirmed=$settingsConfirmed · parentRunId=$parentRunId · turnKey=$turnKey · requestKind=$kind", if (status in setOf("COMPLETED", "CANCELED", "WAITING_REMOTE_JOB")) "I" else "W")
                     try {
                         if (retainAccounting) {
                             val observation = record.copy(

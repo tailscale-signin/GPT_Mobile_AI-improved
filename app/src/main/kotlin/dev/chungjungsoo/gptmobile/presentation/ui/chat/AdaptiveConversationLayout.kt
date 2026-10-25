@@ -69,8 +69,11 @@ fun AdaptiveConversationLayout(selectedId: Int, onSelect: (Int) -> Unit, content
     val stableDetail = remember { movableContentOf { latestContent() } }
     BoxWithConstraints(
         Modifier.fillMaxSize().onGloballyPositioned {
-            originX = it.positionInWindow().x
-            originY = it.positionInWindow().y
+            if (it.isAttached) {
+                val position = it.positionInWindow()
+                originX = position.x
+                originY = position.y
+            }
         }
     ) {
         val vertical = fold?.takeIf { it.orientation == FoldingFeature.Orientation.VERTICAL }

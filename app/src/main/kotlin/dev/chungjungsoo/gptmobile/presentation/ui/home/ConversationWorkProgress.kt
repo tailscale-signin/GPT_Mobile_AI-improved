@@ -48,8 +48,8 @@ internal fun conversationWorkProgress(
     if (delivered && (!research || reportAccepted)) return ConversationWorkProgress(1f, "Complete", running = false, userMessageId = latestTurnId)
     // Retained milestones are not active work. The view only flashes a completion after
     // displaying this turn's activity; reopening a terminal conversation shows no bar.
-    val waiting = turnRuns.any { it.status == AgentRunStatus.WAITING_PROVIDER_LIMIT }
-    if (waiting && !contributorsRunning && final?.status != AgentRunStatus.RUNNING) return ConversationWorkProgress(0.7f * completedProfiles.toFloat() / uids.size.coerceAtLeast(1), "Paused: provider limit", running = false, userMessageId = latestTurnId)
+    val waiting = turnRuns.any { it.status in setOf(AgentRunStatus.WAITING_PROVIDER_LIMIT, AgentRunStatus.WAITING_REMOTE_JOB) }
+    if (waiting && !contributorsRunning && final?.status != AgentRunStatus.RUNNING) return ConversationWorkProgress(0.7f * completedProfiles.toFloat() / uids.size.coerceAtLeast(1), if (turnRuns.any { it.status == AgentRunStatus.WAITING_REMOTE_JOB }) "Waiting for remote job" else "Paused: provider limit", running = false, userMessageId = latestTurnId)
     if (!active) return null
     if (combined && final?.status in stopped && !contributorsRunning) return null
     if (!combined && uids.isNotEmpty() && uids.all { contributors[it]?.status in stopped + AgentRunStatus.COMPLETED }) return null

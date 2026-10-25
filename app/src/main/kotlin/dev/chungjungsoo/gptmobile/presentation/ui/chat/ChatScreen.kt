@@ -213,7 +213,8 @@ fun ChatScreen(
             onRetry = chatViewModel::retryCombinedProfile,
             onRemove = chatViewModel::removeCombinedFailureProfile,
             onContinue = { chatViewModel.combineAvailableResults(failureTurn) },
-            onExclude = chatViewModel::excludeCombinedFailureForTurn
+            onExclude = chatViewModel::excludeCombinedFailureForTurn,
+            onCheckQueuedJob = chatViewModel::checkQueuedJob
         )
     }
     val inputRequests by chatViewModel.pendingMcpInput.collectAsStateWithLifecycle()
@@ -1323,6 +1324,7 @@ internal fun ChatMessagePair(
     val rawAssistantContent = if (selectedSourceReader != null) "" else dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(selectedAssistantMessage?.effectiveContent().orEmpty())
     val assistantContent = when {
         selectedSourceReader != null -> ""
+        rawAssistantContent.isBlank() && selectedAssistantMessage?.currentRunId?.let(agentRunsById::get)?.status == AgentRunStatus.WAITING_REMOTE_JOB -> "Waiting for the saved remote job. Check its status without submitting another generation."
         rawAssistantContent.isBlank() && (isCombinedConversation && combinedStatus == CombinedResponseStatus.PAUSED || selectedAssistantMessage?.currentRunId?.let(agentRunsById::get)?.status == AgentRunStatus.WAITING_PROVIDER_LIMIT) -> stringResource(R.string.provider_wait_saved)
         isCombinedConversation && !synthesisStarted && combinedStatus == CombinedResponseStatus.FAILED -> stringResource(R.string.combined_all_profiles_failed)
         isCombinedConversation && !synthesisStarted -> ""
@@ -1495,6 +1497,9 @@ internal fun ChatMessagePair(
                 }
                 if (hasCombinedTabs && combinedStatus == CombinedResponseStatus.COMPLETED && agentRunsById.values.any { it.userMessageId == message.id && it.terminalError?.contains("QUEUE_JOB_PENDING") == true }) {
                     TextButton(onClick = { onCheckCombinedQueuedJob(messageIndex) }, enabled = isIdle && canUseChat) { Text("Check earlier queued job") }
+                }
+                if ((!hasCombinedTabs || combinedStatus != CombinedResponseStatus.COMPLETED) && agentRunsById.values.any { it.userMessageId == message.id && it.status == AgentRunStatus.WAITING_REMOTE_JOB }) {
+                    TextButton(onClick = { onCheckCombinedQueuedJob(messageIndex) }, enabled = isIdle && canUseChat) { Text("Check queued job") }
                 }
                 if (hasCombinedTabs && selectedProfile == null) {
                     if (selectedAssistantMessage?.hasHistoricalRevisionSelected() == true && selectedAssistantMessage.effectiveCombinedSources().isEmpty()) {

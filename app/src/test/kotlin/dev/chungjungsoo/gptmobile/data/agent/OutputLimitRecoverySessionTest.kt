@@ -12,6 +12,33 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class OutputLimitRecoverySessionTest {
+    @Test fun failedLengthExtensionPreservesTheCompletedAnswerAndItsActualTrigger() = runTest {
+        val triggers = mutableListOf<ContinuationTrigger>()
+        val saved = "The completed answer contains useful evidence."
+        val wrapper = OutputLimitRecoverySession(
+            session {
+                emit(ProviderEvent.TextDelta(saved))
+                emit(ProviderEvent.Usage(outputTokens = 2327, finishReason = "stop"))
+                emit(ProviderEvent.Completed)
+            },
+            targetWords = 300,
+            onContinuationTrigger = { triggers += it }
+        ) { draft, _ ->
+            assertEquals(saved, draft)
+            session {
+                emit(ProviderEvent.ThinkingDelta("Reasoning only"))
+                emit(ProviderEvent.Usage(outputTokens = 4096, reasoningTokens = 4096, finishReason = "length"))
+                emit(ProviderEvent.Failed("The response reached its output limit."))
+            }
+        }
+        val events = wrapper.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(listOf(ContinuationTrigger.REQUESTED_LENGTH), triggers)
+        assertEquals(saved, events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
+        assertTrue(events.filterIsInstance<ProviderEvent.Failed>().single().transportComplete)
+        assertTrue(events.filterIsInstance<ProviderEvent.Notice>().any { it.persistent && it.message.contains("earlier answer") })
+        assertFalse(events.contains(ProviderEvent.Completed))
+    }
+
     @Test fun reasoningOnlyOrdinaryRequestDoesNotContinueAnAbsentAnswer() = runTest {
         val wrapper = OutputLimitRecoverySession(
             session {

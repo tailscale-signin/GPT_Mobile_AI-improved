@@ -38,7 +38,7 @@ internal object CombinedWriterPolicy {
         .filter { CombinedProviderEligibility.unavailableReason(it, request, writer = true, appendContinuations = appendContinuations) == null && unavailableReason(it, request, inputTokens, appendContinuations) == null }
         .sortedWith(
             compareBy<PlatformV2> {
-                CombinedWriterObservations.get(CombinedWriterObservations.key(it))?.let { o -> o.reasoningOnlyAttempts * 4 + o.malformedAttempts * 5 + o.emptyAttempts * 3 + o.queueDelays * 5 + o.incompleteAnswers * 3 } ?: 0
+                CombinedWriterObservations.get(CombinedWriterObservations.key(it))?.let { o -> o.reasoningOnlyAttempts * 4 + o.malformedAttempts * 5 + o.emptyAttempts * 3 + o.queueDelays * 5 + o.incompleteAnswers * 3 + if (o.disableRequested == true && o.reasoningObserved == true) 2 else 0 } ?: 0
             }.thenBy { it.uid != preferredUid }.thenByDescending { CombinedWriterObservations.get(CombinedWriterObservations.key(it))?.completeAnswers ?: 0 }.thenBy { it.name.lowercase() }.thenBy { it.uid }
         )
 }

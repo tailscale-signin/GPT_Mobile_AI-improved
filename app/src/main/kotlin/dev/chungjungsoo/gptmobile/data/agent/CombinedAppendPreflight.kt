@@ -16,7 +16,7 @@ internal object CombinedAppendPreflight {
         decision: ProviderLimitDecision,
         maxCharacters: Int
     ): CombinedDeliveryCheckpoint? {
-        if (!dev.chungjungsoo.gptmobile.BuildConfig.COMBINED_APPEND_CONTINUATIONS || !decision.knownNotAccepted || decision.category != FreeFailureCategory.LOCAL_COOLDOWN_ACTIVE.name) return null
+        if (!dev.chungjungsoo.gptmobile.BuildConfig.COMBINED_APPEND_CONTINUATIONS || !decision.knownNotAccepted || decision.category !in setOf(FreeFailureCategory.LOCAL_COOLDOWN_ACTIVE.name, FreeFailureCategory.LOCAL_ALLOWANCE_EXHAUSTED.name)) return null
         if (run.status != "RUNNING" || run.profileUid != decision.profileUid || run.modelSnapshot != decision.model || frozen.profileUid != decision.profileUid || frozen.model != decision.model) return null
         if (frozen.combined?.requested?.appendContinuations != true || frozen.deliveryProtocol != "PASSAGES_V3") return null
         require(run.synthesisSnapshot == frozen.encode() && run.synthesisKey == researchHash(requireNotNull(run.synthesisSnapshot))) { "COMBINED_APPEND_SNAPSHOT_CHANGED" }

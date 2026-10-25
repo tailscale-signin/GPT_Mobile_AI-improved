@@ -29,12 +29,16 @@ object SettingRepositoryModule {
         platformV2Dao: PlatformV2Dao,
         providerConnectionDao: ProviderConnectionDao,
         chatPlatformModelV2Dao: ChatPlatformModelV2Dao,
-        secretVault: SecretVault
+        secretVault: SecretVault,
+        providerActivation: dev.chungjungsoo.gptmobile.data.permissions.ProviderActivationStore,
+        personalToolConsent: dev.chungjungsoo.gptmobile.data.permissions.FreeModelToolConsentStore
     ): SettingRepository = SettingRepositoryImpl(
         settingDataSource,
         platformV2Dao,
         providerConnectionDao,
         chatPlatformModelV2Dao,
-        secretVault
+        secretVault,
+        providerActivation = providerActivation,
+        personalToolConsent = personalToolConsent
     )
 }

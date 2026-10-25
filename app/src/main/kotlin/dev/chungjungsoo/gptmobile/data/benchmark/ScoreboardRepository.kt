@@ -69,7 +69,7 @@ class ScoreboardRepository @Inject constructor(
     private val connections: ToolConnectionRepository,
     private val vault: SecretVault
 ) {
-    private val preferences = context.getSharedPreferences("community_scoreboard_v1", Context.MODE_PRIVATE)
+    private val preferences by lazy { context.getSharedPreferences("community_scoreboard_v1", Context.MODE_PRIVATE) }
     private val json = Json { ignoreUnknownKeys = false }
     private val mutex = Mutex()
     private val mutableState = MutableStateFlow(OnlineScoreboardState())

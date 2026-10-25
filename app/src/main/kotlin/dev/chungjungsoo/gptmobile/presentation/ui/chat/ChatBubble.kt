@@ -262,7 +262,10 @@ fun OpponentChatBubble(
     showSourceBar: Boolean = true,
     splitForPassageIndicators: Boolean = false,
     passageIndicators: @Composable (String) -> Unit = {},
-    retryLabel: String? = null
+    retryLabel: String? = null,
+    combinedManifest: dev.chungjungsoo.gptmobile.data.database.entity.CombinedManifestReference? = null,
+    originalSource: CombinedOriginalSourceReader? = null,
+    loadCombinedBlocks: suspend (dev.chungjungsoo.gptmobile.data.database.entity.CombinedManifestReference, Int, Int) -> List<dev.chungjungsoo.gptmobile.data.agent.CombinedDocumentBlock> = { _, _, _ -> emptyList() }
 ) {
     var activityExpanded by rememberSaveable(contentIdentity) { mutableStateOf(false) }
     val bubbleColor = animateColorAsState(
@@ -358,7 +361,9 @@ fun OpponentChatBubble(
     val showAnswerStreamingIndicator = isLoading
     val showProcessStreamingIndicator = showAnswerStreamingIndicator && text.isBlank()
 
-    val hasVisibleText = text.isNotBlank() ||
+    val hasVisibleText = combinedManifest != null ||
+        originalSource != null ||
+        text.isNotBlank() ||
         (debugMode && showAnswerStreamingIndicator && (!hasDetails || areDetailsVisible))
     val hasVisibleProcess = hasDetails && areDetailsVisible
     val hasVisibleExtras = (debugMode && (nonTelemetryNotices.isNotEmpty() || agentRun != null)) ||
@@ -366,6 +371,8 @@ fun OpponentChatBubble(
         locationToolEvents.isNotEmpty() ||
         (!isLoading && (canRetry || canEdit || isError))
     val showTerminalFallback = !isLoading &&
+        combinedManifest == null &&
+        originalSource == null &&
         isLastMessage &&
         !dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.hasAnswer(text) &&
         attachments.isEmpty()
@@ -443,7 +450,10 @@ fun OpponentChatBubble(
                         articleCards = articleCards,
                         combinedWording = combinedWording,
                         splitForPassageIndicators = splitForPassageIndicators,
-                        passageIndicators = passageIndicators
+                        passageIndicators = passageIndicators,
+                        combinedManifest = combinedManifest,
+                        originalSource = originalSource,
+                        loadCombinedBlocks = loadCombinedBlocks
                     )
                     if (showTerminalFallback) {
                         Text(

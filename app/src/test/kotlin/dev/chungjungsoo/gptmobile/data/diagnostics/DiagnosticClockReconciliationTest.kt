@@ -32,4 +32,20 @@ class DiagnosticClockReconciliationTest {
         assertEquals(listOf("earlier", "later", "next"), result.getValue("displayOrderEventIds").jsonArray.map { it.jsonPrimitive.content })
         assertEquals("later", (rows.first() as kotlinx.serialization.json.JsonObject).getValue("eventId").jsonPrimitive.content)
     }
+
+    @Test fun occurrenceTimeAndWorkerGenerationStayIndependentOfExportTime() {
+        fun row(id: String, generation: String, time: Long, mono: Long) = buildJsonObject {
+            put("eventId", id)
+            put("occurredAtMillis", time)
+            put("exportedAtMillis", 900000L)
+            put("monotonicNanos", mono)
+            put("processId", 42)
+            put("workerGenerationId", generation)
+        }
+        val result = DiagnosticClockReconciliation.summarize(JsonArray(listOf(row("old", "worker-1", 1000, 5000000), row("new", "worker-2", 2000, 1000000))))
+        assertEquals("2", result.getValue("anchoredRecords").jsonPrimitive.content)
+        assertEquals("0", result.getValue("clockDiscontinuities").jsonPrimitive.content)
+        assertEquals("0", result.getValue("reorderedRecords").jsonPrimitive.content)
+        assertEquals(listOf("old", "new"), result.getValue("displayOrderEventIds").jsonArray.map { it.jsonPrimitive.content })
+    }
 }

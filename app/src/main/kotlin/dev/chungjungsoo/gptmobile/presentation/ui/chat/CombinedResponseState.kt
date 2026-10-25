@@ -9,12 +9,15 @@ import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
 import dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveCombinedSources
+import dev.chungjungsoo.gptmobile.data.database.entity.effectiveContent
+import dev.chungjungsoo.gptmobile.data.database.entity.effectiveRunId
 import dev.chungjungsoo.gptmobile.data.database.entity.hasHistoricalRevisionSelected
 import dev.chungjungsoo.gptmobile.util.isAssistantErrorMessage
 import java.text.Normalizer
 
 internal enum class CombinedResponseStatus {
     GENERATING,
+    PAUSED,
     COMPLETED,
     FAILED
 }
@@ -43,25 +46,31 @@ internal fun combinedResponseStatus(
     preparing: Boolean = false
 ): CombinedResponseStatus = when {
     run?.status in setOf(AgentRunStatus.FAILED, AgentRunStatus.CANCELED, AgentRunStatus.INTERRUPTED) -> CombinedResponseStatus.FAILED
+    run?.status == AgentRunStatus.WAITING_PROVIDER_LIMIT -> CombinedResponseStatus.PAUSED
     run?.status in setOf(AgentRunStatus.QUEUED, AgentRunStatus.RUNNING) || preparing -> CombinedResponseStatus.GENERATING
     message?.content.isNullOrBlank() || isAssistantErrorMessage(message.content) -> CombinedResponseStatus.FAILED
     else -> CombinedResponseStatus.COMPLETED
 }
 
 /** Keep the exact source used for synthesis, including the lead response replaced by the final answer. */
-private fun sourceMessage(message: MessageV2?, source: CombinedModelResponse): MessageV2 {
-    if (message != null && !message.isCombinedSynthesis() && (source.attemptId == null || message.currentRunId == source.attemptId) && dev.chungjungsoo.gptmobile.util.stripAssistantErrorNote(message.content).trim() == source.content.trim()) {
+internal fun sourceMessage(message: MessageV2?, source: CombinedModelResponse): MessageV2 {
+    fun matches(content: String): Boolean {
+        if (source.content.isNotEmpty()) return dev.chungjungsoo.gptmobile.util.stripAssistantErrorNote(content).trim() == source.content.trim()
+        val expected = setOf(source.rawContentDigest, source.sourceDigest).filter(String::isNotBlank)
+        return expected.isNotEmpty() && (dev.chungjungsoo.gptmobile.data.research.researchHash(content) in expected || dev.chungjungsoo.gptmobile.data.research.researchHash(dev.chungjungsoo.gptmobile.util.stripAssistantErrorNote(content).trim()) in expected)
+    }
+    if (message != null && !message.isCombinedSynthesis() && (source.attemptId == null || message.currentRunId == source.attemptId) && matches(message.content)) {
         return message.copy(activeRevisionIndex = ACTIVE_REVISION_LATEST)
     }
     val revision = message?.revisions?.firstOrNull {
-        it.runId?.startsWith("combined-synthesis:") != true && (source.attemptId == null || it.runId == source.attemptId) && dev.chungjungsoo.gptmobile.util.stripAssistantErrorNote(it.content).trim() == source.content.trim()
+        it.runId?.startsWith("combined-synthesis:") != true && (source.attemptId == null || it.runId == source.attemptId) && matches(it.content)
     }
     return MessageV2(
         id = message?.id ?: 0,
         chatId = message?.chatId ?: 0,
         linkedMessageId = message?.linkedMessageId ?: 0,
         platformType = source.platformUid,
-        content = source.content,
+        content = if (source.content.isEmpty()) revision?.content.orEmpty() else source.content,
         thoughts = revision?.thoughts.orEmpty(),
         timeline = revision?.timeline.orEmpty(),
         currentRunId = source.attemptId ?: revision?.runId,
@@ -88,7 +97,7 @@ internal fun combinedResponseProfiles(
         (platformUids + responses.mapNotNull { it.platformType } + sources.keys).distinct()
     }
     return uids.filter { it in participatingUids }.mapIndexedNotNull { order, uid ->
-        val index = responses.indexOfFirst { it.platformType == uid }
+        val index = responses.indexOfFirst { it.platformType == uid && !it.isCombinedSynthesis() }.takeIf { it >= 0 } ?: responses.indexOfFirst { it.platformType == uid }
         val original = responses.getOrNull(index)
         val source = sources[uid]
         val hasResponse = original?.let {
@@ -109,7 +118,14 @@ internal fun combinedResponseProfiles(
             name = combinedProfileLabel(source?.platformName ?: profileNames[uid].orEmpty(), "AI ${order + 1}"),
             assistantIndex = index.takeIf { it >= 0 } ?: platformUids.indexOf(uid),
             message = response,
-            status = if (run?.status == AgentRunStatus.COMPLETED && response != null && CombinedContributionUsability.assess(run.status, response.content, allowPartial = true, finishReason = response.timeline.lastOrNull { it.generation != null }?.generation?.finishReason).usablePartial) {
+            status = if (source != null && source.content.isEmpty() && source.sourceDigest.isNotBlank() && response?.content.isNullOrBlank()) {
+                when (source.completionStatus) {
+                    AgentRunStatus.COMPLETED -> CombinedResponseStatus.COMPLETED
+                    AgentRunStatus.QUEUED, AgentRunStatus.RUNNING -> CombinedResponseStatus.GENERATING
+                    AgentRunStatus.WAITING_PROVIDER_LIMIT -> CombinedResponseStatus.PAUSED
+                    else -> CombinedResponseStatus.FAILED
+                }
+            } else if (run?.status == AgentRunStatus.COMPLETED && response != null && CombinedContributionUsability.assess(run.status, response.content, allowPartial = true, finishReason = response.timeline.lastOrNull { it.generation != null }?.generation?.finishReason).usablePartial) {
                 CombinedResponseStatus.FAILED
             } else if (run == null && source?.completionStatus in setOf(AgentRunStatus.FAILED, AgentRunStatus.INTERRUPTED, AgentRunStatus.CANCELED)) {
                 CombinedResponseStatus.FAILED
@@ -125,7 +141,8 @@ internal fun combinedAnswerStatus(
     profiles: List<CombinedResponseProfile>,
     runsById: Map<String, AgentRun>
 ): CombinedResponseStatus {
-    if (synthesis != null) return combinedResponseStatus(synthesis, synthesis.currentRunId?.let(runsById::get))
+    if (synthesis != null) return combinedResponseStatus(synthesis.copy(content = synthesis.effectiveContent()), synthesis.effectiveRunId()?.let(runsById::get))
+    if (profiles.any { it.status == CombinedResponseStatus.PAUSED } && profiles.none { it.status == CombinedResponseStatus.GENERATING }) return CombinedResponseStatus.PAUSED
     return if (profiles.any { runsById[it.message?.currentRunId]?.status == AgentRunStatus.CANCELED } || profiles.isNotEmpty() && profiles.all { it.status == CombinedResponseStatus.FAILED }) {
         CombinedResponseStatus.FAILED
     } else {

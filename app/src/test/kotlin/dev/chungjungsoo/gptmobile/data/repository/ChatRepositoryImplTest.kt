@@ -406,7 +406,7 @@ class ChatRepositoryImplTest {
     @Test
     fun `cold remote greeting never joins blocked optional tool or memory producers`() = runBlocking {
         val resolver = mockk<AgentToolResolver>()
-        coEvery { resolver.resolve(any(), any(), any(), any(), any(), any(), any()) } coAnswers { kotlinx.coroutines.awaitCancellation() }
+        coEvery { resolver.resolve(any(), any(), any(), any(), any(), any(), any(), any()) } coAnswers { kotlinx.coroutines.awaitCancellation() }
         val facts = mockk<dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository>(relaxed = true)
         coEvery { facts.scopeForChat(any()) } returns dev.chungjungsoo.gptmobile.data.knowledge.MemoryScope()
         coEvery { facts.prepareTurn(any(), any(), any()) } coAnswers { kotlinx.coroutines.awaitCancellation() }
@@ -417,7 +417,7 @@ class ChatRepositoryImplTest {
         }
         assertEquals(1, api.streamChatCompletionCalls)
         assertTrue(states.none { it is ApiState.Error })
-        io.mockk.coVerify(exactly = 0) { resolver.resolve(any(), any(), any(), any(), any(), any(), any()) }
+        io.mockk.coVerify(exactly = 0) { resolver.resolve(any(), any(), any(), any(), any(), any(), any(), any()) }
         io.mockk.coVerify(exactly = 0) { facts.prepareTurn(any(), any(), any()) }
     }
 
@@ -433,7 +433,7 @@ class ChatRepositoryImplTest {
                 return AgentToolResult(callId, ToolResultContent.Text("Dispatched"), false)
             }
         }
-        coEvery { resolver.resolve("custom-platform", config, null, null, any()) } returns listOf(
+        coEvery { resolver.resolve("custom-platform", config, null, null, any(), requestedModel = "custom-model") } returns listOf(
             ResolvedAgentTool(tool, "work", "Work account", "github", "github__work", false)
         )
         val approvals = mockk<dev.chungjungsoo.gptmobile.data.permissions.ToolApprovalManager>(relaxed = true)
@@ -467,7 +467,7 @@ class ChatRepositoryImplTest {
             }
             ResolvedAgentTool(agent, null, null, if (name == "github__work") "github" else name, name)
         }
-        coEvery { resolver.resolve(any(), any(), any(), any(), any(), any(), any()) } returns tools
+        coEvery { resolver.resolve(any(), any(), any(), any(), any(), any(), any(), any()) } returns tools
         val ordered = createRepository(agentToolResolver = resolver).resolveDelegatedTools(
             customPlatform(),
             "parent",
@@ -875,7 +875,7 @@ class ChatRepositoryImplTest {
     fun `litert lm tool capable run records engine owned tool calls on the timeline`() = runBlocking {
         val dateTool = dev.chungjungsoo.gptmobile.data.agent.tool.CurrentDateTool()
         val resolver = mockk<AgentToolResolver>()
-        coEvery { resolver.resolve(any(), any(), any(), any(), any(), any(), any()) } returns listOf(
+        coEvery { resolver.resolve(any(), any(), any(), any(), any(), any(), any(), any()) } returns listOf(
             ResolvedAgentTool(dateTool, null, null, dateTool.definition.name, dateTool.definition.name)
         )
         val runtime = FakeLocalRuntime().apply {
@@ -969,7 +969,7 @@ class ChatRepositoryImplTest {
             )
         }
         val resolver = mockk<AgentToolResolver>()
-        coEvery { resolver.resolve(any(), any(), any(), any(), any(), any(), any()) } returns listOf(
+        coEvery { resolver.resolve(any(), any(), any(), any(), any(), any(), any(), any()) } returns listOf(
             ResolvedAgentTool(
                 tool = mcpTool,
                 connectionUid = "search-server",
@@ -1384,7 +1384,7 @@ class ChatRepositoryImplTest {
         )
         var toolResolutions = 0
         val resolver = mockk<AgentToolResolver>()
-        coEvery { resolver.resolve(any(), any(), any(), any(), any(), any(), any()) } answers {
+        coEvery { resolver.resolve(any(), any(), any(), any(), any(), any(), any(), any()) } answers {
             toolResolutions++
             emptyList()
         }
@@ -1427,7 +1427,8 @@ class ChatRepositoryImplTest {
         assertTrue(runCatching { delegatedCapabilityIntersection(listOf(resolved("one")), listOf(resolved("one"), resolved("two"))) }.isFailure)
     }
 
-    @Test fun incidentReplayRetainsEvidenceAcrossTwentyFourHelperRequestsWriter403AndContinue() = runBlocking {
+    // Invoked by ChatRepositoryResearchIncidentTest under Robolectric for real AtomicFile behavior.
+    fun incidentReplayRetainsEvidenceAcrossTwentyFourHelperRequestsWriter403AndContinue() = runBlocking {
         val primary = customPlatform()
         val helper = primary.copy(uid = "fixture-helper", name = "Private fixture helper", compatibleType = ClientType.LLAMA, apiUrl = "http://127.0.0.1:11434/v1", model = "qwen3-8b", maxTokens = 4096)
         val config = dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings(
@@ -1462,7 +1463,7 @@ class ChatRepositoryImplTest {
         )
         val reader = tool("read_url")
         val resolver = mockk<AgentToolResolver>()
-        coEvery { resolver.resolve(any(), any(), any(), any(), any(), any(), any()) } returns listOf(reader, tool("delegate_to_model"))
+        coEvery { resolver.resolve(any(), any(), any(), any(), any(), any(), any(), any()) } returns listOf(reader, tool("delegate_to_model"))
         val context = object : ContextWrapper(null) {
             override fun getFilesDir(): File = testFiles.root
         }
@@ -1581,7 +1582,7 @@ class ChatRepositoryImplTest {
             override suspend fun execute(callId: String, arguments: JsonObject) =
                 AgentToolResult(callId, ToolResultContent.Text("Should not execute"), true)
         }
-        coEvery { resolver.resolve(any(), any(), any(), any(), any(), any(), any()) } returns listOf(
+        coEvery { resolver.resolve(any(), any(), any(), any(), any(), any(), any(), any()) } returns listOf(
             ResolvedAgentTool(inactive, "stale-connection", "Unavailable", "stale_search", "stale_search", canReuseResult = { false })
         )
         val api = FakeGroqAPI(
@@ -1664,6 +1665,58 @@ class ChatRepositoryImplTest {
         assertEquals(states.toString(), 1, api.streamCalls)
         assertTrue(states.toString(), states.any { it is ApiState.Success && it.textChunk.contains("Fresh safe answer") })
         assertFalse(api.lastRequest.toString().contains("PRIVATE_EVIDENCE_DO_NOT_SEND"))
+    }
+
+    @Test fun benchmarkPoliciesReachTheProviderWithDifferentRequestedSettings() = runBlocking {
+        val api = RecordingOpenAIAPI()
+        val repository = createRepository(openAIAPI = api)
+        val profile = customPlatform().copy(temperature = 0.7f, topP = 0.8f, topK = 17, maxTokens = 1234, systemPrompt = "Saved profile instruction")
+        val turns = listOf(dev.chungjungsoo.gptmobile.data.context.ConversationTurn(MessageV2(content = "Return a short answer", platformType = null), null, true))
+        for (policy in dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkExecutionPolicy.entries) {
+            kotlinx.coroutines.withContext(dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkRequestContext(executionPolicy = policy)) {
+                repository.openBenchmarkSession(profile, turns, emptyList(), "benchmark-$policy", "speed", {}, {}).streamRound(emptyList(), emptyList()).toList()
+            }
+        }
+        val deterministic = api.requests[0]
+        val saved = api.requests[1]
+        assertEquals(0f, deterministic.temperature)
+        assertEquals(768, deterministic.maxTokens ?: deterministic.maxCompletionTokens)
+        assertTrue(deterministic.messages.toString().contains("Follow the benchmark instruction exactly"))
+        assertEquals(0.7f, saved.temperature)
+        assertEquals(0.8f, saved.topP)
+        assertEquals(17, saved.topK)
+        assertEquals(1234, saved.maxTokens ?: saved.maxCompletionTokens)
+        assertTrue(saved.messages.toString().contains("Saved profile instruction"))
+        assertEquals(0.7f, profile.temperature)
+        assertEquals("Saved profile instruction", profile.systemPrompt)
+    }
+
+    @Test fun benchmarkReadinessDoesNotInventRemoteRuntimeOrTokenizationProof() = runBlocking {
+        val receipt = createRepository().benchmarkReadiness(customPlatform(), false, null)
+        assertEquals(setOf("configuration"), receipt.requiredCheckIds)
+        assertEquals(dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkReadinessStatus.PASSED, receipt.checks.single { it.id == "configuration" }.status)
+        for (id in listOf("model_header", "initialization", "tokenizer", "memory")) {
+            assertEquals(dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkReadinessStatus.NOT_REQUIRED, receipt.checks.single { it.id == id }.status)
+        }
+        assertEquals(null, receipt.compatibilityKey)
+        assertEquals(null, receipt.finishedAt)
+    }
+
+    @Test fun unqualifiedPromptFallbackNeverReachesTheProvider() = runBlocking {
+        val api = RecordingOpenAIAPI()
+        val repository = createRepository(openAIAPI = api)
+        val rejected = runCatching {
+            kotlinx.coroutines.withContext(
+                dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkRequestContext(
+                    responseSchemaJson = "{\"type\":\"object\"}",
+                    structuredOutputMode = dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkStructuredOutputMode.PROMPT_JSON_VERIFIED_V1
+                )
+            ) {
+                repository.openBenchmarkSession(customPlatform(), emptyList(), emptyList(), "unqualified", "json", {}, {})
+            }
+        }
+        assertTrue(rejected.isFailure)
+        assertEquals(0, api.streamChatCompletionCalls)
     }
 
     private fun createRepository(

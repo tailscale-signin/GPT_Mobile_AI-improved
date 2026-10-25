@@ -8,6 +8,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkBatch
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkExecutionCoordinator
+import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkExecutionPolicy
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkMode
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkProgress
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkQueueItem
@@ -27,10 +28,12 @@ import dev.chungjungsoo.gptmobile.data.model.excludesMemory
 import dev.chungjungsoo.gptmobile.data.repository.ChatRepository
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor
+import java.io.File
 import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
@@ -67,6 +70,11 @@ class ProfileBenchmarkViewModel @Inject constructor(
     val history = store.history
     val batches = store.batches
     val storageWarning = store.warning
+    internal val resultPresentations = combine(profiles, history, batches, scoreSnapshot) { list, runs, batches, snapshot ->
+        benchmarkResultPresentations(list, runs, batches, snapshot?.rows.orEmpty())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    internal val backendComparisons = history.map { dev.chungjungsoo.gptmobile.data.benchmark.benchmarkComparisonMatrix(it) }
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     val benchmarkSession = execution.sessionId
     private val finishedRuns = history.map { runs -> runs.filter { it.finished } }.distinctUntilChanged()
     internal val retests = finishedRuns.map { dev.chungjungsoo.gptmobile.data.benchmark.benchmarkRetests(it) }
@@ -118,8 +126,8 @@ class ProfileBenchmarkViewModel @Inject constructor(
         val ids = chosen ?: setOf(config.targetProfileUid).filter { it.isNotBlank() }.toSet()
         ids.mapNotNull { uid -> list.firstOrNull { it.uid == uid } }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
-    val legacyReport: String? = context.getSharedPreferences("connection_doctor", Context.MODE_PRIVATE)
-        .getString("last_report", null)?.takeIf { it.startsWith("Benchmark v1") }
+    private val mutableLegacyReport = MutableStateFlow<String?>(null)
+    val legacyReport = mutableLegacyReport.asStateFlow()
     private val mutableProgress = execution.progressMutable
     val progress = mutableProgress.asStateFlow()
     private val mutableError = execution.errorMutable
@@ -149,8 +157,18 @@ class ProfileBenchmarkViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     init {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                mutableLegacyReport.value = context.getSharedPreferences("connection_doctor", Context.MODE_PRIVATE)
+                    .getString("last_report", null)?.takeIf { it.startsWith("Benchmark v1") }
+            } catch (canceled: CancellationException) {
+                throw canceled
+            } catch (error: Exception) {
+                mutableError.value = "The legacy benchmark report could not be loaded. Current benchmark history remains available."
+            }
+        }
         viewModelScope.launch {
-            combine(profiles, localEnvironment) { list, environment -> list.filter { it.enabled }.associate { it.uid to benchmarkConfigKey(it, environment) } }.collect { enrollment ->
+            combine(profiles, localEnvironment) { list, environment -> dev.chungjungsoo.gptmobile.data.benchmark.benchmarkEnrollment(list.filter { it.enabled }, environment) }.collect { enrollment ->
                 try {
                     store.updateEnrollment(enrollment)
                 } catch (error: Exception) {
@@ -237,58 +255,110 @@ class ProfileBenchmarkViewModel @Inject constructor(
     val exporting = mutableExporting.asStateFlow()
     private val mutableExportNotice = MutableStateFlow<String?>(null)
     val exportNotice = mutableExportNotice.asStateFlow()
+    private val mutableExportError = MutableStateFlow<String?>(null)
+    val exportError = mutableExportError.asStateFlow()
+    private val exportArtifacts = BenchmarkExportArtifactStore(directory = { File(context.noBackupFilesDir, "benchmark-exports") })
+    private val mutableRetainedExport = MutableStateFlow<BenchmarkExportArtifact?>(null)
+    internal val retainedExport = mutableRetainedExport.asStateFlow()
+
+    init {
+        viewModelScope.launch { restoreRetainedExport() }
+    }
+
+    private suspend fun restoreRetainedExport() {
+        try {
+            mutableRetainedExport.value = exportArtifacts.latest()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            if (mutableExportError.value == null) mutableExportError.value = "Saved export recovery could not be checked: ${safeMessage(failure)}"
+        }
+    }
+
+    fun exportDestinationFailed(failure: Exception) {
+        mutableExportNotice.value = null
+        mutableExportError.value = "The system file picker could not be opened. Try again or choose another files app. ${safeMessage(failure)}"
+    }
+
+    fun exportDestinationCanceled() {
+        mutableExportNotice.value = if (mutableRetainedExport.value == null) "Export canceled." else "Export canceled. Your complete retained export is still available to save."
+    }
+
+    fun dismissExportError() {
+        mutableExportError.value = null
+    }
 
     fun startDebugBenchmark() {
         if (debugMode.value) start(BenchmarkMode.FULL, diagnostics = true)
     }
 
-    fun exportBenchmarks(uri: android.net.Uri, detailed: Boolean = false) {
+    fun exportBenchmarks(uri: android.net.Uri, detailed: Boolean = false, retainedArtifactId: String? = null) {
         if (mutableExporting.value) return
         mutableExporting.value = true
-        mutableExportNotice.value = null
+        mutableExportNotice.value = "Preparing a complete benchmark export…"
+        mutableExportError.value = null
         viewModelScope.launch {
+            var artifact: BenchmarkExportArtifact? = null
             try {
-                check(!detailed || settings.getDebugMode()) { "Enable Debug Mode to export diagnostic benchmark data." }
-                val raw = store.exportJson(includeScoreHistory = detailed)
-                val payload = withContext(Dispatchers.Default) { dev.chungjungsoo.gptmobile.data.benchmark.benchmarkExport(raw, detailed) }
-                withContext(Dispatchers.IO) {
-                    checkNotNull(context.contentResolver.openOutputStream(uri, "wt")) { "Unable to open the export destination." }.bufferedWriter().use { it.write(payload) }
+                val prepared = if (retainedArtifactId != null) {
+                    checkNotNull(exportArtifacts.find(retainedArtifactId)) { "The retained export is unavailable. Export the current benchmark data again." }
+                } else {
+                    check(!detailed || settings.getDebugMode()) { "Enable Debug Mode to export diagnostic benchmark data." }
+                    exportArtifacts.prepare(detailed) { output -> store.writeExport(output, detailed) }
                 }
+                artifact = prepared
+                mutableRetainedExport.value = prepared
+                mutableExportNotice.value = "Saving the complete benchmark export…"
+                saveBenchmarkExportArtifact(exportArtifacts, prepared, settings::getDebugMode) { context.contentResolver.openOutputStream(uri, "wt") }
                 mutableExportNotice.value = "Exported all stored benchmark runs, scores and runtime evidence."
-            } catch (cancel: CancellationException) {
-                throw cancel
-            } catch (error: Exception) {
-                mutableError.value = "Benchmark export failed: ${safeMessage(error)}"
+            } catch (cancelled: CancellationException) {
+                mutableExportNotice.value = "Export interrupted. Any complete export is retained and can be saved again."
+                throw cancelled
+            } catch (failure: Exception) {
+                mutableExportNotice.value = null
+                mutableExportError.value = if (failure is BenchmarkExportIntegrityFailure) {
+                    "The retained export could not be verified. Export the current benchmark data again; stored benchmark results are unchanged."
+                } else if (artifact != null) {
+                    "The export could not be saved to that destination. The complete export is retained in the app; choose Save retained export to try again. The destination may contain an incomplete file. ${safeMessage(failure)}"
+                } else {
+                    "Benchmark export could not be prepared. Stored benchmark results are unchanged. ${safeMessage(failure)}"
+                }
             } finally {
+                withContext(NonCancellable) { restoreRetainedExport() }
                 mutableExporting.value = false
             }
         }
     }
 
-    fun start(mode: BenchmarkMode, diagnostics: Boolean = false) {
+    fun start(mode: BenchmarkMode, diagnostics: Boolean = false, executionPolicy: BenchmarkExecutionPolicy = BenchmarkExecutionPolicy.DETERMINISTIC_CAPABILITY_V1) {
         if (mode == BenchmarkMode.DELEGATION) {
             startDelegationBatch(BenchmarkMode.QUICK)
             return
         }
         val profile = selected.value ?: return
-        startSelected(listOf(profile), mode, diagnostics)
+        startSelected(listOf(profile), mode, diagnostics, executionPolicy)
     }
 
-    fun startStandardBatch(mode: BenchmarkMode) = startSelected(selectedBenchmarks.value, mode)
+    fun startStandardBatch(mode: BenchmarkMode, executionPolicy: BenchmarkExecutionPolicy = BenchmarkExecutionPolicy.DETERMINISTIC_CAPABILITY_V1) = startSelected(selectedBenchmarks.value, mode, executionPolicy = executionPolicy)
 
-    private fun startSelected(targets: List<PlatformV2>, mode: BenchmarkMode, diagnostics: Boolean = false) {
+    private fun startSelected(targets: List<PlatformV2>, mode: BenchmarkMode, diagnostics: Boolean = false, executionPolicy: BenchmarkExecutionPolicy = BenchmarkExecutionPolicy.DETERMINISTIC_CAPABILITY_V1) {
         if (execution.isRunning || !mutableReady.value) return
         if (targets.isEmpty()) {
             mutableError.value = "Select at least one AI model to benchmark."
+            return
+        }
+        if (mode in setOf(BenchmarkMode.CPU_EXPERIMENT, BenchmarkMode.PERFORMANCE) && targets.any { it.compatibleType != ClientType.LITERT_LM }) {
+            mutableError.value = "${mode.label} requires only on-device model profiles."
             return
         }
         val batch = BenchmarkBatch(
             id = UUID.randomUUID().toString(),
             mode = mode,
             createdAt = System.currentTimeMillis(),
-            items = targets.mapIndexed { ordinal, profile -> BenchmarkQueueItem(ordinal, profile.benchmarkSnapshot(), UUID.randomUUID().toString(), benchmarkConfigKey(profile, localEnvironment.value)) },
+            items = targets.mapIndexed { ordinal, profile -> BenchmarkQueueItem(ordinal, profile.benchmarkSnapshot(), UUID.randomUUID().toString(), benchmarkConfigKey(profile, localEnvironment.value, executionPolicy)) },
             localEnvironment = localEnvironment.value,
-            diagnosticMode = diagnostics && debugMode.value
+            diagnosticMode = diagnostics && debugMode.value,
+            executionPolicy = executionPolicy
         )
         mutableError.value = null
         mutableProgress.value = BenchmarkProgress("Benchmark queue", "Saving selection", 0, targets.size * benchmarkSuite(mode).size)

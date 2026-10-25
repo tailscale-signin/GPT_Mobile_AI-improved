@@ -13,16 +13,16 @@ import org.junit.Test
 class FreeAiRequestLimiterTest {
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     @Test
-    fun shortOvhWindowWaitsAndCancellationDoesNotConsumeTheNextSlot() = kotlinx.coroutines.test.runTest {
+    fun exhaustedOvhAllowanceRemainsAnExplicitWaitDuringItsFinalSeconds() = kotlinx.coroutines.test.runTest {
         val limiter = FreeAiRequestLimiter { testScheduler.currentTime }
         repeat(2) { limiter.reserve(FreeAiProvider.OVHCLOUD, "model") }
         testScheduler.advanceTimeBy(55_000)
         var calls = 0
-        val waiting = async { limiter.withRequest(FreeAiProvider.OVHCLOUD, "model") { calls++ } }
-        testScheduler.runCurrent()
-        assertFalse(waiting.isCompleted)
-        waiting.cancelAndJoin()
+        val blocked = runCatching { limiter.withRequest(FreeAiProvider.OVHCLOUD, "model") { calls++ } }.exceptionOrNull()
+        assertEquals(60_000L, (blocked as FreeAiRateLimitException).retryAt)
+        assertEquals(55_000L, testScheduler.currentTime)
         assertEquals(0, calls)
+        testScheduler.advanceTimeBy(5000)
         limiter.withRequest(FreeAiProvider.OVHCLOUD, "model") { calls++ }
         assertEquals(60_000L, testScheduler.currentTime)
         assertEquals(1, calls)
@@ -116,5 +116,21 @@ class FreeAiRequestLimiterTest {
         val limiter = FreeAiRequestLimiter { testScheduler.currentTime }
         limiter.withRequest(FreeAiProvider.POLLINATIONS) { kotlinx.coroutines.delay(20_000) }
         limiter.withRequest(FreeAiProvider.POLLINATIONS) { assertEquals(50_000L, testScheduler.currentTime) }
+    }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test
+    fun cancellingOrdinarySpacingDoesNotConsumeTheNextRequest() = kotlinx.coroutines.test.runTest {
+        val limiter = FreeAiRequestLimiter { testScheduler.currentTime }
+        limiter.withRequest(FreeAiProvider.LLM7) { }
+        var calls = 0
+        val waiting = async { limiter.withRequest(FreeAiProvider.LLM7) { calls++ } }
+        testScheduler.runCurrent()
+        assertFalse(waiting.isCompleted)
+        waiting.cancelAndJoin()
+        assertEquals(0, calls)
+        limiter.withRequest(FreeAiProvider.LLM7) { calls++ }
+        assertEquals(1000L, testScheduler.currentTime)
+        assertEquals(1, calls)
     }
 }

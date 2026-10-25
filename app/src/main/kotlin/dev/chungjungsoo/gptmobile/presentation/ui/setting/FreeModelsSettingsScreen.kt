@@ -43,6 +43,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.free.FreeCatalogState
 import dev.chungjungsoo.gptmobile.data.free.FreeModelCatalog
@@ -54,18 +55,20 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FreeModelsSettingsScreen(viewModel: SettingViewModelV2, onBack: () -> Unit, onOpenProfile: (String) -> Unit, modifier: Modifier = Modifier) {
+    val activationRequest by viewModel.pendingProviderActivation.collectAsStateWithLifecycle()
+    activationRequest?.let { ProviderActivationDialog(it, viewModel::confirmProviderActivation, viewModel::dismissProviderActivation) }
     val profiles by viewModel.platformState.collectAsState()
     val states by FreeCatalogState.status.collectAsState()
     val catalog by FreeCatalogState.catalog.collectAsState()
     val scope = rememberCoroutineScope()
-    LaunchedEffect(Unit) { FreeAiProvider.entries.forEach { provider -> launch { FreeCatalogState.refresh(provider, token = profiles.firstOrNull { FreeAiProvider.fromApiUrl(it.apiUrl) == provider && !it.token.isNullOrBlank() }?.token) } } }
+    LaunchedEffect(Unit) { FreeAiProvider.active.forEach { provider -> launch { FreeCatalogState.refresh(provider, token = profiles.firstOrNull { FreeAiProvider.fromApiUrl(it.apiUrl) == provider && !it.token.isNullOrBlank() }?.token) } } }
     Scaffold(modifier = modifier.fillMaxSize(), topBar = {
         TopAppBar(title = { Text(FreeModelCatalog.NAME) }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") } }, actions = {
-            IconButton(enabled = states.values.none { it.checking }, onClick = { FreeAiProvider.entries.forEach { provider -> scope.launch { FreeCatalogState.refresh(provider, true, profiles.firstOrNull { FreeAiProvider.fromApiUrl(it.apiUrl) == provider && !it.token.isNullOrBlank() }?.token) } } }) { Icon(Icons.Rounded.Refresh, "Refresh service status and models") }
+            IconButton(enabled = states.values.none { it.checking }, onClick = { FreeAiProvider.active.forEach { provider -> scope.launch { FreeCatalogState.refresh(provider, true, profiles.firstOrNull { FreeAiProvider.fromApiUrl(it.apiUrl) == provider && !it.token.isNullOrBlank() }?.token) } } }) { Icon(Icons.Rounded.Refresh, "Refresh service status and models") }
         })
     }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            items(FreeAiProvider.entries, key = { it.name }) { provider ->
+            items(FreeAiProvider.active, key = { it.name }) { provider ->
                 // Read catalog state to recompose model options after a refresh.
                 val models = remember(provider, catalog) { FreeCatalogState.models(provider) }
                 val children = profiles.filter { it.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.FREE && FreeAiProvider.fromApiUrl(it.apiUrl) == provider }
@@ -137,16 +140,19 @@ internal fun FreeServiceCard(provider: FreeAiProvider, status: FreeServiceStatus
             }
             if (profiles.isEmpty()) Text("Profile removed · add this service from AI profiles to use it again.", style = MaterialTheme.typography.bodySmall)
             if (selectedProfile != null) {
+                val selectedStatus = FreeCatalogState.generationStatus(provider, selectedProfile.model, dev.chungjungsoo.gptmobile.data.network.freeCredentialIdentity(provider, selectedProfile.token))
+                    ?: status.takeIf { it.readiness == dev.chungjungsoo.gptmobile.data.free.FreeGenerationReadiness.UNTESTED }
+                    ?: FreeServiceStatus()
                 Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.audit_model_for, selectedProfile.name), style = MaterialTheme.typography.titleMedium)
-                if (status.message.isNotBlank()) Text(status.message, style = MaterialTheme.typography.bodySmall)
+                if (selectedStatus.message.isNotBlank()) Text(selectedStatus.message, style = MaterialTheme.typography.bodySmall)
                 Text(details.authentication, style = MaterialTheme.typography.bodySmall)
                 Text(details.limits, style = MaterialTheme.typography.bodySmall)
                 Text(details.transport, style = MaterialTheme.typography.titleSmall)
                 Text(details.privacy, style = MaterialTheme.typography.bodySmall)
                 Text(details.notice, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text("Structured output: ${details.structuredOutput}", style = MaterialTheme.typography.bodySmall)
-                status.servedModel?.let { Text("Last served model: $it", style = MaterialTheme.typography.labelMedium) }
-                status.remaining?.let { Text("Server-reported allowance: $it", style = MaterialTheme.typography.labelMedium) }
+                selectedStatus.servedModel?.let { Text("Last served model: $it", style = MaterialTheme.typography.labelMedium) }
+                selectedStatus.remaining?.let { Text("Server-reported allowance: $it", style = MaterialTheme.typography.labelMedium) }
                 TextButton(onClick = { uri.openUri(details.documentation) }) { Text("Provider documentation & policies") }
                 models.forEach { model ->
                     Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surface) {
@@ -155,7 +161,11 @@ internal fun FreeServiceCard(provider: FreeAiProvider, status: FreeServiceStatus
                             Text("Client tools: ${if (model.tools) "advertised" else "off / unverified"} · Streaming: ${if (model.streaming) "supported by transport" else "queued or buffered"}", style = MaterialTheme.typography.bodySmall)
                             Text("Context: ${model.contextTokens?.toString() ?: "unverified"} · Output capacity: ${model.outputTokens?.toString() ?: "unverified"}", style = MaterialTheme.typography.labelSmall)
                             model.privacy?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-                            profiles.firstOrNull { it.uid == selectedProfileUid }?.let { profile -> TextButton(onClick = { update(profile.copy(model = model.id)) }, enabled = profile.model != model.id) { Text(if (profile.model == model.id) "Selected" else "Use this model") } }
+                            profiles.firstOrNull { it.uid == selectedProfileUid }?.let { profile ->
+                                val block = dev.chungjungsoo.gptmobile.data.network.FreeProviderPreflight.check(profile, model.id)
+                                block?.let { Text(dev.chungjungsoo.gptmobile.presentation.common.freeProviderAvailability(provider, model.id, null, now, profile.token) ?: it.message, style = MaterialTheme.typography.labelSmall) }
+                                TextButton(onClick = { if (dev.chungjungsoo.gptmobile.data.network.FreeProviderPreflight.check(profile, model.id) == null) update(profile.copy(model = model.id)) }, enabled = profile.model != model.id && block == null) { Text(if (profile.model == model.id) "Selected" else "Use this model") }
+                            }
                         }
                     }
                 }

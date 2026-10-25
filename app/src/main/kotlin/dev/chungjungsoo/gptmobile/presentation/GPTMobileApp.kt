@@ -96,7 +96,7 @@ class GPTMobileApp :
         if (dev.chungjungsoo.gptmobile.data.localruntime.isInferenceProcess()) return
         dev.chungjungsoo.gptmobile.data.security.DevicePrivacySettings.initialize(this)
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.initialize(this)
-        dev.chungjungsoo.gptmobile.data.network.FreeAiRequestLimiter.shared.initialize(java.io.File(noBackupFilesDir, "free-provider-cooldowns.json"))
+        dev.chungjungsoo.gptmobile.data.network.FreeAiRequestLimiter.shared.initialize(java.io.File(noBackupFilesDir, "free-provider-cooldowns.json"), requireExplicitLoad = true)
         dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.initialize(java.io.File(noBackupFilesDir, "free-provider-failures.json"))
         if (dev.chungjungsoo.gptmobile.BuildConfig.DEBUG) {
             // Diagnose unexpected UI-thread disk and network blocking in development builds.
@@ -112,6 +112,10 @@ class GPTMobileApp :
         registerActivityLifecycleCallbacks(AppForegroundTracker)
         StartupRecoveryGate.start(applicationScope) {
             val gateStartTime = SystemClock.elapsedRealtime()
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                dev.chungjungsoo.gptmobile.data.network.FreeQuotaIdentity.initialize(java.io.File(noBackupFilesDir, "free-quota-device-key-v1"))
+                dev.chungjungsoo.gptmobile.data.network.FreeAiRequestLimiter.shared.loadState()
+            }
             StartupRecoveryGate.step("legacy-restore") { SanitizedChatBackup.restoreIfPresent(this@GPTMobileApp) }
             StartupRecoveryGate.step("backup-recovery") { completeBackup.get().recoverAtStartup() }
             StartupRecoveryGate.step("research-observer") {
@@ -136,6 +140,7 @@ class GPTMobileApp :
             dev.chungjungsoo.gptmobile.data.free.FreeQueueJobs.initialize(this@GPTMobileApp)
             StartupRecoveryGate.step("platform-migration") { combinedSettings.migrateToPlatformV2() }
             combinedSettings.ensureFreeModels()
+            startup.agentRunCoordinator().reconcileProviderWaits()
             val rooms = conversationDatabase.get().chatRoomDao()
             val existingConversationIds = (rooms.getChatRooms() + rooms.getArchivedChatRooms()).mapTo(hashSetOf()) { it.id }
             combinedSettings.recoverConversationCombinedDeletions(existingConversationIds)

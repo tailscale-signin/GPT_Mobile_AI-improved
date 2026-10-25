@@ -31,7 +31,7 @@ const val LOW_POWER_STREAM_PUBLISH_INTERVAL_MILLIS = 250L
 
 sealed interface ApiStateFlowOutcome {
     data object Completed : ApiStateFlowOutcome
-    data class Failed(val message: String) : ApiStateFlowOutcome
+    data class Failed(val message: String, val providerLimit: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision? = null) : ApiStateFlowOutcome
     data object Incomplete : ApiStateFlowOutcome
 }
 
@@ -93,6 +93,7 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
     val buffer = StreamingMessageBuffer(nanoTimeProvider, publishIntervalMillis)
     var isCompletedSuccessfully = false
     var terminalError: String? = null
+    var providerLimit: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision? = null
 
     try {
         withPublicationTicks(publishIntervalMillis).takeWhile { pulse ->
@@ -165,7 +166,7 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
                 }
 
                 is ApiState.ToolCall -> {
-                    buffer.appendTool(chunk.toolSequence, chunk.metrics, chunk.delegated)
+                    buffer.appendTool(chunk.toolSequence, chunk.metrics, chunk.delegated, chunk.personalData)
                     buffer.publishNow(onUpdate)
                 }
 
@@ -175,11 +176,11 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
                 }
 
                 is ApiState.Notice -> {
-                    if (chunk.persistent || chunk.researchDelivery != null) {
-                        buffer.appendNotice(chunk.message, chunk.researchDelivery)
+                    if (chunk.persistent || chunk.researchDelivery != null || chunk.personalData.isNotEmpty()) {
+                        buffer.appendNotice(chunk.message, chunk.researchDelivery, chunk.personalData)
                     }
-                    onNotice(chunk.message, chunk.persistent)
-                    if (chunk.persistent || chunk.researchDelivery != null) {
+                    if (chunk.message.isNotBlank()) onNotice(chunk.message, chunk.persistent)
+                    if (chunk.persistent || chunk.researchDelivery != null || chunk.personalData.isNotEmpty()) {
                         buffer.publishNow(onUpdate)
                     }
                 }
@@ -198,6 +199,7 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
                 }
 
                 is ApiState.Error -> {
+                    providerLimit = chunk.providerLimit
                     chunk.progressDeadline?.let(buffer::appendProgressDeadline)
                     chunk.recoveryBlock?.let(buffer::appendRecoveryBlock)
                     chunk.combinedFailure?.let(buffer::appendCombinedFailure)
@@ -218,7 +220,7 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
 
     val completedError = terminalError
     return when {
-        completedError != null -> ApiStateFlowOutcome.Failed(completedError)
+        completedError != null -> ApiStateFlowOutcome.Failed(completedError, providerLimit)
         isCompletedSuccessfully && !buffer.hasResponse -> ApiStateFlowOutcome.Failed("The model finished without a visible answer. Please retry or choose another model.")
         isCompletedSuccessfully -> ApiStateFlowOutcome.Completed
         else -> ApiStateFlowOutcome.Incomplete
@@ -344,18 +346,19 @@ private class StreamingMessageBuffer(
         }
     }
 
-    fun appendTool(toolSequence: Int, metrics: ToolPayloadMetrics?, delegated: Boolean) {
+    fun appendTool(toolSequence: Int, metrics: ToolPayloadMetrics?, delegated: Boolean, personalData: List<dev.chungjungsoo.gptmobile.data.permissions.PersonalDataProvenance> = emptyList()) {
         flushTimelineText()
         val existing = timeline.indexOfFirst { it.type == AssistantTimelineItemType.TOOL && it.toolSequence == toolSequence }
         if (existing >= 0) {
-            if (metrics == null) return
-            timeline[existing] = timeline[existing].copy(toolMetrics = metrics, delegatedTool = delegated || timeline[existing].delegatedTool)
+            if (metrics == null && personalData.isEmpty()) return
+            timeline[existing] = timeline[existing].copy(toolMetrics = metrics ?: timeline[existing].toolMetrics, delegatedTool = delegated || timeline[existing].delegatedTool, personalData = (timeline[existing].personalData + personalData).distinct())
         } else {
             timeline += AssistantTimelineItem(
                 type = AssistantTimelineItemType.TOOL,
                 toolSequence = toolSequence,
                 toolMetrics = metrics,
-                delegatedTool = delegated
+                delegatedTool = delegated,
+                personalData = personalData
             )
         }
         timelineVersion += 1
@@ -455,10 +458,10 @@ private class StreamingMessageBuffer(
         timelineVersion++
     }
 
-    fun appendNotice(message: String, receipt: dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryReceipt? = null) {
+    fun appendNotice(message: String, receipt: dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryReceipt? = null, personalData: List<dev.chungjungsoo.gptmobile.data.permissions.PersonalDataProvenance> = emptyList()) {
         flushTimelineText()
-        if (message.isBlank() && receipt == null) return
-        timeline += AssistantTimelineItem(type = AssistantTimelineItemType.NOTICE, content = message, researchDeliveryReceipt = receipt)
+        if (message.isBlank() && receipt == null && personalData.isEmpty()) return
+        timeline += AssistantTimelineItem(type = AssistantTimelineItemType.NOTICE, content = message, researchDeliveryReceipt = receipt, personalData = personalData)
         timelineVersion += 1
     }
 

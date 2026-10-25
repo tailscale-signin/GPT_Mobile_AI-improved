@@ -71,26 +71,9 @@ internal object CombinedFinalCheck {
         if (passages.any { !it.matches(answer) }) checks += CombinedAnswerCheck("STALE_PASSAGE_REVISION", "PROVENANCE", "FAIL", true)
 
         val sourceAssessments = inventory.associate { claim -> claim.id to CombinedEvidenceVerifier.assess(claim.id, claim.proposition, evidence) }
-        val matches = inventory.associate { claim ->
-            claim.id to destinations.flatMap { (text, span) ->
-                fun aligned(value: String): Boolean = CombinedClaimSemantics.lostQualifiers(claim.qualifiers, CombinedClaimSemantics.qualifiers(value)).isEmpty() &&
-                    CombinedClaimMatcher.match(claim.proposition, value) >= CombinedClaimMatcher.Match.PARAPHRASE
-                val clauses = if (answer.substring(span.startUtf16, span.endUtf16) == text) CombinedClaimClauses.spans(text).filter { aligned(it.text) } else emptyList()
-                if (clauses.isNotEmpty()) {
-                    clauses.map { clause ->
-                        if (clauses.size == 1 && text.take(clause.start).none(Char::isLetterOrDigit) && text.drop(clause.end).none(Char::isLetterOrDigit)) {
-                            span
-                        } else {
-                            CombinedCoverageLink(span.startUtf16 + clause.start, span.startUtf16 + clause.end, dev.chungjungsoo.gptmobile.data.research.researchHash(clause.text))
-                        }
-                    }
-                } else if (aligned(text)) {
-                    listOf(span)
-                } else {
-                    emptyList()
-                }
-            }
-        }
+        val mapping = CombinedAnswerMappings.get(answer, sources)
+        val mapped = mapping.claims.associateBy { it.claimId }
+        val matches = inventory.associate { claim -> claim.id to mapped[claim.id]?.takeIf { it.fullyLinked }?.links.orEmpty() }
 
         val corrections = inventory.associate { claim ->
             claim.id to if (sourceAssessments[claim.id]?.result == "CONFLICTING_PASSAGES") {
@@ -160,6 +143,8 @@ internal object CombinedFinalCheck {
             claim.candidateIds.filter { id -> reviewed.none { it.claimId == id } }.forEach { id ->
                 reviewed += if (outputs.isNotEmpty()) {
                     CombinedClaimReview(id, "INCLUDED", "Identified final span retains the proposition and extracted qualifiers.", outputs, "CONSERVATIVE_PROPOSITION_AND_QUALIFIER_CHECKED")
+                } else if (mapped[claim.id]?.status == "PARTIAL") {
+                    CombinedClaimReview(id, "PARTIALLY_REPRESENTED", "Only part of the proposition has an established text link; this is not proof that the rest was omitted.", mapped.getValue(claim.id).links, "CONSERVATIVE_FRAGMENT_LINK_CHECKED")
                 } else if (corrections[claim.id].orEmpty().isNotEmpty()) {
                     CombinedClaimReview(id, "CORRECTED", "An inspected passage contradicts the original claim and supports the aligned replacement with its qualifiers.", corrections[claim.id].orEmpty(), "RETAINED_PASSAGE_CORRECTION_WITH_LIMITS")
                 } else {

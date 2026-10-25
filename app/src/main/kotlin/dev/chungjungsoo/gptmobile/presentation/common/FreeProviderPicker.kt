@@ -85,7 +85,7 @@ fun FreeProviderPicker(
                     singleLine = true
                 )
                 ExposedDropdownMenu(expanded = expanded && enabled, onDismissRequest = { expanded = false }) {
-                    FreeAiProvider.entries.forEach { provider ->
+                    FreeAiProvider.active.forEach { provider ->
                         if (provider.isDemo) Text("Demo / Experimental", Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.labelLarge)
                         DropdownMenuItem(
                             enabled = provider.isAvailable && !testing,
@@ -130,7 +130,7 @@ fun FreeProviderPicker(
                 }
                 if (provider.isDemo) Text("Demo / Experimental · transport completion does not verify answer quality. Use evaluation prompts in Benchmarks to assess usefulness.", style = MaterialTheme.typography.bodySmall)
                 if (model != null && onModelSelected != null) {
-                    FreeModelPicker(provider, model, onModelSelected, enabled)
+                    FreeModelPicker(provider, model, onModelSelected, enabled, token)
                 }
                 Text(
                     if (provider.isAvailable) dev.chungjungsoo.gptmobile.data.free.FreeModelCatalog.details(provider).privacy else provider.unavailableReason.orEmpty(),
@@ -173,16 +173,23 @@ fun FreeProviderPicker(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun FreeModelPicker(provider: FreeAiProvider, selected: String, onSelected: (String) -> Unit, enabled: Boolean) {
+private fun FreeModelPicker(provider: FreeAiProvider, selected: String, onSelected: (String) -> Unit, enabled: Boolean, token: String?) {
     val catalog by dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.catalog.collectAsState()
+    val now by freeProviderClock()
     var expanded by remember { mutableStateOf(false) }
     val models = remember(provider, catalog) { dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.models(provider) }
     ExposedDropdownMenuBox(expanded, { if (enabled) expanded = it }) {
         OutlinedTextField(selected, {}, readOnly = true, label = { Text("Model") }, modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable), trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) })
         ExposedDropdownMenu(expanded, { expanded = false }) {
             models.forEach { model ->
-                DropdownMenuItem(text = { Text(model.label) }, onClick = {
-                    onSelected(model.id)
+                val blocked = remember(provider, model.id, token, now) { dev.chungjungsoo.gptmobile.data.network.FreeProviderPreflight.check(provider, model.id, token) }
+                DropdownMenuItem(enabled = enabled && blocked == null, text = {
+                    Column {
+                        Text(model.label)
+                        blocked?.let { Text(freeProviderAvailability(provider, model.id, null, now, token) ?: it.message, style = MaterialTheme.typography.labelSmall) }
+                    }
+                }, onClick = {
+                    if (dev.chungjungsoo.gptmobile.data.network.FreeProviderPreflight.check(provider, model.id, token) == null) onSelected(model.id)
                     expanded = false
                 })
             }

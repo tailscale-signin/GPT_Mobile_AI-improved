@@ -2,12 +2,22 @@ name: Android device validation
 on:
   workflow_dispatch:
     inputs:
+      required_gguf_backends:
+        description: 'Compatible physical-device GPU qualification (gpu is Vulkan; none stays NOT_QUALIFIED)'
+        required: true
+        default: none
+        type: choice
+        options:
+          - none
+          - gpu
+          - opencl
+          - 'gpu,opencl'
       performance_baseline:
         description: Reviewed baseline JSON under docs/implementation/performance-baselines (blank records an unqualified candidate)
         required: false
         type: string
       qnn_model_path:
-        description: 'Optional app-readable SM8750 AOT .litertlm path for real NPU qualification'
+        description: 'Optional device-readable SM8750 AOT .litertlm path, staged into app-owned storage'
         required: false
         type: string
       qnn_model_sha256:
@@ -26,37 +36,160 @@ jobs:
     # Trusted, dedicated device runner: never execute fork pull requests here.
     runs-on: [self-hosted, android-device]
     timeout-minutes: 60
+    env:
+      GGUF_REQUIRED_BACKENDS: ${{ inputs.required_gguf_backends || 'none' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Record device identity
         run: |
-          adb get-state
           mkdir -p device-evidence
+          echo '{"status":"NOT_QUALIFIED","reason":"No successful compatible-device GPU evidence from this job"}' > device-evidence/gguf-status.json
+          echo '{"status":"NOT_QUALIFIED","reason":"No successful matching QNN native/backend/cleanup evidence from this job"}' > device-evidence/qnn-status.json
+          adb get-state
           adb shell getprop > device-evidence/getprop.txt
           adb shell dumpsys thermalservice > device-evidence/thermal-before.txt
-      - name: Instrumented behavior and native memory checks
-        run: ./gradlew :app:connectedDebugAndroidTest
-      - name: Qualify SM8750 NPU inference without fallback
+      - name: Prepare and stage hash-pinned GGUF native fixtures
+        shell: bash
+        run: |
+          fixture_root="$RUNNER_TEMP/gguf-device-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          mkdir -p "$fixture_root/llama"
+          curl --fail --location --retry 3 https://codeload.github.com/ggml-org/llama.cpp/tar.gz/620d2225cc436ab0b001e3200e590e3b286ef9ab -o "$fixture_root/llama.tar.gz"
+          echo "1d4a987d9bd048f6e93107e838026438df70fbde237fc0c69c63d600512b4bd9  $fixture_root/llama.tar.gz" | sha256sum --check
+          tar -xf "$fixture_root/llama.tar.gz" --strip-components=1 -C "$fixture_root/llama"
+          python3 -m venv "$fixture_root/venv"
+          "$fixture_root/venv/bin/python" -m pip install numpy tqdm pyyaml
+          "$fixture_root/venv/bin/python" scripts/prepare_gguf_smoke.py "$fixture_root/llama" "$fixture_root/fixtures"
+          sha256sum "$fixture_root/fixtures/stories15M-chatml.gguf" "$fixture_root/fixtures/stories15M-jinja.gguf" > device-evidence/gguf-fixtures.sha256
+          adb push "$fixture_root/fixtures/stories15M-chatml.gguf" /data/local/tmp/stories15M-chatml.gguf
+          adb push "$fixture_root/fixtures/stories15M-jinja.gguf" /data/local/tmp/stories15M-jinja.gguf
+          adb shell chmod 644 /data/local/tmp/stories15M-chatml.gguf /data/local/tmp/stories15M-jinja.gguf
+      - name: Preserve the optional trusted QNN model before test APK reinstall
         if: inputs.qnn_model_path != '' && inputs.qnn_model_sha256 != ''
+        shell: bash
         env:
           QNN_MODEL_PATH: ${{ inputs.qnn_model_path }}
           QNN_MODEL_SHA256: ${{ inputs.qnn_model_sha256 }}
         run: |
+          set -euo pipefail
+          [[ "$QNN_MODEL_SHA256" =~ ^[a-fA-F0-9]{64}$ ]]
+          staged_model="$RUNNER_TEMP/qnn-model-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.litertlm"
+          # connectedAndroidTest can uninstall the app and its private model files.
+          # Capture before that step; use a quoted remote command for arbitrary paths.
+          private_read="$(python3 -c 'import os, shlex; print(shlex.join(["run-as", "dev.melo.gptmobile.improved", "cat", "--", os.environ["QNN_MODEL_PATH"]]))')"
+          public_read="$(python3 -c 'import os, shlex; print(shlex.join(["cat", "--", os.environ["QNN_MODEL_PATH"]]))')"
+          if ! adb exec-out "$private_read" > "$staged_model"; then
+            adb exec-out "$public_read" > "$staged_model"
+          fi
+          printf '%s  %s\n' "$QNN_MODEL_SHA256" "$staged_model" | sha256sum --check
+          sha256sum "$staged_model" > device-evidence/qnn-model.sha256
+      - name: Instrumented behavior and native memory checks
+        run: ./gradlew :app:connectedDebugAndroidTest
+      - name: Require actual GGUF execution for the selected compatible backends
+        id: gguf_gate
+        shell: bash
+        run: |
+          # connectedAndroidTest may uninstall its APKs. Install this job's fresh
+          # outputs explicitly before collecting raw, named-test result packets.
+          app_apks=(app/build/outputs/apk/debug/*universal*.apk)
+          test_apks=(app/build/outputs/apk/androidTest/debug/*.apk)
+          test "${#app_apks[@]}" -eq 1 && test -f "${app_apks[0]}"
+          test "${#test_apks[@]}" -eq 1 && test -f "${test_apks[0]}"
+          adb install -r "${app_apks[0]}"
+          adb install -r "${test_apks[0]}"
+          sha256sum "${app_apks[0]}" "${test_apks[0]}" > device-evidence/gguf-apks.sha256
+          backend_arguments=()
+          if [ "$GGUF_REQUIRED_BACKENDS" != none ]; then
+            backend_arguments=(-e requiredGgufBackends "$GGUF_REQUIRED_BACKENDS")
+          fi
+          timeout 600s adb shell am instrument -w -r \
+            -e class dev.chungjungsoo.gptmobile.data.localruntime.GgufNativeInstrumentedTest \
+            "${backend_arguments[@]}" \
+            dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner \
+            | tee device-evidence/gguf-instrumentation.txt
+          python3 scripts/check_gguf_android_smoke.py device-evidence/gguf-instrumentation.txt \
+            --required-backends "$GGUF_REQUIRED_BACKENDS" \
+            --device-properties device-evidence/getprop.txt \
+            --source-revision "$GITHUB_SHA" \
+            --status-output device-evidence/gguf-status.json
+      - name: Explicit GGUF qualification status
+        if: always()
+        shell: bash
+        env:
+          GGUF_GATE_OUTCOME: ${{ steps.gguf_gate.outcome }}
+        run: |
+          mkdir -p device-evidence
+          if [ "$GGUF_GATE_OUTCOME" != success ] || [ ! -f device-evidence/gguf-status.json ]; then
+            echo '{"status":"NOT_QUALIFIED","reason":"Missing, skipped, aborted, or failed compatible-device GPU test evidence"}' > device-evidence/gguf-status.json
+          fi
+          cat device-evidence/gguf-status.json >> "$GITHUB_STEP_SUMMARY"
+          adb shell rm -f /data/local/tmp/stories15M-chatml.gguf /data/local/tmp/stories15M-jinja.gguf
+      - name: Qualify SM8750 NPU inference without fallback
+        id: qnn_gate
+        if: inputs.qnn_model_path != '' && inputs.qnn_model_sha256 != ''
+        shell: bash
+        env:
+          QNN_MODEL_PATH: ${{ inputs.qnn_model_path }}
+          QNN_MODEL_SHA256: ${{ inputs.qnn_model_sha256 }}
+        run: |
+          set -euo pipefail
+          app_apks=(app/build/outputs/apk/debug/*universal*.apk)
+          test_apks=(app/build/outputs/apk/androidTest/debug/*.apk)
+          test "${#app_apks[@]}" -eq 1 && test -f "${app_apks[0]}"
+          test "${#test_apks[@]}" -eq 1 && test -f "${test_apks[0]}"
+          adb install -r "${app_apks[0]}"
+          adb install -r "${test_apks[0]}"
+          sha256sum "${app_apks[0]}" "${test_apks[0]}" > device-evidence/qnn-apks.sha256
+          staged_model="$RUNNER_TEMP/qnn-model-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.litertlm"
+          printf '%s  %s\n' "$QNN_MODEL_SHA256" "$staged_model" | sha256sum --check
+          adb shell run-as dev.melo.gptmobile.improved mkdir -p files/device-qualification
+          adb shell -T "run-as dev.melo.gptmobile.improved sh -c 'cat > files/device-qualification/model.litertlm'" < "$staged_model"
+          adb shell run-as dev.melo.gptmobile.improved rm -f files/device-qualification/qnn.json
+          qnn_run_id="qnn-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           adb logcat -c
-          ./gradlew :app:connectedDebugAndroidTest \
-            -Pandroid.testInstrumentationRunnerArguments.class=dev.chungjungsoo.gptmobile.data.localruntime.QualcommNpuInstrumentedTest \
-            "-Pandroid.testInstrumentationRunnerArguments.qnnModelPath=$QNN_MODEL_PATH" \
-            "-Pandroid.testInstrumentationRunnerArguments.qnnModelSha256=$QNN_MODEL_SHA256"
+          set +e
+          timeout 700s adb shell am instrument -w -r \
+            -e class dev.chungjungsoo.gptmobile.data.localruntime.QualcommNpuInstrumentedTest \
+            -e qnnModelPath files/device-qualification/model.litertlm -e qnnModelSha256 "$QNN_MODEL_SHA256" \
+            -e qnnQualificationRunId "$qnn_run_id" \
+            dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner \
+            | tee device-evidence/qnn-instrumentation.txt
+          qnn_instrumentation_status=${PIPESTATUS[0]}
+          adb exec-out run-as dev.melo.gptmobile.improved cat files/device-qualification/qnn.json > device-evidence/qnn-evidence.json
+          qnn_evidence_status=$?
+          set -e
           adb logcat -d -s QnnQualification > device-evidence/qnn-qualification.txt
-          grep -q 'status=QUALIFIED nonempty=true backend=NPU coldStart=1' device-evidence/qnn-qualification.txt
-          echo '{"status":"QUALIFIED","backend":"NPU","coldStarts":2,"turnsPerStart":2}' > device-evidence/qnn-status.json
+          python3 scripts/check_qnn_android_smoke.py \
+            device-evidence/qnn-instrumentation.txt device-evidence/qnn-evidence.json \
+            --model-sha256 "$QNN_MODEL_SHA256" --source-revision "$GITHUB_SHA" --run-id "$qnn_run_id" \
+            --device-properties device-evidence/getprop.txt --status-output device-evidence/qnn-status.json \
+            --instrumentation-exit-code "$qnn_instrumentation_status" --evidence-exit-code "$qnn_evidence_status"
       - name: Explicit QNN qualification status
         if: always()
+        env:
+          QNN_GATE_OUTCOME: ${{ steps.qnn_gate.outcome }}
         run: |
-          if [ ! -f device-evidence/qnn-status.json ]; then
-            echo '{"status":"NOT_QUALIFIED","reason":"Missing trusted model/device evidence or failed inference"}' > device-evidence/qnn-status.json
-          fi
+          python3 - <<'PYQNN'
+          import json, os
+          from pathlib import Path
+          path = Path('device-evidence/qnn-status.json')
+          try:
+              status = json.loads(path.read_text())
+          except (OSError, ValueError):
+              status = {}
+          if os.environ.get('QNN_GATE_OUTCOME') != 'success' and status.get('status') == 'QUALIFIED':
+              status = {}
+          if status.get('status') not in ('QUALIFIED', 'NOT_QUALIFIED'):
+              status = {'status': 'NOT_QUALIFIED', 'reason': 'Missing, skipped, aborted, or failed native/backend/cleanup evidence'}
+          path.parent.mkdir(parents=True, exist_ok=True)
+          path.write_text(json.dumps(status, indent=2) + '\n')
+          PYQNN
           cat device-evidence/qnn-status.json >> "$GITHUB_STEP_SUMMARY"
+      - name: Remove temporary QNN qualification model copies
+        if: always() && inputs.qnn_model_path != '' && inputs.qnn_model_sha256 != ''
+        shell: bash
+        run: |
+          rm -f "$RUNNER_TEMP/qnn-model-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.litertlm"
+          adb shell run-as dev.melo.gptmobile.improved rm -f files/device-qualification/model.litertlm
       - name: Collect visual review fixtures
         if: always()
         run: |

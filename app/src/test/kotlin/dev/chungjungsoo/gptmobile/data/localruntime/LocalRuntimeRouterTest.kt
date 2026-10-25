@@ -53,6 +53,7 @@ class LocalRuntimeRouterTest {
     fun generationFallbackPublishesCpuAndKeepsRequestedEngineWarm() = runTest {
         val requested = testEngineSpec().copy(accelerator = LocalAccelerators.GPU)
         val fallbackRuntime = object : LocalRuntime by liteRtRuntime {
+            override fun sendMessageWithBudget(text: String, images: List<ByteArray>, safetyTokens: Int): Flow<LocalRuntimeEvent> = sendMessage(text, images)
             override fun sendMessage(text: String, images: List<ByteArray>): Flow<LocalRuntimeEvent> = flow {
                 liteRtRuntime.loadEngine(checkNotNull(liteRtRuntime.loadedEngineSpec()).copy(accelerator = LocalAccelerators.CPU))
                 emit(LocalRuntimeEvent.PhaseChanged(LocalInferencePhase.PREFILL))
@@ -216,6 +217,16 @@ class LocalRuntimeRouterTest {
         holder.loadEngine(spec)
         assertEquals(null, liteRtRuntime.loadEngineCalls.last().cpuThreads)
         assertTrue(liteRtRuntime.loadEngineCalls.last().cacheEnabled)
+    }
+
+    @Test
+    fun explicitRequestMtpOffSurvivesAnOnProfileBeforeEngineInitialization() = runTest {
+        fakeSettingRepository.backend = LocalRuntimeBackend.LITERT_LM
+        fakeSettingRepository.features = fakeSettingRepository.features.copy(localSpeculativeDecoding = dev.chungjungsoo.gptmobile.data.model.SpeculativeDecodingMode.ON)
+        liteRtRuntime.capabilities = LocalModelCapabilities(backends = setOf("gpu"), speculative = true)
+        router.loadEngine(testEngineSpec().copy(accelerator = "gpu", speculativeDecoding = false, nativeMetricsEnabled = true))
+        assertEquals(false, liteRtRuntime.loadEngineCalls.single().speculativeDecoding)
+        assertTrue(liteRtRuntime.loadEngineCalls.single().nativeMetricsEnabled)
     }
 
     @Test

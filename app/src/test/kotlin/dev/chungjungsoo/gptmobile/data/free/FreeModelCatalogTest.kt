@@ -14,9 +14,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FreeModelCatalogTest {
-    @Test fun allTwelveServicesHaveProfilesModelsAndExplicitPolicy() {
+    @Test fun activeServicesHaveModelsAndRetiredIdentitiesRemainNonExecutable() {
         assertEquals(12, FreeAiProvider.entries.size)
-        FreeAiProvider.entries.forEach { provider ->
+        FreeAiProvider.active.forEach { provider ->
             val profile = provider.applyTo(PlatformV2(name = provider.displayName))
             assertTrue(profile.enabled)
             assertTrue(FreeModelCatalog.defaults(provider).any { it.id == profile.model })

@@ -47,6 +47,10 @@ internal data class RetainedResearchEvidence(
 internal fun richestResearchSnapshot(snapshots: List<ResearchSnapshot>): ResearchSnapshot? {
     if (snapshots.isEmpty()) return null
     require(snapshots.map { it.task }.distinct().size == 1) { "RESEARCH_MANIFEST_TASK_CHANGED" }
+    val latest = snapshots.maxBy { it.updatedAt }
+    // A pending provider operation owns an exact source/claim cursor. Retained revision
+    // recovery must not combine it with another evidence version before it is accepted.
+    if (latest.deferredStage != null) return latest
     val best = snapshots.maxWith(
         compareBy<ResearchSnapshot> { it.sources.count(ResearchSource::readable) }
             .thenBy { it.claims.count { claim -> claim.exactQuoteVerified && claim.verdict != "Unreviewed" } }
@@ -74,9 +78,10 @@ internal fun richestResearchSnapshot(snapshots: List<ResearchSnapshot>): Researc
             engineFailures = snapshots.maxOf { it.engineFailures },
             targetSources = snapshots.maxOf { it.targetSources },
             numericalFactBindingRequired = snapshots.any { it.numericalFactBindingRequired },
+            deferredStage = null,
             extractedSourceVersions = snapshots.flatMap { it.extractedSourceVersions }.toSet()
         )
         return if (retained == best) best else retained
     }
-    return mergeResearchSnapshots(snapshots.filterNot { it === best }, best)
+    return mergeResearchSnapshots(snapshots.filterNot { it === best }, best).copy(deferredStage = null)
 }

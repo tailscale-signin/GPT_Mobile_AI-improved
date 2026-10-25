@@ -48,6 +48,29 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentToolResolverTest {
+    @Test fun personalToolGrantUsesRequestedModelAndRetainsTheRegisteredCredentialFence() = runBlocking {
+        McpClientManagerTest.McpFixtureServer().use { server ->
+            val registered = FreeAiProvider.OVHCLOUD.applyTo(PlatformV2(uid = "override-profile", name = "Free")).copy(model = "registered-model")
+            val requested = registered.copy(model = "chat-model")
+            val profiles = mutableListOf(registered)
+            val dao = ResolverFakeToolConnectionDao()
+            dao.bind(connection("private", ToolConnectionType.MCP, endpointUrl = server.url, authType = ToolConnectionAuthType.NONE, allowCleartext = true), binding(registered.uid, "private", "echo"))
+            val consent = mockk<dev.chungjungsoo.gptmobile.data.permissions.FreeModelToolConsentStore>()
+            io.mockk.every { consent.isGranted(any<PlatformV2>(), any(), any()) } answers {
+                firstArg<PlatformV2>() == requested && secondArg<String>() == "private:echo" && thirdArg<Int?>() == 7
+            }
+            val resolver = resolver(dao = dao, settings = ResolverFakeSettingRepository(profiles), consent = consent)
+            val user = dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(id = 42, chatId = 7, content = "Use the selected tool", platformType = null)
+            val selection = ChatMcpToolConfig(allowAllByDefault = true)
+            assertFalse(resolver.resolve(registered.uid, selection, user).any { it.realToolName == "echo" })
+            assertFalse(resolver.resolve(registered.uid, selection, user, requestedModel = "different-model").any { it.realToolName == "echo" })
+            val tool = resolver.resolve(registered.uid, selection, user, requestedModel = requested.model).single { it.realToolName == "echo" }
+            assertTrue(requireNotNull(tool.canReuseResult).invoke())
+            profiles[0] = registered.copy(token = "changed-credential")
+            assertFalse(requireNotNull(tool.canReuseResult).invoke())
+        }
+    }
+
     @Test fun savedSearchAuthoritySurvivesDisplayEditsButRejectsPermissionRevocation() = runBlocking {
         val profile = PlatformV2(uid = "profile", name = "Primary")
         val settings = ResolverFakeSettingRepository(listOf(profile))
@@ -269,23 +292,23 @@ class AgentToolResolverTest {
     @Test
     fun `free MCP usage requires the grant for the exact profile and tool at runtime`() = runBlocking {
         McpClientManagerTest.McpFixtureServer().use { server ->
-            val profile = FreeAiProvider.KILO.applyTo(PlatformV2(uid = "free-profile", name = "Free"))
+            val profile = FreeAiProvider.OVHCLOUD.applyTo(PlatformV2(uid = "free-profile", name = "Free"))
             val dao = ResolverFakeToolConnectionDao()
             dao.bind(connection("mcp-1", ToolConnectionType.MCP, endpointUrl = server.url, authType = ToolConnectionAuthType.NONE, allowCleartext = true), binding(profile.uid, "mcp-1", "echo"))
             val consent = mockk<dev.chungjungsoo.gptmobile.data.permissions.FreeModelToolConsentStore>()
-            io.mockk.every { consent.isGranted(any(), any()) } returns false
+            io.mockk.every { consent.isGranted(any<PlatformV2>(), any()) } returns false
             val resolver = resolver(dao = dao, settings = ResolverFakeSettingRepository(listOf(profile)), consent = consent)
-            assertTrue(resolver.resolve(profile.uid).any { it.realToolName == "echo" })
+            assertFalse(resolver.resolve(profile.uid).any { it.realToolName == "echo" })
             val all = ChatMcpToolConfig(allowAllByDefault = true)
             assertFalse(resolver.resolve(profile.uid, all).any { it.realToolName == "echo" })
-            io.mockk.every { consent.isGranted(profile.uid, "mcp-1:echo") } returns true
+            io.mockk.every { consent.isGranted(profile, "mcp-1:echo") } returns true
             assertTrue(resolver.resolve(profile.uid, all).any { it.realToolName == "echo" })
             assertFalse(resolver.resolve(profile.uid, all.withToolDisabled("mcp-1:echo")).any { it.realToolName == "echo" })
         }
     }
 
     @Test
-    fun `Free profiles retain explicit tools including enabled local memory`() = runBlocking {
+    fun `Prohibited free routes retain public tools but cannot expose personal tools`() = runBlocking {
         val profile = FreeAiProvider.KILO.applyTo(PlatformV2(uid = "profile-1", name = "Free", compatibleType = ClientType.FREE))
         val dao = ResolverFakeToolConnectionDao()
         dao.bind(null, binding(profile.uid, null, BuiltInAgentTool.DEVICE_LOCATION))
@@ -298,9 +321,9 @@ class AgentToolResolverTest {
             userMessage = dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(content = "Remember that I prefer Kotlin", platformType = null),
             delegate = { _, _, _ -> error("Free profiles must not delegate") }
         )
-        assertTrue(resolved.map { it.modelToolName }.containsAll(withGitHubFacades(listOf("calculate_expression", "current_date", "device_location", "github", "read_file_slice", "read_url", "web_search"))))
-        assertEquals(1, resolved.count { it.modelToolName == "memory" })
-        assertFalse(resolved.single { it.modelToolName == "memory" }.tool.definition.description.contains("search_documents"))
+        assertTrue(resolved.map { it.modelToolName }.containsAll(listOf("calculate_expression", "current_date", "read_url", "web_search")))
+        assertFalse(resolved.any { it.modelToolName in setOf("device_location", "memory", "read_file_slice") })
+        assertTrue(resolved.filter { it.realToolName == BuiltInAgentTool.GITHUB }.all { it.nativeGitHub && !it.nativeGitHubAuthenticated })
     }
 
     @Test

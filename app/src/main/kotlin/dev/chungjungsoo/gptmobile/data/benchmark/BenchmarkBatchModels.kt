@@ -15,6 +15,12 @@ enum class BenchmarkQueueState { QUEUED, RUNNING, COMPLETED, FAILED, BLOCKED, SK
 enum class BenchmarkStopOrigin { USER_STOP, USER_SKIP, SERVICE_INTERRUPTION, PROCESS_INTERRUPTION, CHILD_OPERATION_ABORTED }
 
 @Serializable
+enum class BenchmarkFailureScope { REQUEST, DEPENDENCY, PROFILE, RUNTIME, BATCH, USER }
+
+@Serializable
+enum class BenchmarkRecoveryAction { CONTINUE_INDEPENDENT_CASES, SKIP_DEPENDENTS, STOP_PROFILE, QUARANTINE_RUNTIME, STOP_BATCH, HONOR_USER_STOP }
+
+@Serializable
 data class BenchmarkFailure(
     val code: String,
     val stage: String,
@@ -22,7 +28,9 @@ data class BenchmarkFailure(
     val owner: String = "profile",
     val scope: String = "profile",
     val retryable: Boolean = false,
-    val nextEligibleAt: Long? = null
+    val nextEligibleAt: Long? = null,
+    val failureScope: BenchmarkFailureScope? = null,
+    val recoveryAction: BenchmarkRecoveryAction? = null
 )
 
 @Serializable
@@ -65,7 +73,11 @@ data class BenchmarkBatch(
     val paired: Boolean = false,
     val diagnosticMode: Boolean = false,
     val localEnvironment: String = "",
-    val storageWarning: String? = null
+    val storageWarning: String? = null,
+    val recoveryPolicy: String? = null,
+    val executionPolicy: BenchmarkExecutionPolicy? = null,
+    val fixtureRotationSeed: Long? = null,
+    val caseManifest: List<BenchmarkCase>? = null
 ) {
     val pending: List<BenchmarkQueueItem> get() = items.filter { it.state == BenchmarkQueueState.QUEUED }
     val handled: Int get() = items.count { it.terminal }
@@ -89,7 +101,8 @@ data class BenchmarkAttempt(
     val dispatchUncertain: Boolean = true,
     val physicalRequestIds: List<String> = emptyList(),
     val logicalRequestId: String? = null,
-    val invocationIds: List<String> = emptyList()
+    val invocationIds: List<String> = emptyList(),
+    val queuedAt: Long? = null
 )
 
 @Serializable
@@ -97,7 +110,7 @@ data class BenchmarkBatchEvent(val batchId: String, val sequence: Long, val type
 
 internal fun BenchmarkBatch.completionState(): BenchmarkBatchState = when {
     items.any { !it.terminal } -> state
-    items.any { it.state in setOf(BenchmarkQueueState.FAILED, BenchmarkQueueState.BLOCKED, BenchmarkQueueState.INTERRUPTED) } -> BenchmarkBatchState.COMPLETED_WITH_FAILURES
+    items.any { it.failure != null || it.state in setOf(BenchmarkQueueState.FAILED, BenchmarkQueueState.BLOCKED, BenchmarkQueueState.INTERRUPTED) } -> BenchmarkBatchState.COMPLETED_WITH_FAILURES
     else -> BenchmarkBatchState.COMPLETED
 }
 

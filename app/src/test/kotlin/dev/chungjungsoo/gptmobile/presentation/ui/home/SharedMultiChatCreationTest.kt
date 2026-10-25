@@ -41,6 +41,7 @@ class SharedMultiChatCreationTest {
                     "observePlatformV2s" -> flowOf(profiles)
                     "observeFeatureSettings" -> flowOf(features)
                     "fetchPlatformV2s" -> profiles
+                    "providerActivationRequired" -> false
                     "mutateFeatureSettings" -> {
                         @Suppress("UNCHECKED_CAST")
                         val transform = args[0] as (AppFeatureSettings) -> AppFeatureSettings

@@ -33,6 +33,7 @@ data class ProviderRequestConfig(
      * double slashes or malformed URLs.
      */
     fun buildEndpoint(subPath: String): String {
+        check(freeProvider?.isRetired != true && FreeAiProvider.fromApiUrl(apiUrl)?.isRetired != true) { "PROVIDER_RETIRED: This provider has been removed. Saved conversations remain available." }
         if (freeProvider != null && subPath.trim('/') == "chat/completions") return freeProvider.chatCompletionsUrl
         val sanitizedBase = if (providerType == "NVIDIA") NvidiaEndpoints.normalize(apiUrl) else apiUrl.trim().trimEnd('/')
         val sanitizedSubPath = subPath.trim().trimStart('/')

@@ -16,6 +16,26 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = android.app.Application::class)
 class CombinedCollectionDecisionStoreTest {
+    @Test fun exclusionsAreDurableTurnDecisionsAndDoNotEraseAcknowledgementsOrOtherTurns() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        context.getSharedPreferences("combined_collection_decisions", Context.MODE_PRIVATE).edit().clear().commit()
+        val store = CombinedCollectionDecisionStore(context)
+        store.acknowledge("first-turn", setOf("failed-attempt"))
+        store.chooseWriter("first-turn", "remaining")
+        store.excludeProfile("first-turn", "failed")
+        store.excludeProfile("temporary-turn", "private", persistent = false)
+        val restored = CombinedCollectionDecisionStore(context)
+        restored.load()
+        assertEquals(setOf("failed"), restored.excludedProfiles("first-turn"))
+        assertTrue(restored.acknowledged("first-turn", "failed-attempt"))
+        assertEquals("remaining", restored.chosenWriter("first-turn"))
+        assertTrue(restored.excludedProfiles("next-turn").isEmpty())
+        assertTrue(restored.excludedProfiles("temporary-turn").isEmpty())
+        assertTrue(runCatching { restored.chooseWriter("first-turn", "failed") }.isFailure)
+        restored.deleteRoots(setOf("first-turn"))
+        assertTrue(runCatching { restored.excludeProfile("first-turn", "late") }.isFailure)
+    }
+
     @Test fun convertingToTemporaryRevokesPersistenceEvenForAnOlderCallback() = runBlocking {
         val context = RuntimeEnvironment.getApplication()
         context.getSharedPreferences("combined_collection_decisions", Context.MODE_PRIVATE).edit().clear().commit()

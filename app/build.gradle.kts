@@ -135,14 +135,16 @@ extensions.configure<ApplicationExtension> {
         buildConfigField("String", "GENIEX_VERSION", "\"${libs.versions.geniex.get()}\"")
         // Independent rollback controls. Mandatory parser/admission hard caps remain enabled.
         buildConfigField("boolean", "COMBINED_SECTION_RECOVERY", providers.gradleProperty("combinedSectionRecovery").map { (it != "false").toString() }.getOrElse("true"))
+        // Available as an explicit per-conversation choice; existing and new chats stay strict by default.
+        buildConfigField("boolean", "COMBINED_APPEND_CONTINUATIONS", providers.gradleProperty("combinedAppendContinuations").map { (it != "false").toString() }.getOrElse("true"))
         buildConfigField("boolean", "MCP_ROUTE_RECOVERY", providers.gradleProperty("mcpRouteRecovery").map { (it != "false").toString() }.getOrElse("true"))
         buildConfigField("boolean", "TOOL_STORM_FINALIZATION", providers.gradleProperty("toolStormFinalization").map { (it != "false").toString() }.getOrElse("true"))
         minSdk = 31
         targetSdk = 37
         // Interim release: Play-ready artifact gates remain mandatory while full
         // Unified Reliability v2 milestone acceptance is still in progress.
-        versionCode = 127
-        versionName = "0.9.56.1"
+        versionCode = 128
+        versionName = "0.9.60.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -355,6 +357,11 @@ extensions.configure<ApplicationAndroidComponentsExtension> {
     onVariants { variant ->
         variant.sources.assets?.addGeneratedSourceDirectory(prepareMemoryModel, PrepareMemoryModel::outputDirectory)
         variant.androidTest?.sources?.assets?.addStaticSourceDirectory("$projectDir/schemas")
+        if (variant.buildType in setOf("release", "benchmark", "nativeSmoke")) {
+            // Compress DEX in directly distributed APKs to keep the existing download
+            // budgets without dropping a runtime or ABI. App-bundle packaging is separate.
+            variant.packaging.dex.useLegacyPackaging.set(true)
+        }
     }
 }
 

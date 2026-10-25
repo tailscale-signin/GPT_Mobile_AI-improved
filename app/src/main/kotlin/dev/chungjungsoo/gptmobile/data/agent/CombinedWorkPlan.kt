@@ -110,8 +110,13 @@ data class CombinedRequestedPolicy(
     val requestedPolicyDigest: String = "",
     val acceptedResearch: CombinedResearchRequirement? = null,
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
-    val singlePass: Boolean = false
-)
+    val singlePass: Boolean = false,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val completionPolicy: String? = null
+) {
+    /** Absent v1 fields retain their original serialized digest and one-request contract. */
+    val appendContinuations: Boolean get() = version == 2 && singlePass && settings.continueLongAnswers && completionPolicy == "APPEND_CONTINUATIONS_V1"
+}
 
 /** Finite work sealed by the controller. Workers cannot add scope by calling a tool. */
 @Serializable

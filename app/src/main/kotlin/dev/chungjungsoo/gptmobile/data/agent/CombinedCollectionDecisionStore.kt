@@ -15,7 +15,13 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 @Serializable
-data class CombinedCollectionDecision(val rootBudgetId: String, val acknowledgedAttempts: Set<String> = emptySet(), val updatedAt: Long = 0, val chosenWriterUid: String? = null)
+data class CombinedCollectionDecision(
+    val rootBudgetId: String,
+    val acknowledgedAttempts: Set<String> = emptySet(),
+    val updatedAt: Long = 0,
+    val chosenWriterUid: String? = null,
+    val excludedProfileUids: Set<String> = emptySet()
+)
 
 /** Durable user decisions; the coordinator chat gate serializes acknowledgement, retry and freeze. */
 @Singleton
@@ -51,10 +57,24 @@ class CombinedCollectionDecisionStore @Inject constructor(@ApplicationContext pr
         mutable.value[rootBudgetId]?.chosenWriterUid
     }
 
+    suspend fun excludedProfiles(rootBudgetId: String): Set<String> = lock.withLock {
+        loadLocked()
+        mutable.value[rootBudgetId]?.excludedProfileUids.orEmpty()
+    }
+
+    suspend fun excludeProfile(rootBudgetId: String, profileUid: String, persistent: Boolean = true) = lock.withLock {
+        require(profileUid.isNotBlank())
+        loadLocked()
+        val previous = mutable.value[rootBudgetId] ?: CombinedCollectionDecision(rootBudgetId)
+        if (profileUid in previous.excludedProfileUids) return@withLock
+        persist(previous.copy(excludedProfileUids = previous.excludedProfileUids + profileUid, updatedAt = System.currentTimeMillis()), persistent)
+    }
+
     suspend fun chooseWriter(rootBudgetId: String, profileUid: String, persistent: Boolean = true) = lock.withLock {
         require(profileUid.isNotBlank())
         loadLocked()
         val previous = mutable.value[rootBudgetId] ?: CombinedCollectionDecision(rootBudgetId)
+        require(profileUid !in previous.excludedProfileUids) { "Choose a profile that is still included in this turn." }
         if (previous.chosenWriterUid == profileUid) return@withLock
         persist(previous.copy(chosenWriterUid = profileUid, updatedAt = System.currentTimeMillis()), persistent)
     }

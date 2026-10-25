@@ -114,15 +114,48 @@ class AndroidResearchWorkflowTest {
             assertEquals(passage, retained.sources.single().passage)
             assertTrue(retained.extractedSourceVersions.isEmpty())
             assertTrue(retained.notes.any { it.contains("awaiting another packet") })
-            assertEquals(1, prompts.size)
+            val firstCalls = if (completion == "\"packetComplete\":false,") 2 else 1
+            assertEquals(firstCalls, prompts.size)
+            if (firstCalls == 2) assertTrue(prompts.last().contains("alreadyExtracted"))
             acknowledge = true
             val resumed = AndroidResearchWorkflow(config(1), listOf(search(), reader()), { _, _ -> error("Legacy generator must not run") }, journal, modelCoordinator = worker()).run("Research documented request limits", "small-resume")
-            assertEquals(2, prompts.size)
-            assertEquals(prompts.first(), prompts.last())
+            assertEquals(firstCalls + 1, prompts.size)
+            fun interval(prompt: String): Pair<String, String> {
+                val envelope = Json.parseToJsonElement(prompt.substringAfterLast('\n')).jsonObject
+                val evidence = Json.parseToJsonElement(envelope.getValue("untrusted_evidence").jsonPrimitive.content.substringAfter('\n')).jsonObject
+                return evidence.getValue("packetStart").jsonPrimitive.content to evidence.getValue("packetEnd").jsonPrimitive.content
+            }
+            assertEquals(interval(prompts.first()), interval(prompts.last()))
+            assertTrue(prompts.last().contains("alreadyExtracted"))
             assertEquals(LocalResearchOutcome.SUCCESS, resumed.outcome)
             assertTrue(requireNotNull(journal.snapshot).complete)
             assertEquals(1, journal.snapshot!!.claims.size)
         }
+    }
+
+    @Test fun densePacketContinuesWithClaimCursorAndCompletesWithoutRepeatingSourceAcquisition() = runBlocking {
+        val journal = Journal()
+        var extractionCalls = 0
+        val firstQuote = "The research device supports two parallel page requests."
+        val secondQuote = "This documented limit applies to all ordinary page retrieval operations."
+        val worker = smallResearchWorker { prompt ->
+            extractionCalls++
+            if (extractionCalls == 1) {
+                """{"packetComplete":false,"claims":[{"sourceId":"S1","questionId":"Q1","text":"Two parallel requests are supported.","quote":"$firstQuote"}]}"""
+            } else {
+                assertTrue(prompt.contains("alreadyExtracted"))
+                assertTrue(prompt.contains("Two parallel requests are supported."))
+                """{"packetComplete":true,"claims":[{"sourceId":"S1","questionId":"Q1","text":"The limit applies to ordinary page retrieval.","quote":"$secondQuote"}]}"""
+            }
+        }
+        val result = AndroidResearchWorkflow(config(1), listOf(search(), reader()), { _, _ -> error("Legacy generator must not run") }, journal, modelCoordinator = worker).run("Research documented request limits", "dense-packet")
+        assertEquals(2, extractionCalls)
+        assertEquals(2, journal.snapshot!!.claims.size)
+        assertEquals(passage, journal.snapshot!!.sources.single().passage)
+        assertTrue(journal.snapshot!!.complete)
+        assertEquals(LocalResearchOutcome.SUCCESS, result.outcome)
+        AndroidResearchWorkflow(config(1), listOf(search(), reader()), { _, _ -> error("Legacy generator must not run") }, journal, modelCoordinator = worker).run("Research documented request limits", "dense-resume")
+        assertEquals(2, extractionCalls)
     }
 
     @Test fun packetAcknowledgementCannotHideOverflowOrMalformedClaimRows() = runBlocking {

@@ -28,7 +28,15 @@ data class CombinedRecordCheckpoint(
     val recoveredFragments: List<CombinedUncommittedFragment> = emptyList(),
     val failure: String? = null,
     val recoveryAttempts: Int = 0,
-    val malformedRecoveryAttempts: Int = 0
+    val malformedRecoveryAttempts: Int = 0,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val lastAttemptOutcome: String? = null,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val appendReady: Boolean = false,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val retryAtMillis: Long? = null,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val noProgressAttempts: Int = 0
 ) {
     val lastSequence: Int get() = records.lastOrNull()?.sequence ?: 0
     val ended: Boolean get() = records.lastOrNull()?.id == "END"
@@ -50,6 +58,10 @@ internal class CombinedRecordProtocol(
     private var failure: String? = null
     private var recoveryAttempts = initial.recoveryAttempts
     private var malformedRecoveryAttempts = initial.malformedRecoveryAttempts
+    private var lastAttemptOutcome = initial.lastAttemptOutcome
+    private var appendReady = initial.appendReady
+    private var retryAtMillis = initial.retryAtMillis
+    private var noProgressAttempts = initial.noProgressAttempts
     private var recordCharacters = 0L
     private var visibleCharacters = 0L
     private var scanned = 0
@@ -68,14 +80,48 @@ internal class CombinedRecordProtocol(
         pending.append(initial.pending)
         failure = initial.failure
         require(recoveryAttempts >= 0 && malformedRecoveryAttempts in 0..recoveryAttempts && fragments.all { it.sequence in 1..(records.size + 1) })
+        require(noProgressAttempts >= 0 && lastAttemptOutcome in setOf(null, "IN_FLIGHT", "COMPLETED", "OUTPUT_LIMIT", "KNOWN_PROVIDER_REJECTION", "UNKNOWN")) { "COMBINED_CHECKPOINT_ATTEMPT_INVALID" }
+        require(!appendReady || lastAttemptOutcome in setOf("COMPLETED", "OUTPUT_LIMIT", "KNOWN_PROVIDER_REJECTION")) { "COMBINED_CHECKPOINT_ATTEMPT_INVALID" }
+        require(retryAtMillis == null || lastAttemptOutcome == "KNOWN_PROVIDER_REJECTION") { "COMBINED_CHECKPOINT_ATTEMPT_INVALID" }
     }
 
     val failureReason: String? get() = failure
     val canRecoverMalformed: Boolean get() = failure?.let { it.startsWith("INVALID_DELIVERY_RECORD") || it in setOf("INVALID_DECISION_RECORD", "INVALID_CLAIM_DECISION", "MALFORMED_JSON_RECORD") } == true
 
-    fun checkpoint(): CombinedRecordCheckpoint = binding.copy(records = records.toList(), pending = pending.toString(), recoveredFragments = fragments.toList(), failure = failure, recoveryAttempts = recoveryAttempts, malformedRecoveryAttempts = malformedRecoveryAttempts)
+    fun checkpoint(): CombinedRecordCheckpoint = binding.copy(records = records.toList(), pending = pending.toString(), recoveredFragments = fragments.toList(), failure = failure, recoveryAttempts = recoveryAttempts, malformedRecoveryAttempts = malformedRecoveryAttempts, lastAttemptOutcome = lastAttemptOutcome, appendReady = appendReady, retryAtMillis = retryAtMillis, noProgressAttempts = noProgressAttempts)
 
-    fun accept(delta: String): List<CombinedCommittedRecord> {
+    /** Persist this before dispatch: a process death cannot invent a known response boundary. */
+    fun markAttemptStarted() {
+        lastAttemptOutcome = "IN_FLIGHT"
+        appendReady = false
+        retryAtMillis = null
+    }
+
+    fun markAttemptFinished(outcome: String, retryAt: Long? = null) {
+        require(outcome in setOf("COMPLETED", "OUTPUT_LIMIT", "KNOWN_PROVIDER_REJECTION", "UNKNOWN"))
+        require(retryAt == null || outcome == "KNOWN_PROVIDER_REJECTION")
+        lastAttemptOutcome = outcome
+        appendReady = outcome != "UNKNOWN"
+        retryAtMillis = retryAt
+    }
+
+    fun recordProgress(progressed: Boolean) {
+        noProgressAttempts = if (progressed) 0 else Math.addExact(noProgressAttempts, 1)
+    }
+
+    /** Preserve remaining bytes until a malformed response reaches a known transport boundary. */
+    fun retainRejected(delta: String) {
+        check(failure != null)
+        require(pending.length.toLong() + delta.length <= 65_536L) { "COMBINED_FRAGMENT_LIMIT" }
+        pending.append(delta)
+    }
+
+    fun accept(delta: String): List<CombinedCommittedRecord> = dev.chungjungsoo.gptmobile.data.diagnostics.CombinedOperationTrace.measure(
+        "protocol_decode",
+        dev.chungjungsoo.gptmobile.data.diagnostics.CombinedOperationOwner(revisionId = binding.revisionId, digest = binding.snapshotDigest)
+    ) { decode(delta) }
+
+    private fun decode(delta: String): List<CombinedCommittedRecord> {
         check(failure == null) { requireNotNull(failure) }
         pending.append(delta)
         val added = mutableListOf<CombinedCommittedRecord>()

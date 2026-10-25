@@ -16,16 +16,84 @@ internal object GgufImportAdapter {
         metadataDirectory = directory
     }
     private val metadataCache = java.util.concurrent.ConcurrentHashMap<String, Map<String, String>>()
+    private class InspectionFlight {
+        val operationId = java.util.UUID.randomUUID().toString()
+        val result = java.util.concurrent.CompletableFuture<Map<String, String>>()
+    }
+    private val inspections = java.util.concurrent.ConcurrentHashMap<String, InspectionFlight>()
 
     fun inspect(file: File, checkCurrent: () -> Unit = {}): Map<String, String> {
-        checkCurrent()
-        val identity = PackageDigest.installedFileIdentity(file)
-        identity?.let { metadataCache[it]?.let { cached -> return cached } }
+        inspection@ while (true) {
+            checkCurrent()
+            val identityStarted = System.nanoTime()
+            val identity = PackageDigest.installedFileIdentity(file)
+            val identityMs = (System.nanoTime() - identityStarted) / 1_000_000
+            identity?.let { metadataCache[it] }?.let { cached ->
+                checkCurrent()
+                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("LocalModel", "GGUF_METADATA_CACHE_HIT · cache=memory · identityMs=$identityMs · metadataParseMs=0 · metadataBytesRead=0")
+                return cached
+            }
+            if (identity == null) return inspectUncached(file, null, java.util.UUID.randomUUID().toString(), checkCurrent)
+            val mine = InspectionFlight()
+            val existing = inspections.putIfAbsent(identity, mine)
+            if (existing == null) {
+                try {
+                    val result = metadataCache[identity] ?: inspectUncached(file, identity, mine.operationId, checkCurrent)
+                    mine.result.complete(result)
+                    return result
+                } catch (failure: Throwable) {
+                    if (failure !is kotlinx.coroutines.CancellationException) dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("LocalModel", "METADATA_PARSE_FAILED · operationId=${mine.operationId} · stage=metadata · errorType=${failure.javaClass.simpleName}", "E")
+                    mine.result.completeExceptionally(failure)
+                    throw failure
+                } finally {
+                    inspections.remove(identity, mine)
+                }
+            }
+            val waitStarted = System.nanoTime()
+            try {
+                while (true) {
+                    checkCurrent()
+                    val result = try {
+                        existing.result.get(50, java.util.concurrent.TimeUnit.MILLISECONDS)
+                    } catch (_: java.util.concurrent.TimeoutException) {
+                        continue
+                    } catch (_: kotlinx.coroutines.CancellationException) {
+                        inspections.remove(identity, existing)
+                        checkCurrent()
+                        continue@inspection
+                    }
+                    checkCurrent()
+                    check(identity == PackageDigest.installedFileIdentity(file)) { "Model changed during metadata inspection" }
+                    val waitMs = (System.nanoTime() - waitStarted) / 1_000_000
+                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("LocalModel", "METADATA_REQUEST_COALESCED · operationId=${existing.operationId} · cache=shared_inflight · identityMs=$identityMs · metadataWaitMs=$waitMs · metadataParseMs=0 · metadataBytesRead=0")
+                    return result
+                }
+            } catch (interrupted: InterruptedException) {
+                Thread.currentThread().interrupt()
+                throw kotlinx.coroutines.CancellationException("Metadata wait interrupted", interrupted)
+            } catch (failure: java.util.concurrent.ExecutionException) {
+                val cause = failure.cause ?: failure
+                // One caller cancelling its parse cannot revoke another caller's
+                // authorization. Retry the flight after the caller's own check.
+                if (cause is kotlinx.coroutines.CancellationException) {
+                    inspections.remove(identity, existing)
+                    checkCurrent()
+                    continue
+                }
+                throw cause
+            }
+        }
+    }
+
+    private fun inspectUncached(file: File, identity: String?, operationId: String, checkCurrent: () -> Unit): Map<String, String> {
+        val cacheStarted = System.nanoTime()
         val persisted = identity?.let { key -> metadataDirectory?.let { File(it, PackageDigest.sha256(key.toByteArray()) + ".json") } }
         persisted?.takeIf { it.isFile && it.length() <= 2 * 1024 * 1024 }?.let { cache ->
             val saved = runCatching { kotlinx.serialization.json.Json.decodeFromString<Map<String, String>>(cache.readText()) }.getOrNull()
             if (saved != null && identity == PackageDigest.installedFileIdentity(file)) {
+                checkCurrent()
                 metadataCache[checkNotNull(identity)] = saved
+                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("LocalModel", "GGUF_METADATA_CACHE_HIT · operationId=$operationId · cache=disk · cacheReadMs=${(System.nanoTime() - cacheStarted) / 1_000_000} · cacheBytesRead=${cache.length()} · metadataParseMs=0 · metadataBytesRead=0")
                 return saved
             }
         }
@@ -116,7 +184,9 @@ internal object GgufImportAdapter {
                 }
             }
         }
+        val parseMs = (System.nanoTime() - started) / 1_000_000
         checkCurrent()
+        val persistenceStarted = System.nanoTime()
         if (identity != null) {
             check(identity == PackageDigest.installedFileIdentity(file)) { "Model changed during metadata inspection" }
             if (metadataCache.size >= 32) metadataCache.clear()
@@ -134,8 +204,9 @@ internal object GgufImportAdapter {
                 }
             }
         }
-        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("LocalModel", "GGUF_METADATA · durationMs=${(System.nanoTime() - started) / 1_000_000} · bytes=$position · cache=miss · identity=${if (identity == null) "unavailable" else "strong"}")
-        dev.chungjungsoo.gptmobile.data.diagnostics.LocalRuntimeIncidentHistory.record("METADATA_PARSED", mapOf("durationMs" to ((System.nanoTime() - started) / 1_000_000).toString(), "bytes" to position.toString(), "cache" to "miss"))
+        val cacheWriteMs = (System.nanoTime() - persistenceStarted) / 1_000_000
+        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("LocalModel", "GGUF_METADATA · operationId=$operationId · durationMs=${(System.nanoTime() - started) / 1_000_000} · metadataParseMs=$parseMs · cacheWriteMs=$cacheWriteMs · metadataBytesRead=$position · cache=miss · identity=${if (identity == null) "unavailable" else "strong"}")
+        dev.chungjungsoo.gptmobile.data.diagnostics.LocalRuntimeIncidentHistory.record("METADATA_PARSED", mapOf("operationId" to operationId, "metadataParseMs" to parseMs.toString(), "cacheWriteMs" to cacheWriteMs.toString(), "metadataBytesRead" to position.toString(), "cache" to "miss"))
         return result
     }
 

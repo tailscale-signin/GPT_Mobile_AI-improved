@@ -28,6 +28,7 @@ class CombinedSinglePassInputsTest {
         val ctx = CombinedExecutionContext(requested, rootBudgetId = "root")
         val prompt = Json.parseToJsonElement(combinedSynthesisPrompt(requested.userPrompt, sources, combined = ctx)).jsonObject
         assertEquals("FULL_CONTRIBUTIONS_V1", prompt.getValue("input_representation").jsonPrimitive.content)
+        assertEquals("FULL_SPANS_V1", prompt.getValue("source_preservation").jsonPrimitive.content)
         val bodies = prompt.getValue("contributions").jsonArray
         assertEquals(6, bodies.size)
         sources.forEachIndexed { index, source ->
@@ -38,6 +39,15 @@ class CombinedSinglePassInputsTest {
             assertTrue(body.getValue("included_in_input").jsonPrimitive.boolean)
         }
         assertTrue(prompt.getValue("answer_outline").jsonArray.isNotEmpty())
+    }
+
+    @Test fun legacyPoliciesDoNotSilentlyOptIntoSourceAssembly() {
+        val sources = listOf(CombinedModelResponse("p", "Profile", content = "A saved contribution."))
+        val requested = CombinedPolicyResolver.accept(ConversationCombinedSettings(), listOf("p"), emptyMap(), "Explain the findings", singlePass = false)
+        val ctx = CombinedExecutionContext(requested, rootBudgetId = "root")
+        val prompt = Json.parseToJsonElement(combinedSynthesisPrompt(requested.userPrompt, sources, combined = ctx)).jsonObject
+        assertTrue("source_preservation" !in prompt)
+        assertTrue("preservation_instruction" !in prompt)
     }
 
     @Test fun twoFailuresBlockPrimaryWhileSuccessSurvivesRetryAndRemoval() {

@@ -49,6 +49,13 @@ class ResearchArticleViewModel @Inject constructor(private val archive: Research
     private var selectionGeneration = 0L
     private val admitting = MutableStateFlow(false)
     val admissionInProgress = admitting.asStateFlow()
+    data class ConsentPrompt(val id: String, val profileUid: String, val profileName: String)
+    private data class PendingConsent(val prompt: ConsentPrompt, val request: ExaminationRequest, val profile: dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2, val tools: () -> ChatMcpToolConfig, val generation: Long)
+    private var pendingConsent: PendingConsent? = null
+    private var consentEpoch = 0L
+    private var checkingConsent = false
+    private val consent = MutableStateFlow<ConsentPrompt?>(null)
+    val examinationConsent = consent.asStateFlow()
     init {
         viewModelScope.launch { coordinator.recover() }
     }
@@ -57,7 +64,10 @@ class ResearchArticleViewModel @Inject constructor(private val archive: Research
         val selection = Selection(workId, versionId, authority)
         val sameSelection = openedSelection == selection
         openedSelection = selection
-        if (!sameSelection) selectionGeneration++
+        if (!sameSelection) {
+            selectionGeneration++
+            declineExaminationConsent()
+        }
         val generation = selectionGeneration
         mutable.value = if (sameSelection) mutable.value.copy(loading = true) else ArticleDetailState(loading = true)
         loader = viewModelScope.launch {
@@ -103,6 +113,73 @@ class ResearchArticleViewModel @Inject constructor(private val archive: Research
         val selection = requireNotNull(openedSelection)
         archive.keepConflictingWorksSeparate(selection.workId, selection.authority)
         open(selection.workId, selection.versionId, selection.authority)
+    }
+
+    /** No job exists until the profile-specific consent is accepted. */
+    fun requestExamination(request: ExaminationRequest, tools: () -> ChatMcpToolConfig) {
+        if (admitting.value || checkingConsent || pendingConsent != null) return
+        checkingConsent = true
+        val generation = selectionGeneration
+        val epoch = consentEpoch
+        action {
+            try {
+                val profiles = settings.fetchPlatformV2s()
+                val current = settings.getFeatureSettings()
+                if (generation != selectionGeneration || epoch != consentEpoch) return@action
+                val profile = dev.chungjungsoo.gptmobile.data.research.feature.ResearchProfileResolver.examinerSelection(current, profiles, request.chatId, tools(), request.profileUid).profile
+                val selectedRequest = profile?.let { request.copy(profileUid = it.uid) } ?: request
+                val blocker = profile?.let { dev.chungjungsoo.gptmobile.data.research.feature.examinationAdmission(current, it, request.copy(origin = dev.chungjungsoo.gptmobile.data.research.feature.ExaminationOrigin.USER_EXAMINE), tools()) }
+                if (profile != null && blocker == dev.chungjungsoo.gptmobile.data.research.feature.EXAMINATION_PAPERS_CONSENT_REQUIRED) {
+                    val prompt = ConsentPrompt(java.util.UUID.randomUUID().toString(), profile.uid, profile.name.ifBlank { profile.model })
+                    pendingConsent = PendingConsent(prompt, selectedRequest, profile, tools, generation)
+                    consent.value = prompt
+                } else {
+                    examine(selectedRequest, tools)
+                }
+            } finally {
+                checkingConsent = false
+            }
+        }
+    }
+
+    fun declineExaminationConsent() {
+        pendingConsent = null
+        consent.value = null
+        consentEpoch++
+    }
+
+    fun revokePapersConsent(profileUid: String) = action {
+        declineExaminationConsent()
+        settings.mutateFeatureSettings { current ->
+            val behavior = current.profileBehavior[profileUid] ?: dev.chungjungsoo.gptmobile.data.model.ProfileBehaviorSettings()
+            current.copy(profileBehavior = current.profileBehavior + (profileUid to behavior.copy(academicSourcesAllowed = false)))
+        }
+    }
+
+    fun acceptExaminationConsent(id: String) {
+        val pending = pendingConsent?.takeIf { it.prompt.id == id } ?: return
+        if (checkingConsent || admitting.value) return
+        checkingConsent = true
+        declineExaminationConsent()
+        val epoch = consentEpoch
+        action {
+            try {
+                require(pending.generation == selectionGeneration && epoch == consentEpoch) { "Article selection changed. Choose Examine again." }
+                val profile = requireNotNull(settings.fetchPlatformV2s().singleOrNull { it.uid == pending.profile.uid }) { "Examiner is no longer available." }
+                require(profile == pending.profile && profile.enabled && !profile.disableAllTools && !profile.disableRemoteTools) { "Examiner configuration changed. Choose Examine again." }
+                settings.mutateFeatureSettings { current ->
+                    check(pending.generation == selectionGeneration && epoch == consentEpoch) { "Article selection changed. Choose Examine again." }
+                    check(current.researchFeature.enabled && current.isToolPluginEnabledForProfile(profile.uid, dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH)) { "Research is disabled for this profile" }
+                    val behavior = current.profileBehavior[profile.uid] ?: dev.chungjungsoo.gptmobile.data.model.ProfileBehaviorSettings()
+                    val accepted = current.copy(profileBehavior = current.profileBehavior + (profile.uid to behavior.copy(researchEnabledOverride = true, academicSourcesAllowed = true)))
+                    dev.chungjungsoo.gptmobile.data.research.feature.examinationAdmission(accepted, profile, pending.request.copy(origin = dev.chungjungsoo.gptmobile.data.research.feature.ExaminationOrigin.USER_EXAMINE), pending.tools())?.let { error(it) }
+                    accepted
+                }
+                if (pending.generation == selectionGeneration && epoch == consentEpoch) examine(pending.request, pending.tools)
+            } finally {
+                checkingConsent = false
+            }
+        }
     }
     fun pause(id: String) = action { coordinator.pause(id) }
     fun cancel(id: String) = action { coordinator.cancel(id) }

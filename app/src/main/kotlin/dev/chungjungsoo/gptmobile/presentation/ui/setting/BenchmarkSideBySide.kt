@@ -62,7 +62,7 @@ internal fun BenchmarkSideBySide(rows: List<BenchmarkScoreRow>, profiles: List<P
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Rounded.CompareArrows, null, tint = MaterialTheme.colorScheme.primary)
             Text("Head-to-head", Modifier.weight(1f).padding(start = 10.dp), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            SettingsHelpIcon("Model 1 is the baseline. Difference = Model 2 minus Model 1, in percentage points for scores. A lower first-response time is better. Only matching mode, suite and execution cohorts receive differences. Missing or unsupported measurements stay blank.")
+            SettingsHelpIcon("Model 1 is the baseline. Difference = Model 2 minus Model 1, in percentage points for scores. A lower first-response time is better. Only matching request policy, mode, suite and execution cohorts receive differences. Missing or unsupported measurements stay blank.")
         }
         if (first == null || second == null) {
             Text("Benchmark two models using the same plan to unlock side-by-side charts.", style = MaterialTheme.typography.bodyMedium)
@@ -119,10 +119,10 @@ internal fun BenchmarkSideBySide(rows: List<BenchmarkScoreRow>, profiles: List<P
                         val favorable = delta != null && (if (metric.higherIsBetter) delta > 0 else delta < 0)
                         Row(Modifier.fillMaxWidth().background(if (index % 2 == 0) MaterialTheme.colorScheme.surfaceContainerLow else MaterialTheme.colorScheme.surface).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text("${index + 1}. ${metric.label}", Modifier.weight(2f), style = MaterialTheme.typography.bodySmall)
-                            Text(metric.first?.let { "%.1f".format(it) } ?: "—", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-                            Text(metric.second?.let { "%.1f".format(it) } ?: "—", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                            Text(benchmarkMetricText(metric.first, decimals = 1), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                            Text(benchmarkMetricText(metric.second, decimals = 1), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
                             Text(
-                                delta?.let { "${if (it > 0) "+" else ""}%.1f ${metric.unit}".format(it) } ?: "—",
+                                benchmarkMetricDeltaText(delta, metric.unit),
                                 Modifier.weight(1.3f),
                                 style = MaterialTheme.typography.labelMedium,
                                 color = when {
@@ -149,6 +149,7 @@ private fun ComparisonPicker(label: String, selected: BenchmarkScoreRow, rows: L
             Column(Modifier.weight(1f).padding(horizontal = 12.dp), horizontalAlignment = Alignment.Start) {
                 Text(label, style = MaterialTheme.typography.labelSmall)
                 Text(name(selected) + " · " + listOfNotNull(selected.backend, selected.accelerator).joinToString(" / "), fontWeight = FontWeight.SemiBold)
+                Text("Request policy: ${selected.executionPolicy?.label ?: "Unknown (historical)"}", style = MaterialTheme.typography.labelSmall)
                 Text("${selected.cohort.substringBefore('|')} · suite ${selected.cohort.split('|').getOrNull(1)} · ${selected.cohort.substringAfterLast(':')}", style = MaterialTheme.typography.labelSmall)
             }
             Icon(Icons.Rounded.ExpandMore, "Choose model")
@@ -158,6 +159,7 @@ private fun ComparisonPicker(label: String, selected: BenchmarkScoreRow, rows: L
                 DropdownMenuItem(text = {
                     Column {
                         Text(name(row) + " · " + listOfNotNull(row.backend, row.accelerator).joinToString(" / "))
+                        Text("Request policy: ${row.executionPolicy?.label ?: "Unknown (historical)"}", style = MaterialTheme.typography.labelSmall)
                         Text("Suite ${row.cohort.split('|').getOrNull(1)} · ${row.cohort.substringAfterLast('|')}", style = MaterialTheme.typography.labelSmall)
                     }
                 }, onClick = {

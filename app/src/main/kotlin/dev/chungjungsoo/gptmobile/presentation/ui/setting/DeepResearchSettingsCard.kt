@@ -29,6 +29,7 @@ import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as Alert
 internal fun DeepResearchSettingsCard(value: DeepResearchSettings, enabled: Boolean, onChange: (DeepResearchSettings) -> Unit) {
     val goal = if (value.enabled && value.effort > 0) value.customSourceTarget ?: DeepResearchSettings.targetForEffort(value.effort) else 0
     var advanced by rememberSaveable { mutableStateOf(false) }
+    var papersConsent by rememberSaveable { mutableStateOf(false) }
     var category by rememberSaveable { mutableStateOf(0) }
     var customTarget by rememberSaveable(value.customSourceTarget) { mutableStateOf(value.customSourceTarget?.toString().orEmpty()) }
     Card(Modifier.fillMaxWidth()) {
@@ -57,7 +58,12 @@ internal fun DeepResearchSettingsCard(value: DeepResearchSettings, enabled: Bool
                 Text("Report structure", style = MaterialTheme.typography.titleSmall)
                 val structures = dev.chungjungsoo.gptmobile.data.model.ResearchReportStructure.entries
                 SettingsTabs(structures.map { it.label }, structures.indexOf(value.reportStructure)) { onChange(value.copy(reportStructure = structures[it])) }
-                ResearchToggle("Papers and studies", value.academicSources, enabled) { onChange(value.copy(academicSources = it)) }
+                Text("Choose Examine to review consent for an Examiner. Public study discovery can also be allowed here.", style = MaterialTheme.typography.bodySmall)
+                if (value.academicSources) {
+                    TextButton(onClick = { onChange(value.copy(academicSources = false)) }, enabled = enabled) { Text("Revoke default papers consent") }
+                } else {
+                    TextButton(onClick = { papersConsent = true }, enabled = enabled) { Text("Allow public study discovery") }
+                }
                 ResearchToggle("Review evidence", value.reviewEvidence, enabled) { onChange(value.copy(reviewEvidence = it)) }
                 TextButton(onClick = { advanced = !advanced }) { Text(if (advanced) "Close engine controls" else "Engine controls") }
                 if (advanced) {
@@ -93,6 +99,20 @@ internal fun DeepResearchSettingsCard(value: DeepResearchSettings, enabled: Bool
                 }
             }
         }
+    }
+    if (papersConsent && enabled && !value.academicSources) {
+        AlertDialog(
+            onDismissRequest = { papersConsent = false },
+            title = { Text("Enable Papers and studies discovery?") },
+            text = { Text("Allow Research to send search queries and citation identifiers to your selected public scholarly sources and retrieve study text. This sets the default papers permission; each profile's explicit choice still applies. It does not grant access to personal data or enable connected page readers.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    papersConsent = false
+                    onChange(value.copy(academicSources = true))
+                }) { Text("Accept") }
+            },
+            dismissButton = { TextButton(onClick = { papersConsent = false }) { Text("Decline") } }
+        )
     }
 }
 

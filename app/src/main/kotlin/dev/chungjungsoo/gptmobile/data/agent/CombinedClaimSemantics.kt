@@ -157,7 +157,8 @@ internal object CombinedClaimSemantics {
             var cursor = 0
             val digest = researchHash(source.content)
             val spans = CombinedTextSpanIndex(source.content)
-            val extracted = if (source.claimExtractionVersion >= 2) CombinedSourceClaims.units(source.content, source.contentCompleteness == "PARTIAL") else null
+            val controls = if (source.claimExtractionVersion >= 3) CombinedEditorialView.prepare(source.content).omissions.filter { it.reason == "STANDALONE_SELF_EDITING" } else emptyList()
+            val extracted = if (source.claimExtractionVersion >= 2) CombinedSourceClaims.units(source.content, source.contentCompleteness == "PARTIAL").filterNot { unit -> controls.any { unit.start >= it.start && unit.end <= it.end } } else null
             val texts = extracted?.map { it.text } ?: CombinedContentCoverage.sentences(CombinedContentCoverage.sourceCoverageText(source.content))
             texts.mapIndexed { index, text ->
                 val unit = extracted?.get(index)
@@ -165,7 +166,11 @@ internal object CombinedClaimSemantics {
                 if (sourceSpan != null) cursor = sourceSpan.endUtf16
                 val qualifiers = qualifiers(text)
                 val id = "C${sourceIndex + 1}.${index + 1}"
-                val semanticId = researchHash(CombinedContentCoverage.normalized(text) + "|" + qualifiers)
+                // Word normalization removes signs, decimal marks and percent symbols.
+                // Preserve legacy identities for ordinary prose, never merge distinct values.
+                val numeric = CombinedClaimMatcher.fingerprint(text).orderedNumbers
+                val numericIdentity = if (numeric.any { value -> value.any { it in "-.%" } }) "|numeric-v2:$numeric" else ""
+                val semanticId = researchHash(CombinedContentCoverage.normalized(text) + "|" + qualifiers + numericIdentity)
                 val split = Regex("\\b(?:is|are|was|were|has|have|had|did|does|approved|reported|caused|showed|found)\\b", RegexOption.IGNORE_CASE).find(text)
                 CombinedClaimRecord(
                     id = id,
@@ -189,7 +194,11 @@ internal object CombinedClaimSemantics {
                     ),
                     profileUids = setOf(source.platformUid),
                     ancestryIds = source.ancestryIds.ifEmpty { setOf("contribution:$digest") },
-                    extractionMethod = if (source.claimExtractionVersion >= 2) "SCOPED_PROPOSITION_V2" else "CONSERVATIVE_PROPOSITION_V1"
+                    extractionMethod = when {
+                        source.claimExtractionVersion >= 3 -> "MAPPED_EDITORIAL_PROPOSITION_V3"
+                        source.claimExtractionVersion >= 2 -> "SCOPED_PROPOSITION_V2"
+                        else -> "CONSERVATIVE_PROPOSITION_V1"
+                    }
                 )
             }
         }

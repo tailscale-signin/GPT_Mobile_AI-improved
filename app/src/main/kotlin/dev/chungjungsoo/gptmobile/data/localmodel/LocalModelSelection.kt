@@ -7,12 +7,12 @@ import dev.chungjungsoo.gptmobile.data.repository.LocalModelRepository
 internal data class LocalModelSelection(val modelId: String, val record: LocalModel?, val path: String)
 
 /** Keep benchmark preflight and inference on the same installed package, including legacy IDs. */
-internal suspend fun LocalModelRepository.resolveLocalModelSelection(modelId: String, accelerator: String?): LocalModelSelection {
+internal suspend fun LocalModelRepository.resolveLocalModelSelection(modelId: String, accelerator: String?): LocalModelSelection = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
     val wantsNpu = LocalAccelerators.normalize(accelerator) == LocalAccelerators.NPU
     var id = modelId
     var record = getById(id)
     var path = resolveDownloadedPath(id)
-    val installedNpu = path?.let(LocalModelPackages::isCompiledNpuPackage)
+    val installedNpu = path?.let { LocalModelPackages.isCompiledNpuPackage(it) }
         ?: (record?.fileName?.let(LocalModelPackages::isNpuFile) == true)
     if (!wantsNpu && (path == null || installedNpu)) {
         id = "$modelId-litert"
@@ -29,5 +29,5 @@ internal suspend fun LocalModelRepository.resolveLocalModelSelection(modelId: St
     check(wantsNpu || !LocalModelPackages.isCompiledNpuPackage(path)) {
         "The selected download is an NPU package. Download its GPU / CPU edition to use this accelerator."
     }
-    return LocalModelSelection(id, record, path)
+    LocalModelSelection(id, record, path)
 }

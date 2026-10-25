@@ -111,18 +111,31 @@ data class CombinedTaskContract(
 internal object CombinedHistoryOutline {
     val labels = listOf("Origins and early societies", "Medieval developments", "Early modern transformation", "Nineteenth century", "Twentieth century", "Recent history and present")
     private val cues = listOf(
-        Regex("(?i)\\b(?:ancient|prehistoric|roman|rome|gaul|celtic|lusitan|germanic|antiquity|bce|bc)\\b"),
-        Regex("(?i)\\b(?:medieval|middle ages|feudal|charlemagne|carolingian|reconquista|crusad|capetian)\\w*\\b"),
+        Regex("(?i)\\b(?:ancient|prehistoric|roman|romans|rome|gaul|celtic|celts|lusitanians?|germanic|antiquity|bce|bc)\\b"),
+        Regex("(?i)\\b(?:medieval|middle ages|feudal|charlemagne|carolingian|reconquista|crusad|capetian|visigoth|moorish)\\w*\\b"),
         Regex("(?i)\\b(?:renaissance|reformation|enlightenment|napoleon|revolution|exploration|colonial|maritime)\\w*\\b"),
         Regex("(?i)\\b(?:industrial|bismarck|unification|nineteenth)\\w*\\b"),
         Regex("(?i)\\b(?:world war|weimar|nazi|holocaust|cold war|salazar|carnation|twentieth)\\w*\\b"),
         Regex("(?i)\\b(?:reunification|european union|eurozone|contemporary|twenty.first|present|today|recent|modern democracy)\\b")
     )
+
+    // These identify periods independently of a date elsewhere in a compressed sentence.
+    // Ambiguous terms such as "revolution", "colonial" and "Napoleon" require the date
+    // when present: a 1910 revolution must not manufacture early-modern coverage.
+    private val explicitEras = listOf(
+        cues[0],
+        cues[1],
+        Regex("(?i)\\b(?:renaissance|reformation|enlightenment|early modern)\\b"),
+        Regex("(?i)\\b(?:nineteenth|industrial revolution)\\b"),
+        Regex("(?i)\\b(?:world wars?|weimar|nazi|holocaust|cold war|salazar|carnation|twentieth)\\w*\\b"),
+        cues[5]
+    )
     fun periods(text: String): Set<Int> = CombinedContentCoverage.sentences(text).flatMap { eventPeriods(it) }.toSet()
     private fun eventPeriods(text: String): Set<Int> {
-        if (Regex("(?i)\\b[0-9]+\\s*(?:bce|bc)\\b").containsMatchIn(text)) return setOf(0)
-        val dated = Regex("\\b([1-9][0-9]{2,3})\\b").findAll(text).map { it.value.toInt() }.filter { it <= 2100 }.map { year ->
+        val dated = Regex("(?i)\\b([1-9][0-9]{0,3})(\\s*(?:bce|bc)\\b)?").findAll(text).filter { it.groupValues[2].isNotBlank() || it.groupValues[1].length >= 3 }.filter { it.groupValues[1].toInt() <= 2100 }.map { date ->
+            val year = date.groupValues[1].toInt()
             when {
+                date.groupValues[2].isNotBlank() -> 0
                 year < 500 -> 0
                 year < 1500 -> 1
                 year < 1800 -> 2
@@ -142,10 +155,13 @@ internal object CombinedHistoryOutline {
                     else -> 5
                 }
             }.toSet()
-        // Explicit centuries are scope markers even when the same sentence names a later event.
-        if (dated.isNotEmpty() || centuries.isNotEmpty()) return dated + centuries
-        if (Regex("(?i)\\b(?:after|following)\\b.{0,45}\\b(?:rome|roman|collapse)\\b|\\b(?:fall|collapse) of (?:rome|the roman empire)\\b").containsMatchIn(text)) return setOf(1)
-        return cues.indices.filter { cues[it].containsMatchIn(text) }.toSet()
+        // "After Rome collapsed" is a medieval transition, not an account of ancient
+        // societies. Remove only that transition phrase before checking other era cues.
+        val transition = Regex("(?i)\\b(?:after|following)\\s+(?:the\\s+)?(?:fall|collapse)\\s+of\\s+(?:the\\s+)?(?:roman empire|rome)\\b|\\b(?:after|following)\\s+(?:the\\s+)?(?:roman empire|rome)\\s+collapsed\\b|\\b(?:fall|collapse) of (?:rome|the roman empire)\\b")
+        val lexicalText = text.replace(transition, " ").replace(Regex("(?i)\\bholy roman empire\\b"), "medieval empire")
+        val selectedCues = if (dated.isEmpty() && centuries.isEmpty()) cues else explicitEras
+        val lexical = selectedCues.indices.filter { selectedCues[it].containsMatchIn(lexicalText) }.toSet()
+        return dated + centuries + lexical + if (transition.containsMatchIn(text)) setOf(1) else emptySet()
     }
     fun substantive(text: String): Boolean = CombinedWordCounter.count(text) >= 6 &&
         !Regex("(?i)^(?:#+\\s*)?(?:introduction|conclusion|in conclusion|in summary|the history of .{1,40} is (?:rich|complex|fascinating))\\b").containsMatchIn(text.trim())

@@ -16,12 +16,16 @@ object CombinedPolicyResolver {
         preferredOwnerUid: String? = null,
         requestedTemperatures: Map<String, Float?> = emptyMap(),
         acceptedResearch: CombinedResearchRequirement? = null,
-        singlePass: Boolean = false
+        singlePass: Boolean = false,
+        appendFeatureEnabled: Boolean = dev.chungjungsoo.gptmobile.BuildConfig.COMBINED_APPEND_CONTINUATIONS
     ): CombinedRequestedPolicy {
         require(settings.isSupported) { "This conversation uses a newer Combined settings version." }
+        val append = singlePass && settings.continueLongAnswers
+        require(!append || appendFeatureEnabled) { "COMBINED_APPEND_UNAVAILABLE: Continue long answers is unavailable in this build. Saved strict turns remain unchanged." }
         val participants = participantUids.filter(String::isNotBlank).distinct()
         require(participants.isNotEmpty()) { "Select at least one Combined participant." }
         val requested = CombinedRequestedPolicy(
+            version = if (append) 2 else 1,
             settings = settings.normalized(),
             participantUids = participants,
             requestedModels = requestedModels.filterKeys { it in participants }.toSortedMap(),
@@ -31,7 +35,8 @@ object CombinedPolicyResolver {
             acceptedAtMillis = acceptedAtMillis,
             settingsRevision = settingsRevision,
             acceptedResearch = acceptedResearch,
-            singlePass = singlePass
+            singlePass = singlePass,
+            completionPolicy = if (append) "APPEND_CONTINUATIONS_V1" else null
         )
         return requested.copy(requestedPolicyDigest = combinedDigest(Json.encodeToString(requested)))
     }
@@ -47,7 +52,7 @@ object CombinedPolicyResolver {
         workItems: List<CombinedWorkItem> = emptyList(),
         prices: Map<String, dev.chungjungsoo.gptmobile.data.accounting.ModelPrice> = emptyMap()
     ): CombinedWorkPlan {
-        require(requested.version == 1 && requested.settings.isSupported) { "Unsupported Combined policy version." }
+        require(requested.settings.isSupported && (requested.version == 1 && requested.completionPolicy == null || requested.appendContinuations && requested.settings.continueLongAnswers)) { "Unsupported Combined policy version." }
         require(requested.requestedPolicyDigest == combinedDigest(Json.encodeToString(requested.copy(requestedPolicyDigest = "")))) { "Combined accepted policy digest changed." }
         require(estimatedInputTokens >= 0 && requiredToolOperations >= 0)
         val stop = requested.settings.normalized().effort / 25

@@ -24,6 +24,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
@@ -42,6 +43,7 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
@@ -50,6 +52,7 @@ import androidx.compose.ui.text.PlaceholderVerticalAlign
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import com.mikepenz.markdown.annotator.annotatorSettings
@@ -65,11 +68,14 @@ import com.mikepenz.markdown.compose.elements.MarkdownTableRow
 import com.mikepenz.markdown.m3.Markdown
 import com.mikepenz.markdown.m3.markdownTypography
 import com.mikepenz.markdown.model.MarkdownAnnotator
+import com.mikepenz.markdown.model.State as MarkdownParseState
 import com.mikepenz.markdown.model.markdownAnimations
 import com.mikepenz.markdown.model.markdownAnnotator
 import com.mikepenz.markdown.model.markdownInlineContent
 import com.mikepenz.markdown.model.rememberMarkdownState
 import dev.chungjungsoo.gptmobile.R
+import dev.chungjungsoo.gptmobile.data.diagnostics.CombinedOperationOwner
+import dev.chungjungsoo.gptmobile.data.diagnostics.CombinedOperationTrace
 import dev.chungjungsoo.gptmobile.ui.component.SandboxedArtifactView
 import dev.snipme.highlights.Highlights
 import dev.snipme.highlights.model.BoldHighlight
@@ -122,7 +128,8 @@ private data class PreparedChatMarkdown(
     val parsed: ParsedChatMarkdown = ParsedChatMarkdown(emptyList(), emptyList()),
     val markdown: String = "",
     val memoryRanges: List<IntRange> = emptyList(),
-    val profileIndex: ProfileSpanIndex = ProfileSpanIndex(emptyList())
+    val profileIndex: ProfileSpanIndex = ProfileSpanIndex(emptyList()),
+    val contentDigest: String? = null
 )
 
 @OptIn(FlowPreview::class)
@@ -139,7 +146,9 @@ fun ChatMarkdown(
     provenance: MarkdownProvenancePresentation? = null,
     wording: CombinedWordingPresentation? = null,
     outputTrace: dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceOwner? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    minimumPendingHeight: Dp = 0.dp,
+    onContentDrawn: (() -> Unit)? = null
 ) {
     val isDarkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val clipboardContext = androidx.compose.ui.platform.LocalContext.current
@@ -147,35 +156,7 @@ fun ChatMarkdown(
     val displayMathNonce = remember(contentIdentity) { UUID.randomUUID().toString().replace("-", "") }
     var attributionSelection by remember(contentIdentity) { mutableStateOf<Pair<String, Set<String>>?>(null) }
     attributionSelection?.let { (passage, owners) ->
-        val matchingSources = wording?.sources.orEmpty().filter { it.platformUid in owners }
-        val sourceExcerpts by androidx.compose.runtime.produceState<Map<String, List<String>>>(emptyMap(), passage, matchingSources) {
-            value = withContext(Dispatchers.Default) {
-                matchingSources.associate { source ->
-                    source.platformUid to dev.chungjungsoo.gptmobile.data.agent.CombinedClaimClauses.spans(source.content).filter { clause ->
-                        dev.chungjungsoo.gptmobile.data.agent.CombinedClaimMatcher.match(passage, clause.text) >= dev.chungjungsoo.gptmobile.data.agent.CombinedClaimMatcher.Match.POSSIBLE ||
-                            passage.trim().length >= 3 &&
-                            clause.text.contains(passage.trim(), ignoreCase = true)
-                    }.take(3).map { it.text }
-                }
-            }
-        }
-        androidx.compose.material3.AlertDialog(
-            onDismissRequest = { attributionSelection = null },
-            title = { androidx.compose.material3.Text(if (owners.size > 1) "Shared contribution" else "Contributing profile") },
-            text = {
-                androidx.compose.foundation.lazy.LazyColumn {
-                    item { androidx.compose.material3.Text(passage) }
-                    matchingSources.forEach { source ->
-                        item {
-                            androidx.compose.material3.Text(source.platformName, style = MaterialTheme.typography.titleSmall)
-                            sourceExcerpts[source.platformUid].orEmpty().forEach { androidx.compose.material3.Text(it, style = MaterialTheme.typography.bodySmall) }
-                        }
-                    }
-                    item { androidx.compose.material3.Text("Source wording links do not certify factual accuracy.", style = MaterialTheme.typography.labelSmall) }
-                }
-            },
-            confirmButton = { androidx.compose.material3.TextButton(onClick = { attributionSelection = null }) { androidx.compose.material3.Text("Close") } }
-        )
+        wording?.let { CombinedOriginalSourceDialog(passage, owners, it) { attributionSelection = null } }
     }
     var rendered by remember(contentIdentity) { mutableStateOf(PreparedChatMarkdown()) }
     var lastTraceAt by remember(contentIdentity) { mutableLongStateOf(0L) }
@@ -199,8 +180,7 @@ fun ChatMarkdown(
             !request.streaming || latestRequest.value.streaming
         }.collectLatest { request ->
             val prepared = withContext(Dispatchers.Default) {
-                android.os.Trace.beginSection("Combined.Markdown.prepare")
-                try {
+                CombinedOperationTrace.measure("markdown_prepare", CombinedOperationOwner(runId = request.outputTrace?.runId, blockId = request.outputTrace?.partId)) {
                     val visibleSource = dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(request.content)
                     val parsed = parseChatMarkdown(visibleSource, cacheResult = !request.streaming)
                     // Rendering is sampled above; completed passage mappings can colour live output.
@@ -220,11 +200,17 @@ fun ChatMarkdown(
                         emptyList()
                     }
                     if (wantsWording && !request.streaming && CombinedAttributionDiagnostics.changed("mapping:${request.outputTrace?.runId}:$contentIdentity", dev.chungjungsoo.gptmobile.data.research.researchHash(request.content + profileSpans))) {
-                        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("CombinedPalette", "DISPLAY_SPAN_MAPPING · run=${request.outputTrace?.runId.orEmpty()} · part=${request.outputTrace?.partId.orEmpty()} · uniqueSpans=${profileSpans.count { it.profileUids.size == 1 }} · sharedSpans=${profileSpans.count { it.profileUids.size > 1 }} · linkedCharacters=${profileSpans.sumOf { it.end - it.start }} · represented=${profileSpans.flatMap { it.profileUids }.distinct().take(32)} · palette=PERSISTED_PROFILE_HUE · factualVerification=false")
+                        val zeroReason = when {
+                            profileSpans.isNotEmpty() -> "NONE"
+                            request.content.isBlank() -> "EMPTY_RENDER_INPUT"
+                            request.wording?.sources.isNullOrEmpty() -> "NO_CONTRIBUTOR_HEADERS"
+                            mapped?.second?.runs.isNullOrEmpty() -> "NO_VERBATIM_MARKDOWN_RUNS"
+                            request.wording?.sources.orEmpty().all { it.content.isBlank() } && request.wording?.passages.isNullOrEmpty() -> "SOURCE_MAP_UNAVAILABLE"
+                            else -> "NO_CONSERVATIVE_LINK_MATCH"
+                        }
+                        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("CombinedPalette", "DISPLAY_SPAN_MAPPING · run=${request.outputTrace?.runId.orEmpty()} · part=${request.outputTrace?.partId.orEmpty()} · contentIdentityDigest=${dev.chungjungsoo.gptmobile.data.research.researchHash(contentIdentity.toString())} · bodyDigest=${dev.chungjungsoo.gptmobile.data.research.researchHash(request.content)} · parser=$ATTRIBUTION_MARKDOWN_PARSER_VERSION · zeroLinkReason=$zeroReason · uniqueSpans=${profileSpans.count { it.profileUids.size == 1 }} · sharedSpans=${profileSpans.count { it.profileUids.size > 1 }} · linkedCharacters=${profileSpans.sumOf { it.end - it.start }} · represented=${profileSpans.flatMap { it.profileUids }.distinct().take(32)} · palette=PERSISTED_PROFILE_HUE · factualVerification=false")
                     }
-                    PreparedChatMarkdown(parsed, combined, memoryHighlightRanges(combined, request.memoryValues), ProfileSpanIndex(profileSpans))
-                } finally {
-                    android.os.Trace.endSection()
+                    PreparedChatMarkdown(parsed, combined, memoryHighlightRanges(combined, request.memoryValues), ProfileSpanIndex(profileSpans), dev.chungjungsoo.gptmobile.data.research.researchHash(request.content))
                 }
             }
             rendered = prepared
@@ -437,7 +423,7 @@ fun ChatMarkdown(
                     LocalUriHandler.current,
                     null
                 )
-                Box(modifier = Modifier.alpha(structureAlpha(model.node.startOffset))) {
+                Column(modifier = Modifier.alpha(structureAlpha(model.node.startOffset))) {
                     MarkdownTable(
                         content = model.content,
                         node = model.node,
@@ -466,6 +452,7 @@ fun ChatMarkdown(
                             )
                         }
                     )
+                    CombinedSharedSourceMarkers(combinedMarkdown, rendered.profileIndex.overlapping(model.node.startOffset, model.node.endOffset), wording) { passage, owners -> attributionSelection = passage to owners }
                 }
             },
             codeBlock = {
@@ -547,7 +534,10 @@ fun ChatMarkdown(
                         }
                     }
                 } else {
-                    DefaultParagraph(model.content, model.node, model.typography.paragraph, annotator)
+                    Column {
+                        DefaultParagraph(model.content, model.node, model.typography.paragraph, annotator)
+                        CombinedSharedSourceMarkers(combinedMarkdown, rendered.profileIndex.overlapping(model.node.startOffset, model.node.endOffset), wording) { passage, owners -> attributionSelection = passage to owners }
+                    }
                 }
             }
         )
@@ -574,20 +564,41 @@ fun ChatMarkdown(
                 content = combinedMarkdown,
                 retainState = true
             )
-            val animations = markdownAnimations(animateTextSize = { this })
-
-            Markdown(
-                markdownState = markdownState,
-                inlineContent = markdownInlineContent(inlineContent),
-                annotator = annotator,
-                components = components,
-                typography = chatMarkdownTypography(),
-                animations = animations,
-                modifier = modifier.drawWithContent {
-                    drawContent()
-                    if (outputTrace != null && combinedMarkdown.isNotBlank() && firstDrawn.compareAndSet(false, true)) dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(outputTrace.runId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.FIRST_VISIBLE_TEXT, fence = outputTrace.fence)
+            val parserState by markdownState.state.collectAsState()
+            // A saved page has two asynchronous preparation steps. Keep its lazy-list
+            // placeholder until this renderer has parsed the matching prepared text;
+            // an empty/retained parser state must not expose the next document pages.
+            val awaitingContent = rendered.contentDigest == null ||
+                when (val status = parserState) {
+                    is MarkdownParseState.Loading -> true
+                    is MarkdownParseState.Success -> status.content != combinedMarkdown
+                    else -> false
                 }
-            )
+            val animations = markdownAnimations(animateTextSize = { this })
+            val layoutOwner = remember(outputTrace, rendered.contentDigest) { CombinedOperationOwner(runId = outputTrace?.runId, blockId = outputTrace?.partId, digest = rendered.contentDigest) }
+
+            Box(Modifier.heightIn(min = if (awaitingContent) minimumPendingHeight else 0.dp), propagateMinConstraints = true) {
+                Markdown(
+                    markdownState = markdownState,
+                    inlineContent = markdownInlineContent(inlineContent),
+                    annotator = annotator,
+                    components = components,
+                    typography = chatMarkdownTypography(),
+                    animations = animations,
+                    modifier = modifier.layout { measurable, constraints ->
+                        val measured = CombinedOperationTrace.measure("text_measure", layoutOwner) { measurable.measure(constraints) }
+                        layout(measured.width, measured.height) {
+                            CombinedOperationTrace.measure("text_layout", layoutOwner) { measured.placeRelative(0, 0) }
+                        }
+                    }.drawWithContent {
+                        drawContent()
+                        if (!awaitingContent && parserState is MarkdownParseState.Success && combinedMarkdown.isNotBlank()) {
+                            onContentDrawn?.invoke()
+                            if (outputTrace != null && firstDrawn.compareAndSet(false, true)) dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(outputTrace.runId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.FIRST_VISIBLE_TEXT, fence = outputTrace.fence)
+                        }
+                    }
+                )
+            }
         }
     }
 }

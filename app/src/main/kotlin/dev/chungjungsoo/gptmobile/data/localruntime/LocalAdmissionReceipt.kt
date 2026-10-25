@@ -20,8 +20,15 @@ data class LocalAdmissionReceipt(
     val components: Map<String, Long> = emptyMap(),
     val requestedContextTokens: Int = contextTokens,
     val planIdentity: String? = null,
-    val systemMemory: LocalSystemMemorySnapshot? = null
+    val systemMemory: LocalSystemMemorySnapshot? = null,
+    val memoryPlan: MemoryPlanReceipt? = null
 )
 
 @Serializable
-data class LocalSystemMemorySnapshot(val availableBytes: Long, val totalBytes: Long, val lowMemoryThresholdBytes: Long, val lowMemory: Boolean, val observedAtMillis: Long = System.currentTimeMillis())
+data class LocalSystemMemorySnapshot(
+    val availableBytes: Long,
+    val totalBytes: Long,
+    val lowMemoryThresholdBytes: Long,
+    val lowMemory: Boolean,
+    val observedAtMillis: Long = System.currentTimeMillis()
+)

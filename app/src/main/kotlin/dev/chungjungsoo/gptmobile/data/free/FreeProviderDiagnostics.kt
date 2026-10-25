@@ -32,6 +32,14 @@ class FreeRequestDiagnostics {
     internal fun responded() {
         requestSent = true
         responseReceived = true
+        dev.chungjungsoo.gptmobile.data.network.DeviceNetworkDiagnostics.episodes.responseReceived(network)?.let { recovery ->
+            // Retain prior failure records while allowing fresh reachability checks.
+            FreeCatalogState.networkChanged()
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
+                "Network",
+                "CONNECTIVITY_RECOVERED · episode=${recovery.episodeId} · network=${recovery.changeId} · affectedHosts=${recovery.distinctHosts} · firstFailureAt=${recovery.firstFailureAt} · lastFailureAt=${recovery.lastFailureAt} · responseAt=${recovery.responseAt} · allHostsVerified=false"
+            )
+        }
     }
 
     internal fun dnsFailed(host: String) {
@@ -110,7 +118,9 @@ object FreeProviderDiagnostics {
     private fun load() {
         if (loaded) return
         loaded = true
-        records = runCatching { file?.takeIf { it.isFile && it.length() <= 256_000 }?.let { json.decodeFromString<List<FreeProviderFailureRecord>>(it.readText()) }.orEmpty().takeLast(64) }.getOrDefault(emptyList())
+        val restored = runCatching { file?.takeIf { it.isFile && it.length() <= 256_000 }?.let { json.decodeFromString<List<FreeProviderFailureRecord>>(it.readText()) }.orEmpty().takeLast(64) }.getOrDefault(emptyList())
+        records = restored.map { it.copy(cooldownOrigin = it.cooldownOrigin?.copy(credentialIdentity = "redacted")) }
+        if (records != restored) save()
     }
 
     @Synchronized fun snapshot(chatId: Int? = null): List<FreeProviderFailureRecord> {
@@ -193,7 +203,7 @@ object FreeProviderDiagnostics {
             networkValidation = state?.network?.validation,
             networkEpisodeId = state?.network?.episodeId,
             networkEpisodeHostCount = state?.network?.distinctHosts ?: 0,
-            requestSent = state?.requestSent, cooldownOrigin = state?.cooldown,
+            requestSent = state?.requestSent, cooldownOrigin = state?.cooldown?.copy(credentialIdentity = "redacted"),
             provider = provider.name, endpoint = provider.apiUrl, model = model.take(256), profileUid = config.profileUid,
             chatId = config.queueScope?.substringBefore(':')?.toIntOrNull(), stage = state?.stage ?: "unknown", status = status,
             contentType = contentType,
@@ -207,7 +217,7 @@ object FreeProviderDiagnostics {
                 "text"
             },
             code = code, message = if (html) message.take(600) else providerErrorDetails(body, message, config.token).take(600),
-            requestId = providerRequestIdentity(header).takeUnless { it == "unavailable" }, retryAt = retryAt,
+            requestId = providerRequestIdentity(header).takeUnless { it == "unavailable" }, retryAt = state?.cooldown?.retryAt ?: retryAt,
             resetHeaders = listOf("Retry-After", "X-RateLimit-Reset", "X-RateLimit-Reset-Tokens", "X-RateLimit-Reset-Requests", "RateLimit-Reset", "X-RateLimit-Scope").mapNotNull { name ->
                 header(name)?.takeIf { it.length <= 120 && it.matches(Regex("[A-Za-z0-9 ,.:/_-]+")) }?.let { name to it }
             }.toMap(),

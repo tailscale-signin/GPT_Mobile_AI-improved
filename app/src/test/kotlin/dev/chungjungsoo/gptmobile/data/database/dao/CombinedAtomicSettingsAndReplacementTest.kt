@@ -3,10 +3,12 @@ package dev.chungjungsoo.gptmobile.data.database.dao
 import androidx.room.Room
 import dev.chungjungsoo.gptmobile.data.agent.AnswerSegmentChain
 import dev.chungjungsoo.gptmobile.data.agent.CombinedAcceptedTurn
+import dev.chungjungsoo.gptmobile.data.agent.CombinedAnswerRevisionTarget
 import dev.chungjungsoo.gptmobile.data.agent.CombinedEvidenceLedger
 import dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext
 import dev.chungjungsoo.gptmobile.data.agent.CombinedPolicyResolver
 import dev.chungjungsoo.gptmobile.data.agent.CombinedQualityReport
+import dev.chungjungsoo.gptmobile.data.agent.CombinedRecoveryFailure
 import dev.chungjungsoo.gptmobile.data.agent.CombinedReplacementCandidate
 import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
@@ -15,7 +17,12 @@ import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatPlatformModelV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
+import dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
+import dev.chungjungsoo.gptmobile.data.database.entity.effectiveCombinedManifest
+import dev.chungjungsoo.gptmobile.data.database.entity.effectiveContent
+import dev.chungjungsoo.gptmobile.data.database.entity.effectiveTimeline
+import dev.chungjungsoo.gptmobile.data.database.entity.snapshotLatestAssistantRevision
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import dev.chungjungsoo.gptmobile.data.model.CombinedChatSettingsDraft
 import dev.chungjungsoo.gptmobile.data.model.ConversationCombinedSettings
@@ -141,6 +148,120 @@ class CombinedAtomicSettingsAndReplacementTest {
         }
     }
 
+    @Test fun explicitRevisionOfCompletedLegacyAnswerCreatesFreshAcceptedTurnWithoutResumingIt() = runBlocking {
+        val db = database()
+        try {
+            val (user, owner, selectedRun) = seedEditorialTurn(db)
+            val dao = db.agentPersistenceDao()
+            val target = CombinedAnswerRevisionTarget.capture(owner, selectedRun)
+            val accepted = regeneratedAcceptance(singlePass = true).copy(parentRootBudgetId = "selected-root", revisionOf = target)
+            val result = dao.regenerateCombinedTurn(user, owner, regeneratedRuns(), accepted)
+            assertEquals(listOf("new-a", "new-c"), result.runs.map { it.runId })
+            assertTrue(result.runs.all { it.status == "QUEUED" && it.synthesisKey == null })
+            assertTrue(result.runs.none { it.runId == selectedRun.runId })
+            val saved = requireNotNull(CombinedAcceptedTurn.decode(result.runs.first().synthesisSnapshot))
+            assertEquals(target, saved.revisionOf)
+            assertEquals("selected-root", saved.parentRootBudgetId)
+            assertEquals("new-root", saved.context.rootBudgetId)
+            assertTrue(saved.context.requested.singlePass)
+            assertFalse(saved.context.requested.appendContinuations)
+            val archived = result.assistantMessages.first().revisions.first()
+            assertEquals(owner.content, archived.content)
+            assertEquals(owner.timeline, archived.timeline)
+            assertEquals(owner.combinedSources, archived.combinedSources)
+            assertEquals(selectedRun, dao.recoveryRun(selectedRun.runId))
+            assertTrue(runCatching { dao.regenerateCombinedTurn(user, owner, regeneratedRuns(), accepted) }.isFailure)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test fun archivedRevisionKeepsSelectedLineageAndBothAnswersWhenLatestHasAnUnfinishedFailure() = runBlocking {
+        val db = database()
+        try {
+            val (user, owner, selectedRun) = seedEditorialTurn(db, archived = true)
+            val dao = db.agentPersistenceDao()
+            val target = CombinedAnswerRevisionTarget.capture(owner, selectedRun)
+            val accepted = regeneratedAcceptance(singlePass = true).copy(parentRootBudgetId = "selected-root", revisionOf = target)
+            val result = dao.regenerateCombinedTurn(user, owner, regeneratedRuns(), accepted)
+            val saved = requireNotNull(CombinedAcceptedTurn.decode(result.runs.first().synthesisSnapshot))
+            assertEquals(selectedRun.runId, saved.revisionOf?.runId)
+            assertEquals("combined-synthesis:latest", saved.revisionOf?.currentRunId)
+            assertEquals("selected-root", saved.parentRootBudgetId)
+            val revisions = result.assistantMessages.first().revisions
+            assertEquals(listOf(owner.content, owner.revisions.single().content), revisions.map { it.content })
+            assertEquals(listOf(owner.timeline, owner.revisions.single().timeline), revisions.map { it.timeline })
+            assertEquals(owner.revisions.single().combinedSources, revisions.last().combinedSources)
+            assertEquals("FAILED", dao.recoveryRun("combined-synthesis:latest")?.status)
+            assertEquals(selectedRun, dao.recoveryRun(selectedRun.runId))
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test fun changedArchivedAssessmentOrFreshTurnIdentityRejectsBeforeAnySlotChanges() = runBlocking {
+        val db = database()
+        try {
+            val (user, owner, selectedRun) = seedEditorialTurn(db, archived = true)
+            val dao = db.agentPersistenceDao()
+            val target = CombinedAnswerRevisionTarget.capture(owner, selectedRun)
+            val accepted = regeneratedAcceptance(singlePass = true).copy(parentRootBudgetId = "selected-root", revisionOf = target)
+            for (invalid in listOf(accepted.copy(parentRootBudgetId = "latest-root"), accepted.copy(context = accepted.context.copy(rootBudgetId = "selected-root")), accepted.copy(context = accepted.context.copy(rootBudgetId = "latest-root")))) {
+                assertTrue(runCatching { dao.regenerateCombinedTurn(user, owner, regeneratedRuns(), invalid) }.isFailure)
+                assertEquals(owner, dao.recoveryMessage(owner.id))
+                assertNull(dao.recoveryRun("new-a"))
+            }
+            val removedBefore = dao.recoveryMessage(4)
+            for (change in listOf<(CombinedQualityReport) -> CombinedQualityReport>({ it.copy(lengthCompliance = "MET") }, { it.copy(verificationStatus = "REVIEW_CHANGED", issues = listOf("New retained assessment issue")) })) {
+                val changed = owner.copy(
+                    revisions = owner.revisions.map { revision ->
+                        revision.copy(timeline = revision.timeline.map { item -> item.copy(combinedQuality = item.combinedQuality?.let(change)) })
+                    }
+                )
+                dao.rawUpdateMessage(changed)
+                assertTrue(runCatching { dao.regenerateCombinedTurn(user, owner, regeneratedRuns(), accepted) }.isFailure)
+                assertEquals(changed, dao.recoveryMessage(owner.id))
+                assertEquals(removedBefore, dao.recoveryMessage(4))
+                assertNull(dao.recoveryRun("new-a"))
+            }
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test fun normalizedLegacyArchiveSeparatesAnswerIdentityFromStorageOwnerAndPreservesFullBody() = runBlocking {
+        val db = database()
+        try {
+            val (user, inline, selectedRun) = seedEditorialTurn(db, archived = true, longLatest = true)
+            val dao = db.agentPersistenceDao()
+            dao.updateMessage(inline)
+            val compact = requireNotNull(dao.rawRecoveryMessage(inline.id))
+            val reference = requireNotNull(compact.effectiveCombinedManifest())
+            assertEquals("combined-synthesis:latest", reference.runId)
+            assertEquals("", compact.effectiveTimeline().single { it.combinedQuality != null }.combinedQuality?.revisionId)
+            assertTrue(reference.revisionId.isNotBlank())
+            val target = CombinedAnswerRevisionTarget.capture(compact, selectedRun)
+            val accepted = regeneratedAcceptance(singlePass = true).copy(parentRootBudgetId = "selected-root", revisionOf = target)
+            val storedManifest = requireNotNull(dao.combinedFinalManifest(reference.id))
+            val other = MessageV2(id = 9, chatId = 1, content = "Other owner", platformType = "other", linkedMessageId = 2)
+            db.messageDao().addMessages(other)
+            db.openHelper.writableDatabase.execSQL("UPDATE combined_final_manifests SET finalMessageId = 9 WHERE id = ?", arrayOf(reference.id))
+            assertTrue(runCatching { dao.regenerateCombinedTurn(user, compact, regeneratedRuns(), accepted) }.isFailure)
+            assertNull(dao.recoveryRun("new-a"))
+            db.openHelper.writableDatabase.execSQL("UPDATE combined_final_manifests SET finalMessageId = ? WHERE id = ?", arrayOf<Any>(storedManifest.finalMessageId, reference.id))
+            val result = dao.regenerateCombinedTurn(user, compact, regeneratedRuns(), accepted)
+            val restored = requireNotNull(dao.recoveryMessage(result.assistantMessages.first().id))
+            assertEquals(listOf(inline.content, inline.revisions.single().content), restored.revisions.map { it.content })
+            assertEquals(inline.revisions.single().timeline, restored.revisions.last().timeline)
+            assertEquals(inline.revisions.single().combinedSources.map { it.content }, restored.revisions.last().combinedSources.map { it.content })
+            assertEquals(inline.revisions.single().combinedSources.map { it.platformUid to it.attemptId }, restored.revisions.last().combinedSources.map { it.platformUid to it.attemptId })
+            assertEquals(target, CombinedAcceptedTurn.decode(result.runs.first().synthesisSnapshot)?.revisionOf)
+            assertEquals(inline.effectiveContent(), restored.revisions.last().content)
+        } finally {
+            db.close()
+        }
+    }
+
     @Test fun aCompletedProviderCannotPublishACorrectionRequiredCombinedDraftAsFinal() = runBlocking {
         val db = database()
         try {
@@ -222,12 +343,51 @@ class CombinedAtomicSettingsAndReplacementTest {
         return user to owner
     }
 
-    private fun regeneratedAcceptance(): CombinedAcceptedTurn {
+    private suspend fun seedEditorialTurn(db: ChatDatabaseV2, archived: Boolean = false, longLatest: Boolean = false): Triple<MessageV2, MessageV2, AgentRun> {
+        val (user, original) = seedCompletedTurn(db)
+        val dao = db.agentPersistenceDao()
+        val report = CombinedQualityReport(answerDigest = researchHash(original.content), status = "CORRECTION_REQUIRED", finalAssessment = true, protocolComplete = true, correctionRequired = true, lengthCompliance = "UNMET")
+        val selected = original.copy(
+            combinedSources = listOf(CombinedModelResponse("a", "Source A", content = "Exact original source details.")),
+            timeline = listOf(
+                AssistantTimelineItem(AssistantTimelineItemType.TEXT, content = original.content),
+                AssistantTimelineItem(AssistantTimelineItemType.NOTICE, combinedQuality = report),
+                AssistantTimelineItem(AssistantTimelineItemType.NOTICE, combinedFailure = CombinedRecoveryFailure.fromCode("COMBINED_PARTIAL"))
+            )
+        )
+        val lineage = regeneratedAcceptance().copy(context = regeneratedAcceptance().context.copy(rootBudgetId = "selected-root"), parentRootBudgetId = null)
+        val selectedRun = requireNotNull(dao.recoveryRun(requireNotNull(selected.currentRunId))).copy(status = "FAILED", terminalError = "COMBINED_PARTIAL", synthesisSnapshot = lineage.encode())
+        db.agentRunDao().upsert(selectedRun)
+        if (!archived) {
+            dao.rawUpdateMessage(selected)
+            return Triple(user, selected, selectedRun)
+        }
+        val latestBody = if (longLatest) "Latest unfinished output with retained details. ".repeat(900) else "Latest unfinished output"
+        val latest = selected.copy(
+            content = latestBody,
+            currentRunId = "combined-synthesis:latest",
+            ownershipFence = selected.ownershipFence + 1,
+            combinedSources = emptyList(),
+            revisions = listOf(requireNotNull(selected.snapshotLatestAssistantRevision(1))),
+            activeRevisionIndex = 0,
+            timeline = listOf(
+                AssistantTimelineItem(AssistantTimelineItemType.TEXT, content = latestBody),
+                AssistantTimelineItem(AssistantTimelineItemType.NOTICE, combinedQuality = report.copy(answerDigest = researchHash(latestBody), revisionId = "latest-revision", protocolComplete = false)),
+                AssistantTimelineItem(AssistantTimelineItemType.NOTICE, combinedFailure = CombinedRecoveryFailure.fromCode("COMBINED_PARTIAL"))
+            )
+        )
+        db.agentRunDao().upsert(selectedRun.copy(runId = requireNotNull(latest.currentRunId), ownershipFence = latest.ownershipFence, synthesisSnapshot = lineage.copy(context = lineage.context.copy(rootBudgetId = "latest-root")).encode()))
+        dao.rawUpdateMessage(latest)
+        return Triple(user, latest, selectedRun)
+    }
+
+    private fun regeneratedAcceptance(singlePass: Boolean = false): CombinedAcceptedTurn {
         val requested = CombinedPolicyResolver.accept(
             ConversationCombinedSettings(collectionBias = 100, effort = 25),
             listOf("a", "c"),
             mapOf("a" to "new-model-a", "c" to "new-model-c"),
             "Compare the results",
+            singlePass = singlePass,
             acceptedAtMillis = 1000
         )
         val context = CombinedExecutionContext(requested, CombinedPolicyResolver.resolve(requested), "new-root", chatId = 1)

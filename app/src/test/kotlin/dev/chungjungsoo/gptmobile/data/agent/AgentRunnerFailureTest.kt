@@ -14,6 +14,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentRunnerFailureTest {
+    @Test
+    fun typedProviderLimitIsPreservedWithoutTheTransientOneSecondRetry() = runTest {
+        for (knownNotAccepted in listOf(true, false)) {
+            var requests = 0
+            val limit = dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision("TEST", "p", "model", 1000L, "scope", "PROVIDER_RATE_LIMITED", knownNotAccepted)
+            val session = provider {
+                requests++
+                emit(ProviderEvent.Failed("Service temporarily overloaded, please retry", providerLimit = limit))
+            }
+            val events = AgentRunner().run(session, emptyList()).toList().filterIsInstance<AgentRunEvent.Provider>().map { it.event }
+            assertEquals(1, requests)
+            assertSame(limit, events.filterIsInstance<ProviderEvent.Failed>().single().providerLimit)
+            assertFalse(events.any { it == ProviderEvent.Completed })
+        }
+        assertEquals(0L, testScheduler.currentTime)
+    }
+
     private fun provider(block: suspend FlowCollector<ProviderEvent>.() -> Unit) = object : AgentProviderSession {
         override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow(block)
     }

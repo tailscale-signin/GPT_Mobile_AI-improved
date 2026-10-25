@@ -73,7 +73,11 @@ data class MessageV2(
     val combinedSources: List<CombinedModelResponse> = emptyList(),
 
     @ColumnInfo(name = "ownership_fence", defaultValue = "0")
-    val ownershipFence: Long = 0
+    val ownershipFence: Long = 0,
+
+    @ColumnInfo(name = "combined_manifest")
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val combinedManifest: CombinedManifestReference? = null
 )
 
 @Serializable
@@ -109,7 +113,9 @@ data class CombinedModelResponse(
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
     val bestUsableAttemptId: String? = null,
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
-    val selectedContributionAttemptId: String? = null
+    val selectedContributionAttemptId: String? = null,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val originalDocument: CombinedSourceReference? = null
 )
 
 @Serializable
@@ -122,7 +128,9 @@ data class AssistantRevision(
     val createdAt: Long,
     val runId: String? = null,
     val timeline: List<AssistantTimelineItem> = emptyList(),
-    val combinedSources: List<CombinedModelResponse> = emptyList()
+    val combinedSources: List<CombinedModelResponse> = emptyList(),
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val combinedManifest: CombinedManifestReference? = null
 )
 
 const val ACTIVE_REVISION_LATEST = -1
@@ -148,6 +156,11 @@ fun MessageV2.effectiveCombinedSources(): List<CombinedModelResponse> = revision
     .getOrNull(activeRevisionIndex)
     ?.combinedSources
     ?: combinedSources
+
+fun MessageV2.effectiveCombinedManifest(): CombinedManifestReference? = revisions
+    .getOrNull(activeRevisionIndex)
+    ?.combinedManifest
+    ?: combinedManifest.takeUnless { hasHistoricalRevisionSelected() }
 
 fun MessageV2.effectiveRunId(): String? = if (hasHistoricalRevisionSelected()) {
     revisions[activeRevisionIndex].runId
@@ -176,7 +189,8 @@ fun MessageV2.snapshotLatestAssistantRevision(timestamp: Long = System.currentTi
         createdAt = timestamp,
         runId = currentRunId,
         timeline = timeline,
-        combinedSources = combinedSources
+        combinedSources = combinedSources,
+        combinedManifest = combinedManifest
     )
 }
 

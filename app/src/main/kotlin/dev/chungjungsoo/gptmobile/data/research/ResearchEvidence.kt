@@ -208,10 +208,12 @@ data class ResearchSnapshot(
     val originatingUserMessageId: Int = 0,
     val taskChatId: Int = 0,
     val numericalFactBindingRequired: Boolean = false,
-    val reportStructure: String = "AUTO"
+    val reportStructure: String = "AUTO",
+    val deferredStage: ResearchStageCursor? = null
 ) {
     fun json() = buildJsonObject {
-        put("version", 5)
+        put("version", 6)
+        deferredStage?.let { put("deferredStage", kotlinx.serialization.json.Json.encodeToJsonElement(ResearchStageCursor.serializer(), it)) }
         put("numericalFactBindingRequired", numericalFactBindingRequired)
         put("reportStructure", reportStructure)
         put("taskId", taskId)
@@ -247,7 +249,7 @@ data class ResearchSnapshot(
     companion object {
         fun parse(value: JsonObject): ResearchSnapshot? = runCatching {
             val version = value["version"]?.jsonPrimitive?.int
-            require(version in 1..5)
+            require(version in 1..6)
             val sources = value.rows("sources").mapNotNull { s ->
                 val id = s.text("id")
                 val url = s.text("url").take(2048)
@@ -326,6 +328,7 @@ data class ResearchSnapshot(
                 claim.copy(rationale = row.text("rationale").take(1200), counterEvidence = row.text("counterEvidence").take(1200), reviewedSourceVersion = row.text("reviewedSourceVersion").take(700), reviewRubric = row.text("reviewRubric").take(80), verdict = verdict, questionId = row.text("questionId"), relevance = row.text("relevance").takeIf { it in setOf("Relevant", "Background", "Irrelevant") } ?: "Unknown", exactQuoteVerified = (row["exactQuoteVerified"] as? JsonPrimitive)?.booleanOrNull == true, extractedBy = row.text("extractedBy").take(200), extractionInvocationId = row.text("extractionInvocationId").take(128), reviewedBy = row.text("reviewedBy").take(200), reviewInvocationId = row.text("reviewInvocationId").take(128), independentReview = (row["independentReview"] as? JsonPrimitive)?.booleanOrNull == true && row.text("extractedBy").isNotBlank() && row.text("reviewedBy").isNotBlank() && row.text("extractedBy") != row.text("reviewedBy"))
             }
             ResearchSnapshot(
+                deferredStage = value["deferredStage"]?.let { kotlinx.serialization.json.Json.decodeFromJsonElement(ResearchStageCursor.serializer(), it).also(ResearchStageCursor::validate) },
                 numericalFactBindingRequired = (value["numericalFactBindingRequired"] as? JsonPrimitive)?.booleanOrNull == true,
                 reportStructure = value.text("reportStructure").takeIf { name -> dev.chungjungsoo.gptmobile.data.model.ResearchReportStructure.entries.any { it.name == name } } ?: "AUTO",
                 taskId = value.text("taskId"), rootWorkId = value.text("rootWorkId"), originatingUserMessageId = value.number("originatingUserMessageId"), taskChatId = value.number("taskChatId"),

@@ -38,6 +38,10 @@ class ChatBenchmarkActivity : ComponentActivity() {
         val streaming = intent.getBooleanExtra("stream", false)
         setContent {
             MaterialTheme {
+                if (intent.getStringExtra("screen") == "saved-combined") {
+                    SavedCombinedDocumentFixture(intent.getIntExtra("profiles", 10), intent.getIntExtra("characters", 100_000))
+                    return@MaterialTheme
+                }
                 if (intent.getStringExtra("screen") == "combined") {
                     FiveProfileStreamingFixture()
                     return@MaterialTheme

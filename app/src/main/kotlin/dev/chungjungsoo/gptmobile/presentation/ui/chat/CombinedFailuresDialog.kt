@@ -23,6 +23,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -52,7 +53,8 @@ internal fun CombinedFailuresDialog(
     identities: Map<String, ProfileColorIdentity>,
     onRetry: (Int, String) -> Unit,
     onRemove: (String) -> Unit,
-    onContinue: () -> Unit
+    onContinue: () -> Unit,
+    onExclude: (Int, String) -> Unit = { _, _ -> }
 ) {
     var now by remember { mutableStateOf(System.currentTimeMillis()) }
     LaunchedEffect(failures.map { it.retryAfterMillis }) {
@@ -113,6 +115,10 @@ internal fun CombinedFailuresDialog(
                                 modifier = Modifier.size(48.dp)
                             ) { Icon(Icons.Rounded.RemoveCircleOutline, "Remove ${failure.profileName} from this chat") }
                         }
+                        TextButton(
+                            onClick = { onExclude(failure.userMessageId, failure.profileUid) },
+                            enabled = !failure.retrying && !failure.applicationFailure
+                        ) { Text("Exclude ${failure.profileName} from this turn") }
                     }
                 }
                 Button(onClick = onContinue, modifier = Modifier.fillMaxWidth()) { Text("Continue") }

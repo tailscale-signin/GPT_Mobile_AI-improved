@@ -54,6 +54,34 @@ class LocalModelsViewModel @Inject constructor(
         deviceSocModel = deviceSocModel
     )
 
+    private val downloadPreferencesMutex = kotlinx.coroutines.sync.Mutex()
+    private val mutableWifiOnly = MutableStateFlow<Boolean?>(null)
+    val wifiOnly: StateFlow<Boolean?> = mutableWifiOnly
+    private val mutableDownloadSettingsError = MutableStateFlow<String?>(null)
+    val downloadSettingsError: StateFlow<String?> = mutableDownloadSettingsError
+
+    fun updateWifiOnly(enabled: Boolean) {
+        if (mutableWifiOnly.value == null) return
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            downloadPreferencesMutex.lock()
+            try {
+                val context = importContext ?: return@launch
+                check(
+                    context.getSharedPreferences("local-model-downloads", android.content.Context.MODE_PRIVATE)
+                        .edit().putBoolean("wifiOnly", enabled).commit()
+                ) { "Could not save download settings." }
+                mutableWifiOnly.value = enabled
+                mutableDownloadSettingsError.value = null
+            } catch (canceled: kotlinx.coroutines.CancellationException) {
+                throw canceled
+            } catch (error: Exception) {
+                mutableDownloadSettingsError.value = "Could not save the download preference. Try again."
+            } finally {
+                downloadPreferencesMutex.unlock()
+            }
+        }
+    }
+
     private val catalogEntries = MutableStateFlow<List<CatalogEntry>>(emptyList())
     private val mutableCatalogStatus = MutableStateFlow<dev.chungjungsoo.gptmobile.data.catalog.CatalogSnapshot?>(null)
     val catalogStatus: StateFlow<dev.chungjungsoo.gptmobile.data.catalog.CatalogSnapshot?> = mutableCatalogStatus
@@ -163,6 +191,16 @@ class LocalModelsViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.Eagerly, LocalModelsUiState())
 
     init {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                mutableWifiOnly.value = importContext?.getSharedPreferences("local-model-downloads", android.content.Context.MODE_PRIVATE)
+                    ?.getBoolean("wifiOnly", false)
+            } catch (canceled: kotlinx.coroutines.CancellationException) {
+                throw canceled
+            } catch (error: Exception) {
+                mutableDownloadSettingsError.value = "Saved download preferences are unavailable."
+            }
+        }
         viewModelScope.launch {
             benchmarkStore.load()
             benchmarkStore.history.collect { history ->

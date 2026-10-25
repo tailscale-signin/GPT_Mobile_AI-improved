@@ -27,7 +27,8 @@ internal object CombinedSuccessorSnapshot {
                 acceptedWriter, original.userMessage.content, prompt,
                 combinedWriterSystemPrompt(acceptedWriter.systemPrompt, original.deliveryProtocol, original.userMessage.content),
                 original.writerContext?.historyText() ?: combinedWriterHistory(original.history, original.replies, acceptedWriter.uid),
-                original.deliveryProtocol, policy.plan?.finalOutputTokens ?: 0, userOutputLimit, userContextLimit, original.writerContext
+                original.deliveryProtocol, policy.plan?.finalOutputTokens ?: 0, userOutputLimit, userContextLimit, original.writerContext,
+                appendContinuations = nextContext.requested.appendContinuations
             )
         } else {
             null

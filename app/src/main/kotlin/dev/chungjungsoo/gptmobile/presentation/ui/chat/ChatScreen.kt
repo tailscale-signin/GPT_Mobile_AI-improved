@@ -71,6 +71,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -127,12 +128,14 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
+import dev.chungjungsoo.gptmobile.data.database.entity.effectiveCombinedManifest
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveCombinedSources
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveContent
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveRunId
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveThoughts
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveTimeline
 import dev.chungjungsoo.gptmobile.data.database.entity.hasHistoricalRevisionSelected
+import dev.chungjungsoo.gptmobile.data.diagnostics.CombinedOperationOwner
 import dev.chungjungsoo.gptmobile.data.model.delegationFor
 import dev.chungjungsoo.gptmobile.data.model.excludesMemory
 import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
@@ -209,7 +212,8 @@ fun ChatScreen(
             identities = ProfileAttributionPalette.forSelection(combinedFailures.map { it.profileUid }, featureSettings.profileAttributionColors),
             onRetry = chatViewModel::retryCombinedProfile,
             onRemove = chatViewModel::removeCombinedFailureProfile,
-            onContinue = { chatViewModel.combineAvailableResults(failureTurn) }
+            onContinue = { chatViewModel.combineAvailableResults(failureTurn) },
+            onExclude = chatViewModel::excludeCombinedFailureForTurn
         )
     }
     val inputRequests by chatViewModel.pendingMcpInput.collectAsStateWithLifecycle()
@@ -742,6 +746,9 @@ fun ChatScreen(
                         onResponseOffset = { if (index == lastMessageIndex) latestResponseOffset = it },
                         onEditQuestion = chatViewModel::openUserMessageEditDialog,
                         onEditAssistant = chatViewModel::openAssistantMessageEditDialog,
+                        loadCombinedBlocks = chatViewModel::combinedDocumentBlocks,
+                        loadCombinedSourceBlocks = chatViewModel::combinedSourceBlocks,
+                        resolveCombinedMessage = chatViewModel::resolveCombinedMessage,
                         onCopyText = { copiedText ->
                             scope.launch {
                                 dev.chungjungsoo.gptmobile.util.SafeClipboard.copy(context, copiedText)
@@ -758,6 +765,7 @@ fun ChatScreen(
                         onSelectText = chatViewModel::openSelectTextSheet,
                         onRetry = chatViewModel::retryChat,
                         onRetryCombinedMerge = chatViewModel::retryCombinedMerge,
+                        onReviseCombinedAnswer = chatViewModel::reviseCombinedAnswer,
                         onTryAnotherCombinedWriter = chatViewModel::tryAnotherCombinedWriter,
                         onReviewCombinedPrimary = { chatViewModel.reviewCombinedPrimary(message.id) },
                         onReviewCombinedFailures = { chatViewModel.reviewCombinedFailures(message.id) },
@@ -1182,7 +1190,7 @@ fun ChatScreen(
 }
 
 @Composable
-private fun ChatMessagePair(
+internal fun ChatMessagePair(
     replyRevision: Long,
     replyVisible: Boolean,
     onAnswerDisplayed: (MessageV2) -> Unit,
@@ -1226,6 +1234,7 @@ private fun ChatMessagePair(
     onSelectText: (String) -> Unit,
     onRetry: (Int, Int) -> Unit,
     onRetryCombinedMerge: (Int) -> Unit = {},
+    onReviseCombinedAnswer: (Int, dev.chungjungsoo.gptmobile.data.agent.CombinedAnswerRevisionTarget) -> Unit = { _, _ -> },
     onTryAnotherCombinedWriter: (Int) -> Unit = {},
     onReviewCombinedPrimary: () -> Unit = {},
     onReviewCombinedFailures: () -> Unit = {},
@@ -1239,8 +1248,12 @@ private fun ChatMessagePair(
     onShowPreviousRevision: (Int, Int) -> Unit,
     onShowNextRevision: (Int, Int) -> Unit,
     onContinueClick: () -> Unit = {},
-    onActionClick: (String) -> Unit = {}
+    onActionClick: (String) -> Unit = {},
+    loadCombinedBlocks: suspend (dev.chungjungsoo.gptmobile.data.database.entity.CombinedManifestReference, Int, Int) -> List<dev.chungjungsoo.gptmobile.data.agent.CombinedDocumentBlock>,
+    resolveCombinedMessage: suspend (MessageV2) -> MessageV2,
+    loadCombinedSourceBlocks: suspend (dev.chungjungsoo.gptmobile.data.database.entity.CombinedManifestReference, dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse, Int, Int) -> List<dev.chungjungsoo.gptmobile.data.agent.CombinedDocumentBlock> = { _, _, _, _ -> emptyList() }
 ) {
+    val documentScope = rememberCoroutineScope()
     val combinedSynthesisIndex = assistantMessages.indexOfFirst { it.isCombinedSynthesis() }
     val participatingUids = activePlatformUids - disabledPlatformUids
     val combinedProfiles = if (combinedMode) {
@@ -1291,11 +1304,26 @@ private fun ChatMessagePair(
         isCombinedConversation -> combinedSynthesisIndex.takeIf { it >= 0 } ?: combinedProfiles.firstOrNull()?.assistantIndex ?: 0
         else -> platformIndexState
     }
+    val synthesisMessage = assistantMessages.getOrNull(combinedSynthesisIndex)
+    val sourceManifest = synthesisMessage?.effectiveCombinedManifest()
+    val selectedSource = synthesisMessage?.effectiveCombinedSources()?.firstOrNull { it.platformUid == selectedProfile?.uid }
+    val selectedSourceLoader = remember(sourceManifest, loadCombinedSourceBlocks) { combinedInspectionLoader(sourceManifest, loadCombinedSourceBlocks) }
+    val selectedSourceReader = remember(selectedSource, selectedSourceLoader) {
+        selectedSource?.takeIf { it.originalDocument != null }?.let {
+            CombinedOriginalSourceReader(it, selectedSourceLoader, CombinedOperationOwner(messageId = synthesisMessage?.id, runId = sourceManifest?.runId, revisionId = sourceManifest?.revisionId, digest = it.originalDocument?.digest, profileUid = it.platformUid))
+        }
+    }
+    DisposableEffect(selectedSourceReader) {
+        selectedSourceReader?.beginTabTransition()
+        onDispose { selectedSourceReader?.endTabTransition() }
+    }
     val selectedAssistantMessage = if (selectedProfile != null) selectedProfile.message else assistantMessages.getOrNull(displayPlatformIndex)
     val responseInsetPx = with(LocalDensity.current) { 12.dp.roundToPx() }
     val synthesisStarted = isCombinedConversation && combinedSynthesisIndex >= 0
-    val rawAssistantContent = dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(selectedAssistantMessage?.effectiveContent().orEmpty())
+    val rawAssistantContent = if (selectedSourceReader != null) "" else dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(selectedAssistantMessage?.effectiveContent().orEmpty())
     val assistantContent = when {
+        selectedSourceReader != null -> ""
+        rawAssistantContent.isBlank() && (isCombinedConversation && combinedStatus == CombinedResponseStatus.PAUSED || selectedAssistantMessage?.currentRunId?.let(agentRunsById::get)?.status == AgentRunStatus.WAITING_PROVIDER_LIMIT) -> stringResource(R.string.provider_wait_saved)
         isCombinedConversation && !synthesisStarted && combinedStatus == CombinedResponseStatus.FAILED -> stringResource(R.string.combined_all_profiles_failed)
         isCombinedConversation && !synthesisStarted -> ""
         isSourceResponse && selectedProfile.status == CombinedResponseStatus.FAILED && selectedAssistantMessage?.content.isNullOrBlank() -> stringResource(R.string.combined_profile_no_response)
@@ -1328,6 +1356,11 @@ private fun ChatMessagePair(
     }
     val selectedRunId = selectedAssistantMessage?.effectiveRunId()
     val agentRun = selectedRunId?.let(agentRunsById::get)
+    val retainedFailure = remember(selectedAssistantMessage, agentRun?.terminalError) { selectedAssistantMessage?.let { dev.chungjungsoo.gptmobile.data.agent.CombinedRecoveryFailure.retained(it, agentRun?.terminalError) } }
+    val needsAnswerCorrection = isCombinedConversation && retainedFailure?.category == dev.chungjungsoo.gptmobile.data.agent.CombinedRecoveryCategory.REQUIREMENTS_UNMET
+    val revisionTarget = remember(selectedAssistantMessage, agentRun, needsAnswerCorrection) {
+        if (needsAnswerCorrection && selectedAssistantMessage != null && agentRun != null) runCatching { dev.chungjungsoo.gptmobile.data.agent.CombinedAnswerRevisionTarget.capture(selectedAssistantMessage, agentRun) }.getOrNull() else null
+    }
     val activeAgentRun = if (isCombinedConversation) {
         assistantMessages.asSequence().mapNotNull { it.currentRunId?.let(activeAgentRuns::get) }.firstOrNull()
     } else {
@@ -1419,17 +1452,32 @@ private fun ChatMessagePair(
                 }
                 if (hasCombinedTabs && combinedStatus != CombinedResponseStatus.GENERATING) {
                     val retained = combinedProfiles.count { it.message?.effectiveContent()?.isNotBlank() == true }
-                    if (combinedStatus == CombinedResponseStatus.FAILED || isSourceResponse) {
+                    if (combinedStatus == CombinedResponseStatus.FAILED || needsAnswerCorrection || isSourceResponse) {
                         androidx.compose.material3.Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
                             Column(Modifier.padding(12.dp)) {
-                                Text(stringResource(if (isSourceResponse) R.string.audit_saved_reply else R.string.audit_combining_failed), style = MaterialTheme.typography.titleSmall)
+                                Text(if (needsAnswerCorrection) "Answer needs correction" else stringResource(if (isSourceResponse) R.string.audit_saved_reply else R.string.audit_combining_failed), style = MaterialTheme.typography.titleSmall)
                                 Text(stringResource(R.string.audit_replies_saved), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                selectedAssistantMessage?.timeline?.lastOrNull { it.combinedFailure != null }?.combinedFailure?.let { failure ->
-                                    Text(if (failure.remoteJobStatus == "PENDING") "The local wait ended; the remote job is still pending. Its receipt is saved. Use Check queued job to inspect it without submitting again." else "Final delivery: ${failure.category.name.lowercase().replace('_', ' ')}", style = MaterialTheme.typography.bodySmall)
+                                retainedFailure?.let { failure ->
+                                    Text(
+                                        if (needsAnswerCorrection) {
+                                            "The answer finished, but does not meet all of your request. A revision starts only when you ask for one."
+                                        } else if (failure.remoteJobStatus == "PENDING") {
+                                            "The local wait ended; the remote job is still pending. Its receipt is saved. Use Check queued job to inspect it without submitting again."
+                                        } else {
+                                            "Final delivery: ${failure.category.name.lowercase().replace('_', ' ')}"
+                                        },
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
                                 }
                                 Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(4.dp)) {
-                                    if (combinedSynthesisIndex >= 0 && combinedStatus == CombinedResponseStatus.FAILED) TextButton(onClick = { onRetryCombinedMerge(messageIndex) }, enabled = isIdle && canUseChat) { Text(stringResource(R.string.audit_retry_combining)) }
-                                    if (combinedSynthesisIndex >= 0 && combinedStatus == CombinedResponseStatus.FAILED) TextButton(onClick = { onTryAnotherCombinedWriter(messageIndex) }, enabled = isIdle && canUseChat) { Text("Try another writer") }
+                                    if (combinedSynthesisIndex >= 0 && (combinedStatus == CombinedResponseStatus.FAILED || needsAnswerCorrection)) {
+                                        if (needsAnswerCorrection) {
+                                            TextButton(onClick = { revisionTarget?.let { onReviseCombinedAnswer(messageIndex, it) } }, enabled = isIdle && canUseChat && revisionTarget != null) { Text("Create revised answer") }
+                                        } else {
+                                            TextButton(onClick = { onRetryCombinedMerge(messageIndex) }, enabled = isIdle && canUseChat) { Text(stringResource(R.string.audit_retry_combining)) }
+                                        }
+                                    }
+                                    if (combinedSynthesisIndex >= 0 && combinedStatus == CombinedResponseStatus.FAILED && !needsAnswerCorrection) TextButton(onClick = { onTryAnotherCombinedWriter(messageIndex) }, enabled = isIdle && canUseChat) { Text("Try another writer") }
                                     if (agentRunsById.values.any { it.userMessageId == message.id && it.terminalError?.contains("QUEUE_JOB_PENDING") == true }) TextButton(onClick = { onCheckCombinedQueuedJob(messageIndex) }, enabled = isIdle && canUseChat) { Text("Check queued job") }
                                     if (!isSourceResponse) {
                                         androidx.compose.material3.FilledTonalButton(onClick = {
@@ -1439,7 +1487,7 @@ private fun ChatMessagePair(
                                             useful?.let { onCombinedProfileClick(it.uid) }
                                         }) { Text(stringResource(R.string.audit_view_replies)) }
                                     }
-                                    if (isSourceResponse && combinedSynthesisIndex >= 0 && assistantContent.isNotBlank()) TextButton(onClick = { onUseCombinedReply(messageIndex, selectedProfile!!.uid) }, enabled = isIdle && canUseChat) { Text("Use reply") }
+                                    if (isSourceResponse && combinedSynthesisIndex >= 0 && (assistantContent.isNotBlank() || selectedSourceReader != null)) TextButton(onClick = { onUseCombinedReply(messageIndex, selectedProfile!!.uid) }, enabled = isIdle && canUseChat) { Text("Use reply") }
                                 }
                             }
                         }
@@ -1471,6 +1519,7 @@ private fun ChatMessagePair(
                             !isCurrentPlatformLoading &&
                             activeAgentRun == null &&
                             selectedAssistantMessage != null &&
+                            (!needsAnswerCorrection || revisionTarget != null) &&
                             selectedPlatformUid in participatingUids &&
                             enabledPlatformLookup[selectedPlatformUid]?.enabled == true
                     } else {
@@ -1480,7 +1529,9 @@ private fun ChatMessagePair(
                             !isCurrentPlatformLoading &&
                             selectedPlatformUid in participatingUids
                     },
-                    retryLabel = if (isCombinedConversation) {
+                    retryLabel = if (needsAnswerCorrection) {
+                        "Create revised answer"
+                    } else if (isCombinedConversation) {
                         stringResource(if (combinedStatus == CombinedResponseStatus.FAILED) R.string.combined_retry else R.string.combined_regenerate)
                     } else {
                         stringResource(R.string.audit_generate_again)
@@ -1500,6 +1551,9 @@ private fun ChatMessagePair(
                     debugMemorySources = debugMemorySources,
                     showReasoning = showReasoning,
                     text = assistantContent,
+                    combinedManifest = selectedAssistantMessage?.effectiveCombinedManifest(),
+                    originalSource = selectedSourceReader,
+                    loadCombinedBlocks = loadCombinedBlocks,
                     timestamp = selectedAssistantMessage?.let { it.createdAt * 1000L }?.takeIf { debugSettings.messageTimestamps },
                     thoughts = assistantThoughts,
                     timeline = assistantTimeline,
@@ -1512,12 +1566,14 @@ private fun ChatMessagePair(
                             assistantMessages.getOrNull(combinedSynthesisIndex)?.effectiveCombinedSources().orEmpty(),
                             attributionColors,
                             assistantMessages.getOrNull(combinedSynthesisIndex)?.effectiveTimeline()?.lastOrNull { it.combinedQuality != null }?.combinedQuality?.passages.orEmpty(),
-                            assistantMessages.getOrNull(combinedSynthesisIndex)?.effectiveContent().orEmpty()
+                            assistantMessages.getOrNull(combinedSynthesisIndex)?.effectiveContent().orEmpty(),
+                            profileMarkers = combinedIdentities.mapValues { it.value.marker.toString() },
+                            loadSourceBlocks = remember(selectedAssistantMessage?.effectiveCombinedManifest(), loadCombinedSourceBlocks) { combinedInspectionLoader(selectedAssistantMessage?.effectiveCombinedManifest(), loadCombinedSourceBlocks) }
                         )
                     } else {
                         null
                     },
-                    splitForPassageIndicators = false,
+                    // Shared contribution controls render inside the mapped Markdown tree.
                     articleCards = { segment ->
                         if (debugSettings.researchFeature.articleCards) {
                             selectedAssistantMessage?.let { articleMessage ->
@@ -1534,7 +1590,7 @@ private fun ChatMessagePair(
                     locationToolEvents = provenanceToolEvents,
                     sourceToolEvents = provenanceToolEvents,
                     sourceProfilesByRun = agentRunsById.mapValues { it.value.profileUid },
-                    contentIdentity = "$messageIndex:$selectedPlatformUid:${selectedRunId.orEmpty()}:${selectedAssistantMessage?.activeRevisionIndex}",
+                    contentIdentity = "$messageIndex:$selectedPlatformUid:${selectedRunId.orEmpty()}:${selectedAssistantMessage?.activeRevisionIndex}:${selectedSource?.originalDocument?.digest.orEmpty()}",
                     revisionIndexLabel = selectedAssistantMessage?.takeIf { !isSourceResponse && it.revisions.isNotEmpty() }?.let { assistantMessage ->
                         val totalRevisions = assistantMessage.revisions.size + 1
                         if (assistantMessage.activeRevisionIndex == ACTIVE_REVISION_LATEST) {
@@ -1553,9 +1609,15 @@ private fun ChatMessagePair(
                     },
                     canShowPreviousRevision = canShowPreviousRevision,
                     canShowNextRevision = canShowNextRevision,
-                    onCopyClick = { onCopyText(assistantContent) },
-                    onSelectClick = { onSelectText(assistantContent) },
-                    onRetryClick = { onRetry(messageIndex, displayPlatformIndex) },
+                    onCopyClick = {
+                        documentScope.launch { onCopyText(selectedSourceReader?.readAll() ?: selectedAssistantMessage?.let { resolveCombinedMessage(it).effectiveContent() } ?: assistantContent) }
+                    },
+                    onSelectClick = {
+                        documentScope.launch { onSelectText(selectedSourceReader?.readAll() ?: selectedAssistantMessage?.let { resolveCombinedMessage(it).effectiveContent() } ?: assistantContent) }
+                    },
+                    onRetryClick = {
+                        if (needsAnswerCorrection) revisionTarget?.let { onReviseCombinedAnswer(messageIndex, it) } else onRetry(messageIndex, displayPlatformIndex)
+                    },
                     onInspectContext = selectedRunId?.let { id ->
                         onInspectContext?.let { inspect -> { inspect(id) } }
                     },

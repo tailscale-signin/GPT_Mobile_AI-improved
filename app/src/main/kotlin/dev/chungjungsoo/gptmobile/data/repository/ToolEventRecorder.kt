@@ -122,8 +122,8 @@ class ToolEventRecorder @Inject constructor(
             )
         }
         val display = (normalizedResult.traceContent ?: normalizedResult.content).serialized()
-        val checkpoint = content.value != display.value
-        val stored = if (checkpoint) dev.chungjungsoo.gptmobile.data.agent.ToolResultCheckpoint.encode(content.value, content.type, display.value) else content.value
+        val checkpoint = content.value != display.value || normalizedResult.personalData.isNotEmpty()
+        val stored = if (checkpoint) dev.chungjungsoo.gptmobile.data.agent.ToolResultCheckpoint.encode(content.value, content.type, display.value, normalizedResult.personalData) else content.value
         val resultType = when {
             checkpoint -> ToolEventResultType.CHECKPOINT
             !normalizedResult.isError && content.value.isBlank() -> ToolEventResultType.EMPTY

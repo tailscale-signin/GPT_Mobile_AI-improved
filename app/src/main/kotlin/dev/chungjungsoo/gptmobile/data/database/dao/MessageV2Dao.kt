@@ -12,7 +12,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
 @Dao
-interface MessageV2Dao {
+interface MessageV2Dao : CombinedDocumentDao {
     @Query("SELECT m.message_id FROM messages_v2 m LEFT JOIN agent_runs r ON r.run_id=m.current_run_id WHERE m.chat_id=:chatId AND m.platform_type IS NOT NULL AND LENGTH(TRIM(m.content)) > 0 AND (m.current_run_id IS NULL OR r.status='COMPLETED') ORDER BY m.created_at DESC, LENGTH(m.combined_sources) DESC, m.message_id DESC LIMIT 1")
     suspend fun newestAssistantMessageId(chatId: Int): Int?
 
@@ -41,7 +41,7 @@ interface MessageV2Dao {
         val escaped = dev.chungjungsoo.gptmobile.data.database.entity.messageSearchQuery(query)
         if (escaped.isBlank()) return emptyList()
         val terms = query.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
-        val archived = rawArchivedSearchMessages().map { it.decodedArchiveText() }.filter { message ->
+        val archived = (rawArchivedSearchMessages() + rawDocumentSearchMessages()).distinctBy { it.id }.map { dev.chungjungsoo.gptmobile.data.agent.CombinedDocuments.resolve(this, it.decodedArchiveText()) }.filter { message ->
             val text = message.content + " " + message.revisions.joinToString(" ") { it.content }
             terms.all { text.contains(it, ignoreCase = true) }
         }.map { it.chatId }
@@ -65,11 +65,17 @@ interface MessageV2Dao {
     fun rawObserveFavoriteAssistantMessages(): Flow<List<MessageV2>>
 
     fun searchFavoriteAssistantMessages(query: String): Flow<List<MessageV2>> = observeFavoriteAssistantMessages().map { messages ->
-        messages.filter { it.content.contains(query, ignoreCase = true) || it.revisions.any { revision -> revision.content.contains(query, ignoreCase = true) } }
+        messages.filter { message ->
+            val complete = dev.chungjungsoo.gptmobile.data.agent.CombinedDocuments.resolve(this, message)
+            complete.content.contains(query, ignoreCase = true) || complete.revisions.any { revision -> revision.content.contains(query, ignoreCase = true) }
+        }
     }
 
     @Query("SELECT m.* FROM messages_v2 m JOIN chats_v2 c ON c.chat_id=m.chat_id WHERE c.is_archived=1")
     suspend fun rawArchivedSearchMessages(): List<MessageV2>
+
+    @Query("SELECT * FROM messages_v2 WHERE combined_manifest IS NOT NULL")
+    suspend fun rawDocumentSearchMessages(): List<MessageV2>
 
     @Transaction
     @Insert
@@ -85,15 +91,15 @@ interface MessageV2Dao {
     @Delete
     suspend fun deleteMessages(vararg message: MessageV2)
 
-    suspend fun comparisonHistory(chatId: Int): List<MessageV2> = rawComparisonHistory(chatId).map { it.decodedArchiveText() }
+    suspend fun comparisonHistory(chatId: Int): List<MessageV2> = rawComparisonHistory(chatId).map { dev.chungjungsoo.gptmobile.data.agent.CombinedDocuments.resolve(this, it.decodedArchiveText()) }
 
     fun observeAttachments(): Flow<List<MessageV2>> = rawObserveAttachments().map { messages -> messages.map { it.decodedArchiveText() } }
 
-    suspend fun message(id: Int): MessageV2? = rawMessage(id)?.decodedArchiveText()
+    suspend fun message(id: Int): MessageV2? = rawMessage(id)?.let { dev.chungjungsoo.gptmobile.data.agent.CombinedDocuments.resolve(this, it.decodedArchiveText()) }
 
-    suspend fun loadMessages(chatInt: Int): List<MessageV2> = rawLoadMessages(chatInt).map { it.decodedArchiveText() }
+    suspend fun loadMessages(chatInt: Int): List<MessageV2> = rawLoadMessages(chatInt).map { dev.chungjungsoo.gptmobile.data.agent.CombinedDocuments.resolve(this, it.decodedArchiveText()) }
 
-    suspend fun getMessageList(): List<MessageV2> = rawGetMessageList().map { it.decodedArchiveText() }
+    suspend fun getMessageList(): List<MessageV2> = rawGetMessageList().map { dev.chungjungsoo.gptmobile.data.agent.CombinedDocuments.portable(this, it.decodedArchiveText()) }
 
     fun observeMessages(chatId: Int): Flow<List<MessageV2>> = rawObserveMessages(chatId).map { messages -> messages.map { it.decodedArchiveText() } }
 

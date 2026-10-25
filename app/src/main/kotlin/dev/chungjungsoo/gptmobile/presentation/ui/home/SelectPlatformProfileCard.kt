@@ -25,6 +25,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.platform.testTag
@@ -70,8 +71,8 @@ internal fun SelectPlatformProfileCard(
             val metricsWidth = (maxWidth * .45f).coerceAtLeast(48.dp)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Row(
-                    Modifier.weight(1f).heightIn(min = 64.dp).testTag("profile_select_${profile.uid}")
-                        .combinedClickable(enabled = unavailable == null, role = Role.Checkbox, onClick = { onToggle(profile.uid) }, onLongClick = onFavorite)
+                    Modifier.weight(1f).heightIn(min = 64.dp).testTag("profile_select_${profile.uid}").alpha(if (unavailable != null && !selected) 0.55f else 1f)
+                        .combinedClickable(enabled = selected || unavailable == null, role = Role.Checkbox, onClick = { onToggle(profile.uid) }, onLongClick = onFavorite)
                         .semantics(mergeDescendants = true) {
                             toggleableState = ToggleableState(selected)
                             customActions = listOf(
@@ -84,13 +85,17 @@ internal fun SelectPlatformProfileCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Checkbox(checked = selected && unavailable == null, onCheckedChange = null, enabled = unavailable == null)
+                    Checkbox(checked = selected, onCheckedChange = null, enabled = selected || unavailable == null)
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(profile.name, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = lines, overflow = TextOverflow.Ellipsis)
                             if (profile.isFavorite) Icon(Icons.Rounded.Star, stringResource(R.string.picker_favorite), Modifier.size(16.dp), tint = MaterialTheme.colorScheme.tertiary)
                         }
-                        unavailable?.let { Text(it.message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+                        unavailable?.let { blocked ->
+                            val provider = dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.fromApiUrl(profile.apiUrl)
+                            val description = provider?.let { dev.chungjungsoo.gptmobile.presentation.common.freeProviderAvailability(it, profile.model, health[it], now, profile.token) } ?: blocked.message
+                            Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                         Text(profile.model, style = MaterialTheme.typography.bodySmall.copy(textDirection = TextDirection.Ltr), color = MaterialTheme.colorScheme.primary, maxLines = lines, overflow = TextOverflow.Ellipsis)
                     }
                 }

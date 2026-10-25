@@ -26,18 +26,19 @@ internal class QnnInitializationCrashGuard(context: Context) : QnnLoadGuard {
         val model = dev.chungjungsoo.gptmobile.data.localmodel.LinkedModelSources.resolveFile(File(spec.modelPath))
         val dispatchDirectory = spec.litertDispatchLibDir?.let(::File) ?: File(app.applicationInfo.nativeLibraryDir)
         val dispatchHash = runCatching {
-            dev.chungjungsoo.gptmobile.data.localmodel.PackageDigest.sha256(
-                File(dispatchDirectory, "libLiteRtDispatch_Qualcomm.so")
+            dev.chungjungsoo.gptmobile.data.localmodel.PackageDigest.journalIdentity(
+                File(dispatchDirectory, "libLiteRtDispatch_Qualcomm.so"),
+                File(app.noBackupFilesDir, "model-identity-cache")
             )
         }.getOrDefault("unavailable")
         return listOf(
             BuildConfig.LITERT_LM_VERSION,
             BuildConfig.QAIRT_VERSION,
-            dev.chungjungsoo.gptmobile.data.localmodel.PackageDigest.journalIdentity(model, marker.parentFile!!),
+            dev.chungjungsoo.gptmobile.data.localmodel.PackageDigest.journalIdentity(model, File(app.noBackupFilesDir, "model-identity-cache")),
             android.os.Build.SOC_MODEL,
             dev.chungjungsoo.gptmobile.data.localmodel.PackageDigest.sha256(android.os.Build.FINGERPRINT.orEmpty().toByteArray()),
             spec.accelerator,
-            spec.maxTokens,
+            spec.engineConfiguration().copy(modelPath = "", litertDispatchLibDir = null),
             dispatchHash
         ).joinToString("|")
     }
@@ -86,7 +87,17 @@ internal class LocalRuntimeQnnImpl(
         }
     }
 
+    override val latestInspectionReceipt get() = runtime.latestInspectionReceipt
+    override val latestEngineLoadReceipt get() = runtime.latestEngineLoadReceipt
+    override val latestExecutionReceipt get() = runtime.latestExecutionReceipt
+    override val latestCleanupReceipt get() = runtime.latestCleanupReceipt
+    override val executionIdentity get() = runtime.executionIdentity
+    override val isNativeOperationBusy get() = runtime.isNativeOperationBusy
+    override val processPssBytes get() = runtime.processPssBytes
+    override suspend fun cleanupAfterRequest(origin: String) = runtime.cleanupAfterRequest(origin)
+    override fun quarantineAfterUnconfirmedCleanup(reason: String) = runtime.quarantineAfterUnconfirmedCleanup(reason)
     override suspend fun inspectModel(modelPath: String): LocalModelCapabilities? = runtime.inspectModel(modelPath)
+    override suspend fun inspectModel(spec: LocalEngineSpec): LocalModelCapabilities? = runtime.inspectModel(spec)
     override suspend fun allowVerification(spec: LocalEngineSpec) {
         val verified = spec.copy(litertDispatchLibDir = probeEnvironment().dispatchDir)
         loadGuard.allowVerification(verified)
@@ -132,7 +143,7 @@ internal class LocalRuntimeQnnImpl(
             stage = QnnRuntimeStage.ENGINE_INIT
             checkpoint("QNN_ENGINE_INIT_BEGIN", stage, "maxContext=${spec.maxTokens} · vision=${spec.isVisionEnabled} · active=unverified")
             runtime.loadEngine(effectiveSpec)
-            checkpoint("QNN_ENGINE_INIT_SUCCEEDED", stage, "active=npu · executionQualified=false")
+            checkpoint("QNN_ENGINE_INIT_SUCCEEDED", stage, "configured=npu · actualBackend=${runtime.latestEngineLoadReceipt?.actualBackend ?: "unknown"} · executionQualified=false")
             requestedSpec = spec
             dispatchedSpec = effectiveSpec
             checkpoint("QNN_INIT_TERMINAL", stage, "status=INITIALIZED · executionQualified=false")
@@ -178,6 +189,10 @@ internal class LocalRuntimeQnnImpl(
                 admitted = false
                 throw error
             }
+            if (error is LocalStructuredOutputFailure && error.code != LocalStructuredOutputFailure.CONSTRAINED_DECODING_FAILURE) {
+                checkpoint("QNN_INIT_TERMINAL", stage, "status=FAILED · code=${error.code} · nativeDetail=${safeQnnDetail(error.message.orEmpty())}")
+                throw error
+            }
             val failure = classifyQnnFailure(if (admitted) stage else QnnRuntimeStage.CRASH_JOURNAL, error)
             checkpoint("QNN_INIT_TERMINAL", failure.stage, "status=FAILED · code=${failure.code} · nativeDetail=${failure.nativeDetail}")
             throw failure
@@ -186,24 +201,27 @@ internal class LocalRuntimeQnnImpl(
         }
     }
 
-    override fun sendMessage(text: String, images: List<ByteArray>): Flow<LocalRuntimeEvent> = kotlinx.coroutines.flow.flow {
+    override fun sendMessage(text: String, images: List<ByteArray>): Flow<LocalRuntimeEvent> = sendMessageWithBudget(text, images, 0)
+
+    override fun sendMessageWithBudget(text: String, images: List<ByteArray>, safetyTokens: Int): Flow<LocalRuntimeEvent> = kotlinx.coroutines.flow.flow {
         guardedOperation(QnnRuntimeStage.DECODE) {
             var nonempty = false
             var completed = false
-            var failure: QnnRuntimeFailure? = null
-            runtime.sendMessage(text, images).collect { event ->
+            var failure: Throwable? = null
+            runtime.sendMessageWithBudget(text, images, safetyTokens).collect { event ->
                 if (event is LocalRuntimeEvent.TextDelta && event.text.isNotBlank()) nonempty = true
                 if (event is LocalRuntimeEvent.Done) completed = true
                 if (event is LocalRuntimeEvent.Error) {
-                    failure = classifyQnnFailure(QnnRuntimeStage.DECODE, event.cause ?: IllegalStateException(event.message))
+                    val original = event.cause ?: IllegalStateException(event.message)
+                    failure = if (original is LocalStructuredOutputFailure && original.code != LocalStructuredOutputFailure.CONSTRAINED_DECODING_FAILURE) original else classifyQnnFailure(QnnRuntimeStage.DECODE, original)
                 }
                 emit(if (event is LocalRuntimeEvent.Error) LocalRuntimeEvent.Error(requireNotNull(failure).message.orEmpty(), failure) else event)
             }
-            val activeNpu = runtime.loadedEngineSpec()?.accelerator?.let(LocalAccelerators::normalize) == LocalAccelerators.NPU
+            val observed = runtime.latestExecutionReceipt
             checkpoint(
                 "QNN_INIT_TERMINAL",
                 QnnRuntimeStage.DECODE,
-                if (nonempty && completed && failure == null && activeNpu) "status=QUALIFIED · active=npu · nonempty=true" else "status=NOT_QUALIFIED · nonempty=$nonempty · completed=$completed · code=${failure?.code ?: "NO_CONFIRMED_OUTPUT"} · nativeDetail=${failure?.nativeDetail ?: "native detail unavailable"}"
+                "status=NOT_QUALIFIED · configured=npu · actualBackend=${observed?.engineLoad?.actualBackend ?: "unknown"} · nativeEntered=${observed?.nativeEntered ?: "unknown"} · nonempty=$nonempty · completed=$completed · cleanupProof=pending · code=${localRuntimeErrorCode(failure) ?: if (completed && nonempty) "COMPLETED_PENDING_QUALIFICATION" else "NO_CONFIRMED_OUTPUT"} · nativeDetail=${failure?.message?.let(::safeQnnDetail) ?: "native detail unavailable"}"
             )
         }
     }

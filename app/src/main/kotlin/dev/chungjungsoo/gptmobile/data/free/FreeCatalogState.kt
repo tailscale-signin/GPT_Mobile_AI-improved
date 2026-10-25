@@ -45,6 +45,32 @@ data class FreeCatalogRefreshResult(val models: List<FreeModelOption>, val succe
 object FreeCatalogState {
     private val _status = MutableStateFlow<Map<FreeAiProvider, FreeServiceStatus>>(emptyMap())
     val status = _status.asStateFlow()
+    private val _routeStatus = MutableStateFlow<Map<String, FreeServiceStatus>>(emptyMap())
+    val routeStatus = _routeStatus.asStateFlow()
+
+    @kotlinx.serialization.Serializable
+    private data class HealthSnapshot(val version: Int = 2, val providers: Map<String, FreeServiceStatus>, val routes: Map<String, FreeServiceStatus>)
+    private fun healthPrefix(provider: FreeAiProvider, model: String) = "${provider.name}|${model.length}:$model|"
+    private fun healthKey(provider: FreeAiProvider, model: String, credentialIdentity: String) = healthPrefix(provider, model) + credentialIdentity
+    fun generationStatus(provider: FreeAiProvider, model: String, credentialIdentity: String = "unknown"): FreeServiceStatus? =
+        _routeStatus.value[healthKey(provider, model, credentialIdentity)]
+            ?: _routeStatus.value[healthKey(provider, model, "unknown")]
+            ?: _status.value[provider]?.takeIf { it.deniedModel == model && _routeStatus.value.keys.none { key -> key.startsWith(healthPrefix(provider, model)) } }
+
+    private fun updateHealth(provider: FreeAiProvider, model: String?, credentialIdentity: String, transform: (FreeServiceStatus) -> FreeServiceStatus) {
+        var updated: FreeServiceStatus? = null
+        if (model != null) {
+            val key = healthKey(provider, model, credentialIdentity)
+            _routeStatus.update { current ->
+                transform(current[key] ?: FreeServiceStatus()).let { next ->
+                    updated = next
+                    current + (key to next)
+                }
+            }
+        }
+        // This is a catalog-screen summary only. Admission reads generationStatus for the actual route.
+        _status.update { current -> current + (provider to (updated ?: transform(current[provider] ?: FreeServiceStatus()))) }
+    }
     private val _catalog = MutableStateFlow<Map<FreeAiProvider, List<FreeModelOption>>>(emptyMap())
     val catalog = _catalog.asStateFlow()
     private val checks = FreeAiProvider.entries.associateWith { Mutex() }
@@ -52,16 +78,23 @@ object FreeCatalogState {
     private val disk = Mutex()
     private var cache: File? = null
     private var healthCache: File? = null
-    private val recovering = mutableSetOf<FreeAiProvider>()
+    private val recovering = mutableSetOf<String>()
 
     suspend fun initialize(context: Context) = withContext(Dispatchers.IO) {
         cache = File(context.filesDir, "free-model-catalog-v1.json")
         healthCache = File(context.filesDir, "free-generation-health-v1.json")
         runCatching {
             val file = healthCache!!
-            if (file.isFile && file.length() <= 64_000) {
-                val saved = Json { ignoreUnknownKeys = true }.decodeFromString<Map<String, FreeServiceStatus>>(file.readText())
-                _status.value = saved.mapNotNull { (name, state) -> FreeAiProvider.entries.firstOrNull { it.name == name }?.let { it to state.copy(checking = false) } }.toMap()
+            if (file.isFile && file.length() <= 1_048_576) {
+                val json = Json { ignoreUnknownKeys = true }
+                val text = file.readText()
+                val encoded = json.parseToJsonElement(text) as JsonObject
+                val snapshot = if ("providers" in encoded) json.decodeFromString<HealthSnapshot>(text) else HealthSnapshot(providers = json.decodeFromString<Map<String, FreeServiceStatus>>(text), routes = emptyMap())
+                check(snapshot.version == 2)
+                _status.value = snapshot.providers.mapNotNull { (name, state) -> FreeAiProvider.entries.firstOrNull { it.name == name }?.let { it to state.copy(checking = false) } }.toMap()
+                _routeStatus.value = snapshot.routes.mapValues { it.value.copy(checking = false) }.ifEmpty {
+                    _status.value.mapNotNull { (provider, state) -> state.deniedModel?.let { healthKey(provider, it, "unknown") to state } }.toMap()
+                }
             }
         }
         runCatching {
@@ -76,14 +109,17 @@ object FreeCatalogState {
 
     /** A new network invalidates reachability, without clearing provider cooldowns. */
     fun networkChanged() {
+        fun reset(state: FreeServiceStatus): FreeServiceStatus = if (state.readiness == FreeGenerationReadiness.UNREACHABLE) state.copy(readiness = FreeGenerationReadiness.UNTESTED, reachable = null, message = "Network changed · reachability not checked") else state
         _status.update { current ->
-            current.mapValues { (_, state) ->
-                if (state.readiness == FreeGenerationReadiness.UNREACHABLE) state.copy(readiness = FreeGenerationReadiness.UNTESTED, reachable = null, message = "Network changed · reachability not checked") else state
-            }
+            current.mapValues { (_, state) -> reset(state) }
         }
+        _routeStatus.update { current -> current.mapValues { (_, state) -> reset(state) } }
+        saveHealth()
     }
 
-    fun models(provider: FreeAiProvider): List<FreeModelOption> = if (provider == FreeAiProvider.LLM7) {
+    fun models(provider: FreeAiProvider): List<FreeModelOption> = if (provider.isRetired) {
+        emptyList()
+    } else if (provider == FreeAiProvider.LLM7) {
         (FreeModelCatalog.defaults(provider) + _catalog.value[provider].orEmpty().filter { it.freeAllowance }).distinctBy { it.id }
     } else {
         (_catalog.value[provider].orEmpty().map { mergeLimits(it, FreeModelCatalog.defaults(provider).firstOrNull { known -> known.id == it.id }) } + FreeModelCatalog.defaults(provider)).distinctBy { it.id }
@@ -95,8 +131,8 @@ object FreeCatalogState {
         _status.update { current -> current + (provider to (current[provider] ?: FreeServiceStatus()).copy(reachable = true, checkedAt = System.currentTimeMillis(), message = "Request accepted · generation pending")) }
     }
 
-    fun recordResponse(provider: FreeAiProvider, model: String?, remaining: String? = null) {
-        _status.update { current -> current + (provider to (current[provider] ?: FreeServiceStatus()).copy(readiness = FreeGenerationReadiness.RESPONSE_RECEIVED, generationFailures = 0, failureSignature = null, retryAt = null, denialCount = 0, deniedModel = null, reachable = true, checkedAt = System.currentTimeMillis(), message = "Response received · answer quality not verified", servedModel = model, remaining = remaining)) }
+    fun recordResponse(provider: FreeAiProvider, model: String?, remaining: String? = null, credentialIdentity: String = "unknown", requestedModel: String? = model) {
+        updateHealth(provider, requestedModel, credentialIdentity) { it.copy(readiness = FreeGenerationReadiness.RESPONSE_RECEIVED, generationFailures = 0, failureSignature = null, retryAt = null, denialCount = 0, deniedModel = null, reachable = true, checkedAt = System.currentTimeMillis(), message = "Response received · answer quality not verified", servedModel = model, remaining = remaining) }
         saveHealth()
     }
 
@@ -105,38 +141,35 @@ object FreeCatalogState {
         runCatching {
             healthCache?.let { target ->
                 val temporary = File(target.path + ".tmp")
-                temporary.writeText(Json.encodeToString(_status.value.mapKeys { it.key.name }))
+                temporary.writeText(Json.encodeToString(HealthSnapshot(providers = _status.value.mapKeys { it.key.name }, routes = _routeStatus.value)))
                 java.nio.file.Files.move(temporary.toPath(), target.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE)
             }
         }
     }
 
     @Synchronized
-    fun recordTerminalFailure(provider: FreeAiProvider, model: String, message: String, observedAt: Long = System.currentTimeMillis()) {
+    fun recordTerminalFailure(provider: FreeAiProvider, model: String, message: String, observedAt: Long = System.currentTimeMillis(), credentialIdentity: String = "unknown") {
         val signature = dev.chungjungsoo.gptmobile.data.research.researchHash(message.take(600))
-        _status.update { current ->
-            val old = current[provider] ?: FreeServiceStatus()
-            val count = if (old.failureSignature == signature && old.deniedModel == model) old.generationFailures + 1 else 1
-            current + (
-                provider to old.copy(
-                    readiness = FreeGenerationReadiness.GENERATION_FAILED,
-                    reachable = true,
-                    generationFailures = count,
-                    failureSignature = signature,
-                    deniedModel = model,
-                    retryAt = if (count >= 2) observedAt + (60_000L * count).coerceAtMost(300_000L) else null,
-                    checkedAt = observedAt,
-                    message = message.take(240)
-                )
-                )
+        updateHealth(provider, model, credentialIdentity) { old ->
+            val count = if (old.failureSignature == signature) old.generationFailures + 1 else 1
+            old.copy(
+                readiness = FreeGenerationReadiness.GENERATION_FAILED,
+                reachable = true,
+                generationFailures = count,
+                failureSignature = signature,
+                deniedModel = model,
+                retryAt = if (count >= 2) observedAt + (60_000L * count).coerceAtMost(300_000L) else null,
+                checkedAt = observedAt,
+                message = message.take(240)
+            )
         }
         saveHealth()
     }
 
     @Synchronized
-    fun generationUnavailableReason(provider: FreeAiProvider, model: String): String? {
-        val state = _status.value[provider] ?: return null
-        if (provider in recovering) return "${provider.displayName}: a generation recovery check is already running. Choose another provider or wait for its result."
+    fun generationUnavailableReason(provider: FreeAiProvider, model: String, credentialIdentity: String = "unknown"): String? {
+        val state = generationStatus(provider, model, credentialIdentity) ?: return null
+        if (healthKey(provider, model, credentialIdentity) in recovering) return "${provider.displayName}: a generation recovery check is already running for this model and credential."
         if (state.deniedModel == model &&
             (state.retryAt ?: 0) > System.currentTimeMillis() &&
             (state.readiness == FreeGenerationReadiness.ACCESS_DENIED || state.generationFailures >= 2)
@@ -147,38 +180,43 @@ object FreeCatalogState {
     }
 
     @Synchronized
-    fun beginGeneration(provider: FreeAiProvider, model: String): Boolean {
-        requireGenerationReady(provider, model)
-        val recovery = (_status.value[provider]?.generationFailures ?: 0) >= 2
-        if (recovery) recovering += provider
+    fun beginGeneration(provider: FreeAiProvider, model: String, credentialIdentity: String = "unknown"): Boolean {
+        requireGenerationReady(provider, model, credentialIdentity)
+        val recovery = (generationStatus(provider, model, credentialIdentity)?.generationFailures ?: 0) >= 2
+        if (recovery) recovering += healthKey(provider, model, credentialIdentity)
         return recovery
     }
 
     @Synchronized
-    fun endGeneration(provider: FreeAiProvider) {
-        recovering -= provider
+    fun endGeneration(provider: FreeAiProvider, model: String? = null, credentialIdentity: String = "unknown") {
+        if (model == null) {
+            recovering.removeAll { it.startsWith("${provider.name}|") }
+        } else {
+            recovering -= healthKey(provider, model, credentialIdentity)
+        }
     }
 
     internal fun resetForTest() {
         _status.value = emptyMap()
+        _routeStatus.value = emptyMap()
         _catalog.value = emptyMap()
         recovering.clear()
         healthCache = null
     }
 
-    fun recordFailure(provider: FreeAiProvider, message: String, readiness: FreeGenerationReadiness = FreeGenerationReadiness.GENERATION_FAILED, reachable: Boolean? = true, retryAt: Long? = null, model: String? = null) {
-        _status.update { current ->
-            val old = current[provider] ?: FreeServiceStatus()
+    fun recordFailure(provider: FreeAiProvider, message: String, readiness: FreeGenerationReadiness = FreeGenerationReadiness.GENERATION_FAILED, reachable: Boolean? = true, retryAt: Long? = null, model: String? = null, credentialIdentity: String = "unknown") {
+        updateHealth(provider, model, credentialIdentity) { old ->
             val denials = if (readiness == FreeGenerationReadiness.ACCESS_DENIED) {
                 if (old.deniedModel == model && System.currentTimeMillis() - old.checkedAt < 600_000) old.denialCount + 1 else 1
             } else {
                 0
             }
-            current + (provider to old.copy(readiness = readiness, reachable = reachable ?: old.reachable, retryAt = retryAt ?: (System.currentTimeMillis() + 60_000).takeIf { denials >= 2 }, deniedModel = model.takeIf { denials > 0 }, denialCount = denials, checkedAt = System.currentTimeMillis(), message = message.take(240)))
+            old.copy(readiness = readiness, reachable = reachable ?: old.reachable, retryAt = retryAt ?: (System.currentTimeMillis() + 60_000).takeIf { denials >= 2 }, deniedModel = model.takeIf { denials > 0 }, denialCount = denials, checkedAt = System.currentTimeMillis(), message = message.take(240))
         }
+        saveHealth()
     }
 
-    fun recordHttpFailure(provider: FreeAiProvider, status: Int, message: String, retryAt: Long? = null, model: String? = null, body: String = "") = recordFailure(
+    fun recordHttpFailure(provider: FreeAiProvider, status: Int, message: String, retryAt: Long? = null, model: String? = null, body: String = "", credentialIdentity: String = "unknown") = recordFailure(
         provider,
         message,
         when {
@@ -191,14 +229,16 @@ object FreeCatalogState {
         },
         reachable = true,
         retryAt = retryAt,
-        model = model
+        model = model,
+        credentialIdentity = credentialIdentity
     )
 
-    fun requireGenerationReady(provider: FreeAiProvider, model: String) {
-        generationUnavailableReason(provider, model)?.let { throw FreeGenerationUnavailableException(it) }
+    fun requireGenerationReady(provider: FreeAiProvider, model: String, credentialIdentity: String = "unknown") {
+        generationUnavailableReason(provider, model, credentialIdentity)?.let { throw FreeGenerationUnavailableException(it) }
     }
 
     suspend fun refresh(provider: FreeAiProvider, force: Boolean = false, token: String? = null, catalogReader: (suspend () -> kotlinx.serialization.json.JsonElement)? = null) = checks.getValue(provider).withLock {
+        if (provider.isRetired) return@withLock FreeCatalogRefreshResult(emptyList(), false, message = provider.unavailableReason.orEmpty())
         if (!provider.isAvailable || provider.requiresUserToken && token.isNullOrBlank()) {
             val message = provider.unavailableReason ?: "Add API token in an LLM7 profile to check its catalog."
             _status.update { it + (provider to (it[provider] ?: FreeServiceStatus()).copy(catalogCheckSucceeded = false, message = message)) }

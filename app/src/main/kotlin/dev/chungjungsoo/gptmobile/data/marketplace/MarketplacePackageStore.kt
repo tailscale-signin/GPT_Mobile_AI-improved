@@ -156,7 +156,9 @@ object MarketplaceDownloadPolicy {
 /** Stores inert ZIP packages. Never extracts or executes downloaded source on Android. */
 @Singleton
 class MarketplacePackageStore @Inject constructor(@ApplicationContext context: Context) {
-    private val directory = File(context.noBackupFilesDir, "optional_marketplace_v1")
+    // All consumers run on IO. Constructing this store during Settings composition
+    // must not resolve Android's directory (which can perform a synchronous disk read).
+    private val directory by lazy { File(context.noBackupFilesDir, "optional_marketplace_v1") }
     private val client = OkHttpClient.Builder()
         .followRedirects(false).followSslRedirects(false).retryOnConnectionFailure(false)
         .connectTimeout(15, TimeUnit.SECONDS).readTimeout(20, TimeUnit.SECONDS)

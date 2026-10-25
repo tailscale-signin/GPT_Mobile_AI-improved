@@ -56,13 +56,17 @@ class CombinedCleanPresentationTest {
         )
         var retry: String? = null
         var remove: String? = null
+        var excluded: Pair<Int, String>? = null
         var continued = 0
         compose.setContent {
-            MaterialTheme { CombinedFailuresDialog(failures, ProfileColorRegistry.ensure(emptyMap(), listOf("alpha", "beta")), { _, uid -> retry = uid }, { remove = it }, { continued++ }) }
+            MaterialTheme { CombinedFailuresDialog(failures, ProfileColorRegistry.ensure(emptyMap(), listOf("alpha", "beta")), { _, uid -> retry = uid }, { remove = it }, { continued++ }, { turn, uid -> excluded = turn to uid }) }
         }
         compose.onNodeWithText("2 profiles need attention").assertIsDisplayed()
         compose.onNodeWithContentDescription("Retry Alpha").performClick()
         assertEquals("alpha", retry)
+        compose.onNodeWithText("Exclude Alpha from this turn").performClick()
+        assertEquals(1 to "alpha", excluded)
+        assertEquals(null, remove)
         compose.onNodeWithContentDescription("Retry Beta").assertIsNotEnabled()
         compose.onNodeWithContentDescription("Remove Beta from this chat").performClick()
         assertEquals("beta", remove)

@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
 import dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse
+import dev.chungjungsoo.gptmobile.data.diagnostics.CombinedOperationTrace
 
 /** Candidates for editorial comparison, NOT established factual contradictions. */
 internal data class CombinedConflictCandidate(
@@ -21,7 +22,10 @@ internal data class CombinedConflictScan(
 
 /** Do not treat agreement among models as independent external evidence. */
 internal object CombinedConflictDetector {
-    fun scan(sources: List<CombinedModelResponse>, maxPairChecks: Long = 1_000_000L, maxCandidates: Int = Int.MAX_VALUE): CombinedConflictScan {
+    fun scan(sources: List<CombinedModelResponse>, maxPairChecks: Long = 1_000_000L, maxCandidates: Int = Int.MAX_VALUE): CombinedConflictScan =
+        CombinedOperationTrace.measure("conflict_scan") { scanClaims(sources, maxPairChecks, maxCandidates) }
+
+    private fun scanClaims(sources: List<CombinedModelResponse>, maxPairChecks: Long, maxCandidates: Int): CombinedConflictScan {
         data class Claim(
             val uid: String,
             val text: String,

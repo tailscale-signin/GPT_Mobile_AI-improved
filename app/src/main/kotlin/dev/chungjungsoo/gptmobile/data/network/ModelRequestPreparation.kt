@@ -18,12 +18,15 @@ internal class ModelRequestPreparation(client: NetworkClient) {
 
     suspend fun prepareQueued(payload: String, config: ProviderRequestConfig, model: String, outputTokens: Int?): String {
         val context = kotlinx.coroutines.currentCoroutineContext()
+        context[WorkerRequestBudget]?.preflight()
         context[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]?.validate?.invoke()
         val revision = context[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]?.revision ?: config.permissionRevision
         dev.chungjungsoo.gptmobile.data.research.feature.ExaminationOutputBudget.requireCapacity(config.requestRole, outputTokens?.toLong() ?: 0)
         val runtime = RuntimeFingerprint(config.profileUid ?: "unbound", "sha256:${researchHash(config.apiUrl)}", "anonymous", model, model, "unverified", "queued-native-v1", "unverified")
         val capacity = CapacitySnapshot(runtime, config.contextCeiling?.takeIf { it > 0 && it < Int.MAX_VALUE }?.toLong(), provenance = CapacityProvenance.UNKNOWN)
-        val prepared = RequestAdmission.prepare(payload, config.requestRole, capacity, RequestAdmission.estimate(payload), outputTokens?.toLong(), revision, config.requireKnownCapacity, "queued-native-v1")
+        val measurement = RequestAdmission.estimate(payload)
+        val budget = dev.chungjungsoo.gptmobile.data.context.PromptBudgets.capture(payload, measurement, outputTokens?.toLong(), capacity.contextTokens, runtime.templateRevision)
+        val prepared = RequestAdmission.prepare(payload, config.requestRole, capacity, measurement, outputTokens?.toLong(), revision, config.requireKnownCapacity, "queued-native-v1", promptBudget = budget, requestDeadline = context[WorkerRequestBudget]?.preflight())
         config.freeDiagnostics?.admission = prepared.receipt
         val wire = prepared.dispatchPayload(runtime, revision)
         val attempt = dev.chungjungsoo.gptmobile.data.context.PhysicalAttemptBoundary.dispatch(prepared.receipt)
@@ -33,6 +36,7 @@ internal class ModelRequestPreparation(client: NetworkClient) {
     }
 
     suspend fun prepare(payload: String, config: ProviderRequestConfig, model: String, outputTokens: Int?): String {
+        kotlinx.coroutines.currentCoroutineContext()[WorkerRequestBudget]?.preflight()
         kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]?.validate?.invoke()
         dev.chungjungsoo.gptmobile.data.context.ProviderMessageValidator.validate(payload, config.intentionalAssistantPrefill)
         val discovered = if (config.providerType == "LLAMA") llama.discover(config, model) else null
@@ -62,12 +66,12 @@ internal class ModelRequestPreparation(client: NetworkClient) {
         val transmitted = listOfNotNull(root["max_completion_tokens"], root["max_output_tokens"], root["max_tokens"], generation?.get("maxOutputTokens"))
             .mapNotNull { (it as? JsonPrimitive)?.longOrNull?.takeIf { count -> count > 0 } }.minOrNull() ?: outputTokens?.takeIf { it > 0 }?.toLong()
         val permissionRevision = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]?.revision ?: config.permissionRevision
-        val allowance = dev.chungjungsoo.gptmobile.data.context.EffectiveOutputAllowance.resolve(transmitted, snapshot.outputTokens, snapshot.contextTokens, RequestAdmission.estimate(controlledPayload))
+        val allowance = resolveOutputAllowance(controlledPayload, transmitted, snapshot)
         val bounded = applyOutputAllowance(root, config.providerType, allowance.tokens)
         var finalPayload = bounded.toString()
         // Inserting the cap itself changes the serialized prompt estimate. Resolve against
         // those exact bytes once more; lowering a positive integer cannot add bytes.
-        val finalAllowance = dev.chungjungsoo.gptmobile.data.context.EffectiveOutputAllowance.resolve(allowance.tokens, snapshot.outputTokens, snapshot.contextTokens, RequestAdmission.estimate(finalPayload))
+        val finalAllowance = resolveOutputAllowance(finalPayload, allowance.tokens, snapshot)
         if (finalAllowance.tokens != allowance.tokens) finalPayload = applyOutputAllowance(bounded, config.providerType, finalAllowance.tokens).toString()
         if (config.freeProvider == dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.POLLINATIONS) PollinationsClassic.requireOutputAllowance(finalAllowance.tokens)
         dev.chungjungsoo.gptmobile.data.research.feature.ExaminationOutputBudget.requireCapacity(config.requestRole, finalAllowance.tokens)
@@ -83,7 +87,8 @@ internal class ModelRequestPreparation(client: NetworkClient) {
             "ToolCatalog",
             "WIRE_SCHEMA · role=${config.requestRole} · serializedTools=${toolNames.size} · names=${toolNames.joinToString()} · serializedBytes=${toolSchema.toByteArray(Charsets.UTF_8).size} · schemaTokens=${if (toolSchema.isEmpty()) 0 else RequestAdmission.estimate(toolSchema).promptTokens} · measurement=UTF8_ESTIMATE"
         )
-        val prepared = RequestAdmission.prepare(finalPayload, config.requestRole, snapshot, measured, finalAllowance.tokens, permissionRevision, requireKnownCapacity = config.requireKnownCapacity, serializerRevision = if (config.freeProvider == dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.POLLINATIONS) PollinationsClassic.SERIALIZER_REVISION else "provider-json-v1", reasoning = reasoning, messageValidatorRevision = dev.chungjungsoo.gptmobile.data.context.ProviderMessageValidator.VERSION)
+        val budget = dev.chungjungsoo.gptmobile.data.context.PromptBudgets.capture(finalPayload, measured, finalAllowance.tokens, snapshot.contextTokens, snapshot.fingerprint.templateRevision)
+        val prepared = RequestAdmission.prepare(finalPayload, config.requestRole, snapshot, measured, finalAllowance.tokens, permissionRevision, requireKnownCapacity = config.requireKnownCapacity, serializerRevision = if (config.freeProvider == dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.POLLINATIONS) PollinationsClassic.SERIALIZER_REVISION else "provider-json-v1", reasoning = reasoning, messageValidatorRevision = dev.chungjungsoo.gptmobile.data.context.ProviderMessageValidator.VERSION, promptBudget = budget, requestDeadline = kotlinx.coroutines.currentCoroutineContext()[WorkerRequestBudget]?.preflight())
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
             "Admission",
             "FINAL_REQUEST · role=${config.requestRole} · prompt=${prepared.receipt.promptTokens} · output=${prepared.receipt.outputTokens ?: "unknown"} · safety=${prepared.receipt.safetyTokens} · context=${prepared.receipt.contextTokens ?: "unknown"} · measurement=${prepared.receipt.measurement} · capacity=${prepared.receipt.capacityProvenance} · checked=${prepared.receipt.capacityChecked} · reasoningRequested=${reasoning?.requested} · reasoningEffective=${reasoning?.effective} · reasoningControl=${reasoning?.transmittedControl} · reasoningObserved=unknown"
@@ -94,6 +99,16 @@ internal class ModelRequestPreparation(client: NetworkClient) {
         kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.serialized(wire, prepared.receipt.copy(physicalAttemptId = attemptId))
         kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.armHttp()
         return wire
+    }
+}
+
+internal fun resolveOutputAllowance(payload: String, requested: Long?, capacity: CapacitySnapshot): dev.chungjungsoo.gptmobile.data.context.EffectiveOutputAllowance.Decision {
+    val measurement = RequestAdmission.estimate(payload)
+    return try {
+        dev.chungjungsoo.gptmobile.data.context.EffectiveOutputAllowance.resolve(requested, capacity.outputTokens, capacity.contextTokens, measurement)
+    } catch (rejected: IllegalStateException) {
+        val budget = dev.chungjungsoo.gptmobile.data.context.PromptBudgets.capture(payload, measurement, requested, capacity.contextTokens, capacity.fingerprint.templateRevision)
+        throw IllegalStateException("${rejected.message}. ${budget.explain()}. Reduce the dominant input component or choose a verified larger context.", rejected)
     }
 }
 

@@ -31,6 +31,29 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FreeProviderBudgetRecoveryTest {
+    @Test fun exhaustedWorkerDeadlineRejectsBeforePhysicalAttemptAdmission() = runBlocking {
+        var clock = 0L
+        var physicalAttempts = 0
+        val client = HttpClient(MockEngine { error("No HTTP request may be dispatched") })
+        try {
+            val network = mockk<NetworkClient>()
+            every { network.invoke() } returns client
+            val budget = WorkerRequestBudget(10000, java.util.concurrent.atomic.AtomicInteger(), clock = { clock })
+            clock = 9501
+            val dispatch = dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext(emptySet())
+            val failure = kotlinx.coroutines.withContext(budget + dispatch + dev.chungjungsoo.gptmobile.data.context.PhysicalAttemptObserver { physicalAttempts++ }) {
+                runCatching {
+                    ModelRequestPreparation(network).prepare("""{"messages":[{"role":"user","content":"Question"}],"max_tokens":100}""", ProviderRequestConfig("https://example.invalid", null), "model", 100)
+                }.exceptionOrNull()
+            }
+            assertTrue(failure?.message.orEmpty().contains("DELEGATE_DEADLINE_EXHAUSTED"))
+            assertEquals(0, physicalAttempts)
+            assertTrue(dispatch.receipts.isEmpty())
+        } finally {
+            client.close()
+        }
+    }
+
     @Test fun bridgeNodeChecksFinalWireBudgetIncludingSystemAndHistory() = runBlocking {
         val client = HttpClient(
             MockEngine { wire ->

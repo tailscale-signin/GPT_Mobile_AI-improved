@@ -38,7 +38,8 @@ internal object DirectResearchModelFactory {
         prepareLocal: suspend (PlatformV2, LocalAssistPolicy) -> Boolean,
         generate: suspend (PlatformV2, ResearchModelStage, String, Int) -> ResearchModelReply,
         onAssistStatus: suspend (AssistTaskState) -> Unit = {},
-        retainPartial: (suspend (String, String, String) -> String?)? = null
+        retainPartial: (suspend (String, String, String) -> String?)? = null,
+        bindProviderLimit: suspend (PlatformV2, dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision) -> dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision? = { _, limit -> limit }
     ): ResearchModelCoordinator {
         val policy = features.effectiveAssistPolicy()
         fun endpoint(target: PlatformV2): ResearchModelEndpoint {
@@ -85,7 +86,10 @@ internal object DirectResearchModelFactory {
             }
             suspend fun requireAdmission() {
                 val result = admission()
-                if (result != ResearchAdmission.ADMITTED) throw ResearchAdmissionRejected(result)
+                if (result != ResearchAdmission.ADMITTED) {
+                    val limit = if (result == ResearchAdmission.PROVIDER_COOLDOWN) dev.chungjungsoo.gptmobile.data.network.FreeProviderPreflight.check(target)?.let { dev.chungjungsoo.gptmobile.data.network.providerLimitDecision(target, it) }?.let { bindProviderLimit(target, it) } else null
+                    throw ResearchAdmissionRejected(result, limit)
+                }
             }
             return ResearchModelEndpoint(
                 target.uid,
@@ -97,6 +101,11 @@ internal object DirectResearchModelFactory {
                 admission = { admission() },
                 timeoutMillis = if (local) (policy.queueWaitSeconds + policy.loadTimeoutSeconds + policy.taskTimeoutSeconds) * 1000L else null,
                 requestBudget = { requested -> ResearchProviderBudget.request(target, requested, features.tokenBudget) },
+                providerLimit = {
+                    dev.chungjungsoo.gptmobile.data.network.FreeProviderPreflight.check(target)?.let {
+                        dev.chungjungsoo.gptmobile.data.network.providerLimitDecision(target, it)?.let { limit -> bindProviderLimit(target, limit) }
+                    }
+                },
                 generate = { stage, prompt, cap ->
                     suspend fun execute(): ResearchModelReply {
                         requireAdmission()

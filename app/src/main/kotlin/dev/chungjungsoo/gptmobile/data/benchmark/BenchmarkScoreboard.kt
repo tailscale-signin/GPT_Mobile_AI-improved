@@ -32,7 +32,9 @@ data class ScoreboardTrial(
     val reviewerCalls: Int = 0,
     val reviewerInputTokens: Long = 0,
     val reviewerOutputTokens: Long = 0,
-    val outputCapViolations: Int = 0
+    val outputCapViolations: Int = 0,
+    val intelligenceParseable: Boolean? = null,
+    val intelligenceFormatCompliant: Boolean? = null
 )
 
 @Serializable
@@ -59,11 +61,15 @@ data class ScoreboardSubmission(
     val accelerator: String? = null,
     val capabilityManifest: Set<String> = emptySet(),
     val loadRegime: String = "unknown",
-    val cacheRegime: String = "unknown"
+    val cacheRegime: String = "unknown",
+    val executionPolicy: BenchmarkExecutionPolicy? = null,
+    val fixtureRotationSeed: Long? = null,
+    val fixtureSetVersion: Int? = null,
+    val fixtureManifestHash: String? = null
 ) {
     // Model IDs may be case-sensitive. Profile names and UIDs are deliberately absent.
     val identity: String get() = "$provider\u0000$model"
-    val key: String get() = "$kind|$plan|$suiteVersion|$identity|$effectiveConfigHash|$comparisonContextHash|$backend|$accelerator|${capabilityManifest.sorted()}"
+    val key: String get() = "$kind|$plan|$suiteVersion|$identity|$effectiveConfigHash|$comparisonContextHash|$backend|$accelerator|${capabilityManifest.sorted()}|${executionPolicy?.name ?: "legacy_unknown"}|$fixtureRotationSeed"
 }
 
 @Serializable
@@ -80,19 +86,19 @@ object BenchmarkScoreboard {
     const val MODEL_FORMULA = "Task accuracy 35% · JSON 20% · tools 20% · intelligence 15% · completion 10%. Capped by completion. Timing is reported separately."
     const val DELEGATION_FORMULA = "Objective task accuracy 50% · tool calls 15% · research handoff 15% · independent reviewer 20%. Capped by objective task accuracy."
 
-    fun manifest(kind: ScoreboardKind, plan: BenchmarkMode, version: Int = BenchmarkSuiteRegistry.VERSION): List<BenchmarkCase> =
+    fun manifest(kind: ScoreboardKind, plan: BenchmarkMode, version: Int = BenchmarkSuiteRegistry.VERSION, rotationSeed: Long = 0): List<BenchmarkCase> =
         if (kind == ScoreboardKind.DELEGATION) {
             delegationBenchmarkSuite(plan)
         } else if (version == 6) {
             BenchmarkSuiteRegistry.historical(plan)
         } else {
-            benchmarkSuiteForVersion(version, plan)
+            benchmarkSuiteForVersion(version, plan, rotationSeed)
         }
 
     fun fromRun(run: BenchmarkRun): ScoreboardSubmission? {
-        if (!run.finished || run.canceled || run.stoppedReason != null) return null
+        if (!run.finished || run.canceled || run.stoppedReason != null || benchmarkScoreboardIneligibility(run) != null) return null
         val delegation = run.mode == BenchmarkMode.DELEGATION
-        if (!delegation && run.suiteVersion != BenchmarkSuiteRegistry.VERSION) return null
+        if (!delegation && run.suiteVersion !in setOf(8, 9, BenchmarkSuiteRegistry.VERSION)) return null
         val worker = run.samples.mapNotNull { it.delegation }.firstOrNull()
         if ((!delegation && run.local) || (delegation && worker == null)) return null
         val plan = if (delegation) run.delegationPlan ?: return null else run.mode
@@ -100,7 +106,8 @@ object BenchmarkScoreboard {
         if (delegation && (run.delegationSettings?.reviewerEnabled != true || run.delegationSettings?.researchEnabled != true)) return null
         if (delegation && run.samples.mapNotNull { it.delegation }.any { it.workerProvider != worker?.workerProvider || it.workerModel != worker?.workerModel }) return null
         val submission = ScoreboardSubmission(
-            schemaVersion = 2,
+            schemaVersion = if (run.suiteVersion >= 10 && !delegation) 3 else 2,
+            executionPolicy = run.executionPolicy, fixtureRotationSeed = run.fixtureRotationSeed, fixtureSetVersion = run.fixtureSetVersion, fixtureManifestHash = run.fixtureManifestHash,
             effectiveConfigHash = benchmarkHash(run.configKey), comparisonContextHash = benchmarkHash(DynamicScoreEngine.cohort(run)),
             measurementVersion = run.measurementVersion, scoringVersion = run.scoringVersion, backend = run.backend, accelerator = run.accelerator,
             capabilityManifest = run.capabilityManifest, loadRegime = run.loadRegime, cacheRegime = run.cacheRegime,
@@ -132,7 +139,9 @@ object BenchmarkScoreboard {
                     pagesRead = helper?.pagesRead ?: 0, handoffCharacters = helper?.handoffCharacters ?: 0,
                     primaryInputTokens = helper?.primaryInputTokens ?: 0, primaryOutputTokens = helper?.primaryOutputTokens ?: 0,
                     reviewerCalls = helper?.reviewerCalls ?: 0, reviewerInputTokens = helper?.reviewerInputTokens ?: 0,
-                    reviewerOutputTokens = helper?.reviewerOutputTokens ?: 0, outputCapViolations = helper?.outputCapViolations ?: 0
+                    reviewerOutputTokens = helper?.reviewerOutputTokens ?: 0, outputCapViolations = helper?.outputCapViolations ?: 0,
+                    intelligenceParseable = sample.intelligenceSemantics?.parseable ?: sample.intelligenceParseable,
+                    intelligenceFormatCompliant = sample.intelligenceSemantics?.formatCompliant ?: sample.intelligenceFormatCompliant
                 )
             }
         )
@@ -140,17 +149,22 @@ object BenchmarkScoreboard {
     }
 
     fun evaluate(data: ScoreboardSubmission): ScoreboardEntry? {
-        if (data.schemaVersion !in 1..2 || data.plan !in setOf(BenchmarkMode.QUICK, BenchmarkMode.FULL)) return null
+        if (data.schemaVersion !in 1..3 || data.plan !in setOf(BenchmarkMode.QUICK, BenchmarkMode.FULL)) return null
         if (data.provider !in providers || !validModel(data.model)) return null
         if (!data.id.matches(Regex("[A-Za-z0-9-]{1,80}")) || data.startedAt !in 0..253402300799999L || (data.issueNumber != null && data.issueNumber <= 0)) return null
         val delegation = data.kind == ScoreboardKind.DELEGATION
-        if (data.schemaVersion == 2 && (data.effectiveConfigHash?.matches(Regex("[a-f0-9]{64}")) != true || data.comparisonContextHash?.matches(Regex("[a-f0-9]{64}")) != true || (data.measurementVersion ?: 0) !in 1..100 || (data.scoringVersion ?: 0) !in 1..100)) return null
+        if (data.schemaVersion >= 2 && (data.effectiveConfigHash?.matches(Regex("[a-f0-9]{64}")) != true || data.comparisonContextHash?.matches(Regex("[a-f0-9]{64}")) != true || (data.measurementVersion ?: 0) !in 1..100 || (data.scoringVersion ?: 0) !in 1..100)) return null
         if (listOfNotNull(data.backend, data.accelerator, data.loadRegime, data.cacheRegime).any { !it.matches(Regex("[A-Za-z0-9 _./-]{1,80}")) } || data.capabilityManifest.any { it !in setOf("text", "structured", "reasoning", "tools", "images") }) return null
-        if (if (delegation) data.suiteVersion != 1 else data.suiteVersion !in setOf(6, 7, BenchmarkSuiteRegistry.VERSION)) return null
+        if (if (delegation) data.suiteVersion != 1 else data.suiteVersion !in setOf(6, 7, 8, 9, BenchmarkSuiteRegistry.VERSION)) return null
         if (delegation && (data.primaryProvider !in providers + "LITERT_LM" || data.reviewerProvider !in providers + "LITERT_LM" || !validModel(data.primaryModel) || !validModel(data.reviewerModel))) return null
         if (!delegation && listOf(data.primaryProvider, data.primaryModel, data.reviewerProvider, data.reviewerModel).any { it != null }) return null
         if (delegation && data.model.equals(data.reviewerModel, ignoreCase = true)) return null
-        val manifest = manifest(data.kind, data.plan, data.suiteVersion).associateBy { it.id }
+        if (data.executionPolicy == BenchmarkExecutionPolicy.PROFILE_SETTINGS_V1) return null
+        if (data.schemaVersion >= 3 && (data.executionPolicy != BenchmarkExecutionPolicy.DETERMINISTIC_CAPABILITY_V1 || data.fixtureSetVersion != BenchmarkIntelligenceFixtures.VERSION || data.fixtureRotationSeed == null || data.fixtureRotationSeed < 0)) return null
+        if (!delegation && data.suiteVersion >= 10 && data.schemaVersion < 3) return null
+        val manifest = manifest(data.kind, data.plan, data.suiteVersion, data.fixtureRotationSeed ?: 0).associateBy { it.id }
+        val domains = if (data.suiteVersion >= 10) this.domains + setOf("Multilingual", "Grounded reasoning") else this.domains
+        if (data.schemaVersion >= 3 && data.fixtureManifestHash != benchmarkHash(manifest.values.joinToString("\n") { it.id + it.prompt + it.expected })) return null
         // A public score requires complete graded evidence. Execution failures have no invented accuracy.
         if (!delegation && data.suiteVersion >= 8 && data.trials.any { it.outcome !in setOf(BenchmarkOutcome.PASSED, BenchmarkOutcome.FAILED) }) return null
         if (data.trials.size != manifest.size || data.trials.map { it.id }.toSet() != manifest.keys) return null
@@ -165,7 +179,7 @@ object BenchmarkScoreboard {
                     trial.successfulToolCalls > trial.toolCalls ||
                     trial.reviewerScore?.let { it !in 0..100 } == true ||
                     (delegation && trial.outcome in setOf(BenchmarkOutcome.PASSED, BenchmarkOutcome.FAILED) && (trial.reviewerScore == null || trial.reviewerCalls == 0)) ||
-                    (manifest.getValue(trial.id).category == IntelligenceBenchmark.CATEGORY && trial.intelligence.keys != domains) ||
+                    (manifest.getValue(trial.id).category == IntelligenceBenchmark.CATEGORY && (trial.intelligence.keys != domains || data.schemaVersion >= 3 && trial.intelligenceParseable != true)) ||
                     (manifest.getValue(trial.id).category != IntelligenceBenchmark.CATEGORY && trial.intelligence.isNotEmpty())
             }
         ) {
@@ -221,4 +235,13 @@ object BenchmarkScoreboard {
     fun usedModel(provider: String, model: String): String = model.trim().let { if (provider == "OPENROUTER") it.removeSuffix(":batch") else it }
     private fun validModel(value: String?): Boolean = value != null && value.length in 1..200 && value == value.trim() && value.none { it.isISOControl() } && "://" !in value && !value.startsWith("/") && '\\' !in value
     private fun median(values: List<Double>): Double? = values.sorted().takeIf { it.isNotEmpty() }?.let { (it[(it.size - 1) / 2] + it[it.size / 2]) / 2 }
+}
+
+/** Imported historic submissions retain their original formula; new submissions need an explicit policy. */
+internal fun benchmarkScoreboardIneligibility(run: BenchmarkRun): String? = when {
+    run.executionPolicy == BenchmarkExecutionPolicy.PROFILE_SETTINGS_V1 -> "Saved-profile policy is a separate result domain; the portable scoreboard accepts capability policy only."
+    run.executionPolicy == null -> "Execution policy was not recorded; retained history is not silently promoted into the capability scoreboard."
+    benchmarkReadinessExclusion(run) != null -> "Finished positive readiness is required; a retained primary structured failure keeps compatibility fallback provisional."
+    run.mode != BenchmarkMode.DELEGATION && !benchmarkIntelligenceSummary(run).complete -> "Semantic intelligence is incomplete or ungraded; malformed output cannot be submitted as measured zero accuracy."
+    else -> null
 }

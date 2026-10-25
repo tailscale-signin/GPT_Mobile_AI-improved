@@ -27,7 +27,7 @@ class ProviderPricingRepository @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val openRouter: OpenRouterModelRepository
 ) {
-    private val preferences = context.getSharedPreferences("provider_pricing_v1", Context.MODE_PRIVATE)
+    private val preferences by lazy { context.getSharedPreferences("provider_pricing_v1", Context.MODE_PRIVATE) }
     private val json = Json { ignoreUnknownKeys = true }
     private val mutex = Mutex()
     private val mutableState = MutableStateFlow(PricingState())

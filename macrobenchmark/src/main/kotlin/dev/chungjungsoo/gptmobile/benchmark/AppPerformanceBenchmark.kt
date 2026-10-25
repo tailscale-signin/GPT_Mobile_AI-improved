@@ -85,6 +85,56 @@ class AppPerformanceBenchmark {
         // Deliberate device benchmark sampling interval, never an application delay.
         Thread.sleep(4500)
     }
+
+    @Test fun savedCombinedTenProfiles100k() = savedCombined(10, 100_000)
+
+    @Test fun savedCombinedTenProfiles1m() = savedCombined(10, 1_000_000)
+
+    @Test fun savedCombinedFiftyProfiles100k() = savedCombined(50, 100_000)
+
+    @Test fun savedCombinedFiftyProfiles1m() = savedCombined(50, 1_000_000)
+
+    @Test fun savedCombinedHundredProfiles100k() = savedCombined(100, 100_000)
+
+    @Test fun savedCombinedHundredProfiles1m() = savedCombined(100, 1_000_000)
+
+    private fun savedCombined(profiles: Int, characters: Int) = benchmark.measureRepeated(
+        PACKAGE,
+        listOf(FrameTimingMetric()),
+        CompilationMode.Partial(BaselineProfileMode.Disable, warmupIterations = 3),
+        iterations = 10,
+        setupBlock = {
+            startActivityAndWait(fixture().putExtra("screen", "saved-combined").putExtra("profiles", profiles).putExtra("characters", characters))
+            check(device.wait(Until.hasObject(By.res("benchmark_saved_ready")), 30_000))
+        }
+    ) {
+        repeat(3) {
+            device.findObject(By.res("benchmark_open_final")).click()
+            check(device.wait(Until.hasObject(By.res("combined_document")), 10_000))
+            device.waitForIdle()
+            val document = device.findObject(By.res("combined_document"))
+            document.setGestureMargin(device.displayWidth / 5)
+            repeat(4) {
+                document.fling(Direction.DOWN)
+                device.waitForIdle()
+            }
+            device.findObject(By.res("benchmark_contributor_tab")).click()
+            check(device.wait(Until.hasObject(By.text("Original reply · Profile 0")), 10_000))
+            check(device.wait(Until.hasObject(By.textStartsWith("## Profile 0")), 10_000))
+            device.waitForIdle()
+            device.findObject(By.text("Next page"))?.takeIf { it.isEnabled }?.let {
+                it.click()
+                check(device.wait(Until.hasObject(By.descStartsWith("Original reply page 2 of ")), 10_000))
+            }
+            device.waitForIdle()
+            device.findObject(By.text("Close")).click()
+            check(device.wait(Until.hasObject(By.res("combined_document")), 10_000))
+            device.findObject(By.res("benchmark_final_tab")).click()
+            check(device.wait(Until.hasObject(By.res("combined_document")), 10_000))
+            device.findObject(By.res("benchmark_close_final")).click()
+            check(device.wait(Until.hasObject(By.res("benchmark_saved_ready")), 10_000))
+        }
+    }
 }
 
 @RunWith(AndroidJUnit4::class)

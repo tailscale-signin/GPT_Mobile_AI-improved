@@ -41,7 +41,7 @@ internal fun combinedProfileFailures(
     val uid = message.platformType ?: return@mapNotNull null
     if (message.isCombinedSynthesis()) return@mapNotNull null
     val run = runs[message.currentRunId] ?: return@mapNotNull null
-    if (run.status in setOf(AgentRunStatus.QUEUED, AgentRunStatus.RUNNING)) return@mapNotNull null
+    if (run.status in setOf(AgentRunStatus.QUEUED, AgentRunStatus.RUNNING, AgentRunStatus.WAITING_PROVIDER_LIMIT)) return@mapNotNull null
     val generation = message.timeline.lastOrNull { it.generation != null }?.generation
     val content = CombinedContributionQuality.sanitizeContribution(message.content)
     val demo = uid == "builtin-free-porchlm" || names[uid]?.contains("PorchLM", true) == true || models[uid]?.contains("porch", true) == true

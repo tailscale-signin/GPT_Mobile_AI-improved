@@ -15,7 +15,12 @@ data class RequestConstraints(
     val permissionRevision: String = "legacy-unverified",
     val requireKnownCapacity: Boolean = false,
     val finalResponseSchemaJson: String? = null,
-    val combined: dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext? = null
+    val combined: dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext? = null,
+    val originalRequestLineage: String? = null,
+    val structuredOutputMode: dev.chungjungsoo.gptmobile.data.localruntime.LocalStructuredOutputMode = dev.chungjungsoo.gptmobile.data.localruntime.LocalStructuredOutputMode.NATIVE_JSON_SAFE_V1,
+    val structuredOutputCompatibilityKey: String? = null,
+    val structuredOutputProbe: Boolean = false,
+    val structuredOutputCompatibilityResolver: (suspend (dev.chungjungsoo.gptmobile.data.localruntime.LocalEngineSpec) -> String)? = null
 ) {
     init {
         finalResponseSchemaJson?.let { schema ->

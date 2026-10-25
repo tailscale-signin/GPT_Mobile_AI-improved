@@ -111,12 +111,12 @@ internal fun AppLogPanel() {
         }
         val visible = dev.chungjungsoo.gptmobile.data.diagnostics.groupAppLogs(frozen ?: entries)
             .filter {
-                (!errorsOnly || it.entry.level in setOf("W", "E", "F")) &&
+                (!errorsOnly || it.incidentIds.isNotEmpty()) &&
                     (selectedTag == "All tags" || it.entry.tag == selectedTag) &&
                     (it.entry.tag + it.entry.message).contains(query, ignoreCase = true)
             }.takeLast(100)
-        Text("${visible.sumOf { it.repetitions }} events · ${visible.size} rows · newest first", style = MaterialTheme.typography.labelMedium)
-        Text("Repeated timeouts and budget warnings are grouped; expand a row for raw details. Exports keep every event.", style = MaterialTheme.typography.labelSmall)
+        Text("${visible.sumOf { it.repetitions }} events · ${visible.flatMap { it.incidentIds }.distinct().size} issue groups · ${visible.size} rows · newest first", style = MaterialTheme.typography.labelMedium)
+        Text("Records with the same incident or operation identity share one issue group. Similar messages may share a display row; expand it for every event. Missing causal identities remain separate.", style = MaterialTheme.typography.labelSmall)
         if (visible.isEmpty()) Text(if (enabled) "Waiting for matching app events…" else "Enable tracking to record a test session.")
         visible.asReversed().forEach { group ->
             val entry = group.entry
@@ -128,9 +128,9 @@ internal fun AppLogPanel() {
                         modifier = Modifier.padding(12.dp),
                         fontFamily = FontFamily.Monospace,
                         style = MaterialTheme.typography.bodySmall,
-                        color = when (entry.level) {
-                            "E", "F" -> MaterialTheme.colorScheme.error
-                            "W" -> MaterialTheme.colorScheme.tertiary
+                        color = when (dev.chungjungsoo.gptmobile.data.diagnostics.classifyDiagnostic(entry.level, entry.tag, entry.message).severity) {
+                            "error", "critical" -> MaterialTheme.colorScheme.error
+                            "warning" -> MaterialTheme.colorScheme.tertiary
                             else -> MaterialTheme.colorScheme.onSurface
                         }
                     )

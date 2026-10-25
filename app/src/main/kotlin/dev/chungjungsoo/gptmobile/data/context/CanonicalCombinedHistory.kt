@@ -11,7 +11,12 @@ import dev.chungjungsoo.gptmobile.util.isAssistantErrorMessage
 
 /** Detect Combined by lifecycle identity, never by matching user-visible notice text. */
 internal fun List<MessageV2>.hasCombinedHistory(): Boolean = any {
-    it.effectiveRunId()?.startsWith("combined-synthesis:") == true ||
+    // A selected retained contributor revision is not a delivered Combined final.
+    // Keep the turn's raw identity even when its visible fallback has another run ID.
+    it.currentRunId?.startsWith("combined-synthesis:") == true ||
+        it.combinedSources.isNotEmpty() ||
+        it.timeline.any { item -> item.combinedTurn != null } ||
+        it.effectiveRunId()?.startsWith("combined-synthesis:") == true ||
         it.effectiveTimeline().any { item -> item.combinedTurn != null }
 }
 

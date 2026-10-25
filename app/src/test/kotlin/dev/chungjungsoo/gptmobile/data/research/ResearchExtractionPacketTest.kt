@@ -57,6 +57,22 @@ class ResearchExtractionPacketTest {
         assertNull(ResearchExtractionPackets.next(edge, questions, "Research the limits", 1, budget, processed))
     }
 
+    @Test fun retainedClaimCursorKeepsExactPacketIdentityAndDoesNotSilentlyShrinkAtContextLimit() {
+        val budget = ResearchModelRequestBudget(256, 2000, true)
+        val short = source.copy(passage = passage.take(200))
+        val first = requireNotNull(ResearchExtractionPackets.next(short, questions, "Research the limits", 1, budget, emptySet()))
+        val claim = ResearchClaim("Two requests are supported.", short.id, short.passage.take(60), sourceVersion = "v1", passageHash = researchHash(short.passage))
+        val next = requireNotNull(ResearchExtractionPackets.next(short, questions, "Research the limits", 1, budget, emptySet(), listOf(claim)))
+        assertEquals(first.key, next.key)
+        assertEquals(first.start, next.start)
+        assertEquals(first.end, next.end)
+        assertTrue(next.evidence.contains("alreadyExtracted"))
+        assertTrue(next.evidence.contains(claim.text))
+        val dense = (1..200).map { claim.copy(text = "Retained distinct claim $it: " + "evidence ".repeat(20)) }
+        assertNull(ResearchExtractionPackets.next(short, questions, "Research the limits", 1, budget, emptySet(), dense))
+        assertEquals(passage.take(200), short.passage)
+    }
+
     @Test fun oversizedTaskAndQuestionsAreRetainedInsteadOfTruncatedToForceDispatch() {
         assertNull(ResearchExtractionPackets.next(source, questions, "Task ".repeat(2000), 1, ResearchModelRequestBudget(256, 500, true), emptySet()))
         assertEquals(passage, source.passage)

@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.60.0] - 2026-10-24
+
+- Integrate Research reliability fixes with free-provider activation and recipient-scoped personal-tool consent.
+- Retire PorchLM/OpenCode executable routes while retaining historical conversations.
+- Persist request/token reservations, credential-specific health and fenced provider waits; resume the exact deferred Research stage with its retained evidence and current authority.
+- Carry the original provider-wait authorization through asynchronous resume and renewed quota waits; preserve durable scheduling across wall/monotonic clock sampling differences.
+- Preserve Combined contributor rows and canonical final identities; add opt-in append continuation, content-addressed document pages, bounded source inspection and complete export/backup.
+- Share claim-to-answer attribution across delivery, colours, inspection and coverage; retain historical qualifiers, disputed claims and original editorial ranges.
+- Attribute dated event mentions from the original France export without overstating coverage, and show completed saved answers needing correction as an explicit revision instead of unfinished transport.
+- Add recipient/category/range/expiry transfer grants, downstream provenance checks, and an Accept / Decline consent dialog for the requested paper examination.
+- Record native engine, generation, execution and cleanup facts; improve GGUF GPU selection, memory admission, deadlines, negative-cache verification and controlled CPU experiments.
+- Keep cancelled GPU samples in diagnostics while requiring productive native generation evidence before they can qualify a higher offload setting.
+- Bind explicit answer revision to the displayed current or archived answer, rejecting stale selections and preserving saved originals.
+- Keep LiteRT memory replanning valid when progress delivery is interrupted, while preserving downstream cancellation and bounded pre-load retries.
+- Compress release APK DEX and split oversized dispatch methods while retaining supported runtimes, ABIs and the existing verification budgets.
+- Version benchmark grading and metric populations, continue independent healthy cases, preserve skipped/dependency states, and export reproducible coverage and validation evidence.
+- Add identity-bound LiteRT inspection caching, typed constrained-decoding failures, unmodified structured-output validation and durable exact-schema readiness probes with separately retained fallback evidence.
+- Introduce benchmark suite 10, nullable semantic grades for malformed answers, independent tool dimensions, eight intelligence domains with recorded rotations, and separate deterministic/profile-settings policies.
+- Add explicit cold/warm, prefill, decode, first-visible, sustained and cleanup trials, descriptive statistics/history, observed backend comparisons and expandable deadline/settings/cleanup evidence; preserve unknown and provisional states.
+- Replace whole-history benchmark export copies with streaming canonical records and staged file saving; retain complete redacted evidence for retry after destination failure or interruption and add a large-history 256 MiB regression.
+- Export cold benchmark history without hydrating all saved answers, rewriting scores or reviving a stale preference mirror; preserve complete per-run grading and cover oversized SQLite records in the 256 MiB gate.
+- Move identified storage reads off UI paths, coalesce model inspection, and group diagnostics by causal incidents with explicit process-exit evidence.
+- Add Room schema 47 through an additive 46→47 migration, preserving published schema 46. See [release scope and qualification](docs/releases/0.9.60.0.md).
+
 ## [0.9.52.0] - 2026-10-13
 
 - Repair delegation admission, durable evidence recovery, coverage/review states and scoped permissions.

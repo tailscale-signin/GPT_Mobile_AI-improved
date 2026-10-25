@@ -75,6 +75,8 @@ fun AiPlatformsScreen(
     onNavigateToPlatformSetting: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val activationRequest by settingViewModel.pendingProviderActivation.collectAsStateWithLifecycle()
+    activationRequest?.let { ProviderActivationDialog(it, settingViewModel::confirmProviderActivation, settingViewModel::dismissProviderActivation) }
     val allPlatforms by settingViewModel.platformState.collectAsStateWithLifecycle()
     val allProviderConnections by settingViewModel.providerConnections.collectAsStateWithLifecycle()
     var query by rememberSaveable { mutableStateOf("") }

@@ -10,6 +10,7 @@ import kotlinx.serialization.json.JsonDecoder
 import kotlinx.serialization.json.JsonEncoder
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.floatOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.longOrNull
@@ -22,7 +23,8 @@ data class ConversationCombinedSettings(
     val effort: Int = 50,
     val revision: Long = 0,
     val creativity: Float? = null,
-    val preservedFields: JsonObject = JsonObject(emptyMap())
+    val preservedFields: JsonObject = JsonObject(emptyMap()),
+    val continueLongAnswers: Boolean = false
 ) {
     val isSupported: Boolean get() = schemaVersion in 0..CURRENT_SCHEMA
 
@@ -60,7 +62,8 @@ object ConversationCombinedSettingsSerializer : KSerializer<ConversationCombined
             effort = (objectValue["effort"] as? JsonPrimitive)?.intOrNull ?: 50,
             revision = (objectValue["revision"] as? JsonPrimitive)?.longOrNull ?: 0,
             creativity = (objectValue["creativity"] as? JsonPrimitive)?.floatOrNull,
-            preservedFields = if (version in 0..ConversationCombinedSettings.CURRENT_SCHEMA) JsonObject(objectValue.filterKeys { it !in setOf("schemaVersion", "collectionBias", "effort", "revision", "creativity") }) else objectValue
+            preservedFields = if (version in 0..ConversationCombinedSettings.CURRENT_SCHEMA) JsonObject(objectValue.filterKeys { it !in setOf("schemaVersion", "collectionBias", "effort", "revision", "creativity", "continueLongAnswers") }) else objectValue,
+            continueLongAnswers = (objectValue["continueLongAnswers"] as? JsonPrimitive)?.booleanOrNull ?: false
         ).normalized()
     }
 
@@ -76,7 +79,7 @@ object ConversationCombinedSettingsSerializer : KSerializer<ConversationCombined
                     "effort" to JsonPrimitive(normalized.effort),
                     "revision" to JsonPrimitive(normalized.revision),
                     "creativity" to (normalized.creativity?.let(::JsonPrimitive) ?: kotlinx.serialization.json.JsonNull)
-                )
+                ) + if (normalized.continueLongAnswers) mapOf("continueLongAnswers" to JsonPrimitive(true)) else emptyMap()
             )
         }
         (encoder as JsonEncoder).encodeJsonElement(payload)

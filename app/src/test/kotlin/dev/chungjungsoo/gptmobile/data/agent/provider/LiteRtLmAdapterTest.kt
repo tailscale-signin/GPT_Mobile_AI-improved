@@ -32,8 +32,13 @@ import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.repository.FakeLocalModelRepository
 import dev.chungjungsoo.gptmobile.data.repository.FakeModelCatalogRepository
 import dev.chungjungsoo.gptmobile.data.repository.ModelCatalogRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -48,6 +53,209 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LiteRtLmAdapterTest {
+    @Test
+    fun `preload replan during suspended progress delivery preserves later events`() = runBlocking {
+        val deliveryStarted = CompletableDeferred<Unit>()
+        val nextPlanStarted = CompletableDeferred<Unit>()
+        val plannedContexts = mutableListOf<Int?>()
+        val events = mutableListOf<ProviderEvent>()
+        withTimeout(5_000) {
+            localPreloadReplanningFlow("LITERT_LM") { ceiling ->
+                plannedContexts += ceiling
+                if (ceiling == null) {
+                    channelFlow {
+                        send(ProviderEvent.PhaseChanged(LocalInferencePhase.LOADING))
+                        deliveryStarted.await()
+                        throw PreloadContextReplan(dev.chungjungsoo.gptmobile.data.localruntime.LocalContextReplanRequired(4096, 2048))
+                    }
+                } else {
+                    flow {
+                        nextPlanStarted.complete(Unit)
+                        emit(ProviderEvent.TextDelta("4"))
+                        emit(ProviderEvent.Completed)
+                    }
+                }
+            }.collect { event ->
+                events += event
+                if (event is ProviderEvent.PhaseChanged) {
+                    deliveryStarted.complete(Unit)
+                    nextPlanStarted.await()
+                }
+            }
+        }
+        assertEquals(listOf(null, 2048), plannedContexts)
+        assertEquals(ProviderEvent.PhaseChanged(LocalInferencePhase.LOADING), events.first())
+        assertTrue(events.filterIsInstance<ProviderEvent.Notice>().single().message.contains("2048-token context"))
+        assertEquals(listOf(ProviderEvent.TextDelta("4")), events.filterIsInstance<ProviderEvent.TextDelta>())
+        assertTrue(events.none { it is ProviderEvent.Failed })
+        assertEquals(ProviderEvent.Completed, events.last())
+    }
+
+    @Test
+    fun `downstream failure or cancellation never authorizes a preload replan`() = runBlocking {
+        val failures = listOf(
+            IllegalStateException("Progress consumer failed"),
+            CancellationException("Progress consumer cancelled"),
+            PreloadContextReplan(dev.chungjungsoo.gptmobile.data.localruntime.LocalContextReplanRequired(4096, 2048))
+        )
+        for (failure in failures) {
+            var plans = 0
+            val stopped = CompletableDeferred<Unit>()
+            val observed = runCatching {
+                withTimeout(5_000) {
+                    localPreloadReplanningFlow("LITERT_LM") {
+                        plans++
+                        flow {
+                            try {
+                                emit(ProviderEvent.PhaseChanged(LocalInferencePhase.LOADING))
+                                awaitCancellation()
+                            } finally {
+                                stopped.complete(Unit)
+                            }
+                        }
+                    }.collect { throw failure }
+                }
+            }.exceptionOrNull()
+            assertEquals(failure.javaClass, observed?.javaClass)
+            assertEquals(failure.message, observed?.message)
+            // Coroutine debug recovery may copy the exception and retain the original as its cause.
+            assertTrue(generateSequence(observed) { it.cause }.any { it === failure })
+            withTimeout(5_000) { stopped.await() }
+            assertEquals(1, plans)
+        }
+    }
+
+    @Test
+    fun `preload memory replans stop after the bounded descending context attempts`() = runBlocking {
+        val plannedContexts = mutableListOf<Int?>()
+        val events = withTimeout(5_000) {
+            localPreloadReplanningFlow("LITERT_LM") { ceiling ->
+                plannedContexts += ceiling
+                flow {
+                    val attempted = ceiling ?: 8192
+                    throw PreloadContextReplan(dev.chungjungsoo.gptmobile.data.localruntime.LocalContextReplanRequired(attempted, attempted / 2))
+                }
+            }.toList()
+        }
+        assertEquals(listOf(null, 4096, 2048, 1024), plannedContexts)
+        assertEquals(3, events.filterIsInstance<ProviderEvent.Notice>().size)
+        assertTrue(events.filterIsInstance<ProviderEvent.Failed>().single().message.startsWith("LOCAL_CONTEXT_REPLAN_EXHAUSTED:"))
+        assertFalse(events.any { it is ProviderEvent.TextDelta || it == ProviderEvent.Completed })
+    }
+
+    @Test
+    fun `auto memory replan rebuilds history and budget before one physical generation`() = runBlocking {
+        val native = FakeLocalRuntime().apply {
+            capabilities = LocalModelCapabilities(contextTokens = 8192, backends = setOf("gpu"), tools = false)
+            failLoadEngineIf = { spec ->
+                if (loadEngineCalls.size == 1) dev.chungjungsoo.gptmobile.data.localruntime.LocalContextReplanRequired(spec.maxTokens, spec.maxTokens / 2) else null
+            }
+            scriptedEvents = listOf(listOf(LocalRuntimeEvent.TextDelta("4"), LocalRuntimeEvent.Done))
+        }
+        val runtime = object : LocalRuntime by native {
+            override suspend fun contextPolicyForRequest(profileUid: String): String = "AUTO"
+        }
+        val history = List(12) { index -> completedTurn("Earlier constraint $index: " + "detail ".repeat(50), "Recorded " + "detail ".repeat(50)) }
+        val dispatch = dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext(emptySet())
+        val events = kotlinx.coroutines.withContext(dispatch) {
+            adapter(runtime).openSession(history + pendingTurn("What is 2 + 2?"), localPlatform().copy(maxTokens = 128))
+                .streamRound(emptyList(), emptyList()).toList()
+        }
+        assertEquals(2, native.loadEngineCalls.size)
+        val firstContext = native.loadEngineCalls.first().maxTokens
+        val finalContext = native.loadEngineCalls.last().maxTokens
+        assertEquals(firstContext / 2, finalContext)
+        assertEquals(1, native.createConversationCalls.size)
+        assertTrue(native.createConversationCalls.single().initialMessages.size < history.size * 2)
+        assertEquals(listOf("What is 2 + 2?"), native.sendMessageCalls)
+        assertEquals(1, dispatch.receipts.size)
+        assertEquals(finalContext.toLong(), dispatch.receipts.single().contextTokens)
+        assertTrue(events.filterIsInstance<ProviderEvent.Failed>().isEmpty())
+        assertEquals(ProviderEvent.Completed, events.last())
+    }
+
+    @Test
+    fun `manual context cannot be reduced by a memory replan suggestion`() = runBlocking {
+        val native = FakeLocalRuntime().apply {
+            capabilities = LocalModelCapabilities(contextTokens = 8192, backends = setOf("gpu"), tools = false)
+            failLoadEngineIf = { spec -> dev.chungjungsoo.gptmobile.data.localruntime.LocalContextReplanRequired(spec.maxTokens, spec.maxTokens / 2) }
+        }
+        val events = adapter(native).openSession(turns("What is 2 + 2?"), localPlatform().copy(maxTokens = 128))
+            .streamRound(emptyList(), emptyList()).toList()
+        assertEquals(1, native.loadEngineCalls.size)
+        assertTrue(native.createConversationCalls.isEmpty())
+        assertTrue(native.sendMessageCalls.isEmpty())
+        assertTrue(events.filterIsInstance<ProviderEvent.Failed>().single().message.contains("Manual context was not changed"))
+        assertFalse(events.contains(ProviderEvent.Completed))
+    }
+
+    @Test
+    fun `a late replan exception cannot restart native generation`() = runBlocking {
+        val native = FakeLocalRuntime().apply {
+            capabilities = LocalModelCapabilities(contextTokens = 8192, backends = setOf("gpu"), tools = false)
+        }
+        var generations = 0
+        val runtime = object : LocalRuntime by native {
+            override suspend fun contextPolicyForRequest(profileUid: String): String = "AUTO"
+            override fun <T> runExclusiveFlow(onContended: suspend () -> Unit, block: suspend LocalRuntime.() -> kotlinx.coroutines.flow.Flow<T>): kotlinx.coroutines.flow.Flow<T> {
+                val self = this
+                return native.runExclusiveFlow(onContended) { block(self) }
+            }
+            override fun sendMessageWithBudget(text: String, images: List<ByteArray>, safetyTokens: Int): kotlinx.coroutines.flow.Flow<LocalRuntimeEvent> = kotlinx.coroutines.flow.flow {
+                generations++
+                emit(LocalRuntimeEvent.TextDelta("Observed partial output"))
+                throw dev.chungjungsoo.gptmobile.data.localruntime.LocalContextReplanRequired(8192, 4096)
+            }
+        }
+        val events = adapter(runtime).openSession(turns("Tell me about clouds."), localPlatform().copy(maxTokens = 128))
+            .streamRound(emptyList(), emptyList()).toList()
+        assertEquals(1, generations)
+        assertEquals(1, native.loadEngineCalls.size)
+        assertTrue(events.filterIsInstance<ProviderEvent.Failed>().isNotEmpty())
+        assertFalse(events.contains(ProviderEvent.Completed))
+    }
+
+    @Test
+    fun `tool format repair retains completed receipts without replay and budgets retained segments`() = runBlocking {
+        var calls = 0
+        val rejected = """{"type":"tool_call","name":"lookup","arguments":{"rejectedOnly":"BROKEN_PAYLOAD"}"""
+        val runtime = FakeLocalRuntime().apply {
+            capabilities = LocalModelCapabilities(contextTokens = 8192, backends = setOf("gpu"), tools = false)
+            scriptedEvents = listOf(
+                listOf(LocalRuntimeEvent.TextDelta("""{"type":"tool_call","name":"lookup","arguments":{}}"""), LocalRuntimeEvent.Done),
+                listOf(LocalRuntimeEvent.TextDelta(rejected), LocalRuntimeEvent.Done),
+                listOf(LocalRuntimeEvent.TextDelta("""{"type":"tool_call","name":"lookup","arguments":{}}"""), LocalRuntimeEvent.Done),
+                listOf(LocalRuntimeEvent.TextDelta("The retained result is ready."), LocalRuntimeEvent.Done)
+            )
+        }
+        val dispatch = dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext(emptySet())
+        val events = kotlinx.coroutines.withContext(dispatch) {
+            adapter(runtime).openSession(
+                turns("Use lookup once"),
+                localPlatform(),
+                listOf(
+                    lookupTool { id, _ ->
+                        calls++
+                        AgentToolResult(id, ToolResultContent.Text("Saved successful receipt"), false)
+                    }
+                )
+            ).streamRound(emptyList(), emptyList()).toList()
+        }
+        assertEquals(1, calls)
+        assertEquals(4, runtime.sendMessageCalls.size)
+        assertEquals(2, runtime.createConversationCalls.size)
+        assertFalse(runtime.createConversationCalls.last().initialMessages.any { it.text == rejected })
+        assertTrue(runtime.sendMessageCalls[2].contains("Saved successful receipt"))
+        assertFalse(runtime.sendMessageCalls[2].contains(rejected))
+        assertEquals(1, events.filterIsInstance<ProviderEvent.ToolCall>().size)
+        assertTrue(events.last() is ProviderEvent.Completed)
+        val budgets = dispatch.receipts.mapNotNull { it.promptBudget }
+        assertEquals(4, budgets.size)
+        assertEquals(1, budgets.map { it.originalRequestLineage }.distinct().size)
+        assertTrue(budgets.last().components.single { it.name == "retained_history" }.tokens > 0)
+        assertTrue(budgets.last().deliberateCompactions.contains("rejected_tool_call_omitted_from_repair"))
+    }
+
     @Test
     fun `greeting omits available native and prompt bridge tools`() = runBlocking {
         for (nativeTools in listOf(true, false)) {
@@ -1286,7 +1494,10 @@ class LiteRtLmAdapterTest {
             .streamRound(emptyList(), emptyList()).toList()
         assertEquals(2, runtime.sendMessageCalls.size)
         assertTrue(runtime.sendMessageCalls[1].contains("""{"type":"tool_call","name":"current_date","arguments":{}}"""))
-        assertTrue(runtime.sendMessageCalls[1].contains("Parameters for current_date"))
+        assertFalse(runtime.sendMessageCalls[1].contains("Parameters for current_date"))
+        assertTrue(runtime.sendMessageCalls[1].contains("schemas already supplied"))
+        assertEquals(2, runtime.createConversationCalls.size)
+        assertTrue(runtime.createConversationCalls.last().initialMessages.isEmpty())
         assertTrue(events.filterIsInstance<ProviderEvent.ToolCall>().isEmpty())
         assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().isEmpty())
         assertTrue(events.filterIsInstance<ProviderEvent.Failed>().single().message.contains("not completed"))
@@ -1344,8 +1555,9 @@ class LiteRtLmAdapterTest {
             )
         ).streamRound(emptyList(), emptyList()).toList()
         assertEquals(1, calls)
-        assertTrue(runtime.createConversationCalls.single().tools.isEmpty())
-        assertTrue(runtime.createConversationCalls.single().systemPrompt.orEmpty().contains("Authorized local tools"))
+        assertEquals(2, runtime.createConversationCalls.size)
+        assertTrue(runtime.createConversationCalls.all { it.tools.isEmpty() })
+        assertTrue(runtime.createConversationCalls.all { it.systemPrompt.orEmpty().contains("Authorized local tools") })
         assertEquals(3, runtime.sendMessageCalls.size)
         assertTrue(runtime.sendMessageCalls[1].contains("not executed"))
         assertTrue(runtime.sendMessageCalls[2].contains("clear weather"))
@@ -2524,4 +2736,59 @@ class LiteRtLmAdapterTest {
         accelerator = "gpu",
         systemPrompt = "Be concise"
     )
+
+    @Test fun structuredRequestsDisableThinkingAndSpeculationBeforeLoadingWithoutAddingPrefixes() = runBlocking {
+        val raw = "{\"answer\":\"ready\"}"
+        val native = FakeLocalRuntime().apply { scriptedEvents = listOf(listOf(LocalRuntimeEvent.TextDelta(raw), LocalRuntimeEvent.Done)) }
+        val schema = "{\"type\":\"object\",\"required\":[\"answer\"]}"
+        val events = adapter(native).openSession(
+            turns("Return the answer as JSON"),
+            localPlatform().copy(reasoning = true),
+            constraints = RequestConstraints(finalResponseSchemaJson = schema, requestRole = "benchmark")
+        )
+            .streamRound(emptyList(), emptyList()).toList()
+        assertEquals(false, native.loadEngineCalls.single().speculativeDecoding)
+        assertEquals(false, native.createConversationCalls.single().thinkingEnabled)
+        assertEquals(false, native.createConversationCalls.single().speculativeDecoding)
+        assertEquals(raw, events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
+        assertTrue(events.any { it is ProviderEvent.Completed })
+        assertFalse(events.any { it is ProviderEvent.Failed })
+    }
+
+    @Test fun duplicatedJsonIsRetainedAsFailureWithoutAnAutomaticBenchmarkRetry() = runBlocking {
+        val raw = "{\"{\"answer\":\"ready\"}"
+        val native = FakeLocalRuntime().apply { scriptedEvents = listOf(listOf(LocalRuntimeEvent.TextDelta(raw), LocalRuntimeEvent.Done)) }
+        val events = adapter(native).openSession(
+            turns("Return JSON"),
+            localPlatform(),
+            constraints = RequestConstraints(finalResponseSchemaJson = "{\"type\":\"object\"}", requestRole = "benchmark")
+        )
+            .streamRound(emptyList(), emptyList()).toList()
+        assertEquals(raw, events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
+        assertEquals(1, native.sendMessageCalls.size)
+        assertTrue(events.filterIsInstance<ProviderEvent.Failed>().single().message.contains("STRUCTURED_OUTPUT_MALFORMED"))
+        assertFalse(events.any { it is ProviderEvent.Completed })
+    }
+
+    @Test fun promptJsonUsesBudgetedSchemaAndRejectsChangedLoadedCompatibilityBeforeGeneration() = runBlocking {
+        val mode = dev.chungjungsoo.gptmobile.data.localruntime.LocalStructuredOutputMode.PROMPT_JSON_VERIFIED_V1
+        val native = FakeLocalRuntime().apply { scriptedEvents = listOf(listOf(LocalRuntimeEvent.TextDelta("{\"answer\":\"ready\"}"), LocalRuntimeEvent.Done)) }
+        val schema = "{\"type\":\"object\",\"required\":[\"answer\"]}"
+        val adapter = adapter(native)
+        val constraints = RequestConstraints(
+            finalResponseSchemaJson = schema,
+            requestRole = "benchmark",
+            structuredOutputMode = mode,
+            structuredOutputCompatibilityKey = "verified-loaded-key",
+            structuredOutputCompatibilityResolver = { "verified-loaded-key" }
+        )
+        val completed = adapter.openSession(turns("Return JSON"), localPlatform(), constraints = constraints).streamRound(emptyList(), emptyList()).toList()
+        assertTrue(completed.any { it is ProviderEvent.Completed })
+        assertTrue(native.createConversationCalls.single().systemPrompt.orEmpty().contains(schema))
+        assertEquals("verified-loaded-key", native.createConversationCalls.single().structuredOutputCompatibilityKey)
+        val changed = adapter.openSession(turns("Return JSON again"), localPlatform(), constraints = constraints.copy(structuredOutputCompatibilityResolver = { "changed-loaded-key" }))
+            .streamRound(emptyList(), emptyList()).toList()
+        assertTrue(changed.filterIsInstance<ProviderEvent.Failed>().single().message.contains("STRUCTURED_OUTPUT_COMPATIBILITY_CHANGED"))
+        assertEquals(1, native.sendMessageCalls.size)
+    }
 }

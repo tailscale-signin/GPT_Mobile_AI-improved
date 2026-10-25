@@ -474,6 +474,35 @@ object ChatDatabaseV2Migrations {
         }
     }
 
+    val MIGRATION_45_46 = object : Migration(45, 46) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS `combined_final_messages` (`chatId` INTEGER NOT NULL, `userMessageId` INTEGER NOT NULL, `finalMessageId` INTEGER NOT NULL, PRIMARY KEY(`chatId`, `userMessageId`), FOREIGN KEY(`chatId`) REFERENCES `chats_v2`(`chat_id`) ON UPDATE NO ACTION ON DELETE CASCADE, FOREIGN KEY(`userMessageId`) REFERENCES `messages_v2`(`message_id`) ON UPDATE NO ACTION ON DELETE CASCADE, FOREIGN KEY(`finalMessageId`) REFERENCES `messages_v2`(`message_id`) ON UPDATE NO ACTION ON DELETE CASCADE)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_combined_final_messages_userMessageId` ON `combined_final_messages` (`userMessageId`)")
+            db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_combined_final_messages_finalMessageId` ON `combined_final_messages` (`finalMessageId`)")
+            db.execSQL("CREATE TABLE IF NOT EXISTS `provider_waits` (`runId` TEXT NOT NULL, `fence` INTEGER NOT NULL, `scope` TEXT NOT NULL, `retryAt` INTEGER NOT NULL, `checkpoint` TEXT NOT NULL, PRIMARY KEY(`runId`), FOREIGN KEY(`runId`) REFERENCES `agent_runs`(`run_id`) ON UPDATE NO ACTION ON DELETE CASCADE)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_provider_waits_scope` ON `provider_waits` (`scope`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_provider_waits_retryAt` ON `provider_waits` (`retryAt`)")
+            // Historical bodies and revisions remain byte-for-byte unchanged.
+            db.execSQL("INSERT OR IGNORE INTO combined_final_messages (chatId, userMessageId, finalMessageId) SELECT chat_id, user_message_id, assistant_message_id FROM agent_runs WHERE synthesis_key IS NOT NULL ORDER BY created_at DESC, run_id DESC")
+        }
+    }
+
+    val MIGRATION_46_47 = object : Migration(46, 47) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            addColumnIfMissing(db, "messages_v2", "combined_manifest", "TEXT")
+            addColumnIfMissing(db, "combined_delivery_checkpoints", "storageVersion", "INTEGER NOT NULL DEFAULT 1")
+            addColumnIfMissing(db, "combined_delivery_checkpoints", "recordCount", "INTEGER NOT NULL DEFAULT 0")
+            addColumnIfMissing(db, "combined_delivery_checkpoints", "recordsDigest", "TEXT NOT NULL DEFAULT ''")
+            addColumnIfMissing(db, "combined_delivery_checkpoints", "payloadsJson", "TEXT NOT NULL DEFAULT ''")
+            db.execSQL("CREATE TABLE IF NOT EXISTS `combined_durable_blocks` (`runId` TEXT NOT NULL, `payloadId` TEXT NOT NULL, `sequence` INTEGER NOT NULL, `start` INTEGER NOT NULL, `text` TEXT NOT NULL, `digest` TEXT NOT NULL, `previousDigest` TEXT, `utf8Bytes` INTEGER NOT NULL, PRIMARY KEY(`runId`, `payloadId`, `sequence`), FOREIGN KEY(`runId`) REFERENCES `agent_runs`(`run_id`) ON UPDATE NO ACTION ON DELETE CASCADE)")
+            db.execSQL("CREATE TABLE IF NOT EXISTS `combined_delivery_records` (`runId` TEXT NOT NULL, `revisionId` TEXT NOT NULL, `fence` INTEGER NOT NULL, `sequence` INTEGER NOT NULL, `recordId` TEXT NOT NULL, `wirePayload` TEXT NOT NULL, `wireDigest` TEXT NOT NULL, `answerPayload` TEXT NOT NULL, `attributionPayload` TEXT NOT NULL, `renderedStart` INTEGER NOT NULL, `renderedEnd` INTEGER NOT NULL, `previousChainDigest` TEXT NOT NULL, `chainDigest` TEXT NOT NULL, PRIMARY KEY(`runId`, `revisionId`, `fence`, `chainDigest`), FOREIGN KEY(`runId`) REFERENCES `agent_runs`(`run_id`) ON UPDATE NO ACTION ON DELETE CASCADE)")
+            db.execSQL("CREATE TABLE IF NOT EXISTS `combined_final_manifests` (`id` TEXT NOT NULL, `runId` TEXT NOT NULL, `finalMessageId` INTEGER NOT NULL, `revisionId` TEXT NOT NULL, `acceptedTurnRevision` TEXT NOT NULL, `ownershipFence` INTEGER NOT NULL, `bodyPayload` TEXT NOT NULL, `metadataPayload` TEXT NOT NULL, `blockMetadataPayload` TEXT NOT NULL, `bodyLength` INTEGER NOT NULL, `blockCount` INTEGER NOT NULL, `bodyDigest` TEXT NOT NULL, `provenanceDigest` TEXT NOT NULL, `metadataDigest` TEXT NOT NULL, `completeness` TEXT NOT NULL, `committedAt` INTEGER NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`runId`) REFERENCES `agent_runs`(`run_id`) ON UPDATE NO ACTION ON DELETE CASCADE, FOREIGN KEY(`finalMessageId`) REFERENCES `messages_v2`(`message_id`) ON UPDATE NO ACTION ON DELETE CASCADE)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_combined_final_manifests_runId` ON `combined_final_manifests` (`runId`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_combined_final_manifests_finalMessageId` ON `combined_final_manifests` (`finalMessageId`)")
+            db.execSQL("CREATE TABLE IF NOT EXISTS `combined_final_block_index` (`manifestId` TEXT NOT NULL, `sequence` INTEGER NOT NULL, `start` INTEGER NOT NULL, `end` INTEGER NOT NULL, `textDigest` TEXT NOT NULL, `attributionPayload` TEXT NOT NULL, `digest` TEXT NOT NULL, PRIMARY KEY(`manifestId`, `sequence`), FOREIGN KEY(`manifestId`) REFERENCES `combined_final_manifests`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE)")
+        }
+    }
+
     val ALL_MIGRATIONS: Array<Migration> = arrayOf(
         MIGRATION_10_11,
         MIGRATION_11_12,
@@ -509,7 +538,9 @@ object ChatDatabaseV2Migrations {
         MIGRATION_41_42,
         MIGRATION_42_43,
         MIGRATION_43_44,
-        MIGRATION_44_45
+        MIGRATION_44_45,
+        MIGRATION_45_46,
+        MIGRATION_46_47
     )
     private fun columns(db: SupportSQLiteDatabase, table: String): Set<String> = db.query("PRAGMA table_info(`$table`)").use { cursor -> buildSet { while (cursor.moveToNext()) add(cursor.getString(1)) } }
     private fun addColumnIfMissing(db: SupportSQLiteDatabase, table: String, column: String, definition: String) {

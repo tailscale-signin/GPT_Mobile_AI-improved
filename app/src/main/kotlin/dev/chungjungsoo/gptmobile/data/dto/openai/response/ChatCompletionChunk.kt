@@ -258,7 +258,10 @@ data class ErrorDetail(
     val type: String? = null,
 
     @SerialName("code")
-    val code: String? = null
+    val code: String? = null,
+
+    @kotlinx.serialization.Transient
+    val providerLimit: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision? = null
 )
 
 /** llama.cpp timing data survives a gateway's buffered SSE response. */

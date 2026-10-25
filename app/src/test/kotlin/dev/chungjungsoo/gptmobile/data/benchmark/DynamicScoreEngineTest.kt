@@ -17,7 +17,8 @@ class DynamicScoreEngineTest {
     }
 
     private fun run(id: String, speed: Int, local: Boolean = false, failed: Boolean = false): BenchmarkRun {
-        val suite = benchmarkSuite(BenchmarkMode.FULL)
+        // Preserve the accepted suite-nine / measurement-v2 fixture contract.
+        val suite = benchmarkSuiteForVersion(9, BenchmarkMode.FULL)
         return BenchmarkRun(
             id, id, id, if (local) "LITERT_LM" else "OPENAI", id, "revision-$id", local, BenchmarkMode.FULL, 1000,
             samples = suite.map { case ->
@@ -26,7 +27,7 @@ class DynamicScoreEngineTest {
                     durationMs = 1100, firstTextMs = 100, lastTextMs = 1100, chunks = 2, outputTokens = speed, outputCharacters = speed * 4, requestDispatched = true, referenceTokens = speed + 1, referenceDecodeTokens = speed, tokenBasis = ReferenceTextTokenizer.VERSION, warmup = case.warmup, workload = case.workload
                 )
             },
-            suiteVersion = dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkSuiteRegistry.VERSION, measurementVersion = 2, plannedTrials = suite.size, device = "fixture-device"
+            suiteVersion = 9, measurementVersion = 2, plannedTrials = suite.size, device = "fixture-device"
         )
     }
 

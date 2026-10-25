@@ -82,6 +82,20 @@ class CombinedRecoverySnapshotTest {
         assertEquals(snapshot.sources, recovered.sources)
     }
 
+    @Test fun completedLegacyQualityFailureCannotResumeAnUnfinishedRecord() {
+        val report = CombinedQualityReport(answerDigest = researchHash(answer.content), finalAssessment = true, protocolComplete = true, correctionRequired = true, lengthCompliance = "UNMET")
+        val retained = answer.copy(
+            timeline = listOf(
+                dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE, combinedQuality = report),
+                dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE, combinedFailure = CombinedRecoveryFailure.fromCode("COMBINED_PARTIAL"))
+            )
+        )
+        val failure = assertThrows(IllegalArgumentException::class.java) { CombinedRecoverySnapshot.prepare(run.copy(status = "FAILED", terminalError = "COMBINED_PARTIAL: required checks"), retained, "primary", platform, segments) }
+        org.junit.Assert.assertTrue(failure.message.orEmpty().startsWith("COMBINED_REQUIREMENTS_UNMET:"))
+        assertEquals(answer.content, retained.content)
+        assertEquals(CombinedRecoveryCategory.INCOMPLETE_RECORD, retained.timeline.last().combinedFailure?.category)
+    }
+
     private fun modern(): CombinedInputSnapshot {
         val accepted = CombinedRequestedPolicy(settings = ConversationCombinedSettings(collectionBias = 75, effort = 25), participantUids = listOf("pinned", "primary"), requestedModels = mapOf("primary" to "test"), preferredOwnerUid = "pinned", userPrompt = source.content)
         val requested = accepted.copy(requestedPolicyDigest = combinedDigest(Json.encodeToString(accepted)))

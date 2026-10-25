@@ -457,6 +457,20 @@ private class FakeAgentRunDao :
 private class FakeAgentPersistenceDao :
     AgentPersistenceDao,
     UnusedPolicySnapshotAccess {
+    override suspend fun combinedFinalMessage(chatId: Int, userId: Int): dev.chungjungsoo.gptmobile.data.database.entity.CombinedFinalMessage? = null
+    override suspend fun insertCombinedFinalMessage(row: dev.chungjungsoo.gptmobile.data.database.entity.CombinedFinalMessage) {
+        error("Not used in tool recorder tests")
+    }
+    override suspend fun providerWaits(): List<dev.chungjungsoo.gptmobile.data.agent.ProviderWait> = emptyList()
+    override suspend fun rawProviderWait(runId: String): dev.chungjungsoo.gptmobile.data.agent.ProviderWait? = null
+    override suspend fun saveProviderWait(row: dev.chungjungsoo.gptmobile.data.agent.ProviderWait) {
+        error("Not used in tool recorder tests")
+    }
+    override suspend fun markProviderWaiting(runId: String, fence: Long): Int = 0
+    override suspend fun markRunningProviderWaiting(runId: String, fence: Long): Int = 0
+    override suspend fun claimProviderWait(runId: String, fence: Long): Int = 0
+    override suspend fun blockProviderWait(runId: String, reason: String): Int = 0
+
     override suspend fun rawSynthesisRunsForTurn(chatId: Int, userId: Int): List<AgentRun> = synthesisRunsForTurn(chatId, userId)
     override suspend fun rawGetCompletedRuns(chatId: Int): List<AgentRun> = getCompletedRuns(chatId)
     override suspend fun rawGetIncompleteRuns(chatId: Int, userMessageIds: List<Int>): List<AgentRun> = getIncompleteRuns(chatId, userMessageIds)
@@ -464,6 +478,7 @@ private class FakeAgentPersistenceDao :
 
     override suspend fun synthesisRunsForTurn(chatId: Int, userId: Int): List<AgentRun> = unused()
     override suspend fun combinedDeliveryCheckpoint(runId: String, revisionId: String): dev.chungjungsoo.gptmobile.data.database.entity.CombinedDeliveryCheckpoint? = unused()
+    override suspend fun rawCombinedDeliveryCheckpoint(runId: String, revisionId: String): dev.chungjungsoo.gptmobile.data.database.entity.CombinedDeliveryCheckpoint? = unused()
     override suspend fun upsertCombinedDeliveryCheckpoint(row: dev.chungjungsoo.gptmobile.data.database.entity.CombinedDeliveryCheckpoint) = unused<Unit>()
     override suspend fun deleteCombinedModels(chatId: Int, profileUids: List<String>) = unused<Unit>()
     override suspend fun archiveCombinedSegments(runId: String, archivedRunId: String) = unused<Unit>()
@@ -474,7 +489,24 @@ private class FakeAgentPersistenceDao :
 
     override suspend fun answerSegmentsForChat(chatId: Int): List<dev.chungjungsoo.gptmobile.data.database.entity.AnswerSegment> = emptyList()
     override suspend fun answerSegments(runId: String): List<dev.chungjungsoo.gptmobile.data.database.entity.AnswerSegment> = emptyList()
+    override suspend fun rawAnswerSegments(runId: String): List<dev.chungjungsoo.gptmobile.data.database.entity.AnswerSegment> = emptyList()
     override suspend fun insertAnswerSegments(segments: List<dev.chungjungsoo.gptmobile.data.database.entity.AnswerSegment>) = Unit
+
+    override suspend fun combinedDocumentOwner(messageId: Int): MessageV2? = unused()
+    override suspend fun insertCombinedDurableBlocks(blocks: List<dev.chungjungsoo.gptmobile.data.database.entity.CombinedDurableBlock>) = unused<Unit>()
+    override suspend fun combinedDurableBlockPage(runId: String, payloadId: String, first: Int, count: Int): List<dev.chungjungsoo.gptmobile.data.database.entity.CombinedDurableBlock> = unused()
+    override suspend fun combinedSharedBlocks(runId: String, payloadIds: List<String>): List<dev.chungjungsoo.gptmobile.data.database.entity.CombinedDurableBlock> = unused()
+    override suspend fun insertCombinedDeliveryRecords(records: List<dev.chungjungsoo.gptmobile.data.database.entity.CombinedDeliveryRecord>) = unused<Unit>()
+    override suspend fun combinedDeliveryRecord(runId: String, revisionId: String, fence: Long, chainDigest: String): dev.chungjungsoo.gptmobile.data.database.entity.CombinedDeliveryRecord? = unused()
+    override suspend fun insertCombinedFinalManifest(manifest: dev.chungjungsoo.gptmobile.data.database.entity.CombinedFinalManifest) = unused<Unit>()
+    override suspend fun combinedFinalManifest(id: String): dev.chungjungsoo.gptmobile.data.database.entity.CombinedFinalManifest? = unused()
+    override suspend fun insertCombinedFinalBlockIndexes(blocks: List<dev.chungjungsoo.gptmobile.data.database.entity.CombinedFinalBlockIndex>) = unused<Unit>()
+    override suspend fun combinedFinalBlockIndexPage(manifestId: String, first: Int, count: Int): List<dev.chungjungsoo.gptmobile.data.database.entity.CombinedFinalBlockIndex> = unused()
+    override suspend fun markCombinedManifestCommitted(id: String, fence: Long, committedAt: Long): Int = unused()
+    override suspend fun combinedFinalManifestsForChat(chatId: Int): List<dev.chungjungsoo.gptmobile.data.database.entity.CombinedFinalManifest> = unused()
+    override suspend fun combinedDurableBlocksForChat(chatId: Int): List<dev.chungjungsoo.gptmobile.data.database.entity.CombinedDurableBlock> = unused()
+    override suspend fun combinedFinalBlockIndexesForChat(chatId: Int): List<dev.chungjungsoo.gptmobile.data.database.entity.CombinedFinalBlockIndex> = unused()
+    override suspend fun personalDataToolSources(chatId: Int): List<dev.chungjungsoo.gptmobile.data.permissions.PersonalDataToolSource> = unused()
 
     override suspend fun removeArchiveSearchIndex(chatId: Int) = unused<Unit>()
     override suspend fun recoveryRun(runId: String): AgentRun? = unused()
@@ -523,6 +555,7 @@ private class FakeAgentPersistenceDao :
     override suspend fun updateArchiveTool(id: String, arguments: String, result: String?, error: String?) = Unit
     override suspend fun updateArchiveFlag(chatId: Int, archived: Boolean) = Unit
     override suspend fun updateMessage(message: MessageV2) = unused<Unit>()
+    override suspend fun rawUpdateMessage(message: MessageV2) = unused<Unit>()
     override suspend fun updateRunStatus(
         runId: String,
         status: String,

@@ -26,11 +26,20 @@ data class LocalEngineSpec(
     val ggufMicroBatchTokens: Int = 128,
     val ggufPromptThreads: Int? = null,
     val ggufGpuLayers: Int = 8,
-    val admissionReserveBytes: Long = 768L * 1024 * 1024
+    val admissionReserveBytes: Long = 768L * 1024 * 1024,
+    val contextPolicy: String = "MANUAL"
 )
 
 /** Workload labels affect plan selection, but do not invalidate the native engine configuration. */
-internal fun LocalEngineSpec.engineConfiguration() = copy(samplerIdentity = "runtime_default", workload = "plain_text", expectedOutputTokens = 128, admissionReserveBytes = 768L * 1024 * 1024)
+internal fun LocalEngineSpec.engineConfiguration() =
+    copy(
+        samplerIdentity = "runtime_default",
+        workload = "plain_text",
+        expectedOutputTokens = 128,
+        admissionReserveBytes =
+        768L * 1024 * 1024,
+        contextPolicy = "MANUAL"
+    )
 
 @kotlinx.serialization.Serializable
 data class LocalSamplerConfig(
@@ -74,7 +83,10 @@ data class LocalToolDescriptor(
 )
 
 fun interface LocalToolExecutor {
-    suspend fun execute(toolName: String, argumentsJson: String): String
+    suspend fun execute(
+        toolName: String,
+        argumentsJson: String
+    ): String
 }
 
 data class LocalConversationConfig(
@@ -88,7 +100,10 @@ data class LocalConversationConfig(
     val thinkingEnabled: Boolean? = null,
     val speculativeDecoding: Boolean? = null,
     val finalResponseSchemaJson: String? = null,
-    val allowAutomaticRecovery: Boolean = true
+    val allowAutomaticRecovery: Boolean = true,
+    val structuredOutputMode: LocalStructuredOutputMode = LocalStructuredOutputMode.NATIVE_JSON_SAFE_V1,
+    val structuredOutputCompatibilityKey: String? = null,
+    val structuredOutputProbe: Boolean = false
 )
 
 /** Execution phase of local on-device inference. */
@@ -121,7 +136,9 @@ data class LocalInferenceMetrics(
     val requestedMtp: Boolean? = null,
     val effectiveMtp: Boolean? = null,
     val planId: String? = null,
-    val finishReason: String? = null
+    val finishReason: String? = null,
+    val generationConfigReceipt: GenerationConfigReceipt? = null,
+    val runtimeExecutionReceipt: RuntimeExecutionReceipt? = null
 )
 
 /** Native counters cover the last prefill/decode segment, not an entire multi-tool turn. */
@@ -137,12 +154,13 @@ data class NativeInferenceMetrics(
     val decodeDurationMs: Long? = null
 ) {
     val hasValidTokenCounts: Boolean get() = prefillTokens >= 0 && decodeTokens >= 0
-    val isValid: Boolean get() = prefillTokens >= 0 &&
-        decodeTokens > 0 &&
-        prefillTokensPerSecond.isFinite() &&
-        prefillTokensPerSecond >= 0 &&
-        decodeTokensPerSecond.isFinite() &&
-        decodeTokensPerSecond > 0
+    val isValid: Boolean get() =
+        prefillTokens >= 0 &&
+            decodeTokens > 0 &&
+            prefillTokensPerSecond.isFinite() &&
+            prefillTokensPerSecond >= 0 &&
+            decodeTokensPerSecond.isFinite() &&
+            decodeTokensPerSecond > 0
 }
 
 /** Redacted, sampled worker observation. Negative counters mean unknown, never measured zero. */
@@ -164,18 +182,40 @@ data class GgufNativeProgress(
     val actualRuntime: String? = null,
     val modelName: String? = null,
     val runtimeRequestId: String? = null,
-    val physicalAttemptId: String? = null
+    val physicalAttemptId: String? = null,
+    val executionReceipt: RuntimeExecutionReceipt? = null,
+    val deadlineKind: String? = null
 )
 
 sealed interface LocalRuntimeEvent {
     /** Internal ordering fence, consumed by the native adapter before crossing IPC. */
-    data class Drain(val acknowledged: kotlinx.coroutines.CompletableDeferred<Unit>) : LocalRuntimeEvent
-    data class PhaseChanged(val phase: LocalInferencePhase, val nativeProgress: GgufNativeProgress? = null) : LocalRuntimeEvent
-    data class TextDelta(val text: String) : LocalRuntimeEvent
-    data class ThinkingDelta(val text: String) : LocalRuntimeEvent
-    data class Metrics(val metrics: LocalInferenceMetrics) : LocalRuntimeEvent
+    data class Drain(
+        val acknowledged: kotlinx.coroutines.CompletableDeferred<Unit>
+    ) : LocalRuntimeEvent
+
+    data class PhaseChanged(
+        val phase: LocalInferencePhase,
+        val nativeProgress: GgufNativeProgress? = null
+    ) : LocalRuntimeEvent
+
+    data class TextDelta(
+        val text: String
+    ) : LocalRuntimeEvent
+
+    data class ThinkingDelta(
+        val text: String
+    ) : LocalRuntimeEvent
+
+    data class Metrics(
+        val metrics: LocalInferenceMetrics
+    ) : LocalRuntimeEvent
+
     data object Done : LocalRuntimeEvent
-    data class Error(val message: String, val cause: Throwable? = null) : LocalRuntimeEvent
+
+    data class Error(
+        val message: String,
+        val cause: Throwable? = null
+    ) : LocalRuntimeEvent
 }
 
 /** The engine that actually initialized, independent of the saved preference. */
@@ -193,18 +233,23 @@ data class LocalRuntimeState(
     val requestedMtp: Boolean? = null,
     val effectiveMtp: Boolean? = null,
     val loadProgress: GgufNativeProgress? = null,
-    val allocationObservation: NativeAllocationObservation? = null
+    val allocationObservation: NativeAllocationObservation? = null,
+    val engineLoadReceipt: EngineLoadReceipt? = null
 )
 
 private val EMPTY_RUNTIME_STATE: StateFlow<LocalRuntimeState> = MutableStateFlow(LocalRuntimeState())
 
-class LocalRuntimeFallbackDisabledException(cause: Throwable) :
-    IllegalStateException(
-        "${cause.message ?: "QNN could not start"}. Automatic fallback is disabled; enable it or choose a compatible GPU/CPU model edition.",
-        cause
-    )
+class LocalRuntimeFallbackDisabledException(
+    cause: Throwable
+) : IllegalStateException(
+    "${cause.message ?: "QNN could not start"}. Automatic fallback is disabled; enable it or choose a compatible GPU/CPU model edition.",
+    cause
+)
 
-class LocalNpuPackageException private constructor(message: String, cause: Throwable?) : IllegalStateException(message, cause) {
+class LocalNpuPackageException private constructor(
+    message: String,
+    cause: Throwable?
+) : IllegalStateException(message, cause) {
     constructor(cause: Throwable) : this(
         "NPU initialization failed: ${cause.message.orEmpty()}. This compiled package cannot use GPU/CPU fallback. " +
             "Export diagnostics, retry if the failure was transient, or download a separate compatible GPU / CPU edition from the marketplace.",
@@ -246,17 +291,49 @@ interface LocalRuntime {
         DeviceHardwareGovernor.computeThrottlingPolicy(getHardwareState(), deviceRamGb >= 10L)
 
     /** Read-only failure admission before native metadata inspection, queueing or preparation. */
-    suspend fun preflightModel(modelPath: String, accelerator: String?) = Unit
+    suspend fun preflightModel(
+        modelPath: String,
+        accelerator: String?
+    ) = Unit
 
     suspend fun inspectModel(modelPath: String): LocalModelCapabilities? = null
 
+    /** Backend/configuration-sensitive preflight; path-only discovery remains a generic declaration. */
+    suspend fun inspectModel(spec: LocalEngineSpec): LocalModelCapabilities? = inspectModel(spec.modelPath).also { it?.validate(spec) }
+
     /** A planning hint; allocation still requires fresh admission under the engine lease. */
-    suspend fun contextForRequest(profileUid: String, modelPath: String, maximum: Int): Int = maximum
+    suspend fun contextForRequest(
+        profileUid: String,
+        modelPath: String,
+        maximum: Int
+    ): Int = maximum
+
+    suspend fun contextPolicyForRequest(profileUid: String): String = "MANUAL"
 
     /** Only an explicit user-requested isolated verification may clear an exact quarantine tuple. */
     suspend fun allowVerification(spec: LocalEngineSpec) {
         error("Controlled verification is unavailable in this runtime")
     }
+
+    val latestInspectionReceipt: RuntimeInspectionReceipt? get() = null
+    val latestEngineLoadReceipt: EngineLoadReceipt? get() = null
+    val latestExecutionReceipt: RuntimeExecutionReceipt? get() = null
+    val latestCleanupReceipt: RuntimeCleanupReceipt? get() = null
+
+    /** A missing implementation is unknown cleanup, never permission for a successor. */
+    suspend fun cleanupAfterRequest(origin: String): RuntimeCleanupReceipt =
+        RuntimeCleanupReceipt(
+            origin = origin,
+            failureReason = "Runtime does not report cleanup obligations or completion"
+        )
+
+    /** Must retain exclusion after an outer cleanup watchdog, before its lease is released. */
+    fun quarantineAfterUnconfirmedCleanup(reason: String): RuntimeCleanupReceipt =
+        RuntimeCleanupReceipt(
+            origin = "outer_cleanup_watchdog",
+            quarantined = true,
+            failureReason = reason
+        )
 
     val latestAllocationObservation: NativeAllocationObservation? get() = null
     val latestBackendFallbackReason: String? get() = null
@@ -264,10 +341,28 @@ interface LocalRuntime {
     fun setLoadProgressObserver(observer: ((GgufNativeProgress) -> Unit)?) = Unit
 
     suspend fun loadEngine(spec: LocalEngineSpec)
+
     suspend fun createConversation(config: LocalConversationConfig)
-    fun sendMessage(text: String, images: List<ByteArray> = emptyList()): Flow<LocalRuntimeEvent>
+
+    fun sendMessage(
+        text: String,
+        images: List<ByteArray> = emptyList()
+    ): Flow<LocalRuntimeEvent>
+
+    /** Safety is reserved per physical generation, after already-materialized tool evidence. */
+    fun sendMessageWithBudget(
+        text: String,
+        images: List<ByteArray> = emptyList(),
+        safetyTokens: Int
+    ): Flow<LocalRuntimeEvent> {
+        require(safetyTokens >= 0)
+        return sendMessage(text, images)
+    }
+
     fun cancelActive()
+
     suspend fun closeConversation()
+
     suspend fun unloadEngine()
 
     /**
@@ -290,9 +385,10 @@ interface LocalRuntime {
     fun <T> runExclusiveFlow(
         onContended: suspend () -> Unit,
         block: suspend LocalRuntime.() -> Flow<T>
-    ): Flow<T> = flow {
-        block(this@LocalRuntime).collect { emit(it) }
-    }
+    ): Flow<T> =
+        flow {
+            block(this@LocalRuntime).collect { emit(it) }
+        }
 }
 
 /** Observed runtime identifiers only. Configured GPU layers are not actual offload evidence. */
@@ -305,4 +401,6 @@ data class LocalRuntimeExecutionIdentity(
 )
 
 /** Ends a native callback loop without replaying any dispatched action. */
-internal class LocalToolLimitException(val code: String) : IllegalStateException("Local tool execution stopped: $code")
+internal class LocalToolLimitException(
+    val code: String
+) : IllegalStateException("Local tool execution stopped: $code")

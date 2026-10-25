@@ -65,6 +65,12 @@ class NewChatViewModel @Inject constructor(
     fun toggleProfile(uid: String) {
         val profile = profiles.value.firstOrNull { it.uid == uid && it.enabled } ?: return
         val current = selectedUids.value
+        if (uid !in current) {
+            dev.chungjungsoo.gptmobile.data.network.FreeProviderPreflight.check(profile)?.let {
+                _error.value = it.message
+                return
+            }
+        }
         val next = if (type == NewChatType.SINGLE) {
             if (current.singleOrNull() == uid) emptyList() else listOf(uid)
         } else if (uid in current) {
@@ -176,6 +182,12 @@ class NewChatViewModel @Inject constructor(
                 val available = settings.fetchPlatformV2s().filter { it.enabled }
                 require(selected.all { uid -> available.any { it.uid == uid } }) {
                     "A selected AI profile was disabled or deleted. Check your selection."
+                }
+                selected.forEach { uid ->
+                    val profile = available.first { it.uid == uid }
+                    val block = dev.chungjungsoo.gptmobile.data.network.FreeProviderPreflight.check(profile)
+                    require(block == null) { block?.message.orEmpty() }
+                    require(!settings.providerActivationRequired(profile)) { "Review ${profile.name}'s data policy in AI profile settings before starting." }
                 }
                 if (choice == NewChatType.RESEARCH) {
                     val liveSettings = settings.getFeatureSettings()

@@ -32,7 +32,11 @@ object QnnEnvironment {
         val isReady: Boolean,
         val errorMessage: String? = null,
         val libraryDigestStatus: String = "NOT_CHECKED",
-        val libraryInventory: List<String> = emptyList()
+        val libraryInventory: List<String> = emptyList(),
+        val fileValidationMs: Long? = null,
+        val digestValidationMs: Long? = null,
+        val libraryBytesHashed: Long? = null,
+        val preparationCacheDisposition: String = "not_checked"
     ) {
         /** Static package prerequisites only; this does not claim QNN has been verified. */
         val prerequisitesReady: Boolean get() = isReady
@@ -108,29 +112,67 @@ object QnnEnvironment {
      */
     @Synchronized
     fun prepareForExecution(context: Context): QnnProbeStatus {
-        val probe = initialize(context, forceRefresh = true)
+        val started = android.os.SystemClock.elapsedRealtime()
+        var probe = initialize(context)
+        var required = QualcommSocSupport.requiredLibraries(probe.socModel)
+        val environmentMatches = runCatching {
+            probe.dispatchDir in Os.getenv("ADSP_LIBRARY_PATH").orEmpty().split(';') &&
+                probe.dispatchDir in Os.getenv("LD_LIBRARY_PATH").orEmpty().split(':')
+        }.getOrDefault(false)
+        if (!probe.isReady || !environmentMatches || required.any { !File(probe.dispatchDir, it).isUsableLibrary() }) {
+            probe = initialize(context, forceRefresh = true)
+            required = QualcommSocSupport.requiredLibraries(probe.socModel)
+        }
         if (!probe.isReady) return probe
         val directory = File(probe.dispatchDir)
-        val required = QualcommSocSupport.requiredLibraries(probe.socModel)
-        val key = probeKey(context) + required.joinToString { name -> File(directory, name).let { "$name:${it.length()}:${it.lastModified()}" } }
-        if (verifiedKey == key) return (verifiedProbe ?: probe).also { lastProbeStatus = it }
+        val identities = required.map { dev.chungjungsoo.gptmobile.data.localmodel.PackageDigest.installedFileIdentity(File(directory, it)) }
+        val key = if (identities.all { it != null }) probeKey(context) + "|" + identities.joinToString("|") else null
+        val fileValidationMs = android.os.SystemClock.elapsedRealtime() - started
+        fun record(value: QnnProbeStatus): QnnProbeStatus = value.also {
+            lastProbeStatus = it
+            dev.chungjungsoo.gptmobile.data.diagnostics.LocalRuntimeIncidentHistory.record(
+                "QNN_LIBRARY_PREPARATION",
+                mapOf(
+                    "cache" to it.preparationCacheDisposition,
+                    "fileValidationMs" to it.fileValidationMs.toString(),
+                    "digestValidationMs" to it.digestValidationMs.toString(),
+                    "bytesHashed" to it.libraryBytesHashed.toString(),
+                    "hashStatus" to it.libraryDigestStatus,
+                    "executionQualified" to "false"
+                )
+            )
+        }
+        if (key != null && verifiedKey == key && verifiedProbe?.isReady == true) {
+            return record(checkNotNull(verifiedProbe).copy(fileValidationMs = fileValidationMs, digestValidationMs = 0, libraryBytesHashed = 0, preparationCacheDisposition = "strong_identity_hit"))
+        }
         val expected = org.json.JSONObject(context.assets.open("local-runtime-native-libraries.json").bufferedReader().use { it.readText() }).getJSONObject("libraries")
         var valid = true
+        var hashedBytes = 0L
+        val hashStarted = android.os.SystemClock.elapsedRealtime()
+        val identityDirectory = File(context.noBackupFilesDir, "model-identity-cache")
         val inventory = required.map { name ->
             val file = File(directory, name)
             val pinned = expected.optJSONObject("lib/arm64-v8a/$name")
-            val digest = dev.chungjungsoo.gptmobile.data.localmodel.PackageDigest.sha256(file)
-            val matches = pinned != null && pinned.optString("sha256").equals(digest, true) && pinned.optLong("bytes") == file.length()
+            val observed = dev.chungjungsoo.gptmobile.data.localmodel.PackageDigest.journalIdentityObserved(file, identityDirectory)
+            hashedBytes += observed.bytesHashed
+            val matches = pinned != null && pinned.optString("sha256").equals(observed.digest, true) && pinned.optLong("bytes") == file.length()
             valid = valid && matches
-            "$name:${file.length()}:$digest:${if (matches) "PASS" else "FAIL"}"
+            "$name:${file.length()}:${observed.digest}:${if (matches) "PASS" else "FAIL"}"
         }
-        return probe.copy(
-            isReady = valid,
-            errorMessage = if (valid) null else "Packaged Qualcomm library checksum mismatch; native initialization blocked",
-            libraryDigestStatus = if (valid) "TRUSTED_HASH_PASS" else "TRUSTED_HASH_FAIL",
-            libraryInventory = inventory
+        val afterIdentities = required.map { dev.chungjungsoo.gptmobile.data.localmodel.PackageDigest.installedFileIdentity(File(directory, it)) }
+        valid = valid && (key == null || identities == afterIdentities)
+        return record(
+            probe.copy(
+                isReady = valid,
+                errorMessage = if (valid) null else "Packaged Qualcomm library checksum mismatch; native initialization blocked",
+                libraryDigestStatus = if (valid) "TRUSTED_HASH_PASS" else "TRUSTED_HASH_FAIL",
+                libraryInventory = inventory,
+                fileValidationMs = fileValidationMs,
+                digestValidationMs = android.os.SystemClock.elapsedRealtime() - hashStarted,
+                libraryBytesHashed = hashedBytes,
+                preparationCacheDisposition = if (hashedBytes == 0L) "verified_digest_receipt" else "hash_validation"
+            )
         ).also {
-            lastProbeStatus = it
             verifiedKey = if (valid) key else null
             verifiedProbe = it
             dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.checkpoint("QNN", "QNN_LIBRARY_INVENTORY · soc=${probe.socModel} · abi=${probe.processAbi} · directory=${if (probe.dispatchDir == probe.nativeLibDir) "installed" else "extracted"} · hashes=${it.libraryDigestStatus} · libraries=${inventory.joinToString(";")} · executionQualified=false")

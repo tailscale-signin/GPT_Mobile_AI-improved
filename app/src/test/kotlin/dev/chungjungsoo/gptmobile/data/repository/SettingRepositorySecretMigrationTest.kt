@@ -27,14 +27,14 @@ class SettingRepositorySecretMigrationTest {
         val settings = FakeSettingDataSource()
         val repository = SettingRepositoryImpl(settings, profiles, connections, FakeChatPlatformModelV2Dao(), FakeSecretVault())
         repository.ensureFreeModels()
-        assertEquals(12, profiles.platforms.size)
-        assertTrue(profiles.platforms.all { it.enabled == (!FreeAiProvider.requireFor(it).isDemo && FreeAiProvider.requireFor(it).isAvailable) && it.compatibleType == ClientType.FREE && it.name == FreeAiProvider.requireFor(it).displayName })
+        assertEquals(FreeAiProvider.active.size, profiles.platforms.size)
+        assertTrue(profiles.platforms.all { it.enabled == dev.chungjungsoo.gptmobile.data.permissions.ProviderPrivacyPolicy.forProvider(FreeAiProvider.requireFor(it)).enabledByDefault && it.compatibleType == ClientType.FREE && it.name == FreeAiProvider.requireFor(it).displayName })
         assertEquals(1, connections.getConnections().size)
         assertEquals("Free Models", connections.getConnections().single().name)
         val removed = profiles.platforms.first()
         profiles.deletePlatformRow(removed)
         repository.ensureFreeModels()
-        assertEquals(11, profiles.platforms.size)
+        assertEquals(FreeAiProvider.active.size - 1, profiles.platforms.size)
         assertEquals(1, connections.getConnections().size)
     }
 

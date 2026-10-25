@@ -20,5 +20,13 @@ data class CombinedDeliveryCheckpoint(
     val stateJson: String,
     val renderedAnswer: String,
     val attributionJson: String,
-    val updatedAt: Long
+    val updatedAt: Long,
+    @androidx.room.ColumnInfo(defaultValue = "1")
+    val storageVersion: Int = 1,
+    @androidx.room.ColumnInfo(defaultValue = "0")
+    val recordCount: Int = 0,
+    @androidx.room.ColumnInfo(defaultValue = "''")
+    val recordsDigest: String = "",
+    @androidx.room.ColumnInfo(defaultValue = "''")
+    val payloadsJson: String = ""
 )

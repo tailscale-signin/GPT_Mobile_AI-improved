@@ -50,6 +50,12 @@ internal class CompleteBackupPreferences(private val context: Context, private v
 
     suspend fun replace(values: Map<String, BackupValue>, shared: Map<String, Map<String, BackupValue>>) {
         validate(values, shared)
+        // Restored settings are not a new, informed disclosure acknowledgement.
+        dev.chungjungsoo.gptmobile.data.permissions.ProviderActivationStore(context).clear()
+        DEVICE_LOCAL_CONSENT_PREFERENCES.forEach { name ->
+            val prefs = context.getSharedPreferences(name, Context.MODE_PRIVATE)
+            check(prefs.edit().clear().putLong("revision", prefs.getLong("revision", 0) + 1).commit()) { "Could not reset restored data-sharing permissions." }
+        }
         val normalized = values.mapValues { (key, value) ->
             if (key == "advanced_feature_settings_json") value.copy(value = dev.chungjungsoo.gptmobile.data.model.FeatureSettingsJson.normalize(value.value)) else value
         }
@@ -127,4 +133,6 @@ internal class CompleteBackupPreferences(private val context: Context, private v
 }
 
 // History and qualification mirrors belong to Statistics, never generic Settings.
-internal val SECTION_OWNED_SHARED_PREFERENCES = setOf("complete_backup_ui_v1", "profile_benchmarks_v1", "generation_completion_inbox_v1", "conversation_read_state_v1")
+internal val DEVICE_LOCAL_CONSENT_PREFERENCES = setOf("free_model_tool_consent_v1", "free_model_tool_consent_v2")
+
+internal val SECTION_OWNED_SHARED_PREFERENCES = DEVICE_LOCAL_CONSENT_PREFERENCES + setOf("complete_backup_ui_v1", "profile_benchmarks_v1", "generation_completion_inbox_v1", "conversation_read_state_v1")

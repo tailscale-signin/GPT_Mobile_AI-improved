@@ -50,4 +50,108 @@ class StructuredDiagnosticExportTest {
         assertEquals("abc-123", continuation.getValue("parentEventId").jsonPrimitive.content)
         assertEquals("false", continuation.getValue("countAsIssue").jsonPrimitive.content)
     }
+
+    @Test fun nativeHistoryUsesOccurrenceTimeAndIntentDoesNotInventAnExit() {
+        val historical = Json.parseToJsonElement("""{"time":1000,"event":"WORKER_TERMINATION_INTENT","process":42,"terminationRequested":true,"workerExitConfirmed":null,"fields":{"workerGenerationId":"worker-7","stage":"cleanup"}}""").jsonObject
+        val record = Json.parseToJsonElement(structuredDiagnosticLine(runtimeIncidentLine(historical), "runtime_incident_history", exportedAtMillis = 9000)).jsonObject
+        assertEquals("1000", record.getValue("occurredAtMillis").jsonPrimitive.content)
+        assertEquals("null", record.getValue("capturedAtMillis").jsonPrimitive.content)
+        assertEquals("9000", record.getValue("exportedAtMillis").jsonPrimitive.content)
+        assertEquals("42", record.getValue("processId").jsonPrimitive.content)
+        assertEquals("worker-7", record.getValue("workerGenerationId").jsonPrimitive.content)
+        assertEquals("cleanup", record.getValue("stage").jsonPrimitive.content)
+        assertEquals("true", record.getValue("terminationRequested").jsonPrimitive.content)
+        assertEquals("null", record.getValue("workerExitConfirmed").jsonPrimitive.content)
+        assertEquals("false", record.getValue("countAsIssue").jsonPrimitive.content)
+        assertEquals("termination_intent", record.getValue("category").jsonPrimitive.content)
+    }
+
+    @Test fun informationalTransportLevelStillPreservesNativeFailureSeverityAndDurationDomain() {
+        val record = Json.parseToJsonElement(structuredDiagnosticLine("2026-10-24T10:00:00Z I/Runtime: eventId=load_1 · monoNs=1000 · processId=42 · processName=dev.app:local_inference · LOAD_FAILED · stage=load · nativeOperationId=load_1 · elapsedMs=4677", exportedAtMillis = 2000)).jsonObject
+        assertEquals("I", record.getValue("level").jsonPrimitive.content)
+        assertEquals("error", record.getValue("severity").jsonPrimitive.content)
+        assertEquals("load", record.getValue("stage").jsonPrimitive.content)
+        assertEquals("LOAD_FAILED", record.getValue("eventName").jsonPrimitive.content)
+        assertEquals("4677", record.getValue("fields").jsonObject.getValue("elapsedMs").jsonPrimitive.content)
+        assertEquals("dev.app:local_inference", record.getValue("processName").jsonPrimitive.content)
+        assertEquals("true", record.getValue("countAsIssue").jsonPrimitive.content)
+    }
+
+    @Test fun providerSnapshotsAndRecoveryKeepTheirExistingCausalEpisodeWithoutLosingFailureIdentity() {
+        val failure = dev.chungjungsoo.gptmobile.data.free.FreeProviderFailureRecord(time = 1000, failureId = "failure-1", networkEpisodeId = "episode-7", provider = "TEST", endpoint = "https://example.test", model = "model", profileUid = "p", chatId = 7, stage = "dispatch", message = "DNS unavailable")
+        val tracker = DiagnosticIncidentTracker()
+        val firstLine = providerFailureLine(failure)
+        val first = tracker.accept(firstLine, diagnosticEventIdentity(firstLine), null)
+        val secondLine = providerFailureLine(failure.copy(time = 2000, failureId = "failure-2"))
+        val second = tracker.accept(secondLine, diagnosticEventIdentity(secondLine), null)
+        val recovery = tracker.accept("1970-01-01T00:00:03Z I/Network: CONNECTIVITY_RECOVERED · episode=episode-7 · allHostsVerified=false", "recovery", null)
+        assertEquals("network:episode-7", first.id)
+        assertEquals(first.id, second.id)
+        assertEquals(first.id, recovery.id)
+        assertFalse(second.first)
+        assertFalse(recovery.first)
+        val record = Json.parseToJsonElement(structuredDiagnosticLine(secondLine, "provider_failure", incidentId = second.id, incidentRoot = second.first)).jsonObject
+        assertEquals("failure-2", record.getValue("eventId").jsonPrimitive.content)
+        assertEquals("false", record.getValue("countAsIssue").jsonPrimitive.content)
+        assertEquals("dispatch", record.getValue("stage").jsonPrimitive.content)
+    }
+
+    @Test fun multilineHistoricalNativeErrorRemainsOneTimestampedEvent() {
+        val historical = Json.parseToJsonElement("""{"time":1000,"event":"LAST_NATIVE_ERROR","originalError":"first line\nsecond line"}""").jsonObject
+        val record = Json.parseToJsonElement(structuredDiagnosticLine(runtimeIncidentLine(historical), "runtime_incident_history", exportedAtMillis = 9000)).jsonObject
+        assertEquals("event", record.getValue("kind").jsonPrimitive.content)
+        assertEquals("1000", record.getValue("occurredAtMillis").jsonPrimitive.content)
+        assertEquals("native_operation_failure", record.getValue("category").jsonPrimitive.content)
+    }
+
+    @Test fun nativeCurrentAndArchivedJsonKeepOriginalOperationFactsAboveTheLegacyFourKilobyteLimit() {
+        val folder = java.nio.file.Files.createTempDirectory("native-incident-export").toFile()
+        try {
+            fun raw(operation: Int, occurred: Long, backend: String, errors: String, warnings: String) = kotlinx.serialization.json.buildJsonObject {
+                put("operationId", kotlinx.serialization.json.JsonPrimitive(operation))
+                put("occurredAtMillis", kotlinx.serialization.json.JsonPrimitive(occurred))
+                put("stageObservedAtMillis", kotlinx.serialization.json.JsonPrimitive(occurred + 20))
+                put("processId", kotlinx.serialization.json.JsonPrimitive(42))
+                put("workerGenerationId", kotlinx.serialization.json.JsonPrimitive("worker-one"))
+                put("backend", kotlinx.serialization.json.JsonPrimitive(backend))
+                put("stage", kotlinx.serialization.json.JsonPrimitive("LOAD_FAILED"))
+                put("errors", kotlinx.serialization.json.JsonPrimitive(errors))
+                put("warnings", kotlinx.serialization.json.JsonPrimitive(warnings))
+            }.toString()
+            java.io.File(folder, "native-error.log.history").writeText(raw(1, 1000, "cpu", "Previous CPU operation failed", ""))
+            val current = raw(2, 3000, "opencl", "E".repeat(4090), "W".repeat(4090))
+            org.junit.Assert.assertTrue(current.length > 4096)
+            java.io.File(folder, "native-error.log").writeText(current)
+            val records = readNativeIncidentRecords(folder)
+            assertEquals(2, records.size)
+            assertEquals("cpu", records[0].getValue("backend").jsonPrimitive.content)
+            assertEquals("opencl", records[1].getValue("backend").jsonPrimitive.content)
+            assertEquals("true", records[0].getValue("archivedOperation").jsonPrimitive.content)
+            val record = Json.parseToJsonElement(structuredDiagnosticLine(runtimeIncidentLine(records[1]), "runtime_incident_history", exportedAtMillis = 9000)).jsonObject
+            assertEquals("3000", record.getValue("occurredAtMillis").jsonPrimitive.content)
+            assertEquals("3020", record.getValue("stageObservedAtMillis").jsonPrimitive.content)
+            assertEquals("2", record.getValue("nativeOperationId").jsonPrimitive.content)
+            assertEquals("worker-one", record.getValue("workerGenerationId").jsonPrimitive.content)
+            assertEquals("9000", record.getValue("exportedAtMillis").jsonPrimitive.content)
+            assertEquals("W".repeat(4090), record.getValue("fields").jsonObject.getValue("warnings").jsonPrimitive.content)
+            assertEquals("false", record.getValue("truncatedAtExport").jsonPrimitive.content)
+        } finally {
+            folder.deleteRecursively()
+        }
+    }
+
+    @Test fun legacyNativeFileDoesNotClaimItsFileTimestampAsOperationTime() {
+        val folder = java.nio.file.Files.createTempDirectory("legacy-native-incident").toFile()
+        try {
+            java.io.File(folder, "native-error.log").writeText("Legacy CPU error without an operation receipt")
+            val historical = readNativeIncidentRecords(folder).single()
+            val record = Json.parseToJsonElement(structuredDiagnosticLine(runtimeIncidentLine(historical), "runtime_incident_history", exportedAtMillis = 9000)).jsonObject
+            assertEquals("null", record.getValue("occurredAtMillis").jsonPrimitive.content)
+            assertEquals("unknown_legacy_native_record", record.getValue("timeEvidence").jsonPrimitive.content)
+            assertEquals("LEGACY_UNKNOWN", record.getValue("stage").jsonPrimitive.content)
+            assertEquals("native_operation_failure", record.getValue("category").jsonPrimitive.content)
+        } finally {
+            folder.deleteRecursively()
+        }
+    }
 }

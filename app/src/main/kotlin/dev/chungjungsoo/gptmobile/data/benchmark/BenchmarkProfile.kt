@@ -10,6 +10,9 @@ import kotlinx.serialization.json.JsonPrimitive
 
 /** Apply bounded fixture settings to a copy, including provider-specific overrides. */
 internal fun benchmarkCompletionBudget(profile: PlatformV2, category: String): Int = when {
+    category == "performance_sustained_throughput" -> 2048
+    category == "performance_decode" -> 768
+    category.startsWith("performance_") -> 64
     category == "speed" && (profile.model.contains("gpt-oss", true) || profile.model.contains("nemotron", true)) -> 4096
     category == "speed" -> 768
     category.startsWith(IntelligenceBenchmark.CATEGORY) && profile.compatibleType == ClientType.LITERT_LM -> if (profile.reasoning) 2048 else 512
@@ -19,7 +22,8 @@ internal fun benchmarkCompletionBudget(profile: PlatformV2, category: String): I
     else -> 2048
 }
 
-internal fun benchmarkProfile(profile: PlatformV2, allowTools: Boolean, category: String = "speed"): PlatformV2 {
+internal fun benchmarkProfile(profile: PlatformV2, allowTools: Boolean, category: String = "speed", executionPolicy: BenchmarkExecutionPolicy = BenchmarkExecutionPolicy.DETERMINISTIC_CAPABILITY_V1): PlatformV2 {
+    if (executionPolicy == BenchmarkExecutionPolicy.PROFILE_SETTINGS_V1) return profile.copy(batchMode = false)
     val outputBudget = benchmarkCompletionBudget(profile, category)
     fun objectOrNull(value: String?): JsonObject? = value?.let { runCatching { Json.parseToJsonElement(it) as? JsonObject }.getOrNull() }
     val openRouter = if (profile.compatibleType == ClientType.OPENROUTER) {

@@ -14,9 +14,12 @@ import kotlinx.serialization.json.Json
 internal object CombinedRecoverySnapshot {
     private val json = Json { ignoreUnknownKeys = true }
 
-    fun prepare(run: AgentRun, message: MessageV2, primaryUid: String?, platform: PlatformV2, segments: List<AnswerSegment>): CombinedInputSnapshot {
-        require(run.runId.startsWith("combined-synthesis:") && run.status in setOf("COMPLETED", "FAILED", "CANCELED", "INTERRUPTED")) { "The Combined writer is still active." }
+    fun prepare(run: AgentRun, message: MessageV2, primaryUid: String?, platform: PlatformV2, segments: List<AnswerSegment>, providerWait: Boolean = false): CombinedInputSnapshot {
+        require(run.runId.startsWith("combined-synthesis:") && (run.status in setOf("COMPLETED", "FAILED", "CANCELED", "INTERRUPTED") || providerWait && run.status == "WAITING_PROVIDER_LIMIT")) { "The Combined writer is still active." }
         require(message.currentRunId == run.runId && message.ownershipFence == run.ownershipFence && message.id == run.assistantMessageId && message.chatId == run.chatId) { "The saved answer owner changed." }
+        require(CombinedRecoveryFailure.retained(message.copy(activeRevisionIndex = dev.chungjungsoo.gptmobile.data.database.entity.ACTIVE_REVISION_LATEST), run.terminalError)?.category != CombinedRecoveryCategory.REQUIREMENTS_UNMET) {
+            "COMBINED_REQUIREMENTS_UNMET: The saved answer finished. Create a new answer revision to correct it; there is no unfinished delivery to resume."
+        }
         val raw = requireNotNull(run.synthesisSnapshot) { "This legacy answer has no frozen synthesis input." }
         require(researchHash(raw) == run.synthesisKey) { "The frozen synthesis input failed its integrity check." }
         val snapshot = json.decodeFromString<CombinedInputSnapshot>(raw)
@@ -24,6 +27,7 @@ internal object CombinedRecoverySnapshot {
         if (snapshot.version >= 6) require(snapshot.snapshotId.isNotBlank() && snapshot.inputDigest == snapshot.contentDigest()) { "The sealed synthesis snapshot changed." }
         val modern = snapshot.version >= 5 && snapshot.combined != null
         val accepted = snapshot.combined?.requested
+        require(!providerWait || accepted?.appendContinuations == true && snapshot.deliveryProtocol == "PASSAGES_V3") { "COMBINED_APPEND_NOT_ACCEPTED" }
         if (modern) {
             require(accepted != null && snapshot.profileUid in accepted.participantUids && snapshot.combined?.rootBudgetId?.isNotBlank() == true) { "The saved fallback owner is not an accepted participant." }
             require(accepted.requestedPolicyDigest == combinedDigest(Json.encodeToString(accepted.copy(requestedPolicyDigest = "")))) { "The accepted Combined policy failed its digest check." }

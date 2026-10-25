@@ -107,4 +107,121 @@ class ResearchArticleViewModelTest {
         assertFalse(model.admissionInProgress.value)
         coVerify(exactly = 1) { coordinator.submitUserAction(any(), any()) }
     }
+
+    private val examiner = dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2(uid = "examiner", name = "Selected Examiner", model = "known")
+    private fun installConsentState(): () -> AppFeatureSettings {
+        var saved = AppFeatureSettings().withToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH, true).withProfileToolPluginEnabled(examiner.uid, dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH, true)
+        saved = saved.copy(profileBehavior = saved.profileBehavior + (examiner.uid to saved.profileBehavior.getValue(examiner.uid).copy(academicSourcesAllowed = false)))
+        coEvery { settings.fetchPlatformV2s() } returns listOf(examiner)
+        coEvery { settings.getFeatureSettings() } coAnswers { saved }
+        coEvery { settings.mutateFeatureSettings(any()) } coAnswers { firstArg<(AppFeatureSettings) -> AppFeatureSettings>().invoke(saved).also { saved = it } }
+        return { saved }
+    }
+
+    @Test fun missingPapersConsentOffersPromptAndDeclineNeverStartsOrSavesPermission() = runTest(dispatcher) {
+        val saved = installConsentState()
+        model.open(work.workId, "v1", "owner")
+        runCurrent()
+        model.requestExamination(ExaminationRequest(work.workId, examiner.uid, versionId = "v1", authority = "owner")) { ChatMcpToolConfig() }
+        runCurrent()
+        assertEquals(examiner.uid, model.examinationConsent.value?.profileUid)
+        model.declineExaminationConsent()
+        runCurrent()
+        assertNull(model.examinationConsent.value)
+        assertEquals(false, saved().profileBehavior[examiner.uid]?.academicSourcesAllowed)
+        coVerify(exactly = 0) { settings.mutateFeatureSettings(any()) }
+        coVerify(exactly = 0) { coordinator.submitUserAction(any(), any()) }
+    }
+
+    @Test fun acceptanceSavesOnlySelectedProfileAndResumesTheExactActionOnce() = runTest(dispatcher) {
+        val saved = installConsentState()
+        coEvery { coordinator.submitUserAction(any(), any()) } returns ExaminationAdmissionResult(jobId = "accepted")
+        model.open(work.workId, "v1", "owner")
+        runCurrent()
+        val request = ExaminationRequest(work.workId, examiner.uid, 17, "v1", "owner", reexamine = true, resumeJobId = "prior")
+        model.requestExamination(request) { ChatMcpToolConfig() }
+        runCurrent()
+        val id = requireNotNull(model.examinationConsent.value).id
+        model.acceptExaminationConsent(id)
+        model.acceptExaminationConsent(id)
+        runCurrent()
+        assertEquals(true, saved().profileBehavior[examiner.uid]?.academicSourcesAllowed)
+        assertEquals(true, saved().profileBehavior[examiner.uid]?.researchEnabledOverride)
+        assertFalse(saved().delegation.deepResearch.academicSources)
+        assertEquals("accepted", model.state.value.acceptedJobId)
+        coVerify(exactly = 1) { coordinator.submitUserAction(request, any()) }
+    }
+
+    @Test fun changingArticleOrProfileRejectsAStaleConsentAction() = runTest(dispatcher) {
+        installConsentState()
+        model.open(work.workId, "v1", "owner")
+        runCurrent()
+        model.requestExamination(ExaminationRequest(work.workId, examiner.uid, versionId = "v1", authority = "owner")) { ChatMcpToolConfig() }
+        runCurrent()
+        val id = requireNotNull(model.examinationConsent.value).id
+        coEvery { settings.fetchPlatformV2s() } returns listOf(examiner.copy(model = "changed"))
+        model.acceptExaminationConsent(id)
+        runCurrent()
+        assertTrue(model.state.value.error.orEmpty().contains("configuration changed"))
+        coVerify(exactly = 0) { settings.mutateFeatureSettings(any()) }
+        coVerify(exactly = 0) { coordinator.submitUserAction(any(), any()) }
+
+        coEvery { settings.fetchPlatformV2s() } returns listOf(examiner)
+        model.requestExamination(ExaminationRequest(work.workId, examiner.uid, versionId = "v1", authority = "owner")) { ChatMcpToolConfig() }
+        runCurrent()
+        val stale = requireNotNull(model.examinationConsent.value).id
+        model.open(work.workId, "v2", "owner")
+        model.acceptExaminationConsent(stale)
+        runCurrent()
+        assertNull(model.examinationConsent.value)
+        coVerify(exactly = 0) { coordinator.submitUserAction(any(), any()) }
+    }
+
+    @Test fun configuredExaminerIsResolvedBeforeConsentAndFrozenForTheAcceptedAction() = runTest(dispatcher) {
+        val saved = installConsentState()
+        coEvery { settings.getFeatureSettings() } coAnswers { saved().copy(researchFeature = saved().researchFeature.copy(crawlerProfileUid = examiner.uid)) }
+        coEvery { coordinator.submitUserAction(any(), any()) } returns ExaminationAdmissionResult(jobId = "configured")
+        model.open(work.workId, "v1", "owner")
+        runCurrent()
+        val request = ExaminationRequest(work.workId, versionId = "v1", authority = "owner")
+        model.requestExamination(request) { ChatMcpToolConfig() }
+        runCurrent()
+        assertEquals(examiner.uid, model.examinationConsent.value?.profileUid)
+        model.acceptExaminationConsent(requireNotNull(model.examinationConsent.value).id)
+        runCurrent()
+        coVerify(exactly = 1) { coordinator.submitUserAction(request.copy(profileUid = examiner.uid), any()) }
+        assertEquals(true, saved().profileBehavior[examiner.uid]?.academicSourcesAllowed)
+    }
+
+    @Test fun revokingChatToolsWhilePromptIsOpenPreventsPermissionSaveAndAdmission() = runTest(dispatcher) {
+        val saved = installConsentState()
+        var tools = ChatMcpToolConfig()
+        model.open(work.workId, "v1", "owner")
+        runCurrent()
+        model.requestExamination(ExaminationRequest(work.workId, examiner.uid, versionId = "v1", authority = "owner")) { tools }
+        runCurrent()
+        val id = requireNotNull(model.examinationConsent.value).id
+        tools = tools.copy(disabledToolIds = setOf("deep_research_read_paper"))
+        model.acceptExaminationConsent(id)
+        runCurrent()
+        assertEquals(false, saved().profileBehavior[examiner.uid]?.academicSourcesAllowed)
+        assertTrue(model.state.value.error.orEmpty().contains("excluded"))
+        coVerify(exactly = 0) { coordinator.submitUserAction(any(), any()) }
+    }
+
+    @Test fun dismissalWhileConsentLookupIsSuspendedCannotShowALatePrompt() = runTest(dispatcher) {
+        installConsentState()
+        val profiles = CompletableDeferred<List<dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2>>()
+        coEvery { settings.fetchPlatformV2s() } coAnswers { profiles.await() }
+        model.open(work.workId, "v1", "owner")
+        runCurrent()
+        model.requestExamination(ExaminationRequest(work.workId, examiner.uid, versionId = "v1", authority = "owner")) { ChatMcpToolConfig() }
+        runCurrent()
+        model.declineExaminationConsent()
+        profiles.complete(listOf(examiner))
+        runCurrent()
+        assertNull(model.examinationConsent.value)
+        coVerify(exactly = 0) { settings.mutateFeatureSettings(any()) }
+        coVerify(exactly = 0) { coordinator.submitUserAction(any(), any()) }
+    }
 }

@@ -81,14 +81,16 @@ data class SourceValidationReceipt(val schemaVersion: Int = 1, val versionId: St
 @Serializable
 data class ExaminationRequest(val workId: String, val profileUid: String = "", val chatId: Int = 0, val versionId: String? = null, val authority: String = "public", val origin: ExaminationOrigin = ExaminationOrigin.AUTHORIZED_RESEARCH, val rootWorkId: String? = null, val parentRunId: String? = null, val reexamine: Boolean = false, val resumeJobId: String? = null)
 
+internal const val EXAMINATION_PAPERS_CONSENT_REQUIRED = "Enable Papers and studies consent for this profile"
+
 internal fun examinationAdmission(features: AppFeatureSettings, profile: PlatformV2, request: ExaminationRequest, tools: ChatMcpToolConfig): String? {
     val options = features.delegationFor(profile.uid).deepResearch
     val selection = features.conversationResearch[request.chatId] ?: tools.research ?: MultiSearchResearchSelection()
     return when {
         !features.researchFeature.enabled || !features.isToolPluginEnabledForProfile(profile.uid, ToolPluginId.DEEP_RESEARCH) -> "Research is disabled for this profile"
         !profile.enabled || profile.disableAllTools || profile.disableRemoteTools -> "Profile does not permit article retrieval"
-        !options.enabled || !options.academicSources -> "Enable Papers and studies consent for this profile"
         !tools.isToolEnabled(listOf("deep_research", "deep_research_get_paper", "deep_research_read_paper", "research_examine_article")) -> "Article tools are excluded in this conversation"
+        !options.enabled || !options.academicSources -> EXAMINATION_PAPERS_CONSENT_REQUIRED
         request.origin == ExaminationOrigin.USER_EXAMINE -> null
         request.origin == ExaminationOrigin.AUTOMATIC_CHAT && !features.researchFeature.ordinaryChatAutoExamination -> "Automatic ordinary-chat examination is off"
         features.researchFeature.autoExamination == AutoExamination.OFF -> "Automatic examination is off"

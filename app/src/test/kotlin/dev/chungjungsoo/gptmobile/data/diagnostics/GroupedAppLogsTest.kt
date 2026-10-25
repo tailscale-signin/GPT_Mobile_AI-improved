@@ -43,4 +43,25 @@ class GroupedAppLogsTest {
         assertEquals(3, groups.last().repetitions)
         assertEquals(3, groups.last().rawDetails.size)
     }
+
+    @Test fun operationFailureAndItsConsequenceCountOnceEvenAcrossTagsAndLogLevels() {
+        val groups = groupAppLogs(
+            listOf(
+                AppLogEntry(1000, "I", "Runtime", "LOAD_START · nativeOperationId=op-1"),
+                AppLogEntry(1100, "I", "Runtime", "LOAD_FAILED · nativeOperationId=op-1 · stage=load"),
+                AppLogEntry(1200, "E", "Benchmark", "Profile failed · nativeOperationId=op-1"),
+                AppLogEntry(1300, "I", "Runtime", "RECOVERED · nativeOperationId=op-1")
+            )
+        )
+        val group = groups.single()
+        assertEquals(4, group.rawDetails.size)
+        assertEquals(1, group.incidentIds.size)
+        assertEquals("LOAD_FAILED · nativeOperationId=op-1 · stage=load", group.entry.message)
+    }
+
+    @Test fun identicalUncorrelatedFailuresNeverCollapseIntoOneCausalIssue() {
+        val groups = groupAppLogs(listOf(AppLogEntry(1000, "E", "Runtime", "Load failed"), AppLogEntry(1100, "E", "Runtime", "Load failed")))
+        assertEquals(2, groups.size)
+        assertEquals(2, groups.flatMap { it.incidentIds }.distinct().size)
+    }
 }

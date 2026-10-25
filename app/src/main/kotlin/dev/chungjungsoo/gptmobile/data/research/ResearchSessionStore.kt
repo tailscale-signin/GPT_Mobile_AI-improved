@@ -35,6 +35,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
     private val appContext = context
     private val directory = File(context.filesDir, "research-history")
     private val taskStore = ResearchTaskStore(directory)
+    private val recoveryCorpora by lazy { dev.chungjungsoo.gptmobile.data.agent.RecoveryEvidenceCorpusStore(File(directory, "recovery-corpora")) }
     val executionState: kotlinx.coroutines.flow.StateFlow<Map<String, ResearchExecutionRecord>> get() = taskStore.executions
     suspend fun execution(rootWorkId: String, persistent: Boolean = true) = taskStore.execution(rootWorkId, persistent)
     suspend fun reconcileExecutions(chatIds: Set<Int>) = taskStore.reconcile(chatIds)
@@ -377,7 +378,11 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                     ?: pointed?.takeIf { it.chatId == chatId && it.turnId == turnId && it.authority == authority }?.snapshot?.task
                     ?: authorized.maxByOrNull { it.snapshot.updatedAt }?.snapshot?.task
                     ?: task
-                val own = richestResearchSnapshot(authorized.filter { it.snapshot.task == corpusTask }.map { it.snapshot })
+                val ownSnapshots = authorized.filter { it.snapshot.task == corpusTask }.map { it.snapshot }
+                // A deferred packet is bound to one immutable capture and claim cursor. Do not
+                // merge a sibling's discoveries or rewrite question/source IDs before it resumes.
+                ownSnapshots.maxByOrNull { it.updatedAt }?.takeIf { it.deferredStage != null }?.let { return@journalLock it }
+                val own = richestResearchSnapshot(ownSnapshots)
                 val siblings = if (shareEnabled) mutable.value.values.filter { it.chatId == chatId && it.turnId == turnId && it.authority != authority && it.snapshot.task == corpusTask } else emptyList()
                 val public = authorizedResearchTransfer(siblings, null).filter { it.sources.isNotEmpty() }
                 if (public.isEmpty()) own else richestResearchSnapshot(public + listOfNotNull(own))
@@ -492,7 +497,8 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
                 val previousSourceCount = mutable.value[runId]?.snapshot?.sources?.size ?: 0
                 val priorPlan = mutable.value[runId]?.takeIf { it.authority == authority }?.snapshot?.delegationPlan ?: if (persistent) read(file(runId))?.takeIf { it.authority == authority }?.snapshot?.delegationPlan else null
                 val inherited = mutable.value.values.filter { it.chatId == chatId && it.turnId == turnId && it.authority == authority }.map { it.snapshot }
-                val merged = mergeResearchSnapshots(inherited, if (snapshot.delegationPlan == null) snapshot.copy(delegationPlan = priorPlan) else snapshot)
+                val incoming = if (snapshot.delegationPlan == null) snapshot.copy(delegationPlan = priorPlan) else snapshot
+                val merged = if (incoming.deferredStage != null) incoming else mergeResearchSnapshots(inherited, incoming)
                 val accepted = taskStore.accepted(turnId, persistent)
                 val snapshot = bindTask(merged)
                 accepted?.let { accepted ->
@@ -686,6 +692,15 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
         }
     }
 
+    /** Scope-bound immutable references survive retries without embedding previous recovery bundles. */
+    internal suspend fun retainRecoveryCorpus(chatId: Int, rootWorkId: String, authority: String, corpus: dev.chungjungsoo.gptmobile.data.agent.RecoveryEvidenceCorpus): Pair<String, dev.chungjungsoo.gptmobile.data.agent.RecoveryEvidenceCorpus> = withContext(Dispatchers.IO) {
+        lock.withReadLock {
+            check(chatId !in deletedChats) { "Conversation was deleted" }
+            val reference = recoveryCorpora.retain(chatId, rootWorkId, authority, corpus)
+            reference to recoveryCorpora.read(reference, chatId, rootWorkId, authority)
+        }
+    }
+
     suspend fun exportChat(chatId: Int): List<ResearchSession> = exportSelected(chatId, null, null)
 
     suspend fun exportTurn(chatId: Int, turnIds: Set<String>, allowedAuthorities: Set<String>? = null): List<ResearchSession> =
@@ -747,6 +762,7 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
         stoppedTurns.removeAll { it.first == chatId }
         turnBudgets.keys.removeAll { it.first == chatId }
         lock.withLock {
+            recoveryCorpora.deleteChat(chatId)
             directory.listFiles().orEmpty().filter { (it.extension == "json" && sessionIndex.metadata(it)?.chatId == chatId) || (it.extension in setOf("budget", "ledger", "cursor", "fence", "partial") && it.length() <= 256 * 1024 && runCatching { Json.parseToJsonElement(it.readText()).jsonObject.number("chatId") == chatId }.getOrDefault(false)) }.forEach {
                 AtomicFile(it).delete()
                 sessionIndex.remove(it)

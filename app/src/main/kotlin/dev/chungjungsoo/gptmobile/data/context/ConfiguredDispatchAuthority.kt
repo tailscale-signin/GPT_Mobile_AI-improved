@@ -14,6 +14,7 @@ import kotlinx.serialization.json.put
 /** Configuration is frozen before preparation and rechecked after queueing, before every attempt. */
 internal object ConfiguredDispatchAuthority {
     suspend fun capture(settings: SettingRepository, platform: PlatformV2, chatId: Int? = null): RequestAuthorizationGuard {
+        dev.chungjungsoo.gptmobile.presentation.StartupRecoveryGate.await()
         // These attempts only read configuration. Never re-run provider or tool actions.
         repeat(3) { attempt ->
             val guard = captureOnce(settings, platform, chatId)
@@ -28,6 +29,9 @@ internal object ConfiguredDispatchAuthority {
     }
 
     private suspend fun captureOnce(settings: SettingRepository, platform: PlatformV2, chatId: Int?): RequestAuthorizationGuard {
+        check(dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.fromApiUrl(platform.apiUrl)?.isRetired != true) { "PROVIDER_RETIRED: Choose another profile. Saved conversations remain available." }
+        check(!settings.providerActivationRequired(platform)) { "PROVIDER_ACTIVATION_REQUIRED: Review this provider's data policy in AI profile settings before sending." }
+        val privacyRevision = settings.providerPermissionRevision(platform)
         val inherited = currentCoroutineContext()[RequestAuthorizationGuard]
         val matches = settings.fetchPlatformV2s().filter { it.uid == platform.uid }
         check(matches.size <= 1) { "PROFILE_IDENTITY_AMBIGUOUS: multiple profiles use the same identity." }
@@ -41,8 +45,13 @@ internal object ConfiguredDispatchAuthority {
         val capturedProfileRevision = registered?.let(::profileRevision)
         val capturedPolicyRevision = policyRevision(settings.getFeatureSettings(), platform.uid, chatId)
         val revision = researchHash("$capturedProfileRevision|$capturedPolicyRevision|${inherited?.revision}")
-        return RequestAuthorizationGuard("configured:$revision") {
+        val authority = capturedProfileRevision?.let {
+            CapturedProviderAuthority(platform.uid, platform.model, it, capturedPolicyRevision, privacyRevision, CapturedProviderAuthority.routeRevision(platform), chatId, listOfNotNull(inherited?.authority))
+        }
+        return RequestAuthorizationGuard("configured:$revision", authority) {
             inherited?.validate?.invoke()
+            currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.permissions.PersonalDataContext]?.validateModel(platform)
+            check(!settings.providerActivationRequired(platform) && settings.providerPermissionRevision(platform) == privacyRevision) { "DISPATCH_POLICY_CHANGED: Data permissions changed; prepare a new request." }
             val currentMatches = settings.fetchPlatformV2s().filter { it.uid == platform.uid }
             check(currentMatches.size <= 1) { "PROFILE_IDENTITY_AMBIGUOUS: multiple profiles use the same identity." }
             val current = currentMatches.singleOrNull()
@@ -78,6 +87,8 @@ internal object ConfiguredDispatchAuthority {
             put("delegation", Json.encodeToJsonElement(features.delegation))
             put("conversationDelegation", Json.encodeToJsonElement(chatId?.let { features.conversationDelegation[it] }))
             put("conversationResearch", Json.encodeToJsonElement(chatId?.let { features.conversationResearch[it]?.copy(crawlerProfileUid = null) }))
+            put("researchEnabled", features.researchFeature.enabled)
+            put("researchReviewer", features.researchFeature.reviewerProfileUid)
             put("reasoning", Json.encodeToJsonElement(chatId?.let { features.conversationReasoning[it] }))
             put("llamaReasoning", Json.encodeToJsonElement(features.llamaReasoningModes[uid]))
         }.toString()

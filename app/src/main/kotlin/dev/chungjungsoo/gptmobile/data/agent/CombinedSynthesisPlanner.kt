@@ -47,6 +47,13 @@ class CombinedSynthesisPlanner @Inject constructor(
         val responses = activeUids.mapNotNull { uid ->
             allResponses.filter { it.platformType == uid }.singleOrNull()
         }
+        val missingResponseUids = activeUids.filterNot { uid -> responses.any { it.platformType == uid } }
+        if (missingResponseUids.isNotEmpty()) {
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
+                "CombinedSynthesis",
+                "COLLECTION_RESPONSES_MISSING · count=${missingResponseUids.size} · profileUids=${missingResponseUids.joinToString(",")}"
+            )
+        }
         if (responses.isEmpty()) {
             chatRepository.markCombinedMergeUnavailable(
                 chatId,

@@ -55,7 +55,7 @@ internal object CombinedOperationTrace {
         runCatching {
             AppLogRecorder.record(
                 "CombinedTiming",
-                "OPERATION_TIMING · operation=${token.operation} · traceCookie=${token.cookie} · durationNs=$duration · logThresholdNs=$threshold · screen=${value(owner.screen)} · message=${owner.messageId ?: "unknown"} · run=${value(owner.runId)} · revision=${value(owner.revisionId)} · block=${value(owner.blockId)} · digest=${value(owner.digest?.takeIf { it.length == 64 && it.all { c -> c in '0'..'9' || c in 'a'..'f' } })} · profile=${value(owner.profileUid)} · startThread=${value(token.startThread)} · endThread=${value(Thread.currentThread().name)}"
+                "OPERATION_TIMING · operation=${token.operation} · traceId=${token.cookie} · durationNs=$duration · logThresholdNs=$threshold · screen=${value(owner.screen)} · message=${owner.messageId ?: "unknown"} · run=${value(owner.runId)} · revision=${value(owner.revisionId)} · block=${value(owner.blockId)} · digest=${value(owner.digest?.takeIf { it.length == 64 && it.all { c -> c in '0'..'9' || c in 'a'..'f' } })} · profile=${value(owner.profileUid)} · startThread=${value(token.startThread)} · endThread=${value(Thread.currentThread().name)}"
             )
         }
     }

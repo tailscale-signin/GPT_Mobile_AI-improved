@@ -68,7 +68,7 @@ class CombinedSynthesisPlanner @Inject constructor(
         val sources = (
             combinedSynthesisInputs(responses, runs, profiles.associate { it.uid to it.name }, accepted.context.requested.requestedModels, userMessage.content, requireComplete = false)
                 ?: emptyList()
-            ).map { source -> source.copy(localOnly = source.localOnly || source.platformUid in privateProfiles, claimExtractionVersion = if (accepted.context.requested.singlePass) 3 else source.claimExtractionVersion) }
+            ).map { source -> source.copy(localOnly = source.localOnly || source.platformUid in privateProfiles, claimExtractionVersion = if (accepted.context.requested.singlePass) 4 else source.claimExtractionVersion) }
         val retainedPublicEvidence = if (sources.isEmpty() && accepted.context.requested.acceptedResearch != null) {
             researchSessionStore.exportTurn(chatId, setOf("$chatId:$userId")).any { session ->
                 session.turnId == "$chatId:$userId" && dev.chungjungsoo.gptmobile.data.research.researchHash(session.snapshot.task.trim()) == dev.chungjungsoo.gptmobile.data.research.researchHash(userMessage.content.trim()) && session.snapshot.sources.any { it.readable && it.publicCapture && it.retrievalReceipt.isNotBlank() }
@@ -188,7 +188,7 @@ class CombinedSynthesisPlanner @Inject constructor(
                     try {
                         CombinedWriterRequestPlan.freeze(
                             leadPlatform, userMessage.content, prompt,
-                            combinedWriterSystemPrompt(leadPlatform.systemPrompt, deliveryProtocol, userMessage.content),
+                            combinedWriterSystemPrompt(leadPlatform.systemPrompt, deliveryProtocol, userMessage.content, combined.requested.appendContinuations),
                             writerContext?.historyText() ?: combinedWriterHistory(historicalUsers, historicalReplies, leadPlatform.uid),
                             deliveryProtocol,
                             editorialContext.plan?.finalOutputTokens ?: 0,
@@ -292,7 +292,7 @@ class CombinedSynthesisPlanner @Inject constructor(
             chatId = persisted.assistantMessage.chatId,
             assistantMessage = persisted.assistantMessage,
             platform = leadPlatform.copy(
-                systemPrompt = combinedWriterSystemPrompt(leadPlatform.systemPrompt, deliveryProtocol, userMessage.content),
+                systemPrompt = combinedWriterSystemPrompt(leadPlatform.systemPrompt, deliveryProtocol, userMessage.content, combined.requested.appendContinuations),
                 disableAllTools = true,
                 disableLocalTools = true
             ),
@@ -333,7 +333,7 @@ class CombinedSynthesisPlanner @Inject constructor(
             persisted.run.runId,
             chatId,
             persisted.assistantMessage,
-            profile.copy(model = resumed.model, temperature = resumed.temperature, systemPrompt = combinedWriterSystemPrompt(resumed.systemPrompt, resumed.deliveryProtocol, resumed.userMessage.content), disableAllTools = true, disableLocalTools = true),
+            profile.copy(model = resumed.model, temperature = resumed.temperature, systemPrompt = combinedWriterSystemPrompt(resumed.systemPrompt, resumed.deliveryProtocol, resumed.userMessage.content, (resumed.writerRequestPlan?.version ?: 1) >= 2 && context.requested.appendContinuations), disableAllTools = true, disableLocalTools = true),
             resumed.history + resumed.userMessage,
             resumed.replies + listOf(emptyList()),
             requireNotNull(resumed.acceptedTools).copy(allToolsDisabled = true, delegation = dev.chungjungsoo.gptmobile.data.model.ConversationDelegationSettings(enabled = false), combined = context),
@@ -389,7 +389,7 @@ class CombinedSynthesisPlanner @Inject constructor(
             persisted.run.runId,
             chatId,
             persisted.assistantMessage,
-            writer.copy(model = successor.model, temperature = successor.temperature, systemPrompt = combinedWriterSystemPrompt(successor.systemPrompt, successor.deliveryProtocol, successor.userMessage.content), disableAllTools = true, disableLocalTools = true),
+            writer.copy(model = successor.model, temperature = successor.temperature, systemPrompt = combinedWriterSystemPrompt(successor.systemPrompt, successor.deliveryProtocol, successor.userMessage.content, (successor.writerRequestPlan?.version ?: 1) >= 2 && successor.combined?.requested?.appendContinuations == true), disableAllTools = true, disableLocalTools = true),
             successor.history + successor.userMessage,
             successor.replies + listOf(emptyList()),
             requireNotNull(successor.acceptedTools).copy(allToolsDisabled = true, delegation = dev.chungjungsoo.gptmobile.data.model.ConversationDelegationSettings(enabled = false), combined = successor.combined),

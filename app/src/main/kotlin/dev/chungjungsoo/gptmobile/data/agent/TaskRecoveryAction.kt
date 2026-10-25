@@ -22,7 +22,18 @@ enum class TaskRecoveryAction {
 }
 
 @kotlinx.serialization.Serializable
-data class TaskResumeDescriptor(val rootWorkId: String, val sourceMessageId: Int, val generationId: String, val action: TaskRecoveryAction)
+data class TaskResumeDescriptor(
+    val rootWorkId: String,
+    val sourceMessageId: Int,
+    val generationId: String,
+    val action: TaskRecoveryAction,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val continuationPrefixDigest: String? = null
+) {
+    init {
+        require(continuationPrefixDigest == null || continuationPrefixDigest.matches(Regex("[a-f0-9]{64}")))
+    }
+}
 
 internal fun resolveTaskRecovery(messages: List<MessageV2>, descriptor: TaskResumeDescriptor): ResolvedTaskRecovery? {
     val latest = messages.lastOrNull() ?: return null

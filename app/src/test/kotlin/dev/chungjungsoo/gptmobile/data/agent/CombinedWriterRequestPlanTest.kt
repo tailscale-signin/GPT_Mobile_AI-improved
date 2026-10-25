@@ -163,7 +163,7 @@ class CombinedWriterRequestPlanTest {
         val requested = CombinedPolicyResolver.accept(dev.chungjungsoo.gptmobile.data.model.ConversationCombinedSettings(continueLongAnswers = true), listOf(profile.uid), mapOf(profile.uid to profile.model), request, singlePass = true)
         val context = CombinedExecutionContext(requested, CombinedPolicyResolver.resolve(requested), "root", CombinedRunRole.SYNTHESIS, profile.uid, chatId = 1)
         val prompt = "All complete frozen contributions and evidence."
-        val system = combinedWriterSystemPrompt(null, "PASSAGES_V3", request)
+        val system = combinedWriterSystemPrompt(null, "PASSAGES_V3", request, appendContinuations = true)
         val writer = profile.copy(systemPrompt = system)
         val plan = CombinedWriterRequestPlan.freeze(profile, request, prompt, system, emptyList(), "PASSAGES_V3", 8192, appendContinuations = true)
         val frozen = CombinedInputSnapshot(version = 6, userMessage = user, history = emptyList(), replies = emptyList(), sources = emptyList(), prompt = prompt, profileUid = profile.uid, model = profile.model, systemPrompt = "", configKey = "config", deliveryProtocol = "PASSAGES_V3", snapshotId = "snapshot", revisionId = "revision", combined = context, writerRequestPlan = plan).seal()
@@ -186,6 +186,25 @@ class CombinedWriterRequestPlanTest {
         assertEquals("COMBINED_APPEND_CORPUS_CHANGED", runCatching { guard.authorizeContinuation(frozen, checkpoint, writer, initial, changed, cursor) }.exceptionOrNull()?.message)
         assertEquals("COMBINED_APPEND_CURSOR_INVALID", runCatching { guard.authorizeContinuation(frozen, checkpoint, writer, initial, continued, cursor.replace("\"next_sequence\":2", "\"next_sequence\":3")) }.exceptionOrNull()?.message)
         assertEquals("COMBINED_APPEND_CURSOR_UNAVAILABLE", runCatching { guard.authorizeContinuation(frozen, checkpoint.copy(appendReady = false, lastAttemptOutcome = "IN_FLIGHT"), writer, initial, continued, cursor) }.exceptionOrNull()?.message)
+        val bounded = combinedRecordContinuationInput(initial, checkpoint, cursor, system, dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings(contextTokens = 32768), plan.effectiveOutputTokens)
+        guard.authorizeContinuation(frozen, checkpoint, writer, initial, bounded.turns, cursor, bounded.recordContextTokens)
+        guard.validatePreparedRequest(writer, bounded.turns)
+        assertEquals(
+            "COMBINED_APPEND_CURSOR_INVALID",
+            runCatching {
+                guard.authorizeContinuation(frozen, checkpoint, writer, initial, bounded.turns, cursor.replace(combinedRecordDigest(checkpoint), "incorrect-digest"), bounded.recordContextTokens)
+            }.exceptionOrNull()?.message
+        )
+        val changedTail = bounded.turns.map { it.copy(userMessage = it.userMessage.copy(content = it.userMessage.content.replace("Already committed paragraph.", "Changed committed content."))) }
+        assertEquals("COMBINED_APPEND_CORPUS_CHANGED", runCatching { guard.authorizeContinuation(frozen, checkpoint, writer, initial, changedTail, cursor, bounded.recordContextTokens) }.exceptionOrNull()?.message)
+        // Previously saved append plans used the strict instruction. Their digest
+        // remains valid; only newly frozen v2 plans adopt packet-aware instructions.
+        val legacySystem = combinedWriterSystemPrompt(null, "PASSAGES_V3", request)
+        val legacyPlan = CombinedWriterRequestPlan.freeze(profile, request, prompt, legacySystem, emptyList(), "PASSAGES_V3", 8192, appendContinuations = true).copy(version = 1)
+        val legacySnapshot = frozen.copy(writerRequestPlan = legacyPlan, inputDigest = "").seal()
+        legacyPlan.validate(legacySnapshot)
+        legacyPlan.validatePreparedRequest(profile.copy(systemPrompt = legacySystem), initial)
+        assertEquals("COMBINED_WRITER_PLAN_SYSTEM_CHANGED", runCatching { legacyPlan.validatePreparedRequest(writer, initial) }.exceptionOrNull()?.message)
     }
 
     private fun receipt(output: Int) = RequestAdmission.prepare(

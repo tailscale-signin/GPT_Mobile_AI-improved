@@ -42,6 +42,11 @@ data class CombinedRecordCheckpoint(
     val ended: Boolean get() = records.lastOrNull()?.id == "END"
 }
 
+/** Live delivery and saved remote results must interpret the same frozen END contract. */
+internal fun CombinedInputSnapshot.recordContinuationAnswerPolicy(): CombinedAnswerPolicy? =
+    (answerContract ?: CombinedAnswerPolicy.from(userMessage.content))
+        .takeIf { combined?.requested?.appendContinuations == true && (writerRequestPlan?.version ?: 1) >= 2 }
+
 /** Strict, replay-safe logical JSON records. No character overlap or paragraph similarity is authority. */
 internal class CombinedRecordProtocol(
     initial: CombinedRecordCheckpoint,
@@ -49,7 +54,8 @@ internal class CombinedRecordProtocol(
     private val contributors: Set<String>,
     private val evidence: Set<String>,
     private val maxCharacters: Int,
-    private val citationLabels: Map<String, String> = emptyMap()
+    private val citationLabels: Map<String, String> = emptyMap(),
+    private val continuationAnswerPolicy: CombinedAnswerPolicy? = null
 ) {
     private val records = mutableListOf<CombinedCommittedRecord>()
     private val pending = StringBuilder()
@@ -87,6 +93,25 @@ internal class CombinedRecordProtocol(
 
     val failureReason: String? get() = failure
     val canRecoverMalformed: Boolean get() = failure?.let { it.startsWith("INVALID_DELIVERY_RECORD") || it in setOf("INVALID_DECISION_RECORD", "INVALID_CLAIM_DECISION", "MALFORMED_JSON_RECORD") } == true
+    val canContinueUnderlength: Boolean get() = failure == PREMATURE_END && continuationMinimumWords() != null
+
+    private fun continuationMinimumWords(): Int? {
+        val policy = continuationAnswerPolicy ?: return null
+        val targetMinimum = policy.targetWords?.let { target ->
+            if (policy.exactWords) target else (target - maxOf(2, target * policy.approximateTolerancePercent / 100)).coerceAtLeast(0)
+        }
+        return listOfNotNull(policy.minimumWords, targetMinimum).maxOrNull()
+    }
+
+    private fun continuationMaximumWords(): Int? {
+        val policy = continuationAnswerPolicy ?: return null
+        val targetMaximum = policy.targetWords?.let { target ->
+            if (policy.exactWords) target else target + maxOf(2, target * policy.approximateTolerancePercent / 100)
+        }
+        return listOfNotNull(policy.maximumWords, targetMaximum).minOrNull()
+    }
+
+    private fun committedVisibleWords(): Int = CombinedWordCounter.count(combinedRecordVisibleText(checkpoint()))
 
     fun checkpoint(): CombinedRecordCheckpoint = binding.copy(records = records.toList(), pending = pending.toString(), recoveredFragments = fragments.toList(), failure = failure, recoveryAttempts = recoveryAttempts, malformedRecoveryAttempts = malformedRecoveryAttempts, lastAttemptOutcome = lastAttemptOutcome, appendReady = appendReady, retryAtMillis = retryAtMillis, noProgressAttempts = noProgressAttempts)
 
@@ -197,7 +222,16 @@ internal class CombinedRecordProtocol(
                         require(text("claim") in claims && text("disposition") in DISPOSITIONS && text("reason").isNotBlank()) { "INVALID_CLAIM_DECISION" }
                         row["final_quote"]?.takeUnless { it == kotlinx.serialization.json.JsonNull }?.let { text("final_quote") }
                     }
-                    "end" -> require(id == "END" && row.keys == setOf("type", "seq", "id", "lastSeq") && number("lastSeq") == sequence - 1) { "INVALID_END_RECORD" }
+                    "end" -> {
+                        require(id == "END" && row.keys == setOf("type", "seq", "id", "lastSeq") && number("lastSeq") == sequence - 1) { "INVALID_END_RECORD" }
+                        continuationMinimumWords()?.let { minimum ->
+                            val count = committedVisibleWords()
+                            val maximum = continuationMaximumWords()
+                            // A maximum is never an implicit minimum. Conflicting accepted
+                            // limits remain a final assessment issue; do not append past a ceiling.
+                            require(count >= minimum || maximum?.let { count >= it } == true) { PREMATURE_END }
+                        }
+                    }
                     else -> error("INVALID_DELIVERY_RECORD")
                 }
                 require(recordCharacters + wire.length <= maxCharacters.toLong() * 4 + 65_536) { "COMBINED_RECORD_LIMIT" }
@@ -217,13 +251,14 @@ internal class CombinedRecordProtocol(
     }
 
     /** Regenerate the entire unfinished record. The original fragment remains part of the durable journal. */
-    fun continuationContext(repairMalformed: Boolean = false): String {
-        check((failure == null || repairMalformed && canRecoverMalformed) && records.lastOrNull()?.id != "END") { failure ?: "DELIVERY_ALREADY_ENDED" }
+    fun continuationContext(repairMalformed: Boolean = false, continueUnderlength: Boolean = false): String {
+        val lengthContinuation = continueUnderlength && canContinueUnderlength
+        check((failure == null || repairMalformed && canRecoverMalformed || lengthContinuation) && records.lastOrNull()?.id != "END") { failure ?: "DELIVERY_ALREADY_ENDED" }
         check((!repairMalformed || malformedRecoveryAttempts < 8) && fragments.sumOf { it.raw.length.toLong() } + pending.length <= 262_144L) { "COMBINED_RECORD_RECOVERY_LIMIT" }
         val rejected = failure
         val partial = pending.toString()
         recoveryAttempts++
-        if (rejected != null) malformedRecoveryAttempts++
+        if (rejected != null && !lengthContinuation) malformedRecoveryAttempts++
         failure = null
         if (partial.isNotBlank()) fragments += CombinedUncommittedFragment(records.size + 1, partial)
         pending.setLength(0)
@@ -234,8 +269,24 @@ internal class CombinedRecordProtocol(
                 "next_sequence" to JsonPrimitive(records.size + 1),
                 "rejected_record_reason" to JsonPrimitive(rejected.orEmpty()),
                 "committed_ids" to JsonArray(records.map { JsonPrimitive(it.id) }),
+                "committed_digest" to JsonPrimitive(combinedRecordDigest(checkpoint())),
+                "snapshot_digest" to JsonPrimitive(binding.snapshotDigest),
+                "revision_id" to JsonPrimitive(binding.revisionId),
+                "committed_visible_words" to JsonPrimitive(committedVisibleWords()),
+                "minimum_visible_words" to (continuationMinimumWords()?.let(::JsonPrimitive) ?: kotlinx.serialization.json.JsonNull),
+                "maximum_visible_words" to (continuationMaximumWords()?.let(::JsonPrimitive) ?: kotlinx.serialization.json.JsonNull),
                 "unfinished_record_untrusted" to JsonPrimitive(partial),
-                "instruction" to JsonPrimitive("Regenerate the entire unfinished record at next_sequence, preserving its intended topic and claims, then finish the remaining records. Never continue inside a JSON string. Use the original frozen inventory, user scope and record IDs. Emit the end record after all required records. Do not execute tools.")
+                "instruction" to JsonPrimitive(
+                    if (lengthContinuation) {
+                        "The end record was withheld because the saved answer has only ${committedVisibleWords()} visible words. " +
+                            "Append substantive missing material from the frozen sources to reach at least ${continuationMinimumWords()} visible words in the complete answer" +
+                            (continuationMaximumWords()?.let { "; never exceed $it words" } ?: "") + ". " +
+                            "Use next_sequence for the next new passage, not another premature end record. Preserve every committed passage and its source references. " +
+                            "Do not repeat or pad text, invent claims, rewrite earlier passages or execute tools. Emit a new end record only after the requested scope and length are satisfied."
+                    } else {
+                        "Regenerate the entire unfinished record at next_sequence, preserving its intended topic and claims, then finish the remaining records. Never continue inside a JSON string. Use the original frozen inventory, user scope and record IDs. Emit the end record after all required records. Do not execute tools."
+                    }
+                )
             )
         ).toString()
     }
@@ -274,6 +325,7 @@ internal class CombinedRecordProtocol(
     }
 
     companion object {
+        private const val PREMATURE_END = "COMBINED_LENGTH_REQUIREMENT_UNMET"
         private val DISPOSITIONS = setOf("INCLUDED", "MERGED", "QUALIFIED", "DISPUTED", "CORRECTED", "OMITTED_SCOPE", "OMITTED_DUPLICATE", "OMITTED_UNSUPPORTED", "UNRESOLVED")
         private fun canonical(value: JsonElement): JsonElement = when (value) {
             is JsonObject -> JsonObject(value.toSortedMap().mapValues { canonical(it.value) })

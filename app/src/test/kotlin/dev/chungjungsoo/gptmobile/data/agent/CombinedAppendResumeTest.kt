@@ -53,7 +53,7 @@ class CombinedAppendResumeTest {
         val requested = CombinedPolicyResolver.accept(ConversationCombinedSettings(continueLongAnswers = append), listOf("p"), mapOf("p" to "model"), user.content, singlePass = true)
         val context = CombinedExecutionContext(requested, CombinedPolicyResolver.resolve(requested), "accepted-root", CombinedRunRole.SYNTHESIS, "p", chatId = 1)
         val prompt = "All original frozen contributions."
-        val plan = CombinedWriterRequestPlan.freeze(writer, user.content, prompt, combinedWriterSystemPrompt(null, "PASSAGES_V3", user.content), emptyList(), "PASSAGES_V3", 8192, appendContinuations = append)
+        val plan = CombinedWriterRequestPlan.freeze(writer, user.content, prompt, combinedWriterSystemPrompt(null, "PASSAGES_V3", user.content, append), emptyList(), "PASSAGES_V3", 8192, appendContinuations = append)
         return CombinedInputSnapshot(
             version = 6, userMessage = user, history = emptyList(), replies = emptyList(), sources = listOf(CombinedModelResponse("p", "Primary", content = "Original committed paragraph.")),
             prompt = prompt, profileUid = "p", model = "model", systemPrompt = "", configKey = benchmarkConfigKey(writer), deliveryProtocol = "PASSAGES_V3", combined = context,

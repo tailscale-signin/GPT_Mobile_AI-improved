@@ -99,7 +99,9 @@ data class CombinedResearchRequirement(
 @Serializable
 data class CombinedRequestedPolicy(
     val version: Int = 1,
-    val settings: ConversationCombinedSettings = ConversationCombinedSettings(),
+    // The frozen v1 wire default remains strict. New conversation preferences
+    // explicitly seal their continuation policy without rewriting archived turns.
+    val settings: ConversationCombinedSettings = ConversationCombinedSettings(continueLongAnswers = false),
     val participantUids: List<String> = emptyList(),
     val requestedModels: Map<String, String> = emptyMap(),
     val requestedTemperatures: Map<String, Float?> = emptyMap(),

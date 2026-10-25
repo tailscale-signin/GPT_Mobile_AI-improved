@@ -32,6 +32,29 @@ import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class FreeQueuedTransportTest {
+    @Test fun continuationReceiptBindsOnlyTheLastAssistantPrefixAndDoesNotGuessAnInitialAnswer() {
+        val prefix = "Saved answer to continue."
+        val continuation = request("automatic").copy(messages = listOf(ChatMessage(Role.USER, listOf(TextContent("Question"))), ChatMessage(Role.ASSISTANT, listOf(TextContent("Earlier draft"))), ChatMessage(Role.ASSISTANT, listOf(TextContent(prefix))), ChatMessage(Role.USER, listOf(TextContent("Continue")))))
+        assertEquals(dev.chungjungsoo.gptmobile.data.research.researchHash(prefix), queueContinuationPrefixDigest(continuation, "requested_length_continuation"))
+        assertNull(queueContinuationPrefixDigest(continuation, "primary"))
+        assertNull(queueContinuationPrefixDigest(request("automatic"), "provider_output_limit_continuation"))
+    }
+
+    @Test fun boundedTailContinuationUsesTheCompleteSavedPrefixIdentityInsteadOfAnOlderAssistantMessage() {
+        val completeDraft = "Retained answer paragraph. ".repeat(200)
+        val digest = dev.chungjungsoo.gptmobile.data.research.researchHash(completeDraft)
+        val continuation = request("automatic").copy(
+            messages = listOf(
+                ChatMessage(Role.USER, listOf(TextContent("Earlier unrelated question"))),
+                ChatMessage(Role.ASSISTANT, listOf(TextContent("Older unrelated answer"))),
+                ChatMessage(Role.USER, listOf(TextContent("Continue the current task from this bounded tail: ${completeDraft.takeLast(100)}")))
+            )
+        )
+        assertEquals(digest, queueContinuationPrefixDigest(continuation, "requested_length_continuation", digest))
+        assertNull(queueContinuationPrefixDigest(continuation, "primary", digest))
+        assertThrows(IllegalArgumentException::class.java) { queueContinuationPrefixDigest(continuation, "requested_length_continuation", "invalid") }
+    }
+
     @Test fun resumedPollingCannotResetTheAcceptedJobDeadline() {
         assertEquals(500L, queueRemainingWaitMillis(1000, 1200500, 1200, null))
         assertEquals(200L, queueRemainingWaitMillis(1000, 1200500, 1200, 200))
@@ -126,6 +149,8 @@ class FreeQueuedTransportTest {
             org.junit.Assert.assertTrue(failed.last().error?.message.orEmpty().contains("DISPATCH_POLICY_CHANGED"))
             assertEquals(1, submissions)
             org.junit.Assert.assertTrue(polls.isEmpty())
+            val retained = requireNotNull(dev.chungjungsoo.gptmobile.data.free.FreeQueueJobs.forRun(runId, 71, "horde", false))
+            dev.chungjungsoo.gptmobile.data.free.FreeQueueJobs.save(retained.copy(state = "DISCONNECTED"))
             allowed = true
             val resumed = kotlinx.coroutines.withContext(dispatch + guard) { api.streamChatCompletion(request("automatic"), 30, config.copy(permissionRevision = "after")).toList() }
             assertEquals("Saved complete answer", resumed.flatMap { it.choices.orEmpty() }.mapNotNull { it.effectiveDelta.content }.joinToString(""))
@@ -165,7 +190,7 @@ class FreeQueuedTransportTest {
     @Test fun checkingPendingSavedJobUsesOnlyGetAndCannotPublishOverNewWriter() = runBlocking {
         val key = java.util.UUID.randomUUID().toString()
         val run = "combined-synthesis:$key"
-        dev.chungjungsoo.gptmobile.data.free.FreeQueueJobs.save(dev.chungjungsoo.gptmobile.data.free.FreeQueueJob(key, "pending-receipt", "QUEUED", chatId = 19, protocol = "HORDE", ownerRunId = run, profileUid = "horde", requestedModel = "horde-text"))
+        dev.chungjungsoo.gptmobile.data.free.FreeQueueJobs.save(dev.chungjungsoo.gptmobile.data.free.FreeQueueJob(key, "pending-receipt", "QUEUED", createdAt = System.currentTimeMillis() - 21 * 60_000, chatId = 19, protocol = "HORDE", ownerRunId = run, profileUid = "horde", requestedModel = "horde-text"))
         val methods = mutableListOf<HttpMethod>()
         val client = HttpClient(
             MockEngine { wire ->
@@ -183,6 +208,37 @@ class FreeQueuedTransportTest {
             assertEquals(listOf(HttpMethod.Get), methods)
             assertEquals("pending-receipt", dev.chungjungsoo.gptmobile.data.free.FreeQueueJobs.read(key)!!.id)
             assertEquals("QUEUED", dev.chungjungsoo.gptmobile.data.free.FreeQueueJobs.read(key)!!.state)
+        } finally {
+            client.close()
+        }
+    }
+
+    @Test fun checkingCompletedSavedImageRetainsTheImageWithoutResubmission() = runBlocking {
+        val key = java.util.UUID.randomUUID().toString()
+        val run = "image:$key"
+        val imageUrl = "https://images.example.org/result.webp"
+        dev.chungjungsoo.gptmobile.data.free.FreeQueueJobs.save(dev.chungjungsoo.gptmobile.data.free.FreeQueueJob(key, "image-receipt", "QUEUED", chatId = 20, protocol = "HORDE", ownerRunId = run, profileUid = "horde", requestedModel = "horde-image"))
+        val methods = mutableListOf<HttpMethod>()
+        val client = HttpClient(
+            MockEngine { wire ->
+                methods += wire.method
+                assertEquals("/api/v2/generate/status/image-receipt", wire.url.encodedPath)
+                respond("""{"done":true,"generations":[{"img":"$imageUrl","model":"image-worker"}]}""")
+            }
+        ) { install(HttpTimeout) }
+        try {
+            val network = mockk<NetworkClient>()
+            every { network.invoke() } returns client
+            val api = OpenAIAPIImpl(network)
+            val config = ProviderRequestConfig(FreeAiProvider.AI_HORDE.apiUrl, null, freeProvider = FreeAiProvider.AI_HORDE, profileUid = "horde")
+            val inspected = api.checkSavedHordeJob(run, 20, config)
+            val saved = requireNotNull(dev.chungjungsoo.gptmobile.data.free.FreeQueueJobs.read(key))
+            assertEquals("COMPLETE", saved.state)
+            assertEquals("![AI Horde generated image]($imageUrl)", saved.answer)
+            assertEquals("image-worker", saved.servedModel)
+            org.junit.Assert.assertTrue(inspected.contains(requireNotNull(saved.answer)))
+            assertEquals(inspected, api.checkSavedHordeJob(run, 20, config))
+            assertEquals(listOf(HttpMethod.Get), methods)
         } finally {
             client.close()
         }
@@ -476,14 +532,19 @@ class FreeQueuedTransportTest {
             every { network.invoke() } returns client
             val api = OpenAIAPIImpl(network)
             val config = ProviderRequestConfig(FreeAiProvider.AI_HORDE.apiUrl, null, freeProvider = FreeAiProvider.AI_HORDE, queueScope = java.util.UUID.randomUUID().toString(), profileUid = "horde")
-            assertNotNull(api.streamChatCompletion(request("automatic"), 30, config).toList().last().error)
+            val interrupted = api.streamChatCompletion(request("automatic"), 30, config).toList()
+            assertNotNull(interrupted.last().error)
+            assertEquals(listOf(256), interrupted.mapNotNull { it.serializedOutputTokens })
             val result = api.streamChatCompletion(request("automatic"), 30, config).toList()
             assertEquals(1, posts)
+            assertEquals(listOf(256), result.mapNotNull { it.serializedOutputTokens })
             assertEquals("A cloud folds its silver map.", result.last().choices!!.single().delta.content)
             assertEquals("worker/model", result.last().model)
             assertNull(result.last().usage)
             // Checking the same persisted generation can reuse its result; Generate again cannot.
-            api.streamChatCompletion(request("automatic"), 30, config).toList()
+            val cached = api.streamChatCompletion(request("automatic"), 30, config).toList()
+            assertEquals(listOf(256), cached.mapNotNull { it.serializedOutputTokens })
+            assertEquals("queue_complete", cached.last().choices!!.single().finishReason)
             assertEquals(1, posts)
             api.streamChatCompletion(request("automatic"), 30, config.copy(queueScope = java.util.UUID.randomUUID().toString())).toList()
             assertEquals(2, posts)

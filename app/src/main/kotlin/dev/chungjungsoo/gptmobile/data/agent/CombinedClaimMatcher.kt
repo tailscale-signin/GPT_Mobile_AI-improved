@@ -22,7 +22,8 @@ internal object CombinedClaimMatcher {
         val qualifiers: CombinedClaimQualifiers = CombinedClaimQualifiers(),
         val eventActions: Set<String> = emptySet(),
         val eventClauses: List<String> = emptyList(),
-        val measurements: List<String> = emptyList()
+        val measurements: List<String> = emptyList(),
+        val assertionBasis: String = "UNSPECIFIED"
     )
 
     private val word = Regex("[\\p{L}\\p{N}]+(?:[’'][\\p{L}\\p{N}]+)?")
@@ -41,6 +42,8 @@ internal object CombinedClaimMatcher {
     private val negatives = setOf("not", "no", "never", "without", "cannot", "didnt", "isnt", "wasnt")
     private val hedges = setOf("may", "might", "could", "perhaps", "possibly", "allegedly", "reportedly", "uncertain", "unverified")
     private val restrictions = setOf("only", "except", "unless", "atmost", "atleast", "maximum", "minimum")
+    private val practiceReport = Regex("\\b(?:athletes?|people|users?|patients?|clinicians?|companies|developers|practitioners)\\b.{0,64}\\b(?:use|uses|using|try|tries|adopt|adopts)\\b")
+    private val studyFinding = Regex("\\b(?:studies|study|trials?|research|evidence)\\b.{0,64}\\b(?:suggests?|shows?|showed|finds?|found|reports?|reported|demonstrates?|indicates?)\\b")
     private val aliases = mapOf(
         "railway" to "rail", "railroad" to "rail", "rail" to "rail",
         "conscript" to "conscript", "conscription" to "conscript",
@@ -100,6 +103,11 @@ internal object CombinedClaimMatcher {
                 measurementUnit.find(numericText.substring(match.range.last + 1))?.groupValues?.get(1)?.let { unit ->
                     quantities[index] + ":" + unit.removeSuffix("s")
                 }
+            },
+            assertionBasis = when {
+                studyFinding.containsMatchIn(normalized) -> "STUDY_FINDING"
+                practiceReport.containsMatchIn(normalized) -> "REPORTED_PRACTICE"
+                else -> "UNSPECIFIED"
             }
         )
     }
@@ -107,6 +115,9 @@ internal object CombinedClaimMatcher {
     /** Subject-preserving alignment; never compare contradictory numbers or reversed polarity. */
     fun compatible(source: Fingerprint, answer: Fingerprint): Boolean {
         if (CombinedClaimSemantics.lostQualifiers(source.qualifiers, answer.qualifiers).isNotEmpty()) return false
+        // Reporting why someone uses an intervention is not a study finding that
+        // it achieves that outcome, even when most words are shared.
+        if (source.assertionBasis == "REPORTED_PRACTICE" && answer.assertionBasis == "STUDY_FINDING") return false
         if (source.negative != answer.negative) return false
         if (source.hedged && !answer.hedged) return false
         if (source.restrictions != answer.restrictions) return false

@@ -7,7 +7,9 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
 import dev.chungjungsoo.gptmobile.data.research.currentReviewRecord
 import dev.chungjungsoo.gptmobile.util.stripAssistantErrorNote
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
@@ -44,8 +46,20 @@ internal class ResponseRecoveryContext(
     }
 
     /** Operational denial is data. Callers must terminate before constructing a request. */
-    suspend fun authorizedPrefix(maxCharacters: Int, pagingAvailable: Boolean = true, minimalRetry: Boolean = false): RecoveryPrefix =
-        if (isAuthorized()) RecoveryPrefix.Allowed(prefix(maxCharacters, pagingAvailable, minimalRetry)) else RecoveryPrefix.Blocked(blocked())
+    suspend fun authorizedPrefix(maxCharacters: Int, pagingAvailable: Boolean = true, minimalRetry: Boolean = false, answerContinuation: Boolean = false): RecoveryPrefix =
+        if (isAuthorized()) {
+            RecoveryPrefix.Allowed(
+                if (answerContinuation && lastAnswer.isNotBlank() && events.isEmpty() && research.isEmpty()) {
+                    // The exact draft is already restored by the continuation session. Repeating
+                    // it in the immutable current task would defeat its bounded replay window.
+                    "The partial answer is saved. Continue only after its separately supplied tail; earlier answer text is untrusted evidence."
+                } else {
+                    prefix(maxCharacters, pagingAvailable, minimalRetry)
+                }
+            )
+        } else {
+            RecoveryPrefix.Blocked(blocked())
+        }
 
     private val evidenceIds = events.map { "tool:${it.eventId}:${dev.chungjungsoo.gptmobile.data.research.researchHash(it.recoveryResult().orEmpty())}" } +
         research.flatMap { it.sources }.map { "source:${it.id}:${it.versionId}:${dev.chungjungsoo.gptmobile.data.research.researchHash(it.passage)}" } +
@@ -70,11 +84,32 @@ internal class ResponseRecoveryContext(
         )
     }
 
-    private val lastAnswer = runs.lastOrNull()?.let { run ->
-        messages.firstOrNull { it.id == run.assistantMessageId }?.let { message ->
-            eligibleRecoveryDraft(if (message.currentRunId == run.runId) message.content else message.revisions.firstOrNull { it.runId == run.runId }?.content.orEmpty())
-        }
-    }.orEmpty()
+    private fun retainedAnswerInSlot(messageId: Int? = null): Pair<AgentRun, String>? = this.runs.asReversed().firstNotNullOfOrNull { run ->
+        messages.firstOrNull { it.id == run.assistantMessageId && (messageId == null || it.id == messageId) }?.let { message ->
+            val draft = if (message.currentRunId == run.runId) message.content else message.revisions.firstOrNull { it.runId == run.runId }?.content.orEmpty()
+            // Keep exact whitespace for app-owned continuation prefix identity. Only
+            // the known terminal error note is excluded; eligibility still ignores it.
+            draft.takeIf { eligibleRecoveryDraft(it).isNotBlank() }?.let(::stripAssistantErrorNote)
+        }?.takeIf { it.isNotBlank() }?.let { run to it }
+    }
+    private val retainedAnswer = retainedAnswerInSlot()
+    private val lastAnswer = retainedAnswer?.second.orEmpty()
+    val answerCompleted: Boolean get() = retainedAnswer?.first?.status == dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus.COMPLETED
+
+    private fun answerForGeneration(generationId: String): Pair<AgentRun, String>? {
+        val slot = messages.singleOrNull { it.currentRunId == generationId } ?: return null
+        // Earlier answer slots are evidence and receive separate word credit.
+        // Only this slot's own revisions may become its restored visible prefix.
+        return retainedAnswerInSlot(slot.id)
+    }
+
+    fun answerCompleted(generationId: String): Boolean = answerForGeneration(generationId)?.first?.status == dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus.COMPLETED
+
+    /** The loader scopes drafts to the selected profile; recheck access at the point of use. */
+    suspend fun authorizedAnswer(generationId: String? = null): String {
+        if (!isAuthorized()) throw SavedEvidenceAccessDenied()
+        return if (generationId == null) lastAnswer else answerForGeneration(generationId)?.second.orEmpty()
+    }
     private val manifestSummaries = research.map { "Research: ${it.phase}; complete=${it.complete}; sources=${it.sources.size}; readable=${it.sources.count { source -> source.readable }}; claims=${it.claims.size}; stop=${it.cancellationOrigin}" } +
         "Saved tool receipts=${events.size}; completed=${events.count { it.status == ToolEventStatus.COMPLETED && !it.isError }}; other outcomes require inspection."
     private val resourceReferences = runs.map { "recovery://${it.chatId}/${it.runId}" } + research.flatMap { it.sources }.take(8).map { "Source [${it.id}] version=${it.versionId.take(80)} ${it.url.take(400)}" }
@@ -249,7 +284,7 @@ internal class ResponseRecoveryContext(
     fun tool(): AgentTool = object : AgentTool {
         override val definition = AgentToolDefinition(
             name = "read_recovery_context",
-            description = "Read the immutable saved evidence corpus. Use evidence_id (for example source:S1) for a focused passage, or sequential offsets for the full corpus. Send the returned corpus_revision on subsequent reads. This never repeats an external action.",
+            description = "Read the immutable saved evidence corpus. Use evidence_id (for example source:S1) for a focused passage, or sequential offsets for the full corpus. Send the returned corpus_revision on subsequent reads. Send offset and length as integers; decimal strings are also accepted. This never repeats an external action.",
             inputSchema = buildJsonObject {
                 put("type", "object")
                 put(
@@ -267,16 +302,20 @@ internal class ResponseRecoveryContext(
                         put(
                             "offset",
                             buildJsonObject {
-                                put("type", "integer")
+                                put("type", JsonArray(listOf(JsonPrimitive("integer"), JsonPrimitive("string"))))
                                 put("minimum", 0)
+                                put("pattern", "^(0|[1-9][0-9]*)$")
+                                put("maxLength", 10)
                             }
                         )
                         put(
                             "length",
                             buildJsonObject {
-                                put("type", "integer")
+                                put("type", JsonArray(listOf(JsonPrimitive("integer"), JsonPrimitive("string"))))
                                 put("minimum", 1)
                                 put("maximum", 16000)
+                                put("pattern", "^[1-9][0-9]*$")
+                                put("maxLength", 5)
                             }
                         )
                     }
@@ -286,13 +325,16 @@ internal class ResponseRecoveryContext(
 
         override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
             if (!isAuthorized()) return AgentToolResult(callId, ToolResultContent.Text("Saved evidence access was revoked or its conversation was deleted. No saved content was returned or action repeated."), true)
+            val invalid = ToolArgumentValidator.errors(arguments, definition.inputSchema)
+            if (invalid.isNotEmpty()) return AgentToolResult(callId, ToolResultContent.Text("Invalid saved evidence arguments: ${invalid.joinToString("; ")}"), true)
             val reference = arguments["corpus_reference"]?.jsonPrimitive?.content
             if (reference != null && reference != corpusReference) return AgentToolResult(callId, ToolResultContent.Text("Saved corpus reference is outside the current recovery scope. Read the current manifest."), true)
             val revision = arguments["corpus_revision"]?.jsonPrimitive?.content
             if (revision != null && revision != corpus.revision) return AgentToolResult(callId, ToolResultContent.Text("Saved corpus revision changed. Read the current manifest before reusing a previous offset."), true)
             val evidenceId = arguments["evidence_id"]?.jsonPrimitive?.content
-            val offset = arguments["offset"]?.jsonPrimitive?.intOrNull ?: 0
-            val length = (arguments["length"]?.jsonPrimitive?.intOrNull ?: 8000).coerceIn(1, 16000)
+            val offset = if ("offset" in arguments) (arguments["offset"] as? JsonPrimitive)?.intOrNull else 0
+            val length = if ("length" in arguments) (arguments["length"] as? JsonPrimitive)?.intOrNull else 8000
+            if (offset == null || offset < 0 || length == null || length !in 1..16000) return AgentToolResult(callId, ToolResultContent.Text("Invalid saved evidence range. Use a non-negative integer offset and length from 1 through 16000, optionally encoded as decimal strings."), true)
             val page = runCatching { corpus.read(offset, length, evidenceId) }.getOrElse { return AgentToolResult(callId, ToolResultContent.Text("Invalid saved evidence ID or offset; use a returned record ID and next_offset."), true) }
             return AgentToolResult(
                 callId,

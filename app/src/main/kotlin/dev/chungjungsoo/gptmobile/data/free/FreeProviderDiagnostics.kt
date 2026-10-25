@@ -21,6 +21,9 @@ class FreeRequestDiagnostics {
     internal var network = dev.chungjungsoo.gptmobile.data.network.DeviceNetworkDiagnostics.episodes.current()
 
     internal fun attempted() {
+        dispatchedAt = dev.chungjungsoo.gptmobile.data.network.ProviderElapsedClock.now()
+        responseAt = null
+        response = null
         attemptedDispatch = true
         requestSent = null // Attempting dispatch does not establish that DNS or transmission succeeded.
         responseReceived = false
@@ -30,6 +33,7 @@ class FreeRequestDiagnostics {
     }
 
     internal fun responded() {
+        if (responseAt == null) responseAt = dev.chungjungsoo.gptmobile.data.network.ProviderElapsedClock.now()
         requestSent = true
         responseReceived = true
         dev.chungjungsoo.gptmobile.data.network.DeviceNetworkDiagnostics.episodes.responseReceived(network)?.let { recovery ->
@@ -55,6 +59,11 @@ class FreeRequestDiagnostics {
     internal var jobId: String? = null
     internal var progress: String? = null
     internal var terminal: Boolean? = null
+    internal var response: dev.chungjungsoo.gptmobile.data.network.FreeResponseObservation? = null
+    internal var permitWaitStartedAt: Long? = null
+    internal var permitAcquiredAt: Long? = null
+    internal var dispatchedAt: Long? = null
+    internal var responseAt: Long? = null
 }
 
 @Serializable
@@ -95,7 +104,10 @@ data class FreeProviderFailureRecord(
     val promptTokens: Long? = null,
     val outputTokens: Long? = null,
     val safetyTokens: Long? = null,
-    val contextTokens: Long? = null
+    val contextTokens: Long? = null,
+    val response: dev.chungjungsoo.gptmobile.data.network.FreeResponseObservation? = null,
+    val permitWaitMillis: Long? = null,
+    val dispatchToResponseMillis: Long? = null
 )
 
 /** Small independent failure history, also included in exports when verbose logging was off. */
@@ -207,7 +219,7 @@ object FreeProviderDiagnostics {
             provider = provider.name, endpoint = provider.apiUrl, model = model.take(256), profileUid = config.profileUid,
             chatId = config.queueScope?.substringBefore(':')?.toIntOrNull(), stage = state?.stage ?: "unknown", status = status,
             contentType = contentType,
-            responseFormat = if (html) {
+            responseFormat = state?.response?.format ?: if (html) {
                 "html"
             } else if (root != null) {
                 "json"
@@ -223,7 +235,10 @@ object FreeProviderDiagnostics {
             }.toMap(),
             quotaScope = ((error?.get("quota_scope") ?: error?.get("scope")) as? JsonPrimitive)?.contentOrNull?.takeIf { it.matches(Regex("[A-Za-z0-9_.:/ -]{1,80}")) },
             jobId = state?.jobId, progress = state?.progress, event = event, terminal = terminal,
-            promptTokens = receipt?.promptTokens, outputTokens = receipt?.outputTokens, safetyTokens = receipt?.safetyTokens, contextTokens = receipt?.contextTokens
+            promptTokens = receipt?.promptTokens, outputTokens = receipt?.outputTokens, safetyTokens = receipt?.safetyTokens, contextTokens = receipt?.contextTokens,
+            response = state?.response,
+            permitWaitMillis = state?.permitWaitStartedAt?.let { start -> state.permitAcquiredAt?.minus(start)?.coerceAtLeast(0) },
+            dispatchToResponseMillis = state?.dispatchedAt?.let { start -> state.responseAt?.minus(start)?.coerceAtLeast(0) }
         )
         records = (records + record).takeLast(64)
         save()

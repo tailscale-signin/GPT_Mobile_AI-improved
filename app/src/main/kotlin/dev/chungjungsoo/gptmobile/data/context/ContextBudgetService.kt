@@ -3,7 +3,7 @@ package dev.chungjungsoo.gptmobile.data.context
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import kotlinx.serialization.Serializable
 
-/** Zero outputTokens means no app-imposed output limit; prompt reservation is independent. */
+/** Zero outputTokens means no explicit user output cap; dispatch still admits a finite per-request context reserve. */
 @Serializable
 data class TokenBudgetSettings(val contextTokens: Int = Int.MAX_VALUE, val outputTokens: Int = 0, val totalRunTokens: Int = Int.MAX_VALUE, val profileContextCeilings: Map<String, Int> = emptyMap(), val generationTimeoutMinutes: Int = 30, val responseCharacterLimit: Int = 1_048_576, val repetitionGuardEnabled: Boolean = true, val adaptiveToolCatalog: Boolean = true) {
     fun normalized() = copy(contextTokens = if (contextTokens == 0 || contextTokens == Int.MAX_VALUE) Int.MAX_VALUE else contextTokens.coerceIn(256, 1048576), outputTokens = outputTokens.coerceAtLeast(0), totalRunTokens = if (totalRunTokens == 0 || totalRunTokens == Int.MAX_VALUE) Int.MAX_VALUE else totalRunTokens.coerceIn(4096, 2097152), generationTimeoutMinutes = generationTimeoutMinutes.coerceIn(0, 1440), responseCharacterLimit = if (responseCharacterLimit == 0) 0 else responseCharacterLimit.coerceIn(4096, 16_777_216))

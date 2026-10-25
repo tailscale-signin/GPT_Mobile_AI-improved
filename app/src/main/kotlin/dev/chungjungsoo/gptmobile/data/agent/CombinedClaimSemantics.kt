@@ -127,7 +127,12 @@ internal object CombinedClaimSemantics {
     fun applicabilityConflicts(first: CombinedClaimQualifiers, second: CombinedClaimQualifiers): List<String> = buildList {
         fun exclusive(a: Set<String>, b: Set<String>) = a.isNotEmpty() && b.isNotEmpty() && a.intersect(b).isEmpty()
         if (exclusive(first.routes, second.routes)) add("INTERVENTION_ROUTE_MISMATCH")
-        if (("ANIMAL" in first.populations && "HUMAN" in second.populations) || ("HUMAN" in first.populations && "ANIMAL" in second.populations)) add("POPULATION_MISMATCH")
+        // A contrast such as "animal evidence is stronger than human evidence" has
+        // both populations. It must match itself; only disjoint explicit scopes
+        // establish a population conflict. lostQualifiers still rejects dropping
+        // either population from a comparison.
+        val populationKinds = setOf("ANIMAL", "HUMAN")
+        if (exclusive(first.populations.intersect(populationKinds), second.populations.intersect(populationKinds))) add("POPULATION_MISMATCH")
         if (exclusive(first.times, second.times)) add("TIME_SCOPE_MISMATCH")
         if (exclusive(first.units, second.units)) add("UNIT_MISMATCH")
         if (exclusive(first.entities, second.entities)) add("ENTITY_MISMATCH")
@@ -158,7 +163,7 @@ internal object CombinedClaimSemantics {
             val digest = researchHash(source.content)
             val spans = CombinedTextSpanIndex(source.content)
             val controls = if (source.claimExtractionVersion >= 3) CombinedEditorialView.prepare(source.content).omissions.filter { it.reason == "STANDALONE_SELF_EDITING" } else emptyList()
-            val extracted = if (source.claimExtractionVersion >= 2) CombinedSourceClaims.units(source.content, source.contentCompleteness == "PARTIAL").filterNot { unit -> controls.any { unit.start >= it.start && unit.end <= it.end } } else null
+            val extracted = if (source.claimExtractionVersion >= 2) CombinedSourceClaims.units(source.content, source.contentCompleteness == "PARTIAL", excludeStructural = source.claimExtractionVersion >= 4).filterNot { unit -> controls.any { unit.start >= it.start && unit.end <= it.end } } else null
             val texts = extracted?.map { it.text } ?: CombinedContentCoverage.sentences(CombinedContentCoverage.sourceCoverageText(source.content))
             texts.mapIndexed { index, text ->
                 val unit = extracted?.get(index)
@@ -195,6 +200,7 @@ internal object CombinedClaimSemantics {
                     profileUids = setOf(source.platformUid),
                     ancestryIds = source.ancestryIds.ifEmpty { setOf("contribution:$digest") },
                     extractionMethod = when {
+                        source.claimExtractionVersion >= 4 -> "EDITORIAL_CLAIM_V4"
                         source.claimExtractionVersion >= 3 -> "MAPPED_EDITORIAL_PROPOSITION_V3"
                         source.claimExtractionVersion >= 2 -> "SCOPED_PROPOSITION_V2"
                         else -> "CONSERVATIVE_PROPOSITION_V1"

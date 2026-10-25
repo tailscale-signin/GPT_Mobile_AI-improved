@@ -32,7 +32,10 @@ import kotlinx.serialization.json.Json
 data class ProviderWait(@PrimaryKey val runId: String, val fence: Long, val scope: String, val retryAt: Long, val checkpoint: String)
 
 @Serializable
-internal enum class ProviderWaitMode { INITIAL, RESEARCH_STAGE, COMBINED_APPEND }
+internal enum class ProviderWaitMode { INITIAL, RESEARCH_STAGE, COMBINED_APPEND, TEXT_CONTINUATION }
+
+@Serializable
+internal data class ProviderContinuationCheckpoint(val rootWorkId: String, val sourceMessageId: Int, val prefixDigest: String)
 
 @Serializable
 internal data class ProviderWaitCheckpoint(
@@ -54,7 +57,8 @@ internal data class ProviderWaitCheckpoint(
     val limitPlatform: PlatformV2? = null,
     val limitRegisteredRevision: String = "",
     val limitPolicyRevision: String = "",
-    val limitPermissionRevision: String = ""
+    val limitPermissionRevision: String = "",
+    val continuation: ProviderContinuationCheckpoint? = null
 )
 
 internal data class ProviderWaitResume(val request: AgentRunRequest, val saved: ProviderWaitCheckpoint, val row: ProviderWait)
@@ -97,6 +101,7 @@ class ProviderWaitStore @Inject constructor(
         val combined = request.chatToolConfig?.combined
         val mode = when {
             combined?.role?.finalization == true -> ProviderWaitMode.COMBINED_APPEND
+            decision.continuationPrefixDigest != null -> ProviderWaitMode.TEXT_CONTINUATION
             stage != null -> ProviderWaitMode.RESEARCH_STAGE
             else -> ProviderWaitMode.INITIAL
         }
@@ -106,6 +111,7 @@ class ProviderWaitStore @Inject constructor(
         val run = database.agentRunDao().getById(request.runId) ?: return false
         val message = dao.recoveryMessage(run.assistantMessageId) ?: return false
         if (mode == ProviderWaitMode.INITIAL && (message.content.isNotBlank() || message.thoughts.isNotBlank() || dao.rawGetToolEventsForRun(run.runId).isNotEmpty())) return false
+        if (mode == ProviderWaitMode.TEXT_CONTINUATION && (message.content.isBlank() || researchHash(message.content) != decision.continuationPrefixDigest || run.synthesisKey != null)) return false
         if (mode == ProviderWaitMode.COMBINED_APPEND) {
             val raw = run.synthesisSnapshot ?: return false
             if (researchHash(raw) != run.synthesisKey) return false
@@ -135,7 +141,17 @@ class ProviderWaitStore @Inject constructor(
         val run = database.agentRunDao().getById(request.runId) ?: return false
         if (run.status != (if (running) "RUNNING" else "QUEUED") || !running && run.startedAt != null) return false
         if (!decision.knownNotAccepted || request.userMessages.any { it.id <= 0 }) return false
-        val replies = request.assistantMessages.map { row -> row.filter { it.id > 0 && it.id != run.assistantMessageId } }
+        val continuation = if (mode == ProviderWaitMode.TEXT_CONTINUATION) {
+            val inherited = request.assistantMessage.timeline.mapNotNull { it.recovery }.firstOrNull { it.generationId == request.runId }
+            val recovered = inherited?.let { resolveTaskRecovery(request.userMessages, it) } ?: resolveTaskRecovery(request.userMessages)
+            val sourceId = request.stage?.acceptedTask?.originatingUserMessageId ?: recovered?.sourceMessageId ?: run.userMessageId
+            val source = request.userMessages.singleOrNull { it.id == sourceId && it.chatId == request.chatId && it.platformType == null } ?: return false
+            if (TaskRecoveryAction.fromText(source.content) != null) return false
+            ProviderContinuationCheckpoint("${request.chatId}:$sourceId", sourceId, requireNotNull(decision.continuationPrefixDigest))
+        } else {
+            null
+        }
+        val replies = providerWaitReplies(request, run.assistantMessageId)
         val limited = limitProfile.copy(model = decision.model)
         val checkpoint = ProviderWaitCheckpoint(
             chatId = request.chatId, platform = request.platform.copy(token = null),
@@ -147,7 +163,7 @@ class ProviderWaitStore @Inject constructor(
             participants = request.researchParticipantUids, mode = mode, decision = decision, deferredStage = stage,
             limitPlatform = limited.copy(token = null), limitRegisteredRevision = ConfiguredDispatchAuthority.profileRevision(limitProfile),
             limitPolicyRevision = ConfiguredDispatchAuthority.policyRevision(settings.getFeatureSettings(), limited.uid, request.chatId),
-            limitPermissionRevision = settings.providerPermissionRevision(limited)
+            limitPermissionRevision = settings.providerPermissionRevision(limited), continuation = continuation
         )
         val row = ProviderWait(request.runId, run.ownershipFence, decision.scope, decision.retryAt, json.encodeToString(checkpoint))
         val acceptedAuthority = decision.authority ?: return false
@@ -248,6 +264,10 @@ class ProviderWaitStore @Inject constructor(
                 dao.blockProviderWait(row.runId, "PROVIDER_WAIT_INPUT_CHANGED")
                 continue
             }
+            if (saved.mode == ProviderWaitMode.TEXT_CONTINUATION && (saved.continuation?.prefixDigest != decision.continuationPrefixDigest || answer.content.isBlank() || researchHash(answer.content) != saved.continuation?.prefixDigest)) {
+                dao.blockProviderWait(row.runId, "PROVIDER_WAIT_PREFIX_CHANGED")
+                continue
+            }
             if (saved.mode == ProviderWaitMode.INITIAL && run.status == "WAITING_PROVIDER_LIMIT" && dao.claimProviderWait(row.runId, row.fence) != 1) continue
             if (saved.mode != ProviderWaitMode.INITIAL && run.status != "WAITING_PROVIDER_LIMIT") continue
             val contextReplies = replies.mapIndexed { index, messages -> if (index == replies.lastIndex) messages + answer else messages }
@@ -283,8 +303,39 @@ class ProviderWaitStore @Inject constructor(
         return request.copy(runId = runId, assistantMessage = persisted.assistantMessage, assistantMessages = replies)
     }
 
+    internal suspend fun resumeTextContinuation(action: ProviderWaitResume): AgentRunRequest? {
+        val request = action.request
+        val saved = action.saved
+        val continuation = saved.continuation ?: return null
+        if (saved.mode != ProviderWaitMode.TEXT_CONTINUATION || saved.decision?.knownNotAccepted != true || saved.decision.continuationPrefixDigest != continuation.prefixDigest) return null
+        requireNotNull(saved.decision.authority) { "PROVIDER_WAIT_AUTHORITY_UNAVAILABLE" }.validate(settings)
+        val runId = "provider-continuation:" + researchHash("${request.runId}:${action.row.fence}:${action.row.checkpoint}")
+        val source = request.userMessages.lastOrNull() ?: return null
+        val prior = database.agentRunDao().getById(request.runId) ?: return null
+        val persisted = database.agentPersistenceDao().persistProviderContinuationRetry(
+            action.row,
+            PersistAgentRetryRequest(
+                source,
+                request.assistantMessage,
+                AgentRunDraft(runId, request.platform.uid, prior.providerSnapshot, request.platform.model, System.currentTimeMillis() / 1000, synthesisSnapshot = prior.synthesisSnapshot),
+                recovery = TaskResumeDescriptor(continuation.rootWorkId, continuation.sourceMessageId, runId, TaskRecoveryAction.CONTINUE_RUN, continuation.prefixDigest)
+            )
+        ) ?: return null
+        val replies = request.assistantMessages.mapIndexed { index, row -> if (index == request.assistantMessages.lastIndex) row.filter { it.id != persisted.assistantMessage.id } + persisted.assistantMessage else row }
+            .ifEmpty { listOf(listOf(persisted.assistantMessage)) }
+        return request.copy(runId = runId, assistantMessage = persisted.assistantMessage, assistantMessages = replies)
+    }
+
     private suspend fun inputDigest(messages: List<MessageV2>): String = providerWaitInputDigest(database.agentPersistenceDao(), messages)
 }
+
+/** ContextBuilder never sends the current response row as provider input. */
+internal fun providerWaitReplies(request: AgentRunRequest, assistantMessageId: Int): List<List<MessageV2>> =
+    request.assistantMessages.mapIndexed { index, row ->
+        // Sibling contributors keep streaming while this profile is paused. Binding
+        // those mutable outputs would invalidate an otherwise unchanged request.
+        if (index >= request.userMessages.lastIndex) emptyList() else row.filter { it.id > 0 && it.id != assistantMessageId }
+    }
 
 /** Every wait mode compares the same complete archive/document projection on save and wake. */
 internal suspend fun providerWaitInputDigest(dao: dev.chungjungsoo.gptmobile.data.database.dao.CombinedDocumentDao, messages: List<MessageV2>): String {

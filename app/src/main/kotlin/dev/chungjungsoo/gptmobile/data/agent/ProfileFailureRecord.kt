@@ -28,6 +28,9 @@ data class ProfileFailureRecord(
             val unavailablePolicy = details.contains("POLICY_SNAPSHOT_", true)
             val incompatible = demoExcluded || listOf("enforceable", "unsupported", "budget-blocked", "demo exclusion", "demo endpoint", "demo model", "demo provider", "TOOL_CHOICE_MISMATCH", "RESEARCH_CONFIGURATION_CHANGED", "COMBINED_OUTPUT_ALLOWANCE_CHANGED", "Profile is disabled", "PROFILE_DISABLED", "PROFILE_REMOVED", "PROFILE_CONFIGURATION_CHANGED", "PROFILE_IDENTITY_AMBIGUOUS", "DISPATCH_POLICY_CHANGED", "Unknown Free route").any { details.contains(it, true) }
             val category = when {
+                details.contains("QUEUE_JOB_PENDING", true) -> "QUEUED_JOB"
+                details.contains("CACHED_UNUSABLE_RESPONSE", true) -> "CACHED_UNUSABLE_RESPONSE"
+                details.contains("STREAM_DEGRADED", true) -> "STREAM_DEGRADED"
                 unavailablePolicy -> "SAVED_POLICY_UNAVAILABLE"
                 details.contains("TOOL_CHOICE_MISMATCH", true) -> "TOOL_CHOICE_MISMATCH"
                 details.contains("PROVIDER_PAYLOAD_ERROR", true) -> "PROVIDER_PAYLOAD_ERROR"
@@ -39,14 +42,13 @@ data class ProfileFailureRecord(
                 details.contains("NO_VISIBLE_ANSWER", true) || details.contains("COMBINED_EMPTY_OUTPUT", true) -> "NO_VISIBLE_ANSWER"
                 details.contains("HOSTED_GENERATION_FAILED", true) -> "HOSTED_GENERATION_FAILED"
                 retryAt != null || Regex("(?i)429|rate.?limit|cooldown|quota").containsMatchIn(details) -> "RATE_LIMIT"
-                details.contains("QUEUE_JOB_PENDING", true) -> "QUEUED_JOB"
                 Regex("(?i)timeout|timed out").containsMatchIn(details) -> "TIMEOUT"
                 details.contains("DNS", true) -> "DNS_RESOLUTION_FAILED"
                 Regex("(?i)\\b50[234]\\b").containsMatchIn(details) -> "UPSTREAM_UNAVAILABLE"
                 details.contains("connection", true) -> "CONNECTION"
                 else -> "INCOMPLETE"
             }
-            return ProfileFailureRecord(category, !incompatible && !unavailablePolicy, retryAt)
+            return ProfileFailureRecord(category, !incompatible && !unavailablePolicy && category !in setOf("QUEUED_JOB", "CACHED_UNUSABLE_RESPONSE"), retryAt)
         }
     }
 }

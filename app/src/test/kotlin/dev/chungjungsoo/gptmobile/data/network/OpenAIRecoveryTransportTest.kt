@@ -132,4 +132,26 @@ class OpenAIRecoveryTransportTest {
             client.close()
         }
     }
+
+    @Test fun malformedChunkAfterUsableTextDegradesTheStreamAndDoesNotCommitTools() = runTest {
+        val body = """
+            data: {"choices":[{"delta":{"content":"Retained answer."}}]}
+
+            data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call","type":"function","function":{"name":"lookup","arguments":"{}"}}]}}]}
+
+            data: {malformed
+
+            data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}
+
+            data: [DONE]
+
+        """.trimIndent()
+        withApi(MockEngine { respond(body, headers = headersOf(HttpHeaders.ContentType, "text/event-stream")) }) { api ->
+            val chunks = api.streamChatCompletion(request, 5, config).toList()
+            assertEquals("Retained answer.", chunks.flatMap { it.choices.orEmpty() }.mapNotNull { it.effectiveDelta.content }.joinToString(""))
+            assertEquals("STREAM_DEGRADED", chunks.last().error?.code)
+            assertFalse(chunks.any { it.streamFinished })
+            assertFalse(chunks.flatMap { it.choices.orEmpty() }.any { it.finishReason == "tool_calls" })
+        }
+    }
 }

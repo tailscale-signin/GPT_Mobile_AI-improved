@@ -67,12 +67,12 @@ data class CombinedRecoveryFailure(
         fun fromCode(code: String?): CombinedRecoveryFailure {
             val category = when (code) {
                 "COMBINED_WRITER_STALLED", "REASONING_BUDGET_EXHAUSTED", "reasoning_budget_exhausted" -> CombinedRecoveryCategory.REASONING_STALL
-                "COMBINED_EMPTY_OUTPUT", "NO_VISIBLE_ANSWER", "no_visible_answer" -> CombinedRecoveryCategory.EMPTY_OUTPUT
-                "OUTPUT_PROTOCOL_INVALID", "INVALID_DELIVERY_RECORD", "COMBINED_PROTOCOL_UNSUITABLE" -> CombinedRecoveryCategory.MALFORMED_RECORD
+                "COMBINED_EMPTY_OUTPUT", "NO_VISIBLE_ANSWER", "no_visible_answer", "CACHED_UNUSABLE_RESPONSE" -> CombinedRecoveryCategory.EMPTY_OUTPUT
+                "OUTPUT_PROTOCOL_INVALID", "INVALID_DELIVERY_RECORD", "COMBINED_PROTOCOL_UNSUITABLE", "STREAM_DEGRADED" -> CombinedRecoveryCategory.MALFORMED_RECORD
                 "QUEUE_JOB_PENDING" -> CombinedRecoveryCategory.QUEUE_PENDING
                 "NETWORK_ERROR", "network_error", "DNS_RESOLUTION_FAILED", "QUEUE_STREAM_DISCONNECTED", "408", "500", "502", "503", "504" -> CombinedRecoveryCategory.NETWORK_TRANSIENT
-                "COMBINED_PROVIDER_UNAVAILABLE", "PROVIDER_UNAVAILABLE", "HOSTED_GENERATION_FAILED", "LOCAL_COOLDOWN_ACTIVE", "PROVIDER_RATE_LIMITED", "429" -> CombinedRecoveryCategory.PROVIDER_UNAVAILABLE
-                "COMBINED_PARTIAL", "COMBINED_RECORD_INCOMPLETE", "COMBINED_RECORD_RECOVERY_LIMIT" -> CombinedRecoveryCategory.INCOMPLETE_RECORD
+                "COMBINED_PROVIDER_UNAVAILABLE", "PROVIDER_UNAVAILABLE", "HOSTED_GENERATION_FAILED", "LOCAL_COOLDOWN_ACTIVE", "LOCAL_ALLOWANCE_EXHAUSTED", "PROVIDER_RATE_LIMITED", "429" -> CombinedRecoveryCategory.PROVIDER_UNAVAILABLE
+                "COMBINED_PARTIAL", "COMBINED_RECORD_INCOMPLETE", "COMBINED_RECORD_RECOVERY_LIMIT", "COMBINED_LENGTH_REQUIREMENT_UNMET" -> CombinedRecoveryCategory.INCOMPLETE_RECORD
                 "COMBINED_REQUIREMENTS_UNMET" -> CombinedRecoveryCategory.REQUIREMENTS_UNMET
                 "AUTHENTICATION_REQUIRED", "AUTHENTICATION_REJECTED", "PROVIDER_CLIENT_RESTRICTED", "401", "403", "COMBINED_STAGE_IDENTITY_REJECTED", "COMBINED_SUCCESSOR_AUTHORITY_CHANGED", "COMBINED_SUCCESSOR_TRANSFER_DENIED", "COMBINED_SUCCESSOR_CORPUS_CHANGED" -> CombinedRecoveryCategory.AUTHORITY_REJECTED
                 "COMBINED_DELIVERY_LIMIT", "COMBINED_BUDGET_EXHAUSTED" -> CombinedRecoveryCategory.BUDGET_EXHAUSTED
@@ -82,11 +82,15 @@ data class CombinedRecoveryFailure(
                 category,
                 when (category) {
                     CombinedRecoveryCategory.REASONING_STALL, CombinedRecoveryCategory.EMPTY_OUTPUT, CombinedRecoveryCategory.MALFORMED_RECORD, CombinedRecoveryCategory.QUEUE_PENDING, CombinedRecoveryCategory.NETWORK_TRANSIENT, CombinedRecoveryCategory.PROVIDER_UNAVAILABLE -> "TRY_ELIGIBLE_WRITER"
-                    CombinedRecoveryCategory.INCOMPLETE_RECORD -> "RESUME_SAVED_RECORD"
+                    CombinedRecoveryCategory.INCOMPLETE_RECORD -> if (code == "COMBINED_LENGTH_REQUIREMENT_UNMET") "STOP" else "RESUME_SAVED_RECORD"
                     CombinedRecoveryCategory.REQUIREMENTS_UNMET -> "REVIEW_COMPLETED_ANSWER"
                     else -> "STOP"
                 },
-                localAttemptStatus = if (category == CombinedRecoveryCategory.REQUIREMENTS_UNMET) "COMPLETED_WITH_ISSUES" else "FAILED",
+                localAttemptStatus = when (category) {
+                    CombinedRecoveryCategory.REQUIREMENTS_UNMET -> "COMPLETED_WITH_ISSUES"
+                    CombinedRecoveryCategory.QUEUE_PENDING -> "WAITING_REMOTE_JOB"
+                    else -> "FAILED"
+                },
                 remoteJobStatus = if (category == CombinedRecoveryCategory.QUEUE_PENDING) {
                     "PENDING"
                 } else if (category == CombinedRecoveryCategory.REQUIREMENTS_UNMET) {

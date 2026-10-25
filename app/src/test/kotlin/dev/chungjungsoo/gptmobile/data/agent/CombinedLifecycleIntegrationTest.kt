@@ -193,6 +193,12 @@ class CombinedLifecycleIntegrationTest {
                 onCombinedReplacement = { candidate ->
                     repository.replaceCombinedAnswer(request.runId, current.ownershipFence, candidate)?.also { current = it } != null
                 },
+                onCombinedAnswer = { content, thoughts, timeline ->
+                    val bundled = current.copy(content = content, thoughts = thoughts, timeline = request.assistantMessage.timeline.filter { it.combinedTurn != null || it.writerIdentity != null } + timeline)
+                    repository.checkpointCombinedAnswer(bundled).also { committed ->
+                        if (committed) current = bundled
+                    }
+                },
                 onResearchReplacement = { digest, text ->
                     repository.replaceResearchDraft(request.runId, current.ownershipFence, digest, text)?.also { current = it } != null
                 },
@@ -307,7 +313,7 @@ class CombinedLifecycleIntegrationTest {
 
     @Test fun toolFreeFreeContributorReceivesRoleAndProviderAdjustedAllowance() = runBlocking {
         profiles = listOf(dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.AI_HORDE.applyTo(profiles.first()).copy(model = "horde-text"))
-        val accepted = turn("History of France in 250 words", "France developed through monarchy, revolution and republican government.")
+        val accepted = turn("Briefly summarize the history of France", "France developed through monarchy, revolution and republican government.")
         val wire = requests.single()
         assertEquals(256, wire.maxTokens)
         val text = wire.messages.toString()

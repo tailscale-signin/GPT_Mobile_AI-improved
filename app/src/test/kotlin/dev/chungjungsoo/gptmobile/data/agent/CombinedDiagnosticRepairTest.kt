@@ -108,13 +108,13 @@ class CombinedDiagnosticRepairTest {
             """{"type":"decision","claim":"C1.1","disposition":"MERGED","reason":"Combined elsewhere","final_quote":"Text that is absent"}""" + "\n"
         val wrapper = CombinedDeliverySession(session(wire), listOf(source), 10000, validateAccess = {}, structured = true, combined = execution(), originalRequest = "Rank free model APIs") { _, _ -> error("Advisory attribution does not require a rewrite") }
         val events = wrapper.streamRound(emptyList(), emptyList()).toList()
-        val report = events.filterIsInstance<ProviderEvent.CombinedQuality>().last().report
+        val report = events.combinedReport()
         assertEquals(ProviderEvent.Completed, events.last())
         assertEquals("COMPLETED_WITH_LIMITS", report.deliveredScopeStatus)
         assertFalse(report.factualAccuracyVerified)
         assertEquals(0, report.repairRounds)
         assertEquals("UNRESOLVED", report.decisions.first().disposition)
-        assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().any { "localhost:11434" in it.text })
+        assertTrue("localhost:11434" in events.combinedAnswerText())
     }
 
     @Test fun malformedDecisionIsReconstructedOnceWithoutLosingCommittedPassage() = runTest {
@@ -146,8 +146,8 @@ class CombinedDiagnosticRepairTest {
         val replacement = "The medication reduced mortality in a clinical trial."
         val wrapper = CombinedDeliverySession(session(passage(original)), emptyList(), 10000, validateAccess = {}, structured = true, combined = execution(), revisionId = "original") { _, _ -> session(passage(replacement)) }
         val events = wrapper.streamRound(emptyList(), emptyList()).toList()
-        val report = events.filterIsInstance<ProviderEvent.CombinedQuality>().last().report
-        assertEquals(original, events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
+        val report = events.combinedReport()
+        assertEquals(original, events.combinedAnswerText())
         assertEquals("original", report.revisionId)
         assertEquals(0, report.repairAccepted)
         assertTrue(report.repairRejections.contains("REPLACEMENT_ADDED_VERIFICATION_NEEDS"))

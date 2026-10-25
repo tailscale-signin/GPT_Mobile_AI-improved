@@ -13,6 +13,7 @@ import javax.inject.Inject
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 
 data class DebugAnalyticsState(
@@ -93,9 +94,12 @@ class DebugDiagnosticsViewModel @Inject constructor(
             state.copy(
                 memoryQueued = work.count { it.state == androidx.work.WorkInfo.State.ENQUEUED },
                 memoryRunning = work.count { it.state == androidx.work.WorkInfo.State.RUNNING },
-                memoryWaiting = dev.chungjungsoo.gptmobile.data.memory.MemoryEnrichmentQueue.waitingStore(context).all.size,
                 memoryCompleted = work.count { it.state == androidx.work.WorkInfo.State.SUCCEEDED && it.outputData.getString("reason") == "ENRICHED" }
             )
         }
+        .combine(dev.chungjungsoo.gptmobile.data.memory.MemoryEnrichmentQueue.observeWaitingCount(context)) { state, waiting ->
+            state.copy(memoryWaiting = waiting)
+        }
+        .flowOn(kotlinx.coroutines.Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), DebugAnalyticsState())
 }

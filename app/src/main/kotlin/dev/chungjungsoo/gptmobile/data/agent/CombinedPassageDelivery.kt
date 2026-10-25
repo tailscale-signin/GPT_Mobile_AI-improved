@@ -57,6 +57,19 @@ data class CombinedClaimReview(
 
 /** Completion, textual accounting, evidence support and semantic truth are separate dimensions. */
 @Serializable
+data class CombinedAssessmentSnapshot(
+    val answerDigest: String,
+    val revisionId: String,
+    val wordCount: Int,
+    val checks: List<CombinedAnswerCheck> = emptyList(),
+    val decisions: List<CombinedClaimReview> = emptyList(),
+    val unresolvedSourceLinks: Int = 0,
+    val partialSourceLinks: Int = 0,
+    val verificationNeeds: List<CombinedVerificationNeed> = emptyList()
+)
+
+/** All final measurements below refer to [answerDigest]; writer measurements are separate. */
+@Serializable
 data class CombinedQualityReport(
     val version: Int = 5,
     val answerDigest: String = "",
@@ -111,7 +124,27 @@ data class CombinedQualityReport(
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
     val retainedFragments: Int = 0,
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
-    val claimMapping: CombinedAnswerMapping? = null
+    val claimMapping: CombinedAnswerMapping? = null,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val assessmentStage: String = "DRAFT",
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val writerAssessment: CombinedAssessmentSnapshot? = null,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val writerAnswerDigest: String = "",
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val writerCharacters: Int = 0,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val locallyAddedCharacters: Int = 0,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val locallyRemovedCharacters: Int = 0,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val displayedCharacters: Int = 0,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val fullyLinkedClaims: Int = 0,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val partialSourceLinks: Int = 0,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val unresolvedSourceLinks: Int = 0
 )
 
 /** One NDJSON record per paragraph permits progressive delivery without leaking protocol data. */

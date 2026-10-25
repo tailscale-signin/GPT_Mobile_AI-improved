@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.benchmark
 
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.ClientType
+import dev.chungjungsoo.gptmobile.data.model.FreeAiProvider
 import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterOptions
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -20,6 +21,18 @@ internal fun benchmarkCompletionBudget(profile: PlatformV2, category: String): I
     profile.compatibleType == ClientType.LITERT_LM -> 256
     profile.model.contains("gpt-oss", true) -> 8192
     else -> 2048
+}
+
+/** A provider with a fixed ceiling cannot participate in a strictly smaller fixture. */
+internal fun requireBenchmarkOutputContract(profile: PlatformV2, category: String, allowance: Int?) {
+    if (profile.compatibleType != ClientType.FREE) return
+    val provider = FreeAiProvider.fromApiUrl(profile.apiUrl) ?: return
+    val fixed = provider.fixedOutputTokens ?: return
+    if (allowance != null && allowance < fixed) {
+        throw BenchmarkUnsupportedConfigurationException(
+            "${provider.displayName} cannot honor the $allowance-token output allowance for $category: its generation ceiling is fixed at $fixed tokens. This configuration is unsupported; no request was sent and the benchmark allowance was not changed."
+        )
+    }
 }
 
 internal fun benchmarkProfile(profile: PlatformV2, allowTools: Boolean, category: String = "speed", executionPolicy: BenchmarkExecutionPolicy = BenchmarkExecutionPolicy.DETERMINISTIC_CAPABILITY_V1): PlatformV2 {

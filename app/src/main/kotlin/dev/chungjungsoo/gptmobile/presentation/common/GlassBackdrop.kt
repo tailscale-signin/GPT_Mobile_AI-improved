@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
@@ -78,6 +79,10 @@ internal fun Modifier.glassBackdrop(shape: Shape, opacity: Float = GLASS_OPACITY
     val sequence = LocalGlassPopupSequence.current
     val popupZ = if (captureAsPopup) remember(state) { (sequence?.incrementAndGet() ?: 1).toFloat() } else 0f
     if (!hasGlassBackdrop(force)) return this
+    DisposableEffect(state, captureAsPopup) {
+        val release = dev.chungjungsoo.gptmobile.data.diagnostics.RenderingEffectDiagnostics.enter(dev.chungjungsoo.gptmobile.data.diagnostics.RenderingEffectDiagnostics.Effect.GLASS_BLUR)
+        onDispose { release() }
+    }
     val tokens = appOverlayTokens(opacity)
     val tint = tokens.background.copy(alpha = opacity.coerceIn(0f, 1f))
     val source = if (captureAsPopup) hazeSource(state, zIndex = popupZ) else this

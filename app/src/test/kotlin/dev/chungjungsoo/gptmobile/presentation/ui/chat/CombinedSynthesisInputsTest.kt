@@ -39,6 +39,30 @@ class CombinedSynthesisInputsTest {
         assertNull(inputs(messages, mapOf("lead" to run("lead"))))
     }
 
+    @Test fun quotaWaitCannotHideUsableRepliesFromTheExplicitContinueAction() {
+        val replies = listOf(message("lead", "Portugal established its independent kingdom in the twelfth century."), message("limited", ""), message("queued", ""))
+        val runs = mapOf("lead" to run("lead"), "limited" to run("limited", AgentRunStatus.WAITING_PROVIDER_LIMIT), "queued" to run("queued", AgentRunStatus.WAITING_REMOTE_JOB))
+        // Normal synthesis still needs the durable per-turn choice before excluding a profile.
+        assertNull(inputs(replies, runs))
+        val available = availableCombinedResponses(replies, runs)
+        assertEquals(listOf("lead"), available.map { it.platformType })
+        val sources = requireNotNull(inputs(available, runs))
+        assertEquals(replies.first().content, sources.single().content)
+        assertNull(inputs(availableCombinedResponses(replies.drop(1), runs), runs))
+        assertNull(inputs(availableCombinedResponses(replies, runs + ("lead" to run("lead", AgentRunStatus.RUNNING))), runs + ("lead" to run("lead", AgentRunStatus.RUNNING))))
+    }
+
+    @Test fun transportCompleteShortOverviewIsRetainedAsPartialForAnExplicitLongRequest() {
+        val reply = message("lead", "Portugal established an independent kingdom in the twelfth century. Maritime expansion later connected its ports with Africa, Asia and the Americas.")
+        val sources = requireNotNull(combinedSynthesisInputs(listOf(reply), mapOf("lead" to run("lead")), emptyMap(), emptyMap(), "The history of Portugal in 5000 words"))
+        assertEquals(reply.content, sources.single().content)
+        assertEquals(ContributionDisposition.USABLE_PARTIAL, sources.single().disposition)
+        assertEquals("PARTIAL", sources.single().contentCompleteness)
+        assertEquals(AgentRunStatus.COMPLETED, sources.single().completionStatus)
+        val assessment = CombinedContributionUsability.assess(AgentRunStatus.COMPLETED, reply.content, request = "The history of Portugal in at most 5000 words", finishReason = "stop")
+        assertFalse(assessment.usablePartial)
+    }
+
     @Test fun completedSynthesisDoesNotRepeatWhenAHelperChanges() {
         val sources = listOf(CombinedModelResponse("lead", "AI", content = "Primary"), CombinedModelResponse("helper", "AI", content = "Old helper"))
         val lead = message("lead", "Combined").copy(currentRunId = "combined-synthesis:1", combinedSources = sources)

@@ -35,7 +35,7 @@ class ConversationCombinedSettingsTest {
     }
 
     @Test fun missingFieldsUseDefaultsAndLegacySchemaMigrates() {
-        assertEquals(ConversationCombinedSettings(), Json.decodeFromString(ConversationCombinedSettingsSerializer, "{}"))
+        assertEquals(ConversationCombinedSettings(continueLongAnswers = false), Json.decodeFromString(ConversationCombinedSettingsSerializer, "{}"))
         val result = Json.decodeFromString(ConversationCombinedSettingsSerializer, """{"schemaVersion":0,"collectionBias":99,"effort":-4}""")
         assertEquals(1, result.schemaVersion)
         assertEquals(100, result.collectionBias)

@@ -151,6 +151,7 @@ data class PersistAgentRetryResult(
 object AgentRunStatus {
     const val QUEUED = "QUEUED"
     const val WAITING_PROVIDER_LIMIT = "WAITING_PROVIDER_LIMIT"
+    const val WAITING_REMOTE_JOB = "WAITING_REMOTE_JOB"
     const val RUNNING = "RUNNING"
     const val COMPLETED = "COMPLETED"
     const val FAILED = "FAILED"

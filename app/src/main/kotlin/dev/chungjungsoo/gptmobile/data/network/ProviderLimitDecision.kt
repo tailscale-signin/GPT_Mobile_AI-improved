@@ -15,10 +15,13 @@ data class ProviderLimitDecision(
     val category: String,
     val knownNotAccepted: Boolean,
     val failureId: String? = null,
-    val authority: dev.chungjungsoo.gptmobile.data.context.CapturedProviderAuthority? = null
+    val authority: dev.chungjungsoo.gptmobile.data.context.CapturedProviderAuthority? = null,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val continuationPrefixDigest: String? = null
 ) {
     init {
         require(retryAt > 0 && scope.isNotBlank() && provider.isNotBlank())
+        require(continuationPrefixDigest == null || continuationPrefixDigest.matches(Regex("[a-f0-9]{64}")))
     }
 }
 
@@ -31,7 +34,7 @@ internal suspend fun ProviderLimitDecision.bindAuthority(guard: dev.chungjungsoo
 }
 
 internal fun providerLimitDecision(profile: PlatformV2, outcome: FreePreflightOutcome): ProviderLimitDecision? {
-    if (outcome.category !in setOf(FreeFailureCategory.LOCAL_COOLDOWN_ACTIVE, FreeFailureCategory.PROVIDER_RATE_LIMITED)) return null
+    if (outcome.category !in setOf(FreeFailureCategory.LOCAL_COOLDOWN_ACTIVE, FreeFailureCategory.LOCAL_ALLOWANCE_EXHAUSTED, FreeFailureCategory.PROVIDER_RATE_LIMITED)) return null
     val provider = FreeAiProvider.fromApiUrl(profile.apiUrl) ?: return null
     val retryAt = outcome.retryAt ?: return null
     val identity = freeCredentialIdentity(provider, profile.token)
@@ -48,16 +51,19 @@ internal fun providerLimitDecision(profile: PlatformV2, outcome: FreePreflightOu
 }
 
 internal fun providerLimitDecision(config: ProviderRequestConfig, model: String, receivedPayload: Boolean, error: Exception): ProviderLimitDecision? {
-    (error as? FreeProviderException)?.providerLimit?.let { return if (receivedPayload) it.copy(knownNotAccepted = false) else it }
+    val prefixDigest = config.continuationPrefixDigest?.takeIf { !receivedPayload && config.requestRole.contains("continuation") }
+    (error as? FreeProviderException)?.providerLimit?.let {
+        return if (receivedPayload) it.copy(knownNotAccepted = false, continuationPrefixDigest = null) else it.copy(continuationPrefixDigest = prefixDigest.takeIf { _ -> it.knownNotAccepted })
+    }
     val provider = config.freeProvider ?: return null
     val category = config.freeDiagnostics?.category ?: freeFailureCategory(error)
-    if (category !in setOf(FreeFailureCategory.LOCAL_COOLDOWN_ACTIVE, FreeFailureCategory.PROVIDER_RATE_LIMITED)) return null
+    if (category !in setOf(FreeFailureCategory.LOCAL_COOLDOWN_ACTIVE, FreeFailureCategory.LOCAL_ALLOWANCE_EXHAUSTED, FreeFailureCategory.PROVIDER_RATE_LIMITED)) return null
     val identity = freeCredentialIdentity(provider, config.token)
     val retryAt = (error as? FreeAiRateLimitException)?.retryAt
         ?: runCatching { FreeAiRequestLimiter.shared.cooldownUntilMillis(provider, model, identity) }.getOrNull()
         ?: return null
     val cooldown = config.freeDiagnostics?.cooldown
-    val localRejection = error is FreeAiRateLimitException || category == FreeFailureCategory.LOCAL_COOLDOWN_ACTIVE
+    val localRejection = error is FreeAiRateLimitException && error.localBlock || category in setOf(FreeFailureCategory.LOCAL_COOLDOWN_ACTIVE, FreeFailureCategory.LOCAL_ALLOWANCE_EXHAUSTED)
     val rejectedHttp = cooldown?.status == 429 || provider == FreeAiProvider.POLLINATIONS && cooldown?.status == 402
     return ProviderLimitDecision(
         provider.name,
@@ -67,6 +73,7 @@ internal fun providerLimitDecision(config: ProviderRequestConfig, model: String,
         FreeAiRequestLimiter.shared.activeQuotaScopeKey(provider, model, identity),
         category.name,
         !receivedPayload && config.freeDiagnostics?.jobId == null && (localRejection || rejectedHttp),
-        cooldown?.originatingFailureId
+        cooldown?.originatingFailureId,
+        continuationPrefixDigest = prefixDigest.takeIf { localRejection || rejectedHttp }
     )
 }

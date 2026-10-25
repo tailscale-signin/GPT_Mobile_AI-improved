@@ -28,7 +28,16 @@ data class CombinedAnswerMapping(
     val claims: List<CombinedMappedClaim>,
     val links: List<CombinedPassageLink>
 ) {
-    fun matches(answer: String): Boolean = researchHash(answer) == answerDigest && links.all { it.matches(answer) }
+    fun matches(answer: String): Boolean = researchHash(answer) == answerDigest &&
+        links.all { it.matches(answer) } &&
+        claims.all { claim ->
+            claim.links.all { link ->
+                link.startUtf16 >= 0 &&
+                    link.endUtf16 > link.startUtf16 &&
+                    link.endUtf16 <= answer.length &&
+                    researchHash(answer.substring(link.startUtf16, link.endUtf16)) == link.textDigest
+            }
+        }
 }
 
 /** One versioned map is consumed by delivery checks, colours, inspector and export. */
@@ -56,12 +65,13 @@ internal object CombinedAnswerMappings {
         var comparisons = 0L
         var evaluated = true
         val claims = index.records.map { claim ->
-            val source = CombinedClaimMatcher.fingerprint(claim.proposition)
+            val source = index.fingerprints.getValue(claim.proposition)
             // Qualifications that span several sentences cannot be detached by a split.
             val qualified = source.negative || source.hedged || source.restrictions.isNotEmpty() || claim.qualifiers.uncertainty.isNotEmpty() || claim.qualifiers.outcome in setOf("NULL_EFFECT", "INSUFFICIENT_EVIDENCE")
             val clauses = if (qualified || claim.occurrences.any { it.tableCells.isNotEmpty() }) listOf(claim.proposition) else CombinedClaimClauses.spans(claim.proposition).map { it.comparisonText }.ifEmpty { listOf(claim.proposition) }
+            val clausePrints = clauses.associateWith { index.fingerprints[it] ?: CombinedClaimMatcher.fingerprint(it) }
             val parts = clauses.map { text ->
-                val fingerprint = CombinedClaimMatcher.fingerprint(text)
+                val fingerprint = clausePrints.getValue(text)
                 val candidates = fingerprint.terms.flatMapTo(linkedSetOf()) { byTerm[it].orEmpty() }
                 val matches = mutableListOf<Pair<CombinedCoverageLink, CombinedClaimMatcher.Match>>()
                 candidates.forEach { candidate ->
@@ -84,8 +94,12 @@ internal object CombinedAnswerMappings {
             val linked = parts.flatten().map { it.first }.distinct()
             // A source can contribute a bounded phrase without the entire proposition being
             // represented. Keep that status separate from full claim inclusion.
-            val fragments = if (linked.isEmpty() && evaluated && !qualified) {
-                clauses.flatMap { fingerprintWindows(answer, CombinedClaimMatcher.fingerprint(it), destinations, prints, byTerm) }
+            // Full inclusion elsewhere must not erase an independently valid
+            // partial contribution in an earlier paragraph. This search retains
+            // the same quantity, polarity and qualification safeguards.
+            val fragments = if (evaluated && !qualified) {
+                clauses.flatMap { fingerprintWindows(answer, clausePrints.getValue(it), destinations, prints, byTerm, linked) }
+                    .filterNot { fragment -> linked.any { it.startUtf16 <= fragment.startUtf16 && it.endUtf16 >= fragment.endUtf16 } }
             } else {
                 emptyList()
             }
@@ -109,7 +123,7 @@ internal object CombinedAnswerMappings {
         }
         val cellRanges = cells.values.flatten().toSet()
         val substantiveClaims = index.records.filter { claim ->
-            claim.proposition.length >= 24 || CombinedClaimMatcher.fingerprint(claim.proposition).numbers.isNotEmpty()
+            claim.proposition.length >= 24 || index.fingerprints.getValue(claim.proposition).numbers.isNotEmpty()
         }.mapTo(hashSetOf()) { it.id }
         val ranges = claims.flatMap { claim ->
             claim.links.flatMap { link ->
@@ -143,7 +157,7 @@ internal object CombinedAnswerMappings {
                 )
             }
         }
-        val result = CombinedAnswerMapping(answerDigest = key.answer, corpusDigest = corpus, evaluated = evaluated, claims = claims, links = links)
+        val result = CombinedAnswerMapping(version = 2, answerDigest = key.answer, corpusDigest = corpus, evaluated = evaluated, claims = claims, links = links)
         if (answer.length.toLong() + sources.sumOf { it.content.length.toLong() } <= 262_144L) {
             synchronized(cache) {
                 cache[key] = result
@@ -173,10 +187,11 @@ internal object CombinedAnswerMappings {
 
     private val words = Regex("[\\p{L}\\p{N}]+(?:[’'][\\p{L}\\p{N}]+)?")
     private val datedMentionYear = Regex("[12][0-9]{3}")
-    private fun fingerprintWindows(answer: String, source: CombinedClaimMatcher.Fingerprint, destinations: List<Destination>, prints: List<CombinedClaimMatcher.Fingerprint>, byTerm: Map<String, Set<Int>>): List<CombinedCoverageLink> {
+    private fun fingerprintWindows(answer: String, source: CombinedClaimMatcher.Fingerprint, destinations: List<Destination>, prints: List<CombinedClaimMatcher.Fingerprint>, byTerm: Map<String, Set<Int>>, covered: List<CombinedCoverageLink> = emptyList()): List<CombinedCoverageLink> {
         val candidates = source.terms.flatMapTo(linkedSetOf()) { byTerm[it].orEmpty() }
         return candidates.mapNotNull { id ->
             val destination = destinations[id]
+            if (covered.any { it.startUtf16 <= destination.span.startUtf16 && it.endUtf16 >= destination.span.endUtf16 }) return@mapNotNull null
             val target = prints[id]
             if (!CombinedClaimMatcher.compatible(source, target) || !CombinedClaimMatcher.compatible(target, source)) return@mapNotNull null
             val raw = answer.substring(destination.span.startUtf16, destination.span.endUtf16)
@@ -204,19 +219,59 @@ internal object CombinedAnswerMappings {
     }
 
     fun passages(answer: String, mapping: CombinedAnswerMapping, declared: List<CombinedPassageRecord> = emptyList()): List<CombinedPassageRecord> {
-        if (declared.isNotEmpty()) {
-            return declared.filter { it.matches(answer) }.map { passage ->
-                val links = mapping.links.filter { it.start >= passage.start && it.end <= passage.end }
-                passage.copy(profileUids = links.flatMapTo(linkedSetOf()) { it.profileUids }, links = links, linkVersion = 1, origin = "LOCAL_CLAIM_MAPPING_V${mapping.version}", semanticLinkStatus = if (links.isNotEmpty()) "CONSERVATIVE_LINK_CHECKED" else "UNVERIFIED")
+        val originals = if (declared.isEmpty()) {
+            listOf(CombinedPassageRecord(0, answer.length, researchHash(answer), emptySet(), passageId = "mapped:${mapping.answerDigest}"))
+        } else {
+            declared.filter { it.matches(answer) }
+        }
+        return originals.flatMap { passage ->
+            val ranges = passageRanges(answer, passage.start, passage.end)
+            ranges.mapIndexed { index, range ->
+                val links = mapping.links.mapNotNull { link ->
+                    val start = maxOf(link.start, range.first)
+                    val end = minOf(link.end, range.last + 1)
+                    if (end <= start) null else link.copy(start = start, end = end, digest = researchHash(answer.substring(start, end)))
+                }
+                passage.copy(
+                    start = range.first,
+                    end = range.last + 1,
+                    digest = researchHash(answer.substring(range.first, range.last + 1)),
+                    profileUids = links.flatMapTo(linkedSetOf()) { it.profileUids },
+                    claimIds = links.flatMapTo(linkedSetOf()) { it.claimIds },
+                    links = links,
+                    linkVersion = 1,
+                    passageId = if (ranges.size == 1) passage.passageId else "${passage.passageId}:${index + 1}",
+                    origin = "LOCAL_CLAIM_MAPPING_V${mapping.version}",
+                    semanticLinkStatus = if (links.isNotEmpty()) "CONSERVATIVE_LINK_CHECKED" else "UNVERIFIED"
+                )
             }
         }
-        return mapping.links.mapIndexed { index, link ->
-            val declarations = declared.filter { it.matches(answer) && it.start <= link.start && it.end >= link.end }
-            CombinedPassageRecord(
-                link.start, link.end, link.digest, link.profileUids, declarations.flatMapTo(linkedSetOf()) { it.sourceIds }, link.claimIds,
-                origin = "LOCAL_CLAIM_MAPPING_V${mapping.version}", passageId = "mapped:${index + 1}:${link.digest}",
-                semanticLinkStatus = "CONSERVATIVE_LINK_CHECKED", linkVersion = 1, links = listOf(link)
-            )
+    }
+
+    /** A provider may place a whole section in one record; colours remain local to each item. */
+    private fun passageRanges(answer: String, start: Int, end: Int): List<IntRange> = CombinedSourcePreservation.blocks(answer.substring(start, end)).flatMap { block ->
+        val offset = start + block.start
+        if (block.text.contains("```") || block.text.contains("~~~") || block.text.contains('|') && CombinedSourceClaims.tableRows(block.text) > 0) {
+            listOf(offset until start + block.end)
+        } else {
+            val ranges = mutableListOf<IntRange>()
+            var position = offset
+            var from = offset
+            block.text.lineSequence().forEach { line ->
+                val heading = Regex("^\\s*#{1,6}\\s").containsMatchIn(line)
+                val item = Regex("^\\s*(?:[-*+] |[0-9]+[.)] )").containsMatchIn(line)
+                if ((heading || item) && position > from) {
+                    ranges += from until position - 1
+                    from = position
+                }
+                position += line.length + 1
+                if (heading) {
+                    ranges += from until position - 1
+                    from = position
+                }
+            }
+            if (from < start + block.end) ranges += from until start + block.end
+            ranges.filter { !it.isEmpty() }
         }
     }
 

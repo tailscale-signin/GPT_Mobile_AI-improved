@@ -20,7 +20,9 @@ data class RequestConstraints(
     val structuredOutputMode: dev.chungjungsoo.gptmobile.data.localruntime.LocalStructuredOutputMode = dev.chungjungsoo.gptmobile.data.localruntime.LocalStructuredOutputMode.NATIVE_JSON_SAFE_V1,
     val structuredOutputCompatibilityKey: String? = null,
     val structuredOutputProbe: Boolean = false,
-    val structuredOutputCompatibilityResolver: (suspend (dev.chungjungsoo.gptmobile.data.localruntime.LocalEngineSpec) -> String)? = null
+    val structuredOutputCompatibilityResolver: (suspend (dev.chungjungsoo.gptmobile.data.localruntime.LocalEngineSpec) -> String)? = null,
+    /** Identity of the complete retained answer, even when the wire sends only its tail. */
+    val continuationPrefixDigest: String? = null
 ) {
     init {
         finalResponseSchemaJson?.let { schema ->
@@ -28,6 +30,7 @@ data class RequestConstraints(
             require(kotlinx.serialization.json.Json.parseToJsonElement(schema) is kotlinx.serialization.json.JsonObject) { "Final-response schema must be an object" }
         }
         require(maxOutputTokens == null || maxOutputTokens > 0)
+        require(continuationPrefixDigest == null || continuationPrefixDigest.matches(Regex("[a-f0-9]{64}")))
     }
 
     fun outputLimit(preferred: Int?): Int? = dev.chungjungsoo.gptmobile.data.context.RequestLimitResolver.output(preferred, maxOutputTokens ?: combined?.let { it.plan?.outputTokens(it.role) }).tokens

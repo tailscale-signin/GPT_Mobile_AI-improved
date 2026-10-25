@@ -16,7 +16,6 @@ import io.ktor.http.headersOf
 import io.mockk.every
 import io.mockk.mockk
 import java.nio.file.Files
-import kotlinx.coroutines.flow.single
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.jsonArray
@@ -59,11 +58,13 @@ class FreeAiTransportTest {
         try {
             val network = mockk<NetworkClient>()
             every { network.invoke() } returns client
-            val result = OpenAIAPIImpl(network).streamChatCompletion(
+            val chunks = OpenAIAPIImpl(network).streamChatCompletion(
                 request().copy(models = listOf("paid-fallback"), maxTokens = 9000),
                 10,
                 ProviderRequestConfig("https://wrong.example", "do-not-send", freeProvider = FreeAiProvider.KILO)
-            ).single()
+            ).toList()
+            assertEquals(listOf(9000), chunks.mapNotNull { it.serializedOutputTokens })
+            val result = chunks.single { it.choices != null }
             assertNull(result.error?.message, result.error)
             assertEquals("Hello", result.choices!!.single().delta.content)
         } finally {
@@ -93,7 +94,8 @@ class FreeAiTransportTest {
                 10,
                 ProviderRequestConfig("https://wrong.example", "do-not-send", freeProvider = FreeAiProvider.POLLINATIONS)
             ).toList()
-            val response = result.first()
+            assertEquals(listOf(1500), result.mapNotNull { it.serializedOutputTokens })
+            val response = result.first { it.choices != null }
             val choice = requireNotNull(response.choices).single()
             assertEquals("A and B.", choice.effectiveDelta.content)
             assertEquals("length", choice.finishReason)
@@ -176,7 +178,7 @@ class FreeAiTransportTest {
             val network = mockk<NetworkClient>()
             every { network.invoke() } returns client
             val events = OpenAIAPIImpl(network).streamChatCompletion(request().copy(reasoning = dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterReasoning(enabled = false)), 10, ProviderRequestConfig(FreeAiProvider.KILO.apiUrl, null, freeProvider = FreeAiProvider.KILO)).toList()
-            assertEquals("Answer", events.single().choices!!.single().delta.content)
+            assertEquals("Answer", events.single { it.choices != null }.choices!!.single().delta.content)
         } finally {
             client.close()
         }

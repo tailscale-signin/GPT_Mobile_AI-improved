@@ -13,6 +13,18 @@ import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class CombinedResponseStateTest {
+    @Test fun pendingRemoteJobIsPausedAndOffersStatusWithoutDuplicateRetry() {
+        val message = response("lead", "", "waiting")
+        val waiting = run("waiting", AgentRunStatus.WAITING_REMOTE_JOB).copy(terminalError = "QUEUE_JOB_PENDING: Job receipt saved")
+        val runs = mapOf(waiting.runId to waiting)
+        assertEquals(CombinedResponseStatus.PAUSED, combinedResponseStatus(message, waiting))
+        val decision = combinedProfileFailures(1, "Question", listOf(message), runs, emptyMap(), emptyMap()).single()
+        assertEquals("QUEUED_JOB", decision.category)
+        assertEquals("Waiting for remote job", decision.shortStatus(0))
+        assertFalse(decision.retryAllowed)
+        assertEquals(listOf(ChatViewModel.LoadingState.Idle), loadingStatesForLatestAssistant(1, listOf(message), runs, setOf(waiting.runId)))
+    }
+
     @Test fun selectedHistoricalAnswerUsesItsOwnOutcomeWhileLatestAttemptFailsRunsOrWaits() {
         val synthesis = response("lead", "New unfinished answer", "combined-synthesis:new").copy(
             activeRevisionIndex = 0,
@@ -273,10 +285,13 @@ class CombinedResponseStateTest {
         status = status
     )
 
-    @org.junit.Test fun durableProviderWaitIsPausedRatherThanAFailedOrGeneratingAnswer() {
+    @org.junit.Test fun durableProviderWaitStaysPausedAndOffersATurnExclusionDecision() {
         val message = dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(id = 2, chatId = 1, content = "", platformType = "p", currentRunId = "waiting")
         val run = dev.chungjungsoo.gptmobile.data.database.entity.AgentRun("waiting", 1, 1, 2, "p", "FREE", "model", status = "WAITING_PROVIDER_LIMIT")
         org.junit.Assert.assertEquals(CombinedResponseStatus.PAUSED, combinedResponseStatus(message, run))
-        org.junit.Assert.assertTrue(combinedProfileFailures(1, "Question", listOf(message), mapOf(run.runId to run), emptyMap(), emptyMap()).isEmpty())
+        val decision = combinedProfileFailures(1, "Question", listOf(message), mapOf(run.runId to run), emptyMap(), emptyMap()).single()
+        org.junit.Assert.assertEquals("RATE_LIMIT", decision.category)
+        org.junit.Assert.assertEquals("Paused by provider limit", decision.shortStatus(0))
+        org.junit.Assert.assertTrue(decision.reason.contains("without this profile for this turn"))
     }
 }

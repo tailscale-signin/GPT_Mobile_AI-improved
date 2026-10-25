@@ -213,7 +213,10 @@ fun ChatScreen(
             onRetry = chatViewModel::retryCombinedProfile,
             onRemove = chatViewModel::removeCombinedFailureProfile,
             onContinue = { chatViewModel.combineAvailableResults(failureTurn) },
-            onExclude = chatViewModel::excludeCombinedFailureForTurn
+            onDismiss = { chatViewModel.dismissCombinedFailures(failureTurn) },
+            canContinue = chatViewModel.canCombineAvailable(failureTurn),
+            onExclude = chatViewModel::excludeCombinedFailureForTurn,
+            onCheckQueuedJob = chatViewModel::checkQueuedJob
         )
     }
     val inputRequests by chatViewModel.pendingMcpInput.collectAsStateWithLifecycle()
@@ -400,7 +403,7 @@ fun ChatScreen(
         chatMessagePairKey(message, index) == inspectedCombinedTurn
     }
     val inspectableProfiles = if (inspectedCombinedProfileUid != null) {
-        combinedResponseProfiles(
+        rememberCombinedResponseProfiles(
             responses = groupedMessages.assistantMessages.getOrNull(inspectedTurnIndex).orEmpty(),
             platformUids = chatViewModel.enabledPlatformsInChat,
             profileNames = emptyMap(),
@@ -805,7 +808,7 @@ fun ChatScreen(
                         val turnRow = groupedMessages.assistantMessages.getOrNull(index).orEmpty()
                         val selectedUid = inspectedCombinedProfileUid.takeIf { inspectedCombinedTurn == chatMessagePairKey(message, index) }
                         val owner = if (selectedUid != null) {
-                            combinedResponseProfiles(responses = turnRow, platformUids = chatViewModel.enabledPlatformsInChat, profileNames = appAllPlatforms.associate { it.uid to it.name }, participatingUids = activePlatformUids.toSet(), preparing = false, runsById = agentRunsById).firstOrNull { it.uid == selectedUid }?.message
+                            rememberCombinedResponseProfiles(responses = turnRow, platformUids = chatViewModel.enabledPlatformsInChat, profileNames = appAllPlatforms.associate { it.uid to it.name }, participatingUids = activePlatformUids.toSet(), preparing = false, runsById = agentRunsById).firstOrNull { it.uid == selectedUid }?.message
                         } else if (chatRoom.conversationMode == ConversationMode.COMBINED) {
                             turnRow.firstOrNull { it.isCombinedSynthesis() }
                         } else {
@@ -935,7 +938,7 @@ fun ChatScreen(
                         val replies = groupedMessages.assistantMessages.getOrNull(dockTurn).orEmpty()
                         val combined = chatRoom.conversationMode == ConversationMode.COMBINED
                         val frozenProfiles = if (combined) {
-                            combinedResponseProfiles(
+                            rememberCombinedResponseProfiles(
                                 replies,
                                 chatViewModel.enabledPlatformsInChat,
                                 enabledPlatformLookup.mapValues { it.value.name },
@@ -1257,7 +1260,7 @@ internal fun ChatMessagePair(
     val combinedSynthesisIndex = assistantMessages.indexOfFirst { it.isCombinedSynthesis() }
     val participatingUids = activePlatformUids - disabledPlatformUids
     val combinedProfiles = if (combinedMode) {
-        combinedResponseProfiles(
+        rememberCombinedResponseProfiles(
             responses = assistantMessages,
             platformUids = enabledPlatformsInChat,
             profileNames = enabledPlatformLookup.mapValues { it.value.name },
@@ -1323,6 +1326,7 @@ internal fun ChatMessagePair(
     val rawAssistantContent = if (selectedSourceReader != null) "" else dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(selectedAssistantMessage?.effectiveContent().orEmpty())
     val assistantContent = when {
         selectedSourceReader != null -> ""
+        rawAssistantContent.isBlank() && selectedAssistantMessage?.currentRunId?.let(agentRunsById::get)?.status == AgentRunStatus.WAITING_REMOTE_JOB -> "Waiting for the saved remote job. Check its status without submitting another generation."
         rawAssistantContent.isBlank() && (isCombinedConversation && combinedStatus == CombinedResponseStatus.PAUSED || selectedAssistantMessage?.currentRunId?.let(agentRunsById::get)?.status == AgentRunStatus.WAITING_PROVIDER_LIMIT) -> stringResource(R.string.provider_wait_saved)
         isCombinedConversation && !synthesisStarted && combinedStatus == CombinedResponseStatus.FAILED -> stringResource(R.string.combined_all_profiles_failed)
         isCombinedConversation && !synthesisStarted -> ""
@@ -1495,6 +1499,9 @@ internal fun ChatMessagePair(
                 }
                 if (hasCombinedTabs && combinedStatus == CombinedResponseStatus.COMPLETED && agentRunsById.values.any { it.userMessageId == message.id && it.terminalError?.contains("QUEUE_JOB_PENDING") == true }) {
                     TextButton(onClick = { onCheckCombinedQueuedJob(messageIndex) }, enabled = isIdle && canUseChat) { Text("Check earlier queued job") }
+                }
+                if ((!hasCombinedTabs || combinedStatus != CombinedResponseStatus.COMPLETED) && agentRunsById.values.any { it.userMessageId == message.id && it.status == AgentRunStatus.WAITING_REMOTE_JOB }) {
+                    TextButton(onClick = { onCheckCombinedQueuedJob(messageIndex) }, enabled = isIdle && canUseChat) { Text("Check queued job") }
                 }
                 if (hasCombinedTabs && selectedProfile == null) {
                     if (selectedAssistantMessage?.hasHistoricalRevisionSelected() == true && selectedAssistantMessage.effectiveCombinedSources().isEmpty()) {

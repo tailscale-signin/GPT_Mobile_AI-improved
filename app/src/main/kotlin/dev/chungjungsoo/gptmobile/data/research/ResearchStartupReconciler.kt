@@ -46,7 +46,7 @@ class ResearchStartupReconciler @Inject constructor(
         val related = runs.getByChatId(accepted.chatId).filter { run ->
             run.runId in ownedIds || ownedIds.isEmpty() && attempt.generation == 0L && run.userMessageId == accepted.originatingUserMessageId && run.profileUid in accepted.participantUids
         }
-        if (related.any { it.status in setOf(AgentRunStatus.QUEUED, AgentRunStatus.RUNNING, AgentRunStatus.WAITING_PROVIDER_LIMIT, "STOPPING") }) return
+        if (related.any { it.status in setOf(AgentRunStatus.QUEUED, AgentRunStatus.RUNNING, AgentRunStatus.WAITING_PROVIDER_LIMIT, AgentRunStatus.WAITING_REMOTE_JOB, "STOPPING") }) return
         val retained = store.exportTurn(accepted.chatId, setOf(accepted.rootWorkId))
         val readable = retained.flatMap { it.snapshot.sources }.filter { it.readable }.distinctBy { source -> source.equivalenceGroup.ifBlank { source.canonicalUrl.ifBlank { source.url } } }.size
         val currentMessages = related.mapNotNull { run ->

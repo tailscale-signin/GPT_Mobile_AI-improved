@@ -136,10 +136,14 @@ class CombinedAtomicSettingsAndReplacementTest {
         try {
             val (user, owner) = seedCompletedTurn(db)
             val dao = db.agentPersistenceDao()
+            val rawOwnerBefore = requireNotNull(dao.rawRecoveryMessage(owner.id))
+            val recoveredOwnerBefore = requireNotNull(dao.recoveryMessage(owner.id))
             val removedBefore = dao.recoveryMessage(4)
             val drafts = regeneratedRuns().mapIndexed { index, draft -> if (index == 1) draft.copy(runId = "prior-b") else draft }
             assertTrue(runCatching { dao.regenerateCombinedTurn(user, owner, drafts, regeneratedAcceptance()) }.isFailure)
-            assertEquals(owner, dao.recoveryMessage(owner.id))
+            assertEquals(owner, rawOwnerBefore)
+            assertEquals(rawOwnerBefore, dao.rawRecoveryMessage(owner.id))
+            assertEquals(recoveredOwnerBefore, dao.recoveryMessage(owner.id))
             assertEquals(removedBefore, dao.recoveryMessage(4))
             assertNull(dao.recoveryRun("new-a"))
             assertEquals(setOf("a", "b"), dao.rawGetMessages(1).mapNotNull { it.platformType }.toSet())
@@ -153,6 +157,10 @@ class CombinedAtomicSettingsAndReplacementTest {
         try {
             val (user, owner, selectedRun) = seedEditorialTurn(db)
             val dao = db.agentPersistenceDao()
+            val legacyPolicy = requireNotNull(CombinedAcceptedTurn.decode(selectedRun.synthesisSnapshot)).context.requested
+            assertEquals(1, legacyPolicy.version)
+            assertFalse(legacyPolicy.appendContinuations)
+            assertFalse(legacyPolicy.settings.continueLongAnswers)
             val target = CombinedAnswerRevisionTarget.capture(owner, selectedRun)
             val accepted = regeneratedAcceptance(singlePass = true).copy(parentRootBudgetId = "selected-root", revisionOf = target)
             val result = dao.regenerateCombinedTurn(user, owner, regeneratedRuns(), accepted)
@@ -164,7 +172,7 @@ class CombinedAtomicSettingsAndReplacementTest {
             assertEquals("selected-root", saved.parentRootBudgetId)
             assertEquals("new-root", saved.context.rootBudgetId)
             assertTrue(saved.context.requested.singlePass)
-            assertFalse(saved.context.requested.appendContinuations)
+            assertTrue(saved.context.requested.appendContinuations)
             val archived = result.assistantMessages.first().revisions.first()
             assertEquals(owner.content, archived.content)
             assertEquals(owner.timeline, archived.timeline)
@@ -355,7 +363,8 @@ class CombinedAtomicSettingsAndReplacementTest {
                 AssistantTimelineItem(AssistantTimelineItemType.NOTICE, combinedFailure = CombinedRecoveryFailure.fromCode("COMBINED_PARTIAL"))
             )
         )
-        val lineage = regeneratedAcceptance().copy(context = regeneratedAcceptance().context.copy(rootBudgetId = "selected-root"), parentRootBudgetId = null)
+        val legacy = regeneratedAcceptance(singlePass = true, continueLongAnswers = false)
+        val lineage = legacy.copy(context = legacy.context.copy(rootBudgetId = "selected-root"), parentRootBudgetId = null)
         val selectedRun = requireNotNull(dao.recoveryRun(requireNotNull(selected.currentRunId))).copy(status = "FAILED", terminalError = "COMBINED_PARTIAL", synthesisSnapshot = lineage.encode())
         db.agentRunDao().upsert(selectedRun)
         if (!archived) {
@@ -381,9 +390,9 @@ class CombinedAtomicSettingsAndReplacementTest {
         return Triple(user, latest, selectedRun)
     }
 
-    private fun regeneratedAcceptance(singlePass: Boolean = false): CombinedAcceptedTurn {
+    private fun regeneratedAcceptance(singlePass: Boolean = false, continueLongAnswers: Boolean = true): CombinedAcceptedTurn {
         val requested = CombinedPolicyResolver.accept(
-            ConversationCombinedSettings(collectionBias = 100, effort = 25),
+            ConversationCombinedSettings(collectionBias = 100, effort = 25, continueLongAnswers = continueLongAnswers),
             listOf("a", "c"),
             mapOf("a" to "new-model-a", "c" to "new-model-c"),
             "Compare the results",

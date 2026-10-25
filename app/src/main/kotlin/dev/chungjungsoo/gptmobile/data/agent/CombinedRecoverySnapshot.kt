@@ -25,6 +25,7 @@ internal object CombinedRecoverySnapshot {
         val snapshot = json.decodeFromString<CombinedInputSnapshot>(raw)
         require(snapshot.version in 1..6 && snapshot.userMessage.id == run.userMessageId && snapshot.userMessage.chatId == run.chatId) { "The saved synthesis input is incompatible." }
         if (snapshot.version >= 6) require(snapshot.snapshotId.isNotBlank() && snapshot.inputDigest == snapshot.contentDigest()) { "The sealed synthesis snapshot changed." }
+        CombinedClaimInventoryWire.validatePrompt(snapshot.prompt)
         val modern = snapshot.version >= 5 && snapshot.combined != null
         val accepted = snapshot.combined?.requested
         require(!providerWait || accepted?.appendContinuations == true && snapshot.deliveryProtocol == "PASSAGES_V3") { "COMBINED_APPEND_NOT_ACCEPTED" }

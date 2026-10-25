@@ -41,6 +41,9 @@ interface AgentPersistenceDao :
     @Query("SELECT w.* FROM provider_waits w JOIN agent_runs r ON r.run_id = w.runId WHERE r.status IN ('WAITING_PROVIDER_LIMIT', 'QUEUED', 'RUNNING')")
     suspend fun providerWaits(): List<dev.chungjungsoo.gptmobile.data.agent.ProviderWait>
 
+    @Query("SELECT w.runId, w.fence, w.retryAt FROM provider_waits w JOIN agent_runs r ON r.run_id = w.runId JOIN messages_v2 m ON m.message_id = r.assistant_message_id WHERE r.chat_id = :chatId AND r.status = 'WAITING_PROVIDER_LIMIT' AND r.ownership_fence = w.fence AND m.current_run_id = r.run_id AND m.ownership_fence = w.fence")
+    fun observeProviderWaitDeadlines(chatId: Int): Flow<List<dev.chungjungsoo.gptmobile.data.agent.ProviderWaitDeadline>>
+
     @Upsert
     suspend fun saveProviderWait(row: dev.chungjungsoo.gptmobile.data.agent.ProviderWait)
 
@@ -54,6 +57,13 @@ interface AgentPersistenceDao :
     suspend fun deferRunningProvider(row: dev.chungjungsoo.gptmobile.data.agent.ProviderWait): Boolean {
         val saved = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromString<dev.chungjungsoo.gptmobile.data.agent.ProviderWaitCheckpoint>(row.checkpoint)
         require(saved.version == 2 && saved.decision?.knownNotAccepted == true && saved.decision.scope == row.scope && saved.decision.retryAt == row.retryAt)
+        if (saved.mode == dev.chungjungsoo.gptmobile.data.agent.ProviderWaitMode.TEXT_CONTINUATION) {
+            val prior = recoveryRun(row.runId) ?: return false
+            val message = recoveryMessage(prior.assistantMessageId) ?: return false
+            val continuation = saved.continuation ?: return false
+            if (prior.synthesisKey != null || saved.platform.uid != prior.profileUid || saved.platform.model != prior.modelSnapshot || saved.decision.profileUid != prior.profileUid || saved.decision.model != prior.modelSnapshot) return false
+            if (message.content.isBlank() || continuation.prefixDigest != saved.decision.continuationPrefixDigest || dev.chungjungsoo.gptmobile.data.research.researchHash(message.content) != continuation.prefixDigest) return false
+        }
         if (markRunningProviderWaiting(row.runId, row.fence) != 1) return false
         saveProviderWait(row)
         return true
@@ -85,6 +95,43 @@ interface AgentPersistenceDao :
         val now = System.currentTimeMillis() / 1000
         updateRunStatus(prior.runId, "INTERRUPTED", prior.startedAt, now, "KNOWN_PROVIDER_REJECTION_RESUMED")
         val result = persistAgentRetry(request)
+        val ready = saved.copy(mode = dev.chungjungsoo.gptmobile.data.agent.ProviderWaitMode.INITIAL, deferredStage = null)
+        saveProviderWait(waiting.copy(runId = result.run.runId, fence = result.run.ownershipFence, checkpoint = codec.encodeToString(dev.chungjungsoo.gptmobile.data.agent.ProviderWaitCheckpoint.serializer(), ready)))
+        return result
+    }
+
+    /** Resume only the text request rejected before acceptance, retaining its exact prefix. */
+    @Transaction
+    suspend fun persistProviderContinuationRetry(expected: dev.chungjungsoo.gptmobile.data.agent.ProviderWait, request: PersistAgentRetryRequest): PersistAgentRetryResult? {
+        val waiting = rawProviderWait(expected.runId) ?: return null
+        if (waiting != expected || waiting.retryAt > System.currentTimeMillis()) return null
+        val prior = recoveryRun(waiting.runId) ?: return null
+        val message = recoveryMessage(prior.assistantMessageId) ?: return null
+        if (prior.status != "WAITING_PROVIDER_LIMIT" || prior.ownershipFence != waiting.fence || message.currentRunId != prior.runId || message.ownershipFence != waiting.fence) return null
+        val codec = kotlinx.serialization.json.Json {
+            ignoreUnknownKeys = true
+            encodeDefaults = true
+        }
+        val saved = codec.decodeFromString<dev.chungjungsoo.gptmobile.data.agent.ProviderWaitCheckpoint>(waiting.checkpoint)
+        val continuation = requireNotNull(saved.continuation) { "PROVIDER_WAIT_CONTINUATION_UNAVAILABLE" }
+        require(saved.version == 2 && saved.mode == dev.chungjungsoo.gptmobile.data.agent.ProviderWaitMode.TEXT_CONTINUATION && saved.decision?.knownNotAccepted == true)
+        require(saved.decision.scope == waiting.scope && saved.decision.retryAt == waiting.retryAt && saved.decision.continuationPrefixDigest == continuation.prefixDigest)
+        require(request.run.profileUid == prior.profileUid && request.run.modelSnapshot == prior.modelSnapshot && request.userMessage.id == prior.userMessageId && request.run.synthesisKey == null && prior.synthesisKey == null)
+        require(request.assistantMessage.id == message.id && request.assistantMessage.currentRunId == prior.runId && request.assistantMessage.ownershipFence == waiting.fence) { "PROVIDER_WAIT_OWNER_CHANGED" }
+        require(message.content.isNotBlank() && dev.chungjungsoo.gptmobile.data.research.researchHash(message.content) == continuation.prefixDigest) { "PROVIDER_WAIT_PREFIX_CHANGED" }
+        val recovery = requireNotNull(request.recovery)
+        require(recovery.rootWorkId == continuation.rootWorkId && recovery.sourceMessageId == continuation.sourceMessageId && recovery.continuationPrefixDigest == continuation.prefixDigest && recovery.action == dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.CONTINUE_RUN)
+        val inputIds = saved.users + saved.replies.flatten()
+        val inputs = inputIds.mapNotNull { recoveryMessage(it) }
+        require(inputs.size == inputIds.size && inputs.all { it.chatId == saved.chatId }) { "PROVIDER_WAIT_INPUT_CHANGED" }
+        val completeUser = dev.chungjungsoo.gptmobile.data.agent.CombinedDocuments.resolve(this, request.userMessage.decodedArchiveText()).copy(activeRevisionIndex = -1)
+        require(dev.chungjungsoo.gptmobile.data.agent.providerWaitInputDigest(this, inputs) == saved.inputDigest && inputs.any { it.copy(activeRevisionIndex = -1) == completeUser }) { "PROVIDER_WAIT_INPUT_CHANGED" }
+        require(continuation.rootWorkId == "${saved.chatId}:${continuation.sourceMessageId}" && inputs.any { it.id == continuation.sourceMessageId && it.platformType == null }) { "PROVIDER_WAIT_TASK_CHANGED" }
+        val now = System.currentTimeMillis() / 1000
+        updateRunStatus(prior.runId, "INTERRUPTED", prior.startedAt, now, "KNOWN_PROVIDER_REJECTION_RESUMED")
+        val result = persistAgentRetry(request)
+        // Discovery after a crash must dispatch this never-started successor, never
+        // re-claim the predecessor or lose the typed text-only recovery descriptor.
         val ready = saved.copy(mode = dev.chungjungsoo.gptmobile.data.agent.ProviderWaitMode.INITIAL, deferredStage = null)
         saveProviderWait(waiting.copy(runId = result.run.runId, fence = result.run.ownershipFence, checkpoint = codec.encodeToString(dev.chungjungsoo.gptmobile.data.agent.ProviderWaitCheckpoint.serializer(), ready)))
         return result
@@ -258,9 +305,10 @@ interface AgentPersistenceDao :
     suspend fun upsertCombinedDeliveryCheckpoint(row: dev.chungjungsoo.gptmobile.data.database.entity.CombinedDeliveryCheckpoint)
 
     @Transaction
-    suspend fun commitCombinedDeliveryCheckpoint(row: dev.chungjungsoo.gptmobile.data.database.entity.CombinedDeliveryCheckpoint, expectedGeneration: Long, synthesisKey: String): Boolean {
+    suspend fun commitCombinedDeliveryCheckpoint(row: dev.chungjungsoo.gptmobile.data.database.entity.CombinedDeliveryCheckpoint, expectedGeneration: Long, synthesisKey: String, expectedRunStatus: String = "RUNNING"): Boolean {
+        require(expectedRunStatus in setOf("RUNNING", "WAITING_REMOTE_JOB"))
         val run = recoveryRun(row.runId) ?: return false
-        if (run.status != "RUNNING" || run.ownershipFence != row.fence || run.synthesisKey != synthesisKey || !validCombinedPublication(run)) return false
+        if (run.status != expectedRunStatus || run.ownershipFence != row.fence || run.synthesisKey != synthesisKey || !validCombinedPublication(run)) return false
         val message = rawRecoveryMessage(run.assistantMessageId) ?: return false
         if (message.currentRunId != row.runId || message.ownershipFence != row.fence) return false
         val old = rawCombinedDeliveryCheckpoint(row.runId, row.revisionId)
@@ -1181,9 +1229,12 @@ interface AgentPersistenceDao :
         runId: String,
         status: String,
         completedAt: Long,
-        terminalError: String?
+        terminalError: String?,
+        expectedRunStatus: String = "RUNNING"
     ): Boolean {
+        require(expectedRunStatus in setOf("RUNNING", "WAITING_REMOTE_JOB"))
         val run = recoveryRun(runId) ?: return false
+        if (run.status != expectedRunStatus && !(expectedRunStatus == "RUNNING" && run.status == "QUEUED" && status != "COMPLETED")) return false
         val expected = rawRecoveryMessage(run.assistantMessageId) ?: return false
         if (expected.currentRunId != runId || expected.ownershipFence != run.ownershipFence || assistantMessage.ownershipFence != run.ownershipFence) return false
         val current = dev.chungjungsoo.gptmobile.data.agent.CombinedDocuments.resolve(this, expected.decodedArchiveText())
@@ -1193,7 +1244,7 @@ interface AgentPersistenceDao :
         return dev.chungjungsoo.gptmobile.data.diagnostics.CombinedOperationTrace.measure(
             "database_publication",
             dev.chungjungsoo.gptmobile.data.diagnostics.CombinedOperationOwner(messageId = selected.id, runId = runId, revisionId = staged?.manifest?.revisionId, digest = staged?.manifest?.bodyDigest)
-        ) { commitFinishedMessage(selected, runId, status, completedAt, terminalError, expected, staged) }
+        ) { commitFinishedMessage(selected, runId, status, completedAt, terminalError, expected, staged, expectedRunStatus) }
     }
 
     @Transaction
@@ -1204,11 +1255,13 @@ interface AgentPersistenceDao :
         completedAt: Long,
         terminalError: String?,
         expectedCurrent: MessageV2,
-        staged: dev.chungjungsoo.gptmobile.data.agent.StagedCombinedDocument?
+        staged: dev.chungjungsoo.gptmobile.data.agent.StagedCombinedDocument?,
+        expectedRunStatus: String = "RUNNING"
     ): Boolean {
-        require(status in setOf("COMPLETED", "FAILED", "CANCELED", "INTERRUPTED"))
+        require(status in setOf("COMPLETED", "FAILED", "CANCELED", "INTERRUPTED", "WAITING_REMOTE_JOB"))
+        require(expectedRunStatus in setOf("RUNNING", "WAITING_REMOTE_JOB"))
         val run = recoveryRun(runId) ?: return false
-        if (run.status != "RUNNING" && !(run.status == "QUEUED" && status != "COMPLETED")) return false
+        if (run.status != expectedRunStatus && !(expectedRunStatus == "RUNNING" && run.status == "QUEUED" && status != "COMPLETED")) return false
         val current = rawRecoveryMessage(run.assistantMessageId) ?: return false
         if (current != expectedCurrent) return false
         if (current.ownershipFence != run.ownershipFence ||
@@ -1226,8 +1279,8 @@ interface AgentPersistenceDao :
         preserveCombinedPrefix(persisted)
         rawUpdateMessage(persisted)
         publishReply(run, selected, status, completedAt)
-        updateRunStatus(runId, status, run.startedAt, completedAt, terminalError)
-        if (run.synthesisKey != null && status != "COMPLETED") restoreCombinedCandidate(runId)
+        updateRunStatus(runId, status, run.startedAt, completedAt.takeUnless { status == "WAITING_REMOTE_JOB" }, terminalError)
+        if (run.synthesisKey != null && status !in setOf("COMPLETED", "WAITING_REMOTE_JOB")) restoreCombinedCandidate(runId)
         cancelActiveToolEvents(runId, completedAt)
         if (getChatRoom(run.chatId)?.isArchived == true) setArchivedWithCompression(run.chatId, true)
         return true

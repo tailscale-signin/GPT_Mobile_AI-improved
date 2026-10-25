@@ -52,8 +52,9 @@ class PollinationsTransportTest {
         ) { install(HttpTimeout) }
         try {
             val chunks = api(client).streamChatCompletion(request(text = original), 30, config).toList()
-            assertEquals("stop", chunks.single().choices!!.single().finishReason)
-            assertEquals("gpt-oss-20b", chunks.single().model)
+            assertEquals(listOf(1500), chunks.mapNotNull { it.serializedOutputTokens })
+            assertEquals("stop", chunks.single { it.choices != null }.choices!!.single().finishReason)
+            assertEquals("gpt-oss-20b", chunks.single { it.choices != null }.model)
         } finally {
             client.close()
         }

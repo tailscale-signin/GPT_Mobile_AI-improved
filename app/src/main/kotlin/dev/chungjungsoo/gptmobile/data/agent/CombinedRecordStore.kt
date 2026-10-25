@@ -13,6 +13,7 @@ internal class CombinedRecordStore private constructor(
     private val dao: AgentPersistenceDao,
     private val runId: String,
     private val fence: Long,
+    private val expectedRunStatus: String,
     private val synthesisKey: String,
     private val frozen: CombinedInputSnapshot,
     private var renderer: CombinedPassageDecoder,
@@ -76,7 +77,7 @@ internal class CombinedRecordStore private constructor(
                 storageVersion = 2, recordCount = persistedRecords, recordsDigest = recordsDigest,
                 payloadsJson = Json.encodeToString(CombinedCheckpointPayloads(savedSnapshot, tailPayload.encode(), previousCount, previousDigest))
             )
-            check(dao.commitCombinedDeliveryCheckpoint(row, generation, synthesisKey)) { "COMBINED_RECORD_OWNER_CHANGED" }
+            check(dao.commitCombinedDeliveryCheckpoint(row, generation, synthesisKey, expectedRunStatus)) { "COMBINED_RECORD_OWNER_CHANGED" }
             generation = row.generation
             committedRecords = state.records
             lastSavedState = state
@@ -89,7 +90,8 @@ internal class CombinedRecordStore private constructor(
     }
 
     companion object {
-        suspend fun open(dao: AgentPersistenceDao, runId: String, frozen: CombinedInputSnapshot, revisionId: String, maxCharacters: Int, resume: Boolean): CombinedRecordStore {
+        suspend fun open(dao: AgentPersistenceDao, runId: String, frozen: CombinedInputSnapshot, revisionId: String, maxCharacters: Int, resume: Boolean, expectedRunStatus: String = "RUNNING"): CombinedRecordStore {
+            require(expectedRunStatus in setOf("RUNNING", "WAITING_REMOTE_JOB"))
             require(frozen.deliveryProtocol == "PASSAGES_V3" && frozen.version >= 6 && frozen.inputDigest == frozen.contentDigest())
             val run = requireNotNull(dao.recoveryRun(runId))
             val rawExisting = dao.rawCombinedDeliveryCheckpoint(runId, revisionId)
@@ -129,7 +131,8 @@ internal class CombinedRecordStore private constructor(
                     frozen.sources.indices.mapTo(linkedSetOf()) { "C${it + 1}" },
                     frozen.evidence.records.mapTo(linkedSetOf()) { it.id },
                     maxCharacters,
-                    frozen.evidence.records.mapIndexed { index, record -> record.id to "[${index + 1}](${record.url})" }.toMap()
+                    frozen.evidence.records.mapIndexed { index, record -> record.id to "[${index + 1}](${record.url})" }.toMap(),
+                    continuationAnswerPolicy = frozen.recordContinuationAnswerPolicy()
                 )
                 state.records.forEach { renderer.accept(it.wire + "\n") }
                 retained?.let {
@@ -154,7 +157,7 @@ internal class CombinedRecordStore private constructor(
                 protocol
             }
             return CombinedRecordStore(
-                dao, runId, run.ownershipFence, requireNotNull(run.synthesisKey), frozen, renderer, maxCharacters, protocol,
+                dao, runId, run.ownershipFence, expectedRunStatus, requireNotNull(run.synthesisKey), frozen, renderer, maxCharacters, protocol,
                 retained != null, existing?.generation ?: 0, state.records.size,
                 rawExisting?.takeIf { it.storageVersion == 2 }?.recordCount ?: 0,
                 rawExisting?.takeIf { it.storageVersion == 2 }?.recordsDigest.orEmpty(),

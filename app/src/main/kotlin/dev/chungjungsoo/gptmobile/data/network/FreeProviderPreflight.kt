@@ -7,6 +7,7 @@ import dev.chungjungsoo.gptmobile.data.model.FreeAiProvider
 
 enum class FreeFailureCategory(val action: String) {
     LOCAL_COOLDOWN_ACTIVE("Choose another provider or wait until the next eligible retry"),
+    LOCAL_ALLOWANCE_EXHAUSTED("Wait for the local request allowance to reopen or choose another provider"),
     PROVIDER_RATE_LIMITED("Wait until the next eligible retry or choose another provider"),
     AUTHENTICATION_REQUIRED("Add API token"),
     AUTHENTICATION_REJECTED("Check API token"),
@@ -22,6 +23,8 @@ enum class FreeFailureCategory(val action: String) {
     QUEUE_JOB_PENDING("Check the saved job or choose another provider"),
     REASONING_BUDGET_EXHAUSTED("Choose a writer with verified reasoning controls or change the output settings"),
     NO_VISIBLE_ANSWER("Retry with different model settings or choose another provider"),
+    CACHED_UNUSABLE_RESPONSE("The cached generation has no answer; choose a different model, supported settings or provider before retrying"),
+    STREAM_DEGRADED("Usable text was retained; retry explicitly to recover content lost in malformed response chunks"),
     DNS_RESOLUTION_FAILED("Check the current network, DNS or VPN and retry"),
     NETWORK_ERROR("Check your connection and retry")
 }
@@ -47,7 +50,7 @@ object FreeProviderPreflight {
             return FreePreflightOutcome(FreeFailureCategory.LOCAL_COOLDOWN_ACTIVE, cooldown.copy(retryAt = eligibleAt).blockedMessage(provider), eligibleAt, cooldown)
         }
         if (provider.requiresUserToken && token.isNullOrBlank() && !hasStoredToken) return FreePreflightOutcome(FreeFailureCategory.AUTHENTICATION_REQUIRED, "${provider.displayName}: Add API token in this AI profile’s settings.")
-        if (localDeadline != null) return FreePreflightOutcome(FreeFailureCategory.LOCAL_COOLDOWN_ACTIVE, "${provider.displayName}: local request allowance is temporarily exhausted. Next eligible retry: ${java.time.Instant.ofEpochMilli(localDeadline)}. Choose another provider.", localDeadline)
+        if (localDeadline != null) return FreePreflightOutcome(FreeFailureCategory.LOCAL_ALLOWANCE_EXHAUSTED, "${provider.displayName}: local request allowance is temporarily exhausted. Next eligible retry: ${java.time.Instant.ofEpochMilli(localDeadline)}. Choose another provider.", localDeadline)
         FreeCatalogState.generationUnavailableReason(provider, model, identity)?.let {
             return FreePreflightOutcome(FreeFailureCategory.PROVIDER_UNAVAILABLE, it, FreeCatalogState.generationStatus(provider, model, identity)?.retryAt)
         }
@@ -84,7 +87,11 @@ internal fun freeCredentialIdentity(provider: FreeAiProvider, token: String?): S
 
 internal fun freeFailureCategory(error: Exception): FreeFailureCategory = when (error) {
     is FreeProviderException -> error.category
-    is FreeAiRateLimitException -> FreeFailureCategory.LOCAL_COOLDOWN_ACTIVE
+    is FreeAiRateLimitException -> when {
+        !error.localBlock -> FreeFailureCategory.PROVIDER_RATE_LIMITED
+        error.cooldown != null -> FreeFailureCategory.LOCAL_COOLDOWN_ACTIVE
+        else -> FreeFailureCategory.LOCAL_ALLOWANCE_EXHAUSTED
+    }
     is QueueTerminalFailure -> if (error.remoteTerminal == true) FreeFailureCategory.HOSTED_GENERATION_FAILED else FreeFailureCategory.NETWORK_ERROR
     else -> {
         val causes = generateSequence<Throwable>(error) { it.cause }.take(8).toList()

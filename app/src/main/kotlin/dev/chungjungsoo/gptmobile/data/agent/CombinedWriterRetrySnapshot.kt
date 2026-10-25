@@ -18,7 +18,7 @@ internal object CombinedWriterRetrySnapshot {
         val prompt = retryPrompt(original.prompt, revision, nextContext)
         val plan = CombinedWriterRequestPlan.freeze(
             writer, original.userMessage.content, prompt,
-            combinedWriterSystemPrompt(original.systemPrompt, original.deliveryProtocol, original.userMessage.content),
+            combinedWriterSystemPrompt(original.systemPrompt, original.deliveryProtocol, original.userMessage.content, nextContext.requested.appendContinuations),
             original.writerContext?.historyText() ?: combinedWriterHistory(original.history, original.replies, original.profileUid),
             original.deliveryProtocol, nextContext.plan?.finalOutputTokens ?: 0, userOutputLimit, userContextLimit, original.writerContext,
             appendContinuations = nextContext.requested.appendContinuations

@@ -20,8 +20,19 @@ internal object CombinedSourceClaims {
         return !courtesy.matches(normalized) && normalized.split(' ').count { it.isNotBlank() } >= 3
     }
 
+    /** Structural labels supply context; they are not additional factual propositions. */
+    fun structuralHeading(text: String): Boolean {
+        val line = text.trim()
+        if (line.startsWith('#')) return true
+        val label = Regex("^(?:[-*+] |[0-9]+[.)] )?(?:\\*\\*(.+?)\\*\\*|__(.+?)__):?$").matchEntire(line)
+            ?.groupValues?.drop(1)?.firstOrNull { it.isNotBlank() } ?: return false
+        if (label.any(Char::isDigit) || Regex("[.!?]$").containsMatchIn(label.trim())) return false
+        if (Regex("(?i)\\b(?:is|are|was|were|has|have|had|may|might|could|can|cannot|must|should|reduces?|improves?|increases?|causes?|shows?|suggests?|prevents?|no|not|without|unproven|unsafe|ineffective)\\b").containsMatchIn(label)) return false
+        return true
+    }
+
     /** Exact row/cell offsets refer to the original body, never to a reserialized table. */
-    fun units(text: String, partial: Boolean = false): List<Unit> {
+    fun units(text: String, partial: Boolean = false, excludeStructural: Boolean = false): List<Unit> {
         var offset = 0
         val lines = text.split('\n').map { line -> Line(line, offset).also { offset += line.length + 1 } }
         val result = mutableListOf<Unit>()
@@ -44,12 +55,15 @@ internal object CombinedSourceClaims {
                 val first = spans.find(sentence, cursor) ?: continue
                 var end = first.endUtf16
                 var content = sentence
-                val next = sentences.getOrNull(position)?.takeIf { qualification.containsMatchIn(it.trim()) }
-                val qualificationSpan = next?.let { spans.find(it, end) }
-                if (qualificationSpan != null) {
+                var next = sentences.getOrNull(position)?.takeIf { qualification.containsMatchIn(it.trim()) }
+                var qualificationSpan = next?.let { spans.find(it, end) }
+                while (qualificationSpan != null) {
                     content += " $next"
                     end = qualificationSpan.endUtf16
                     position++
+                    if (!excludeStructural) break
+                    next = sentences.getOrNull(position)?.takeIf { qualification.containsMatchIn(it.trim()) }
+                    qualificationSpan = next?.let { spans.find(it, end) }
                 }
                 cursor = end
                 if (material(content)) result += Unit(content, proseStart + first.startUtf16, proseStart + end)
@@ -74,9 +88,10 @@ internal object CombinedSourceClaims {
                     index++
                 }
             } else {
-                if (line.text.isBlank() || line.text.trimStart().startsWith('#')) {
+                if (line.text.isBlank() || line.text.trimStart().startsWith('#') || excludeStructural && structuralHeading(line.text)) {
                     flush()
                 } else {
+                    if (excludeStructural && Regex("^\\s*(?:[-*+] |[0-9]+[.)] )").containsMatchIn(line.text)) flush()
                     if (prose.isEmpty()) proseStart = line.start else prose.append('\n')
                     prose.append(line.text)
                 }

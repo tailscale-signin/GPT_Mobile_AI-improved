@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
+import dev.chungjungsoo.gptmobile.data.agent.CombinedClaimInventoryWire
 import dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext
 import dev.chungjungsoo.gptmobile.data.agent.CombinedPolicyResolver
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
@@ -28,7 +29,7 @@ class CombinedSinglePassInputsTest {
         val ctx = CombinedExecutionContext(requested, rootBudgetId = "root")
         val prompt = Json.parseToJsonElement(combinedSynthesisPrompt(requested.userPrompt, sources, combined = ctx)).jsonObject
         assertEquals("FULL_CONTRIBUTIONS_V1", prompt.getValue("input_representation").jsonPrimitive.content)
-        assertEquals("FULL_SPANS_V1", prompt.getValue("source_preservation").jsonPrimitive.content)
+        assertEquals("INTEGRATED_RELEVANT_CLAIMS_V2", prompt.getValue("source_preservation").jsonPrimitive.content)
         val bodies = prompt.getValue("contributions").jsonArray
         assertEquals(6, bodies.size)
         sources.forEachIndexed { index, source ->
@@ -39,6 +40,16 @@ class CombinedSinglePassInputsTest {
             assertTrue(body.getValue("included_in_input").jsonPrimitive.boolean)
         }
         assertTrue(prompt.getValue("answer_outline").jsonArray.isNotEmpty())
+        val claims = CombinedClaimInventoryWire.decode(prompt)
+        assertTrue(claims.isNotEmpty())
+        claims.forEach { claim ->
+            assertTrue(claim.getValue("text").jsonPrimitive.content.isNotBlank())
+            assertTrue("qualifiers" in claim)
+            assertTrue(claim.getValue("contributors").jsonArray.isNotEmpty())
+            assertTrue(claim.getValue("source_ranges_utf16").jsonArray.isNotEmpty())
+        }
+        assertTrue(prompt.getValue("preservation_instruction").jsonPrimitive.content.contains("one coherent answer"))
+        assertTrue(prompt.getValue("preservation_instruction").jsonPrimitive.content.contains("Explicit user"))
     }
 
     @Test fun legacyPoliciesDoNotSilentlyOptIntoSourceAssembly() {
@@ -70,6 +81,24 @@ class CombinedSinglePassInputsTest {
         val runs = mapOf("p" to run("p", "COMPLETED"))
         assertEquals("The answer is incomplete.", combinedProfileFailures(1, "List 10 reasons", listOf(message), runs, emptyMap(), emptyMap()).single().reason)
         assertNull(combinedSynthesisInputs(listOf(message), runs, emptyMap(), emptyMap(), "List 10 reasons", requireComplete = true))
+    }
+
+    @Test fun pausedQuotaWaitKeepsItsCountdownAndCanBeExcludedWithoutRetryingEarly() {
+        val now = 1_000L
+        val deadline = now + 5_180_000L
+        val message = reply("p", "").copy(
+            timeline = listOf(
+                dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(
+                    dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE,
+                    profileFailure = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord("RATE_LIMIT", true, deadline)
+                )
+            )
+        )
+        val failure = combinedProfileFailures(1, "Question", listOf(message), mapOf("p" to run("p", "WAITING_PROVIDER_LIMIT")), emptyMap(), emptyMap()).single()
+        assertEquals(deadline, failure.retryAfterMillis)
+        assertEquals("Rate limited · 1h 26m left", failure.shortStatus(now))
+        assertTrue(failure.retryAllowed)
+        assertEquals("p", failure.attemptId)
     }
 
     @Test fun removedTabCannotReturnFromHistoricalSourceOrLateResponse() {

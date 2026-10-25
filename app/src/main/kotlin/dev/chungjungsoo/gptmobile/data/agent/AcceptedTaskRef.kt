@@ -56,6 +56,7 @@ data class AgentStageRequest(
 fun CombinedInputSnapshot.bindAcceptedStage(): AgentStageRequest {
     require(version in 1..6 && prompt.isNotBlank() && profileUid.isNotBlank()) { "COMBINED_STAGE_INPUT_UNAVAILABLE" }
     if (version >= 6) require(snapshotId.isNotBlank() && inputDigest == contentDigest()) { "COMBINED_SNAPSHOT_INTEGRITY_FAILED" }
+    CombinedClaimInventoryWire.validatePrompt(prompt)
     writerRequestPlan?.validate(this)
     writerContext?.let { require(it.bindPrompt(prompt, userMessage) == prompt) { "COMBINED_WRITER_CONTEXT_DOCUMENT_CHANGED" } }
     val reference = acceptedTask ?: combined?.acceptedTask ?: AcceptedTaskRef.from(userMessage)

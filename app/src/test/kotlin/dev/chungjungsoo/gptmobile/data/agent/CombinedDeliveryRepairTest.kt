@@ -96,6 +96,7 @@ class CombinedDeliveryRepairTest {
     @Test fun reasoningUsageIsReservedAndCannotBeErasedByVisibleText() {
         val p = profile("reasoning")
         val key = CombinedWriterObservations.key(p)
+        CombinedWriterObservations.recordRoute(key, p.model, null, "reasoning.enabled=false", false)
         CombinedWriterObservations.recordUsage(key, 2878)
         CombinedWriterObservations.record(key, false, 3, 3688)
         assertEquals("NOT_HONORED", CombinedWriterObservations.get(key)?.reasoningDisabled)
@@ -122,7 +123,7 @@ class CombinedDeliveryRepairTest {
             assertTrue(code, CombinedRecoveryFailure.from(ProviderEvent.Failed("provider detail", errorCode = code)).rotateWriter)
         }
         val pending = CombinedRecoveryFailure.fromCode("QUEUE_JOB_PENDING")
-        assertEquals("FAILED", pending.localAttemptStatus)
+        assertEquals("WAITING_REMOTE_JOB", pending.localAttemptStatus)
         assertEquals("PENDING", pending.remoteJobStatus)
         assertEquals("INCOMPLETE", pending.deliveryStatus)
         assertFalse(CombinedRecoveryFailure.fromCode("COMBINED_SUCCESSOR_AUTHORITY_CHANGED").rotateWriter)
@@ -211,7 +212,7 @@ class CombinedDeliveryRepairTest {
         }
         val delivery = CombinedDeliverySession(empty, emptyList(), 10000, validateAccess = {}, structured = true, originalRequest = france, maxRepairRounds = 0) { _, _ -> error("No repair budget") }
         val events = delivery.streamRound(emptyList(), emptyList()).toList()
-        val quality = events.filterIsInstance<ProviderEvent.CombinedQuality>().last().report
+        val quality = events.combinedReport()
         assertFalse(quality.complete)
         assertEquals("FAILED", quality.deliveredScopeStatus)
         assertTrue(events.last() is ProviderEvent.Failed)

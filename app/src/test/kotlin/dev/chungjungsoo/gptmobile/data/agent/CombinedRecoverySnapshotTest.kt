@@ -68,6 +68,25 @@ class CombinedRecoverySnapshotTest {
         assertEquals("Original contribution", recovered.sources.single().content)
     }
 
+    @Test fun declaredInventoryIsValidatedBeforeBindingOrPreparingAFrozenRecovery() {
+        val valid = kotlinx.serialization.json.buildJsonObject {
+            put("claim_inventory_schema", CombinedClaimInventoryWire.schema)
+            put("claim_inventory", kotlinx.serialization.json.JsonArray(emptyList()))
+        }.toString()
+        val sealed = snapshot.copy(version = 6, snapshotId = "inventory-schema", prompt = valid).seal()
+        assertEquals(valid, sealed.bindAcceptedStage().stagePrompt)
+        for (invalid in listOf(valid.replace("\"version\":1", "\"version\":2"), "{\"claim_inventory_schema\":", "[$valid]")) {
+            val bad = sealed.copy(prompt = invalid, inputDigest = "").seal()
+            val encoded = bad.encode()
+            val persisted = run.copy(synthesisSnapshot = encoded, synthesisKey = researchHash(encoded))
+            val binding = assertThrows(IllegalArgumentException::class.java) { bad.bindAcceptedStage() }
+            val recovery = assertThrows(IllegalArgumentException::class.java) { CombinedRecoverySnapshot.prepare(persisted, answer, "primary", platform, segments) }
+            org.junit.Assert.assertTrue(binding.message.orEmpty().contains("Combined claim inventory"))
+            org.junit.Assert.assertTrue(recovery.message.orEmpty().contains("Combined claim inventory"))
+            assertEquals("Preserved chapter 🙂", answer.content)
+        }
+    }
+
     @Test fun corruptStaleOrIncompatibleRecoveryCannotReplaceTheSavedAnswer() {
         assertThrows(IllegalArgumentException::class.java) { CombinedRecoverySnapshot.prepare(run, answer.copy(ownershipFence = 5), "primary", platform, segments) }
         assertThrows(IllegalArgumentException::class.java) { CombinedRecoverySnapshot.prepare(run, answer, "different-primary", platform, segments) }

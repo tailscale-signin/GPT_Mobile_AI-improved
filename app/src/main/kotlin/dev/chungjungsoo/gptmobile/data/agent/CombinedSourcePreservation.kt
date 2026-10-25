@@ -17,10 +17,57 @@ data class CombinedSourceDisposition(
     val finalLinks: List<CombinedCoverageLink> = emptyList()
 )
 
-/** Source accounting is deterministic text preservation, never a factual verification claim. */
+/** Source accounting is text lineage, never a factual verification or omission verdict. */
 internal object CombinedSourcePreservation {
     data class Block(val start: Int, val end: Int, val text: String)
     data class Result(val text: String, val passages: List<CombinedPassageRecord>, val dispositions: List<CombinedSourceDisposition>, val fragments: Int)
+
+    /**
+     * Keep the integrated writer answer intact. Uncertain text matching cannot prove
+     * omission and must never trigger copying whole contributors into the answer.
+     * The original bodies remain immutable in the contribution snapshot; the report
+     * accounts for their known links and explicitly retains unresolved link states.
+     */
+    fun account(answer: String, sources: List<CombinedModelResponse>): Result {
+        val inventory = CombinedContentIndexes.get(sources).records
+        val mapping = CombinedAnswerMappings.get(answer, sources)
+        val mapped = mapping.claims.associateBy { it.canonicalId }
+        val dispositions = inventory.flatMap { claim ->
+            val linked = mapped[claim.canonicalId]
+            val links = linked?.links.orEmpty()
+            claim.occurrences.mapNotNull { occurrence ->
+                val span = occurrence.sourceSpan ?: return@mapNotNull null
+                CombinedSourceDisposition(
+                    occurrence.profileUid,
+                    occurrence.bodyDigest,
+                    span.startUtf16,
+                    span.endUtf16,
+                    links.minOfOrNull { it.startUtf16 } ?: 0,
+                    links.maxOfOrNull { it.endUtf16 } ?: 0,
+                    when (linked?.status) {
+                        "EXACT" -> "INCLUDED"
+                        "PARAPHRASE" -> "PARAPHRASED"
+                        "PARTIAL" -> "PARTIALLY_LINKED"
+                        "NOT_EVALUATED" -> "LINK_NOT_EVALUATED"
+                        else -> "UNRESOLVED_LINK"
+                    },
+                    setOf(claim.canonicalId) + claim.candidateIds,
+                    links
+                )
+            }
+        }.toMutableList()
+        sources.forEach { source ->
+            val digest = researchHash(source.content)
+            val omissions = if (source.claimExtractionVersion >= 3) CombinedEditorialView.prepare(source.content).omissions else emptyList()
+            blocks(source.content).filter { block ->
+                dispositions.none { it.profileUid == source.platformUid && it.sourceDigest == digest && it.sourceStart < block.end && it.sourceEnd > block.start }
+            }.forEach { block ->
+                val excluded = omissions.any { it.reason == "STANDALONE_SELF_EDITING" && it.start <= block.start && it.end >= block.end }
+                dispositions += CombinedSourceDisposition(source.platformUid, digest, block.start, block.end, 0, 0, if (excluded) "OMITTED_SELF_EDITING" else "CONTEXT_RETAINED_IN_SOURCE")
+            }
+        }
+        return Result(answer, CombinedAnswerMappings.passages(answer, mapping), dispositions, 0)
+    }
 
     /** Keep tables, lists and fenced code intact; offsets refer to the unchanged UTF-16 source. */
     fun blocks(text: String): List<Block> {
@@ -71,6 +118,7 @@ internal object CombinedSourcePreservation {
         return result
     }
 
+    /** Legacy explicit excerpt reconstruction. Live synthesis uses [account], never this appendix. */
     fun assemble(draft: String, sources: List<CombinedModelResponse>, request: String = ""): Result {
         data class Occurrence(val source: CombinedModelResponse, val block: Block, val digest: String, val topic: String?)
         data class EditorialOmission(val source: CombinedModelResponse, val digest: String, val omission: CombinedEditorialView.Omission)

@@ -13,6 +13,38 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AssistantTextMarkupGuardTest {
+    private fun bundle(text: String) = ProviderEvent.CombinedAnswer(text, CombinedQualityReport(revisionId = "final", answerDigest = dev.chungjungsoo.gptmobile.data.research.researchHash(text), complete = true))
+
+    @Test fun atomicAnswerDiscardsBufferedProvisionalTextBeforeCompletionCanFlushIt() = runBlocking {
+        val text = """{"answer":"The retained JSON answer is complete."}"""
+        val final = bundle(text)
+        val events = flowOf(ProviderEvent.TextDelta(text), final, ProviderEvent.Completed).withAssistantTextMarkupGuard().toList()
+        assertEquals(listOf(final, ProviderEvent.Completed), events)
+        assertTrue(events.first() === final)
+    }
+
+    @Test fun atomicAnswerCannotBypassControlMarkupOrUnsupportedSearchClaims() = runBlocking {
+        for ((body, code) in listOf(
+            "<tool_call name=web_search>{}</tool_call>" to "TOOL_PROTOCOL_INVALID_FRAME",
+            """{"name":"web_search","parameters":{"query":"status"}}""" to "TOOL_PROTOCOL_INVALID_FRAME",
+            "I searched the web and found three headlines." to "UNSUPPORTED_SEARCH_CLAIM"
+        )) {
+            val events = flowOf(ProviderEvent.TextDelta("Earlier safe draft."), bundle(body), ProviderEvent.Completed).withAssistantTextMarkupGuard().toList()
+            assertEquals(ProviderEvent.TextDelta("Earlier safe draft."), events.first())
+            assertEquals(code, events.filterIsInstance<ProviderEvent.Failed>().single().errorCode)
+            assertFalse(events.any { it is ProviderEvent.CombinedAnswer || it == ProviderEvent.Completed })
+        }
+    }
+
+    @Test fun atomicAnswerKeepsExistingExplicitJsonAndSuccessfulSearchExceptions() = runBlocking {
+        val requestedJson = bundle("""{"name":"web_search","parameters":{"query":"status"}}""")
+        val jsonEvents = flowOf(requestedJson, ProviderEvent.Completed).withAssistantTextMarkupGuard(allowControlJsonText = true).toList()
+        assertEquals(listOf(requestedJson, ProviderEvent.Completed), jsonEvents)
+        val searched = bundle("I searched the web and found three headlines.")
+        val searchEvents = flowOf(searched, ProviderEvent.Completed).withAssistantTextMarkupGuard(initialSuccessfulSearch = true).toList()
+        assertEquals(listOf(searched, ProviderEvent.Completed), searchEvents)
+    }
+
     @Test fun controlOutputExceptionRequiresAnExplicitOutputRequest() {
         org.junit.Assert.assertFalse(ToolControlOutput.requestedJson("Search code repositories for a JSON API client"))
         org.junit.Assert.assertFalse(ToolControlOutput.requestedJson("Find an example service with a free API"))

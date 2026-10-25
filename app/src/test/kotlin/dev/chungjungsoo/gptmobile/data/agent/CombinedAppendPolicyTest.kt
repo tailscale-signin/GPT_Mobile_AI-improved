@@ -45,7 +45,7 @@ class CombinedAppendPolicyTest {
         val restored = Json.decodeFromString<CombinedRequestedPolicy>(Json.encodeToString(append))
         assertEquals(append, restored)
         assertEquals(append.requestedPolicyDigest, CombinedPolicyResolver.resolve(restored).requested.requestedPolicyDigest)
-        assertTrue(runCatching { CombinedPolicyResolver.resolve(append.copy(settings = ConversationCombinedSettings())) }.isFailure)
+        assertTrue(runCatching { CombinedPolicyResolver.resolve(append.copy(settings = ConversationCombinedSettings(continueLongAnswers = false))) }.isFailure)
         assertFalse(policy(false).copy(settings = ConversationCombinedSettings(continueLongAnswers = true)).appendContinuations)
     }
 

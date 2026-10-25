@@ -95,7 +95,7 @@ internal object CompleteBackupDatabase {
         if ("amazon_check_events" in tables(destination)) destination.execSQL("DELETE FROM amazon_check_events")
         pauseRestoredAmazon(destination)
         // History is portable; active jobs must never be replayed by service recovery.
-        if ("agent_runs" in tables(destination)) destination.execSQL("UPDATE agent_runs SET status = 'INTERRUPTED', terminal_error = 'BACKUP_RESTORED' WHERE status IN ('QUEUED', 'RUNNING', 'WAITING_PROVIDER_LIMIT')")
+        if ("agent_runs" in tables(destination)) destination.execSQL("UPDATE agent_runs SET status = 'INTERRUPTED', terminal_error = 'BACKUP_RESTORED' WHERE status IN ('QUEUED', 'RUNNING', 'WAITING_PROVIDER_LIMIT', 'WAITING_REMOTE_JOB')")
         if ("tool_events" in tables(destination)) destination.execSQL("UPDATE tool_events SET status = 'CANCELED', error = 'BACKUP_RESTORED' WHERE status IN ('PENDING', 'RUNNING')")
     }
 
@@ -159,13 +159,13 @@ internal object CompleteBackupDatabase {
 
         if (selection.normalized().includes(CompleteBackupSection.CONVERSATIONS) && !selection.normalized().includes(CompleteBackupSection.AGENT_HISTORY)) {
             dev.chungjungsoo.gptmobile.data.database.CombinedDocumentDatabase.retainPublishedOnly(destination)
-            destination.execSQL("UPDATE agent_runs SET status='INTERRUPTED', terminal_error='BACKUP_RESTORED' WHERE status IN ('QUEUED', 'RUNNING', 'WAITING_PROVIDER_LIMIT')")
+            destination.execSQL("UPDATE agent_runs SET status='INTERRUPTED', terminal_error='BACKUP_RESTORED' WHERE status IN ('QUEUED', 'RUNNING', 'WAITING_PROVIDER_LIMIT', 'WAITING_REMOTE_JOB')")
         }
         if (CompleteBackupSection.AGENT_HISTORY in selection.normalized().sections) {
             RunPolicySnapshotDatabase.normalizeInlineRecords(destination)
             destination.execSQL(
                 "UPDATE agent_runs SET status = 'INTERRUPTED', terminal_error = 'BACKUP_RESTORED' " +
-                    "WHERE status IN ('QUEUED', 'RUNNING', 'WAITING_PROVIDER_LIMIT')"
+                    "WHERE status IN ('QUEUED', 'RUNNING', 'WAITING_PROVIDER_LIMIT', 'WAITING_REMOTE_JOB')"
             )
             destination.execSQL(
                 "UPDATE tool_events SET status = 'CANCELED', error = 'BACKUP_RESTORED' " +

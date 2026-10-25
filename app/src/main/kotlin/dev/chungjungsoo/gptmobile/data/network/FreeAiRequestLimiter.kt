@@ -436,7 +436,9 @@ class FreeAiRequestLimiter(
     }
 
     companion object {
-        val shared = FreeAiRequestLimiter(elapsedMillis = { System.nanoTime() / 1_000_000 })
+        // Cooldowns are real elapsed deadlines: deep sleep must count toward the wait.
+        // Persisted wall deadlines reconstruct a new elapsed origin after process death/reboot.
+        val shared = FreeAiRequestLimiter(elapsedMillis = ProviderElapsedClock::now)
         private const val MINUTE_MS = 60_000L
         private const val HOUR_MS = 3_600_000L
         private const val DAY_MS = 86_400_000L
@@ -446,4 +448,4 @@ class FreeAiRequestLimiter(
     }
 }
 
-class FreeAiRateLimitException(provider: FreeAiProvider, retrySeconds: Long, detail: String? = null, val cooldown: FreeCooldown? = null, val retryAt: Long = cooldown?.retryAt ?: System.currentTimeMillis() + retrySeconds * 1000, localBlock: Boolean = true) : IllegalStateException(cooldown?.takeIf { localBlock }?.copy(retryAt = retryAt)?.blockedMessage(provider) ?: "${provider.displayName} is rate limited. Next eligible retry: ${java.time.Instant.ofEpochMilli(retryAt)} (in $retrySeconds seconds). This does not guarantee the provider’s allowance has reset." + ((detail ?: cooldown?.message)?.let { " $it" } ?: ""))
+class FreeAiRateLimitException(provider: FreeAiProvider, retrySeconds: Long, detail: String? = null, val cooldown: FreeCooldown? = null, val retryAt: Long = cooldown?.retryAt ?: System.currentTimeMillis() + retrySeconds * 1000, val localBlock: Boolean = true) : IllegalStateException(cooldown?.takeIf { localBlock }?.copy(retryAt = retryAt)?.blockedMessage(provider) ?: "${provider.displayName} is rate limited. Next eligible retry: ${java.time.Instant.ofEpochMilli(retryAt)} (in $retrySeconds seconds). This does not guarantee the provider’s allowance has reset." + ((detail ?: cooldown?.message)?.let { " $it" } ?: ""))

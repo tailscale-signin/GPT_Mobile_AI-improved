@@ -105,7 +105,7 @@ internal fun ChatSourcePicker(sources: ChatSources, contentIdentity: Any, modifi
     Row(
         modifier = modifier
             .testTag("response-sources")
-            .onGloballyPositioned { center = it.localToScreen(Offset(it.size.width / 2f, it.size.height / 2f)) }
+            .onGloballyPositioned { if (it.isAttached) center = it.localToScreen(Offset(it.size.width / 2f, it.size.height / 2f)) }
             .height(48.dp)
             .widthIn(min = 48.dp)
             .clickable(role = Role.Button) { origin = center }
@@ -187,7 +187,7 @@ private fun SourceListDialog(sources: ChatSources, origin: Offset, onDismiss: ()
                 modifier = Modifier
                     .widthIn(max = 560.dp)
                     .fillMaxWidth()
-                    .onGloballyPositioned { center = it.localToScreen(Offset(it.size.width / 2f, it.size.height / 2f)) }
+                    .onGloballyPositioned { if (it.isAttached) center = it.localToScreen(Offset(it.size.width / 2f, it.size.height / 2f)) }
             ) {
                 Surface(
                     modifier = Modifier

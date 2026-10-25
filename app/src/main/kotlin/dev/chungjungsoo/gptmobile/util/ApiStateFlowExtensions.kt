@@ -31,7 +31,7 @@ const val LOW_POWER_STREAM_PUBLISH_INTERVAL_MILLIS = 250L
 
 sealed interface ApiStateFlowOutcome {
     data object Completed : ApiStateFlowOutcome
-    data class Failed(val message: String, val providerLimit: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision? = null) : ApiStateFlowOutcome
+    data class Failed(val message: String, val providerLimit: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision? = null, val errorCode: String? = null) : ApiStateFlowOutcome
     data object Incomplete : ApiStateFlowOutcome
 }
 
@@ -87,6 +87,7 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
     onGatewayProgress: ((GatewayProgress) -> Unit)? = null,
     onResearchReplacement: suspend (String, String) -> Boolean = { _, _ -> false },
     onCombinedReplacement: suspend (dev.chungjungsoo.gptmobile.data.agent.CombinedReplacementCandidate) -> Boolean = { false },
+    onCombinedAnswer: suspend (String, String, List<AssistantTimelineItem>) -> Boolean = { _, _, _ -> false },
     nanoTimeProvider: () -> Long = System::nanoTime,
     publishIntervalMillis: Long = STANDARD_STREAM_PUBLISH_INTERVAL_MILLIS
 ): ApiStateFlowOutcome {
@@ -94,6 +95,7 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
     var isCompletedSuccessfully = false
     var terminalError: String? = null
     var providerLimit: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision? = null
+    var errorCode: String? = null
 
     try {
         withPublicationTicks(publishIntervalMillis).takeWhile { pulse ->
@@ -129,6 +131,15 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
                 is ApiState.CombinedQuality -> {
                     buffer.updateCombinedQuality(chunk.report)
                     buffer.publishIfDue(onUpdate)
+                }
+                is ApiState.CombinedAnswer -> {
+                    dev.chungjungsoo.gptmobile.data.agent.CombinedAnswerPublication.validate(chunk.text, chunk.report, chunk.formatVersion)
+                    // Prepare without mutating the visible buffer. A failed or stale checkpoint
+                    // must never leak an uncommitted final document through the finally flush.
+                    val timeline = buffer.combinedAnswerTimeline(chunk.text, chunk.report)
+                    check(onCombinedAnswer(chunk.text, buffer.thoughtText(), timeline)) { "COMBINED_FINAL_PUBLICATION_REJECTED" }
+                    buffer.replaceCombinedAnswer(chunk.text, chunk.report)
+                    buffer.publishNow(onUpdate)
                 }
 
                 is ApiState.TokenUsage -> {
@@ -200,10 +211,15 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
 
                 is ApiState.Error -> {
                     providerLimit = chunk.providerLimit
+                    errorCode = chunk.errorCode
                     chunk.progressDeadline?.let(buffer::appendProgressDeadline)
                     chunk.recoveryBlock?.let(buffer::appendRecoveryBlock)
                     chunk.combinedFailure?.let(buffer::appendCombinedFailure)
-                    buffer.appendProfileFailure(chunk.message, chunk.progressDeadline != null || chunk.recoveryBlock != null || chunk.combinedFailure != null)
+                    if (chunk.errorCode == "QUEUE_JOB_PENDING") {
+                        buffer.appendNotice(chunk.message)
+                    } else {
+                        buffer.appendProfileFailure(chunk.message, chunk.progressDeadline != null || chunk.recoveryBlock != null || chunk.combinedFailure != null)
+                    }
                     terminalError = chunk.message.ifBlank { "The provider could not complete this response." }
                 }
 
@@ -220,7 +236,7 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
 
     val completedError = terminalError
     return when {
-        completedError != null -> ApiStateFlowOutcome.Failed(completedError, providerLimit)
+        completedError != null -> ApiStateFlowOutcome.Failed(completedError, providerLimit, errorCode)
         isCompletedSuccessfully && !buffer.hasResponse -> ApiStateFlowOutcome.Failed("The model finished without a visible answer. Please retry or choose another model.")
         isCompletedSuccessfully -> ApiStateFlowOutcome.Completed
         else -> ApiStateFlowOutcome.Incomplete
@@ -447,13 +463,28 @@ private class StreamingMessageBuffer(
     }
 
     fun replaceCombined(candidate: dev.chungjungsoo.gptmobile.data.agent.CombinedReplacementCandidate) {
+        replaceCombinedAnswer(candidate.text, candidate.report)
+    }
+
+    fun thoughtText(): String = thoughts.toString()
+
+    fun combinedAnswerTimeline(text: String, report: dev.chungjungsoo.gptmobile.data.agent.CombinedQualityReport): List<AssistantTimelineItem> {
+        flushTimelineText()
+        return timeline.filterNot { it.type == AssistantTimelineItemType.TEXT || it.combinedQuality != null } +
+            listOf(
+                AssistantTimelineItem(AssistantTimelineItemType.TEXT, content = text),
+                AssistantTimelineItem(AssistantTimelineItemType.NOTICE, combinedQuality = report)
+            )
+    }
+
+    fun replaceCombinedAnswer(text: String, report: dev.chungjungsoo.gptmobile.data.agent.CombinedQualityReport) {
         flushTimelineText()
         content.setLength(0)
         pendingTimelineIndex = -1
         pendingTimelineText.setLength(0)
         timeline.removeAll { it.type == AssistantTimelineItemType.TEXT || it.combinedQuality != null }
-        appendContent(candidate.text)
-        updateCombinedQuality(candidate.report)
+        appendContent(text)
+        updateCombinedQuality(report)
         // Equal-length replacements must publish too.
         timelineVersion++
     }

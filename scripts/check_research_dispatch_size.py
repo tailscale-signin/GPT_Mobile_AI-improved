@@ -17,6 +17,8 @@ AGENT_PREFIXES = (
     'Ldev/chungjungsoo/gptmobile/data/research/ResearchSessionStore',
     'Ldev/chungjungsoo/gptmobile/data/research/ResearchSourceIndexer',
     'Ldev/chungjungsoo/gptmobile/data/agent/tool/AgentToolResolver',
+    'Ldev/chungjungsoo/gptmobile/data/benchmark/BenchmarkRunner',
+    'Ldev/chungjungsoo/gptmobile/data/benchmark/BenchmarkCaseExecution',
 )
 GUARDED_PREFIXES = ('Ldev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImpl',) + AGENT_PREFIXES
 DISPATCH_STAGES = (
@@ -123,6 +125,10 @@ def main():
         ('Ldev/chungjungsoo/gptmobile/data/agent/AgentRunner;', 'executeLoop'),
         ('Ldev/chungjungsoo/gptmobile/data/agent/tool/AgentToolResolver;', 'resolve'),
         ('Ldev/chungjungsoo/gptmobile/data/research/ResearchSourceIndexer;', 'index'),
+        ('Ldev/chungjungsoo/gptmobile/data/benchmark/BenchmarkRunner;', 'runOnce'),
+        ('Ldev/chungjungsoo/gptmobile/data/benchmark/BenchmarkCaseExecution;', 'generate'),
+        ('Ldev/chungjungsoo/gptmobile/data/benchmark/BenchmarkCaseExecution;', 'accept'),
+        ('Ldev/chungjungsoo/gptmobile/data/benchmark/BenchmarkCaseExecution;', 'validate'),
     ):
         if not any(row['class'] == descriptor and row['method'] == method for row in rows):
             raise ValueError(f'The actual {descriptor}.{method} method was not found')

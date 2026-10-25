@@ -42,8 +42,8 @@ class CombinedSynthesisPlannerTest {
         coEvery { chats.isCombinedTurnCancelled("root") } returns false
     }
 
-    @Test fun excludedFailureIsRemovedOnlyFromThisFrozenMergeWhileChatMembershipAndAcceptedPolicyStayIntact() = runTest {
-        fixture("FAILED")
+    @Test fun excludedQuotaWaitIsRemovedOnlyFromThisFrozenMergeWhileChatMembershipAndAcceptedPolicyStayIntact() = runTest {
+        fixture("WAITING_PROVIDER_LIMIT")
         val requested = CombinedPolicyResolver.accept(dev.chungjungsoo.gptmobile.data.model.ConversationCombinedSettings(), listOf("p", "h"), mapOf("p" to "m", "h" to "m"), user.content, singlePass = true, preferredOwnerUid = "p")
         val execution = CombinedExecutionContext(requested, CombinedPolicyResolver.resolve(requested), "root", chatId = 1)
         val frozenTurn = CombinedAcceptedTurn(context = execution, tools = ChatMcpToolConfig(combined = execution))
@@ -52,7 +52,7 @@ class CombinedSynthesisPlannerTest {
         every { chats.observeAgentRuns(1) } returns flowOf(
             listOf(
                 AgentRun("p-run", 1, 2, 3, "p", "CUSTOM", "m", "COMPLETED", synthesisSnapshot = frozenTurn.encode()),
-                AgentRun("h-run", 1, 2, 4, "h", "CUSTOM", "m", "FAILED", synthesisSnapshot = frozenTurn.encode())
+                AgentRun("h-run", 1, 2, 4, "h", "CUSTOM", "m", "WAITING_PROVIDER_LIMIT", synthesisSnapshot = frozenTurn.encode())
             )
         )
         coEvery { settings.fetchPlatformV2s() } returns listOf(dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2(uid = "p", name = "Primary", enabled = true, model = "m"))
@@ -68,7 +68,7 @@ class CombinedSynthesisPlannerTest {
             val snapshot = kotlinx.serialization.json.Json.decodeFromString<CombinedInputSnapshot>(request.run.synthesisSnapshot!!)
             assertEquals(listOf("p"), snapshot.sources.map { it.platformUid })
             assertEquals(primary.content, snapshot.sources.single().content)
-            assertEquals(3, snapshot.sources.single().claimExtractionVersion)
+            assertEquals(4, snapshot.sources.single().claimExtractionVersion)
             assertEquals(listOf("p", "h"), snapshot.combined!!.requested.participantUids)
             assertEquals(requested.requestedPolicyDigest, snapshot.combined!!.requested.requestedPolicyDigest)
             val assistant = request.assistantMessage.copy(content = "", currentRunId = request.run.runId)

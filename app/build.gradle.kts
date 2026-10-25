@@ -18,8 +18,10 @@ import org.gradle.api.artifacts.transform.TransformOutputs
 import org.gradle.api.artifacts.transform.TransformParameters
 import org.gradle.api.artifacts.type.ArtifactTypeDefinition
 import org.gradle.api.attributes.Attribute
+import org.gradle.api.tasks.compile.JavaCompile
 import org.gradle.kotlin.dsl.aboutLibraries
 import org.gradle.kotlin.dsl.configure
+import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
     alias(libs.plugins.android.application)
@@ -395,16 +397,22 @@ tasks.register<JacocoReport>("jacocoTestReport") {
         "**/*_MembersInjector.class"
     )
 
-    val debugTree = fileTree("$buildDir/tmp/kotlin-classes/debug") {
-        exclude(fileFilter)
-    }
+    // AGP 9's built-in Kotlin compiler no longer writes tmp/kotlin-classes/debug.
+    // Follow the compiler outputs so a toolchain/output-directory change cannot
+    // silently produce a report with execution sessions but no application classes.
+    val kotlinClasses = tasks.named<KotlinCompile>("compileDebugKotlin").flatMap { it.destinationDirectory }
+    val javaClasses = tasks.named<JavaCompile>("compileDebugJavaWithJavac").flatMap { it.destinationDirectory }
     val mainSources = files(
         "$projectDir/src/main/java",
         "$projectDir/src/main/kotlin"
     )
 
     sourceDirectories.setFrom(mainSources)
-    classDirectories.setFrom(files(debugTree))
+    classDirectories.setFrom(
+        listOf(kotlinClasses, javaClasses).map { directory ->
+            directory.map { it.asFileTree.matching { exclude(fileFilter) } }
+        }
+    )
     executionData.setFrom(
         fileTree(buildDir) {
             include(

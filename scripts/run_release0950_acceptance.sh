@@ -31,6 +31,8 @@ timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.p
 conversation_glass_status=${PIPESTATUS[0]}
 timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.ui.chat.CombinedSettingsInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/combined-settings-instrumentation.txt"
 combined_settings_status=${PIPESTATUS[0]}
+timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.ui.chat.CombinedFinalizationLifecycleInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/combined-finalization-instrumentation.txt"
+combined_finalization_status=${PIPESTATUS[0]}
 # The suite requests both 320 dp and 600 dp layouts; the device must accommodate the wider one.
 timeout 30s adb shell wm size 1200x2560
 settings_home_display_status=$?
@@ -104,6 +106,7 @@ if [ "$settings_home_restore_status" -ne 0 ]; then exit "$settings_home_restore_
 if [ "$navigation_setup_status" -ne 0 ]; then exit "$navigation_setup_status"; fi
 if [ "$navigation_restore_status" -ne 0 ]; then exit "$navigation_restore_status"; fi
 if [ "$combined_settings_status" -ne 0 ]; then exit "$combined_settings_status"; fi
+if [ "$combined_finalization_status" -ne 0 ]; then exit "$combined_finalization_status"; fi
 if [ "$settings_home_status" -ne 0 ]; then exit "$settings_home_status"; fi
 if [ "$navigation_motion_status" -ne 0 ]; then exit "$navigation_motion_status"; fi
 if [ "$settings_home_artifact_status" -ne 0 ]; then exit "$settings_home_artifact_status"; fi
@@ -143,6 +146,7 @@ for test in ('conversationGlassKeepsRequestedOpacityOverFadedMessages', 'convers
     check_instrumentation(folder / 'conversation-glass-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.chat.ConversationGlassInstrumentedTest', test)
 for test in ('combinedTabStagesBothAxesAndRemovesDelegationCard', 'cancelKeepsCommittedMembershipAndPreventsEmptySave', 'membershipRowStagesChangesWithoutSavingImmediately', 'saveableDraftRestoresTheTwoAxesTogether', 'unsupportedFutureControlsStayVisibleButCannotBeEdited'):
     check_instrumentation(folder / 'combined-settings-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.chat.CombinedSettingsInstrumentedTest', test)
+check_instrumentation(folder / 'combined-finalization-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.chat.CombinedFinalizationLifecycleInstrumentedTest', 'finalizationWhilePointerIsDownAndScrollingDisposesThePreviousRenderer')
 for test in ('oneToFiveItemsAtCompactWidth', 'oneToFiveItemsAtWideWidth', 'oneToFiveItemsAtLargeFontAndRtl', 'homeScreenNamesItsDestinationEnforcesFiveAndAllowsZero'):
     check_instrumentation(folder / 'settings-home-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.setting.SettingsHomeInstrumentedTest', test)
 check_instrumentation(folder / 'navigation-motion-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.navigation.NavigationMotionInstrumentedTest', 'backUsesFadeWithoutScalingAndCompletesOnThePreviousScreen')

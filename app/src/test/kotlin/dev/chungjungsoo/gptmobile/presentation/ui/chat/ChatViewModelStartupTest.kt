@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.presentation.ui.chat
 import android.app.Application
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.viewModelScope
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import dev.chungjungsoo.gptmobile.data.agent.ActiveAgentRun
@@ -14,6 +15,7 @@ import dev.chungjungsoo.gptmobile.data.agent.CombinedAnswerRevisionTarget
 import dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext
 import dev.chungjungsoo.gptmobile.data.agent.CombinedPolicyResolver
 import dev.chungjungsoo.gptmobile.data.agent.CombinedQualityReport
+import dev.chungjungsoo.gptmobile.data.agent.ProviderWaitDeadline
 import dev.chungjungsoo.gptmobile.data.chat.ConversationReadStateStore
 import dev.chungjungsoo.gptmobile.data.chat.GenerationCompletionStore
 import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2
@@ -38,6 +40,7 @@ import dev.chungjungsoo.gptmobile.data.repository.ChatRepository
 import dev.chungjungsoo.gptmobile.data.repository.LocalModelRepository
 import dev.chungjungsoo.gptmobile.data.repository.ModelCatalogRepository
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
+import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
 import dev.chungjungsoo.gptmobile.data.research.AcceptedResearchTask
 import dev.chungjungsoo.gptmobile.data.research.ResearchAttemptState
 import dev.chungjungsoo.gptmobile.data.research.ResearchExecutionRecord
@@ -53,11 +56,16 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -86,10 +94,12 @@ class ChatViewModelStartupTest {
     // A StandardTestDispatcher would postpone that work and conceal the startup crash.
     private val dispatcher = UnconfinedTestDispatcher()
     private val store = ViewModelStore()
+    private val viewModelJobs = mutableListOf<Job>()
     private val repository = mockk<ChatRepository>(relaxed = true)
     private val coordinator = mockk<AgentRunCoordinator>(relaxed = true)
     private val messages = MutableStateFlow<List<MessageV2>>(emptyList())
     private val runs = MutableStateFlow<List<AgentRun>>(emptyList())
+    private val waitDeadlines = MutableStateFlow<List<ProviderWaitDeadline>>(emptyList())
     private val activeRuns = MutableStateFlow<Map<String, ActiveAgentRun>>(emptyMap())
     private val profiles = (1..3).map { PlatformV2(uid = "profile-$it", name = "Profile $it", enabled = true, model = "model-$it") }
     private val features = AppFeatureSettings(
@@ -104,9 +114,20 @@ class ChatViewModelStartupTest {
         every { coordinator.notices } returns MutableSharedFlow<AgentRunNotice>()
     }
 
-    @After fun cleanup() {
+    @After fun cleanup() = runTest(dispatcher) {
+        try {
+            clearViewModels()
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
+    private suspend fun clearViewModels() = withContext(NonCancellable) {
+        // Clearing cancels the scopes but real IO can still be returning. Keep
+        // the current Main delegate and Room connection until every owner ends.
         store.clear()
-        Dispatchers.resetMain()
+        viewModelJobs.joinAll()
+        viewModelJobs.clear()
     }
 
     @Test fun freshStandardChatHandlesImmediateEmptyRunEmission() = runTest(dispatcher) {
@@ -151,6 +172,37 @@ class ChatViewModelStartupTest {
         verify(exactly = 0) { coordinator.cancelChat(any()) }
     }
 
+    @Test fun initialPreflightWaitRestoresItsObservableDeadlineWithoutAnErrorOrTimelineFailure() = runTest(dispatcher) {
+        StartupRecoveryGate.start(backgroundScope) {}
+        seedTurn(listOf(AgentRunStatus.COMPLETED, AgentRunStatus.WAITING_PROVIDER_LIMIT, AgentRunStatus.COMPLETED))
+        val waiting = runs.value[1]
+        assertNull(waiting.terminalError)
+        assertTrue(messages.value.single { it.currentRunId == waiting.runId }.timeline.isEmpty())
+        val model = createViewModel()
+        val pending = model.combinedFailures.value.single()
+        assertEquals(waiting.runId, pending.attemptId)
+        assertFalse(pending.retryAllowed)
+        assertNull(pending.retryAfterMillis)
+        assertEquals("Paused by provider limit", pending.shortStatus(System.currentTimeMillis()))
+
+        val deadline = ProviderWaitDeadline(waiting.runId, waiting.ownershipFence, System.currentTimeMillis() + 120_000)
+        waitDeadlines.value = listOf(deadline)
+        assertEquals(deadline.retryAt, model.combinedFailures.value.single().retryAfterMillis)
+        assertEquals("RATE_LIMIT", model.combinedFailures.value.single().category)
+        model.retryCombinedProfile(1, waiting.profileUid)
+        verify(exactly = 0) { coordinator.start(any()) }
+        coVerify(exactly = 0) { repository.persistAgentRetry(any()) }
+
+        val extended = deadline.copy(retryAt = deadline.retryAt + 60_000)
+        waitDeadlines.value = listOf(extended)
+        assertEquals(extended.retryAt, model.combinedFailures.value.single().retryAfterMillis)
+        clearViewModels()
+        val restored = createViewModel()
+        assertEquals(extended.retryAt, restored.combinedFailures.value.single().retryAfterMillis)
+        assertEquals(waiting.runId, restored.combinedFailures.value.single().attemptId)
+        verify(exactly = 0) { coordinator.start(any()) }
+    }
+
     @Test fun simultaneousProfileFailuresDoNotCancelOtherProfiles() = runTest(dispatcher) {
         StartupRecoveryGate.start(backgroundScope) {}
         seedTurn(List(3) { AgentRunStatus.RUNNING })
@@ -172,7 +224,7 @@ class ChatViewModelStartupTest {
         val first = createViewModel()
         val expected = first.combinedFailures.value
         assertEquals(2, expected.size)
-        store.clear()
+        clearViewModels()
         StartupRecoveryGate.start(backgroundScope) {}
         val reopened = createViewModel()
         assertEquals(expected, reopened.combinedFailures.value)
@@ -208,6 +260,44 @@ class ChatViewModelStartupTest {
         verify(exactly = 1) { exitWork.enqueue(7, any()) }
         exitAction!!.invoke()
         coVerify { repository.saveComposerDraft(7, "Saved draft", "[]", any()) }
+    }
+
+    @Test fun viewModelCleanupFinishesIoBeforeReplacingMainDispatcher() = runTest(dispatcher) {
+        StartupRecoveryGate.start(backgroundScope) {}
+        val ioStarted = CompletableDeferred<Unit>()
+        val cancellationStarted = CompletableDeferred<Unit>()
+        val releaseIo = CompletableDeferred<Unit>()
+        val ioFinished = CompletableDeferred<Unit>()
+        val connections = mockk<ToolConnectionRepository>(relaxed = true)
+        coEvery { connections.getAllConnections() } coAnswers {
+            try {
+                ioStarted.complete(Unit)
+                awaitCancellation()
+            } finally {
+                withContext(NonCancellable) {
+                    cancellationStarted.complete(Unit)
+                    releaseIo.await()
+                    ioFinished.complete(Unit)
+                }
+            }
+        }
+        try {
+            val model = createViewModel(combined = false, toolConnections = connections)
+            assertEquals("Saved draft", model.question.text.toString())
+            val owner = requireNotNull(model.viewModelScope.coroutineContext[Job])
+            ioStarted.await()
+            val clearing = async { clearViewModels() }
+            cancellationStarted.await()
+            assertFalse("Main must remain installed while cancelled IO is finishing", clearing.isCompleted)
+            assertFalse(ioFinished.isCompleted)
+            releaseIo.complete(Unit)
+            clearing.await()
+            assertTrue(ioFinished.isCompleted)
+            assertTrue(owner.isCompleted)
+            Dispatchers.setMain(StandardTestDispatcher(dispatcher.scheduler))
+        } finally {
+            releaseIo.complete(Unit)
+        }
     }
 
     @Test fun interruptedResearchCannotRetryUntilReviewedAuthorizationAndOnlyResumesOnce() = runTest(dispatcher) {
@@ -267,6 +357,10 @@ class ChatViewModelStartupTest {
         verifyExplicitRevision(archived = true, scope = backgroundScope)
     }
 
+    @Test fun explicitLongAnswerOptOutRemainsStrictWhenRevisingAnArchivedAnswer() = runTest(dispatcher) {
+        verifyExplicitRevision(archived = true, scope = backgroundScope, combinedSettings = ConversationCombinedSettings(continueLongAnswers = false))
+    }
+
     @Test fun aStaleDisplayedRevisionCallbackCannotSilentlyTargetTheLatestAnswer() = runTest(dispatcher) {
         StartupRecoveryGate.start(backgroundScope) {}
         val selectedRun = seedEditorialRevision(archived = true)
@@ -282,12 +376,16 @@ class ChatViewModelStartupTest {
         assertTrue(model.attachmentNotice.value.orEmpty().contains("selected answer changed"))
     }
 
-    private suspend fun verifyExplicitRevision(archived: Boolean, scope: CoroutineScope) {
+    private suspend fun verifyExplicitRevision(archived: Boolean, scope: CoroutineScope, combinedSettings: ConversationCombinedSettings? = null) {
         // Room callbacks must rejoin serialized Main before a UI action reads startup state.
         // Other startup tests keep Unconfined Main to exercise immediate cached emissions.
         Dispatchers.setMain(StandardTestDispatcher(dispatcher.scheduler))
         StartupRecoveryGate.start(scope) {}
         val selectedRun = seedEditorialRevision(archived)
+        val legacyPolicy = requireNotNull(CombinedAcceptedTurn.decode(selectedRun.synthesisSnapshot)).context.requested
+        assertEquals(1, legacyPolicy.version)
+        assertFalse(legacyPolicy.appendContinuations)
+        assertFalse(legacyPolicy.settings.continueLongAnswers)
         val originalOwner = messages.value.single { it.id == selectedRun.assistantMessageId }
         val room = ChatRoomV2(id = 7, title = "Saved chat", conversationMode = ConversationMode.COMBINED, enabledPlatform = profiles.map { it.uid }, activePlatform = profiles.map { it.uid })
         val db = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext(), ChatDatabaseV2::class.java).build()
@@ -296,6 +394,9 @@ class ChatViewModelStartupTest {
             db.messageDao().addMessages(*messages.value.toTypedArray())
             runs.value.forEach { db.agentRunDao().upsert(it) }
             val dao = db.agentPersistenceDao()
+            val expectedTarget = CombinedAnswerRevisionTarget.capture(originalOwner, selectedRun)
+            val restoredOwner = dao.getMessages(7).single { it.id == originalOwner.id }
+            assertEquals("The completed assessment must survive the same Room restoration used during startup", expectedTarget, CombinedAnswerRevisionTarget.capture(restoredOwner, selectedRun))
             var committed: PersistAgentTurnResult? = null
             var savedAcceptance: CombinedAcceptedTurn? = null
             val started = CompletableDeferred<List<AgentRunRequest>>()
@@ -313,7 +414,7 @@ class ChatViewModelStartupTest {
                 started.complete(firstArg())
                 Unit
             }
-            val model = createViewModel()
+            val model = createViewModel(combinedSettings = combinedSettings)
             // Messages and run receipts are restored independently. The revision
             // action is available only when its selected answer and run agree.
             withContext(Dispatchers.Default) {
@@ -335,6 +436,7 @@ class ChatViewModelStartupTest {
             val target = withContext(Dispatchers.Main) {
                 val owner = model.groupedMessages.value.assistantMessages.single().first { it.id == selectedRun.assistantMessageId }
                 CombinedAnswerRevisionTarget.capture(owner, selectedRun).also { target ->
+                    assertEquals(expectedTarget, target)
                     model.reviseCombinedAnswer(0, target)
                     assertNull("The selected revision action must be accepted before waiting for dispatch", model.attachmentNotice.value)
                 }
@@ -346,7 +448,7 @@ class ChatViewModelStartupTest {
             assertNotEquals("selected-root", accepted.context.rootBudgetId)
             assertNotEquals("latest-root", accepted.context.rootBudgetId)
             assertTrue(accepted.context.requested.singlePass)
-            assertFalse(accepted.context.requested.appendContinuations)
+            assertEquals("A new revision uses current preferences without changing its frozen predecessor", combinedSettings?.continueLongAnswers ?: true, accepted.context.requested.appendContinuations)
             assertEquals(profiles.map { it.uid }, requests.map { it.platform.uid })
             assertTrue(requests.all { it.runId != selectedRun.runId && it.runId != originalOwner.currentRunId })
             assertTrue(requests.all { it.chatToolConfig?.combined?.rootBudgetId == accepted.context.rootBudgetId })
@@ -363,17 +465,17 @@ class ChatViewModelStartupTest {
             coVerify(exactly = 0) { repository.prepareCombinedRetry(any(), any()) }
             coVerify(exactly = 0) { repository.persistAgentRetry(any()) }
         } finally {
-            store.clear()
+            clearViewModels()
             db.close()
             Dispatchers.setMain(dispatcher)
         }
     }
 
     private fun seedEditorialRevision(archived: Boolean): AgentRun {
-        seedTurn(List(3) { AgentRunStatus.COMPLETED })
+        seedTurn(List(3) { AgentRunStatus.COMPLETED }, ConversationCombinedSettings(continueLongAnswers = false))
         val original = messages.value.first { it.platformType != null }.copy(linkedMessageId = 1)
         val body = "The original complete answer needs more detail."
-        val report = CombinedQualityReport(answerDigest = researchHash(body), finalAssessment = true, protocolComplete = true, correctionRequired = true, lengthCompliance = "UNMET")
+        val report = CombinedQualityReport(answerDigest = researchHash(body), status = "CORRECTION_REQUIRED", finalAssessment = true, protocolComplete = true, correctionRequired = true, lengthCompliance = "UNMET")
         val selected = original.copy(
             content = body,
             currentRunId = "combined-synthesis:selected",
@@ -429,9 +531,9 @@ class ChatViewModelStartupTest {
     private val exitWork = mockk<dev.chungjungsoo.gptmobile.data.chat.ConversationExitWork>(relaxed = true)
     private var exitAction: (suspend () -> Unit)? = null
 
-    private fun seedTurn(statuses: List<String>) {
+    private fun seedTurn(statuses: List<String>, combinedSettings: ConversationCombinedSettings = ConversationCombinedSettings()) {
         val requested = CombinedPolicyResolver.accept(
-            ConversationCombinedSettings(),
+            combinedSettings,
             profiles.map { it.uid },
             profiles.associate { it.uid to it.model },
             "Explain the findings",
@@ -447,11 +549,12 @@ class ChatViewModelStartupTest {
         activeRuns.value = runs.value.filter { it.status == AgentRunStatus.RUNNING }.associate { it.runId to ActiveAgentRun(it.runId, 7, it.profileUid, it.assistantMessageId) }
     }
 
-    private fun createViewModel(chatId: Int = 7, combined: Boolean = true, research: ResearchSessionStore? = null): ChatViewModel {
+    private fun createViewModel(chatId: Int = 7, combined: Boolean = true, research: ResearchSessionStore? = null, combinedSettings: ConversationCombinedSettings? = null, toolConnections: ToolConnectionRepository = mockk(relaxed = true)): ChatViewModel {
         val room = ChatRoomV2(id = chatId, title = "Saved chat", enabledPlatform = profiles.map { it.uid }, activePlatform = profiles.map { it.uid }, conversationMode = if (combined) ConversationMode.COMBINED else ConversationMode.STANDARD, draftText = "Saved draft")
         every { repository.observeMessageWindow(chatId, any()) } returns messages
         every { repository.observeTurnCount(chatId) } returns flowOf(messages.value.count { it.platformType == null })
         every { repository.observeAgentRuns(chatId) } returns runs
+        every { repository.observeProviderWaitDeadlines(chatId) } returns waitDeadlines
         every { repository.observeToolEvents(chatId) } returns flowOf(emptyList())
         coEvery { repository.fetchChatListV2() } returns listOf(room)
         coEvery { repository.fetchArchivedChatListV2() } returns emptyList()
@@ -462,11 +565,12 @@ class ChatViewModelStartupTest {
             kotlinx.coroutines.Job()
         }
         val settings = mockk<SettingRepository>(relaxed = true)
+        val currentFeatures = combinedSettings?.let { features.copy(conversationCombined = features.conversationCombined + (chatId to it)) } ?: features
         coEvery { settings.fetchPlatformV2s() } returns profiles
-        coEvery { settings.getFeatureSettings() } returns features
+        coEvery { settings.getFeatureSettings() } returns currentFeatures
         coEvery { settings.ensureConversationIdentity(any()) } returns "conversation-7"
         every { settings.observeDebugMode() } returns flowOf(false)
-        every { settings.observeFeatureSettings() } returns flowOf(features)
+        every { settings.observeFeatureSettings() } returns flowOf(currentFeatures)
         val localModels = mockk<LocalModelRepository>(relaxed = true)
         every { localModels.observeAll() } returns flowOf(emptyList())
         val catalog = mockk<ModelCatalogRepository>(relaxed = true)
@@ -481,7 +585,7 @@ class ChatViewModelStartupTest {
             delegationRecoveryInteractions = mockk(relaxed = true),
             attachmentUploadCoordinator = mockk(relaxed = true),
             agentRunCoordinator = coordinator,
-            toolConnectionRepository = mockk(relaxed = true),
+            toolConnectionRepository = toolConnections,
             localModelRepository = localModels,
             modelCatalogRepository = catalog,
             freeModelToolConsentStore = mockk(relaxed = true),
@@ -490,6 +594,9 @@ class ChatViewModelStartupTest {
             researchSessionStore = research,
             conversationExitWork = exitWork,
             messageGroupingDispatcher = dispatcher
-        ).also { store.put("chat", it) }
+        ).also {
+            viewModelJobs += requireNotNull(it.viewModelScope.coroutineContext[Job])
+            store.put("chat", it)
+        }
     }
 }

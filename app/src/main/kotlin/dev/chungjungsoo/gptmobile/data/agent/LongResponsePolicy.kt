@@ -18,13 +18,29 @@ internal object LongResponsePolicy {
     fun countWords(text: String): Int = word.findAll(text).count()
 
     fun continuationLimit(words: Int?, requestTokens: Int?): Int = if (words == null) {
-        1
+        // There is no requested final size to estimate. Each continuation still needs an
+        // unfinished packet and new visible content; run, provider and retention limits apply.
+        Int.MAX_VALUE
     } else {
         // Conservative allowance for multilingual text and reasoning, without changing a user's per-request cap.
-        ceil(words * 2.2 / (requestTokens?.takeIf { it > 0 } ?: 1024)).toInt().coerceIn(2, 16)
+        ceil(words * 2.2 / (requestTokens?.takeIf { it > 0 } ?: 1024)).coerceIn(2.0, Int.MAX_VALUE.toDouble()).toInt()
     }
 
     fun needsMore(text: String, words: Int?): Boolean = words != null && countWords(text) < words * 9 / 10
+
+    /** A bounded model view of the saved answer; the complete answer remains in the session. */
+    fun continuationContext(draft: String, maxTokens: Int): String = LongResponseContinuationContext.build(draft, maxTokens)
+
+    /** Queue completion says nothing about whether a worker finished its answer. */
+    fun unfinishedQueuedPacket(text: String, finishReason: String?, outputCap: Int?): Boolean {
+        if (!finishReason.equals("queue_complete", ignoreCase = true)) return false
+        val cap = outputCap?.takeIf { it > 0 } ?: return false
+        val last = text.trimEnd().lastOrNull() ?: return false
+        if (last in ".!?。！？…\"'’”)]}`") return false
+        // A terse reply without punctuation is valid. Only inspect packets near their
+        // effective worker allowance, using the same conservative estimate as admission.
+        return dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(text).toLong() * 5 >= cap.toLong() * 4
+    }
 
     fun evidenceTask(task: String): String {
         val words = requestedWords(task) ?: return task

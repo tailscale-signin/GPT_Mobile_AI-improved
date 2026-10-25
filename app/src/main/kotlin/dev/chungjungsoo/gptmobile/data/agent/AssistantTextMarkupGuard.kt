@@ -12,7 +12,7 @@ internal fun Flow<ProviderEvent>.withAssistantTextMarkupGuard(
     validateSearchClaims: Boolean = true,
     allowControlJsonText: Boolean = false
 ): Flow<ProviderEvent> = flow {
-    val guard = AssistantTextMarkupGuard(allowControlJsonText)
+    var guard = AssistantTextMarkupGuard(allowControlJsonText)
     var blocked = false
     var successfulWebSearch = initialSuccessfulSearch || !validateSearchClaims
 
@@ -40,6 +40,22 @@ internal fun Flow<ProviderEvent>.withAssistantTextMarkupGuard(
             return@collect
         }
         when (event) {
+            is ProviderEvent.CombinedAnswer -> {
+                CombinedAnswerPublication.validate(event.text, event.report, event.formatVersion)
+                val finalGuard = AssistantTextMarkupGuard(allowControlJsonText)
+                val first = finalGuard.append(event.text, successfulWebSearch)
+                val result = if (first.blocked) first else finalGuard.finish(successfulWebSearch)
+                // The bundle replaces provisional text. Its digest-bound body must
+                // stay intact, and no retained provisional suffix may follow it.
+                guard = AssistantTextMarkupGuard(allowControlJsonText)
+                if (result.blocked) {
+                    blocked = true
+                    logRejectedMarkup(result.reason.orEmpty())
+                    emit(ProviderEvent.Failed(result.failureMessage(), errorCode = if (result.reason == "unsupported_search_claim") "UNSUPPORTED_SEARCH_CLAIM" else "TOOL_PROTOCOL_INVALID_FRAME"))
+                } else {
+                    emit(event)
+                }
+            }
             is ProviderEvent.TextDelta -> {
                 val result = guard.append(event.text, successfulWebSearch)
                 if (result.text.isNotEmpty()) emit(ProviderEvent.TextDelta(result.text))

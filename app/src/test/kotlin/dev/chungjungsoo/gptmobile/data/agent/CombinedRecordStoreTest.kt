@@ -6,6 +6,9 @@ import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
+import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.model.ClientType
+import dev.chungjungsoo.gptmobile.data.model.ConversationCombinedSettings
 import dev.chungjungsoo.gptmobile.data.research.researchHash
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.encodeToString
@@ -21,6 +24,33 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = android.app.Application::class)
 class CombinedRecordStoreTest {
+    @Test fun prematureEndPolicyIsPersistedOnlyForNewAcceptedAppendPlans() = runBlocking {
+        for ((append, version) in listOf(true to 2, true to 1, false to 1)) {
+            val request = "History of Portugal in 1000 words"
+            val requested = CombinedPolicyResolver.accept(ConversationCombinedSettings(continueLongAnswers = append), listOf("p"), mapOf("p" to "model"), request, singlePass = true)
+            val context = CombinedExecutionContext(requested, CombinedPolicyResolver.resolve(requested), "root", CombinedRunRole.SYNTHESIS, "p")
+            val writer = PlatformV2(uid = "p", name = "Writer", model = "model", compatibleType = ClientType.CUSTOM, enabled = true, maxTokens = 8192, apiUrl = "https://store-continuation.example/v1")
+            val system = combinedWriterSystemPrompt(null, "PASSAGES_V3", request, append && version >= 2)
+            val plan = CombinedWriterRequestPlan.freeze(writer, request, snapshot.prompt, system, emptyList(), "PASSAGES_V3", 8192, appendContinuations = append).copy(version = version)
+            val frozen = snapshot.copy(userMessage = snapshot.userMessage.copy(content = request), combined = context, answerContract = CombinedAnswerPolicy.from(request), writerRequestPlan = plan, inputDigest = "").seal()
+            val db = database(frozen)
+            try {
+                val store = CombinedRecordStore.open(db.agentPersistenceDao(), runId, frozen, "revision", 100000, false)
+                store.protocol.accept(first + """{"type":"end","seq":2,"id":"END","lastSeq":1}""")
+                store.protocol.markAttemptFinished("COMPLETED")
+                store.save(store.protocol.checkpoint())
+                val expectedRecovery = append && version >= 2
+                assertEquals(expectedRecovery, store.protocol.canContinueUnderlength)
+                assertEquals(!expectedRecovery, store.protocol.checkpoint().ended)
+                val restored = CombinedRecordStore.open(db.agentPersistenceDao(), runId, frozen, "revision", 100000, false)
+                assertEquals(store.protocol.checkpoint(), restored.protocol.checkpoint())
+                assertEquals(expectedRecovery, restored.protocol.canContinueUnderlength)
+            } finally {
+                db.close()
+            }
+        }
+    }
+
     @Test fun earlierAttributionAlgorithmDoesNotInvalidateIntactCommittedRecords() = runBlocking {
         val db = database()
         try {
@@ -52,11 +82,11 @@ class CombinedRecordStoreTest {
         snapshotId = "snapshot", revisionId = "revision", deliveryProtocol = "PASSAGES_V3"
     ).seal()
 
-    private suspend fun database(): ChatDatabaseV2 {
+    private suspend fun database(frozenSnapshot: CombinedInputSnapshot = snapshot): ChatDatabaseV2 {
         val db = Room.inMemoryDatabaseBuilder(RuntimeEnvironment.getApplication(), ChatDatabaseV2::class.java).build()
         db.chatRoomDao().addChatRoom(ChatRoomV2(id = 1, title = "Test"))
-        db.messageDao().addMessages(snapshot.userMessage, MessageV2(id = 3, chatId = 1, platformType = "p", content = "", currentRunId = runId, ownershipFence = 4))
-        val frozen = snapshot.encode()
+        db.messageDao().addMessages(frozenSnapshot.userMessage, MessageV2(id = 3, chatId = 1, platformType = "p", content = "", currentRunId = runId, ownershipFence = 4))
+        val frozen = frozenSnapshot.encode()
         db.agentRunDao().upsert(AgentRun(runId, 1, 2, 3, "p", "CUSTOM", "model", "RUNNING", ownershipFence = 4, synthesisKey = researchHash(frozen), synthesisSnapshot = frozen))
         return db
     }

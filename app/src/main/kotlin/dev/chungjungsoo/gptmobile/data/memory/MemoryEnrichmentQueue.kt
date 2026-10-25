@@ -15,7 +15,14 @@ import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 @Singleton
@@ -136,6 +143,10 @@ class MemoryEnrichmentQueue @Inject constructor(
     }
 
     fun cancelChat(chatId: Int) {
+        diagnosticsScope.launch(kotlinx.coroutines.Dispatchers.IO) { cancelChatStored(chatId) }
+    }
+
+    private fun cancelChatStored(chatId: Int) {
         val completed = completedStore(context)
         val cleanup = completed.edit()
         completed.all.filterValues { (it as? String)?.startsWith("$chatId:") == true }.keys.forEach(cleanup::remove)
@@ -170,6 +181,13 @@ class MemoryEnrichmentQueue @Inject constructor(
             if (id > 0) completedStore(context).edit().putString(id.toString(), completionKey(data.getInt("chatId", 0), hash)).apply()
         }
         internal fun waitingStore(context: Context) = context.getSharedPreferences("memory-enrichment-waiting", Context.MODE_PRIVATE)
+        internal fun observeWaitingCount(context: Context): Flow<Int> = callbackFlow<Unit> {
+            val store = waitingStore(context)
+            val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> trySend(Unit) }
+            store.registerOnSharedPreferenceChangeListener(listener)
+            trySend(Unit)
+            awaitClose { store.unregisterOnSharedPreferenceChangeListener(listener) }
+        }.conflate().map { waitingStore(context).all.size }.distinctUntilChanged().flowOn(kotlinx.coroutines.Dispatchers.IO)
         internal fun markWaiting(context: Context, data: androidx.work.Data) {
             check(waitingStore(context).edit().putString(data.getInt("messageId", 0).toString(), "${data.getInt("chatId", 0)}:${data.getString("hash")}").commit()) { "Cannot persist pending memory enrichment" }
         }

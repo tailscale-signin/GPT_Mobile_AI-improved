@@ -12,7 +12,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 @Serializable
-internal data class FreeQueueJob(val key: String, val id: String? = null, val state: String = "SUBMITTING", val createdAt: Long = System.currentTimeMillis(), val answer: String? = null, val servedModel: String? = null, val chatId: Int? = null, val protocol: String = "LEGACY", val ownerRunId: String? = null, val profileUid: String? = null, val requestedModel: String? = null, val requestKey: String? = null, val cleanup: FreeQueueCleanupReceipt? = null)
+internal data class FreeQueueJob(val key: String, val id: String? = null, val state: String = "SUBMITTING", val createdAt: Long = System.currentTimeMillis(), val answer: String? = null, val servedModel: String? = null, val chatId: Int? = null, val protocol: String = "LEGACY", val ownerRunId: String? = null, val profileUid: String? = null, val requestedModel: String? = null, val requestKey: String? = null, val cleanup: FreeQueueCleanupReceipt? = null, val requestRole: String? = null, val continuationPrefixDigest: String? = null, val invocationId: String? = null)
 
 @Serializable
 internal data class FreeQueueCleanupReceipt(

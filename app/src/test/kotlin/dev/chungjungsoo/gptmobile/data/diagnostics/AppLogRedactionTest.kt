@@ -1,10 +1,36 @@
 package dev.chungjungsoo.gptmobile.data.diagnostics
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AppLogRedactionTest {
+    @Test fun exactJsonHeaderKeysAreRedactedWithoutConsumingTimingSiblings() {
+        val raw = """{"cookie":"session=private; quoted=\"private\"","Authorization":"Bearer private","api_key":"private","traceCookie":12,"durationNs":775090000}"""
+        val safe = redactLogMessage(raw)
+        val value = kotlinx.serialization.json.Json.parseToJsonElement(safe) as kotlinx.serialization.json.JsonObject
+        assertFalse(safe.contains("private"))
+        assertEquals(kotlinx.serialization.json.JsonPrimitive(12), value["traceCookie"])
+        assertEquals(kotlinx.serialization.json.JsonPrimitive(775090000), value["durationNs"])
+        assertEquals(kotlinx.serialization.json.JsonPrimitive("[redacted]"), value["cookie"])
+    }
+
+    @Test fun traceCorrelationDoesNotConsumeFollowingTimingAndOwnerFields() {
+        for (key in listOf("traceCookie", "traceId")) {
+            val safe = redactLogMessage("OPERATION_TIMING · $key=12 · durationNs=775090000 · run=combined:1 · startThread=main")
+            assertTrue(safe.contains("$key=12"))
+            assertTrue(safe.contains("durationNs=775090000"))
+            assertTrue(safe.contains("run=combined:1"))
+            assertTrue(safe.contains("startThread=main"))
+        }
+        val safe = redactLogMessage("traceCookie=12\nCookie: session=private\nSet-Cookie: token=private\nAuthorization: Bearer private\ndurationNs=10")
+        assertFalse(safe.contains("session=private"))
+        assertFalse(safe.contains("token=private"))
+        assertFalse(safe.contains("Bearer private"))
+        assertTrue(safe.contains("durationNs=10"))
+    }
+
     @org.junit.Test fun defaultDiagnosticsRemovePrivatePathsAndTailnetAddresses() {
         val safe = redactLogMessage("model=/data/user/0/app/private.litertlm host=100.64.8.2 url=http://192.168.1.2:8101/mcp?key=secret")
         org.junit.Assert.assertFalse(safe.contains("/data/user"))

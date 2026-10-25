@@ -107,20 +107,13 @@ class CombinedSynthesisPlanner @Inject constructor(
         val pinnedPrimary = chosenWriter ?: combined.requested.preferredOwnerUid?.takeIf { it in activeUids } ?: activeUids.first()
         val acceptedUids = activeUids
         val enabledUids = profiles.filter { it.enabled }.mapTo(hashSetOf()) { it.uid }
-        val sourceWriterOrder = CombinedOwnerResolver.eligibleOrder(
+        val writerOrder = CombinedOwnerResolver.synthesisDispatchOrder(
             sources,
             acceptedUids,
             pinnedPrimary,
-            enabledUids
-        )
-        // In single-pass mode the configured primary is the synthesizer, not merely
-        // another contributor. It may have failed during collection while other
-        // accepted profiles still supplied usable source material.
-        val writerOrder = if (combined.requested.singlePass && pinnedPrimary in activeUids && pinnedPrimary in enabledUids) {
-            (listOf(pinnedPrimary) + sourceWriterOrder.filterNot { it == pinnedPrimary }).distinct()
-        } else {
-            sourceWriterOrder
-        }.ifEmpty {
+            enabledUids,
+            singlePass = combined.requested.singlePass
+        ).ifEmpty {
             if (retainedPublicEvidence) {
                 acceptedUids.sortedWith(compareBy<String> { it != pinnedPrimary }.thenBy { it })
             } else {

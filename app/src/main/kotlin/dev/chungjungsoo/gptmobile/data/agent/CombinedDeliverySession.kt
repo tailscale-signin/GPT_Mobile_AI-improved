@@ -103,7 +103,8 @@ internal class CombinedDeliverySession(
                 validateAccess()
                 tail.forEach { emit(ProviderEvent.TextDelta(it)) }
             }
-            val answer = decoder?.answer() ?: text.toString().substringBefore(COMBINED_RECOVERY_MARKER).trimEnd()
+            val rawAnswer = decoder?.answer() ?: text.toString().substringBefore(COMBINED_RECOVERY_MARKER).trimEnd()
+            val answer = CombinedTextDeduplicator.removeRepeatedParagraphs(rawAnswer)
             return Candidate(answer, terminal, decoder)
         }
         validateAccess()

@@ -1,6 +1,6 @@
 # Combined export regression: Portugal / primary dispatch / duplicate continuation
 
-Date: 2026-10-25  
+Date: 2026-10-25
 Branch: `fix/combined-export-duplicate-primary-dispatch-2026-10-25`
 
 ## Observed symptoms

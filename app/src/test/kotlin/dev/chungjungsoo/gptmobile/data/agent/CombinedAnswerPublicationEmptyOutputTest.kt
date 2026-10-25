@@ -17,6 +17,16 @@ class CombinedAnswerPublicationEmptyOutputTest {
         assertEquals("COMBINED_FINAL_EMPTY_VISIBLE_OUTPUT", failure?.message)
     }
 
+    @Test fun nonEmptyVisibleBodyRemainsEligibleForPublication() {
+        val body = "A valid answer remains visible."
+        val report = CombinedQualityReport(
+            revisionId = "valid-writer-revision",
+            answerDigest = researchHash(body)
+        )
+
+        CombinedAnswerPublication.validate(body, report)
+    }
+
     @Test fun whitespaceOnlyVisibleBodyCannotBeAccepted() {
         val whitespace = " \n\t "
         val report = CombinedQualityReport(

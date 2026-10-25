@@ -159,7 +159,7 @@ class CombinedSynthesisPlanner @Inject constructor(
         val leadUid = leadPlatform.uid
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
             "CombinedSynthesis",
-            "OWNER_SELECTED · preferred=$pinnedPrimary · selected=$leadUid · reason=${if (leadUid == pinnedPrimary) "HEALTHY_PRIMARY" else "HEALTHY_SELECTED_FALLBACK"} · usable=${sources.size}"
+            "OWNER_SELECTED · preferred=$pinnedPrimary · selected=$leadUid · reason=${if (leadUid == pinnedPrimary) "PREFERRED_PRIMARY" else "SELECTED_FALLBACK"} · primaryCollection=${if (responses.any { it.platformType == pinnedPrimary }) "SAVED" else "MISSING"} · usable=${sources.size}"
         )
         val leadMessage = responses.singleOrNull { it.platformType == leadUid }
         val evidenceAnchor = leadMessage ?: responses.firstOrNull() ?: return null

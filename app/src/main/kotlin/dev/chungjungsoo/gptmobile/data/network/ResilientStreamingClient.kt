@@ -84,6 +84,22 @@ object ResilientStreamingClient {
             val value = current ?: return false
             if (value is CancellationException) return false
             val message = value.message?.lowercase().orEmpty()
+            // Request-shape/auth/permission failures are deterministic. In particular, a
+            // provider's REQUEST_INVALID must not be replayed as if it were a network fault.
+            // Keep retryable timeout/too-early/rate-limit responses on the transient path.
+            val httpStatus = (value as? io.ktor.client.plugins.ResponseException)?.response?.status?.value
+            val deterministicClientFailure =
+                (httpStatus != null && httpStatus in 400..499 && httpStatus !in setOf(408, 425, 429)) ||
+                    message.contains("request_invalid") ||
+                    message.contains("invalid request") ||
+                    message.contains("http 400") ||
+                    message.contains("status code 400") ||
+                    message.contains("http 401") ||
+                    message.contains("http 403") ||
+                    message.contains("http 404") ||
+                    message.contains("http 413") ||
+                    message.contains("http 422")
+            if (deterministicClientFailure) return false
             if (value is IOException ||
                 message.contains("429") ||
                 message.contains("rate limit") ||

@@ -68,7 +68,7 @@ class CombinedCleanPresentationTest {
         assertEquals(1 to "alpha", excluded)
         assertEquals(null, remove)
         compose.onNodeWithContentDescription("Retry Beta").assertIsNotEnabled()
-        compose.onNodeWithContentDescription("Remove Beta from this chat").performClick()
+        compose.onNodeWithContentDescription("Remove Beta from this chat").assertIsDisplayed().performClick()
         assertEquals("beta", remove)
         compose.onNodeWithText("secret-model-id").assertDoesNotExist()
         compose.onNodeWithText("stack trace").assertDoesNotExist()

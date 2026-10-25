@@ -121,8 +121,10 @@ internal fun CombinedFailuresDialog(
                         ) { Text(if (failure.category in setOf("QUEUED_JOB", "RATE_LIMIT")) "Continue without ${failure.profileName}" else "Exclude ${failure.profileName} from this turn") }
                     }
                 }
-                Button(onClick = onContinue, enabled = canContinue, modifier = Modifier.fillMaxWidth()) { Text("Continue") }
-                TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text(if (waiting) "Keep waiting" else "Close") }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text(if (waiting) "Keep waiting" else "Close") }
+                    Button(onClick = onContinue, enabled = canContinue, modifier = Modifier.weight(1f)) { Text("Continue") }
+                }
             }
         }
     }

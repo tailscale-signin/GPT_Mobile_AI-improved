@@ -267,6 +267,10 @@ class ChatViewModelStartupTest {
         verifyExplicitRevision(archived = true, scope = backgroundScope)
     }
 
+    @Test fun explicitLongAnswerOptOutRemainsStrictWhenRevisingAnArchivedAnswer() = runTest(dispatcher) {
+        verifyExplicitRevision(archived = true, scope = backgroundScope, combinedSettings = ConversationCombinedSettings(continueLongAnswers = false))
+    }
+
     @Test fun aStaleDisplayedRevisionCallbackCannotSilentlyTargetTheLatestAnswer() = runTest(dispatcher) {
         StartupRecoveryGate.start(backgroundScope) {}
         val selectedRun = seedEditorialRevision(archived = true)
@@ -282,12 +286,16 @@ class ChatViewModelStartupTest {
         assertTrue(model.attachmentNotice.value.orEmpty().contains("selected answer changed"))
     }
 
-    private suspend fun verifyExplicitRevision(archived: Boolean, scope: CoroutineScope) {
+    private suspend fun verifyExplicitRevision(archived: Boolean, scope: CoroutineScope, combinedSettings: ConversationCombinedSettings? = null) {
         // Room callbacks must rejoin serialized Main before a UI action reads startup state.
         // Other startup tests keep Unconfined Main to exercise immediate cached emissions.
         Dispatchers.setMain(StandardTestDispatcher(dispatcher.scheduler))
         StartupRecoveryGate.start(scope) {}
         val selectedRun = seedEditorialRevision(archived)
+        val legacyPolicy = requireNotNull(CombinedAcceptedTurn.decode(selectedRun.synthesisSnapshot)).context.requested
+        assertEquals(1, legacyPolicy.version)
+        assertFalse(legacyPolicy.appendContinuations)
+        assertFalse(legacyPolicy.settings.continueLongAnswers)
         val originalOwner = messages.value.single { it.id == selectedRun.assistantMessageId }
         val room = ChatRoomV2(id = 7, title = "Saved chat", conversationMode = ConversationMode.COMBINED, enabledPlatform = profiles.map { it.uid }, activePlatform = profiles.map { it.uid })
         val db = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext(), ChatDatabaseV2::class.java).build()
@@ -313,7 +321,7 @@ class ChatViewModelStartupTest {
                 started.complete(firstArg())
                 Unit
             }
-            val model = createViewModel()
+            val model = createViewModel(combinedSettings = combinedSettings)
             // Messages and run receipts are restored independently. The revision
             // action is available only when its selected answer and run agree.
             withContext(Dispatchers.Default) {
@@ -346,7 +354,7 @@ class ChatViewModelStartupTest {
             assertNotEquals("selected-root", accepted.context.rootBudgetId)
             assertNotEquals("latest-root", accepted.context.rootBudgetId)
             assertTrue(accepted.context.requested.singlePass)
-            assertFalse(accepted.context.requested.appendContinuations)
+            assertEquals("A new revision uses current preferences without changing its frozen predecessor", combinedSettings?.continueLongAnswers ?: true, accepted.context.requested.appendContinuations)
             assertEquals(profiles.map { it.uid }, requests.map { it.platform.uid })
             assertTrue(requests.all { it.runId != selectedRun.runId && it.runId != originalOwner.currentRunId })
             assertTrue(requests.all { it.chatToolConfig?.combined?.rootBudgetId == accepted.context.rootBudgetId })
@@ -370,7 +378,7 @@ class ChatViewModelStartupTest {
     }
 
     private fun seedEditorialRevision(archived: Boolean): AgentRun {
-        seedTurn(List(3) { AgentRunStatus.COMPLETED })
+        seedTurn(List(3) { AgentRunStatus.COMPLETED }, ConversationCombinedSettings(continueLongAnswers = false))
         val original = messages.value.first { it.platformType != null }.copy(linkedMessageId = 1)
         val body = "The original complete answer needs more detail."
         val report = CombinedQualityReport(answerDigest = researchHash(body), finalAssessment = true, protocolComplete = true, correctionRequired = true, lengthCompliance = "UNMET")
@@ -429,9 +437,9 @@ class ChatViewModelStartupTest {
     private val exitWork = mockk<dev.chungjungsoo.gptmobile.data.chat.ConversationExitWork>(relaxed = true)
     private var exitAction: (suspend () -> Unit)? = null
 
-    private fun seedTurn(statuses: List<String>) {
+    private fun seedTurn(statuses: List<String>, combinedSettings: ConversationCombinedSettings = ConversationCombinedSettings()) {
         val requested = CombinedPolicyResolver.accept(
-            ConversationCombinedSettings(),
+            combinedSettings,
             profiles.map { it.uid },
             profiles.associate { it.uid to it.model },
             "Explain the findings",
@@ -447,7 +455,7 @@ class ChatViewModelStartupTest {
         activeRuns.value = runs.value.filter { it.status == AgentRunStatus.RUNNING }.associate { it.runId to ActiveAgentRun(it.runId, 7, it.profileUid, it.assistantMessageId) }
     }
 
-    private fun createViewModel(chatId: Int = 7, combined: Boolean = true, research: ResearchSessionStore? = null): ChatViewModel {
+    private fun createViewModel(chatId: Int = 7, combined: Boolean = true, research: ResearchSessionStore? = null, combinedSettings: ConversationCombinedSettings? = null): ChatViewModel {
         val room = ChatRoomV2(id = chatId, title = "Saved chat", enabledPlatform = profiles.map { it.uid }, activePlatform = profiles.map { it.uid }, conversationMode = if (combined) ConversationMode.COMBINED else ConversationMode.STANDARD, draftText = "Saved draft")
         every { repository.observeMessageWindow(chatId, any()) } returns messages
         every { repository.observeTurnCount(chatId) } returns flowOf(messages.value.count { it.platformType == null })
@@ -462,11 +470,12 @@ class ChatViewModelStartupTest {
             kotlinx.coroutines.Job()
         }
         val settings = mockk<SettingRepository>(relaxed = true)
+        val currentFeatures = combinedSettings?.let { features.copy(conversationCombined = features.conversationCombined + (chatId to it)) } ?: features
         coEvery { settings.fetchPlatformV2s() } returns profiles
-        coEvery { settings.getFeatureSettings() } returns features
+        coEvery { settings.getFeatureSettings() } returns currentFeatures
         coEvery { settings.ensureConversationIdentity(any()) } returns "conversation-7"
         every { settings.observeDebugMode() } returns flowOf(false)
-        every { settings.observeFeatureSettings() } returns flowOf(features)
+        every { settings.observeFeatureSettings() } returns flowOf(currentFeatures)
         val localModels = mockk<LocalModelRepository>(relaxed = true)
         every { localModels.observeAll() } returns flowOf(emptyList())
         val catalog = mockk<ModelCatalogRepository>(relaxed = true)

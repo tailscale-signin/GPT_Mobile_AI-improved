@@ -31,7 +31,7 @@ internal object CombinedTextDeduplicator {
 
             val kept = keptLines.joinToString("\n").trim()
             if (kept.isEmpty()) continue
-            val key = kept.lowercase().replace(Regex("\\\\s+"), " ").trim()
+            val key = kept.lowercase().replace(Regex("\\s+"), " ").trim()
             if (key.length >= 24 && !seenParagraphs.add(key)) continue
             output += kept
         }

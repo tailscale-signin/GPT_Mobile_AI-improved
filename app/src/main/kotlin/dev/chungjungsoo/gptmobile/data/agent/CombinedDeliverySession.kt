@@ -104,7 +104,13 @@ internal class CombinedDeliverySession(
                 tail.forEach { emit(ProviderEvent.TextDelta(it)) }
             }
             val rawAnswer = decoder?.answer() ?: text.toString().substringBefore(COMBINED_RECOVERY_MARKER).trimEnd()
-            val answer = CombinedTextDeduplicator.removeRepeatedParagraphs(rawAnswer)
+            // Structured passage offsets are part of the attribution contract; the
+            // decoder owns their deduplication. Apply paragraph cleanup only to plain text.
+            val answer = if (decoder == null) {
+                CombinedTextDeduplicator.removeRepeatedParagraphs(rawAnswer)
+            } else {
+                rawAnswer
+            }
             return Candidate(answer, terminal, decoder)
         }
         validateAccess()

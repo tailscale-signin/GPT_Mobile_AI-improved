@@ -49,7 +49,9 @@ class CombinedSynthesisPlanner @Inject constructor(
         }
         if (responses.isEmpty()) {
             chatRepository.markCombinedMergeUnavailable(
-                chatId, userId, rootBudgetId,
+                chatId,
+                userId,
+                rootBudgetId,
                 "No unambiguous contributor responses were saved. Retry the unavailable profiles."
             )
             return null
@@ -104,12 +106,27 @@ class CombinedSynthesisPlanner @Inject constructor(
         }
         val pinnedPrimary = chosenWriter ?: combined.requested.preferredOwnerUid?.takeIf { it in activeUids } ?: activeUids.first()
         val acceptedUids = activeUids
-        val writerOrder = CombinedOwnerResolver.eligibleOrder(
+        val enabledUids = profiles.filter { it.enabled }.mapTo(hashSetOf()) { it.uid }
+        val sourceWriterOrder = CombinedOwnerResolver.eligibleOrder(
             sources,
             acceptedUids,
             pinnedPrimary,
-            profiles.filter { it.enabled }.mapTo(hashSetOf()) { it.uid }
-        ).ifEmpty { if (retainedPublicEvidence) acceptedUids.sortedWith(compareBy<String> { it != pinnedPrimary }.thenBy { it }) else emptyList() }
+            enabledUids
+        )
+        // In single-pass mode the configured primary is the synthesizer, not merely
+        // another contributor. It may have failed during collection while other
+        // accepted profiles still supplied usable source material.
+        val writerOrder = if (combined.requested.singlePass && pinnedPrimary in activeUids && pinnedPrimary in enabledUids) {
+            (listOf(pinnedPrimary) + sourceWriterOrder.filterNot { it == pinnedPrimary }).distinct()
+        } else {
+            sourceWriterOrder
+        }.ifEmpty {
+            if (retainedPublicEvidence) {
+                acceptedUids.sortedWith(compareBy<String> { it != pinnedPrimary }.thenBy { it })
+            } else {
+                emptyList()
+            }
+        }
         val candidates = writerOrder.mapNotNull { uid ->
             profiles.firstOrNull { it.uid == uid && it.enabled }?.let { profile ->
                 val capturedModel = sources.firstOrNull { it.platformUid == uid }?.modelName?.takeIf(String::isNotBlank)
@@ -144,19 +161,23 @@ class CombinedSynthesisPlanner @Inject constructor(
             "CombinedSynthesis",
             "OWNER_SELECTED · preferred=$pinnedPrimary · selected=$leadUid · reason=${if (leadUid == pinnedPrimary) "HEALTHY_PRIMARY" else "HEALTHY_SELECTED_FALLBACK"} · usable=${sources.size}"
         )
-        val leadMessage = responses.singleOrNull { it.platformType == leadUid } ?: return null
-        if (leadMessage.id <= 0) return null
+        val leadMessage = responses.singleOrNull { it.platformType == leadUid }
+        val evidenceAnchor = leadMessage ?: responses.firstOrNull() ?: return null
+        if (evidenceAnchor.id <= 0) return null
 
         val synthesisRunId = COMBINED_RUN_PREFIX + UUID.randomUUID().toString()
 
         val normalizedResearchTask = dev.chungjungsoo.gptmobile.data.research.researchHash(userMessage.content.trim())
-        val researchTurnId = "${leadMessage.chatId}:${userMessage.id}"
-        val turnSessions = researchSessionStore.exportTurn(leadMessage.chatId, setOf(researchTurnId)).filter { session ->
+        val researchTurnId = "${evidenceAnchor.chatId}:${userMessage.id}"
+        val turnSessions = researchSessionStore.exportTurn(evidenceAnchor.chatId, setOf(researchTurnId)).filter { session ->
             session.turnId == researchTurnId &&
                 dev.chungjungsoo.gptmobile.data.research.researchHash(session.snapshot.task.trim()) == normalizedResearchTask
         }
         // Never widen a source partition just because a contributor finished later.
-        val leadAuthority = turnSessions.lastOrNull { it.runId == leadMessage.currentRunId }?.authority
+        // If the primary had no collection run, do not borrow another profile's authority.
+        val leadAuthority = leadMessage?.let { primaryMessage ->
+            turnSessions.lastOrNull { it.runId == primaryMessage.currentRunId }?.authority
+        }
         val sharedEvidence = dev.chungjungsoo.gptmobile.data.research.ResearchCorpus.freezeAll(
             dev.chungjungsoo.gptmobile.data.research.authorizedResearchTransfer(turnSessions, leadAuthority)
         )
@@ -281,10 +302,21 @@ class CombinedSynthesisPlanner @Inject constructor(
         )
 
         if (chatRepository.isCombinedTurnCancelled(rootBudgetId)) return null
+        // Keep the primary's contributor row when it exists. If collection failed
+        // before creating one, allocate a new assistant slot instead of either
+        // abandoning synthesis or overwriting another profile's contribution.
+        val assistantSlot = leadMessage?.copy(combinedSources = attributedSources) ?: 
+            dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(
+                chatId = userMessage.chatId,
+                content = "",
+                platformType = leadUid,
+                linkedMessageId = userMessage.id,
+                combinedSources = attributedSources
+            )
         val persisted = chatRepository.persistAgentRetry(
             PersistAgentRetryRequest(
                 userMessage = userMessage,
-                assistantMessage = leadMessage.copy(combinedSources = attributedSources),
+                assistantMessage = assistantSlot,
                 run = run,
                 freezeCombinedSources = attributedSources.isNotEmpty()
             )

@@ -32,8 +32,11 @@ internal object CombinedOwnerResolver {
         singlePass: Boolean
     ): List<String> {
         val contributors = eligibleOrder(sources, acceptedProfileUids, preferredUid, eligibleProfileUids)
-        if (!singlePass || preferredUid == null ||
-            preferredUid !in acceptedProfileUids || preferredUid !in eligibleProfileUids
+        if (
+            !singlePass
+            || preferredUid == null
+            || preferredUid !in acceptedProfileUids
+            || preferredUid !in eligibleProfileUids
         ) {
             return contributors
         }

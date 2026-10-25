@@ -10,7 +10,7 @@ The implementation keeps one primary synthesis generation for an accepted strict
 
 ## Validation status
 
-Tests listed below are acceptance cases, not an assertion that they have passed merely because they exist. At the time this document was created, integrated Kotlin unit tests, coverage and Android validation were still running. Record the final commit and actual job results before calling the branch green.
+Tests listed below are acceptance cases, not an assertion that they have passed merely because they exist. The complete local unit suite and two independent CI unit runs at `fe0b9f5f38b79332ba8684911776cf28c3e7c72c` each reported 4,877 tests across 814 suites: 4,873 passed, zero failed, zero errored and four assumption-gated heap tests skipped. Those four tests have a separate 256 MiB CI gate; their ordinary-suite skips do not count as execution. The final coverage-configuration follow-up must pass its own checks before merge.
 
 | Gate | Evidence required |
 | --- | --- |
@@ -24,9 +24,13 @@ Tests listed below are acceptance cases, not an assertion that they have passed 
 
 Root verification reported 190 gateway Python tests, seven gateway browser tests and 183 repository script tests passing during integration. Those results do not replace the final Kotlin, APK, CI or physical-device gates above.
 
-The connected `CombinedFinalizationLifecycleInstrumentedTest` executed successfully in acceptance run `40158942325` at commit `35ca34d95fd98150ab64a39599d8f51a0a9130a7`: API 36, x86_64, SwiftShader, debug, one test passed in 7.376 seconds. The local Robolectric `CombinedFinalizationLifecycleTest` also passed. These controlled lifecycle results do not establish physical-device release performance. The first completed local full unit run executed 4,858 tests with 12 failures and four skips; its failures drove the integration fixes below, and its result is not a green gate for the final commit.
+The connected `CombinedFinalizationLifecycleInstrumentedTest` executed successfully in acceptance run `40162652625` at commit `fe0b9f5f38b79332ba8684911776cf28c3e7c72c`: API 36, x86_64, SwiftShader, debug, one test passed in 6.553 seconds. The local Robolectric `CombinedFinalizationLifecycleTest` also passed. These controlled lifecycle results do not establish physical-device release performance.
 
-For that same published head, UI review run `40158942350` passed all three APK variants, including native packaging, telemetry and DEX method-size gates. `BenchmarkRunner.runOnce` measured 918 code units and the largest `BenchmarkCaseExecution` helper measured 2,554, below the 16,383-code-unit gate. Android lint, CodeQL and the minified native-runtime emulator check also passed. The follow-up commit must pass its own checks; the latest exact-head results are attached to [PR #742](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/742/checks).
+For that same published head, UI review run `40162652572` passed all three APK variants, including native packaging, telemetry and DEX method-size gates. `BenchmarkRunner.runOnce` measured 918 code units and the largest `BenchmarkCaseExecution` helper measured 2,554, below the 16,383-code-unit gate. CodeQL and Kotlin lint also passed. The follow-up commit must pass its own checks; the latest exact-head results are attached to [PR #742](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/742/checks).
+
+Final verification also exposed an independent coverage defect: the JaCoCo task succeeded with execution sessions but zero analyzed classes because its hard-coded Kotlin output directory predated AGP 9. Coverage now uses the Kotlin and Java compiler tasks' declared destination directories. A separate report validator in the PR coverage step rejects missing, malformed, empty or unexecuted application coverage instead of accepting task success alone. The existing class exclusions remain unchanged.
+
+The corrected local report, regenerated from the retained unit execution data without rerunning the suite, analyzed 11,621 application classes, including 3,225 with executed instructions, and counted 728,787 covered instructions. The five report-validator regression tests passed. These measurements establish populated application coverage; they are not a claim of complete branch or behavior coverage.
 
 ## Requirement-to-implementation map
 
@@ -96,6 +100,7 @@ Use the repository's Java/SDK versions and normal CI environment:
 
 ```sh
 ./gradlew :app:testDebugUnitTest :app:jacocoTestReport
+python3 scripts/check_jacoco_coverage.py app/build/reports/jacoco/jacocoTestReport/jacocoTestReport.xml
 ./gradlew :app:lintDebug
 ./gradlew :app:assembleDebug
 python3 scripts/check_research_dispatch_size.py <path-to-produced-review-apk>

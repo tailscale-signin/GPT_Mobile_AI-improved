@@ -25,12 +25,12 @@ internal suspend fun recoveryContinuationDraft(
     request: String
 ): String {
     if (descriptor == null) return ""
-    val draft = recovery?.authorizedAnswer().orEmpty()
+    val draft = recovery?.authorizedAnswer(descriptor.generationId).orEmpty()
     descriptor.continuationPrefixDigest?.let { expected ->
         require(draft.isNotBlank() && researchHash(draft) == expected) {
             "PROVIDER_WAIT_PREFIX_CHANGED: The saved answer changed while waiting. It is retained; review it before continuing."
         }
         return draft
     }
-    return draft.takeIf { recovery?.answerCompleted == false || LongResponsePolicy.needsMore(it, LongResponsePolicy.requestedWords(request)) }.orEmpty()
+    return draft.takeIf { recovery?.answerCompleted(descriptor.generationId) == false || LongResponsePolicy.needsMore(it, LongResponsePolicy.requestedWords(request)) }.orEmpty()
 }

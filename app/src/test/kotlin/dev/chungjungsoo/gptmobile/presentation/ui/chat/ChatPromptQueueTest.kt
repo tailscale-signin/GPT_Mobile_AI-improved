@@ -458,6 +458,7 @@ class ChatPromptQueueTest {
         every { repository.observeMessageWindow(7, any()) } returns messages
         every { repository.observeTurnCount(7) } returns messages.map { rows -> rows.count { it.platformType == null } }
         every { repository.observeAgentRuns(7) } returns runs
+        every { repository.observeProviderWaitDeadlines(7) } returns flowOf(emptyList())
         every { repository.observeToolEvents(7) } returns flowOf(emptyList())
         coEvery { repository.fetchChatListV2() } returns listOf(room)
         coEvery { repository.fetchMessagesV2(7) } answers { messages.value }

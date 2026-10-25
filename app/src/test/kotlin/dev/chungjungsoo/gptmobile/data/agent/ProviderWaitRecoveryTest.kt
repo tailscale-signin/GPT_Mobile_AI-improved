@@ -20,13 +20,20 @@ import dev.chungjungsoo.gptmobile.data.research.ResearchDeferredStage
 import dev.chungjungsoo.gptmobile.data.research.researchHash
 import io.mockk.Runs
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.unmockkObject
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
@@ -85,6 +92,144 @@ class ProviderWaitRecoveryTest {
                 continuation = if (mode == ProviderWaitMode.TEXT_CONTINUATION) ProviderContinuationCheckpoint("1:1", 1, researchHash(partial)) else null
             )
             return ProviderWait("run", 3, decision.scope, decision.retryAt, codec.encodeToString(saved))
+        }
+    }
+
+    private fun combinedContext(fixture: Fixture): CombinedExecutionContext {
+        val requested = CombinedPolicyResolver.accept(dev.chungjungsoo.gptmobile.data.model.ConversationCombinedSettings(), listOf("p", "other"), mapOf("p" to "model", "other" to "model"), fixture.user.content, singlePass = true)
+        return CombinedExecutionContext(requested, CombinedPolicyResolver.resolve(requested), "excluded-${java.util.UUID.randomUUID()}", profileUid = "p", chatId = 1, persistBudget = false)
+    }
+
+    private fun repository(fixture: Fixture): dev.chungjungsoo.gptmobile.data.repository.ChatRepository = mockk<dev.chungjungsoo.gptmobile.data.repository.ChatRepository>(relaxed = true).also { repository ->
+        every { repository.observeAgentRuns(1) } returns flow { emit(fixture.database.agentRunDao().getByChatId(1)) }
+        coEvery { repository.isCombinedTurnCancelled(any()) } returns false
+        coEvery { repository.finishActiveAgentRun(any(), any(), any(), any()) } coAnswers {
+            fixture.database.agentRunDao().finishActive(firstArg(), secondArg(), thirdArg(), arg(3)) == 1
+        }
+        coEvery { repository.markAgentRunRunning(any(), any()) } coAnswers {
+            fixture.database.agentRunDao().markRunning(firstArg(), secondArg()) == 1
+        }
+        coEvery { repository.commitAgentRun(any(), any(), any(), any(), any()) } coAnswers {
+            fixture.dao.finishRunningWithMessage(firstArg(), secondArg(), thirdArg(), arg(3), arg(4))
+        }
+    }
+
+    private fun coordinator(fixture: Fixture, repository: dev.chungjungsoo.gptmobile.data.repository.ChatRepository, decisions: CombinedCollectionDecisionStore) = AgentRunCoordinator(
+        fixture.context,
+        repository,
+        mockk(relaxed = true),
+        fixture.settings,
+        mockk(relaxed = true),
+        providerWaits = fixture.store,
+        collectionDecisions = decisions
+    )
+
+    @Test fun initialWaitDeadlineProjectionRequiresItsCurrentWaitingOwner() = runBlocking {
+        val fixture = Fixture()
+        try {
+            fixture.initialize()
+            fixture.dao.updateRunStatus("run", "QUEUED", null, null, null)
+            val row = fixture.row(fixture.decision())
+            assertTrue(fixture.dao.deferProvider(row))
+            assertNull(fixture.dao.recoveryRun("run")!!.terminalError)
+            assertTrue(fixture.dao.recoveryMessage(2)!!.timeline.isEmpty())
+            assertEquals(listOf(ProviderWaitDeadline("run", 3, row.retryAt)), fixture.dao.observeProviderWaitDeadlines(1).first())
+            assertTrue(fixture.dao.observeProviderWaitDeadlines(2).first().isEmpty())
+            fixture.dao.saveProviderWait(row.copy(fence = 4))
+            assertTrue(fixture.dao.observeProviderWaitDeadlines(1).first().isEmpty())
+            fixture.dao.saveProviderWait(row)
+            fixture.dao.updateMessage(fixture.answer.copy(ownershipFence = 4))
+            assertTrue(fixture.dao.observeProviderWaitDeadlines(1).first().isEmpty())
+            fixture.dao.updateMessage(fixture.answer)
+            assertEquals(1, fixture.dao.claimProviderWait("run", 3))
+            assertTrue(fixture.dao.observeProviderWaitDeadlines(1).first().isEmpty())
+            assertTrue(fixture.dao.deferProvider(row))
+            assertEquals(1, fixture.database.agentRunDao().finishActive("run", "CANCELED", 20, null))
+            assertTrue(fixture.dao.observeProviderWaitDeadlines(1).first().isEmpty())
+        } finally {
+            fixture.database.close()
+        }
+    }
+
+    @Test fun exclusionBetweenClaimAndResumeCancelsTheQueuedWaitWithoutDispatch() = runBlocking {
+        val fixture = Fixture()
+        val claimed = CompletableDeferred<Unit>()
+        val resume = CompletableDeferred<Unit>()
+        try {
+            fixture.initialize()
+            val combined = combinedContext(fixture)
+            val tools = dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig(combined = combined)
+            val row = fixture.row(fixture.decision())
+            val checkpoint = fixture.codec.decodeFromString<ProviderWaitCheckpoint>(row.checkpoint).copy(tools = tools)
+            assertTrue(fixture.dao.deferRunningProvider(row.copy(checkpoint = fixture.codec.encodeToString(checkpoint))))
+            val decisions = CombinedCollectionDecisionStore(fixture.context)
+            val repository = repository(fixture)
+            val coordinator = coordinator(fixture, repository, decisions)
+            val worker = launch {
+                val action = fixture.store.readyActions(row.scope).single()
+                claimed.complete(Unit)
+                resume.await()
+                coordinator.resumeProviderWaits(listOf(action))
+            }
+            withTimeout(5000) { claimed.await() }
+            assertEquals("QUEUED", fixture.dao.recoveryRun("run")!!.status)
+            coordinator.withChatGate(1) { decisions.excludeProfile(combined.rootBudgetId, "p", persistent = false) }
+            resume.complete(Unit)
+            withTimeout(5000) { worker.join() }
+            assertEquals("CANCELED", fixture.dao.recoveryRun("run")!!.status)
+            assertEquals("EXCLUDED_FROM_COMBINED_TURN", fixture.dao.recoveryRun("run")!!.terminalError)
+            assertTrue(fixture.store.readyActions(row.scope).isEmpty())
+            coVerify(exactly = 0) { repository.markAgentRunRunning(any(), any()) }
+            coVerify(exactly = 0) { repository.completeChat(any(), any(), any(), any(), any(), any()) }
+            coVerify(exactly = 0) { repository.cancelCombinedTurn(any()) }
+        } finally {
+            resume.complete(Unit)
+            fixture.database.close()
+        }
+    }
+
+    @Test fun exclusionAfterResumeStopsQueuedOrRunningSuccessorsWithoutCancellingTheTurn() = runBlocking {
+        for (running in listOf(false, true)) {
+            val fixture = Fixture()
+            try {
+                fixture.initialize()
+                fixture.features = fixture.features.copy(backgroundGeneration = false)
+                val combined = combinedContext(fixture)
+                val tools = dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig(combined = combined)
+                val accepted = CombinedAcceptedTurn(context = combined, tools = tools).encode()
+                fixture.database.agentRunDao().upsert(fixture.dao.recoveryRun("run")!!.copy(status = "QUEUED", startedAt = null, synthesisSnapshot = accepted))
+                val decisions = CombinedCollectionDecisionStore(fixture.context)
+                val repository = repository(fixture)
+                val coordinator = coordinator(fixture, repository, decisions)
+                val started = CompletableDeferred<Unit>()
+                var physicalRequests = 0
+                coEvery { repository.completeChat(any(), any(), any(), any(), any(), any()) } returns flow {
+                    physicalRequests++
+                    emit(dev.chungjungsoo.gptmobile.data.dto.ApiState.Success("Retained packet from the accepted request."))
+                    started.complete(Unit)
+                    awaitCancellation()
+                }
+                if (running) {
+                    coordinator.start(listOf(fixture.request.copy(chatToolConfig = tools)))
+                    withTimeout(10000) { started.await() }
+                    assertEquals("RUNNING", fixture.dao.recoveryRun("run")!!.status)
+                }
+                // A stale failure alert may still name the already retired predecessor.
+                val predecessor = fixture.dao.recoveryRun("run")!!.copy(runId = "retired-predecessor", status = "INTERRUPTED")
+                coordinator.withChatGate(1) {
+                    decisions.excludeProfile(combined.rootBudgetId, "p", persistent = false)
+                    withTimeout(10000) { coordinator.cancelExcludedProviderWait(predecessor, combined.rootBudgetId) }
+                }
+                assertEquals("CANCELED", fixture.dao.recoveryRun("run")!!.status)
+                assertEquals("EXCLUDED_FROM_COMBINED_TURN", fixture.dao.recoveryRun("run")!!.terminalError)
+                assertEquals(0, fixture.database.agentRunDao().markRunning("run", 100))
+                assertEquals(if (running) 1 else 0, physicalRequests)
+                if (running) assertEquals("Retained packet from the accepted request.", fixture.dao.recoveryMessage(2)!!.content)
+                assertTrue(coordinator.activeRuns.value.isEmpty())
+                coVerify(exactly = 0) { repository.cancelCombinedTurn(any()) }
+            } finally {
+                fixture.database.close()
+            }
         }
     }
 

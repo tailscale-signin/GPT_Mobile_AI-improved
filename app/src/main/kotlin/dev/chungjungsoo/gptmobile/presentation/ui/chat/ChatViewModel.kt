@@ -11,6 +11,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.agent.AgentRunCoordinator
 import dev.chungjungsoo.gptmobile.data.agent.AgentRunRequest
+import dev.chungjungsoo.gptmobile.data.agent.ProviderWaitDeadline
 import dev.chungjungsoo.gptmobile.data.agent.bindAcceptedStage
 import dev.chungjungsoo.gptmobile.data.agent.temperatureFor
 import dev.chungjungsoo.gptmobile.data.agent.tool.DelegationRecoveryInteractions
@@ -396,6 +397,7 @@ class ChatViewModel @Inject constructor(
 
     private val _agentRunsById = MutableStateFlow<Map<String, AgentRun>>(emptyMap())
     val agentRunsById = _agentRunsById.asStateFlow()
+    private val providerWaitDeadlinesByRun = MutableStateFlow<Map<String, ProviderWaitDeadline>>(emptyMap())
 
     // Each chat states for assistant chat messages
     // Index of the currently shown message's platform - default is 0 (first platform)
@@ -527,6 +529,7 @@ class ChatViewModel @Inject constructor(
         fetchEnabledPlatformsInApp()
         observePersistedMessages()
         observeAgentRuns()
+        observeProviderWaitDeadlines()
         observeToolEvents()
         observeAgentNotices()
         loadAvailableChatTools()
@@ -1529,7 +1532,7 @@ class ChatViewModel @Inject constructor(
             val excluded = combinedCollectionDecisions?.decisions?.value?.get(accepted.context.rootBudgetId)?.excludedProfileUids.orEmpty()
             val activeRows = row.filter { it.platformType in _activePlatformUids.value && it.platformType in accepted.context.requested.participantUids && it.platformType !in excluded }
             if (activeRows.any { _agentRunsById.value[it.currentRunId]?.status == AgentRunStatus.CANCELED }) return@flatMap emptyList()
-            combinedFailureCache.failures(user.id, user.content, activeRows, _agentRunsById.value, _platformsInApp.value.associate { it.uid to it.name }, accepted.context.requested.requestedModels)
+            combinedFailureCache.failures(user.id, user.content, activeRows, _agentRunsById.value, _platformsInApp.value.associate { it.uid to it.name }, accepted.context.requested.requestedModels, providerWaitDeadlinesByRun.value)
                 .filterNot { reviewingCombinedFailureTurn != user.id && combinedCollectionDecisions?.acknowledged(accepted.context.rootBudgetId, it.attemptId) == true }
                 .map { it.copy(retrying = "${it.userMessageId}:${it.profileUid}:${it.attemptId}" in pendingCombinedRetries) }
         }
@@ -1605,7 +1608,7 @@ class ChatViewModel @Inject constructor(
                     check(remaining.isNotEmpty()) { "At least one profile must remain included in this turn." }
                     decisions.excludeProfile(accepted.context.rootBudgetId, profileUid, accepted.context.persistBudget)
                     val run = chatRepository.observeAgentRuns(_chatRoom.value.id).first().firstOrNull { it.runId == failure.attemptId }
-                    cancelExcludedProviderWait(run)
+                    cancelExcludedProviderWait(run, accepted.context.rootBudgetId)
                     true
                 }
                 if (excluded) {
@@ -1640,9 +1643,9 @@ class ChatViewModel @Inject constructor(
                             "All remaining profiles are waiting for a provider. Check their saved status or select another profile before combining."
                         }
                         pendingProfiles.forEach { savedDecisions.excludeProfile(accepted.context.rootBudgetId, it, accepted.context.persistBudget) }
-                        pendingRows.forEach { cancelExcludedProviderWait(runs[it.currentRunId]) }
+                        pendingRows.forEach { cancelExcludedProviderWait(runs[it.currentRunId], accepted.context.rootBudgetId) }
                     }
-                    val attempts = combinedProfileFailures(userId, accepted.context.requested.userPrompt, activeRows, runs, _platformsInApp.value.associate { it.uid to it.name }, accepted.context.requested.requestedModels).mapNotNull { it.attemptId }.toSet()
+                    val attempts = combinedProfileFailures(userId, accepted.context.requested.userPrompt, activeRows, runs, _platformsInApp.value.associate { it.uid to it.name }, accepted.context.requested.requestedModels, providerWaitDeadlinesByRun.value).mapNotNull { it.attemptId }.toSet()
                     decisions?.acknowledge(accepted.context.rootBudgetId, attempts, accepted.context.persistBudget)
                     resumeResearchForUserTurn(userId, "user-combine-available")
                 }
@@ -1657,9 +1660,8 @@ class ChatViewModel @Inject constructor(
     }
 
     /** Excluding one paused contributor must not cancel the accepted Combined turn. */
-    private suspend fun cancelExcludedProviderWait(run: AgentRun?) {
-        if (run?.status != AgentRunStatus.WAITING_PROVIDER_LIMIT) return
-        chatRepository.finishActiveAgentRun(run.runId, AgentRunStatus.CANCELED, System.currentTimeMillis() / 1000, "EXCLUDED_FROM_COMBINED_TURN")
+    private suspend fun cancelExcludedProviderWait(run: AgentRun?, rootBudgetId: String) {
+        if (run != null) agentRunCoordinator.cancelExcludedProviderWait(run, rootBudgetId)
     }
 
     fun retryCombinedMerge(turnIndex: Int) {
@@ -3044,6 +3046,23 @@ class ChatViewModel @Inject constructor(
                         )
                     }
                     advancePendingGeneration()
+                }
+        }
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private fun observeProviderWaitDeadlines() {
+        viewModelScope.launch {
+            StartupRecoveryGate.await()
+            _chatRoom
+                .map { it.id }
+                .distinctUntilChanged()
+                .flatMapLatest { chatId ->
+                    if (chatId > 0) chatRepository.observeProviderWaitDeadlines(chatId) else flowOf(emptyList())
+                }
+                .collect { deadlines ->
+                    providerWaitDeadlinesByRun.value = deadlines.associateBy(ProviderWaitDeadline::runId)
+                    refreshCombinedFailures()
                 }
         }
     }

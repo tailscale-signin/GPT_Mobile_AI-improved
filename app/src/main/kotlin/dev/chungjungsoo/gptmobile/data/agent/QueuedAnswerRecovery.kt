@@ -40,12 +40,16 @@ internal object QueuedAnswerRecovery {
                 frozen.sources.indices.mapTo(linkedSetOf()) { "C${it + 1}" },
                 frozen.evidence.records.mapTo(linkedSetOf()) { it.id },
                 Int.MAX_VALUE,
-                frozen.evidence.records.mapIndexed { index, record -> record.id to "[${index + 1}](${record.url})" }.toMap()
+                frozen.evidence.records.mapIndexed { index, record -> record.id to "[${index + 1}](${record.url})" }.toMap(),
+                continuationAnswerPolicy = frozen.recordContinuationAnswerPolicy()
             )
             // A process can stop after saving validated records but before publishing
             // their message. The immutable END is sufficient for local replay; feeding
             // the receipt's optional opening code fence again would corrupt recovery.
-            if (!initial.ended || initial.pending.isNotBlank() || initial.failure != null) {
+            // The same boundary applies when a completed response's END was withheld:
+            // replay its committed passages without feeding the failed parser twice.
+            val retainedCompletedFailure = initial.lastAttemptOutcome == "COMPLETED" && initial.failure != null
+            if ((!initial.ended || initial.pending.isNotBlank() || initial.failure != null) && !retainedCompletedFailure) {
                 protocol.accept(answer)
                 protocol.markAttemptFinished("COMPLETED")
                 protocol.recordProgress(protocol.checkpoint().records.size > initial.records.size)
@@ -53,7 +57,11 @@ internal object QueuedAnswerRecovery {
             val completed = protocol.checkpoint()
             recordCheckpoint = completed
             if (protocol.failureReason != null || !completed.ended || completed.pending.isNotBlank()) {
-                terminal = ProviderEvent.Failed("OUTPUT_PROTOCOL_INVALID: The saved remote result did not finish a valid answer record. Its receipt and committed passages are retained.", errorCode = "OUTPUT_PROTOCOL_INVALID", transportComplete = true)
+                terminal = if (protocol.canContinueUnderlength) {
+                    ProviderEvent.Failed("COMBINED_RECORD_INCOMPLETE: The saved remote answer ended before its requested length was met. Its committed passages and unfinished record are retained for continuation.", errorCode = "COMBINED_RECORD_INCOMPLETE", transportComplete = true)
+                } else {
+                    ProviderEvent.Failed("OUTPUT_PROTOCOL_INVALID: The saved remote result did not finish a valid answer record. Its receipt and committed passages are retained.", errorCode = "OUTPUT_PROTOCOL_INVALID", transportComplete = true)
+                }
             }
             completed.records.joinToString("\n", postfix = "\n") { it.wire }
         } else if (frozen.deliveryProtocol == "PASSAGES_V2") {

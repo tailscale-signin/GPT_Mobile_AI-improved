@@ -48,6 +48,18 @@ New Combined conversations and existing conversations without saved Combined pre
 
 The branch's existing full unit, Android lint, APK, DEX-size, Room-schema, and instrumentation gates also apply. Exact results are recorded in the commit/PR checks; fixture responses validate application behavior and do not constitute live-provider service qualification.
 
+## Integration boundaries
+
+Final integration review identified additional cases that require explicit regression coverage:
+
+| Boundary | Intended behavior and regression |
+| --- | --- |
+| A due wait is claimed just before its profile is excluded | Exclusion is checked again under the chat gate before resume and preflight. A claimed queued attempt is canceled without dispatch. A stale alert resolves only the same answer slot, profile and accepted root; an already-running successor retains its saved text and explicit exclusion reason, without canceling the whole turn. `ProviderWaitRecoveryTest` pauses between claim and resume and separately exercises queued and running successors. A previously accepted remote request cannot be undone locally. |
+| An initial preflight wait has no error or timeline metadata | A typed Room projection carries the saved retry deadline for the current message/run/fence. The repository observes it on IO and suppresses unchanged emissions. The ViewModel and failure cache update when the deadline arrives or changes; stale owners cannot supply a countdown. Retry remains disabled while an initial waiting deadline is unavailable. `ProviderWaitRecoveryTest`, `ChatViewModelStartupTest`, `CombinedProfileFailureCacheTest` and `CombinedCleanPresentationTest` cover the actual query and UI projection. |
+| A separate continuation message has only empty failed attempts | Recovery may restore older revisions of that same answer slot. Earlier slots remain context and separate word credit; they cannot become the new slot's visible prefix. A typed quota continuation fails closed if its prefix belongs to another slot. `RecoveryContinuationDraftTest` covers both an empty separate slot and a valid older revision of the current slot. |
+| A completed queued writer result contains a premature END | Live and recovered structured results use the same frozen versioned answer policy. Valid passages remain committed and atomically assessed; the premature END remains uncommitted and resumable. Importing a saved result performs no generation. A restart after checkpoint persistence replays the same partial bundle without feeding the failed parser twice. `QueuedAnswerRecoveryTest` also preserves strict and archived version 1 behavior. |
+| Repeated premature END reaches the no-progress bound | The outcome is classified as incomplete delivery with `STOP`, not an unknown error or a completed answer. No automatic retry or writer rotation is authorized by this classification. The existing explicit new-revision path remains available. `CombinedAppendRecoverySessionTest` verifies the terminal category, decision and uncommitted END. |
+
 ## Device and service acceptance
 
 Replay the 5,000-word request with the same profiles. Verify that output-limited contributors have continuation-kind invocations, that prior text survives a failed extension, and that the final writer starts after the available-contribution decision. Reopen the chat and confirm one final answer with its matching attribution report. Test a queued continuation whose polling is interrupted and a provider quota wait that outlasts the app process. Cancel during a continuation and confirm that no later request is sent.

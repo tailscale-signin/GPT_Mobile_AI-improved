@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
+import dev.chungjungsoo.gptmobile.data.agent.ProviderWaitDeadline
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
@@ -31,7 +32,6 @@ internal fun CombinedProfileFailure.shortStatus(now: Long): String = when {
     category == "REASONING_BUDGET_EXHAUSTED" -> "No answer within output allowance"
     category == "SAVED_POLICY_UNAVAILABLE" -> "Saved request unavailable"
     applicationFailure -> "App paused"
-    !retryAllowed -> "Not supported"
     (retryAfterMillis ?: 0) > now -> {
         val remaining = (retryAfterMillis!! - now).coerceAtLeast(1)
         val seconds = remaining / 1000 + if (remaining % 1000 > 0) 1 else 0
@@ -44,6 +44,7 @@ internal fun CombinedProfileFailure.shortStatus(now: Long): String = when {
     }
     category == "RATE_LIMIT" && retryAfterMillis != null -> "Retry available"
     category == "RATE_LIMIT" -> "Paused by provider limit"
+    !retryAllowed -> "Not supported"
     category.contains("INCOMPLETE") || category.contains("OUTPUT") || reason.contains("incomplete", true) -> "Reply incomplete"
     else -> "Unavailable"
 }
@@ -54,7 +55,8 @@ internal fun combinedProfileFailures(
     responses: List<MessageV2>,
     runs: Map<String, AgentRun>,
     names: Map<String, String>,
-    models: Map<String, String>
+    models: Map<String, String>,
+    waitDeadlines: Map<String, ProviderWaitDeadline> = emptyMap()
 ): List<CombinedProfileFailure> = responses.mapNotNull { message ->
     val uid = message.platformType ?: return@mapNotNull null
     if (message.isCombinedSynthesis()) return@mapNotNull null
@@ -70,9 +72,18 @@ internal fun combinedProfileFailures(
     val savedPolicyUnavailable = details.contains("POLICY_SNAPSHOT_", ignoreCase = true)
     val classified = message.timeline.lastOrNull { it.profileFailure != null }?.profileFailure
         ?.takeUnless { demo || savedPolicyUnavailable } ?: dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.classify(details, demoExcluded = demo)
-    val appFailure = classified.category in setOf("APP_EXECUTION", "SAVED_POLICY_UNAVAILABLE") || savedPolicyUnavailable
-    val incompatible = !classified.retryAllowed
-    val retryAt = classified.retryAfterMillis
+    val appFailure = !waitingForLimit && (classified.category in setOf("APP_EXECUTION", "SAVED_POLICY_UNAVAILABLE") || savedPolicyUnavailable)
+    val incompatible = !waitingForLimit && !classified.retryAllowed
+    val savedDeadline = waitDeadlines[run.runId]?.takeIf {
+        waitingForLimit &&
+            it.runId == run.runId &&
+            it.fence == run.ownershipFence &&
+            it.fence == message.ownershipFence &&
+            run.assistantMessageId == message.id &&
+            run.chatId == message.chatId &&
+            it.retryAt > 0
+    }
+    val retryAt = savedDeadline?.retryAt ?: classified.retryAfterMillis
     val reason = when {
         waitingForLimit -> "This profile is paused by a provider limit. Wait for its allowance or combine the available replies without this profile for this turn."
         run.status == AgentRunStatus.WAITING_REMOTE_JOB || classified.category == "QUEUED_JOB" -> "The remote job is still queued or generating. Check its saved status or continue without this profile."
@@ -91,5 +102,11 @@ internal fun combinedProfileFailures(
         assessed.usablePartial -> "The answer is incomplete."
         else -> details.take(180)
     }
-    CombinedProfileFailure(userMessageId, uid, names[uid]?.takeIf { it.isNotBlank() } ?: "Saved profile", models[uid] ?: run.modelSnapshot, message.currentRunId, reason, details, !incompatible && run.status != AgentRunStatus.WAITING_REMOTE_JOB, appFailure, retryAt, if (run.status == AgentRunStatus.WAITING_REMOTE_JOB) "QUEUED_JOB" else classified.category)
+    val retryAllowed = !incompatible && run.status != AgentRunStatus.WAITING_REMOTE_JOB && (!waitingForLimit || retryAt != null)
+    val category = when (run.status) {
+        AgentRunStatus.WAITING_PROVIDER_LIMIT -> "RATE_LIMIT"
+        AgentRunStatus.WAITING_REMOTE_JOB -> "QUEUED_JOB"
+        else -> classified.category
+    }
+    CombinedProfileFailure(userMessageId, uid, names[uid]?.takeIf { it.isNotBlank() } ?: "Saved profile", models[uid] ?: run.modelSnapshot, message.currentRunId, reason, details, retryAllowed, appFailure, retryAt, category)
 }

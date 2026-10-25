@@ -84,21 +84,31 @@ internal class ResponseRecoveryContext(
         )
     }
 
-    private val retainedAnswer = this.runs.asReversed().firstNotNullOfOrNull { run ->
-        messages.firstOrNull { it.id == run.assistantMessageId }?.let { message ->
+    private fun retainedAnswerInSlot(messageId: Int? = null): Pair<AgentRun, String>? = this.runs.asReversed().firstNotNullOfOrNull { run ->
+        messages.firstOrNull { it.id == run.assistantMessageId && (messageId == null || it.id == messageId) }?.let { message ->
             val draft = if (message.currentRunId == run.runId) message.content else message.revisions.firstOrNull { it.runId == run.runId }?.content.orEmpty()
             // Keep exact whitespace for app-owned continuation prefix identity. Only
             // the known terminal error note is excluded; eligibility still ignores it.
             draft.takeIf { eligibleRecoveryDraft(it).isNotBlank() }?.let(::stripAssistantErrorNote)
         }?.takeIf { it.isNotBlank() }?.let { run to it }
     }
+    private val retainedAnswer = retainedAnswerInSlot()
     private val lastAnswer = retainedAnswer?.second.orEmpty()
     val answerCompleted: Boolean get() = retainedAnswer?.first?.status == dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus.COMPLETED
 
+    private fun answerForGeneration(generationId: String): Pair<AgentRun, String>? {
+        val slot = messages.singleOrNull { it.currentRunId == generationId } ?: return null
+        // Earlier answer slots are evidence and receive separate word credit.
+        // Only this slot's own revisions may become its restored visible prefix.
+        return retainedAnswerInSlot(slot.id)
+    }
+
+    fun answerCompleted(generationId: String): Boolean = answerForGeneration(generationId)?.first?.status == dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus.COMPLETED
+
     /** The loader scopes drafts to the selected profile; recheck access at the point of use. */
-    suspend fun authorizedAnswer(): String {
+    suspend fun authorizedAnswer(generationId: String? = null): String {
         if (!isAuthorized()) throw SavedEvidenceAccessDenied()
-        return lastAnswer
+        return if (generationId == null) lastAnswer else answerForGeneration(generationId)?.second.orEmpty()
     }
     private val manifestSummaries = research.map { "Research: ${it.phase}; complete=${it.complete}; sources=${it.sources.size}; readable=${it.sources.count { source -> source.readable }}; claims=${it.claims.size}; stop=${it.cancellationOrigin}" } +
         "Saved tool receipts=${events.size}; completed=${events.count { it.status == ToolEventStatus.COMPLETED && !it.isError }}; other outcomes require inspection."

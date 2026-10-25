@@ -92,6 +92,7 @@ jobs:
         run: |
           set -o pipefail
           ./gradlew :app:testDebugUnitTest :app:jacocoTestReport --no-daemon --info 2>&1 | tee test.log || (echo "=== TEST FAILURE LOG ===" && tail -n 100 test.log && exit 1)
+          python3 scripts/check_jacoco_coverage.py app/build/reports/jacoco/jacocoTestReport/jacocoTestReport.xml
 
       - name: Upload generated statistics schema and reports
         if: always()

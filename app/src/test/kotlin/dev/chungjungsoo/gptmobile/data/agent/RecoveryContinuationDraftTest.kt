@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
+import dev.chungjungsoo.gptmobile.data.database.entity.AssistantRevision
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.research.researchHash
 import kotlinx.coroutines.test.runTest
@@ -16,7 +17,7 @@ class RecoveryContinuationDraftTest {
 
     private fun recovery(draft: String, status: String = "INTERRUPTED", authorized: Boolean = true): ResponseRecoveryContext {
         val run = AgentRun("prior", 1, 1, 2, "profile", "FREE", "model", status = status)
-        val message = MessageV2(id = 2, chatId = 1, content = draft, platformType = "profile", currentRunId = run.runId)
+        val message = MessageV2(id = 2, chatId = 1, content = "", platformType = "profile", currentRunId = descriptor.generationId, revisions = listOf(AssistantRevision(draft, createdAt = 1, runId = run.runId)))
         return ResponseRecoveryContext(listOf(run), listOf(message), emptyList(), authorization = { authorized })
     }
 
@@ -42,6 +43,32 @@ class RecoveryContinuationDraftTest {
         assertFalse(codec.encodeToString(descriptor).contains("continuationPrefixDigest"))
         val typed = descriptor.copy(continuationPrefixDigest = "a".repeat(64))
         assertEquals(typed, codec.decodeFromString<TaskResumeDescriptor>(codec.encodeToString(typed)))
+    }
+
+    @Test fun anEmptySeparateContinueSlotDoesNotRestoreOrCreditAnEarlierSlotsPrefixTwice() = runTest {
+        val originalText = "original ".repeat(1200)
+        val original = AgentRun("original", 1, 1, 2, "profile", "FREE", "model", status = "COMPLETED")
+        val empty = original.copy(runId = "empty-continue", userMessageId = 3, assistantMessageId = 4, status = "FAILED")
+        val earlier = MessageV2(id = 2, chatId = 1, linkedMessageId = 1, content = originalText, platformType = "profile", currentRunId = original.runId)
+        val current = MessageV2(id = 4, chatId = 1, linkedMessageId = 3, content = "", platformType = "profile", currentRunId = descriptor.generationId, revisions = listOf(AssistantRevision("", createdAt = 2, runId = empty.runId)))
+        val recovered = ResponseRecoveryContext(listOf(original, empty), listOf(earlier, current), emptyList())
+
+        assertTrue(recovered.content.contains(originalText.trim()))
+        assertEquals(1200, previousRecoveryAnswerWords(listOf(listOf(earlier), listOf(current)), "profile", 1, descriptor.generationId))
+        assertEquals("", recoveryContinuationDraft(recovered, descriptor, "Write 5000 words"))
+        assertTrue(runCatching { recoveryContinuationDraft(recovered, descriptor.copy(continuationPrefixDigest = researchHash(originalText)), "Write 5000 words") }.isFailure)
+    }
+
+    @Test fun aSameSlotOlderPrefixSurvivesAnEmptyAttemptAndCannotBeReplacedByAnotherSlot() = runTest {
+        val retained = "  Retained answer from this slot.\n"
+        val prior = AgentRun("prior", 1, 3, 4, "profile", "FREE", "model", status = "INTERRUPTED")
+        val empty = prior.copy(runId = "empty", status = "FAILED")
+        val other = prior.copy(runId = "other", assistantMessageId = 6)
+        val slot = MessageV2(id = 4, chatId = 1, linkedMessageId = 3, content = "", platformType = "profile", currentRunId = descriptor.generationId, revisions = listOf(AssistantRevision("", createdAt = 3, runId = empty.runId), AssistantRevision(retained, createdAt = 2, runId = prior.runId)))
+        val otherSlot = MessageV2(id = 6, chatId = 1, linkedMessageId = 5, content = "Newer answer in a different slot.", platformType = "profile", currentRunId = other.runId)
+        val recovered = ResponseRecoveryContext(listOf(prior, empty, other), listOf(slot, otherSlot), emptyList())
+        assertEquals(retained, recoveryContinuationDraft(recovered, descriptor, "Write 5000 words"))
+        assertEquals(retained, recoveryContinuationDraft(recovered, descriptor.copy(continuationPrefixDigest = researchHash(retained)), "Write 5000 words"))
     }
 
     @Test fun resumingASeparateContinueSlotKeepsCreditForEarlierAnswersWithoutDoubleCountingItsPrefix() {

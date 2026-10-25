@@ -42,6 +42,11 @@ data class CombinedRecordCheckpoint(
     val ended: Boolean get() = records.lastOrNull()?.id == "END"
 }
 
+/** Live delivery and saved remote results must interpret the same frozen END contract. */
+internal fun CombinedInputSnapshot.recordContinuationAnswerPolicy(): CombinedAnswerPolicy? =
+    (answerContract ?: CombinedAnswerPolicy.from(userMessage.content))
+        .takeIf { combined?.requested?.appendContinuations == true && (writerRequestPlan?.version ?: 1) >= 2 }
+
 /** Strict, replay-safe logical JSON records. No character overlap or paragraph similarity is authority. */
 internal class CombinedRecordProtocol(
     initial: CombinedRecordCheckpoint,

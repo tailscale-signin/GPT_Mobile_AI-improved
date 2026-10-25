@@ -14,6 +14,7 @@ import dev.chungjungsoo.gptmobile.data.agent.CombinedAnswerRevisionTarget
 import dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext
 import dev.chungjungsoo.gptmobile.data.agent.CombinedPolicyResolver
 import dev.chungjungsoo.gptmobile.data.agent.CombinedQualityReport
+import dev.chungjungsoo.gptmobile.data.agent.ProviderWaitDeadline
 import dev.chungjungsoo.gptmobile.data.chat.ConversationReadStateStore
 import dev.chungjungsoo.gptmobile.data.chat.GenerationCompletionStore
 import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2
@@ -90,6 +91,7 @@ class ChatViewModelStartupTest {
     private val coordinator = mockk<AgentRunCoordinator>(relaxed = true)
     private val messages = MutableStateFlow<List<MessageV2>>(emptyList())
     private val runs = MutableStateFlow<List<AgentRun>>(emptyList())
+    private val waitDeadlines = MutableStateFlow<List<ProviderWaitDeadline>>(emptyList())
     private val activeRuns = MutableStateFlow<Map<String, ActiveAgentRun>>(emptyMap())
     private val profiles = (1..3).map { PlatformV2(uid = "profile-$it", name = "Profile $it", enabled = true, model = "model-$it") }
     private val features = AppFeatureSettings(
@@ -149,6 +151,37 @@ class ChatViewModelStartupTest {
         assertEquals(setOf("run-1"), activeRuns.value.keys)
         verify(exactly = 0) { coordinator.cancelRuns(any()) }
         verify(exactly = 0) { coordinator.cancelChat(any()) }
+    }
+
+    @Test fun initialPreflightWaitRestoresItsObservableDeadlineWithoutAnErrorOrTimelineFailure() = runTest(dispatcher) {
+        StartupRecoveryGate.start(backgroundScope) {}
+        seedTurn(listOf(AgentRunStatus.COMPLETED, AgentRunStatus.WAITING_PROVIDER_LIMIT, AgentRunStatus.COMPLETED))
+        val waiting = runs.value[1]
+        assertNull(waiting.terminalError)
+        assertTrue(messages.value.single { it.currentRunId == waiting.runId }.timeline.isEmpty())
+        val model = createViewModel()
+        val pending = model.combinedFailures.value.single()
+        assertEquals(waiting.runId, pending.attemptId)
+        assertFalse(pending.retryAllowed)
+        assertNull(pending.retryAfterMillis)
+        assertEquals("Paused by provider limit", pending.shortStatus(System.currentTimeMillis()))
+
+        val deadline = ProviderWaitDeadline(waiting.runId, waiting.ownershipFence, System.currentTimeMillis() + 120_000)
+        waitDeadlines.value = listOf(deadline)
+        assertEquals(deadline.retryAt, model.combinedFailures.value.single().retryAfterMillis)
+        assertEquals("RATE_LIMIT", model.combinedFailures.value.single().category)
+        model.retryCombinedProfile(1, waiting.profileUid)
+        verify(exactly = 0) { coordinator.start(any()) }
+        coVerify(exactly = 0) { repository.persistAgentRetry(any()) }
+
+        val extended = deadline.copy(retryAt = deadline.retryAt + 60_000)
+        waitDeadlines.value = listOf(extended)
+        assertEquals(extended.retryAt, model.combinedFailures.value.single().retryAfterMillis)
+        store.clear()
+        val restored = createViewModel()
+        assertEquals(extended.retryAt, restored.combinedFailures.value.single().retryAfterMillis)
+        assertEquals(waiting.runId, restored.combinedFailures.value.single().attemptId)
+        verify(exactly = 0) { coordinator.start(any()) }
     }
 
     @Test fun simultaneousProfileFailuresDoNotCancelOtherProfiles() = runTest(dispatcher) {
@@ -464,6 +497,7 @@ class ChatViewModelStartupTest {
         every { repository.observeMessageWindow(chatId, any()) } returns messages
         every { repository.observeTurnCount(chatId) } returns flowOf(messages.value.count { it.platformType == null })
         every { repository.observeAgentRuns(chatId) } returns runs
+        every { repository.observeProviderWaitDeadlines(chatId) } returns waitDeadlines
         every { repository.observeToolEvents(chatId) } returns flowOf(emptyList())
         coEvery { repository.fetchChatListV2() } returns listOf(room)
         coEvery { repository.fetchArchivedChatListV2() } returns emptyList()

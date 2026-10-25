@@ -11,6 +11,9 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import dev.chungjungsoo.gptmobile.data.agent.COMBINED_RECOVERY_MARKER
+import dev.chungjungsoo.gptmobile.data.agent.ProviderWaitDeadline
+import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
+import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
@@ -99,6 +102,22 @@ class CombinedCleanPresentationTest {
         assertEquals(1, dismissed)
         compose.onNodeWithContentDescription("Close profile alerts").performClick()
         assertEquals(2, dismissed)
+    }
+
+    @Test fun initialProviderWaitShowsItsSavedCountdownAndDisablesRetry() {
+        val run = AgentRun("waiting", 1, 1, 2, "alpha", "FREE", "model", AgentRunStatus.WAITING_PROVIDER_LIMIT, ownershipFence = 3)
+        val response = MessageV2(id = 2, chatId = 1, platformType = "alpha", currentRunId = run.runId, ownershipFence = run.ownershipFence, content = "")
+        val deadline = ProviderWaitDeadline(run.runId, run.ownershipFence, System.currentTimeMillis() + 120_000)
+        val failure = combinedProfileFailures(1, "Question", listOf(response), mapOf(run.runId to run), mapOf("alpha" to "Alpha"), emptyMap(), mapOf(run.runId to deadline)).single()
+        compose.setContent {
+            MaterialTheme {
+                CombinedFailuresDialog(listOf(failure), emptyMap(), { _, _ -> error("A pending quota cannot retry yet") }, {}, {}, {}, false)
+            }
+        }
+        compose.onNodeWithText("Rate limited ·", substring = true).assertIsDisplayed()
+        compose.onNodeWithContentDescription("Retry Alpha").assertIsNotEnabled()
+        compose.onNodeWithText("Continue without Alpha").assertIsDisplayed()
+        compose.onNodeWithText("Not supported").assertDoesNotExist()
     }
 
     @Test fun normalCopyAndExportsNeverExposeDiagnosticRecoveryAppendices() {

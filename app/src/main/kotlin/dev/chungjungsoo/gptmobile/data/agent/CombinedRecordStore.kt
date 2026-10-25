@@ -132,8 +132,7 @@ internal class CombinedRecordStore private constructor(
                     frozen.evidence.records.mapTo(linkedSetOf()) { it.id },
                     maxCharacters,
                     frozen.evidence.records.mapIndexed { index, record -> record.id to "[${index + 1}](${record.url})" }.toMap(),
-                    continuationAnswerPolicy = (frozen.answerContract ?: CombinedAnswerPolicy.from(frozen.userMessage.content))
-                        .takeIf { frozen.combined?.requested?.appendContinuations == true && (frozen.writerRequestPlan?.version ?: 1) >= 2 }
+                    continuationAnswerPolicy = frozen.recordContinuationAnswerPolicy()
                 )
                 state.records.forEach { renderer.accept(it.wire + "\n") }
                 retained?.let {

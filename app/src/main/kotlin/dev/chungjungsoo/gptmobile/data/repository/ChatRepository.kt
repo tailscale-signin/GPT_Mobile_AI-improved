@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.repository
 
+import dev.chungjungsoo.gptmobile.data.agent.ProviderWaitDeadline
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
@@ -126,6 +127,7 @@ interface ChatRepository {
     fun searchFavoriteAssistantMessages(query: String): Flow<List<MessageV2>>
     suspend fun setMessageFavorite(messageId: Int, isFavorite: Boolean)
     fun observeAgentRuns(chatId: Int): Flow<List<AgentRun>>
+    fun observeProviderWaitDeadlines(chatId: Int): Flow<List<ProviderWaitDeadline>>
     fun observeToolEvents(chatId: Int): Flow<List<ToolEvent>>
     suspend fun fetchChatListV2(): List<ChatRoomV2>
     suspend fun fetchArchivedChatListV2(): List<ChatRoomV2>

@@ -8,6 +8,7 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentRunEvent
 import dev.chungjungsoo.gptmobile.data.agent.AgentTool
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
+import dev.chungjungsoo.gptmobile.data.agent.ProviderWaitDeadline
 import dev.chungjungsoo.gptmobile.data.agent.ToolBudgetPolicy
 import dev.chungjungsoo.gptmobile.data.agent.ToolExecutionBudget
 import dev.chungjungsoo.gptmobile.data.agent.ToolPayloadMetrics
@@ -122,6 +123,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
@@ -5216,6 +5218,9 @@ class ChatRepositoryImpl(
     }
 
     override fun observeAgentRuns(chatId: Int) = agentRunDao.observeByChatId(chatId)
+
+    override fun observeProviderWaitDeadlines(chatId: Int): Flow<List<ProviderWaitDeadline>> =
+        agentPersistenceDao.observeProviderWaitDeadlines(chatId).distinctUntilChanged().flowOn(Dispatchers.IO)
 
     override fun observeToolEvents(chatId: Int): Flow<List<ToolEvent>> = toolEventRecorder.observeChat(chatId)
 

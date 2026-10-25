@@ -58,6 +58,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
@@ -69,6 +70,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -281,6 +283,9 @@ class ChatViewModelStartupTest {
     }
 
     private suspend fun verifyExplicitRevision(archived: Boolean, scope: CoroutineScope) {
+        // Room callbacks must rejoin serialized Main before a UI action reads startup state.
+        // Other startup tests keep Unconfined Main to exercise immediate cached emissions.
+        Dispatchers.setMain(StandardTestDispatcher(dispatcher.scheduler))
         StartupRecoveryGate.start(scope) {}
         val selectedRun = seedEditorialRevision(archived)
         val originalOwner = messages.value.single { it.id == selectedRun.assistantMessageId }
@@ -311,7 +316,7 @@ class ChatViewModelStartupTest {
             val model = createViewModel()
             // Messages and run receipts are restored independently. The revision
             // action is available only when its selected answer and run agree.
-            val grouped = withContext(Dispatchers.Default) {
+            withContext(Dispatchers.Default) {
                 withTimeout(20_000) {
                     combine(model.groupedMessages, model.agentRunsById) { messages, runs -> messages to runs }
                         .first { (messages, runs) ->
@@ -327,9 +332,13 @@ class ChatViewModelStartupTest {
                         }.first
                 }
             }
-            val owner = grouped.assistantMessages.single().first { it.id == selectedRun.assistantMessageId }
-            val target = CombinedAnswerRevisionTarget.capture(owner, selectedRun)
-            model.reviseCombinedAnswer(0, target)
+            val target = withContext(Dispatchers.Main) {
+                val owner = model.groupedMessages.value.assistantMessages.single().first { it.id == selectedRun.assistantMessageId }
+                CombinedAnswerRevisionTarget.capture(owner, selectedRun).also { target ->
+                    model.reviseCombinedAnswer(0, target)
+                    assertNull("The selected revision action must be accepted before waiting for dispatch", model.attachmentNotice.value)
+                }
+            }
             val requests = withContext(Dispatchers.Default) { withTimeout(20_000) { started.await() } }
             val accepted = requireNotNull(savedAcceptance)
             assertEquals(target, accepted.revisionOf)
@@ -356,6 +365,7 @@ class ChatViewModelStartupTest {
         } finally {
             store.clear()
             db.close()
+            Dispatchers.setMain(dispatcher)
         }
     }
 

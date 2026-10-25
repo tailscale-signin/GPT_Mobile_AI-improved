@@ -304,6 +304,9 @@ class ChatViewModelStartupTest {
             db.messageDao().addMessages(*messages.value.toTypedArray())
             runs.value.forEach { db.agentRunDao().upsert(it) }
             val dao = db.agentPersistenceDao()
+            val expectedTarget = CombinedAnswerRevisionTarget.capture(originalOwner, selectedRun)
+            val restoredOwner = dao.getMessages(7).single { it.id == originalOwner.id }
+            assertEquals("The completed assessment must survive the same Room restoration used during startup", expectedTarget, CombinedAnswerRevisionTarget.capture(restoredOwner, selectedRun))
             var committed: PersistAgentTurnResult? = null
             var savedAcceptance: CombinedAcceptedTurn? = null
             val started = CompletableDeferred<List<AgentRunRequest>>()
@@ -343,6 +346,7 @@ class ChatViewModelStartupTest {
             val target = withContext(Dispatchers.Main) {
                 val owner = model.groupedMessages.value.assistantMessages.single().first { it.id == selectedRun.assistantMessageId }
                 CombinedAnswerRevisionTarget.capture(owner, selectedRun).also { target ->
+                    assertEquals(expectedTarget, target)
                     model.reviseCombinedAnswer(0, target)
                     assertNull("The selected revision action must be accepted before waiting for dispatch", model.attachmentNotice.value)
                 }
@@ -381,7 +385,7 @@ class ChatViewModelStartupTest {
         seedTurn(List(3) { AgentRunStatus.COMPLETED }, ConversationCombinedSettings(continueLongAnswers = false))
         val original = messages.value.first { it.platformType != null }.copy(linkedMessageId = 1)
         val body = "The original complete answer needs more detail."
-        val report = CombinedQualityReport(answerDigest = researchHash(body), finalAssessment = true, protocolComplete = true, correctionRequired = true, lengthCompliance = "UNMET")
+        val report = CombinedQualityReport(answerDigest = researchHash(body), status = "CORRECTION_REQUIRED", finalAssessment = true, protocolComplete = true, correctionRequired = true, lengthCompliance = "UNMET")
         val selected = original.copy(
             content = body,
             currentRunId = "combined-synthesis:selected",

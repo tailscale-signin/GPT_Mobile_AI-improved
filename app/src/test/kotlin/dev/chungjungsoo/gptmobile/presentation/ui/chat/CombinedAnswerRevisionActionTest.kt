@@ -17,8 +17,10 @@ import androidx.compose.ui.test.hasAnyDescendant
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isPopup
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.agent.CombinedAcceptedTurn
@@ -104,7 +106,7 @@ class CombinedAnswerRevisionActionTest {
         val latestRun = run(latest, "latest-root", AgentRunStatus.FAILED, "AUTHENTICATION_REJECTED: writer access changed")
         val actions = display(latest, listOf(latestRun, archivedRun))
 
-        compose.onNodeWithText(archived.content).assertIsDisplayed()
+        showAnswer(archived.content)
         clickRevision()
 
         compose.runOnIdle {
@@ -138,20 +140,31 @@ class CombinedAnswerRevisionActionTest {
         val run = run(answer, "menu-root", AgentRunStatus.FAILED, "COMBINED_PARTIAL")
         val actions = display(answer, listOf(run))
 
-        compose.onNode(SemanticsMatcher.keyIsDefined(SemanticsActions.OnLongClick) and hasAnyDescendant(hasText(answer.content)))
+        showAnswer(answer.content)
+        compose.onNode(SemanticsMatcher.keyIsDefined(SemanticsActions.OnLongClick) and (hasText(answer.content) or hasAnyDescendant(hasText(answer.content))), useUnmergedTree = true)
             .performSemanticsAction(SemanticsActions.OnLongClick) { it() }
-        compose.onNode(hasText("Create revised answer") and hasAnyAncestor(isPopup())).assertIsEnabled().performClick()
+        compose.onNode(hasText("Create revised answer") and hasAnyAncestor(isPopup())).performScrollTo().assertIsDisplayed().assertIsEnabled().performClick()
 
         compose.runOnIdle {
             assertTarget(actions.onlyRevision(), answer, run, answer.content, "report-menu", "menu-root", ACTIVE_REVISION_LATEST)
         }
     }
 
+    private fun showAnswer(text: String) {
+        // Answer presentation is prepared off the main thread, and the retained
+        // response can start below the correction controls in the scroll viewport.
+        compose.waitUntil(timeoutMillis = 10_000) {
+            compose.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithText(text).performScrollTo().assertIsDisplayed()
+    }
+
     private fun clickRevision() {
-        compose.onNodeWithText("Answer needs correction").assertIsDisplayed()
+        compose.onNodeWithText("Answer needs correction").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Try another writer").assertDoesNotExist()
         compose
             .onNodeWithText("Create revised answer")
+            .performScrollTo()
             .assertIsDisplayed()
             .assertIsEnabled()
             .performClick()

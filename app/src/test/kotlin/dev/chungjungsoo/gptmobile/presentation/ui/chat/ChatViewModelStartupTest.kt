@@ -29,6 +29,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PersistAgentTurnResult
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveContent
+import dev.chungjungsoo.gptmobile.data.database.entity.effectiveRunId
 import dev.chungjungsoo.gptmobile.data.database.entity.snapshotLatestAssistantRevision
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
@@ -54,6 +55,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -307,13 +309,22 @@ class ChatViewModelStartupTest {
                 Unit
             }
             val model = createViewModel()
-            // The real Room query above suspends startup; wait for the selected
-            // answer to become observable before invoking its UI action.
+            // Messages and run receipts are restored independently. The revision
+            // action is available only when its selected answer and run agree.
             val grouped = withContext(Dispatchers.Default) {
                 withTimeout(20_000) {
-                    model.groupedMessages.first { state ->
-                        state.assistantMessages.any { turn -> turn.any { it.id == selectedRun.assistantMessageId } }
-                    }
+                    combine(model.groupedMessages, model.agentRunsById) { messages, runs -> messages to runs }
+                        .first { (messages, runs) ->
+                            runs[selectedRun.runId] == selectedRun &&
+                                messages.userMessages.any { it.id == selectedRun.userMessageId } &&
+                                messages.assistantMessages.flatten().any { answer ->
+                                    answer.id == selectedRun.assistantMessageId &&
+                                        answer.currentRunId == originalOwner.currentRunId &&
+                                        answer.ownershipFence == originalOwner.ownershipFence &&
+                                        answer.activeRevisionIndex == originalOwner.activeRevisionIndex &&
+                                        answer.effectiveRunId() == selectedRun.runId
+                                }
+                        }.first
                 }
             }
             val owner = grouped.assistantMessages.single().first { it.id == selectedRun.assistantMessageId }

@@ -79,10 +79,13 @@ which exact internal branch skipped dispatch or appended the duplicate.
 - The supplied export is retained as a regression fixture with secrets and
   personal/private payloads removed.
 
-## Validation status
+## Implemented in this branch
 
-This document captures the observed regression and acceptance criteria. It is not
-evidence that the implementation or tests have passed. The existing repository
-already contains extensive Combined finalization code and regression coverage, so
-the implementation must be made against the actual source and tested on the
-Android build/CI environment before claiming the issue is fixed.
+- Single-pass synthesis dispatch now keeps the accepted, enabled primary at the front of the synthesis writer order even if that primary has no saved collection response. The primary must still be in the accepted roster and enabled; this does not authorize adding an unselected or disabled profile.
+- When the primary has no contributor message row, synthesis creates a separate assistant slot instead of aborting or overwriting another profile's contribution. Existing primary rows are reused only when they exist.
+- Final Combined candidate text is passed through a conservative deduplicator that removes repeated Markdown headings and exact repeated paragraphs.
+- Unit tests cover primary dispatch when collection fails, refusal to dispatch to unaccepted/disabled primaries, and duplicate-section removal.
+
+## Remaining validation
+
+These changes address the concrete dispatch and duplication paths found in the export, but must pass Android CI and end-to-end regression validation before merge. The current test coverage does not simulate the entire provider export or prove atomic database publication under process death. CI results and the final export replay should be checked before declaring the issue fully resolved.

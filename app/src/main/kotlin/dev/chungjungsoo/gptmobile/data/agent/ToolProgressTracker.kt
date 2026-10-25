@@ -21,6 +21,12 @@ class ToolProgressTracker {
 class PublicProgressParser {
     private var pending = ""
     private var inside = false
+
+    fun reset() {
+        pending = ""
+        inside = false
+    }
+
     fun accept(chunk: String, flush: Boolean = false): List<Pair<Boolean, String>> {
         pending += chunk
         val result = mutableListOf<Pair<Boolean, String>>()

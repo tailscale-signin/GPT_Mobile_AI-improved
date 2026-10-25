@@ -65,7 +65,7 @@ class QueuedAnswerRecoveryTest {
 
     private fun snapshot(protocol: String): CombinedInputSnapshot = CombinedInputSnapshot(
         version = 6,
-        userMessage = MessageV2(id = 2, chatId = 1, content = "Combine the saved observations."),
+        userMessage = MessageV2(id = 2, chatId = 1, platformType = null, content = "Combine the saved observations."),
         history = emptyList(), replies = emptyList(), sources = listOf(CombinedModelResponse("p", "Profile", content = first + "\n\n" + second)),
         prompt = "Frozen", profileUid = "p", model = "model", systemPrompt = "", configKey = "config", snapshotId = "snapshot", revisionId = "revision", deliveryProtocol = protocol
     ).seal()

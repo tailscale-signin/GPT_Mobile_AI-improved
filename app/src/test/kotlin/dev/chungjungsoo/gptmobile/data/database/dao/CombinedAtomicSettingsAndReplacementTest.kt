@@ -136,10 +136,14 @@ class CombinedAtomicSettingsAndReplacementTest {
         try {
             val (user, owner) = seedCompletedTurn(db)
             val dao = db.agentPersistenceDao()
+            val rawOwnerBefore = requireNotNull(dao.rawRecoveryMessage(owner.id))
+            val recoveredOwnerBefore = requireNotNull(dao.recoveryMessage(owner.id))
             val removedBefore = dao.recoveryMessage(4)
             val drafts = regeneratedRuns().mapIndexed { index, draft -> if (index == 1) draft.copy(runId = "prior-b") else draft }
             assertTrue(runCatching { dao.regenerateCombinedTurn(user, owner, drafts, regeneratedAcceptance()) }.isFailure)
-            assertEquals(owner, dao.recoveryMessage(owner.id))
+            assertEquals(owner, rawOwnerBefore)
+            assertEquals(rawOwnerBefore, dao.rawRecoveryMessage(owner.id))
+            assertEquals(recoveredOwnerBefore, dao.recoveryMessage(owner.id))
             assertEquals(removedBefore, dao.recoveryMessage(4))
             assertNull(dao.recoveryRun("new-a"))
             assertEquals(setOf("a", "b"), dao.rawGetMessages(1).mapNotNull { it.platformType }.toSet())

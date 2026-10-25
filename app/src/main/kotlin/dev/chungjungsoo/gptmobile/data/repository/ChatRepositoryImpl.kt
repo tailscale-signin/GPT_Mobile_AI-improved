@@ -1721,7 +1721,7 @@ class ChatRepositoryImpl(
             var delegatedTools = emptyList<ResolvedAgentTool>()
             suspend fun emitAll(states: Flow<ApiState>) = states.collect { state ->
                 when (state) {
-                    is ApiState.Success -> activity.set("Writing response")
+                    is ApiState.Success, is ApiState.CombinedAnswer -> activity.set("Writing response")
                     is ApiState.Thinking -> activity.set("Thinking")
                     is ApiState.GatewayProgressChanged -> {
                         val progress = state.progress
@@ -2266,7 +2266,12 @@ class ChatRepositoryImpl(
                                 }
                             ).map { state ->
                                 if (state is ApiState.Error) delegationTerminal = dev.chungjungsoo.gptmobile.data.delegation.DelegationStepStatus.FAILED
-                                if (state is ApiState.Success && state.textChunk.isNotBlank()) {
+                                val visibleOutput = when (state) {
+                                    is ApiState.Success -> state.textChunk
+                                    is ApiState.CombinedAnswer -> state.text
+                                    else -> null
+                                }
+                                if (!visibleOutput.isNullOrBlank()) {
                                     delegationProducedOutput = true
                                     if (delegationTerminal != dev.chungjungsoo.gptmobile.data.delegation.DelegationStepStatus.FAILED) delegationTerminal = dev.chungjungsoo.gptmobile.data.delegation.DelegationStepStatus.RETURNED_OUTPUT
                                 }
@@ -4630,6 +4635,9 @@ class ChatRepositoryImpl(
                     }
                     is ProviderEvent.CombinedAnswer -> {
                         dev.chungjungsoo.gptmobile.data.agent.CombinedAnswerPublication.validate(providerEvent.text, providerEvent.report, providerEvent.formatVersion)
+                        // A full replacement owns its own text. A marker fragment
+                        // retained from provisional deltas must not flush after it.
+                        progressParser.reset()
                         providerTextSeen = providerTextSeen || providerEvent.text.isNotBlank()
                         if (editorialPass) dev.chungjungsoo.gptmobile.data.agent.CombinedWriterObservations.recordDelivery(observationKey, providerEvent.report, resolvedOutputCap)
                         emit(ApiState.CombinedAnswer(providerEvent.text, providerEvent.report, providerEvent.formatVersion))

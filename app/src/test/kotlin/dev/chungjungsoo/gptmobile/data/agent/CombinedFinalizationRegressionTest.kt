@@ -6,6 +6,10 @@ import dev.chungjungsoo.gptmobile.data.research.researchHash
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -152,5 +156,33 @@ class CombinedFinalizationRegressionTest {
         assertTrue(plan.all { it.targetWords == null })
         assertTrue(plan.any { it.label.contains("Safety") })
         assertTrue(plan.any { it.label.contains("limitations") })
+    }
+
+    @Test fun conflictReferencesFollowTheClaimTextWhenVersionFourChangesSentenceIds() {
+        val sources = listOf(
+            CombinedModelResponse("source", "Source", content = "**Important council record:**\n\nThe council approved 12 houses in 1930. However, evidence remains limited.", claimExtractionVersion = 4),
+            CombinedModelResponse("other", "Other", content = "**Important council record:**\n\nThe council approved 14 houses in 1930.", claimExtractionVersion = 4)
+        )
+        val request = "Explain the council records and their disagreement"
+        val requested = CombinedPolicyResolver.accept(ConversationCombinedSettings(), sources.map { it.platformUid }, sources.associate { it.platformUid to "model" }, request, singlePass = true)
+        val execution = CombinedExecutionContext(requested, rootBudgetId = "conflict-reference-regression")
+        val prompt = Json.parseToJsonElement(dev.chungjungsoo.gptmobile.presentation.ui.chat.combinedSynthesisPrompt(request, sources, combined = execution)).jsonObject
+        val claims = CombinedClaimInventoryWire.decode(prompt).associate { it.getValue("id").jsonPrimitive.content to it }
+        val conflict = prompt.getValue("potential_conflicts").jsonArray.single().jsonObject
+        assertEquals("NUMERIC", conflict.getValue("kind").jsonPrimitive.content)
+        assertEquals("C1.1", conflict.getValue("left_claim_id").jsonPrimitive.content)
+        assertEquals("C2.1", conflict.getValue("right_claim_id").jsonPrimitive.content)
+        val first = claims.getValue("C1.1")
+        assertTrue(first.getValue("text").jsonPrimitive.content.contains("12 houses"))
+        assertTrue(first.getValue("text").jsonPrimitive.content.contains("evidence remains limited"))
+        assertTrue(first.getValue("qualifiers").jsonObject.isNotEmpty())
+        assertTrue(claims.getValue("C2.1").getValue("text").jsonPrimitive.content.contains("14 houses"))
+        assertFalse("left_excerpt" in conflict)
+        assertFalse("right_excerpt" in conflict)
+
+        val legacy = Json.parseToJsonElement(dev.chungjungsoo.gptmobile.presentation.ui.chat.combinedSynthesisPrompt(request, sources)).jsonObject
+        val legacyConflict = legacy.getValue("potential_conflicts").jsonArray.single().jsonObject
+        assertTrue(legacyConflict.getValue("left_excerpt").jsonPrimitive.content.contains("12 houses"))
+        assertTrue(legacyConflict.getValue("right_excerpt").jsonPrimitive.content.contains("14 houses"))
     }
 }

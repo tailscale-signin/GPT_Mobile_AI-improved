@@ -848,7 +848,13 @@ class AgentRunner(
                 ProviderEvent.Completed -> completed = true
 
                 else -> {
-                    if (event is ProviderEvent.TextDelta && !textEmitted) {
+                    if (event is ProviderEvent.CombinedAnswer) {
+                        // This is the whole delivered body, including finalization
+                        // paths that emitted no provisional deltas. Treating it as
+                        // empty would dispatch a second writer after publication.
+                        answerCandidate.clear()
+                        textEmitted = dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.hasAnswer(event.text)
+                    } else if (event is ProviderEvent.TextDelta && !textEmitted) {
                         answerCandidate.append(event.text)
                         textEmitted = dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.hasAnswer(answerCandidate.toString())
                     }

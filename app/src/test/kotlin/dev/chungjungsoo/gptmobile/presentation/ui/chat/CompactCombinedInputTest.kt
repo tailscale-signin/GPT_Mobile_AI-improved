@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
+import dev.chungjungsoo.gptmobile.data.agent.CombinedClaimInventoryWire
 import dev.chungjungsoo.gptmobile.data.agent.CombinedClaimSemantics
 import dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext
 import dev.chungjungsoo.gptmobile.data.agent.CombinedRequestedPolicy
@@ -32,7 +33,7 @@ class CompactCombinedInputTest {
         val context = CombinedExecutionContext(CombinedRequestedPolicy(participantUids = listOf("p", "h"), requestedModels = mapOf("p" to "m1", "h" to "m2"), requestedPolicyDigest = "policy", userPrompt = "Compare evidence"), rootBudgetId = "root", chatId = 1)
         val full = CombinedClaimSemantics.records(sources)
         val prompt = Json.parseToJsonElement(combinedSynthesisPrompt("Compare evidence", sources, combined = context)).jsonObject
-        val claims = prompt.getValue("claim_inventory").jsonArray.map { it.jsonObject }
+        val claims = CombinedClaimInventoryWire.decode(prompt)
         assertEquals(full.map { it.proposition }.toSet(), claims.map { it.getValue("text").jsonPrimitive.content }.toSet())
         assertEquals(full.flatMap { it.candidateIds }.toSet(), claims.flatMap { it.getValue("aliases").jsonArray.map { alias -> alias.jsonPrimitive.content } }.toSet())
         assertTrue(prompt.toString().contains("NULL_EFFECT"))

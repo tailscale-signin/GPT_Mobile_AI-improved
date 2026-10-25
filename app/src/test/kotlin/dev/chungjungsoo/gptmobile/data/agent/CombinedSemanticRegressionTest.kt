@@ -297,8 +297,14 @@ class CombinedSemanticRegressionTest {
         assertTrue(committed != null)
         assertEquals("initial", committed!!.previousRevisionId)
         assertTrue(committed!!.revisionId != "initial")
-        assertEquals(incorrect, events.combinedAnswerText())
-        assertTrue(committed!!.text.contains(correct))
+        assertEquals(incorrect, events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
+        val final = events.filterIsInstance<ProviderEvent.CombinedAnswer>().single()
+        assertEquals(committed!!.text, events.combinedAnswerText())
+        assertEquals(committed!!.text, final.text)
+        assertEquals(1, Regex(Regex.escape(correct)).findAll(final.text).count())
+        assertTrue(final.text.contains("[1](https://example.org/study)"))
+        assertEquals(committed!!.revisionId, final.report.revisionId)
+        assertEquals(researchHash(committed!!.text), final.report.answerDigest)
         assertFalse(events.combinedReport().correctionRequired)
     }
 

@@ -64,6 +64,26 @@ class CombinedAnswerPublicationTest {
         assertEquals("Provisional draft", visible)
     }
 
+    @Test fun omittedPersistenceCallbackRejectsFinalBundlesButStillAcceptsOrdinaryText() = runBlocking {
+        val visible = mutableListOf<String>()
+        val rejected = runCatching {
+            flowOf(ApiState.Success("Provisional draft"), ApiState.CombinedAnswer(body, report), ApiState.Done).collectApiStateUpdates(
+                onUpdate = { text, _, timeline ->
+                    visible += text
+                    assertTrue(timeline.none { it.combinedQuality == report })
+                }
+            )
+        }
+        assertEquals("COMBINED_FINAL_PUBLICATION_REJECTED", rejected.exceptionOrNull()?.message)
+        assertTrue(visible.isNotEmpty())
+        assertTrue(visible.all { it == "Provisional draft" })
+
+        var ordinaryText = ""
+        val completed = flowOf(ApiState.Success("Ordinary answer"), ApiState.Done).collectApiStateUpdates(onUpdate = { text, _, _ -> ordinaryText = text })
+        assertEquals(ApiStateFlowOutcome.Completed, completed)
+        assertEquals("Ordinary answer", ordinaryText)
+    }
+
     @Test fun mismatchedBodyOrLinkCannotReachPersistenceOrTheRenderer() = runBlocking {
         for (invalid in listOf(report.copy(answerDigest = researchHash("other")), report.copy(passages = listOf(report.passages.single().copy(links = listOf(report.passages.single().links.single().copy(end = body.length + 1))))))) {
             var persisted = false

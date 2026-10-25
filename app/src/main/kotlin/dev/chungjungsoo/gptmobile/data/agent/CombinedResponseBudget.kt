@@ -8,11 +8,11 @@ import kotlinx.serialization.json.JsonPrimitive
 /** Continuation is capacity for unfinished requested work; it is never a required number of calls. */
 internal object CombinedResponseBudget {
     fun continuationLimit(envelope: String, outputCap: Int?, wordGoal: Int?, combined: CombinedExecutionContext? = null): Int {
-        val json = runCatching { Json.parseToJsonElement(envelope) as? JsonObject }.getOrNull()
+        val json = CombinedClaimInventoryWire.parseEnvelope(envelope)
         val contributions = (json?.get("contributions") as? JsonArray).orEmpty()
-        val sharedClaims = (json?.get("claim_inventory") as? JsonArray).orEmpty()
+        val sharedClaims = CombinedClaimInventoryWire.decode(json)
         val sourceWords = if (sharedClaims.isNotEmpty()) {
-            sharedClaims.sumOf { ((it as? JsonObject)?.get("text") as? JsonPrimitive)?.content?.let(CombinedWordCounter::count)?.toLong() ?: 0L }
+            sharedClaims.sumOf { (it["text"] as? JsonPrimitive)?.content?.let(CombinedWordCounter::count)?.toLong() ?: 0L }
         } else {
             contributions.sumOf { ((it as? JsonObject)?.get("response") as? JsonPrimitive)?.content?.let(CombinedWordCounter::count)?.toLong() ?: 0L }
         }

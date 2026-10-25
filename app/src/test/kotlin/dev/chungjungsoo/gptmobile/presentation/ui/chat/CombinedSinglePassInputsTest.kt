@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
+import dev.chungjungsoo.gptmobile.data.agent.CombinedClaimInventoryWire
 import dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext
 import dev.chungjungsoo.gptmobile.data.agent.CombinedPolicyResolver
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
@@ -39,7 +40,7 @@ class CombinedSinglePassInputsTest {
             assertTrue(body.getValue("included_in_input").jsonPrimitive.boolean)
         }
         assertTrue(prompt.getValue("answer_outline").jsonArray.isNotEmpty())
-        val claims = prompt.getValue("claim_inventory").jsonArray.map { it.jsonObject }
+        val claims = CombinedClaimInventoryWire.decode(prompt)
         assertTrue(claims.isNotEmpty())
         claims.forEach { claim ->
             assertTrue(claim.getValue("text").jsonPrimitive.content.isNotBlank())

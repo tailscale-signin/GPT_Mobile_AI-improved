@@ -101,8 +101,32 @@ class CombinedPortugalRegressionTest {
         val envelope = Json.parseToJsonElement(prompt).jsonObject
         val bodies = envelope.getValue("contributions").jsonArray.map { it.jsonObject.getValue("response").jsonPrimitive.content }
         assertEquals(sources.map { it.content }, bodies)
-        assertTrue("Prompt was ${prompt.length} chars", prompt.length < 40_000)
-        val claims = envelope.getValue("claim_inventory").jsonArray
+        val fieldSizes = envelope.entries.map { it.key to it.value.toString().length }.sortedByDescending { it.second }.take(6)
+        assertTrue("Prompt was ${prompt.length} chars; largest fields=$fieldSizes", prompt.length < 40_000)
+        val claims = CombinedClaimInventoryWire.decode(envelope)
+        val claimsById = claims.associate { it.jsonObject.getValue("id").jsonPrimitive.content to it.jsonObject }
+        val conflicts = envelope.getValue("potential_conflicts").jsonArray
+        assertTrue(conflicts.isNotEmpty())
+        var references = 0
+        conflicts.forEach { raw ->
+            val conflict = raw.jsonObject
+            for (side in listOf("left", "right")) {
+                val reference = conflict["${side}_claim_id"]?.jsonPrimitive?.content
+                if (reference == null) {
+                    assertTrue(conflict.getValue("${side}_excerpt").jsonPrimitive.content.isNotBlank())
+                } else {
+                    references++
+                    val claim = requireNotNull(claimsById[reference])
+                    assertTrue(claim.getValue("text").jsonPrimitive.content.isNotBlank())
+                    assertTrue("qualifiers" in claim)
+                    assertFalse("${side}_excerpt" in conflict)
+                    val owner = sources.indexOfFirst { it.platformUid == conflict.getValue("${side}_profile_uid").jsonPrimitive.content }
+                    assertTrue(claim.getValue("contributors").jsonArray.any { it.jsonPrimitive.content == "C${owner + 1}" })
+                }
+            }
+        }
+        assertTrue("Conflict references should reuse their complete readable claims", references > 0)
+        println("Portugal prompt characters=${prompt.length}; readableClaims=${claims.size}; conflictReferences=$references")
         val index = CombinedContentIndexes.get(sources)
         assertEquals(index.records.size, claims.size)
         assertTrue(claims.any { "source_ranges_utf16" in it.jsonObject })
@@ -111,6 +135,8 @@ class CombinedPortugalRegressionTest {
             val record = requireNotNull(index.byId[claim.getValue("id").jsonPrimitive.content])
             assertFalse("canonical_id" in claim)
             assertEquals(record, index.byId[record.canonicalId])
+            assertEquals(record.proposition, claim.getValue("text").jsonPrimitive.content)
+            assertEquals(record.qualifiers, Json.decodeFromJsonElement(CombinedClaimQualifiers.serializer(), claim.getValue("qualifiers")))
             val aliases = claim.getValue("aliases").jsonArray.map { it.jsonPrimitive.content }
             assertEquals(record.candidateIds, aliases.toSet())
             assertTrue(aliases.all { index.byId[it] == record })

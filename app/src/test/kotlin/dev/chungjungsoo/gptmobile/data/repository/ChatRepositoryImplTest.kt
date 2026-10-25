@@ -229,10 +229,13 @@ class ChatRepositoryImplTest {
             runId
         ).toList()
         assertEquals(states.toString(), 1, api.streamChatCompletionCalls)
-        assertEquals(sources.first().content, states.filterIsInstance<ApiState.Success>().joinToString("") { it.textChunk })
+        val final = states.filterIsInstance<ApiState.CombinedAnswer>().single()
+        assertEquals(sources.first().content, final.text)
+        assertTrue(states.none { it is ApiState.Success || it is ApiState.CombinedQuality })
+        dev.chungjungsoo.gptmobile.data.agent.CombinedAnswerPublication.validate(final.text, final.report, final.formatVersion)
         assertTrue(states.toString(), states.none { it is ApiState.Error })
         assertTrue(api.requests.single().toString().contains(sources[1].content))
-        val report = states.filterIsInstance<ApiState.CombinedQuality>().last().report
+        val report = final.report
         assertTrue(report.lexicalMissing > 0)
         assertFalse(report.semanticCoverageVerified)
     }
@@ -297,12 +300,15 @@ class ChatRepositoryImplTest {
             createRepository(openAIAPI = api, settingsOverride = settings, persistenceOverride = persistence, researchOverride = sessions, pendingOverride = queued)
                 .completeChat(listOf(original), emptyList(), platform, runId, tools).toList()
         }
-        val delivered = states.filterIsInstance<ApiState.Success>().joinToString("") { it.textChunk }
+        val final = states.filterIsInstance<ApiState.CombinedAnswer>().single()
+        val delivered = final.text
         assertEquals(states.toString(), text, delivered)
+        assertTrue(states.none { it is ApiState.Success || it is ApiState.CombinedQuality })
+        dev.chungjungsoo.gptmobile.data.agent.CombinedAnswerPublication.validate(final.text, final.report, final.formatVersion)
         assertEquals(1, api.requests.size)
         assertFalse(api.requests.single().toString().contains("Untrusted research packet:"))
         assertTrue(states.toString(), states.none { it is ApiState.Error })
-        val quality = states.filterIsInstance<ApiState.CombinedQuality>().last().report
+        val quality = final.report
         assertTrue(quality.complete)
         assertEquals(dev.chungjungsoo.gptmobile.data.research.researchHash(delivered), quality.answerDigest)
         assertTrue(quality.passages.isNotEmpty())
@@ -311,6 +317,37 @@ class ChatRepositoryImplTest {
         assertEquals(research.sources, sessions.sessions.value.getValue(runId).snapshot.sources)
         io.mockk.verify(exactly = 0) { queued.observePending() }
         io.mockk.coVerify(exactly = 0) { queued.acceptPreparedFollowUp(any(), any(), any(), any(), any(), any(), any()) }
+    }
+
+    @Test fun unsupportedFrozenClaimInventoryBlocksBeforeAnyProviderRequest() = runBlocking {
+        val platform = customPlatform().copy(disableAllTools = true, disableLocalTools = true)
+        val original = MessageV2(id = 2, chatId = 1, platformType = null, content = "Explain the findings")
+        val unsupported = buildJsonObject {
+            put("claim_inventory_schema", JsonObject(dev.chungjungsoo.gptmobile.data.agent.CombinedClaimInventoryWire.schema + ("version" to kotlinx.serialization.json.JsonPrimitive(2))))
+            put("claim_inventory", JsonArray(emptyList()))
+        }.toString()
+        for ((index, prompt) in listOf(unsupported, "{\"claim_inventory_schema\":", "[{\"\\u0063laim_inventory_schema\":{\"version\":99},\"claim_inventory\":[]}]").withIndex()) {
+            val frozen = dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot(
+                version = 6, snapshotId = "invalid-inventory-$index", deliveryProtocol = "PASSAGES_V3",
+                userMessage = original, history = emptyList(), replies = emptyList(), sources = emptyList(),
+                prompt = prompt, profileUid = platform.uid, model = platform.model,
+                systemPrompt = platform.systemPrompt.orEmpty(), configKey = dev.chungjungsoo.gptmobile.data.benchmark.benchmarkConfigKey(platform)
+            ).seal()
+            val raw = frozen.encode()
+            val runId = "combined-synthesis:invalid-inventory-$index"
+            val persistence = mockk<dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao>(relaxed = true)
+            coEvery { persistence.recoveryRun(runId) } returns dev.chungjungsoo.gptmobile.data.database.entity.AgentRun(
+                runId, 1, original.id, 3, platform.uid, platform.compatibleType.name, platform.model,
+                displayRole = "COMBINED_FINAL", synthesisSnapshot = raw, synthesisKey = dev.chungjungsoo.gptmobile.data.research.researchHash(raw)
+            )
+            val api = RecordingOpenAIAPI(ArrayDeque(emptyList()))
+            val states = createRepository(openAIAPI = api, persistenceOverride = persistence).completeChat(listOf(original), emptyList(), platform, runId).toList()
+            assertEquals(states.toString(), 0, api.streamChatCompletionCalls)
+            assertTrue(api.requests.isEmpty())
+            assertTrue(states.filterIsInstance<ApiState.Error>().single().message.contains("Combined claim inventory"))
+            assertTrue(states.none { it is ApiState.Success || it is ApiState.CombinedAnswer })
+            assertEquals(ApiState.Done, states.last())
+        }
     }
 
     @Test

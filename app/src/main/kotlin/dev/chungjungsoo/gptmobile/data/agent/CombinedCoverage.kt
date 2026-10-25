@@ -1,6 +1,5 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -13,11 +12,10 @@ internal class CombinedCoverage(envelope: String) {
     private val items: List<Item>
     val inventoryTruncated: Boolean
     init {
-        val root = runCatching { Json.parseToJsonElement(envelope) as? JsonObject }.getOrNull()
+        val root = CombinedClaimInventoryWire.parseEnvelope(envelope)
         val contributions = (root?.get("contributions") as? JsonArray).orEmpty()
         val collected = mutableListOf<Item>()
-        (root?.get("claim_inventory") as? JsonArray).orEmpty().forEach { entry ->
-            val row = entry as? JsonObject ?: return@forEach
+        CombinedClaimInventoryWire.decode(root).forEach { row ->
             val text = (row["text"] as? JsonPrimitive)?.content.orEmpty()
             val id = (row["id"] as? JsonPrimitive)?.content.orEmpty()
             if (id.isNotBlank() && text.isNotBlank()) collected += Item(id, text, emptyList())

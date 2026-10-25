@@ -73,7 +73,9 @@ internal object CombinedDocuments {
         val materialized = if (message.combinedManifest == null || message.content.length > PREVIEW_CHARACTERS || message.combinedManifest.materialized || (message.content.isEmpty() && message.combinedManifest.bodyLength != 0)) message else resolve(dao, message)
         val recorded = materialized.timeline.lastOrNull { it.combinedQuality != null }?.combinedQuality
         val revision = recorded?.revisionId?.takeIf { it.isNotBlank() && !it.startsWith("recovered:") } ?: frozenRevision(run) ?: recorded?.revisionId?.takeIf(String::isNotBlank) ?: "pending:${run.runId}:${run.ownershipFence}"
-        val report = recorded?.copy(revisionId = revision, answerDigest = recorded.answerDigest.ifBlank { researchHash(materialized.content) }) ?: CombinedAttributionRecovery.pending(materialized.content, revision)
+        // An archived answer can be stored under a newer run. Its historical
+        // assessment identity must not become that storage owner's identity.
+        val report = recorded?.copy(revisionId = if (completeness == "ARCHIVED") recorded.revisionId else revision, answerDigest = recorded.answerDigest.ifBlank { researchHash(materialized.content) }) ?: CombinedAttributionRecovery.pending(materialized.content, revision)
         val source = when {
             recorded == null -> materialized.copy(timeline = materialized.timeline + AssistantTimelineItem(AssistantTimelineItemType.NOTICE, combinedQuality = report))
             recorded != report -> materialized.copy(timeline = materialized.timeline.map { if (it.combinedQuality == recorded) it.copy(combinedQuality = report) else it })

@@ -87,7 +87,7 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
     onGatewayProgress: ((GatewayProgress) -> Unit)? = null,
     onResearchReplacement: suspend (String, String) -> Boolean = { _, _ -> false },
     onCombinedReplacement: suspend (dev.chungjungsoo.gptmobile.data.agent.CombinedReplacementCandidate) -> Boolean = { false },
-    onCombinedAnswer: suspend (String, String, List<AssistantTimelineItem>) -> Boolean = { _, _, _ -> true },
+    onCombinedAnswer: suspend (String, String, List<AssistantTimelineItem>) -> Boolean = { _, _, _ -> false },
     nanoTimeProvider: () -> Long = System::nanoTime,
     publishIntervalMillis: Long = STANDARD_STREAM_PUBLISH_INTERVAL_MILLIS
 ): ApiStateFlowOutcome {

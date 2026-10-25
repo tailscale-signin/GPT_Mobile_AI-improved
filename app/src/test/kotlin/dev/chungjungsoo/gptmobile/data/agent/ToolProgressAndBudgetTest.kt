@@ -110,6 +110,16 @@ class ToolProgressAndBudgetTest {
         }
     }
 
+    @Test fun finalReplacementDiscardsBufferedProgressMarkersAndTheirPreviousMode() {
+        for (draft in listOf("Old answer.<progress_up", "<progress_update>Old status.</progress_up")) {
+            val parser = PublicProgressParser()
+            parser.accept(draft)
+            parser.reset()
+            assertTrue(parser.accept("", flush = true).isEmpty())
+            assertEquals(listOf(false to "The final answer."), parser.accept("The final answer.", flush = true))
+        }
+    }
+
     @Test fun `native and remote bindings share count and UTF8 output budget`() = runBlocking {
         var executions = 0
         val budget = ToolExecutionBudget(AgentRunLimits(maxToolCalls = 2, maxToolOutputBytes = 7))

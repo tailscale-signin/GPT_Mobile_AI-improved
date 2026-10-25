@@ -83,7 +83,7 @@ which exact internal branch skipped dispatch or appended the duplicate.
 
 - Single-pass synthesis dispatch now keeps the accepted, enabled primary at the front of the synthesis writer order even if that primary has no saved collection response. The primary must still be in the accepted roster and enabled; this does not authorize adding an unselected or disabled profile.
 - When the primary has no contributor message row, synthesis creates a separate assistant slot instead of aborting or overwriting another profile's contribution. Existing primary rows are reused only when they exist.
-- Final Combined candidate text is passed through a conservative deduplicator that removes repeated Markdown headings and exact repeated paragraphs.
+- Plain-text Combined candidate output is passed through a conservative deduplicator that removes repeated Markdown headings and exact repeated paragraphs. Structured passage output keeps its original offsets so source attribution remains valid.
 - Unit tests cover primary dispatch when collection fails, refusal to dispatch to unaccepted/disabled primaries, and duplicate-section removal.
 
 ## Remaining validation

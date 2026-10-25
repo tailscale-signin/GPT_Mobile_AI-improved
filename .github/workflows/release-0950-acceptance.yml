@@ -31,7 +31,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y glslc libvulkan-dev spirv-headers
       - name: Build device regression APKs
         run: ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon
-      - name: Run compact RTL editor and measure database/catalog operations
+      - name: Run editor and Combined finalization regressions and measure database/catalog operations
         uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
         with:
           api-level: 36

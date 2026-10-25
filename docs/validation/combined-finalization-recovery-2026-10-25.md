@@ -105,6 +105,8 @@ Run the connected test on an API level supported by the project:
 
 The test repeatedly changes from the live inline answer to the final document while a pointer is down, scrolls, changes revision identity and removes/recreates the renderer. The Robolectric `CombinedFinalizationLifecycleTest` additionally exercises a held text selection and profile identity changes. A pass covers those controlled sequences; it does not reproduce every vendor input or graphics implementation.
 
+The existing Android acceptance workflow also runs the named finalization instrumented test on its API 36 emulator and validates the actual instrumentation result packets. Merely compiling the test or receiving a successful `adb` command exit is not accepted as execution evidence.
+
 On the affected physical device, repeat finalization with a long attributed answer while scrolling, holding a text selection, tapping attributed text, opening/closing source popups, switching profile tabs and navigating away. Test both the original answer length and a document large enough to use multiple stored blocks. The acceptance result is no detached-coordinate exception, no action from a disposed owner, no stale source popup, and correct identity/colours after returning.
 
 ### Crash and attribution persistence

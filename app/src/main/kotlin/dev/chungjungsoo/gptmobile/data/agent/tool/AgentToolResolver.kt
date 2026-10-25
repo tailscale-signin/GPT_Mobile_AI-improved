@@ -192,33 +192,7 @@ class AgentToolResolver @Inject constructor(
 
         val resolved = mutableListOf<ResolvedAgentTool>()
 
-        if (!disableLocal &&
-            platform?.enabled == true &&
-            healthReader != null &&
-            healthConsent != null &&
-            featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.HEALTH_CONNECT)
-        ) {
-            val runHealthReader = dev.chungjungsoo.gptmobile.data.health.RunScopedHealthReader(healthReader)
-            dev.chungjungsoo.gptmobile.data.health.HealthConnectTools.operations.keys.forEach { operation ->
-                val tool = HealthConnectTool(
-                    operation,
-                    runHealthReader,
-                    accessAllowed = {
-                        val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
-                        current != null &&
-                            platform != null &&
-                            dev.chungjungsoo.gptmobile.data.agent.sameRecoveryDestination(platform, current) &&
-                            current?.enabled == true &&
-                            !current.disableAllTools &&
-                            !current.disableLocalTools &&
-                            chatToolConfig?.allToolsDisabled != true &&
-                            settingRepository.getFeatureSettings().isToolPluginEnabledForProfile(profileUid, ToolPluginId.HEALTH_CONNECT)
-                    },
-                    aiConsent = healthConsent::isAllowed
-                )
-                resolved += tool.resolved(null, "Smartwatch Health Connect", tool.definition.name).copy(shareableReadOnly = false)
-            }
-        }
+        resolved += resolveHealthTools(profileUid, platform, featureSettings, chatToolConfig, disableLocal)
 
         if (!disableLocal) {
             // Keep explicitly enabled delegation available in small on-device context windows.
@@ -530,6 +504,43 @@ class AgentToolResolver @Inject constructor(
             aggregateWebSearch(finalized + discovered.values).map { it.tool.definition }
         })
         return attachCrawlers(finalized, profileUid, platform, featureSettings, userMessage, chatToolConfig, consentPlatform) + ResolvedAgentTool(directory, null, "Authorized tool directory", directory.definition.name, directory.definition.name, dynamicTools = { finalized + discovered.values }, progressiveCatalog = directory)
+    }
+
+    /** Keep the run-scoped reader and its live permission checks out of the resolution coroutine. */
+    private fun resolveHealthTools(
+        profileUid: String,
+        platform: PlatformV2?,
+        featureSettings: AppFeatureSettings,
+        chatToolConfig: ChatMcpToolConfig?,
+        disableLocal: Boolean
+    ): List<ResolvedAgentTool> {
+        if (disableLocal ||
+            platform?.enabled != true ||
+            healthReader == null ||
+            healthConsent == null ||
+            !featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.HEALTH_CONNECT)
+        ) {
+            return emptyList()
+        }
+        val runHealthReader = dev.chungjungsoo.gptmobile.data.health.RunScopedHealthReader(healthReader)
+        return dev.chungjungsoo.gptmobile.data.health.HealthConnectTools.operations.keys.map { operation ->
+            val tool = HealthConnectTool(
+                operation,
+                runHealthReader,
+                accessAllowed = {
+                    val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
+                    current != null &&
+                        dev.chungjungsoo.gptmobile.data.agent.sameRecoveryDestination(platform, current) &&
+                        current.enabled &&
+                        !current.disableAllTools &&
+                        !current.disableLocalTools &&
+                        chatToolConfig?.allToolsDisabled != true &&
+                        settingRepository.getFeatureSettings().isToolPluginEnabledForProfile(profileUid, ToolPluginId.HEALTH_CONNECT)
+                },
+                aiConsent = healthConsent::isAllowed
+            )
+            tool.resolved(null, "Smartwatch Health Connect", tool.definition.name).copy(shareableReadOnly = false)
+        }
     }
 
     private suspend fun attachCrawlers(tools: List<ResolvedAgentTool>, profileUid: String, platform: PlatformV2?, features: AppFeatureSettings, message: MessageV2?, chat: ChatMcpToolConfig?, consentPlatform: PlatformV2? = platform): List<ResolvedAgentTool> {

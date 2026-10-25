@@ -5,6 +5,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.effectiveCombinedManifest
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveContent
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveRunId
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveTimeline
+import dev.chungjungsoo.gptmobile.data.database.entity.hasHistoricalRevisionSelected
 import dev.chungjungsoo.gptmobile.data.research.researchHash
 import kotlinx.serialization.Serializable
 
@@ -42,7 +43,19 @@ data class CombinedRecoveryFailure(
                 researchHash(message.effectiveContent())
             } else {
                 // Compact document headers must not hydrate the answer during rendering.
-                if (reference.runId != message.effectiveRunId() || reference.revisionId != report.revisionId || reference.bodyLength <= 0) return recorded
+                // An inline archive may be normalized under a successor's storage run.
+                // Its historical answer run and a legacy blank report revision stay intact.
+                // Revision creation separately checks the immutable manifest's message owner.
+                if ((!message.hasHistoricalRevisionSelected() && reference.runId != message.effectiveRunId()) ||
+                    reference.id.isBlank() ||
+                    reference.runId.isBlank() ||
+                    reference.revisionId.isBlank() ||
+                    report.revisionId.isNotBlank() &&
+                    reference.revisionId != report.revisionId ||
+                    reference.bodyLength <= 0
+                ) {
+                    return recorded
+                }
                 if (reference.materialized && researchHash(message.effectiveContent()) != reference.bodyDigest) return recorded
                 reference.bodyDigest
             }

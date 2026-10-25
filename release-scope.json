@@ -11,10 +11,12 @@
     "GGUF native backend selection, operation receipts, memory/context admission, cleanup/quarantine and controlled CPU trials",
     "Versioned benchmark execution, validation, coverage, metric populations and reproducible exports",
     "Bounded benchmark export serialization, staged Android file saving and a 256 MiB export regression gate",
+    "CodeQL-only 4096 MiB heap override for the observed traced Kotlin compiler heap exhaustion; required clean build and analysis gates remain intact",
     "Identity-bound LiteRT inspection caching, typed structured-output failures, exact-schema readiness and retained fallback provenance",
     "Suite 10 semantic/format/tool separation, rotated eight-domain intelligence, independent performance modes and execution policies",
     "Observed backend comparisons, descriptive history, explicit deadline/settings evidence and provisional benchmark UI",
-    "Accept/Decline examination consent, main-thread IO repairs, coalesced metadata inspection and causal diagnostics"
+    "Accept/Decline examination consent, main-thread IO repairs, coalesced metadata inspection and causal diagnostics",
+    "PR repair: cancellation-safe LiteRT replanning, deterministic retained-result scrolling, extracted dispatch stages, selected-answer revision binding and compressed release APK DEX within the existing size budgets"
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; its remaining acceptance cases are not represented as passed.",
@@ -22,7 +24,7 @@
     "Android GPU qualification requires compatible-device receipts for actual offload, prefill, decode, repeated requests and cancel/recovery; host tests do not establish those results.",
     "Repeated physical NPU/GPU schema completion, reduced warm inspection latency, calibrated memory admission and Full-run performance remain device acceptance gates. The app does not infer runtime-effective settings from requested or SDK-applied values.",
     "Qwen demo backend availability and live authenticated LLM7 generation are not established by deterministic tests.",
-    "Optional runtime extraction remains a staged packaging project; this release adds a measured payload inventory without claiming APK size savings.",
+    "Optional runtime extraction remains a staged packaging project. The measured payload inventory and APK code compression do not extract plugins or remove native runtimes.",
     "Exact recovered France/Portugal wording and report fields, and the earlier benchmark export round-trip, do not establish a complete conversation replay; the later 16-run benchmark export remains unavailable."
   ],
   "requiredWorkflows": [
@@ -41,6 +43,7 @@
     ".github/workflows/gguf-native-smoke.yml",
     ".github/workflows/device-validation.yml",
     ".github/workflows/pr-validation.yml",
+    ".github/workflows/codeql.yml",
     ".gitignore",
     "CHANGELOG.md",
     "RELEASE_NOTES.md",

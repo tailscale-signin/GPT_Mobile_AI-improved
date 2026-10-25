@@ -829,6 +829,18 @@ interface AgentPersistenceDao :
         val finalId = combinedFinalMessage(room.id, user.id)?.finalMessageId
         val owner = requireNotNull(rows.singleOrNull { it.id == expectedOwner.id })
         require(owner.currentRunId == expectedOwner.currentRunId && owner.ownershipFence == expectedOwner.ownershipFence) { "The answer changed before regeneration." }
+        accepted.revisionOf?.let { target ->
+            val selectedRun = requireNotNull(recoveryRun(target.runId)) { "The selected answer run is unavailable." }
+            target.validate(owner.decodedArchiveText(), selectedRun, requireDisplayedSelection = false)
+            target.manifest?.let { reference ->
+                val manifest = requireNotNull(combinedFinalManifest(reference.id)) { "The selected answer document is unavailable." }
+                require(manifest.finalMessageId == owner.id && manifest.reference() == reference) { "The selected answer document owner changed." }
+            }
+            val selectedRoot = dev.chungjungsoo.gptmobile.data.agent.CombinedAcceptedTurn.context(selectedRun.synthesisSnapshot)?.rootBudgetId
+            val currentRoot = owner.currentRunId?.let { recoveryRun(it) }?.synthesisSnapshot?.let(dev.chungjungsoo.gptmobile.data.agent.CombinedAcceptedTurn::context)?.rootBudgetId
+            require(accepted.parentRootBudgetId == selectedRoot && target.parentRootBudgetId == selectedRoot) { "The selected answer lineage changed." }
+            require(accepted.context.rootBudgetId.isNotBlank() && accepted.context.rootBudgetId != selectedRoot && accepted.context.rootBudgetId != currentRoot) { "An answer revision requires a newly accepted turn." }
+        }
         require(rows.none { row -> row.currentRunId?.let { recoveryRun(it)?.status } in setOf("RUNNING", "QUEUED", "WAITING_PROVIDER_LIMIT") }) { "Stop all current contributors before regenerating." }
         require(drafts.all { it.profileUid in room.activePlatform }) { "Combined participants changed before regeneration." }
         val selected = drafts.mapTo(hashSetOf()) { it.profileUid }

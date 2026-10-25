@@ -3,21 +3,33 @@ package dev.chungjungsoo.gptmobile.presentation.ui.chat
 import android.app.Application
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModelStore
+import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import dev.chungjungsoo.gptmobile.data.agent.ActiveAgentRun
 import dev.chungjungsoo.gptmobile.data.agent.AgentRunCoordinator
 import dev.chungjungsoo.gptmobile.data.agent.AgentRunNotice
+import dev.chungjungsoo.gptmobile.data.agent.AgentRunRequest
 import dev.chungjungsoo.gptmobile.data.agent.CombinedAcceptedTurn
+import dev.chungjungsoo.gptmobile.data.agent.CombinedAnswerRevisionTarget
 import dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext
 import dev.chungjungsoo.gptmobile.data.agent.CombinedPolicyResolver
+import dev.chungjungsoo.gptmobile.data.agent.CombinedQualityReport
 import dev.chungjungsoo.gptmobile.data.chat.ConversationReadStateStore
 import dev.chungjungsoo.gptmobile.data.chat.GenerationCompletionStore
+import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
+import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunDraft
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
+import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
+import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
+import dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse
 import dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
+import dev.chungjungsoo.gptmobile.data.database.entity.PersistAgentTurnResult
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.database.entity.effectiveContent
+import dev.chungjungsoo.gptmobile.data.database.entity.snapshotLatestAssistantRevision
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import dev.chungjungsoo.gptmobile.data.model.ConversationCombinedSettings
@@ -37,18 +49,24 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -235,6 +253,139 @@ class ChatViewModelStartupTest {
         coVerify(exactly = 0) { research.resumeExecution(any(), any(), any(), any(), any()) }
         verify(exactly = 0) { coordinator.start(any()) }
         assertTrue(model.attachmentNotice.value.orEmpty().contains("attempt changed"))
+    }
+
+    @Test fun completedEditorialAnswerCreatesNewAcceptedTurnBeforeDispatchInsteadOfResuming() = runTest(dispatcher) {
+        verifyExplicitRevision(archived = false, scope = backgroundScope)
+    }
+
+    @Test fun archivedEditorialSelectionCreatesRevisionOfThatAnswerWhileRetainingLatestPartial() = runTest(dispatcher) {
+        verifyExplicitRevision(archived = true, scope = backgroundScope)
+    }
+
+    @Test fun aStaleDisplayedRevisionCallbackCannotSilentlyTargetTheLatestAnswer() = runTest(dispatcher) {
+        StartupRecoveryGate.start(backgroundScope) {}
+        val selectedRun = seedEditorialRevision(archived = true)
+        val model = createViewModel()
+        val owner = model.groupedMessages.value.assistantMessages.single().first { it.id == selectedRun.assistantMessageId }
+        val target = CombinedAnswerRevisionTarget.capture(owner, selectedRun)
+        model.showNextAssistantRevision(0, 0)
+        model.reviseCombinedAnswer(0, target)
+        coVerify(exactly = 0) { repository.prepareCombinedTurn(any(), any(), any(), any(), any()) }
+        coVerify(exactly = 0) { repository.regenerateCombinedTurn(any(), any(), any(), any()) }
+        coVerify(exactly = 0) { repository.prepareCombinedRetry(any(), any()) }
+        verify(exactly = 0) { coordinator.start(any()) }
+        assertTrue(model.attachmentNotice.value.orEmpty().contains("selected answer changed"))
+    }
+
+    private suspend fun verifyExplicitRevision(archived: Boolean, scope: CoroutineScope) {
+        StartupRecoveryGate.start(scope) {}
+        val selectedRun = seedEditorialRevision(archived)
+        val originalOwner = messages.value.single { it.id == selectedRun.assistantMessageId }
+        val room = ChatRoomV2(id = 7, title = "Saved chat", conversationMode = ConversationMode.COMBINED, enabledPlatform = profiles.map { it.uid }, activePlatform = profiles.map { it.uid })
+        val db = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext(), ChatDatabaseV2::class.java).build()
+        try {
+            db.chatRoomDao().addChatRoom(room)
+            db.messageDao().addMessages(*messages.value.toTypedArray())
+            runs.value.forEach { db.agentRunDao().upsert(it) }
+            val dao = db.agentPersistenceDao()
+            var committed: PersistAgentTurnResult? = null
+            var savedAcceptance: CombinedAcceptedTurn? = null
+            val started = CompletableDeferred<List<AgentRunRequest>>()
+            coEvery { repository.prepareCombinedTurn(any(), any(), any(), any(), any()) } answers {
+                firstArg<CombinedExecutionContext>().let { it.copy(plan = CombinedPolicyResolver.resolve(it.requested)) }
+            }
+            coEvery { repository.regenerateCombinedTurn(any(), any(), any(), any()) } coAnswers {
+                val accepted = arg<CombinedAcceptedTurn>(3)
+                savedAcceptance = accepted
+                dao.regenerateCombinedTurn(arg(0), arg(1), arg<List<AgentRunDraft>>(2), accepted).also { committed = it }
+            }
+            coEvery { repository.fetchMessageReferencesV2(7) } coAnswers { dao.getMessages(7) }
+            every { coordinator.start(any()) } answers {
+                assertTrue("No provider starts before the Room transaction completes", committed != null)
+                started.complete(firstArg())
+                Unit
+            }
+            val model = createViewModel()
+            // The real Room query above suspends startup; wait for the selected
+            // answer to become observable before invoking its UI action.
+            val grouped = withContext(Dispatchers.Default) {
+                withTimeout(20_000) {
+                    model.groupedMessages.first { state ->
+                        state.assistantMessages.any { turn -> turn.any { it.id == selectedRun.assistantMessageId } }
+                    }
+                }
+            }
+            val owner = grouped.assistantMessages.single().first { it.id == selectedRun.assistantMessageId }
+            val target = CombinedAnswerRevisionTarget.capture(owner, selectedRun)
+            model.reviseCombinedAnswer(0, target)
+            val requests = withContext(Dispatchers.Default) { withTimeout(20_000) { started.await() } }
+            val accepted = requireNotNull(savedAcceptance)
+            assertEquals(target, accepted.revisionOf)
+            assertEquals("selected-root", accepted.parentRootBudgetId)
+            assertNotEquals("selected-root", accepted.context.rootBudgetId)
+            assertNotEquals("latest-root", accepted.context.rootBudgetId)
+            assertTrue(accepted.context.requested.singlePass)
+            assertFalse(accepted.context.requested.appendContinuations)
+            assertEquals(profiles.map { it.uid }, requests.map { it.platform.uid })
+            assertTrue(requests.all { it.runId != selectedRun.runId && it.runId != originalOwner.currentRunId })
+            assertTrue(requests.all { it.chatToolConfig?.combined?.rootBudgetId == accepted.context.rootBudgetId })
+            val retained = requireNotNull(dao.recoveryMessage(originalOwner.id)).revisions
+            assertEquals(originalOwner.content, retained.first().content)
+            assertEquals(originalOwner.effectiveContent(), retained.last().content)
+            assertEquals(selectedRun, dao.recoveryRun(selectedRun.runId))
+            if (archived) {
+                assertEquals(2, retained.size)
+                assertEquals("combined-synthesis:latest", accepted.revisionOf?.currentRunId)
+                assertEquals("combined-synthesis:selected", accepted.revisionOf?.runId)
+            }
+            coVerify(exactly = 1) { repository.regenerateCombinedTurn(any(), any(), any(), any()) }
+            coVerify(exactly = 0) { repository.prepareCombinedRetry(any(), any()) }
+            coVerify(exactly = 0) { repository.persistAgentRetry(any()) }
+        } finally {
+            store.clear()
+            db.close()
+        }
+    }
+
+    private fun seedEditorialRevision(archived: Boolean): AgentRun {
+        seedTurn(List(3) { AgentRunStatus.COMPLETED })
+        val original = messages.value.first { it.platformType != null }.copy(linkedMessageId = 1)
+        val body = "The original complete answer needs more detail."
+        val report = CombinedQualityReport(answerDigest = researchHash(body), finalAssessment = true, protocolComplete = true, correctionRequired = true, lengthCompliance = "UNMET")
+        val selected = original.copy(
+            content = body,
+            currentRunId = "combined-synthesis:selected",
+            ownershipFence = 2,
+            combinedSources = listOf(CombinedModelResponse("profile-1", "Source", content = "Saved source body.")),
+            timeline = listOf(AssistantTimelineItem(AssistantTimelineItemType.TEXT, content = body), AssistantTimelineItem(AssistantTimelineItemType.NOTICE, combinedQuality = report))
+        )
+        val originalAcceptance = requireNotNull(CombinedAcceptedTurn.decode(runs.value.first().synthesisSnapshot))
+        val lineage = originalAcceptance.copy(context = originalAcceptance.context.copy(rootBudgetId = "selected-root"))
+        val selectedRun = runs.value.first().copy(runId = requireNotNull(selected.currentRunId), status = AgentRunStatus.FAILED, ownershipFence = selected.ownershipFence, terminalError = "COMBINED_PARTIAL", synthesisKey = researchHash(lineage.encode()), synthesisSnapshot = lineage.encode())
+        val current = if (archived) {
+            selected.copy(
+                content = "Latest unfinished answer",
+                currentRunId = "combined-synthesis:latest",
+                ownershipFence = 3,
+                activeRevisionIndex = 0,
+                revisions = listOf(requireNotNull(selected.snapshotLatestAssistantRevision(1))),
+                timeline = listOf(AssistantTimelineItem(AssistantTimelineItemType.TEXT, content = "Latest unfinished answer"))
+            )
+        } else {
+            selected
+        }
+        messages.value = messages.value.map { row ->
+            if (row.id == current.id) {
+                current
+            } else if (row.platformType != null) {
+                row.copy(linkedMessageId = 1)
+            } else {
+                row
+            }
+        }
+        runs.value = runs.value.drop(1) + selectedRun + if (archived) listOf(selectedRun.copy(runId = requireNotNull(current.currentRunId), ownershipFence = current.ownershipFence, terminalError = "NETWORK_ERROR", synthesisSnapshot = lineage.copy(context = lineage.context.copy(rootBudgetId = "latest-root")).encode())) else emptyList()
+        return selectedRun
     }
 
     private fun researchStore(execution: MutableStateFlow<Map<String, ResearchExecutionRecord>>): ResearchSessionStore = mockk<ResearchSessionStore>(relaxed = true).also { research ->

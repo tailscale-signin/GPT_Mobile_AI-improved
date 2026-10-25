@@ -32,8 +32,13 @@ import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.repository.FakeLocalModelRepository
 import dev.chungjungsoo.gptmobile.data.repository.FakeModelCatalogRepository
 import dev.chungjungsoo.gptmobile.data.repository.ModelCatalogRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -48,6 +53,96 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LiteRtLmAdapterTest {
+    @Test
+    fun `preload replan during suspended progress delivery preserves later events`() = runBlocking {
+        val deliveryStarted = CompletableDeferred<Unit>()
+        val nextPlanStarted = CompletableDeferred<Unit>()
+        val plannedContexts = mutableListOf<Int?>()
+        val events = mutableListOf<ProviderEvent>()
+        withTimeout(5_000) {
+            localPreloadReplanningFlow("LITERT_LM") { ceiling ->
+                plannedContexts += ceiling
+                if (ceiling == null) {
+                    channelFlow {
+                        send(ProviderEvent.PhaseChanged(LocalInferencePhase.LOADING))
+                        deliveryStarted.await()
+                        throw PreloadContextReplan(dev.chungjungsoo.gptmobile.data.localruntime.LocalContextReplanRequired(4096, 2048))
+                    }
+                } else {
+                    flow {
+                        nextPlanStarted.complete(Unit)
+                        emit(ProviderEvent.TextDelta("4"))
+                        emit(ProviderEvent.Completed)
+                    }
+                }
+            }.collect { event ->
+                events += event
+                if (event is ProviderEvent.PhaseChanged) {
+                    deliveryStarted.complete(Unit)
+                    nextPlanStarted.await()
+                }
+            }
+        }
+        assertEquals(listOf(null, 2048), plannedContexts)
+        assertEquals(ProviderEvent.PhaseChanged(LocalInferencePhase.LOADING), events.first())
+        assertTrue(events.filterIsInstance<ProviderEvent.Notice>().single().message.contains("2048-token context"))
+        assertEquals(listOf(ProviderEvent.TextDelta("4")), events.filterIsInstance<ProviderEvent.TextDelta>())
+        assertTrue(events.none { it is ProviderEvent.Failed })
+        assertEquals(ProviderEvent.Completed, events.last())
+    }
+
+    @Test
+    fun `downstream failure or cancellation never authorizes a preload replan`() = runBlocking {
+        val failures = listOf(
+            IllegalStateException("Progress consumer failed"),
+            CancellationException("Progress consumer cancelled"),
+            PreloadContextReplan(dev.chungjungsoo.gptmobile.data.localruntime.LocalContextReplanRequired(4096, 2048))
+        )
+        for (failure in failures) {
+            var plans = 0
+            val stopped = CompletableDeferred<Unit>()
+            val observed = runCatching {
+                withTimeout(5_000) {
+                    localPreloadReplanningFlow("LITERT_LM") {
+                        plans++
+                        flow {
+                            try {
+                                emit(ProviderEvent.PhaseChanged(LocalInferencePhase.LOADING))
+                                awaitCancellation()
+                            } finally {
+                                stopped.complete(Unit)
+                            }
+                        }
+                    }.collect { throw failure }
+                }
+            }.exceptionOrNull()
+            assertEquals(failure.javaClass, observed?.javaClass)
+            assertEquals(failure.message, observed?.message)
+            // Coroutine debug recovery may copy the exception and retain the original as its cause.
+            assertTrue(generateSequence(observed) { it.cause }.any { it === failure })
+            withTimeout(5_000) { stopped.await() }
+            assertEquals(1, plans)
+        }
+    }
+
+    @Test
+    fun `preload memory replans stop after the bounded descending context attempts`() = runBlocking {
+        val plannedContexts = mutableListOf<Int?>()
+        val events = withTimeout(5_000) {
+            localPreloadReplanningFlow("LITERT_LM") { ceiling ->
+                plannedContexts += ceiling
+                flow {
+                    val attempted = ceiling ?: 8192
+                    throw PreloadContextReplan(dev.chungjungsoo.gptmobile.data.localruntime.LocalContextReplanRequired(attempted, attempted / 2))
+                }
+            }.toList()
+        }
+        assertEquals(listOf(null, 4096, 2048, 1024), plannedContexts)
+        assertEquals(3, events.filterIsInstance<ProviderEvent.Notice>().size)
+        assertTrue(events.filterIsInstance<ProviderEvent.Failed>().single().message.startsWith("LOCAL_CONTEXT_REPLAN_EXHAUSTED:"))
+        assertFalse(events.any { it is ProviderEvent.TextDelta || it == ProviderEvent.Completed })
+    }
+
     @Test
     fun `auto memory replan rebuilds history and budget before one physical generation`() = runBlocking {
         val native = FakeLocalRuntime().apply {

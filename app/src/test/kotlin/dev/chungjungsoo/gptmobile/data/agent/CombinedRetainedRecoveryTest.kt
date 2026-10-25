@@ -89,4 +89,20 @@ class CombinedRetainedRecoveryTest {
         val denied = CombinedRecoveryFailure.fromCode("AUTHENTICATION_REJECTED")
         assertSame(denied, CombinedRecoveryFailure.retained(message().copy(timeline = message().timeline.take(1) + AssistantTimelineItem(AssistantTimelineItemType.NOTICE, combinedFailure = denied))))
     }
+
+    @Test fun legacyArchiveCanKeepItsAnswerRunWhenNormalizedUnderSuccessorStorage() {
+        val reference = CombinedManifestReference("document", "combined-synthesis:storage", "generated-storage-revision", answer.length, 1, report.answerDigest)
+        val saved = message().copy(
+            currentRunId = "combined-synthesis:latest",
+            content = "Latest partial output",
+            timeline = emptyList(),
+            revisions = listOf(AssistantRevision("", createdAt = 1, runId = "combined-synthesis:retained", timeline = message().timeline, combinedManifest = reference)),
+            activeRevisionIndex = 0
+        )
+        assertEquals(CombinedRecoveryCategory.REQUIREMENTS_UNMET, CombinedRecoveryFailure.retained(saved)?.category)
+        val mismatched = saved.copy(revisions = saved.revisions.map { it.copy(combinedManifest = reference.copy(bodyDigest = researchHash("other"))) })
+        assertSame(recorded, CombinedRecoveryFailure.retained(mismatched))
+        val recordedRevision = saved.copy(revisions = saved.revisions.map { it.copy(timeline = message(report.copy(revisionId = "original-revision")).timeline) })
+        assertSame(recorded, CombinedRecoveryFailure.retained(recordedRevision))
+    }
 }

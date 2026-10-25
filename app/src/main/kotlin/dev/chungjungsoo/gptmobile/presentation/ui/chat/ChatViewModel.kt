@@ -1614,6 +1614,19 @@ class ChatViewModel @Inject constructor(
         if (index >= 0) retryChat(turnIndex, index, dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.RETRY_WRITING)
     }
 
+    fun reviseCombinedAnswer(turnIndex: Int, target: dev.chungjungsoo.gptmobile.data.agent.CombinedAnswerRevisionTarget) {
+        try {
+            val user = requireNotNull(_groupedMessages.value.userMessages.getOrNull(turnIndex)) { "The original question is unavailable." }
+            val owner = requireNotNull(_groupedMessages.value.assistantMessages.getOrNull(turnIndex)?.singleOrNull { it.id == target.messageId }) { "The selected answer is unavailable." }
+            val selectedRun = requireNotNull(_agentRunsById.value[target.runId]) { "The selected answer run is unavailable." }
+            require(user.id == target.userMessageId && user.chatId == target.chatId && _chatRoom.value.conversationMode == ConversationMode.COMBINED) { "The selected answer belongs to a different turn." }
+            target.validate(owner, selectedRun)
+            regenerateCombinedTurn(turnIndex, owner, user, selectedRun, target)
+        } catch (failure: IllegalArgumentException) {
+            _attachmentNotice.value = failure.message ?: "The selected answer changed. Review it before creating a revision."
+        }
+    }
+
     fun regenerateWithSelectedPrimary(turnIndex: Int) {
         val user = _groupedMessages.value.userMessages.getOrNull(turnIndex) ?: return
         val owner = _groupedMessages.value.assistantMessages.getOrNull(turnIndex).orEmpty().firstOrNull { it.currentRunId != null } ?: return
@@ -1786,7 +1799,7 @@ class ChatViewModel @Inject constructor(
     }
 
     /** Explicit regeneration accepts a new turn policy and all participants before any provider dispatch. */
-    private fun regenerateCombinedTurn(turnIndex: Int, owner: MessageV2, user: MessageV2, previousRun: AgentRun) {
+    private fun regenerateCombinedTurn(turnIndex: Int, owner: MessageV2, user: MessageV2, previousRun: AgentRun, revisionOf: dev.chungjungsoo.gptmobile.data.agent.CombinedAnswerRevisionTarget? = null) {
         if (isGenerationBusy() || _combinedSettingsSaveState.value.isCommitting) {
             _attachmentNotice.value = "Wait for current work and settings changes to finish before regenerating."
             return
@@ -1812,7 +1825,7 @@ class ChatViewModel @Inject constructor(
             try {
                 val planned = chatRepository.prepareCombinedTurn(requested, context.userMessages, context.assistantMessages, profiles, captured)
                 val dispatchTools = captured.copy(combined = planned)
-                val accepted = dev.chungjungsoo.gptmobile.data.agent.CombinedAcceptedTurn(context = planned, tools = dispatchTools, parentRootBudgetId = parentRoot)
+                val accepted = dev.chungjungsoo.gptmobile.data.agent.CombinedAcceptedTurn(context = planned, tools = dispatchTools, parentRootBudgetId = parentRoot, revisionOf = revisionOf)
                 val runs = profiles.map { profile ->
                     AgentRunDraft(UUID.randomUUID().toString(), profile.uid, profile.compatibleType.name, profile.model, currentTimeStamp, synthesisSnapshot = accepted.encode())
                 }

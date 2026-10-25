@@ -28,7 +28,7 @@ DISPATCH_STAGES = (
     'buildPrimarySystemPrompt', 'effectivePrimaryDelegationSettings',
     'acceptPrimaryResearchTask', 'prepareCombinedDeliveryWork',
     'streamPrimaryAnswer', 'openPrimarySession',
-    'prepareDelegatedEvidence', 'prepareDelegatedTools', 'acquirePrimaryResearch', 'delegateToProfile',
+    'prepareDelegatedEvidence', 'prepareDelegatedTools', 'prepareDelegatedInput', 'acquirePrimaryResearch', 'delegateToProfile',
 )
 
 

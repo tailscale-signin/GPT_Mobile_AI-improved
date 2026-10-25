@@ -765,6 +765,7 @@ fun ChatScreen(
                         onSelectText = chatViewModel::openSelectTextSheet,
                         onRetry = chatViewModel::retryChat,
                         onRetryCombinedMerge = chatViewModel::retryCombinedMerge,
+                        onReviseCombinedAnswer = chatViewModel::reviseCombinedAnswer,
                         onTryAnotherCombinedWriter = chatViewModel::tryAnotherCombinedWriter,
                         onReviewCombinedPrimary = { chatViewModel.reviewCombinedPrimary(message.id) },
                         onReviewCombinedFailures = { chatViewModel.reviewCombinedFailures(message.id) },
@@ -1233,6 +1234,7 @@ internal fun ChatMessagePair(
     onSelectText: (String) -> Unit,
     onRetry: (Int, Int) -> Unit,
     onRetryCombinedMerge: (Int) -> Unit = {},
+    onReviseCombinedAnswer: (Int, dev.chungjungsoo.gptmobile.data.agent.CombinedAnswerRevisionTarget) -> Unit = { _, _ -> },
     onTryAnotherCombinedWriter: (Int) -> Unit = {},
     onReviewCombinedPrimary: () -> Unit = {},
     onReviewCombinedFailures: () -> Unit = {},
@@ -1354,6 +1356,11 @@ internal fun ChatMessagePair(
     }
     val selectedRunId = selectedAssistantMessage?.effectiveRunId()
     val agentRun = selectedRunId?.let(agentRunsById::get)
+    val retainedFailure = remember(selectedAssistantMessage, agentRun?.terminalError) { selectedAssistantMessage?.let { dev.chungjungsoo.gptmobile.data.agent.CombinedRecoveryFailure.retained(it, agentRun?.terminalError) } }
+    val needsAnswerCorrection = isCombinedConversation && retainedFailure?.category == dev.chungjungsoo.gptmobile.data.agent.CombinedRecoveryCategory.REQUIREMENTS_UNMET
+    val revisionTarget = remember(selectedAssistantMessage, agentRun, needsAnswerCorrection) {
+        if (needsAnswerCorrection && selectedAssistantMessage != null && agentRun != null) runCatching { dev.chungjungsoo.gptmobile.data.agent.CombinedAnswerRevisionTarget.capture(selectedAssistantMessage, agentRun) }.getOrNull() else null
+    }
     val activeAgentRun = if (isCombinedConversation) {
         assistantMessages.asSequence().mapNotNull { it.currentRunId?.let(activeAgentRuns::get) }.firstOrNull()
     } else {
@@ -1445,9 +1452,7 @@ internal fun ChatMessagePair(
                 }
                 if (hasCombinedTabs && combinedStatus != CombinedResponseStatus.GENERATING) {
                     val retained = combinedProfiles.count { it.message?.effectiveContent()?.isNotBlank() == true }
-                    val retainedFailure = remember(selectedAssistantMessage) { selectedAssistantMessage?.let { dev.chungjungsoo.gptmobile.data.agent.CombinedRecoveryFailure.retained(it) } }
-                    val needsAnswerCorrection = !isSourceResponse && retainedFailure?.category == dev.chungjungsoo.gptmobile.data.agent.CombinedRecoveryCategory.REQUIREMENTS_UNMET
-                    if (combinedStatus == CombinedResponseStatus.FAILED || isSourceResponse) {
+                    if (combinedStatus == CombinedResponseStatus.FAILED || needsAnswerCorrection || isSourceResponse) {
                         androidx.compose.material3.Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
                             Column(Modifier.padding(12.dp)) {
                                 Text(if (needsAnswerCorrection) "Answer needs correction" else stringResource(if (isSourceResponse) R.string.audit_saved_reply else R.string.audit_combining_failed), style = MaterialTheme.typography.titleSmall)
@@ -1465,7 +1470,13 @@ internal fun ChatMessagePair(
                                     )
                                 }
                                 Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(4.dp)) {
-                                    if (combinedSynthesisIndex >= 0 && combinedStatus == CombinedResponseStatus.FAILED) TextButton(onClick = { onRetryCombinedMerge(messageIndex) }, enabled = isIdle && canUseChat) { Text(if (needsAnswerCorrection) "Create revised answer" else stringResource(R.string.audit_retry_combining)) }
+                                    if (combinedSynthesisIndex >= 0 && (combinedStatus == CombinedResponseStatus.FAILED || needsAnswerCorrection)) {
+                                        if (needsAnswerCorrection) {
+                                            TextButton(onClick = { revisionTarget?.let { onReviseCombinedAnswer(messageIndex, it) } }, enabled = isIdle && canUseChat && revisionTarget != null) { Text("Create revised answer") }
+                                        } else {
+                                            TextButton(onClick = { onRetryCombinedMerge(messageIndex) }, enabled = isIdle && canUseChat) { Text(stringResource(R.string.audit_retry_combining)) }
+                                        }
+                                    }
                                     if (combinedSynthesisIndex >= 0 && combinedStatus == CombinedResponseStatus.FAILED && !needsAnswerCorrection) TextButton(onClick = { onTryAnotherCombinedWriter(messageIndex) }, enabled = isIdle && canUseChat) { Text("Try another writer") }
                                     if (agentRunsById.values.any { it.userMessageId == message.id && it.terminalError?.contains("QUEUE_JOB_PENDING") == true }) TextButton(onClick = { onCheckCombinedQueuedJob(messageIndex) }, enabled = isIdle && canUseChat) { Text("Check queued job") }
                                     if (!isSourceResponse) {
@@ -1508,6 +1519,7 @@ internal fun ChatMessagePair(
                             !isCurrentPlatformLoading &&
                             activeAgentRun == null &&
                             selectedAssistantMessage != null &&
+                            (!needsAnswerCorrection || revisionTarget != null) &&
                             selectedPlatformUid in participatingUids &&
                             enabledPlatformLookup[selectedPlatformUid]?.enabled == true
                     } else {
@@ -1517,7 +1529,9 @@ internal fun ChatMessagePair(
                             !isCurrentPlatformLoading &&
                             selectedPlatformUid in participatingUids
                     },
-                    retryLabel = if (isCombinedConversation) {
+                    retryLabel = if (needsAnswerCorrection) {
+                        "Create revised answer"
+                    } else if (isCombinedConversation) {
                         stringResource(if (combinedStatus == CombinedResponseStatus.FAILED) R.string.combined_retry else R.string.combined_regenerate)
                     } else {
                         stringResource(R.string.audit_generate_again)
@@ -1601,7 +1615,9 @@ internal fun ChatMessagePair(
                     onSelectClick = {
                         documentScope.launch { onSelectText(selectedSourceReader?.readAll() ?: selectedAssistantMessage?.let { resolveCombinedMessage(it).effectiveContent() } ?: assistantContent) }
                     },
-                    onRetryClick = { onRetry(messageIndex, displayPlatformIndex) },
+                    onRetryClick = {
+                        if (needsAnswerCorrection) revisionTarget?.let { onReviseCombinedAnswer(messageIndex, it) } else onRetry(messageIndex, displayPlatformIndex)
+                    },
                     onInspectContext = selectedRunId?.let { id ->
                         onInspectContext?.let { inspect -> { inspect(id) } }
                     },

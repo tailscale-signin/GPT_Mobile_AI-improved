@@ -357,6 +357,11 @@ extensions.configure<ApplicationAndroidComponentsExtension> {
     onVariants { variant ->
         variant.sources.assets?.addGeneratedSourceDirectory(prepareMemoryModel, PrepareMemoryModel::outputDirectory)
         variant.androidTest?.sources?.assets?.addStaticSourceDirectory("$projectDir/schemas")
+        if (variant.buildType in setOf("release", "benchmark", "nativeSmoke")) {
+            // Compress DEX in directly distributed APKs to keep the existing download
+            // budgets without dropping a runtime or ABI. App-bundle packaging is separate.
+            variant.packaging.dex.useLegacyPackaging.set(true)
+        }
     }
 }
 

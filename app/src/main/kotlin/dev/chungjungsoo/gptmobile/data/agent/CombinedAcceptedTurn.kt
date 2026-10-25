@@ -18,7 +18,9 @@ data class CombinedAcceptedTurn(
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
     val recoveredProviderAnswer: String? = null,
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
-    val sourceQueueRunId: String? = null
+    val sourceQueueRunId: String? = null,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val revisionOf: CombinedAnswerRevisionTarget? = null
 ) {
     fun encode(): String = json.encodeToString(this)
 

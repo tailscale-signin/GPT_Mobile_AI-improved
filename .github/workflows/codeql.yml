@@ -76,6 +76,7 @@ jobs:
         GRADLE_OPTS: "-Dorg.gradle.caching=false -Dkotlin.incremental=false -Dkotlin.compiler.execution.strategy=in-process"
       run: |
         ./gradlew :app:clean :app:compileDebugKotlin :app:compileDebugJavaWithJavac \
+          -Dorg.gradle.jvmargs="-Xmx4096m -XX:MaxMetaspaceSize=1024m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8" \
           --no-daemon --no-build-cache --rerun-tasks --stacktrace
 
     - name: Perform CodeQL Analysis

@@ -115,27 +115,7 @@ class LiteRtLmAdapter(
             override fun streamRound(
                 tools: List<AgentToolDefinition>,
                 exchanges: List<AgentToolExchange>
-            ): Flow<ProviderEvent> = flow {
-                val replans = LocalContextReplanBudget()
-                var contextCeiling: Int? = null
-                while (true) {
-                    try {
-                        streamPlannedRound(contextCeiling).collect { emit(it) }
-                        break
-                    } catch (replan: PreloadContextReplan) {
-                        val failure = replan.failure
-                        failure.receipt?.let { emit(ProviderEvent.RequestConfigured(configuredProfileType = platform.compatibleType.name, localAdmissionReceipt = it)) }
-                        val approved = replans.next(failure.attemptedContextTokens, failure.suggestedContextTokens)
-                        if (approved == null) {
-                            emit(ProviderEvent.Failed("LOCAL_CONTEXT_REPLAN_EXHAUSTED: Available memory changed before inference. No generation was submitted; retry when memory is available or choose a smaller context."))
-                            break
-                        }
-                        contextCeiling = approved
-                        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("LocalModel", "AUTO_CONTEXT_REPLAN · attempted=${failure.attemptedContextTokens} · approved=$approved · attempt=${replans.attempts} · generationDispatched=false")
-                        emit(ProviderEvent.Notice("Available memory changed before model loading. Replanning this request for a $approved-token context.", persistent = true))
-                    }
-                }
-            }
+            ): Flow<ProviderEvent> = localPreloadReplanningFlow(platform.compatibleType.name, ::streamPlannedRound)
 
             private fun streamPlannedRound(contextCeiling: Int?): Flow<ProviderEvent> = channelFlow {
                 kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]?.validate?.invoke()
@@ -1375,6 +1355,32 @@ class LiteRtLmAdapter(
         const val DEFAULT_TOP_K = 40
         const val DEFAULT_TOP_P = 0.95f
         const val DEFAULT_TEMPERATURE = 1.0f
+    }
+}
+
+/** Keep a failed attempt's collection cancellation separate from delivery of the next plan. */
+internal fun localPreloadReplanningFlow(
+    configuredProfileType: String,
+    streamPlannedRound: (Int?) -> Flow<ProviderEvent>
+): Flow<ProviderEvent> = channelFlow {
+    val replans = LocalContextReplanBudget()
+    var contextCeiling: Int? = null
+    while (true) {
+        try {
+            streamPlannedRound(contextCeiling).collect { send(it) }
+            break
+        } catch (replan: PreloadContextReplan) {
+            val failure = replan.failure
+            failure.receipt?.let { send(ProviderEvent.RequestConfigured(configuredProfileType = configuredProfileType, localAdmissionReceipt = it)) }
+            val approved = replans.next(failure.attemptedContextTokens, failure.suggestedContextTokens)
+            if (approved == null) {
+                send(ProviderEvent.Failed("LOCAL_CONTEXT_REPLAN_EXHAUSTED: Available memory changed before inference. No generation was submitted; retry when memory is available or choose a smaller context."))
+                break
+            }
+            contextCeiling = approved
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("LocalModel", "AUTO_CONTEXT_REPLAN · attempted=${failure.attemptedContextTokens} · approved=$approved · attempt=${replans.attempts} · generationDispatched=false")
+            send(ProviderEvent.Notice("Available memory changed before model loading. Replanning this request for a $approved-token context.", persistent = true))
+        }
     }
 }
 

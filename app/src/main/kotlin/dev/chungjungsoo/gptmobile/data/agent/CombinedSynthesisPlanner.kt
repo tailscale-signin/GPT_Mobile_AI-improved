@@ -39,7 +39,21 @@ class CombinedSynthesisPlanner @Inject constructor(
         val excludedUids = if (accepted.context.requested.singlePass) collectionDecisions?.excludedProfiles(rootBudgetId).orEmpty() else emptySet()
         val activeUids = accepted.context.requested.participantUids.filter { it in members && it !in excludedUids }
         if (activeUids.isEmpty()) return null
-        val responses = activeUids.map { uid -> allResponses.singleOrNull { it.platformType == uid } ?: return null }
+        // A failed profile must not block synthesis from the profiles that did
+        // produce a response. Some provider failures never persist a linked message
+        // row at all (for example, early dispatch failures or rate-limit rejection).
+        // Keep only unambiguous rows for active participants and let the per-profile
+        // failure policy below classify missing/failed contributors independently.
+        val responses = activeUids.mapNotNull { uid ->
+            allResponses.filter { it.platformType == uid }.singleOrNull()
+        }
+        if (responses.isEmpty()) {
+            chatRepository.markCombinedMergeUnavailable(
+                chatId, userId, rootBudgetId,
+                "No unambiguous contributor responses were saved. Retry the unavailable profiles."
+            )
+            return null
+        }
         if (responses.any { runs[it.currentRunId]?.status !in setOf("COMPLETED", "FAILED", "INTERRUPTED", "CANCELED") }) return null
         val profiles = settingRepository.fetchPlatformV2s()
         if (accepted.context.requested.singlePass && collectionDecisions != null) {

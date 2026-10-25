@@ -302,17 +302,10 @@ class CombinedSynthesisPlanner @Inject constructor(
         )
 
         if (chatRepository.isCombinedTurnCancelled(rootBudgetId)) return null
-        // Keep the primary's contributor row when it exists. If collection failed
-        // before creating one, allocate a new assistant slot instead of either
-        // abandoning synthesis or overwriting another profile's contribution.
-        val assistantSlot = leadMessage?.copy(combinedSources = attributedSources)
-            ?: dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(
-                chatId = userMessage.chatId,
-                content = "",
-                platformType = leadUid,
-                linkedMessageId = userMessage.id,
-                combinedSources = attributedSources
-            )
+        // The persistence DAO owns creation of the final-message slot. Always pass
+        // an existing response row as the anchor; if the primary has no row, the DAO
+        // creates a separate primary-owned slot without overwriting the anchor reply.
+        val assistantSlot = (leadMessage ?: evidenceAnchor).copy(combinedSources = attributedSources)
         val persisted = chatRepository.persistAgentRetry(
             PersistAgentRetryRequest(
                 userMessage = userMessage,

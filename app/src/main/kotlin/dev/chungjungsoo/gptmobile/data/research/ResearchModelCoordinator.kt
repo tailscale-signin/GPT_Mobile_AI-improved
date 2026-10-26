@@ -228,172 +228,221 @@ internal class ResearchModelCoordinator(
                 record(event.copy(outcome = "SKIPPED", reason = "MODEL_CIRCUIT_OPEN", metrics = trace.snapshot()))
                 continue
             }
-            fun failed(shared: Boolean = false) {
-                if (shared) sharedFailures.compute(sharedKey) { _, old -> FailureState(((old?.count ?: 0) + 1).coerceAtMost(2), monotonicClock() + 30_000L) }
-                failures.compute(circuit) { _, old -> FailureState(((old?.count ?: 0) + 1).coerceAtMost(2), monotonicClock() + 30_000L) }
-            }
-            val started = monotonicClock()
-            var phase = "READINESS"
-            var networkLease: Long? = null
-            stageTraces[event.id] = trace
-            try {
-                val admission = withTimeoutOrNull(minOf(5000L, deadlineMillis ?: ResearchTimeouts.MODEL_MS)) {
-                    target.admission?.invoke() ?: if (target.available()) ResearchAdmission.ADMITTED else ResearchAdmission.MODEL_NOT_ADMITTED
-                } ?: ResearchAdmission.READINESS_TIMEOUT
-                if (admission != ResearchAdmission.ADMITTED) {
-                    val limit = if (admission == ResearchAdmission.PROVIDER_COOLDOWN) target.providerLimit?.invoke() else null
-                    if (limit?.knownNotAccepted == true) {
-                        deferred += limit
-                        record(event.copy(outcome = "WAITING_PROVIDER_LIMIT", reason = limit.category, failurePhase = phase, failureCategory = "RATE_LIMITED", providerLimit = limit))
-                    } else {
-                        record(event.copy(outcome = "SKIPPED", reason = admission.name, failurePhase = phase, failureCategory = "ADMISSION"))
-                    }
-                    continue
-                }
-                val requestBudget = target.requestBudget(cap)
-                if (requestBudget.outputTokens <= 0 || event.inputTokensEstimate > requestBudget.inputTokens) {
-                    record(event.copy(outcome = "SKIPPED", reason = "RESEARCH_CONTEXT_OR_OUTPUT_CAPACITY", failurePhase = "READINESS", failureCategory = "ADMISSION"))
-                    continue
-                }
-                if (!target.local && target.providerHost.isNotBlank()) {
-                    networkLease = dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.acquire(target.providerHost)
-                    if (networkLease == null) {
-                        record(event.copy(outcome = "SKIPPED", reason = "DNS_RECOVERY", failurePhase = "CONNECTIVITY", failureCategory = "TRANSPORT", providerHost = target.providerHost))
-                        continue
-                    }
-                }
-                record(event.copy(outcome = "RUNNING", providerHost = target.providerHost))
-                phase = "GENERATION"
-                val reply = withTimeoutOrNull(target.timeoutMillis ?: deadlineMillis ?: stageDeadline(stage)) {
-                    kotlinx.coroutines.withContext(trace) { target.generate(stage, prompt, requestBudget.outputTokens) }
-                }
-                if (!stillEnabled()) {
-                    record(event.copy(outcome = "CANCELLED", durationMs = elapsed(started), reason = "PERMISSION_REVOKED"))
-                    return null
-                }
-                if (reply != null && (!reply.transportComplete || reply.transportFailure != null || reply.outputLimitReached && !valid(stage, parseDelegationObject(reply.text)) || reply.text.startsWith("[PARTIAL_DELEGATE_OUTPUT:"))) {
-                    val limited = reply.outputLimitReached || reply.text.startsWith("[PARTIAL_DELEGATE_OUTPUT:")
-                    val checkpoint = keepPartial(stage, target, reply.text)
-                    if (!limited) failed(shared = true)
-                    record(event.copy(outcome = "FAILED", reason = if (limited) "OUTPUT_LIMIT_BEFORE_SCHEMA" else "TRANSPORT_INCOMPLETE", failurePhase = "GENERATION", failureCategory = if (limited) "OUTPUT_LIMIT" else "TRANSPORT", durationMs = elapsed(started), invocationId = reply.invocationId, transportComplete = reply.transportComplete && reply.transportFailure == null, partialRetained = checkpoint != null, checkpointId = checkpoint, providerHost = target.providerHost, finishReason = reply.finishReason, requestId = reply.requestId))
-                    continue
-                }
-                if (reply == null) {
-                    failed(shared = true)
-                    record(event.copy(outcome = "TIMED_OUT", durationMs = elapsed(started), reason = "MODEL_DEADLINE", failurePhase = "GENERATION", failureCategory = "TRANSPORT", providerHost = target.providerHost))
-                    continue
-                }
-                if (reply.transportComplete == true && target.providerHost.isNotBlank()) dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.success(target.providerHost)
-                val parsed = parseDelegationObject(reply.text)
-                val usage = trace.snapshot().usage
-                val providerOutcome = ProviderOutcomeClassifier.classifyPayload(
-                    reply.text,
-                    maxOf(reply.reasoningTokens, usage.sumOf { it.reasoningTokens ?: 0 }),
-                    maxOf(reply.outputTokens, usage.sumOf { it.outputTokens ?: 0 }),
-                    valid(stage, parsed)
-                )
-                if (providerOutcome != ProviderOutcome.SUCCESS_VISIBLE) {
-                    if (providerOutcome != ProviderOutcome.REASONING_ONLY) rejectedRequests.add(requestKey)
-                    val checkpoint = keepPartial(stage, target, reply.text)
-                    failed(shared = reply.text.isBlank() || parseDelegationObject(reply.text) == null)
-                    record(
-                        event.copy(
-                            outcome = "INVALID_RESPONSE",
-                            partialRetained = checkpoint != null,
-                            checkpointId = checkpoint,
-                            durationMs = elapsed(started),
-                            invocationId = reply.invocationId,
-                            providerOutcome = providerOutcome,
-                            reason = if (providerOutcome == ProviderOutcome.REASONING_ONLY) {
-                                "REASONING_ONLY_RESPONSE"
-                            } else if (reply.text.isBlank()) {
-                                "NO_VISIBLE_OUTPUT"
-                            } else if (parseDelegationObject(reply.text) == null) {
-                                "MALFORMED_JSON"
-                            } else {
-                                "SCHEMA_VALIDATION_FAILED"
-                            },
-                            failurePhase = "VALIDATION",
-                            failureCategory = if (providerOutcome == ProviderOutcome.REASONING_ONLY) "REASONING_ONLY" else "STRUCTURED_OUTPUT",
-                            transportComplete = true,
-                            providerHost = target.providerHost
-                        )
-                    )
-                    continue
-                }
-                failures.remove(circuit)
-                sharedFailures.remove(sharedKey)
-                val independent = stage == ResearchModelStage.REVIEW && extractedBy.isNotBlank() && target.modelKey.isNotBlank() && target.modelKey != extractedBy
-                record(event.copy(outcome = "SUCCESS", durationMs = elapsed(started), invocationId = reply.invocationId, outputTokensEstimate = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(reply.text), independent = independent, transportComplete = true, schemaValid = true, stageAccepted = true, providerHost = target.providerHost, finishReason = reply.finishReason, requestId = reply.requestId))
-                return reply.copy(modelKey = target.modelKey, independent = independent)
-            } catch (cancelled: CancellationException) {
-                kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) { record(event.copy(outcome = "CANCELLED", durationMs = elapsed(started), reason = "PARENT_CANCELLED")) }
-                throw cancelled
-            } catch (rejected: ResearchAdmissionRejected) {
-                val limit = rejected.providerLimit
-                if (limit?.knownNotAccepted == true) {
-                    deferred += limit
-                    record(event.copy(outcome = "WAITING_PROVIDER_LIMIT", durationMs = elapsed(started), reason = limit.category, failurePhase = phase, failureCategory = "RATE_LIMITED", providerLimit = limit))
-                } else {
-                    record(event.copy(outcome = "SKIPPED", durationMs = elapsed(started), reason = rejected.admission.name, failurePhase = phase, failureCategory = "ADMISSION"))
-                }
-            } catch (error: Exception) {
-                val delegated = error as? dev.chungjungsoo.gptmobile.data.agent.tool.DelegateGenerationException
-                val limit = delegated?.providerLimit
-                if (limit?.knownNotAccepted == true && delegated.partialText.isBlank()) {
-                    deferred += limit
-                    record(event.copy(outcome = "WAITING_PROVIDER_LIMIT", reason = limit.category, failurePhase = phase, failureCategory = "RATE_LIMITED", providerLimit = limit, durationMs = elapsed(started)))
-                    continue
-                }
-                // A completed cap-limited response can spend every token on reasoning.
-                // Preserve that distinction even when the delegate reports OUTPUT_LIMIT.
-                val reasoningOnly = delegated?.transportComplete == true &&
-                    delegated.partialText.isBlank() &&
-                    trace.snapshot().usage.any { (it.reasoningTokens ?: 0) > 0 && it.visibleOutputEstimate == 0L }
-                val category = if (reasoningOnly) "REASONING_ONLY" else failureCategory(error)
-                val dns = generateSequence<Throwable>(error) { it.cause?.takeUnless { cause -> cause === it } }.take(16).any { it is java.net.UnknownHostException } || error.message.orEmpty().contains("UnknownHostException") || error.message.orEmpty().contains("DNS", true)
-                if (dns && target.providerHost.isNotBlank()) dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.failed(target.providerHost, java.net.UnknownHostException("DNS resolution failed"))
-                val checkpoint = delegated?.partialText?.takeIf { it.isNotBlank() }?.let { keepPartial(stage, target, it) }
-                if (delegated?.transportComplete == true && target.providerHost.isNotBlank()) dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.success(target.providerHost)
-                if (category == "REQUEST_INVALID") {
-                    rejectedRequests.add(requestKey)
-                } else if (category !in setOf("OUTPUT_LIMIT", "BUDGET_DENIED", "CONTEXT_LIMIT", "AUTHORIZATION", "ADMISSION")) {
-                    failed(shared = category in setOf("TRANSPORT", "RATE_LIMITED", "PROVIDER_UNAVAILABLE", "PROVIDER_OVERLOADED", "RUNTIME_QUARANTINED", "REASONING_ONLY", "EMPTY_OUTPUT"))
-                }
-                val policyChanged = generateSequence<Throwable>(error) { it.cause?.takeUnless { next -> next === it } }.take(12).any { cause ->
-                    listOf("DISPATCH_POLICY_CHANGED", "SOURCE_PERMISSION_REVOKED", "PERMISSION_DENIED").any { cause.message.orEmpty().contains(it, true) }
-                }
-                if (policyChanged) authorizationStopped = true
-                record(
-                    event.copy(
-                        outcome = if (category in setOf("ADMISSION", "BUDGET_DENIED", "CONTEXT_LIMIT")) "SKIPPED" else "FAILED",
-                        durationMs = elapsed(started),
-                        reason = delegated?.kind?.name ?: "MODEL_EXECUTION_FAILED",
-                        failurePhase = phase,
-                        failureCategory = category,
-                        exceptionType = error.javaClass.simpleName.take(100),
-                        transportComplete = delegated?.transportComplete ?: false,
-                        schemaValid = false,
-                        stageAccepted = false,
-                        partialRetained = checkpoint != null,
-                        checkpointId = checkpoint,
-                        providerHost = target.providerHost
-                    )
-                )
-                if (authorizationStopped) return null
-            } finally {
-                stageTraces.remove(event.id)
-                networkLease?.let { dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.release(it) }
-                // A canceled or inadmissible half-open probe must not strand the stage indefinitely.
-                failures.computeIfPresent(circuit) { _, state ->
-                    if (state.probe) state.copy(probe = false, retryAt = monotonicClock() + 30_000L) else state
-                }
-            }
+            val attempt = ModelAttempt(stage, prompt, cap, target, event, requestKey, trace, circuit, sharedKey, monotonicClock())
+            val reply = attemptTarget(attempt, deferred, extractedBy)
+            if (reply != null) return reply
+            if (authorizationStopped) return null
         }
         deferred.minByOrNull { it.retryAt }?.let { limit ->
             throw ResearchProviderDeferred(ResearchDeferredStage(healthScope.orEmpty(), stage.name, researchHash(prompt), limit, workItemId))
         }
         return null
+    }
+
+    private data class ModelAttempt(
+        val stage: ResearchModelStage,
+        val prompt: String,
+        val cap: Int,
+        val target: ResearchModelEndpoint,
+        val event: ResearchModelEvent,
+        val requestKey: String,
+        val trace: ResearchStageTrace,
+        val circuit: CircuitKey,
+        val sharedKey: String,
+        val started: Long,
+        var phase: String = "READINESS",
+        var networkLease: Long? = null
+    )
+
+    private fun recordTargetFailure(attempt: ModelAttempt, shared: Boolean = false) {
+        if (shared) sharedFailures.compute(attempt.sharedKey) { _, old -> FailureState(((old?.count ?: 0) + 1).coerceAtMost(2), monotonicClock() + 30_000L) }
+        failures.compute(attempt.circuit) { _, old -> FailureState(((old?.count ?: 0) + 1).coerceAtMost(2), monotonicClock() + 30_000L) }
+    }
+
+    private suspend fun attemptTarget(attempt: ModelAttempt, deferred: MutableList<dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision>, extractedBy: String): ResearchModelReply? = with(attempt) {
+        stageTraces[event.id] = trace
+        try {
+            val budget = prepareTarget(attempt, deferred) ?: return@with null
+            phase = "GENERATION"
+            generateTarget(attempt, budget, extractedBy)
+        } catch (cancelled: CancellationException) {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) { record(event.copy(outcome = "CANCELLED", durationMs = elapsed(started), reason = "PARENT_CANCELLED")) }
+            throw cancelled
+        } catch (rejected: ResearchAdmissionRejected) {
+            val limit = rejected.providerLimit
+            if (limit?.knownNotAccepted == true) {
+                deferred += limit
+                record(event.copy(outcome = "WAITING_PROVIDER_LIMIT", durationMs = elapsed(started), reason = limit.category, failurePhase = phase, failureCategory = "RATE_LIMITED", providerLimit = limit))
+            } else {
+                record(event.copy(outcome = "SKIPPED", durationMs = elapsed(started), reason = rejected.admission.name, failurePhase = phase, failureCategory = "ADMISSION"))
+            }
+            null
+        } catch (error: Exception) {
+            handleTargetFailure(attempt, deferred, error)
+            null
+        } finally {
+            stageTraces.remove(event.id)
+            networkLease?.let { dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.release(it) }
+            // A canceled or inadmissible half-open probe must not strand the stage indefinitely.
+            failures.computeIfPresent(circuit) { _, state ->
+                if (state.probe) state.copy(probe = false, retryAt = monotonicClock() + 30_000L) else state
+            }
+        }
+    }
+
+    private suspend fun prepareTarget(attempt: ModelAttempt, deferred: MutableList<dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision>): ResearchModelRequestBudget? {
+        return with(attempt) {
+            val admission = withTimeoutOrNull(minOf(5000L, deadlineMillis ?: ResearchTimeouts.MODEL_MS)) {
+                target.admission?.invoke() ?: if (target.available()) ResearchAdmission.ADMITTED else ResearchAdmission.MODEL_NOT_ADMITTED
+            } ?: ResearchAdmission.READINESS_TIMEOUT
+            if (admission != ResearchAdmission.ADMITTED) {
+                val limit = if (admission == ResearchAdmission.PROVIDER_COOLDOWN) target.providerLimit?.invoke() else null
+                if (limit?.knownNotAccepted == true) {
+                    deferred += limit
+                    record(event.copy(outcome = "WAITING_PROVIDER_LIMIT", reason = limit.category, failurePhase = phase, failureCategory = "RATE_LIMITED", providerLimit = limit))
+                } else {
+                    record(event.copy(outcome = "SKIPPED", reason = admission.name, failurePhase = phase, failureCategory = "ADMISSION"))
+                }
+                return null
+            }
+            val requestBudget = target.requestBudget(cap)
+            if (requestBudget.outputTokens <= 0 || event.inputTokensEstimate > requestBudget.inputTokens) {
+                record(event.copy(outcome = "SKIPPED", reason = "RESEARCH_CONTEXT_OR_OUTPUT_CAPACITY", failurePhase = "READINESS", failureCategory = "ADMISSION"))
+                return null
+            }
+            if (!target.local && target.providerHost.isNotBlank()) {
+                networkLease = dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.acquire(target.providerHost)
+                if (networkLease == null) {
+                    record(event.copy(outcome = "SKIPPED", reason = "DNS_RECOVERY", failurePhase = "CONNECTIVITY", failureCategory = "TRANSPORT", providerHost = target.providerHost))
+                    return null
+                }
+            }
+            record(event.copy(outcome = "RUNNING", providerHost = target.providerHost))
+
+            requestBudget
+        }
+    }
+
+    private suspend fun generateTarget(attempt: ModelAttempt, requestBudget: ResearchModelRequestBudget, extractedBy: String): ResearchModelReply? {
+        return with(attempt) {
+            val reply = withTimeoutOrNull(target.timeoutMillis ?: deadlineMillis ?: stageDeadline(stage)) {
+                kotlinx.coroutines.withContext(trace) { target.generate(stage, prompt, requestBudget.outputTokens) }
+            }
+            if (!stillEnabled()) {
+                authorizationStopped = true
+                record(event.copy(outcome = "CANCELLED", durationMs = elapsed(started), reason = "PERMISSION_REVOKED"))
+                return null
+            }
+            if (reply != null && (!reply.transportComplete || reply.transportFailure != null || reply.outputLimitReached && !valid(stage, parseDelegationObject(reply.text)) || reply.text.startsWith("[PARTIAL_DELEGATE_OUTPUT:"))) {
+                val limited = reply.outputLimitReached || reply.text.startsWith("[PARTIAL_DELEGATE_OUTPUT:")
+                val checkpoint = keepPartial(stage, target, reply.text)
+                if (!limited) recordTargetFailure(attempt, shared = true)
+                record(event.copy(outcome = "FAILED", reason = if (limited) "OUTPUT_LIMIT_BEFORE_SCHEMA" else "TRANSPORT_INCOMPLETE", failurePhase = "GENERATION", failureCategory = if (limited) "OUTPUT_LIMIT" else "TRANSPORT", durationMs = elapsed(started), invocationId = reply.invocationId, transportComplete = reply.transportComplete && reply.transportFailure == null, partialRetained = checkpoint != null, checkpointId = checkpoint, providerHost = target.providerHost, finishReason = reply.finishReason, requestId = reply.requestId))
+                return null
+            }
+            if (reply == null) {
+                recordTargetFailure(attempt, shared = true)
+                record(event.copy(outcome = "TIMED_OUT", durationMs = elapsed(started), reason = "MODEL_DEADLINE", failurePhase = "GENERATION", failureCategory = "TRANSPORT", providerHost = target.providerHost))
+                return null
+            }
+            if (reply.transportComplete == true && target.providerHost.isNotBlank()) dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.success(target.providerHost)
+
+            validateTargetReply(attempt, reply, extractedBy)
+        }
+    }
+
+    private suspend fun validateTargetReply(attempt: ModelAttempt, reply: ResearchModelReply, extractedBy: String): ResearchModelReply? {
+        return with(attempt) {
+            val parsed = parseDelegationObject(reply.text)
+            val usage = trace.snapshot().usage
+            val providerOutcome = ProviderOutcomeClassifier.classifyPayload(
+                reply.text,
+                maxOf(reply.reasoningTokens, usage.sumOf { it.reasoningTokens ?: 0 }),
+                maxOf(reply.outputTokens, usage.sumOf { it.outputTokens ?: 0 }),
+                valid(stage, parsed)
+            )
+            if (providerOutcome != ProviderOutcome.SUCCESS_VISIBLE) {
+                if (providerOutcome != ProviderOutcome.REASONING_ONLY) rejectedRequests.add(requestKey)
+                val checkpoint = keepPartial(stage, target, reply.text)
+                recordTargetFailure(attempt, shared = reply.text.isBlank() || parseDelegationObject(reply.text) == null)
+                record(
+                    event.copy(
+                        outcome = "INVALID_RESPONSE",
+                        partialRetained = checkpoint != null,
+                        checkpointId = checkpoint,
+                        durationMs = elapsed(started),
+                        invocationId = reply.invocationId,
+                        providerOutcome = providerOutcome,
+                        reason = if (providerOutcome == ProviderOutcome.REASONING_ONLY) {
+                            "REASONING_ONLY_RESPONSE"
+                        } else if (reply.text.isBlank()) {
+                            "NO_VISIBLE_OUTPUT"
+                        } else if (parseDelegationObject(reply.text) == null) {
+                            "MALFORMED_JSON"
+                        } else {
+                            "SCHEMA_VALIDATION_FAILED"
+                        },
+                        failurePhase = "VALIDATION",
+                        failureCategory = if (providerOutcome == ProviderOutcome.REASONING_ONLY) "REASONING_ONLY" else "STRUCTURED_OUTPUT",
+                        transportComplete = true,
+                        providerHost = target.providerHost
+                    )
+                )
+                return null
+            }
+            failures.remove(circuit)
+            sharedFailures.remove(sharedKey)
+            val independent = stage == ResearchModelStage.REVIEW && extractedBy.isNotBlank() && target.modelKey.isNotBlank() && target.modelKey != extractedBy
+            record(event.copy(outcome = "SUCCESS", durationMs = elapsed(started), invocationId = reply.invocationId, outputTokensEstimate = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(reply.text), independent = independent, transportComplete = true, schemaValid = true, stageAccepted = true, providerHost = target.providerHost, finishReason = reply.finishReason, requestId = reply.requestId))
+            return reply.copy(modelKey = target.modelKey, independent = independent)
+        }
+    }
+
+    private suspend fun handleTargetFailure(attempt: ModelAttempt, deferred: MutableList<dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision>, error: Exception) {
+        with(attempt) {
+            val delegated = error as? dev.chungjungsoo.gptmobile.data.agent.tool.DelegateGenerationException
+            val limit = delegated?.providerLimit
+            if (limit?.knownNotAccepted == true && delegated.partialText.isBlank()) {
+                deferred += limit
+                record(event.copy(outcome = "WAITING_PROVIDER_LIMIT", reason = limit.category, failurePhase = phase, failureCategory = "RATE_LIMITED", providerLimit = limit, durationMs = elapsed(started)))
+                return
+            }
+            // A completed cap-limited response can spend every token on reasoning.
+            // Preserve that distinction even when the delegate reports OUTPUT_LIMIT.
+            val reasoningOnly = delegated?.transportComplete == true &&
+                delegated.partialText.isBlank() &&
+                trace.snapshot().usage.any { (it.reasoningTokens ?: 0) > 0 && it.visibleOutputEstimate == 0L }
+            val category = if (reasoningOnly) "REASONING_ONLY" else failureCategory(error)
+            val dns = generateSequence<Throwable>(error) { it.cause?.takeUnless { cause -> cause === it } }.take(16).any { it is java.net.UnknownHostException } || error.message.orEmpty().contains("UnknownHostException") || error.message.orEmpty().contains("DNS", true)
+            if (dns && target.providerHost.isNotBlank()) dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.failed(target.providerHost, java.net.UnknownHostException("DNS resolution failed"))
+            val checkpoint = delegated?.partialText?.takeIf { it.isNotBlank() }?.let { keepPartial(stage, target, it) }
+            if (delegated?.transportComplete == true && target.providerHost.isNotBlank()) dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.success(target.providerHost)
+            if (category == "REQUEST_INVALID") {
+                rejectedRequests.add(requestKey)
+            } else if (category !in setOf("OUTPUT_LIMIT", "BUDGET_DENIED", "CONTEXT_LIMIT", "AUTHORIZATION", "ADMISSION")) {
+                recordTargetFailure(attempt, shared = category in setOf("TRANSPORT", "RATE_LIMITED", "PROVIDER_UNAVAILABLE", "PROVIDER_OVERLOADED", "RUNTIME_QUARANTINED", "REASONING_ONLY", "EMPTY_OUTPUT"))
+            }
+            val policyChanged = generateSequence<Throwable>(error) { it.cause?.takeUnless { next -> next === it } }.take(12).any { cause ->
+                listOf("DISPATCH_POLICY_CHANGED", "SOURCE_PERMISSION_REVOKED", "PERMISSION_DENIED").any { cause.message.orEmpty().contains(it, true) }
+            }
+            if (policyChanged) authorizationStopped = true
+            record(
+                event.copy(
+                    outcome = if (category in setOf("ADMISSION", "BUDGET_DENIED", "CONTEXT_LIMIT")) "SKIPPED" else "FAILED",
+                    durationMs = elapsed(started),
+                    reason = delegated?.kind?.name ?: "MODEL_EXECUTION_FAILED",
+                    failurePhase = phase,
+                    failureCategory = category,
+                    exceptionType = error.javaClass.simpleName.take(100),
+                    transportComplete = delegated?.transportComplete ?: false,
+                    schemaValid = false,
+                    stageAccepted = false,
+                    partialRetained = checkpoint != null,
+                    checkpointId = checkpoint,
+                    providerHost = target.providerHost
+                )
+            )
+        }
     }
 
     private fun stageDeadline(stage: ResearchModelStage): Long = when (stage) {

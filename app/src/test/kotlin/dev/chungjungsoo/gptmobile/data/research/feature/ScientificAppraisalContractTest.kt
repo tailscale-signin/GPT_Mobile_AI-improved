@@ -155,4 +155,24 @@ class ScientificAppraisalContractTest {
         next.fields.forEach { field -> assertTrue(Json.decodeFromString<List<String>>(field.passageIdsJson).all { it in ids }) }
         next.judgments.forEach { judgment -> assertTrue(judgment.passageIds.all { it in ids }) }
     }
+
+    @Test fun conflictingConcernRemainsUnknownWithAnExplicitLimitation() {
+        val base = Json.parseToJsonElement(appraisal()) as JsonObject
+        val judgment = buildJsonObject {
+            put("domain", ScientificAppraisalContract.domains.first())
+            put("concern", "CONFLICTING")
+            put("rationale", "The reported evidence conflicts.")
+            put("passageIds", JsonArray(listOf(JsonPrimitive("P1"))))
+            put("applicability", "Methods")
+        }
+        val reply = JsonObject(base + ("judgments" to JsonArray(listOf(judgment)))).toString()
+        val result = ScientificAppraisalContract.validate(reply, version, source)
+        assertEquals(ScientificConcern.UNKNOWN, result.judgments.first().concern)
+        assertTrue(result.limitations.any { it.contains("conflicting evidence") })
+        val invalidJudgment = JsonObject(judgment + ("concern" to JsonPrimitive("MAGIC")))
+        val invalid = JsonObject(base + ("judgments" to JsonArray(listOf(invalidJudgment)))).toString()
+        val failure = runCatching { ScientificAppraisalContract.validate(invalid, version, source) }.exceptionOrNull()
+        assertTrue(failure is ExaminationFieldValidationException)
+        assertTrue(failure?.message.orEmpty().contains("judgments[0]"))
+    }
 }

@@ -54,7 +54,7 @@ class GitHubEngineeringRoomIntegrationTest {
     }
 
     @Test fun versionOneLedgerMigratesAndSurvivesReopenWithoutLosingTasks() = runBlocking {
-        val context = RuntimeEnvironment.getApplication<Application>()
+        val context = RuntimeEnvironment.getApplication()
         val name = "engineering-migration-${java.util.UUID.randomUUID()}.db"
         val file = context.getDatabasePath(name)
         requireNotNull(file.parentFile).mkdirs()

@@ -434,7 +434,7 @@ class ArticleExaminationCoordinator @Inject constructor(
                     checkpoint = checkpoint.copy(invocationIds = (checkpoint.invocationIds + ids).distinct())
                     dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ResearchExamine", "MODEL_ATTEMPT · jobId=${record.jobId} · lease=${record.lease} · stage=$currentStage · kind=$kind · profile=${actor.uid} · model=${actor.model} · provider=${actor.compatibleType} · connection=${actor.providerConnectionUid.orEmpty()} · attempt=$attempt · chunk=${checkpoint.nextChunk}/${checkpoint.chunkCount} · invocations=${ids.joinToString(",")} · durationMs=${(System.nanoTime() - started) / 1_000_000} · outputChars=${output.length} · outputHash=${researchHash(output.toString())} · truncated=$limited · failure=${dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.redact(failure.orEmpty()).take(500)}")
                 }
-                val completeArtifact = if ((completed || failureComplete) && (limited || failure != null)) runCatching { validate(output.toString()) }.isSuccess else false
+                val completeArtifact = if ((completed || failureComplete) && (limited || failure != null)) (runCatching { validate(output.toString()) }.isSuccess || isExaminationFieldRepairPacket(output.toString())) else false
                 if ((limited || failure != null || !completed) && !completeArtifact) {
                     if (output.isNotBlank() && allowed()) {
                         val root = checkpoint.rootWorkId ?: "examination:${record.jobId}"

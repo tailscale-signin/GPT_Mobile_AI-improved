@@ -23,7 +23,7 @@ import org.robolectric.annotation.Config
 @Config(sdk = [34], application = Application::class)
 class GitHubEngineeringControllerIntegrationTest {
     @Test fun approvedPatchPublishesOnceAndRestartCompletesOnlyFromExactCiEvidence() = runBlocking {
-        val context = RuntimeEnvironment.getApplication<Application>()
+        val context = RuntimeEnvironment.getApplication()
         val base = "a".repeat(40)
         val baseTree = "b".repeat(40)
         val tree = "c".repeat(40)

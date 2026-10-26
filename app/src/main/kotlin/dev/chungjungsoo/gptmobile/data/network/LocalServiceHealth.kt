@@ -49,6 +49,19 @@ internal object LocalServiceHealth {
         epoch.incrementAndGet()
     }
 
+    fun requireLocalAvailable(url: String) {
+        if (endpointLocality(url) != EndpointLocality.EXTERNAL) requireAvailable(url)
+    }
+
+    fun recordLocalFailure(url: String, failure: Throwable) {
+        if (endpointLocality(url) == EndpointLocality.EXTERNAL || failure is kotlinx.coroutines.CancellationException) return
+        if (classify(failure) in setOf(ConnectionHealth.DNS_FAILED, ConnectionHealth.ROUTE_UNAVAILABLE, ConnectionHealth.CONNECTION_REFUSED, ConnectionHealth.CONNECT_TIMEOUT, ConnectionHealth.STREAM_INTERRUPTED)) recordFailure(url, failure)
+    }
+
+    fun recordLocalHandshakeSuccess(url: String) {
+        if (endpointLocality(url) != EndpointLocality.EXTERNAL) recordHandshakeSuccess(url)
+    }
+
     fun requireAvailable(url: String) {
         if (endpointLocality(url) == EndpointLocality.EXTERNAL && !dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.available(endpoint(url)?.host)) throw IOException("DNS_RECOVERY: correlated public DNS failures; retry after network recovery")
         val uri = endpoint(url) ?: return

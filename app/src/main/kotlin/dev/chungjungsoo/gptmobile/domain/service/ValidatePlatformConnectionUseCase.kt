@@ -27,6 +27,8 @@ class ValidatePlatformConnectionUseCase @Inject constructor(
         val client = networkClient()
         val url = platform.apiUrl.trimEnd('/')
         val token = platform.token.orEmpty()
+        // This is an explicit user connection test, so admit one fresh endpoint check.
+        dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.checkAgain(url)
 
         if (url.isBlank()) {
             return@withContext ValidationResult(

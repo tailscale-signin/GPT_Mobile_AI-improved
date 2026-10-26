@@ -16,6 +16,7 @@ import dev.chungjungsoo.gptmobile.data.research.feature.StudyField
 import dev.chungjungsoo.gptmobile.data.research.feature.recordConsent
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
@@ -30,11 +31,12 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class ArticleDetailState(val work: ResearchWork? = null, val version: ResearchWorkVersion? = null, val fields: List<StudyField> = emptyList(), val passages: List<EvidencePassage> = emptyList(), val appraisals: List<EvidenceAppraisal> = emptyList(), val bodyAvailable: Boolean = false, val loading: Boolean = false, val acceptedJobId: String? = null, val error: String? = null, val reviews: List<dev.chungjungsoo.gptmobile.data.research.feature.ResearchStudyReview> = emptyList(), val validations: List<dev.chungjungsoo.gptmobile.data.research.feature.ResearchSourceValidation> = emptyList(), val relationships: List<dev.chungjungsoo.gptmobile.data.research.feature.ResearchIdentityResolution> = emptyList())
 
 @HiltViewModel
-class ResearchArticleViewModel @Inject constructor(private val archive: ResearchArchiveRepository, private val coordinator: ArticleExaminationCoordinator, private val settings: SettingRepository) : ViewModel() {
+class ResearchArticleViewModel @Inject constructor(private val archive: ResearchArchiveRepository, private val coordinator: ArticleExaminationCoordinator, private val settings: SettingRepository, @dev.chungjungsoo.gptmobile.di.IoDispatcher private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO) : ViewModel() {
     val profiles = settings.observePlatformV2s().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     val features = settings.observeFeatureSettings().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings())
     val jobs = coordinator.jobs.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -73,13 +75,15 @@ class ResearchArticleViewModel @Inject constructor(private val archive: Research
         val generation = selectionGeneration
         mutable.value = if (sameSelection) mutable.value.copy(loading = true) else ArticleDetailState(loading = true)
         // Source hashing, body decoding and detail assembly can be large; keep them off the UI thread.
-        loader = viewModelScope.launch(Dispatchers.IO) {
+        loader = viewModelScope.launch {
             try {
-                val work = requireNotNull(archive.dao.work(workId)) { "Saved article is unavailable" }
-                val version = requireNotNull(versionId?.let { archive.dao.version(it) } ?: archive.dao.latestVersion(workId)) { "Saved version is missing" }
-                require(version.workId == workId && (version.publicSource || version.authority == authority)) { "Article access is no longer authorized" }
-                val available = archive.text(version, authority) != null
-                val details = ArticleDetailState(work, archive.dao.version(version.versionId), archive.dao.fields(version.versionId), archive.dao.passages(version.versionId), archive.dao.appraisals(version.versionId), available, validations = archive.dao.sourceValidations(version.versionId), relationships = archive.dao.identityResolutions(workId), reviews = archive.dao.studyReviews(version.versionId))
+                val details = withContext(ioDispatcher) {
+                    val work = requireNotNull(archive.dao.work(workId)) { "Saved article is unavailable" }
+                    val version = requireNotNull(versionId?.let { archive.dao.version(it) } ?: archive.dao.latestVersion(workId)) { "Saved version is missing" }
+                    require(version.workId == workId && (version.publicSource || version.authority == authority)) { "Article access is no longer authorized" }
+                    val available = archive.text(version, authority) != null
+                    ArticleDetailState(work, archive.dao.version(version.versionId), archive.dao.fields(version.versionId), archive.dao.passages(version.versionId), archive.dao.appraisals(version.versionId), available, validations = archive.dao.sourceValidations(version.versionId), relationships = archive.dao.identityResolutions(workId), reviews = archive.dao.studyReviews(version.versionId))
+                }
                 currentCoroutineContext().ensureActive()
                 if (selectionGeneration == generation) mutable.update { details.copy(acceptedJobId = it.acceptedJobId, error = it.error) }
             } catch (cancel: CancellationException) {

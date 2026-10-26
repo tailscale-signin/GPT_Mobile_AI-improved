@@ -54,8 +54,10 @@ class AndroidResearchWorkflowTest {
                 val text = when (stage) {
                     dev.chungjungsoo.gptmobile.data.research.ResearchModelStage.PLAN -> """{"questions":[{"id":"Q1","text":"What is the documented request limit?"}],"queries":[{"id":"QRY1","text":"research device requests","questionIds":["Q1"]}]}"""
                     dev.chungjungsoo.gptmobile.data.research.ResearchModelStage.EXTRACT -> {
-                        assertTrue(prompt.startsWith("Extract at most 1 claims"))
-                        assertTrue(prompt.contains("under 512 characters"))
+                        assertTrue(prompt.startsWith("Extract one directly supported claim or none."))
+                        assertTrue(prompt.contains("within 256 tokens"))
+                        assertTrue(prompt.contains("max 80 chars"))
+                        assertTrue(prompt.contains("exact quote, max 64 chars"))
                         assertFalse(prompt.contains("under 6000 characters"))
                         extract(prompt)
                     }

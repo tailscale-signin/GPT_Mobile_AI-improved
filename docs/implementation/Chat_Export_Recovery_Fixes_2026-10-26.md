@@ -27,3 +27,13 @@ No local-runtime incidents or new on-device GGUF GPU failure is retained in this
 - Production recovery-session smoke scenarios cover empty-watchdog rejection, saved-output continuation and bounded ordinary overload retries, using synchronous flow infrastructure stubs. These do not establish coroutine timing or Android integration behavior.
 - Added real regression tests in OutputLimitRecoverySessionTest, LlamaReasoningAdmissionTest, RunDiagnosticJournalTest and GitHubPersistentEvidenceTest.
 - Android unit-test execution is blocked locally: Gradle 9.8.0 distribution download fails with `Network is unreachable`. GitHub CI must compile and run the Android tests. No physical-device performance or GPU success is claimed.
+
+## CI follow-up
+
+The first full Android run compiled successfully and executed 5,032 tests, with 11 failures and four skipped. The failures were concentrated in three suites:
+
+- Five AndroidResearchWorkflowTest cases asserted the previous 256-token extraction prompt literally. Update the shared fixture to require the compact one-claim instruction, 80-character claim bound, 64-character exact-quote bound and complete JSON within 256 tokens. Existing packet completion, malformed row, overflow, cursor, acquisition and budget assertions remain in force.
+- ExaminationRetrievalLifecycleTest's interrupted-model case captured an incompletely proven source but assumed the reader would never run. Give this transport-isolation fixture explicit full-text capture proof and assert that coverage before model execution. Incomplete-source recovery remains enabled in production; partial model output must still stay unaccepted and retain its transport-failure checkpoint.
+- Five ResearchArticleViewModelTest failures exposed real background-dispatch scheduling in tests and obsolete expectations that no settings mutation occurs on consent dismissal. Inject a qualified IO dispatcher while retaining the production IO default; assemble details in IO and publish only on the main view-model coroutine. Tests share a controlled scheduler. Consent tests now assert saved OFFERED/DISMISSED receipts and verify that decline or stale acceptance grants no academic permission and starts no job.
+
+All 11 reported failures are addressed by these changes; their runtime verification requires the next Android CI run. Local Gradle remains blocked by the unavailable distribution download. Formatting and Android regex checks pass locally.

@@ -55,7 +55,7 @@ class ResearchArticleViewModelTest {
         coEvery { dao.version("v1") } returns version
         coEvery { dao.version("v2") } returns version.copy(versionId = "v2")
         coEvery { archive.text(any(), any()) } returns "Saved text"
-        model = ResearchArticleViewModel(archive, coordinator, settings)
+        model = ResearchArticleViewModel(archive, coordinator, settings, dispatcher)
     }
 
     @After fun cleanup() {
@@ -129,7 +129,9 @@ class ResearchArticleViewModelTest {
         runCurrent()
         assertNull(model.examinationConsent.value)
         assertEquals(false, saved().profileBehavior[examiner.uid]?.academicSourcesAllowed)
-        coVerify(exactly = 0) { settings.mutateFeatureSettings(any()) }
+        assertEquals(listOf("OFFERED", "DISMISSED"), saved().researchFeature.consentReceipts.map { it.decision })
+        assertEquals(setOf(examiner.uid), saved().researchFeature.consentReceipts.map { it.profileUid }.toSet())
+        coVerify(exactly = 2) { settings.mutateFeatureSettings(any()) }
         coVerify(exactly = 0) { coordinator.submitUserAction(any(), any()) }
     }
 
@@ -153,7 +155,7 @@ class ResearchArticleViewModelTest {
     }
 
     @Test fun changingArticleOrProfileRejectsAStaleConsentAction() = runTest(dispatcher) {
-        installConsentState()
+        val saved = installConsentState()
         model.open(work.workId, "v1", "owner")
         runCurrent()
         model.requestExamination(ExaminationRequest(work.workId, examiner.uid, versionId = "v1", authority = "owner")) { ChatMcpToolConfig() }
@@ -163,7 +165,9 @@ class ResearchArticleViewModelTest {
         model.acceptExaminationConsent(id)
         runCurrent()
         assertTrue(model.state.value.error.orEmpty().contains("configuration changed"))
-        coVerify(exactly = 0) { settings.mutateFeatureSettings(any()) }
+        assertEquals(false, saved().profileBehavior[examiner.uid]?.academicSourcesAllowed)
+        assertTrue(saved().researchFeature.consentReceipts.none { it.decision == "ACCEPTED" })
+        coVerify(exactly = 1) { settings.mutateFeatureSettings(any()) }
         coVerify(exactly = 0) { coordinator.submitUserAction(any(), any()) }
 
         coEvery { settings.fetchPlatformV2s() } returns listOf(examiner)
@@ -174,6 +178,8 @@ class ResearchArticleViewModelTest {
         model.acceptExaminationConsent(stale)
         runCurrent()
         assertNull(model.examinationConsent.value)
+        assertEquals(false, saved().profileBehavior[examiner.uid]?.academicSourcesAllowed)
+        assertTrue(saved().researchFeature.consentReceipts.none { it.decision == "ACCEPTED" })
         coVerify(exactly = 0) { coordinator.submitUserAction(any(), any()) }
     }
 

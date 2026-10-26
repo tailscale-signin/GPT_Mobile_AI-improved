@@ -192,11 +192,9 @@ class DurablePromptQueue @Inject constructor(
     suspend fun move(id: String, otherId: String) = dao.swap(id, otherId)
     fun pausedProfiles(chatId: Int): Set<String> = preferences.getStringSet("paused_$chatId", emptySet()).orEmpty().toSet()
     fun setPausedProfiles(chatId: Int, uids: Set<String>) {
-        // SharedPreferences.commit() blocks the caller until disk I/O completes. This
-        // method is called directly from the chat UI when a profile is paused/unpaused,
-        // and StrictMode captured 2–6 ms stalls on this exact path. apply() updates the
-        // in-memory value synchronously (so reads immediately see the new set) and writes
-        // it asynchronously without blocking Compose's main thread.
+        // SharedPreferences.commit() blocks until disk I/O completes. Profile pause state
+        // is changed from the chat UI, so use apply(): it updates the in-memory value
+        // immediately and persists asynchronously without blocking Compose's main thread.
         preferences.edit().putStringSet("paused_$chatId", uids.toSet()).apply()
         wake.value += 1
     }

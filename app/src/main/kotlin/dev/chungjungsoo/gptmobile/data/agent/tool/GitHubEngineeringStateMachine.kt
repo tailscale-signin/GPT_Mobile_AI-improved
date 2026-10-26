@@ -34,6 +34,7 @@ internal enum class EngineeringEvidence {
     LOCAL_VALIDATION_PASSED,
     APPROVAL_REQUIRED,
     APPROVAL_GRANTED,
+    COMMIT_STARTED,
     COMMIT_CONFIRMED,
     REMOTE_REF_CONFIRMED,
     CI_WATCH_STARTED,
@@ -56,7 +57,7 @@ internal object GitHubEngineeringStateMachine {
         EngineeringState.VALIDATING_LOCAL to mapOf(EngineeringEvidence.LOCAL_VALIDATION_PASSED to EngineeringState.PATCH_READY),
         EngineeringState.PATCH_READY to mapOf(
             EngineeringEvidence.APPROVAL_REQUIRED to EngineeringState.AWAITING_APPROVAL,
-            EngineeringEvidence.COMMIT_CONFIRMED to EngineeringState.COMMITTING,
+            EngineeringEvidence.COMMIT_STARTED to EngineeringState.COMMITTING,
         ),
         EngineeringState.AWAITING_APPROVAL to mapOf(EngineeringEvidence.APPROVAL_GRANTED to EngineeringState.COMMITTING),
         EngineeringState.COMMITTING to mapOf(EngineeringEvidence.REMOTE_REF_CONFIRMED to EngineeringState.PUSHED),
@@ -70,16 +71,24 @@ internal object GitHubEngineeringStateMachine {
         EngineeringState.HARDWARE_VERIFIED to mapOf(EngineeringEvidence.POLICY_COMPLETION_CONFIRMED to EngineeringState.COMPLETED),
     )
 
+    /** The caller must validate evidence provenance and policy before invoking this reducer. */
     fun advance(current: EngineeringState, evidence: EngineeringEvidence): EngineeringState {
         val next = transitions[current]?.get(evidence)
         if (next != null) return next
         if (current in setOf(EngineeringState.COMPLETED, EngineeringState.CANCELLED)) {
             throw IllegalArgumentException("Terminal task cannot transition: $current")
         }
+        val failureAllowed = current !in setOf(
+            EngineeringState.BLOCKED,
+            EngineeringState.CONFLICTED,
+            EngineeringState.CI_FAILED,
+            EngineeringState.FAILED,
+        )
+        if (!failureAllowed) throw IllegalArgumentException("Recovery requires a new recorded attempt: $current")
         return when (evidence) {
             EngineeringEvidence.POLICY_BLOCKED -> EngineeringState.BLOCKED
             EngineeringEvidence.REF_CONFLICT -> EngineeringState.CONFLICTED
-            EngineeringEvidence.CI_CHECK_FAILED -> EngineeringState.CI_FAILED
+            EngineeringEvidence.CI_CHECK_FAILED -> if (current == EngineeringState.CI_PENDING) EngineeringState.CI_FAILED else throw IllegalArgumentException("CI failure outside CI watch")
             EngineeringEvidence.EXECUTION_FAILED -> EngineeringState.FAILED
             EngineeringEvidence.USER_CANCELLED -> EngineeringState.CANCELLED
             else -> throw IllegalArgumentException("Invalid engineering transition: $current + $evidence")

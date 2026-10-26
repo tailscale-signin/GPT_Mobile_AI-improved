@@ -1,6 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.agent.tool
 
-/** Enumerates durable unfinished work without performing remote writes. */
+/** Enumerates durable unfinished work without performing remote writes or assuming authorization. */
 internal data class EngineeringRecoveryItem(
     val taskId: String,
     val operationId: String,

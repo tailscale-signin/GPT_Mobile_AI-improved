@@ -14,14 +14,14 @@ class GitHubEngineeringCiReceiptGatewayTest {
             override suspend fun fetch(
                 repositoryOwner: String,
                 repositoryName: String,
-                commitSha: String,
+                commitSha: String
             ) = listOf(
                 EngineeringCheckReceipt(
                     "build",
                     EngineeringCheckStatus.COMPLETED,
                     EngineeringCheckConclusion.SUCCESS,
-                    commitSha,
-                ),
+                    commitSha
+                )
             )
         }
         val result = GitHubEngineeringCiInspector(gateway).inspect("owner", "repo", sha, setOf("build"))
@@ -34,7 +34,7 @@ class GitHubEngineeringCiReceiptGatewayTest {
             override suspend fun fetch(
                 repositoryOwner: String,
                 repositoryName: String,
-                commitSha: String,
+                commitSha: String
             ): List<EngineeringCheckReceipt> = error("offline")
         }
         val result = GitHubEngineeringCiInspector(gateway).inspect("owner", "repo", sha, setOf("build"))

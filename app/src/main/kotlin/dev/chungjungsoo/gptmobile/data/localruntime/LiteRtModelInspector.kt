@@ -18,7 +18,8 @@ data class LocalModelCapabilities(
     val soc: String? = null,
     val minRuntimeVersion: String? = null,
     val visionBackends: Set<String> = emptySet(),
-    val kvBytesPerToken: Long? = null
+    val kvBytesPerToken: Long? = null,
+    val compatibilityWarnings: List<String> = emptyList()
 ) {
     fun validate(spec: LocalEngineSpec) {
         try {

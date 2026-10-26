@@ -17,7 +17,9 @@ data class CapturedProviderAuthority(
     val permissionRevision: String,
     val routeRevision: String,
     val chatId: Int? = null,
-    val parents: List<CapturedProviderAuthority> = emptyList()
+    val parents: List<CapturedProviderAuthority> = emptyList(),
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val acceptedTokenBudget: TokenBudgetSettings? = null
 ) {
     internal suspend fun validate(settings: SettingRepository) {
         parents.forEach { it.validate(settings) }
@@ -25,7 +27,9 @@ data class CapturedProviderAuthority(
         if (current == null || !current.enabled || ConfiguredDispatchAuthority.profileRevision(current) != registeredRevision) throw ProviderWaitAuthorityChanged("PROVIDER_WAIT_AUTHORITY_CHANGED")
         val admitted = current.copy(model = model)
         if (routeRevision(admitted) != routeRevision) throw ProviderWaitAuthorityChanged("PROVIDER_WAIT_ROUTE_CHANGED")
-        if (ConfiguredDispatchAuthority.policyRevision(settings.getFeatureSettings(), profileUid, chatId) != policyRevision || settings.providerPermissionRevision(admitted) != permissionRevision || settings.providerActivationRequired(admitted)) throw ProviderWaitAuthorityChanged("PROVIDER_WAIT_PERMISSION_CHANGED")
+        val live = settings.getFeatureSettings()
+        val effective = acceptedTokenBudget?.takeIf { ConfiguredDispatchAuthority.allowsAcceptedTokenPlan(it, live.tokenBudget, profileUid) }?.let { live.copy(tokenBudget = it) } ?: live
+        if (ConfiguredDispatchAuthority.policyRevision(effective, profileUid, chatId) != policyRevision || settings.providerPermissionRevision(admitted) != permissionRevision || settings.providerActivationRequired(admitted)) throw ProviderWaitAuthorityChanged("PROVIDER_WAIT_PERMISSION_CHANGED")
     }
 
     /** Reinstall the saved authority when work crosses an independent coroutine owner. */

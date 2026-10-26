@@ -57,7 +57,8 @@ class GitHubTool(
     private val conversationId: String = "",
     private val taskId: String = "",
     private val persistentState: Boolean = true,
-    private val stateStore: dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore? = null
+    private val stateStore: dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore? = null,
+    private val engineeringPrepare: (suspend (String, JsonObject) -> JsonObject)? = null
 ) : AgentTool {
 
     private val rateLimits = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.rateLimitsForCredential(apiToken) else dev.chungjungsoo.gptmobile.data.github.GitHubRateLimitManager()
@@ -70,7 +71,7 @@ class GitHubTool(
             responseCache = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.forCredential(apiToken) else dev.chungjungsoo.gptmobile.data.github.GitHubResponseCache(),
             conditionalReads = featureSettings.githubConditionalReads, blobCache = featureSettings.githubBlobCache,
             freshnessSeconds = featureSettings.pluginExecution[dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB]?.githubCacheSeconds ?: 15,
-            connectionUid = connectionUid, conversationId = conversationId, taskId = taskId, persistentState = persistentState, stateStore = stateStore, scheduler = scheduler
+            connectionUid = connectionUid, conversationId = conversationId, taskId = taskId, persistentState = persistentState, stateStore = stateStore, scheduler = scheduler, engineeringPrepare = engineeringPrepare
         )
     }
     internal fun operations(): List<GitHubOperationTool> {
@@ -493,7 +494,10 @@ class GitHubTool(
                 "list_workflows", "get_workflow_run", "list_workflow_jobs", "list_workflow_artifacts", "get_job_logs", "dispatch_workflow", "rerun_workflow", "rerun_failed_jobs", "cancel_workflow" -> handleWorkflowAction(callId, action, arguments)
                 "create_branch" -> handleCreateBranch(callId, arguments)
                 "create_issue_comment" -> handleIssueComment(callId, arguments)
-                "update_file" -> handleUpdateFile(callId, arguments)
+                "update_file" -> {
+                    require(engineeringPrepare == null) { "Use stage_patch and commit_staged_patch to submit the exact patch for persisted user approval in GitHub review." }
+                    handleUpdateFile(callId, arguments)
+                }
                 "create_pull_request" -> handleCreatePullRequest(callId, arguments)
                 else -> errorResult(callId, "Unknown GitHub action: '$action'.")
             }

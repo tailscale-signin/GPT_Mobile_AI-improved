@@ -86,7 +86,8 @@ class AgentToolResolver @Inject constructor(
     private val statistics: dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsRepository? = null,
     private val researchArchive: dev.chungjungsoo.gptmobile.data.research.feature.ResearchArchiveRepository? = null,
     private val articleExaminations: javax.inject.Provider<dev.chungjungsoo.gptmobile.data.research.feature.ArticleExaminationCoordinator>? = null,
-    private val gitHubRepositoryState: dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore? = null
+    private val gitHubRepositoryState: dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore? = null,
+    private val engineeringController: GitHubEngineeringController? = null
 ) {
     suspend fun warmSelectedCatalogues(profileUid: String, limit: Int = 4) {
         val features = settingRepository.getFeatureSettings()
@@ -1130,6 +1131,19 @@ class AgentToolResolver @Inject constructor(
         }.orEmpty()
 
         val features = settingRepository.getFeatureSettings()
+        val engineeringPrepare: (suspend (String, JsonObject) -> JsonObject)? = if (actualConnection != null && engineeringController != null) {
+            { root, args ->
+                val engineeringTaskId = engineeringController.prepareFromTool(actualConnection.connectionUid, root, args.toString())
+                kotlinx.serialization.json.buildJsonObject {
+                    put("engineering_task_id", engineeringTaskId)
+                    put("status", "AWAITING_APPROVAL")
+                    put("committed", false)
+                    put("next_action", "Open Workspaces → GitHub review → Engineering tasks to review the exact patch and approve. No remote write has occurred.")
+                }
+            }
+        } else {
+            null
+        }
         val tool = GitHubTool(
             apiToken = token,
             featureSettings = features,
@@ -1138,7 +1152,8 @@ class AgentToolResolver @Inject constructor(
             repositoryContext = actualConnection?.let { gitHubWorkspaceStore?.get(it.connectionUid) },
             connectionUid = actualConnection?.connectionUid.orEmpty(), conversationId = userMessage?.chatId?.toString().orEmpty(), taskId = userMessage?.let { "${it.chatId}:${it.id}" }.orEmpty(),
             persistentState = userMessage?.chatId?.let { factVault?.scopeForChat(it)?.isTemporary != true } ?: true,
-            stateStore = gitHubRepositoryState
+            stateStore = gitHubRepositoryState,
+            engineeringPrepare = engineeringPrepare
         )
         val admittedProfile = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
         // resolved() normally wraps telemetry immediately; this backend must stay

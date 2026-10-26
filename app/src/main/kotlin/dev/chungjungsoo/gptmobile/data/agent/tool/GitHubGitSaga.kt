@@ -10,7 +10,7 @@ internal enum class GitSagaStage {
     TREE_CREATED,
     COMMIT_CREATED,
     REF_UPDATED,
-    CONFLICTED,
+    CONFLICTED
 }
 
 internal data class GitSagaSnapshot(
@@ -20,7 +20,7 @@ internal data class GitSagaSnapshot(
     val blobManifestDigest: String? = null,
     val treeSha: String? = null,
     val commitSha: String? = null,
-    val remoteRefSha: String? = null,
+    val remoteRefSha: String? = null
 ) {
     init {
         require(operationId.isNotBlank())
@@ -48,13 +48,12 @@ internal object GitHubGitSaga {
         return GitSagaReconciliation.VerifyCommitObject
     }
 
-
     fun reconcileVerified(
         snapshot: GitSagaSnapshot,
         remoteHeadSha: String,
         fetchedCommitSha: String,
         fetchedParentSha: String,
-        fetchedTreeSha: String,
+        fetchedTreeSha: String
     ): GitSagaReconciliation {
         val commit = snapshot.commitSha ?: return GitSagaReconciliation.InspectRemoteCommit
         if (fetchedCommitSha != commit ||
@@ -65,7 +64,7 @@ internal object GitHubGitSaga {
         }
         if (remoteHeadSha == commit) {
             return GitSagaReconciliation.AlreadyApplied(
-                snapshot.copy(stage = GitSagaStage.REF_UPDATED, remoteRefSha = remoteHeadSha),
+                snapshot.copy(stage = GitSagaStage.REF_UPDATED, remoteRefSha = remoteHeadSha)
             )
         }
         if (remoteHeadSha != snapshot.expectedHeadSha) return GitSagaReconciliation.Conflict(remoteHeadSha)

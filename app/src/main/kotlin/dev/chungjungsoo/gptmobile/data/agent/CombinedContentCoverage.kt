@@ -36,6 +36,9 @@ internal class CombinedContentCoverage(private val sources: List<CombinedModelRe
     }
 
     fun check(answer: String): Result {
+        // There is no candidate to judge. Missing semantic content must not be
+        // inferred from a writer that never dispatched or published an answer.
+        if (answer.isBlank()) return Result(units.size, emptyList(), evaluated = false)
         val mapping = CombinedAnswerMappings.get(answer, sources)
         if (!mapping.evaluated) return Result(units.size, emptyList(), evaluated = false, mappingVersion = mapping.version)
         val mapped = mapping.claims.associateBy { it.claimId }

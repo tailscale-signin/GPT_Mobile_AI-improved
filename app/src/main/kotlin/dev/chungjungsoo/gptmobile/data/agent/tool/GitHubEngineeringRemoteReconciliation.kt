@@ -19,18 +19,23 @@ internal fun EngineeringRemoteReconciliation.decide(
     snapshot: GitSagaSnapshot,
     remoteHead: String,
     evidence: RemoteCommitEvidence,
-    approved: Boolean,
+    approved: Boolean
 ): EngineeringRefDecision {
     if (snapshot.stage != GitSagaStage.COMMIT_CREATED &&
         snapshot.stage != GitSagaStage.REF_UPDATED
-    ) return EngineeringRefDecision.Unverified
+    ) {
+        return EngineeringRefDecision.Unverified
+    }
     if (snapshot.commitSha == null || snapshot.treeSha == null) return EngineeringRefDecision.Unverified
     return when (val result = verify(snapshot, remoteHead, evidence)) {
         is GitSagaReconciliation.AlreadyApplied ->
             EngineeringRefDecision.Applied(requireNotNull(result.snapshot.commitSha))
         is GitSagaReconciliation.ReadyToUpdateRef ->
-            if (approved) EngineeringRefDecision.Ready(snapshot.expectedHeadSha, requireNotNull(snapshot.commitSha))
-            else EngineeringRefDecision.RequiresApproval(snapshot.operationId)
+            if (approved) {
+                EngineeringRefDecision.Ready(snapshot.expectedHeadSha, requireNotNull(snapshot.commitSha))
+            } else {
+                EngineeringRefDecision.RequiresApproval(snapshot.operationId)
+            }
         is GitSagaReconciliation.Conflict -> EngineeringRefDecision.Diverged(result.actualHeadSha)
         GitSagaReconciliation.InspectRemoteCommit,
         GitSagaReconciliation.VerifyCommitObject -> EngineeringRefDecision.Unverified

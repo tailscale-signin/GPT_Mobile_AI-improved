@@ -4,11 +4,11 @@ package dev.chungjungsoo.gptmobile.data.agent.tool
 internal data class EngineeringRecoveryItem(
     val taskId: String,
     val operationId: String,
-    val action: EngineeringRecoveryAction,
+    val action: EngineeringRecoveryAction
 )
 
 internal class GitHubEngineeringRecoveryService(
-    private val ledger: GitHubEngineeringRoomLedger,
+    private val ledger: GitHubEngineeringRoomLedger
 ) {
     suspend fun pending(): List<EngineeringRecoveryItem> = buildList {
         for (task in ledger.activeTasks()) {
@@ -20,7 +20,7 @@ internal class GitHubEngineeringRecoveryService(
                     blobManifestDigest = row.blobManifestDigest,
                     treeSha = row.treeSha,
                     commitSha = row.commitSha,
-                    remoteRefSha = row.remoteRefSha,
+                    remoteRefSha = row.remoteRefSha
                 )
                 val action = GitHubEngineeringRecovery.plan(snapshot)
                 if (action != EngineeringRecoveryAction.Finished) {

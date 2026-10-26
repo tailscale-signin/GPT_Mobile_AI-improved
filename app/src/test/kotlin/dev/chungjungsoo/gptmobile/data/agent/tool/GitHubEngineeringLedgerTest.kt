@@ -15,14 +15,14 @@ class GitHubEngineeringLedgerTest {
         previousState = EngineeringState.CREATED,
         evidence = EngineeringEvidence.INSPECTION_STARTED,
         resultingState = EngineeringState.INSPECTING,
-        evidenceDigest = digest,
+        evidenceDigest = digest
     )
 
     @Test
     fun acceptedEventAdvancesProjection() {
         assertEquals(
             EngineeringLedgerSnapshot("task-1", sequence = 1, state = EngineeringState.INSPECTING),
-            GitHubEngineeringLedger.append(initial, started()),
+            GitHubEngineeringLedger.append(initial, started())
         )
     }
 
@@ -53,7 +53,7 @@ class GitHubEngineeringLedgerTest {
         assertThrows(IllegalArgumentException::class.java) {
             GitHubEngineeringLedger.append(
                 initial,
-                started().copy(resultingState = EngineeringState.COMPLETED),
+                started().copy(resultingState = EngineeringState.COMPLETED)
             )
         }
     }

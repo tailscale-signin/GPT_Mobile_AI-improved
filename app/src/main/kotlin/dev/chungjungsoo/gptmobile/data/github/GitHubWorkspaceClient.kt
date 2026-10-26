@@ -55,7 +55,8 @@ class GitHubWorkspaceClient(
     private val persistentState: Boolean = true,
     stateStore: GitHubRepositoryStateStore? = null,
     private val scheduler: GitHubRequestScheduler = GitHubSessionCaches.schedulerForCredential(token),
-    private val requestPriority: Int = 0
+    private val requestPriority: Int = 0,
+    private val engineeringPrepare: (suspend (String, JsonObject) -> JsonObject)? = null
 ) {
     companion object {
         const val API_VERSION = "2026-03-10"
@@ -753,6 +754,7 @@ class GitHubWorkspaceClient(
     }
 
     private suspend fun commitFiles(root: String, args: JsonObject): JsonObject {
+        engineeringPrepare?.let { return it(root, args) }
         require(token.isNotBlank()) { "Connect a GitHub account before committing." }
         val branch = args["branch"]?.jsonPrimitive?.content.orEmpty()
         require(branch.isNotBlank()) { "An explicit working branch is required." }

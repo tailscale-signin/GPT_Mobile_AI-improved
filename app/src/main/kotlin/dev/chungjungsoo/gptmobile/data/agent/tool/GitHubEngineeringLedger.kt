@@ -11,7 +11,7 @@ internal data class EngineeringLedgerEvent(
     val previousState: EngineeringState,
     val evidence: EngineeringEvidence,
     val resultingState: EngineeringState,
-    val evidenceDigest: String,
+    val evidenceDigest: String
 ) {
     init {
         require(taskId.isNotBlank())
@@ -27,14 +27,14 @@ internal data class EngineeringLedgerSnapshot(
     val taskId: String,
     val sequence: Long = 0,
     val attempt: Int = 1,
-    val state: EngineeringState = EngineeringState.CREATED,
+    val state: EngineeringState = EngineeringState.CREATED
 )
 
 /** Pure projection; neither evidence origin nor authenticity is established here. */
 internal object GitHubEngineeringLedger {
     fun append(
         snapshot: EngineeringLedgerSnapshot,
-        event: EngineeringLedgerEvent,
+        event: EngineeringLedgerEvent
     ): EngineeringLedgerSnapshot {
         require(event.taskId == snapshot.taskId) { "Cross-task ledger event" }
         require(event.sequence == snapshot.sequence + 1) { "Missing or duplicate ledger sequence" }

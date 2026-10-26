@@ -8,7 +8,7 @@ internal interface GitHubEngineeringCiReceiptGateway {
     suspend fun fetch(
         repositoryOwner: String,
         repositoryName: String,
-        commitSha: String,
+        commitSha: String
     ): List<EngineeringCheckReceipt>
 }
 
@@ -18,17 +18,19 @@ internal sealed interface EngineeringCiInspection {
 }
 
 internal class GitHubEngineeringCiInspector(
-    private val gateway: GitHubEngineeringCiReceiptGateway,
+    private val gateway: GitHubEngineeringCiReceiptGateway
 ) {
     suspend fun inspect(
         owner: String,
         repository: String,
         sha: String,
-        requiredChecks: Set<String>,
+        requiredChecks: Set<String>
     ): EngineeringCiInspection = try {
         EngineeringCiInspection.Verified(
-            GitHubEngineeringCiPolicy.evaluate(sha, requiredChecks, gateway.fetch(owner, repository, sha)),
+            GitHubEngineeringCiPolicy.evaluate(sha, requiredChecks, gateway.fetch(owner, repository, sha))
         )
+    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+        throw cancelled
     } catch (error: Exception) {
         EngineeringCiInspection.Unavailable(error.javaClass.simpleName)
     }

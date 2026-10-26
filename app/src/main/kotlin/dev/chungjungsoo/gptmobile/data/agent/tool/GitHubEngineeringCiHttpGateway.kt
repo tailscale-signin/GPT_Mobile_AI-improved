@@ -1,48 +1,100 @@
 package dev.chungjungsoo.gptmobile.data.agent.tool
 
-import java.net.HttpURLConnection
-import java.net.URL
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
 
-/** Caller supplies a short-lived credential; credentials are never persisted here. */
-internal class GitHubEngineeringCiHttpGateway(
-    private val tokenProvider: suspend () -> String?,
-) : GitHubEngineeringCiReceiptGateway {
-    override suspend fun fetch(
-        repositoryOwner: String,
-        repositoryName: String,
-        commitSha: String,
-    ): List<EngineeringCheckReceipt> = withContext(Dispatchers.IO) {
-        require(repositoryOwner.matches(Regex("[A-Za-z0-9-]+")))
-        require(repositoryName.matches(Regex("[A-Za-z0-9._-]+")))
+/** Complete bounded pagination; an incomplete collection can never establish a pass. */
+internal class GitHubEngineeringCiHttpGateway(tokenProvider: suspend () -> String?, private val api: GitHubEngineeringApi = GitHubEngineeringApi(tokenProvider)) : GitHubEngineeringCiReceiptGateway {
+
+    override suspend fun fetch(repositoryOwner: String, repositoryName: String, commitSha: String): List<EngineeringCheckReceipt> {
         require(commitSha.matches(Regex("[a-fA-F0-9]{40}|[a-fA-F0-9]{64}")))
-        val token = requireNotNull(tokenProvider()?.takeIf { it.isNotBlank() }) {
-            "GitHub authentication unavailable"
+        val root = GitHubEngineeringApi.root(repositoryOwner, repositoryName)
+        val checks = mutableListOf<EngineeringCheckReceipt>()
+        var completed = false
+        var expectedCount: Int? = null
+        val runIds = mutableSetOf<Long>()
+        for (page in 1..50) {
+            val json = api.request("$root/commits/$commitSha/check-runs?filter=latest&per_page=100&page=$page")
+            val envelope = JSONObject(json)
+            val count = envelope.getInt("total_count")
+            require(count in 0..5000)
+            check(expectedCount == null || expectedCount == count) { "Check collection changed during pagination; retry inspection" }
+            expectedCount = count
+            val rows = envelope.getJSONArray("check_runs")
+            for (i in 0 until rows.length()) check(runIds.add(rows.getJSONObject(i).getLong("id"))) { "Duplicate check-run page" }
+            checks += GitHubEngineeringCiCheckParser.parse(json, commitSha)
+            if (runIds.size == count) {
+                completed = true
+                break
+            }
+            check(rows.length() == 100 && runIds.size < count) { "Incomplete check-run collection" }
         }
-        val url = URL(
-            "https://api.github.com/repos/$repositoryOwner/$repositoryName/commits/$commitSha/check-runs?per_page=100",
-        )
-        val connection = (url.openConnection() as HttpURLConnection)
+        check(completed) { "Check-run pagination limit exceeded" }
+        completed = false
+        val statusIds = mutableSetOf<Long>()
+        for (page in 1..50) {
+            val rows = JSONArray(api.request("$root/commits/$commitSha/statuses?per_page=100&page=$page"))
+            for (i in 0 until rows.length()) {
+                val row = rows.getJSONObject(i)
+                check(statusIds.add(row.getLong("id"))) { "Duplicate commit-status page" }
+                val state = row.getString("state")
+                checks += EngineeringCheckReceipt(
+                    row.getString("context"),
+                    if (state == "pending") EngineeringCheckStatus.IN_PROGRESS else EngineeringCheckStatus.COMPLETED,
+                    when (state) {
+                        "success" -> EngineeringCheckConclusion.SUCCESS
+                        "failure", "error" -> EngineeringCheckConclusion.FAILURE
+                        else -> EngineeringCheckConclusion.UNKNOWN
+                    },
+                    commitSha,
+                    row.getLong("id"),
+                    source = "status",
+                    startedAt = row.optString("created_at")
+                )
+            }
+            if (rows.length() < 100) {
+                completed = true
+                break
+            }
+        }
+        check(completed) { "Commit-status pagination limit exceeded" }
+        return checks
+    }
+
+    /** GitHub branch protection plus active rulesets. Permission failures stay unavailable. */
+    suspend fun requiredChecks(owner: String, repository: String, branch: String): Set<EngineeringRequiredCheck> {
+        val root = GitHubEngineeringApi.root(owner, repository)
+        val encoded = GitHubEngineeringApi.segment(branch)
+        val required = mutableSetOf<EngineeringRequiredCheck>()
         try {
-            connection.instanceFollowRedirects = false
-            connection.connectTimeout = 15_000
-            connection.readTimeout = 20_000
-            connection.setRequestProperty("Authorization", "Bearer $token")
-            connection.setRequestProperty("Accept", "application/vnd.github+json")
-            connection.setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
-            check(connection.responseCode == 200) { "GitHub check-run request failed" }
-            val body = connection.inputStream.bufferedReader().use { it.readText() }
-            val root = org.json.JSONObject(body)
-            check(root.has("total_count") && root.has("check_runs")) {
-                "Missing GitHub check-run collection fields"
+            val protection = JSONObject(api.request("$root/branches/$encoded/protection/required_status_checks"))
+            val checks = protection.optJSONArray("checks")
+            if (checks != null) {
+                for (i in 0 until checks.length()) {
+                    val check = checks.getJSONObject(i)
+                    required += EngineeringRequiredCheck(check.getString("context"), check.optLong("app_id").takeIf { it > 0 })
+                }
             }
-            check(root.optInt("total_count", 0) <= root.getJSONArray("check_runs").length()) {
-                "Incomplete GitHub check-run pagination"
+            val contexts = protection.optJSONArray("contexts") ?: JSONArray()
+            for (i in 0 until contexts.length()) {
+                val name = contexts.getString(i)
+                if (required.none { it.name == name }) required += EngineeringRequiredCheck(name)
             }
-            GitHubEngineeringCiCheckParser.parse(body, commitSha)
-        } finally {
-            connection.disconnect()
+        } catch (error: EngineeringApiException) {
+            if (error.status != 404) throw error
+            // 404 may also mask missing permissions. The rules API must succeed,
+            // and an empty aggregate remains pending rather than waived.
         }
+        val rules = JSONArray(api.request("$root/rules/branches/$encoded"))
+        for (i in 0 until rules.length()) {
+            val rule = rules.getJSONObject(i)
+            if (rule.optString("type") != "required_status_checks") continue
+            val checks = rule.getJSONObject("parameters").getJSONArray("required_status_checks")
+            for (j in 0 until checks.length()) {
+                val check = checks.getJSONObject(j)
+                required += EngineeringRequiredCheck(check.getString("context"), check.optLong("integration_id").takeIf { it > 0 })
+            }
+        }
+        return required
     }
 }

@@ -161,6 +161,7 @@ class PlannedLocalRuntime(
             } else {
                 null
             }
+        tuningNotice = (listOfNotNull(tuningNotice) + capabilities?.compatibilityWarnings.orEmpty()).joinToString(" ").takeIf { it.isNotBlank() }
         var evidenceKey: RuntimeQualificationKey? = null
         val decision =
             run {

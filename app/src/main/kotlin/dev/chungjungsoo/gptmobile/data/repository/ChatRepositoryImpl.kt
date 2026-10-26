@@ -1630,7 +1630,7 @@ class ChatRepositoryImpl(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
-                AppLogRecorder.record("LocalModel", "LOCAL_PREFLIGHT_TERMINAL · stage=parent_readiness · status=REJECTED · exception=${failure.javaClass.simpleName} · profileUid=${platform.uid} · nativeDispatched=false", "W")
+                AppLogRecorder.record("LocalModel", "LOCAL_PREFLIGHT_TERMINAL · stage=parent_readiness · status=REJECTED · reason=${dev.chungjungsoo.gptmobile.data.localruntime.LocalReadinessFailure.from(failure)} · backend=${platform.accelerator} · exception=${failure.javaClass.simpleName} · profileUid=${platform.uid} · nativeDispatched=false", "W")
                 emit(ApiState.Error(failure.message ?: "Local model readiness check failed. Review Local AI before retrying."))
                 emit(ApiState.Done)
                 return@flow

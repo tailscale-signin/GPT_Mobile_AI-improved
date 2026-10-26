@@ -49,9 +49,9 @@ class ResearchExaminationWorker @AssistedInject constructor(
             } else {
                 "WORKER_COMPLETED"
             }
-            val receipt = androidx.work.workDataOf("scope" to "app_wide_examination_outbox", "processedItems" to processedItems, "outcome" to outcome, "researchReportDelivered" to false)
+            val receipt = androidx.work.workDataOf("scope" to "app_wide_examination_outbox", "processedItems" to processedItems, "outcome" to outcome, "reportDeliveryStatus" to "NOT_EVALUATED")
             setProgress(receipt)
-            AppLogRecorder.record("ResearchExamine", "WORKER_OUTCOME · scope=app_wide_examination_outbox · processedItems=$processedItems · outcome=$outcome · researchReportDelivered=false")
+            AppLogRecorder.record("ResearchExamine", "WORKER_OUTCOME · scope=app_wide_examination_outbox · processedItems=$processedItems · outcome=$outcome · reportDeliveryStatus=NOT_EVALUATED · deliveryScope=individual_job_receipts")
             return if (pending) Result.retry() else Result.success(receipt)
         }
         coordinator.recover()

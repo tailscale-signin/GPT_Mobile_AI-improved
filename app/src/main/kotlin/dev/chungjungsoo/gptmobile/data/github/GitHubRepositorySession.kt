@@ -430,9 +430,11 @@ internal class GitHubRepositorySession(
         val staged = store.read(scope, "stage:$id") ?: error("Patch stage is unavailable or belongs to another task/account.")
         require(staged.s("owner").equals(context.owner, true) && staged.s("repo").equals(context.repo, true))
         staged["commit_receipt"]?.let { return it }
+        staged["engineering_review_receipt"]?.let { return it }
         require(staged.s("expected_head_sha") == context.commitSha) { "Task revision changed; restage the reviewed patch." }
         val result = commit(root(context.owner, context.repo), JsonObject(args + mapOf("files" to staged.getValue("files"), "expected_head_sha" to staged.getValue("expected_head_sha"))))
-        store.write(scope, "stage:$id", JsonObject(staged + ("commit_receipt" to result)))
+        val receiptKey = if (result.jsonObject["sha"] != null) "commit_receipt" else "engineering_review_receipt"
+        store.write(scope, "stage:$id", JsonObject(staged + (receiptKey to result)))
         return result
     }
 

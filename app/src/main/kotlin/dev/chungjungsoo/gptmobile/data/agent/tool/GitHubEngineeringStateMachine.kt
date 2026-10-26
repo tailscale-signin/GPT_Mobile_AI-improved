@@ -24,7 +24,7 @@ internal enum class EngineeringState {
     CONFLICTED,
     CI_FAILED,
     FAILED,
-    CANCELLED,
+    CANCELLED
 }
 
 internal enum class EngineeringEvidence {
@@ -46,7 +46,7 @@ internal enum class EngineeringEvidence {
     REF_CONFLICT,
     CI_CHECK_FAILED,
     EXECUTION_FAILED,
-    USER_CANCELLED,
+    USER_CANCELLED
 }
 
 internal object GitHubEngineeringStateMachine {
@@ -57,7 +57,7 @@ internal object GitHubEngineeringStateMachine {
         EngineeringState.VALIDATING_LOCAL to mapOf(EngineeringEvidence.LOCAL_VALIDATION_PASSED to EngineeringState.PATCH_READY),
         EngineeringState.PATCH_READY to mapOf(
             EngineeringEvidence.APPROVAL_REQUIRED to EngineeringState.AWAITING_APPROVAL,
-            EngineeringEvidence.COMMIT_STARTED to EngineeringState.COMMITTING,
+            EngineeringEvidence.COMMIT_STARTED to EngineeringState.COMMITTING
         ),
         EngineeringState.AWAITING_APPROVAL to mapOf(EngineeringEvidence.APPROVAL_GRANTED to EngineeringState.COMMITTING),
         EngineeringState.COMMITTING to mapOf(EngineeringEvidence.REMOTE_REF_CONFIRMED to EngineeringState.PUSHED),
@@ -65,10 +65,10 @@ internal object GitHubEngineeringStateMachine {
         EngineeringState.CI_PENDING to mapOf(EngineeringEvidence.REQUIRED_CHECKS_PASSED to EngineeringState.CI_VERIFIED),
         EngineeringState.CI_VERIFIED to mapOf(
             EngineeringEvidence.HARDWARE_REQUIRED to EngineeringState.AWAITING_HARDWARE_VERIFICATION,
-            EngineeringEvidence.POLICY_COMPLETION_CONFIRMED to EngineeringState.COMPLETED,
+            EngineeringEvidence.POLICY_COMPLETION_CONFIRMED to EngineeringState.COMPLETED
         ),
         EngineeringState.AWAITING_HARDWARE_VERIFICATION to mapOf(EngineeringEvidence.HARDWARE_RECEIPT_VERIFIED to EngineeringState.HARDWARE_VERIFIED),
-        EngineeringState.HARDWARE_VERIFIED to mapOf(EngineeringEvidence.POLICY_COMPLETION_CONFIRMED to EngineeringState.COMPLETED),
+        EngineeringState.HARDWARE_VERIFIED to mapOf(EngineeringEvidence.POLICY_COMPLETION_CONFIRMED to EngineeringState.COMPLETED)
     )
 
     /** The caller must validate evidence provenance and policy before invoking this reducer. */
@@ -82,7 +82,7 @@ internal object GitHubEngineeringStateMachine {
             EngineeringState.BLOCKED,
             EngineeringState.CONFLICTED,
             EngineeringState.CI_FAILED,
-            EngineeringState.FAILED,
+            EngineeringState.FAILED
         )
         if (!failureAllowed) throw IllegalArgumentException("Recovery requires a new recorded attempt: $current")
         return when (evidence) {

@@ -172,6 +172,7 @@ internal fun combinedSynthesisPrompt(
             put("outline_support_instruction", "The listed gaps have no substantive retained claim. Do not imply contributor or source support for them. Use authorized verification when available, otherwise disclose material gaps or clearly distinguish background knowledge.")
         }
         val collectionBias = combined?.requested?.settings?.collectionBias ?: 25
+        val synthesisPreferences = combined?.requested?.settings?.let { dev.chungjungsoo.gptmobile.data.agent.CombinedSynthesisPreferences.from(it) }
         val effort = combined?.requested?.settings?.effort ?: 50
         put("requested_policy_digest", combined?.requested?.requestedPolicyDigest.orEmpty())
         val effectivePlanDigest = combined?.plan?.effectivePlanDigest.orEmpty()
@@ -180,6 +181,7 @@ internal fun combinedSynthesisPrompt(
             "merge_selection_policy",
             buildJsonObject {
                 put("collection_bias", collectionBias)
+                synthesisPreferences?.let { put("synthesis_preferences", it.instruction()) }
                 put("response_effort", effort)
                 put(
                     "style",

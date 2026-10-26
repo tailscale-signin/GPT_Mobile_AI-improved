@@ -171,7 +171,7 @@ internal class CombinedDeliverySession(
             val unresolvedResearch = checked.checks.any { it.category == "RESEARCH_SCOPE" && it.result != "PASS" }
             val providerComplete = candidate.terminal == ProviderEvent.Completed
             val material = correctionRequired || checked.correctionRequired
-            val issues = (violations + candidate.decoder?.issues.orEmpty() + checked.issues + listOfNotNull("LEXICAL_COVERAGE_NOT_EVALUATED".takeIf { !coverageResult.evaluated }, "LEXICAL_COVERAGE_UNRESOLVED_HINTS".takeIf { coverageResult.missing.isNotEmpty() })).distinct()
+            val issues = (violations + listOfNotNull("NO_FINAL_OUTPUT".takeIf { candidate.text.isBlank() }) + candidate.decoder?.issues.orEmpty() + checked.issues + listOfNotNull("LEXICAL_COVERAGE_NOT_EVALUATED".takeIf { !coverageResult.evaluated }, "LEXICAL_COVERAGE_UNRESOLVED_HINTS".takeIf { coverageResult.missing.isNotEmpty() })).distinct()
             val framingValid = candidate.decoder?.issues.orEmpty().none { it in COMBINED_FRAMING_FAILURES }
             val delivered = when {
                 candidate.text.isBlank() -> "FAILED"
@@ -397,6 +397,18 @@ internal class CombinedDeliverySession(
             writerMapping.claims.count { it.status == "PARTIAL" },
             assessment.verificationNeeds
         )
+        var deterministicFallback = false
+        if (accepted.text.isBlank() && committedPrefix.isEmpty()) {
+            validateAccess()
+            val fallback = withContext(Dispatchers.Default) { deterministicCombinedFallback(sources, maxCharacters, policy.maximumWords) }
+            if (fallback != null) {
+                accepted = accepted.copy(text = fallback, assembledLocally = true)
+                assessment = assess(accepted)
+                violations = withContext(Dispatchers.Default) { policy.violations(fallback) }
+                correctionRequired = true
+                deterministicFallback = true
+            }
+        }
         var ceilingEnforced = false
         val ceiling = policy.maximumWords
         if (!recordProtocol && !progressive && committedPrefix.isEmpty() && ceiling != null && visibleWordCount(accepted.text) > ceiling) {
@@ -416,6 +428,15 @@ internal class CombinedDeliverySession(
             locallyAddedCharacters = (accepted.text.length - writerText.length).coerceAtLeast(0),
             locallyRemovedCharacters = (writerText.length - accepted.text.length).coerceAtLeast(0)
         )
+        if (deterministicFallback) {
+            finalReport = finalReport.copy(
+                complete = false,
+                status = "FALLBACK_SOURCE_COMPILATION",
+                deliveredScopeStatus = "PARTIAL",
+                correctionRequired = true,
+                issues = (finalReport.issues + "WRITER_FAILED_SOURCE_COMPILATION" + "NO_FINAL_OUTPUT_FROM_WRITER").distinct()
+            )
+        }
         if (ceilingEnforced) finalReport = finalReport.copy(issues = (finalReport.issues + "WORD_CEILING_ENFORCED_AFTER_REPAIR").distinct())
         if (preserveSourceContent) {
             val accounting = withContext(Dispatchers.Default) { CombinedSourcePreservation.account(accepted.text, sources) }

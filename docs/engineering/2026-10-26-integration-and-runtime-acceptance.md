@@ -1,0 +1,42 @@
+# October 26 integration and runtime acceptance
+
+Branch: `fix/local-tools-answers-gguf-gpu-2026-10-26`. Keep PR #748 in draft until the required checks and device acceptance pass. Source presence, a host harness, emulator execution and physical-device success are different evidence levels.
+
+## Changes in this follow-up
+
+- Memory: exact native ownership replaces the GGUF file-size floor only for matching calibration shapes; unmeasured GPU overlap stays conservative. Resident predecessor engines unload under the holder lease before the fresh memory snapshot. An unchanged insufficient plan is paused for 30 seconds and immediately rechecked when sufficient headroom or configuration changes occur. Error text includes allocation, model, reserve, shortfall and selected backend evidence.
+- Native lifecycle: signal cooperative abort independently of coroutine cancellation, including LOAD commands; await bounded worker termination after missing acknowledgement. A quarantined holder reconciles cleanup before admission. Only positive closure/death evidence releases quarantine. Confirmed worker death clears resident engine, conversation, tool and PSS state. Cleanup exports include REQUESTED/CANCELLING/RELEASED/PROCESS_TERMINATED/FAILED.
+- Compatibility: inspect tokenizer EOS/EOT/EOM bounds without allocating native weights; cache tokenizer vocabulary size and sliding-window metadata. Report full-context SWA allocation and unverified EOG compatibility instead of calling warnings proof of failure. Invalid tokenizer identifiers fail before native load.
+- Engineering execution: authenticated Android controller connects structural patch validation, exact user approval, content-addressed blobs/trees, deterministic commits, parent/tree verification, non-forced refs, CI scheduling and durable completion. GitHub agent commits stage review tasks; models cannot call approval. Existing explicit UI review submits the same frozen patch to the controller. Legacy `update_file` is unavailable through the controlled agent path.
+- Approval: bind task/attempt, account, repository, working branch, base SHA, complete patch, commit message and policy branch. Expire after 30 minutes, permit revocation, renew only through explicit review, reject changed visible proposals and recheck the authenticated account at every physical write. No default-branch commits or automatic merge/release.
+- CI: WorkManager fetches authenticated check runs and legacy statuses with bounded complete pagination, resolves protection/ruleset policy and pinned app identities, chooses latest attempts, retains empty/ambiguous policy as pending, persists receipts and transitions together, and enforces a persisted 24-hour deadline. Credentials are reread from SecretVault, excluded from the ledger and API errors, and never sent through redirects.
+- Recovery: unique startup work enumerates active tasks, reconciles existing remote commit parent/tree/ref evidence without writes, and schedules CI. Unpublished work requires valid approval to resume. Per-repository mutexes serialize live execution; Room sequence and Git-stage compare-and-set operations detect races.
+- Hardware: tasks can require physical-device verification. The confirmation reads qualified, nonhistorical local benchmark trials for the installed task commit, the same artifact/runtime, and CPU plus GPU configurations, with actual backend confirmation. It records device/firmware, runtime, artifact, trial IDs, patch and approving account. Emulator evidence and CI success cannot satisfy this gate. This receipt covers the recorded runtime benchmark, not all UI acceptance.
+- Combined admission: ignore other profiles' quotes/context ceilings and quote telemetry; allow increased token limits to preserve the smaller accepted allocation, including saved provider waits. Scope permission/credential revocation remains immediate. Report changed field names without values or credentials.
+- Combined delivery: retain the existing nonempty/digest/ownership publication transaction, claim inventory, continuation journals and attribution. Mark absent output NO_FINAL_OUTPUT and defer semantic omission scoring. If the writer delivers nothing and current access remains valid, publish an explicitly incomplete, unverified local compilation containing every source, only when the complete compilation fits explicit word/character limits. It is not a successful writer synthesis.
+- Combined controls: completeness, verbosity, source diversity and retained-evidence checking are sealed in the existing forward-compatible settings envelope. Explicit user requirements and hard limits take precedence. Verbosity adjusts default writer reservation. Controls grant no tool or personal-data permission; legacy default serialization remains unchanged.
+- Diagnostics: add root/symptom/expected-lifecycle/informational export classification. Examine outbox worker results report delivery NOT_EVALUATED; job receipts remain the authority for actual delivery.
+
+## Existing branch mechanisms retained after source comparison
+
+The audited commit predates part of the current branch. Existing code already supplies SAF copy recovery with owned URI grants and integrity checks (`NativeModelSource`, `LocalModelSourceImport`), file-identity metadata/checksum caches (`PackageDigest`, `GgufImportAdapter`), explicit backend validation (`LocalModelCapabilities`, runtime router), actual offload receipts, MCP Streamable HTTP negotiation and DNS/endpoint circuit state (`McpClientManager`, `LocalServiceHealth`, `ResearchConnectivityGate`), unique event-driven Examine outbox work and durable job checkpoints (`ResearchExaminationWorker`, `ArticleExaminationCoordinator`), Combined claim/source snapshots and final-only recovery, protected writer reservations, finite provider-aware continuation and atomic attributed publication. Their presence is not new device verification.
+
+## Validation evidence
+
+- Pinned ktlint 1.3.1 formatting and Android regex checks run locally.
+- 191 repository Python tests passed; the GGUF prefill-governor host contract passed.
+- Focused Kotlin compilation of engineering production code with Android/Room/service infrastructure stubs, plus 42 JUnit tests, passed before the final integration additions. These tests exercise reducers, approval binding/expiry/revocation, CI identities/pagination, saga/recovery decisions and do not establish a complete Android workflow.
+- Added Android-backed Room transaction tests and native-holder/model-switch regression tests, plus Combined fallback/settings and tokenizer tests. They require the Android build/test environment.
+- Local full Gradle execution is blocked by the distribution download failing with Network is unreachable. This workspace also lacks the configured Android SDK/JDK 21 toolchain and the physical ASUS device.
+
+## Release acceptance still requiring real evidence
+
+1. Latest-head Kotlin/Room/Hilt/Compose compilation, Android unit tests, lint, packaging, CodeQL and native build/smoke checks.
+2. Room version-1-to-2 upgrade/reopen on Android; concurrent task events and process death at each Git checkpoint; fresh credentials, expired/revoked approval, offline/rate-limit recovery, and default-branch/race rejection.
+3. Authenticated Android workflow: stage from chat, review every complete changed file, approve, publish one commit, restart, inspect exact-SHA CI receipts, cancel/revoke and confirm no stale writes.
+4. Four-contributor Combined sessions: unrelated quote/ceiling changes; increased and reduced budgets; immediate source permission revocation; final-only recovery; empty/invalid/limited writer; long-context batches; source colours and links after restore; explicit user length/language/subject constraints.
+5. Submitted Examine jobs must enter the outbox and reach a persisted terminal artifact. An empty outbox NO_OP is not a failed report.
+6. ASUS ROG Phone 9 Pro: GGUF CPU and each packaged GPU mode, load/prefill/decode cancellation, confirmed worker exit, memory shortfalls near admission, native offload/token receipts and supported LiteRT/NPU exports. CPU execution must never establish GPU/NPU success.
+7. Perfetto/Macrobenchmark and frame measurements during model loading and Combined preparation/streaming. Do not claim the no-repeatable-half-second-stall target without physical measurements.
+
+No passing result for these outstanding gates is fabricated by the controller or this document.

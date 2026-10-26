@@ -17,7 +17,7 @@ class GitHubGitSagaTest {
             expectedHeadSha = base,
             stage = GitSagaStage.COMMIT_CREATED,
             treeSha = tree,
-            commitSha = commit,
+            commitSha = commit
         )
         val result = GitHubGitSaga.reconcile(snapshot, base)
         assertEquals(GitSagaReconciliation.VerifyCommitObject, result)
@@ -31,11 +31,11 @@ class GitHubGitSagaTest {
             expectedHeadSha = base,
             stage = GitSagaStage.COMMIT_CREATED,
             treeSha = tree,
-            commitSha = commit,
+            commitSha = commit
         )
         assertTrue(
             GitHubGitSaga.reconcileVerified(snapshot, base, commit, "d".repeat(40), tree)
-                is GitSagaReconciliation.Conflict,
+                is GitSagaReconciliation.Conflict
         )
     }
 
@@ -46,7 +46,7 @@ class GitHubGitSagaTest {
             expectedHeadSha = base,
             stage = GitSagaStage.COMMIT_CREATED,
             treeSha = tree,
-            commitSha = commit,
+            commitSha = commit
         )
         val result = GitHubGitSaga.reconcile(snapshot, commit)
         assertEquals(GitSagaReconciliation.VerifyCommitObject, result)
@@ -62,12 +62,12 @@ class GitHubGitSagaTest {
             expectedHeadSha = base,
             stage = GitSagaStage.COMMIT_CREATED,
             treeSha = tree,
-            commitSha = commit,
+            commitSha = commit
         )
         assertEquals(GitSagaReconciliation.VerifyCommitObject, GitHubGitSaga.reconcile(snapshot, commit))
         assertTrue(
             GitHubGitSaga.reconcileVerified(snapshot, commit, commit, base, "d".repeat(40))
-                is GitSagaReconciliation.Conflict,
+                is GitSagaReconciliation.Conflict
         )
     }
 
@@ -78,7 +78,7 @@ class GitHubGitSagaTest {
             expectedHeadSha = base,
             stage = GitSagaStage.COMMIT_CREATED,
             treeSha = tree,
-            commitSha = commit,
+            commitSha = commit
         )
         assertTrue(GitHubGitSaga.reconcile(snapshot, "d".repeat(40)) is GitSagaReconciliation.Conflict)
     }
@@ -87,7 +87,7 @@ class GitHubGitSagaTest {
     fun missingCommitRequiresRemoteInspection() {
         assertEquals(
             GitSagaReconciliation.InspectRemoteCommit,
-            GitHubGitSaga.reconcile(GitSagaSnapshot("operation-1", base), base),
+            GitHubGitSaga.reconcile(GitSagaSnapshot("operation-1", base), base)
         )
     }
 

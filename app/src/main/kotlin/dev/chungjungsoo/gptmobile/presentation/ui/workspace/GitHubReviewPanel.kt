@@ -47,7 +47,6 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.booleanOrNull
-import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -60,14 +59,19 @@ data class GitHubFileProposal(val path: String, val before: String, val after: S
 data class GitHubReview(val connectionUid: String, val owner: String, val repo: String, val branch: String, val head: String, val checks: JsonObject = JsonObject(emptyMap()), val files: List<GitHubFileProposal> = emptyList(), val pullNumber: Int? = null, val changedFiles: JsonObject = JsonObject(emptyMap()), val reviewNotes: String = "", val inspectedAt: Long = System.currentTimeMillis(), val stale: Boolean = false)
 
 @HiltViewModel
-class GitHubReviewViewModel @Inject constructor(private val connections: ToolConnectionRepository, private val vault: SecretVault, private val workspace: WorkspaceRepository) : ViewModel() {
+class GitHubReviewViewModel @Inject constructor(private val connections: ToolConnectionRepository, private val vault: SecretVault, private val workspace: WorkspaceRepository, private val engineering: dev.chungjungsoo.gptmobile.data.agent.tool.GitHubEngineeringController) : ViewModel() {
     val accounts = MutableStateFlow<List<ToolConnection>>(emptyList())
     val record = MutableStateFlow<WorkspaceRecord?>(null)
     val review = MutableStateFlow<GitHubReview?>(null)
     val notice = MutableStateFlow("")
     val busy = MutableStateFlow(false)
+    internal val engineeringTasks = MutableStateFlow<List<dev.chungjungsoo.gptmobile.data.agent.tool.EngineeringTaskRow>>(emptyList())
+    internal val engineeringEvents = MutableStateFlow<List<dev.chungjungsoo.gptmobile.data.agent.tool.EngineeringEventRow>>(emptyList())
+    internal val selectedEngineeringRun = MutableStateFlow<dev.chungjungsoo.gptmobile.data.agent.tool.EngineeringRunRow?>(null)
+    internal val pendingEngineeringTask = MutableStateFlow<String?>(null)
     init {
         action {
+            engineeringTasks.value = engineering.recent()
             accounts.value = connections.listConnections().filter { it.type == "GITHUB" }
             workspace.dao.list("github").firstOrNull()?.let {
                 record.value = it
@@ -157,36 +161,80 @@ class GitHubReviewViewModel @Inject constructor(private val connections: ToolCon
         save(old.copy(files = emptyList()))
         notice.value = "Local proposal discarded. Inspect the destination again to refresh a moved branch."
     }
-    fun commit(message: String) = action {
+    fun prepareCommit(message: String, requiresHardware: Boolean = false) = action {
         val proposal = requireNotNull(review.value)
         require(!proposal.stale) { "Refresh the moved branch before committing." }
-        val files = proposal.files.filter { it.before != it.after }
-        require(files.isNotEmpty()) { "There are no edits to submit." }
-        val result = client(proposal.connectionUid).execute(
-            "commit_files",
-            arguments(
-                proposal,
-                buildJsonObject {
-                    put("expected_head_sha", proposal.head)
-                    put("message", message)
-                    put(
-                        "files",
-                        buildJsonArray {
-                            files.forEach {
-                                add(
-                                    buildJsonObject {
-                                        put("path", it.path)
-                                        put("content", it.after)
-                                    }
-                                )
-                            }
-                        }
-                    )
+        val files = proposal.files.filter { it.before != it.after }.map {
+            dev.chungjungsoo.gptmobile.data.agent.tool.EngineeringFilePatch(it.path, it.before, it.after)
+        }
+        val taskId = engineering.prepare(proposal.connectionUid, proposal.owner, proposal.repo, proposal.branch, proposal.head, files, message, requiresHardware)
+        pendingEngineeringTask.value = taskId
+        selectedEngineeringRun.value = engineering.run(taskId)
+        engineeringEvents.value = engineering.events(taskId)
+        engineeringTasks.value = engineering.recent()
+        notice.value = "Patch validated for paths, size and credentials. Review and approve this exact snapshot. Compilation and hardware remain unverified."
+    }
+    fun approveCommit(taskId: String, digest: String) = action {
+        val task = engineeringTasks.value.single { it.taskId == taskId }
+        val frozen = requireNotNull(engineering.run(taskId))
+        val visible = requireNotNull(review.value)
+        require(visible.owner == task.repositoryOwner && visible.repo == task.repositoryName && visible.branch == task.workingBranch && visible.head == task.baseSha)
+        require(
+            dev.chungjungsoo.gptmobile.data.agent.tool.GitHubEngineeringAuthorization.patchJson(
+                visible.files.filter { it.before != it.after }.map {
+                    dev.chungjungsoo.gptmobile.data.agent.tool.EngineeringFilePatch(it.path, it.before, it.after)
                 }
-            )
-        ).jsonObject
-        save(proposal.copy(head = result.getValue("sha").jsonPrimitive.content, files = emptyList(), checks = JsonObject(emptyMap()), reviewNotes = "Previous review applied to ${proposal.head}. Re-run checks for this commit."))
-        notice.value = "Commit created. Check results for the previous SHA are cleared."
+            ) == frozen.patchJson
+        ) { "The visible patch changed; validate and review it again." }
+        engineering.approve(taskId, digest)
+        val sha = engineering.execute(taskId)
+        review.value?.let { proposal ->
+            save(proposal.copy(head = sha, files = emptyList(), checks = JsonObject(emptyMap()), reviewNotes = "Commit $sha published; repository-required CI is being monitored."))
+        }
+        pendingEngineeringTask.value = null
+        selectedEngineeringRun.value = engineering.run(taskId)
+        engineeringEvents.value = engineering.events(taskId)
+        engineeringTasks.value = engineering.recent()
+        notice.value = "Remote commit verified. CI evidence is pending."
+    }
+    fun inspectEngineeringTask(taskId: String) = action {
+        selectedEngineeringRun.value = engineering.run(taskId)
+        engineeringEvents.value = engineering.events(taskId)
+        engineeringTasks.value = engineering.recent()
+    }
+    fun resumeEngineering(taskId: String) = action {
+        engineering.recover()
+        inspectEngineeringTaskNow(taskId)
+    }
+    private suspend fun inspectEngineeringTaskNow(taskId: String) {
+        selectedEngineeringRun.value = engineering.run(taskId)
+        engineeringEvents.value = engineering.events(taskId)
+        engineeringTasks.value = engineering.recent()
+    }
+    fun verifyEngineeringHardware(taskId: String) = action {
+        engineering.attachHardwareVerification(taskId)
+        inspectEngineeringTaskNow(taskId)
+    }
+    fun revokeEngineering(taskId: String) = action {
+        engineering.revoke(taskId)
+        inspectEngineeringTaskNow(taskId)
+    }
+    fun cancelEngineering(taskId: String) = action {
+        engineering.cancel(taskId)
+        inspectEngineeringTaskNow(taskId)
+    }
+    fun reviewEngineering(taskId: String) = action {
+        val task = engineering.recent().single { it.taskId == taskId }
+        val run = requireNotNull(engineering.run(taskId))
+        require(review.value?.files?.none { it.before != it.after } != false) { "Save or discard the current proposal before reviewing a saved task." }
+        val files = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubEngineeringAuthorization.files(run.patchJson).map { GitHubFileProposal(it.path, it.before, it.after) }
+        record.value = null
+        save(GitHubReview(run.connectionUid, task.repositoryOwner, task.repositoryName, task.workingBranch, task.baseSha, files = files))
+        inspectEngineeringTaskNow(taskId)
+        pendingEngineeringTask.value = taskId
+    }
+    fun dismissApproval() {
+        pendingEngineeringTask.value = null
     }
     private fun action(block: suspend () -> Unit) {
         if (busy.value) return
@@ -211,6 +259,10 @@ fun GitHubReviewPanel(model: GitHubReviewViewModel = hiltViewModel()) {
     val review by model.review.collectAsState()
     val notice by model.notice.collectAsState()
     val busy by model.busy.collectAsState()
+    val tasks by model.engineeringTasks.collectAsState()
+    val events by model.engineeringEvents.collectAsState()
+    val selectedRun by model.selectedEngineeringRun.collectAsState()
+    val pendingTask by model.pendingEngineeringTask.collectAsState()
     var uid by remember { mutableStateOf("") }
     var owner by remember { mutableStateOf("") }
     var repo by remember { mutableStateOf("") }
@@ -219,6 +271,7 @@ fun GitHubReviewPanel(model: GitHubReviewViewModel = hiltViewModel()) {
     var path by remember { mutableStateOf("") }
     var confirming by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf("") }
+    var requiresHardware by remember { mutableStateOf(false) }
     LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
             WorkspaceCard("GitHub review") {
@@ -230,6 +283,33 @@ fun GitHubReviewPanel(model: GitHubReviewViewModel = hiltViewModel()) {
                 Button(enabled = !busy, onClick = { model.inspect(uid, owner, repo, branch, pr) }) { Text("Inspect branch") }
                 if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
                 Text(notice)
+            }
+        }
+        if (tasks.isNotEmpty()) {
+            item {
+                WorkspaceCard("Engineering tasks") {
+                    tasks.forEach { task ->
+                        TextButton(enabled = !busy, onClick = { model.inspectEngineeringTask(task.taskId) }) {
+                            Text("${task.repositoryOwner}/${task.repositoryName} · ${task.workingBranch} · ${task.state}")
+                        }
+                    }
+                    selectedRun?.let { run ->
+                        Text("Task ${run.taskId} · patch ${run.patchDigest.take(12)}")
+                        Text(run.notice)
+                        Text("Structural validation: recorded · CI: ${if (run.verifiedChecksJson == null) "unverified" else "receipts recorded; see task state"} · Emulator: no receipt · Physical device: ${if (run.hardwareReceiptJson == null) "unverified" else "receipt recorded"}")
+                        events.filter { it.taskId == run.taskId }.forEach { Text("${it.sequence}. ${it.resultingState} · ${it.evidenceDigest.take(12)}", style = MaterialTheme.typography.bodySmall) }
+                        SelectionContainer { Text(run.verifiedChecksJson.orEmpty().take(12000)) }
+                        TextButton(enabled = !busy, onClick = { model.resumeEngineering(run.taskId) }) { Text("Reconcile & refresh") }
+                        if (tasks.firstOrNull { it.taskId == run.taskId }?.state in setOf("AWAITING_APPROVAL", "COMMITTING")) {
+                            TextButton(enabled = !busy, onClick = { model.reviewEngineering(run.taskId) }) { Text("Review & renew approval") }
+                        }
+                        if (tasks.firstOrNull { it.taskId == run.taskId }?.state == "AWAITING_HARDWARE_VERIFICATION") {
+                            TextButton(enabled = !busy, onClick = { model.verifyEngineeringHardware(run.taskId) }) { Text("Verify this device's benchmark receipts") }
+                        }
+                        TextButton(enabled = !busy, onClick = { model.revokeEngineering(run.taskId) }) { Text("Revoke approval") }
+                        TextButton(enabled = !busy, onClick = { model.cancelEngineering(run.taskId) }) { Text("Cancel task") }
+                    }
+                }
             }
         }
         review?.let { value ->
@@ -270,12 +350,27 @@ fun GitHubReviewPanel(model: GitHubReviewViewModel = hiltViewModel()) {
                 Text("${review?.owner}/${review?.repo} → ${review?.branch}\nExpected head: ${review?.head}\n${review?.files?.filter { it.before != it.after }?.joinToString("\n") { it.path }}")
                 Text("The branch must still match the inspected SHA. This creates a commit on the working branch; merging remains separate.")
                 OutlinedTextField(message, { message = it }, label = { Text("Commit message") })
+                FilterChip(requiresHardware, { requiresHardware = !requiresHardware }, label = { Text("Require physical-device verification") })
             }
         }, confirmButton = {
             TextButton(onClick = {
                 confirming = false
-                model.commit(message)
-            }) { Text("Commit these files") }
+                model.prepareCommit(message, requiresHardware)
+            }) { Text("Validate this proposal") }
         }, dismissButton = { TextButton(onClick = { confirming = false }) { Text("Cancel") } })
+    }
+    if (pendingTask != null && selectedRun?.taskId == pendingTask) {
+        val run = requireNotNull(selectedRun)
+        val task = tasks.firstOrNull { it.taskId == run.taskId }
+        AlertDialog(onDismissRequest = { model.dismissApproval() }, title = { Text("Approve exact patch?") }, text = {
+            Column {
+                Text("${task?.repositoryOwner}/${task?.repositoryName} → ${task?.workingBranch}")
+                Text("Base: ${task?.baseSha}\nPatch: ${run.patchDigest}\nMessage: ${run.commitMessage}")
+                Text("Approval expires in 30 minutes and applies only to this account, patch, branch and revision. Merging is separate.")
+                Text("Review the complete proposed files in the editor before approving. This confirmation applies to the saved patch digest above.")
+            }
+        }, confirmButton = {
+            TextButton(enabled = !busy, onClick = { model.approveCommit(run.taskId, run.patchDigest) }) { Text("Approve & commit") }
+        }, dismissButton = { TextButton(onClick = { model.dismissApproval() }) { Text("Keep for review") } })
     }
 }

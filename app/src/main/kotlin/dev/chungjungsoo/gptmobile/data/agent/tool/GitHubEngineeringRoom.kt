@@ -25,7 +25,7 @@ internal data class EngineeringTaskRow(
     val state: String = EngineeringState.CREATED.name,
     val sequence: Long = 0,
     val attempt: Int = 1,
-    val updatedAtEpochMs: Long,
+    val updatedAtEpochMs: Long
 )
 
 @Entity(
@@ -35,10 +35,10 @@ internal data class EngineeringTaskRow(
             entity = EngineeringTaskRow::class,
             parentColumns = ["taskId"],
             childColumns = ["taskId"],
-            onDelete = ForeignKey.RESTRICT,
-        ),
+            onDelete = ForeignKey.RESTRICT
+        )
     ],
-    indices = [Index(value = ["taskId", "sequence"], unique = true)],
+    indices = [Index(value = ["taskId", "sequence"], unique = true)]
 )
 internal data class EngineeringEventRow(
     @PrimaryKey val eventId: String,
@@ -49,7 +49,7 @@ internal data class EngineeringEventRow(
     val evidence: String,
     val resultingState: String,
     val evidenceDigest: String,
-    val recordedAtEpochMs: Long,
+    val recordedAtEpochMs: Long
 )
 
 @Entity(
@@ -59,10 +59,10 @@ internal data class EngineeringEventRow(
             entity = EngineeringTaskRow::class,
             parentColumns = ["taskId"],
             childColumns = ["taskId"],
-            onDelete = ForeignKey.RESTRICT,
-        ),
+            onDelete = ForeignKey.RESTRICT
+        )
     ],
-    indices = [Index("taskId"), Index(value = ["idempotencyToken"], unique = true)],
+    indices = [Index("taskId"), Index(value = ["idempotencyToken"], unique = true)]
 )
 internal data class EngineeringGitOperationRow(
     @PrimaryKey val operationId: String,
@@ -74,11 +74,46 @@ internal data class EngineeringGitOperationRow(
     val treeSha: String? = null,
     val commitSha: String? = null,
     val remoteRefSha: String? = null,
-    val updatedAtEpochMs: Long,
+    val updatedAtEpochMs: Long
+)
+
+/** Credentials stay in SecretVault. This row contains only identifiers and review evidence. */
+@Entity(
+    tableName = "engineering_runs",
+    foreignKeys = [ForeignKey(entity = EngineeringTaskRow::class, parentColumns = ["taskId"], childColumns = ["taskId"], onDelete = ForeignKey.RESTRICT)]
+)
+internal data class EngineeringRunRow(
+    @PrimaryKey val taskId: String,
+    val connectionUid: String,
+    val patchJson: String,
+    val patchDigest: String,
+    val commitMessage: String,
+    val createdAtEpochMs: Long,
+    val policyBranch: String,
+    val approvedActor: String? = null,
+    val approvedAtEpochMs: Long? = null,
+    val approvalExpiresAtEpochMs: Long? = null,
+    val approvalRevoked: Boolean = false,
+    val ciStartedAtEpochMs: Long? = null,
+    val ciDeadlineEpochMs: Long? = null,
+    val retryAtEpochMs: Long? = null,
+    val requiredChecksJson: String = "[]",
+    val verifiedChecksJson: String? = null,
+    val hardwareReceiptJson: String? = null,
+    val notice: String = ""
 )
 
 @Dao
 internal interface EngineeringLedgerDao {
+    @Query("SELECT * FROM engineering_runs WHERE taskId = :taskId")
+    suspend fun run(taskId: String): EngineeringRunRow?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun saveRun(row: EngineeringRunRow)
+
+    @Query("SELECT * FROM engineering_tasks ORDER BY updatedAtEpochMs DESC LIMIT 100")
+    suspend fun recentTasks(): List<EngineeringTaskRow>
+
     @Query("SELECT * FROM engineering_tasks WHERE taskId = :taskId")
     suspend fun task(taskId: String): EngineeringTaskRow?
 
@@ -105,20 +140,20 @@ internal interface EngineeringLedgerDao {
 
     @Query(
         "UPDATE engineering_tasks SET state = :state, sequence = :sequence, " +
-            "updatedAtEpochMs = :updatedAt WHERE taskId = :taskId AND sequence = :expectedSequence",
+            "updatedAtEpochMs = :updatedAt WHERE taskId = :taskId AND sequence = :expectedSequence"
     )
     suspend fun updateTask(
         taskId: String,
         expectedSequence: Long,
         sequence: Long,
         state: String,
-        updatedAt: Long,
+        updatedAt: Long
     ): Int
 
     @Query(
         "UPDATE engineering_git_operations SET stage = :stage, blobManifestDigest = :blobManifestDigest, treeSha = :treeSha, " +
             "commitSha = :commitSha, remoteRefSha = :remoteRefSha, updatedAtEpochMs = :updatedAt " +
-            "WHERE operationId = :operationId AND stage = :expectedStage",
+            "WHERE operationId = :operationId AND stage = :expectedStage"
     )
     suspend fun updateOperation(
         operationId: String,
@@ -128,7 +163,7 @@ internal interface EngineeringLedgerDao {
         treeSha: String?,
         commitSha: String?,
         remoteRefSha: String?,
-        updatedAt: Long,
+        updatedAt: Long
     ): Int
 }
 
@@ -137,9 +172,10 @@ internal interface EngineeringLedgerDao {
         EngineeringTaskRow::class,
         EngineeringEventRow::class,
         EngineeringGitOperationRow::class,
+        EngineeringRunRow::class
     ],
-    version = 1,
-    exportSchema = true,
+    version = 2,
+    exportSchema = true
 )
 internal abstract class GitHubEngineeringDatabase : RoomDatabase() {
     abstract fun ledgerDao(): EngineeringLedgerDao
@@ -148,7 +184,7 @@ internal abstract class GitHubEngineeringDatabase : RoomDatabase() {
 /** All state projections and evidence inserts succeed or roll back together. */
 internal class GitHubEngineeringRoomLedger(
     private val database: GitHubEngineeringDatabase,
-    private val clock: () -> Long = System::currentTimeMillis,
+    private val clock: () -> Long = System::currentTimeMillis
 ) {
     suspend fun task(taskId: String): EngineeringTaskRow? = database.ledgerDao().task(taskId)
 
@@ -178,7 +214,7 @@ internal class GitHubEngineeringRoomLedger(
     suspend fun checkpointOperation(
         operationId: String,
         expectedStage: GitSagaStage,
-        next: GitSagaSnapshot,
+        next: GitSagaSnapshot
     ) {
         require(next.operationId == operationId)
         require(next.stage != expectedStage)
@@ -193,7 +229,7 @@ internal class GitHubEngineeringRoomLedger(
                 GitSagaStage.TREE_CREATED -> next.stage == GitSagaStage.COMMIT_CREATED
                 GitSagaStage.COMMIT_CREATED -> next.stage in setOf(GitSagaStage.REF_UPDATED, GitSagaStage.CONFLICTED)
                 else -> false
-            },
+            }
         ) { "Invalid Git saga stage progression" }
         database.withTransaction {
             val current = requireNotNull(database.ledgerDao().operation(operationId))
@@ -212,9 +248,33 @@ internal class GitHubEngineeringRoomLedger(
                     treeSha = next.treeSha,
                     commitSha = next.commitSha,
                     remoteRefSha = next.remoteRefSha,
-                    updatedAt = clock(),
-                ) == 1,
+                    updatedAt = clock()
+                ) == 1
             ) { "Concurrent Git saga modification" }
+        }
+    }
+
+    suspend fun recordCi(taskId: String, checksJson: String, verdict: EngineeringCiVerdict) {
+        database.withTransaction {
+            val task = requireNotNull(task(taskId))
+            require(task.state == EngineeringState.CI_PENDING.name)
+            val run = requireNotNull(database.ledgerDao().run(taskId))
+            database.ledgerDao().saveRun(run.copy(verifiedChecksJson = checksJson, notice = "CI: $verdict", retryAtEpochMs = null))
+            if (verdict != EngineeringCiVerdict.PENDING) {
+                val evidence = if (verdict == EngineeringCiVerdict.PASSED) EngineeringEvidence.REQUIRED_CHECKS_PASSED else EngineeringEvidence.CI_CHECK_FAILED
+                append(
+                    java.util.UUID.randomUUID().toString(),
+                    EngineeringLedgerEvent(
+                        taskId,
+                        task.sequence + 1,
+                        task.attempt,
+                        EngineeringState.CI_PENDING,
+                        evidence,
+                        GitHubEngineeringStateMachine.advance(EngineeringState.CI_PENDING, evidence),
+                        engineeringDigest(checksJson)
+                    )
+                )
+            }
         }
     }
 
@@ -225,7 +285,7 @@ internal class GitHubEngineeringRoomLedger(
                 taskId = task.taskId,
                 sequence = task.sequence,
                 attempt = task.attempt,
-                state = EngineeringState.valueOf(task.state),
+                state = EngineeringState.valueOf(task.state)
             )
             val next = GitHubEngineeringLedger.append(current, event)
             database.ledgerDao().insertEvent(
@@ -238,8 +298,8 @@ internal class GitHubEngineeringRoomLedger(
                     evidence = event.evidence.name,
                     resultingState = next.state.name,
                     evidenceDigest = event.evidenceDigest,
-                    recordedAtEpochMs = clock(),
-                ),
+                    recordedAtEpochMs = clock()
+                )
             )
             check(
                 database.ledgerDao().updateTask(
@@ -247,8 +307,8 @@ internal class GitHubEngineeringRoomLedger(
                     expectedSequence = task.sequence,
                     sequence = next.sequence,
                     state = next.state.name,
-                    updatedAt = clock(),
-                ) == 1,
+                    updatedAt = clock()
+                ) == 1
             ) { "Concurrent task modification" }
         }
     }

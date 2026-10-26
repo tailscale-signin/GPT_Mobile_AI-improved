@@ -208,7 +208,8 @@ internal class GgufRuntimeAdapter(
                 false,
                 false,
                 false,
-                kvBytesPerToken = uniformGgufKvBytesPerToken(metadata)
+                kvBytesPerToken = uniformGgufKvBytesPerToken(metadata),
+                compatibilityWarnings = ggufCompatibilityWarnings(metadata)
             )
         }
 
@@ -305,6 +306,7 @@ internal class GgufRuntimeAdapter(
             if (isEngineLoaded(effectiveSpec)) return@withContext
             inspectModel(effectiveSpec.modelPath).validate(effectiveSpec)
             val preflightMetadata = metadata(model, manifest)
+            ggufCompatibilityWarnings(preflightMetadata)
             val templateName =
                 dev.chungjungsoo.gptmobile.data.localmodel.GgufChatTemplateIdentity.describe(
                     preflightMetadata["tokenizer.chat_template"]

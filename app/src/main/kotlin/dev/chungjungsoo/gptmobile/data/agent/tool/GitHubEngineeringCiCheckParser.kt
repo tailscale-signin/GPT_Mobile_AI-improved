@@ -27,7 +27,17 @@ internal object GitHubEngineeringCiCheckParser {
                     "skipped" -> EngineeringCheckConclusion.SKIPPED
                     else -> EngineeringCheckConclusion.UNKNOWN
                 }
-                add(EngineeringCheckReceipt(run.getString("name"), status, conclusion, head))
+                add(
+                    EngineeringCheckReceipt(
+                        run.getString("name"),
+                        status,
+                        conclusion,
+                        head,
+                        run.optLong("id").takeIf { it > 0 },
+                        run.optJSONObject("app")?.optLong("id")?.takeIf { it > 0 },
+                        startedAt = run.optString("started_at")
+                    )
+                )
             }
         }
     }

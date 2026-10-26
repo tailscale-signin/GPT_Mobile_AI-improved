@@ -9,12 +9,12 @@ class GitHubEngineeringStateMachineTest {
     fun approvalIsRequiredWhenPolicyRequestsIt() {
         val waiting = GitHubEngineeringStateMachine.advance(
             EngineeringState.PATCH_READY,
-            EngineeringEvidence.APPROVAL_REQUIRED,
+            EngineeringEvidence.APPROVAL_REQUIRED
         )
         assertEquals(EngineeringState.AWAITING_APPROVAL, waiting)
         assertEquals(
             EngineeringState.COMMITTING,
-            GitHubEngineeringStateMachine.advance(waiting, EngineeringEvidence.APPROVAL_GRANTED),
+            GitHubEngineeringStateMachine.advance(waiting, EngineeringEvidence.APPROVAL_GRANTED)
         )
     }
 
@@ -23,7 +23,7 @@ class GitHubEngineeringStateMachineTest {
         assertThrows(IllegalArgumentException::class.java) {
             GitHubEngineeringStateMachine.advance(
                 EngineeringState.CI_PENDING,
-                EngineeringEvidence.POLICY_COMPLETION_CONFIRMED,
+                EngineeringEvidence.POLICY_COMPLETION_CONFIRMED
             )
         }
     }
@@ -32,7 +32,7 @@ class GitHubEngineeringStateMachineTest {
     fun hardwareVerificationIsAnExplicitGate() {
         val awaiting = GitHubEngineeringStateMachine.advance(
             EngineeringState.CI_VERIFIED,
-            EngineeringEvidence.HARDWARE_REQUIRED,
+            EngineeringEvidence.HARDWARE_REQUIRED
         )
         assertEquals(EngineeringState.AWAITING_HARDWARE_VERIFICATION, awaiting)
         assertThrows(IllegalArgumentException::class.java) {
@@ -41,7 +41,7 @@ class GitHubEngineeringStateMachineTest {
         val verified = GitHubEngineeringStateMachine.advance(awaiting, EngineeringEvidence.HARDWARE_RECEIPT_VERIFIED)
         assertEquals(
             EngineeringState.COMPLETED,
-            GitHubEngineeringStateMachine.advance(verified, EngineeringEvidence.POLICY_COMPLETION_CONFIRMED),
+            GitHubEngineeringStateMachine.advance(verified, EngineeringEvidence.POLICY_COMPLETION_CONFIRMED)
         )
     }
 
@@ -49,7 +49,7 @@ class GitHubEngineeringStateMachineTest {
     fun staleBranchHeadTransitionsToConflict() {
         assertEquals(
             EngineeringState.CONFLICTED,
-            GitHubEngineeringStateMachine.advance(EngineeringState.COMMITTING, EngineeringEvidence.REF_CONFLICT),
+            GitHubEngineeringStateMachine.advance(EngineeringState.COMMITTING, EngineeringEvidence.REF_CONFLICT)
         )
     }
 
@@ -58,15 +58,15 @@ class GitHubEngineeringStateMachineTest {
         assertThrows(IllegalArgumentException::class.java) {
             GitHubEngineeringStateMachine.advance(
                 EngineeringState.PATCH_READY,
-                EngineeringEvidence.COMMIT_CONFIRMED,
+                EngineeringEvidence.COMMIT_CONFIRMED
             )
         }
         assertEquals(
             EngineeringState.COMMITTING,
             GitHubEngineeringStateMachine.advance(
                 EngineeringState.PATCH_READY,
-                EngineeringEvidence.COMMIT_STARTED,
-            ),
+                EngineeringEvidence.COMMIT_STARTED
+            )
         )
     }
 
@@ -75,7 +75,7 @@ class GitHubEngineeringStateMachineTest {
         assertThrows(IllegalArgumentException::class.java) {
             GitHubEngineeringStateMachine.advance(
                 EngineeringState.CI_FAILED,
-                EngineeringEvidence.REQUIRED_CHECKS_PASSED,
+                EngineeringEvidence.REQUIRED_CHECKS_PASSED
             )
         }
     }
@@ -85,15 +85,15 @@ class GitHubEngineeringStateMachineTest {
         assertThrows(IllegalArgumentException::class.java) {
             GitHubEngineeringStateMachine.advance(
                 EngineeringState.PATCH_READY,
-                EngineeringEvidence.CI_CHECK_FAILED,
+                EngineeringEvidence.CI_CHECK_FAILED
             )
         }
         assertEquals(
             EngineeringState.CI_FAILED,
             GitHubEngineeringStateMachine.advance(
                 EngineeringState.CI_PENDING,
-                EngineeringEvidence.CI_CHECK_FAILED,
-            ),
+                EngineeringEvidence.CI_CHECK_FAILED
+            )
         )
     }
 

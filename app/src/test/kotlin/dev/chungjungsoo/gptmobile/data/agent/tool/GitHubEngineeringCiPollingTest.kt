@@ -11,7 +11,7 @@ class GitHubEngineeringCiPollingTest {
     fun passingStopsPolling() {
         assertEquals(
             EngineeringCiPollingDecision.Complete,
-            GitHubEngineeringCiPolling.next(EngineeringCiVerdict.PASSED, state, 2_000L),
+            GitHubEngineeringCiPolling.next(EngineeringCiVerdict.PASSED, state, 2_000L)
         )
     }
 
@@ -19,7 +19,7 @@ class GitHubEngineeringCiPollingTest {
     fun failedStopsPolling() {
         assertEquals(
             EngineeringCiPollingDecision.StopFailed,
-            GitHubEngineeringCiPolling.next(EngineeringCiVerdict.FAILED, state, 2_000L),
+            GitHubEngineeringCiPolling.next(EngineeringCiVerdict.FAILED, state, 2_000L)
         )
     }
 
@@ -27,7 +27,7 @@ class GitHubEngineeringCiPollingTest {
     fun pendingSchedulesRetry() {
         assertEquals(
             EngineeringCiPollingDecision.RetryAfter(30_000L, 1),
-            GitHubEngineeringCiPolling.next(EngineeringCiVerdict.PENDING, state, 2_000L),
+            GitHubEngineeringCiPolling.next(EngineeringCiVerdict.PENDING, state, 2_000L)
         )
     }
 
@@ -35,7 +35,7 @@ class GitHubEngineeringCiPollingTest {
     fun oldPendingTimesOut() {
         assertEquals(
             EngineeringCiPollingDecision.TimedOut,
-            GitHubEngineeringCiPolling.next(EngineeringCiVerdict.PENDING, state, 86_401_000L),
+            GitHubEngineeringCiPolling.next(EngineeringCiVerdict.PENDING, state, 86_401_000L)
         )
     }
 
@@ -44,7 +44,7 @@ class GitHubEngineeringCiPollingTest {
         val result = GitHubEngineeringCiPolling.next(
             EngineeringCiVerdict.PENDING,
             state.copy(attempt = 20),
-            2_000L,
+            2_000L
         )
         assertTrue(result is EngineeringCiPollingDecision.RetryAfter)
         assertEquals(900_000L, (result as EngineeringCiPollingDecision.RetryAfter).delayMs)

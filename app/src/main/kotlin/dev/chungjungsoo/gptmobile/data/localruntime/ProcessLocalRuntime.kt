@@ -952,7 +952,11 @@ class ProcessLocalRuntime(
         if (cleanupQuarantine != null || quarantinedBinder != null) {
             // SHUTDOWN is handled on the worker control thread, independently of
             // a stuck native coroutine. Never clear quarantine on elapsed time.
-            terminateAndAwaitExit("quarantine_recovery", 5_000)
+            if (quarantinedBinder != null || remote != null) {
+                terminateAndAwaitExit("quarantine_recovery", 5_000)
+            } else {
+                cleanupAfterRequest("quarantine_recovery")
+            }
         }
         quarantinedBinder?.takeIf { !it.isBinderAlive }?.let { observeWorkerExit(it, "binder_not_alive") }
         check(cleanupQuarantine == null && quarantinedBinder?.isBinderAlive != true) {
@@ -1013,6 +1017,11 @@ class ProcessLocalRuntime(
         quarantinedBinder = null
         cleanupQuarantine = null
         requestedSpec = null
+        sessionId = ""
+        toolExecutor = null
+        allowedTools = emptySet()
+        processPssBytes = null
+        mutableState.value = state.value.copy(engineSpec = null, engineHealth = "RELEASED", lifecycle = "IDLE", loadProgress = null, allocationObservation = null)
     }
 
     /** At most 12s cancellation + 5s per close/release + 5s confirmed worker-exit wait. */
@@ -1146,6 +1155,7 @@ class ProcessLocalRuntime(
             buildMap {
                 put("origin", receipt.origin)
                 put("safeForSuccessor", receipt.safeForSuccessor.toString())
+                put("cleanupState", receipt.cleanupState)
                 receipt.runtimeRequestId?.let { put("runtimeRequestId", it) }
                 receipt.physicalAttemptId?.let { put("physicalAttemptId", it) }
                 receipt.workerGenerationId?.let { put("workerGenerationId", it) }

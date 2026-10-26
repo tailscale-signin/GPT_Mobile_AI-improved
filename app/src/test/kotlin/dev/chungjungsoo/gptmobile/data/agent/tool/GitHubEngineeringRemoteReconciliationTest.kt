@@ -14,14 +14,14 @@ class GitHubEngineeringRemoteReconciliationTest {
         expectedHeadSha = base,
         stage = GitSagaStage.COMMIT_CREATED,
         treeSha = tree,
-        commitSha = commit,
+        commitSha = commit
     )
 
     @Test
     fun requiresApprovalBeforeRefUpdate() {
         assertEquals(
             EngineeringRefDecision.RequiresApproval("op"),
-            EngineeringRemoteReconciliation.decide(snapshot, base, evidence, false),
+            EngineeringRemoteReconciliation.decide(snapshot, base, evidence, false)
         )
     }
 
@@ -29,7 +29,7 @@ class GitHubEngineeringRemoteReconciliationTest {
     fun permitsOnlyVerifiedApprovedUpdate() {
         assertEquals(
             EngineeringRefDecision.Ready(base, commit),
-            EngineeringRemoteReconciliation.decide(snapshot, base, evidence, true),
+            EngineeringRemoteReconciliation.decide(snapshot, base, evidence, true)
         )
     }
 
@@ -38,7 +38,7 @@ class GitHubEngineeringRemoteReconciliationTest {
         val altered = evidence.copy(treeSha = "d".repeat(40))
         assertTrue(
             EngineeringRemoteReconciliation.decide(snapshot, base, altered, true)
-                is EngineeringRefDecision.Diverged,
+                is EngineeringRefDecision.Diverged
         )
     }
 
@@ -46,7 +46,7 @@ class GitHubEngineeringRemoteReconciliationTest {
     fun alreadyAppliedDoesNotNeedSecondWrite() {
         assertEquals(
             EngineeringRefDecision.Applied(commit),
-            EngineeringRemoteReconciliation.decide(snapshot, commit, evidence, false),
+            EngineeringRemoteReconciliation.decide(snapshot, commit, evidence, false)
         )
     }
 }

@@ -23,8 +23,17 @@ internal object GitHubEngineeringCiScheduler {
         WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
             "engineering-ci-$taskId",
             ExistingWorkPolicy.KEEP,
-            request,
+            request
         )
+    }
+
+    fun recover(context: Context) {
+        val request = OneTimeWorkRequestBuilder<GitHubEngineeringCiWorker>()
+            .setInputData(Data.Builder().putBoolean(GitHubEngineeringCiWorker.KEY_RECOVER, true).build())
+            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+            .build()
+        WorkManager.getInstance(context.applicationContext).enqueueUniqueWork("engineering-recovery", ExistingWorkPolicy.KEEP, request)
     }
 
     fun cancel(context: Context, taskId: String) {

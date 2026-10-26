@@ -2,7 +2,7 @@ package dev.chungjungsoo.gptmobile.data.agent.tool
 
 internal data class EngineeringCiPollingState(
     val attempt: Int = 0,
-    val startedAtEpochMs: Long,
+    val startedAtEpochMs: Long
 )
 
 internal sealed interface EngineeringCiPollingDecision {
@@ -20,14 +20,16 @@ internal object GitHubEngineeringCiPolling {
     fun next(
         verdict: EngineeringCiVerdict,
         state: EngineeringCiPollingState,
-        nowEpochMs: Long,
+        nowEpochMs: Long
     ): EngineeringCiPollingDecision {
         if (verdict == EngineeringCiVerdict.PASSED) return EngineeringCiPollingDecision.Complete
         if (verdict == EngineeringCiVerdict.FAILED) return EngineeringCiPollingDecision.StopFailed
         if (state.attempt >= MAX_ATTEMPTS ||
             nowEpochMs < state.startedAtEpochMs ||
             nowEpochMs - state.startedAtEpochMs >= MAX_AGE_MS
-        ) return EngineeringCiPollingDecision.TimedOut
+        ) {
+            return EngineeringCiPollingDecision.TimedOut
+        }
         val delay = (30_000L * (1L shl minOf(state.attempt, 5))).coerceAtMost(15L * 60L * 1000L)
         return EngineeringCiPollingDecision.RetryAfter(delay, state.attempt + 1)
     }

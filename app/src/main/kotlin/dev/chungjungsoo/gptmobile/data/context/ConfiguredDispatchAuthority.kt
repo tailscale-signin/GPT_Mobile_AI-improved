@@ -43,10 +43,12 @@ internal object ConfiguredDispatchAuthority {
             "PROFILE_CONFIGURATION_CHANGED: the queued destination or credentials changed before preparation."
         }
         val capturedProfileRevision = registered?.let(::profileRevision)
-        val capturedPolicyRevision = policyRevision(settings.getFeatureSettings(), platform.uid, chatId)
+        val capturedFeatures = settings.getFeatureSettings()
+        val capturedFields = policyFields(capturedFeatures, platform.uid, chatId)
+        val capturedPolicyRevision = policyRevision(capturedFeatures, platform.uid, chatId)
         val revision = researchHash("$capturedProfileRevision|$capturedPolicyRevision|${inherited?.revision}")
         val authority = capturedProfileRevision?.let {
-            CapturedProviderAuthority(platform.uid, platform.model, it, capturedPolicyRevision, privacyRevision, CapturedProviderAuthority.routeRevision(platform), chatId, listOfNotNull(inherited?.authority))
+            CapturedProviderAuthority(platform.uid, platform.model, it, capturedPolicyRevision, privacyRevision, CapturedProviderAuthority.routeRevision(platform), chatId, listOfNotNull(inherited?.authority), acceptedTokenBudget = capturedFeatures.tokenBudget)
         }
         return RequestAuthorizationGuard("configured:$revision", authority) {
             inherited?.validate?.invoke()
@@ -62,21 +64,46 @@ internal object ConfiguredDispatchAuthority {
             } else {
                 check(current == null) { "PROFILE_IDENTITY_CHANGED: an ephemeral identity became a configured profile." }
             }
-            check(policyRevision(settings.getFeatureSettings(), platform.uid, chatId) == capturedPolicyRevision) {
-                "DISPATCH_POLICY_CHANGED: permissions or budgets changed after preparation; no stale request was sent."
-            }
+            val currentFeatures = settings.getFeatureSettings()
+            val currentFields = policyFields(currentFeatures, platform.uid, chatId)
+            val changed = (capturedFields.keys + currentFields.keys).filter { capturedFields[it] != currentFields[it] }.filterNot {
+                it == "budget" && allowsAcceptedTokenPlan(capturedFeatures.tokenBudget, currentFeatures.tokenBudget, platform.uid)
+            }.sorted()
+            if (changed.isNotEmpty()) throw DispatchPolicyChangedException(changed)
         }
     }
 
     internal fun profileRevision(profile: PlatformV2): String = researchHash(Json.encodeToString(profile.copy(name = "", labels = "", isFavorite = false)))
 
+    /** Increasing limits preserves an already smaller accepted allocation; reductions require revalidation. */
+    internal fun allowsAcceptedTokenPlan(before: TokenBudgetSettings, after: TokenBudgetSettings, uid: String): Boolean {
+        fun output(value: Int) = if (value == 0) Int.MAX_VALUE else value
+        return after.contextTokens >= before.contextTokens &&
+            after.totalRunTokens >= before.totalRunTokens &&
+            output(after.outputTokens) >= output(before.outputTokens) &&
+            after.generationTimeoutMinutes >= before.generationTimeoutMinutes &&
+            after.responseCharacterLimit >= before.responseCharacterLimit &&
+            (after.profileContextCeilings[uid] ?: Int.MAX_VALUE) >= (before.profileContextCeilings[uid] ?: Int.MAX_VALUE) &&
+            before.copy(
+                contextTokens = after.contextTokens,
+                totalRunTokens = after.totalRunTokens,
+                outputTokens = after.outputTokens,
+                generationTimeoutMinutes = after.generationTimeoutMinutes,
+                responseCharacterLimit = after.responseCharacterLimit,
+                profileContextCeilings = after.profileContextCeilings
+            ) == after
+    }
+
     /** Display toggles, colors and wait settings apply independently and never invalidate answer bytes. */
-    internal fun policyRevision(features: AppFeatureSettings, uid: String, chatId: Int?): String = researchHash(
+    internal fun policyRevision(features: AppFeatureSettings, uid: String, chatId: Int?): String = researchHash(policyFields(features, uid, chatId).toString())
+
+    /** Scope accounting to this writer; another contributor's quote/ceiling cannot revoke it. */
+    internal fun policyFields(features: AppFeatureSettings, uid: String, chatId: Int?) =
         buildJsonObject {
-            put("budget", Json.encodeToJsonElement(features.tokenBudget))
+            put("budget", Json.encodeToJsonElement(features.tokenBudget.copy(profileContextCeilings = features.tokenBudget.profileContextCeilings.filterKeys { it == uid })))
             // Quote refresh timestamps and provenance are telemetry, not authority.
             // Keep the actual rates and limits so a cost-changing edit still blocks dispatch.
-            put("spend", Json.encodeToJsonElement(features.spendBudget.copy(prices = features.spendBudget.prices.mapValues { (_, price) -> price.copy(checkedAt = 0, source = "") })))
+            put("spend", Json.encodeToJsonElement(features.spendBudget.copy(prices = features.spendBudget.prices.filterKeys { it == uid && features.spendBudget.enforced }.mapValues { (_, price) -> price.copy(checkedAt = 0, source = "") })))
             put("profile", Json.encodeToJsonElement(features.profileBehavior[uid]))
             put("plugins", Json.encodeToJsonElement(features.pluginExecution))
             put("tools", Json.encodeToJsonElement(features.toolPluginStates))
@@ -91,6 +118,12 @@ internal object ConfiguredDispatchAuthority {
             put("researchReviewer", features.researchFeature.reviewerProfileUid)
             put("reasoning", Json.encodeToJsonElement(chatId?.let { features.conversationReasoning[it] }))
             put("llamaReasoning", Json.encodeToJsonElement(features.llamaReasoningModes[uid]))
-        }.toString()
-    )
+        }
 }
+
+/** Safe field names only; never include settings values, prompts or credentials. */
+internal class DispatchPolicyChangedException(val fields: List<String>) :
+    IllegalStateException(
+        "DISPATCH_POLICY_CHANGED: changed fields=${fields.joinToString(",")}. " +
+            "Resume final synthesis to revalidate the retained contributions; no stale request was sent."
+    )

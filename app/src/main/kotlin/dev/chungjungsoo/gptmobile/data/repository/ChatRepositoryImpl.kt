@@ -557,7 +557,7 @@ class ChatRepositoryImpl(
     }
 
     override suspend fun supportsBenchmarkTools(platform: PlatformV2): Boolean = when (platform.compatibleType) {
-        ClientType.FREE -> dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.model(FreeAiProvider.requireFor(platform), platform.model)?.tools == true
+        ClientType.FREE -> !FreeAiProvider.requireFor(platform).isRetired
         // The local adapter supplies native calls when declared, and an
         // app-managed prompt bridge otherwise.
         ClientType.LITERT_LM -> true
@@ -2068,7 +2068,7 @@ class ChatRepositoryImpl(
                             emit(
                                 ApiState.Success(
                                     buildString {
-                                        append("Native tool calls: ").append(if (supportsTools) "supported by this model/transport" else "unavailable on this model/transport")
+                                        append("Tool access: ").append(if (supportsTools) "available through the app" else "unavailable on this route")
                                         append("\n\nAuthorized tool inventory for this profile:\n")
                                         if (taskRoutedTools.isEmpty()) append("No tools are authorized or currently resolved. Check profile bindings and plugin settings.\n")
                                         taskRoutedTools.distinctBy { it.modelToolName }.forEach { tool -> append("• ").append(tool.modelToolName).append(if (supportsTools && contextPlan.tools.any { it.name == tool.modelToolName }) " · advertised" else " · not in the provider request").append("\n") }
@@ -3592,7 +3592,7 @@ class ChatRepositoryImpl(
             !synthesisRun &&
             (AppAssistedSearch.requested(effectiveUserMessages.lastOrNull()?.content.orEmpty()) || AppAssistedSearch.inventoryRequest(effectiveUserMessages.lastOrNull()?.content.orEmpty()))
         val supportsTools = when (platform.compatibleType) {
-            ClientType.FREE -> dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.model(FreeAiProvider.requireFor(platform), platform.model)?.tools == true
+            ClientType.FREE -> !FreeAiProvider.requireFor(platform).isRetired
             ClientType.LITERT_LM -> localModelSupportsTools(platform)
             else -> true
         }
@@ -3757,7 +3757,7 @@ class ChatRepositoryImpl(
         reviewedPreparationUnavailable: Boolean,
         researchReport: Boolean
     ): String {
-        if (platform.compatibleType == ClientType.FREE && !synthesisRun && !researchReport && dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.model(FreeAiProvider.requireFor(platform), platform.model)?.tools != true) {
+        if (platform.compatibleType == ClientType.FREE && !synthesisRun && !researchReport && !hasTools) {
             return dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(taskRecovery?.originalRequest ?: latestUser?.content.orEmpty()).instruction() + "\n" + freeTextSystemPrompt(platform.systemPrompt, dev.chungjungsoo.gptmobile.data.agent.CombinedTurnContext.capture(latestUser?.createdAt ?: java.time.Instant.now().epochSecond), projectInstructions) + dev.chungjungsoo.gptmobile.data.agent.combinedContributorInstruction(platform, combined)
         }
         if (platform.compatibleType == ClientType.LITERT_LM && !synthesisRun && !localResearch && !researchReport && !reviewedPreparationUnavailable) {

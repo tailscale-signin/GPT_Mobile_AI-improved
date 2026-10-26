@@ -1637,6 +1637,39 @@ class ProviderAdaptersTest {
         }
     }
 
+    @Test fun everyActiveTextOnlyFreeProviderCanSearchReadAndCrawlThroughAgentRunner() = runBlocking {
+        val providers = dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.active.filter {
+            dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.model(it, it.model)?.tools != true
+        }
+        assertTrue(providers.isNotEmpty())
+        for (provider in providers) {
+            val names = listOf("web_search", "read_url", "crawler")
+            val outputs = names.map { name ->
+                """{"type":"tool_call","name":"$name","arguments":{}}"""
+            } + "Source-backed final answer."
+            val api = FakeOpenAIAPI(
+                chatRounds = ArrayDeque(
+                    outputs.map { text ->
+                        flowOf(ChatCompletionChunk(choices = listOf(Choice(delta = Delta(content = text), finishReason = "stop"))))
+                    }
+                )
+            )
+            val tools = names.map { RecordingAgentTool(definition.copy(name = it)) }
+            val session = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder()).openSession(
+                turns(),
+                platform(ClientType.FREE).copy(apiUrl = provider.apiUrl, model = provider.model)
+            )
+            val events = AgentRunner().run(session, tools).toList()
+            assertEquals(provider.name, names, events.filterIsInstance<AgentRunEvent.ToolFinished>().map { it.call.name })
+            assertEquals(provider.name, "Source-backed final answer.", events.providerText())
+            assertEquals(4, api.chatRequests.size)
+            assertTrue(api.chatRequests.all { it.tools.isNullOrEmpty() })
+            assertTrue(requestJson(api.chatRequests.first()).toString().contains("Authorized app tools"))
+            assertTrue(requestJson(api.chatRequests.last()).toString().contains("sunny"))
+            assertFalse(api.chatRequests.any { request -> request.messages.any { it.toolCalls != null || it.toolCallId != null } })
+        }
+    }
+
     private fun turns() = listOf(
         ConversationTurn(
             userMessage = MessageV2(content = "hello", platformType = null),

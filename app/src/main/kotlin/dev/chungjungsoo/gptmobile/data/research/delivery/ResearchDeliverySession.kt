@@ -9,6 +9,7 @@ import dev.chungjungsoo.gptmobile.data.model.ResearchReportDetail
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.transformWhile
@@ -87,8 +88,12 @@ internal class ResearchDeliverySession(
         // authorized saved-evidence reader remains available for paging retained work.
         val writeOnly = evidence?.snapshot?.let { it.complete || it.cancellationOrigin == "USER_STOP_RESEARCH_AND_SUMMARIZE" } == true
         val draftTools = if (writeOnly) tools.filter { it.name == "read_recovery_context" } else tools
-        val draftSession = initialSession(initialContext, writeOnly && draftTools.isEmpty())
-        draftSession.streamRound(draftTools, if (writeOnly) emptyList() else exchanges).transformWhile { event ->
+        // Catch upstream writer failures only. UI/persistence collectors must keep their
+        // own exceptions; treating those as transport failures violates Flow transparency.
+        flow {
+            val draftSession = initialSession(initialContext, writeOnly && draftTools.isEmpty())
+            emitAll(draftSession.streamRound(draftTools, if (writeOnly) emptyList() else exchanges))
+        }.transformWhile { event ->
             if (event is ProviderEvent.TextDelta && draft.length + event.text.length > MAX_REPORT_CHARACTERS) {
                 overflow = true
                 false
@@ -96,6 +101,10 @@ internal class ResearchDeliverySession(
                 emit(event)
                 true
             }
+        }.catch { error ->
+            if (error is CancellationException || isAuthorizationFailure(error)) throw error
+            AppLogRecorder.record("Research", "REPORT_WRITER_FAILED · reason=${error.javaClass.simpleName}", "W")
+            emit(ProviderEvent.Failed("Research writer interrupted; saved evidence is retained.", errorCode = "RESEARCH_WRITER_FAILED"))
         }.collect { event ->
             when (event) {
                 is ProviderEvent.TextDelta -> draft.append(event.text)
@@ -103,9 +112,7 @@ internal class ResearchDeliverySession(
                     hasCalls = !handlesToolsInternally
                     emit(event)
                 }
-                is ProviderEvent.Failed -> {
-                    failure = event
-                }
+                is ProviderEvent.Failed -> failure = event
                 ProviderEvent.Completed -> completed = true
                 else -> emit(event)
             }
@@ -114,11 +121,28 @@ internal class ResearchDeliverySession(
         validateAccess()
         if (hasCalls || failure != null || !completed && !overflow) {
             val denied = failure?.let(::isAuthorizationFailure) == true
-            if (draft.isNotEmpty() && !denied && !hasCalls) {
-                emit(ProviderEvent.Notice("Research draft is incomplete and has not passed delivery checks.", persistent = true))
-                publish(draft.toString())
+            if (!denied && !hasCalls) {
+                if (failure == null) failure = ProviderEvent.Failed("RESEARCH_PARTIAL: The writer stopped before completion. Saved evidence is retained.", errorCode = "RESEARCH_PARTIAL")
+                // Internal tool rounds can have accepted evidence after the initial packet.
+                evidence = withContext(Dispatchers.Default) { packet() } ?: evidence
+                validateAccess()
+                val retained = evidence
+                if (retained?.studies?.isNotEmpty() == true) {
+                    val issues = listOf(failure?.errorCode ?: "TRANSPORT_INCOMPLETE")
+                    val partial = withContext(Dispatchers.Default) {
+                        ResearchReportRepair.evidenceFallback(draft.toString(), retained, issues)
+                    }
+                    emit(ProviderEvent.Notice("The writer stopped. Delivering saved evidence and source links as a partial report."))
+                    publish(partial)
+                    receipt(ResearchReportValidity.EVIDENCE_ONLY, retained, partial, issues)
+                } else {
+                    if (draft.isNotEmpty()) {
+                        emit(ProviderEvent.Notice("Research draft is incomplete and has not passed delivery checks.", persistent = true))
+                        publish(draft.toString())
+                    }
+                    receipt(ResearchReportValidity.INCOMPLETE, evidence, draft.toString(), listOf(failure?.errorCode ?: "TRANSPORT_INCOMPLETE"))
+                }
             }
-            if (!denied && !hasCalls) receipt(ResearchReportValidity.INCOMPLETE, evidence, draft.toString(), listOf(failure?.errorCode ?: "TRANSPORT_INCOMPLETE"))
             failure?.let { emit(it) }
             if (completed && failure == null) emit(ProviderEvent.Completed)
             return@flow

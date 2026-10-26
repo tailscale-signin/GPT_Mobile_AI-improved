@@ -36,6 +36,9 @@ internal object CombinedWriterPolicy {
         val cap = ProviderRouteCapacity.output(profile, required)
         if (cap < required) return "${if (appendContinuations) "Each answer passage" else "Final writing"} needs at least $required generation tokens including record framing; this route allows $cap. Its contributions remain available."
         val observed = CombinedWriterObservations.get(CombinedWriterObservations.key(profile))
+        if (observed?.disableRequested == true && observed.reasoningDisabled == "NOT_HONORED") {
+            return "This route ignored the request to disable reasoning or exceeded its reported output allowance. Choose another writer or model; saved contributions remain available."
+        }
         if ((observed?.reasoningOnlyAttempts ?: 0) >= 2) return "This route exhausted its bounded reasoning recovery without an answer passage. Choose another writer or model; saved contributions remain available."
         if ((observed?.malformedAttempts ?: 0) >= 2) return "This route repeatedly failed structured delivery. Choose another writer; saved passages remain available."
         if ((observed?.queueDelays ?: 0) >= 1) return "This route exceeded the interactive queue wait. Its remote receipt remains available."

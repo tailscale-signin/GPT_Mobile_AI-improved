@@ -423,4 +423,27 @@ class FreeProviderContractTest {
             FreeCatalogState.resetForTest()
         }
     }
+
+    @Test fun allowance402WithRetryAfterIsDurableForOvhAndOtherFreeProviders() {
+        for (provider in listOf(FreeAiProvider.OVHCLOUD, FreeAiProvider.BRIDGENODE, FreeAiProvider.BLOCKRUN)) {
+            val config = ProviderRequestConfig(provider.apiUrl, null, freeProvider = provider, profileUid = "limited", freeDiagnostics = dev.chungjungsoo.gptmobile.data.free.FreeRequestDiagnostics())
+            val deadline = retainFreeHttpFailure(config, provider.model, 402, """{"error":{"code":"insufficient_quota"}}""") { if (it == "Retry-After") "3600" else null }
+            assertTrue(requireNotNull(deadline) > System.currentTimeMillis() + 3_500_000L)
+            val saved = requireNotNull(FreeAiRequestLimiter.shared.savedCooldown(provider, provider.model, freeCredentialIdentity(provider, null)))
+            assertEquals(402, saved.status)
+            assertEquals("BUDGET", saved.category)
+            val decision = requireNotNull(providerLimitDecision(config, provider.model, false, IllegalStateException("rejected")))
+            assertTrue(decision.retryAt >= requireNotNull(deadline) && decision.retryAt - deadline <= 1000L)
+            assertEquals(402, decision.httpStatus)
+            assertTrue(decision.knownNotAccepted)
+            assertFalse(requireNotNull(providerLimitDecision(config, provider.model, true, IllegalStateException("partial"))).knownNotAccepted)
+        }
+    }
+
+    @Test fun paymentRequiredWithoutResetDoesNotInventAnAutomaticRetry() {
+        val provider = FreeAiProvider.OVHCLOUD
+        val config = ProviderRequestConfig(provider.apiUrl, null, freeProvider = provider)
+        assertNull(retainFreeHttpFailure(config, provider.model, 402, "payment required") { null })
+        assertNull(FreeAiRequestLimiter.shared.savedCooldown(provider, provider.model, freeCredentialIdentity(provider, null)))
+    }
 }

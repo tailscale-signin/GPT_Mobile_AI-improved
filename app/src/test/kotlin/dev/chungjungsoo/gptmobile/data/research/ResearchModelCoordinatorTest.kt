@@ -341,4 +341,88 @@ class ResearchModelCoordinatorTest {
         assertEquals("MODEL_CIRCUIT_OPEN", worker.events.last().reason)
         assertFalse(worker.completedStage("PLAN"))
     }
+
+    @Test fun reasoningOnlyCompletionUsesPinnedPeerAndRecordsTypedOutcome() = runTest {
+        val empty = ResearchModelEndpoint("reasoning", "model", "route", false, { true }) { _, _, _ ->
+            ResearchModelReply("", "route", reasoningTokens = 512, outputTokens = 512)
+        }
+        val worker = ResearchModelCoordinator(listOf(empty, endpoint("healthy") { plan }))
+        assertEquals(plan, worker.generate(ResearchModelStage.PLAN, "task", 512)?.text)
+        val failed = worker.events.first()
+        assertEquals(dev.chungjungsoo.gptmobile.research.reliability.ProviderOutcome.REASONING_ONLY, failed.providerOutcome)
+        assertTrue(failed.transportComplete)
+        assertFalse(failed.stageAccepted)
+        assertEquals(dev.chungjungsoo.gptmobile.research.reliability.ProviderOutcome.SUCCESS_VISIBLE, worker.events.last().providerOutcome)
+    }
+
+    @Test fun invalidRequestIsNotRepeatedAfterCheckpointRestoreButNewConfigurationCanRun() = runTest {
+        var calls = 0
+        val broken = endpoint("broken") {
+            calls++
+            throw java.io.IOException("HTTP 422 invalid request")
+        }
+        val first = ResearchModelCoordinator(listOf(broken), healthScope = "request-restore-test")
+        assertNull(first.generate(ResearchModelStage.PLAN, "original", 512))
+        assertEquals("REQUEST_INVALID", first.events.single().failureCategory)
+        val saved = kotlinx.serialization.json.Json.encodeToString(
+            kotlinx.serialization.builtins.ListSerializer(ResearchModelEvent.serializer()),
+            first.events
+        )
+        val restored = ResearchModelCoordinator(listOf(broken), healthScope = "request-restore-test")
+        restored.restoreProviderFailures(
+            kotlinx.serialization.json.Json.decodeFromString(
+                kotlinx.serialization.builtins.ListSerializer(ResearchModelEvent.serializer()),
+                saved
+            )
+        )
+        assertNull(restored.generate(ResearchModelStage.PLAN, "original", 512))
+        assertEquals(1, calls)
+        assertEquals("REQUEST_CONFIGURATION_REJECTED", restored.events.single().reason)
+        assertNull(restored.generate(ResearchModelStage.PLAN, "different packet", 512))
+        assertEquals(2, calls)
+        assertNull(restored.generate(ResearchModelStage.PLAN, "original", 1024))
+        assertEquals(3, calls)
+    }
+
+    @Test fun rejectedConfigurationsCannotLeakAcrossAcceptedTurns() = runTest {
+        val broken = endpoint("broken") { throw java.io.IOException("HTTP 400 invalid request") }
+        val first = ResearchModelCoordinator(listOf(broken), healthScope = "turn-one")
+        first.generate(ResearchModelStage.PLAN, "task", 512)
+        var calls = 0
+        val second = ResearchModelCoordinator(
+            listOf(
+                endpoint("broken") {
+                    calls++
+                    plan
+                }
+            ),
+            healthScope = "turn-two"
+        )
+        second.restoreProviderFailures(first.events)
+        assertNotNull(second.generate(ResearchModelStage.PLAN, "task", 512))
+        assertEquals(1, calls)
+    }
+
+    @Test fun completedReasoningBudgetExhaustionIsNotMislabelledAsOrdinaryTruncation() = runTest {
+        val reasoningEndpoint = ResearchModelEndpoint("reasoning", "model", "route", false, { true }) { _, _, _ ->
+            kotlinx.coroutines.currentCoroutineContext()[ResearchStageTrace]?.usage(
+                ResearchUsageObservation("reasoning-invocation", outputTokens = 512, visibleOutputEstimate = 0, reasoningTokens = 512)
+            )
+            throw dev.chungjungsoo.gptmobile.data.agent.tool.DelegateGenerationException(
+                dev.chungjungsoo.gptmobile.data.agent.tool.DelegateFailureKind.OUTPUT_LIMIT,
+                "Output limit reached",
+                10,
+                512,
+                522,
+                false,
+                transportComplete = true
+            )
+        }
+        val worker = ResearchModelCoordinator(listOf(reasoningEndpoint, endpoint("healthy") { plan }))
+        assertNotNull(worker.generate(ResearchModelStage.PLAN, "task", 512))
+        assertEquals("REASONING_ONLY", worker.events.first().failureCategory)
+        assertEquals(dev.chungjungsoo.gptmobile.research.reliability.ProviderOutcome.REASONING_ONLY, worker.events.first().providerOutcome)
+        assertTrue(worker.events.first().transportComplete)
+        assertFalse(worker.events.first().stageAccepted)
+    }
 }

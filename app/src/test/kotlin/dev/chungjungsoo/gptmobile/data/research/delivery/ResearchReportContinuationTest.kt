@@ -72,9 +72,9 @@ class ResearchReportContinuationTest {
         }
         val events = delivery.streamRound(emptyList(), emptyList()).toList()
         assertEquals(1, createdWriters)
-        assertEquals(first, events.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+        assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().single().text.contains(first))
         assertFalse(events.contains(ProviderEvent.Completed))
-        assertEquals(ResearchReportValidity.INCOMPLETE, receipts.single().reportValidity)
+        assertEquals(ResearchReportValidity.EVIDENCE_ONLY, receipts.single().reportValidity)
         assertEquals(listOf("DNS_FAILURE"), receipts.single().issueCodes)
         assertTrue(receipts.single().retryEligible)
     }

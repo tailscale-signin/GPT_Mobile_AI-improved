@@ -971,7 +971,7 @@ class AgentRunCoordinator @Inject constructor(
         } finally {
             withContext(NonCancellable) { checkpoints.cancelAndJoin() }
         }
-        if (committedForHandoff && request.chatToolConfig?.combined?.role?.finalization == true && !request.chatToolConfig.combined.requested.singlePass) {
+        if (committedForHandoff && request.chatToolConfig?.combined?.role?.finalization == true) {
             try {
                 withChatGate(request.chatId) {
                     synthesisPlanner?.prepareFallback(request.chatId, request.runId)?.let { next -> startUnlocked(listOf(next)) }

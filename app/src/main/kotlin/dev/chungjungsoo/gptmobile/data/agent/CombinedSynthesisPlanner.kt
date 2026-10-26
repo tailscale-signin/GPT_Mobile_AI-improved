@@ -2,8 +2,13 @@ package dev.chungjungsoo.gptmobile.data.agent
 
 import dev.chungjungsoo.gptmobile.data.context.canonicalCombinedAssistant
 import dev.chungjungsoo.gptmobile.data.context.hasCombinedHistory
+import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunDraft
+import dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse
+import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PersistAgentRetryRequest
+import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveRunId
 import dev.chungjungsoo.gptmobile.data.repository.ChatRepository
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
@@ -88,10 +93,12 @@ class CombinedSynthesisPlanner @Inject constructor(
                 (event.connectionUidSnapshot != null || event.toolName.startsWith("health_") || event.toolName in setOf("memory", "device_location", "query_health_data", "query_memory", "search_memory", "read_memory", "read_file", "read_file_slice", "health_query", "health_read_records"))
         }.mapTo(hashSetOf()) { it.runId }
         val privateProfiles = turnRuns.filter { it.runId in privateRuns }.mapTo(hashSetOf()) { it.profileUid }
-        val sources = (
-            combinedSynthesisInputs(responses, runs, profiles.associate { it.uid to it.name }, accepted.context.requested.requestedModels, userMessage.content, requireComplete = false)
-                ?: emptyList()
-            ).map { source -> source.copy(localOnly = source.localOnly || source.platformUid in privateProfiles, claimExtractionVersion = if (accepted.context.requested.singlePass) 4 else source.claimExtractionVersion) }
+        val sources = withContext(Dispatchers.Default) {
+            (
+                combinedSynthesisInputs(responses, runs, profiles.associate { it.uid to it.name }, accepted.context.requested.requestedModels, userMessage.content, requireComplete = false)
+                    ?: emptyList()
+                ).map { source -> source.copy(localOnly = source.localOnly || source.platformUid in privateProfiles, claimExtractionVersion = if (accepted.context.requested.singlePass) 4 else source.claimExtractionVersion) }
+        }
         val retainedPublicEvidence = if (sources.isEmpty() && accepted.context.requested.acceptedResearch != null) {
             researchSessionStore.exportTurn(chatId, setOf("$chatId:$userId")).any { session ->
                 session.turnId == "$chatId:$userId" && dev.chungjungsoo.gptmobile.data.research.researchHash(session.snapshot.task.trim()) == dev.chungjungsoo.gptmobile.data.research.researchHash(userMessage.content.trim()) && session.snapshot.sources.any { it.readable && it.publicCapture && it.retrievalReceipt.isNotBlank() }
@@ -142,11 +149,27 @@ class CombinedSynthesisPlanner @Inject constructor(
         // A writer change is a user decision. Capacity is checked only after the complete
         // evidence/history envelope is assembled, so there is no second, smaller input plan.
         val authorizedLead = if (combined.requested.singlePass) {
-            authorizedCandidates.firstOrNull { it.uid == pinnedPrimary }
+            // Keep the user's primary when its route is viable. If diagnostics already
+            // proved that route cannot honor its reasoning/output contract or fit this
+            // complete request, recover using the best eligible active writer instead
+            // of repeatedly dispatching the same known-bad route.
+            authorizedCandidates.firstOrNull {
+                it.uid == pinnedPrimary &&
+                    CombinedWriterPolicy.unavailableReason(
+                        it,
+                        userMessage.content,
+                        appendContinuations = combined.requested.appendContinuations
+                    ) == null
+            } ?: CombinedWriterPolicy.rank(
+                authorizedCandidates,
+                userMessage.content,
+                pinnedPrimary,
+                appendContinuations = combined.requested.appendContinuations
+            ).firstOrNull()
         } else {
             CombinedWriterPolicy.rank(authorizedCandidates, userMessage.content, pinnedPrimary).firstOrNull()
         }
-        var localAssemblyReason: String? = "PRIVATE_SOURCES_LOCAL_ASSEMBLY".takeIf { sources.any { it.localOnly } && authorizedLead == null }
+        val localAssemblyReason: String? = "PRIVATE_SOURCES_LOCAL_ASSEMBLY".takeIf { sources.any { it.localOnly } && authorizedLead == null }
         if (combined.requested.singlePass && authorizedLead == null && localAssemblyReason == null) {
             chatRepository.markCombinedMergeUnavailable(chatId, userId, rootBudgetId, "The selected primary is unavailable for final writing. Review the primary selection; saved contributions remain available.")
             return null
@@ -161,6 +184,51 @@ class CombinedSynthesisPlanner @Inject constructor(
             "CombinedSynthesis",
             "OWNER_SELECTED · preferred=$pinnedPrimary · selected=$leadUid · reason=${if (leadUid == pinnedPrimary) "PREFERRED_PRIMARY" else "SELECTED_FALLBACK"} · primaryCollection=${if (responses.any { it.platformType == pinnedPrimary }) "SAVED" else "MISSING"} · usable=${sources.size}"
         )
+        return freezeAndPersist(
+            SynthesisHandoff(messages, userMessage, accepted, combined, acceptedUids, profiles, responses, sources, turnEvents, turnRuns, leadPlatform, authorizedLead != null, localAssemblyReason, taskRef, trigger)
+        )
+    }
+
+    /** Immutable handoff between contributor admission and final answer persistence. */
+    private data class SynthesisHandoff(
+        val messages: List<MessageV2>,
+        val userMessage: MessageV2,
+        val accepted: CombinedAcceptedTurn,
+        val combined: CombinedExecutionContext,
+        val acceptedUids: List<String>,
+        val profiles: List<PlatformV2>,
+        val responses: List<MessageV2>,
+        val sources: List<CombinedModelResponse>,
+        val turnEvents: List<ToolEvent>,
+        val turnRuns: List<AgentRun>,
+        val leadPlatform: PlatformV2,
+        val writerAvailable: Boolean,
+        val localAssemblyReason: String?,
+        val taskRef: AcceptedTaskRef,
+        val trigger: String
+    )
+
+    // Separate suspend state machines keep the preparation path small enough for ART
+    // compilation while preserving the caller's chat gate and all authority fences.
+    private suspend fun freezeAndPersist(handoff: SynthesisHandoff): AgentRunRequest? {
+        val messages = handoff.messages
+        val userMessage = handoff.userMessage
+        val accepted = handoff.accepted
+        val combined = handoff.combined
+        val acceptedUids = handoff.acceptedUids
+        val profiles = handoff.profiles
+        val responses = handoff.responses
+        val sources = handoff.sources
+        val turnEvents = handoff.turnEvents
+        val turnRuns = handoff.turnRuns
+        val leadPlatform = handoff.leadPlatform
+        var localAssemblyReason = handoff.localAssemblyReason
+        val taskRef = handoff.taskRef
+        val trigger = handoff.trigger
+        val chatId = userMessage.chatId
+        val userId = userMessage.id
+        val rootBudgetId = combined.rootBudgetId
+        val leadUid = leadPlatform.uid
         val leadMessage = responses.singleOrNull { it.platformType == leadUid }
         val evidenceAnchor = leadMessage ?: responses.firstOrNull() ?: return null
         if (evidenceAnchor.id <= 0) return null
@@ -178,16 +246,20 @@ class CombinedSynthesisPlanner @Inject constructor(
         val leadAuthority = leadMessage?.let { primaryMessage ->
             turnSessions.lastOrNull { it.runId == primaryMessage.currentRunId }?.authority
         }
-        val sharedEvidence = dev.chungjungsoo.gptmobile.data.research.ResearchCorpus.freezeAll(
-            dev.chungjungsoo.gptmobile.data.research.authorizedResearchTransfer(turnSessions, leadAuthority)
-        )
+        val sharedEvidence = withContext(Dispatchers.Default) {
+            dev.chungjungsoo.gptmobile.data.research.ResearchCorpus.freezeAll(
+                dev.chungjungsoo.gptmobile.data.research.authorizedResearchTransfer(turnSessions, leadAuthority)
+            )
+        }
         val evidenceLedger = withContext(Dispatchers.Default) {
             dev.chungjungsoo.gptmobile.data.agent.CombinedEvidenceLedger.freeze(sharedEvidence, turnEvents, turnRuns.associate { it.runId to it.profileUid })
         }
         val turnContext = dev.chungjungsoo.gptmobile.data.agent.CombinedTurnContext.capture(userMessage.createdAt)
-        val attributedSources = combinedSourcesWithEvidence(sources, sharedEvidence).map { source ->
-            val owned = evidenceLedger.records.filter { source.platformUid in it.profileUids || source.content.contains(it.url) }
-            source.copy(sourceIds = (source.sourceIds + owned.map { it.id }).distinct(), evidenceRefs = (source.evidenceRefs + owned.map { it.url }).distinct())
+        val attributedSources = withContext(Dispatchers.Default) {
+            combinedSourcesWithEvidence(sources, sharedEvidence).map { source ->
+                val owned = evidenceLedger.records.filter { source.platformUid in it.profileUids || source.content.contains(it.url) }
+                source.copy(sourceIds = (source.sourceIds + owned.map { it.id }).distinct(), evidenceRefs = (source.evidenceRefs + owned.map { it.url }).distinct())
+            }
         }
         val fullHistory = messages
         require(fullHistory.any { it.id == userMessage.id && it.platformType == null }) { "The Combined user turn is no longer available." }
@@ -291,6 +363,24 @@ class CombinedSynthesisPlanner @Inject constructor(
             "CombinedSynthesis",
             "SYNTHESIS_INPUT_FROZEN · trigger=${trigger.take(64)} · runId=$synthesisRunId · sourceCount=${attributedSources.size} · profileUids=${attributedSources.map { it.platformUid }.distinct().joinToString(",")} · candidateUnits=${CombinedClaimSemantics.records(attributedSources).size} · promptChars=${synthesisPrompt.length} · protocol=$deliveryProtocol"
         )
+        return persistFrozenHandoff(handoff, synthesisRunId, synthesisSnapshot, attributedSources, historicalUsers, historicalReplies, editorialContext, deliveryProtocol)
+    }
+
+    private suspend fun persistFrozenHandoff(
+        handoff: SynthesisHandoff,
+        synthesisRunId: String,
+        synthesisSnapshot: String,
+        attributedSources: List<CombinedModelResponse>,
+        historicalUsers: List<MessageV2>,
+        historicalReplies: List<List<MessageV2>>,
+        editorialContext: CombinedExecutionContext,
+        deliveryProtocol: String
+    ): AgentRunRequest? {
+        val userMessage = handoff.userMessage
+        val leadPlatform = handoff.leadPlatform
+        val leadMessage = handoff.responses.singleOrNull { it.platformType == leadPlatform.uid }
+        val evidenceAnchor = leadMessage ?: handoff.responses.firstOrNull() ?: return null
+        val rootBudgetId = handoff.combined.rootBudgetId
         val run = AgentRunDraft(
             runId = synthesisRunId,
             profileUid = leadPlatform.uid,
@@ -314,18 +404,34 @@ class CombinedSynthesisPlanner @Inject constructor(
                 freezeCombinedSources = attributedSources.isNotEmpty()
             )
         )
+        val frozen = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromString<CombinedInputSnapshot>(synthesisSnapshot)
         // The durable run now owns this answer slot. No automatic retry may
         // replace it, even if UI publication or provider dispatch subsequently fails.
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
             "CombinedSynthesis",
-            "SYNTHESIS_RUN_PERSISTED · runId=$synthesisRunId · leadProfileUid=$leadUid · sourceCount=${attributedSources.size} · evidenceRecords=${evidenceLedger.records.size}"
+            "SYNTHESIS_RUN_PERSISTED · runId=$synthesisRunId · leadProfileUid=${leadPlatform.uid} · sourceCount=${attributedSources.size} · evidenceRecords=${frozen.evidence.records.size}"
         )
 
-        val frozen = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromString<CombinedInputSnapshot>(synthesisSnapshot)
-        if (authorizedLead == null || frozen.localAssemblyReason != null) {
+        if (!handoff.writerAvailable || frozen.localAssemblyReason != null) {
             chatRepository.publishCombinedEvidenceFallback(persisted.run.runId)
             return null
         }
+        return dispatchFrozenHandoff(handoff, persisted, frozen, historicalUsers, historicalReplies, editorialContext, deliveryProtocol)
+    }
+
+    private fun dispatchFrozenHandoff(
+        handoff: SynthesisHandoff,
+        persisted: dev.chungjungsoo.gptmobile.data.database.entity.PersistAgentRetryResult,
+        frozen: CombinedInputSnapshot,
+        historicalUsers: List<MessageV2>,
+        historicalReplies: List<List<MessageV2>>,
+        editorialContext: CombinedExecutionContext,
+        deliveryProtocol: String
+    ): AgentRunRequest {
+        val leadPlatform = handoff.leadPlatform
+        val userMessage = handoff.userMessage
+        val combined = handoff.combined
+        val accepted = handoff.accepted
         return AgentRunRequest(
             runId = persisted.run.runId,
             chatId = persisted.assistantMessage.chatId,
@@ -388,14 +494,24 @@ class CombinedSynthesisPlanner @Inject constructor(
         val original = runCatching { kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromString<CombinedInputSnapshot>(raw) }.getOrNull() ?: return null
         val policy = original.combined ?: return null
         if (prior.terminalError?.contains("QUEUE_JOB_PENDING") == true) return null
-        if (policy.requested.singlePass && !userRequested) return null
+        // Permit bounded automatic writer rotation for a single-pass run only when the
+        // persisted failure below explicitly authorizes it. Cancellation, ambiguous remote
+        // jobs, and unclassified failures remain non-retryable; saved contributions stay frozen.
         if (!policy.requested.singlePass && !chatRepository.canRetryCombined(policy.rootBudgetId)) return null
         val messages = chatRepository.fetchMessagesV2(chatId)
         val owner = messages.singleOrNull { it.id == prior.assistantMessageId && it.currentRunId == prior.runId && it.ownershipFence == prior.ownershipFence } ?: return null
         val failure = owner.timeline.lastOrNull { it.combinedFailure != null }?.combinedFailure
         if (userRequested && policy.requested.singlePass) {
             if (prior.status !in setOf("FAILED", "INTERRUPTED", "CANCELED", "COMPLETED")) return null
-        } else if (prior.status !in setOf("FAILED", "INTERRUPTED") || !(failure?.rotateWriter ?: permitsCombinedWriterFallback(prior.status, prior.terminalError))) {
+        } else if (
+            prior.status !in setOf("FAILED", "INTERRUPTED") ||
+            !(
+                failure?.rotateWriter ?: (
+                    CombinedRecoveryFailure.fromCode(prior.terminalError?.substringBefore(':')).rotateWriter ||
+                        permitsCombinedWriterFallback(prior.status, prior.terminalError)
+                    )
+                )
+        ) {
             return null
         }
         val user = messages.singleOrNull { it.id == prior.userMessageId && it.platformType == null } ?: return null

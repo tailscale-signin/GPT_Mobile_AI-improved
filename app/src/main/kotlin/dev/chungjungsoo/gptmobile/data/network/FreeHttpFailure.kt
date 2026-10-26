@@ -15,8 +15,11 @@ internal fun retainFreeHttpFailure(config: ProviderRequestConfig, model: String,
     val message = providerErrorDetails(body, failure.message(), config.token).take(600)
     // Pollinations Classic uses 402 + Retry-After for an exhausted anonymous slot.
     // It is a cooldown, never permission to visit its separately billed API.
+    // Other providers also return 402 for a temporary allowance. Honor an explicit
+    // Retry-After without inventing a reset time for a payment-required response.
     val classicSlotCooldown = provider == dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.POLLINATIONS && status == 402 && !header("Retry-After").isNullOrBlank()
-    val rateLimited = status == 429 || classicSlotCooldown
+    val allowanceCooldown = status == 402 && !header("Retry-After").isNullOrBlank()
+    val rateLimited = status == 429 || allowanceCooldown
     config.freeDiagnostics?.category = when {
         status in setOf(401, 403) && provider.acceptsUserToken -> if (config.token.isNullOrBlank()) FreeFailureCategory.AUTHENTICATION_REQUIRED else FreeFailureCategory.AUTHENTICATION_REJECTED
         rateLimited -> FreeFailureCategory.PROVIDER_RATE_LIMITED

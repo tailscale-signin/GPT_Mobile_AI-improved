@@ -184,7 +184,9 @@ internal class AndroidResearchWorkflow(
                 } else {
                     worker.generate(stage, prompt, allowance.outputTokens, extractedBy, key)?.also { lastModelReply = it }?.text?.let(::parseDelegationObject)
                 }
-                // The caller commits this removal together with accepted claims/packet receipts.
+                // Persist provider outcomes without clearing the unfinished operation before
+                // its accepted claims/packet receipts are committed by the caller.
+                checkpoint()
                 if (result != null && pending != null) state = state.copy(deferredStage = null)
                 result
             } catch (waiting: dev.chungjungsoo.gptmobile.data.research.ResearchProviderDeferred) {
@@ -274,6 +276,7 @@ internal class AndroidResearchWorkflow(
         // A sibling task shares evidence, never another task's questions or completion.
         state = saved ?: ResearchSnapshot(task, sources = retained?.sources.orEmpty(), claims = retained?.claims.orEmpty().map { it.copy(relevance = "Unknown", questionId = "") }, queries = retained?.queries.orEmpty(), notes = listOf("Policy:$policy"))
         state = (journal?.bindTask(state) ?: state).copy(numericalFactBindingRequired = true, reportStructure = options.reportStructure.name)
+        modelCoordinator?.restoreProviderFailures(state.modelEvents)
         readAttempts.set(state.attempts.coerceAtLeast(0))
         var noResearchNeeded = !requiresEvidence && saved?.phase == "Not needed"
         state.sources.filter {

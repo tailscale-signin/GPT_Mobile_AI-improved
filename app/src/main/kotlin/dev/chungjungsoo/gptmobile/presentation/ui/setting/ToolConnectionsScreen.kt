@@ -176,6 +176,34 @@ fun ToolConnectionsScreen(
         canScroll = { scrollState.canScrollForward || scrollState.canScrollBackward }
     )
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    uiState.gitHubSignIn?.let { signIn ->
+        val browserContext = LocalContext.current
+        AlertDialog(
+            onDismissRequest = viewModel::cancelGitHubSignIn,
+            title = { Text("Sign in with GitHub") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Open GitHub and enter this code. Check the app name and requested repository permissions before authorizing.")
+                    androidx.compose.foundation.text.selection.SelectionContainer {
+                        Text(signIn.userCode, style = MaterialTheme.typography.headlineMedium)
+                    }
+                    Text("Waiting for GitHub approval…")
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    runCatching {
+                        dev.chungjungsoo.gptmobile.data.github.GitHubDeviceAuthClient.requireTrustedVerificationUri(signIn.verificationUri)
+                        browserContext.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(signIn.verificationUri)))
+                    }.onFailure {
+                        viewModel.cancelGitHubSignIn()
+                        viewModel.failOAuthLaunch()
+                    }
+                }) { Text("Open GitHub") }
+            },
+            dismissButton = { TextButton(onClick = viewModel::cancelGitHubSignIn) { Text("Cancel") } }
+        )
+    }
     var browsingConnection by remember { mutableStateOf<ToolConnection?>(null) }
     browsingConnection?.let { connection ->
         if (connection.type == ToolConnectionType.GITHUB) {
@@ -755,7 +783,7 @@ fun ToolConnectionEditorScreen(
     var endpoint by remember(connection?.connectionUid) { mutableStateOf(connection?.endpointUrl.orEmpty()) }
     var authType by remember(connection?.connectionUid) { mutableStateOf(connection?.authType ?: ToolConnectionAuthType.NONE) }
     var credential by remember(connection?.connectionUid) { mutableStateOf("") }
-    var oauthClientId by remember(connection?.connectionUid) { mutableStateOf(connection?.oauthClientId.orEmpty()) }
+    var oauthClientId by remember(connection?.connectionUid) { mutableStateOf(connection?.oauthClientId ?: dev.chungjungsoo.gptmobile.BuildConfig.GITHUB_OAUTH_CLIENT_ID) }
     var allowCleartext by remember(connection?.connectionUid) { mutableStateOf(connection?.allowCleartext == true) }
     var clearCredential by remember(connection?.connectionUid) { mutableStateOf(false) }
     val provider = setupFlow.provider
@@ -782,6 +810,7 @@ fun ToolConnectionEditorScreen(
     )
     val credentialValid = when {
         provider == null -> false
+        provider.type == ToolConnectionType.GITHUB && authType == ToolConnectionAuthType.OAUTH -> dev.chungjungsoo.gptmobile.data.github.GitHubDeviceAuthClient.validClientId(oauthClientId.trim())
         !isMcp -> credentialState != CredentialEditState.MISSING
         authType == ToolConnectionAuthType.BEARER -> credentialState != CredentialEditState.MISSING
         else -> true
@@ -1074,6 +1103,10 @@ private fun ToolConnectionStepContent(
                 alias = alias,
                 endpoint = endpoint,
                 credential = credential,
+                authType = authType,
+                oauthClientId = oauthClientId,
+                onAuthTypeChange = onAuthTypeChange,
+                onOAuthClientIdChange = onOAuthClientIdChange,
                 allowCleartext = allowCleartext,
                 clearCredential = clearCredential,
                 isMcp = isMcp,
@@ -1110,6 +1143,10 @@ private fun ConnectionDetailsStep(
     alias: String,
     endpoint: String,
     credential: String,
+    authType: String,
+    oauthClientId: String,
+    onAuthTypeChange: (String) -> Unit,
+    onOAuthClientIdChange: (String) -> Unit,
     allowCleartext: Boolean,
     clearCredential: Boolean,
     isMcp: Boolean,
@@ -1126,7 +1163,7 @@ private fun ConnectionDetailsStep(
     val aliasError = stringResource(R.string.stable_alias_error)
     Text(
         text = if (provider?.type == ToolConnectionType.GITHUB) {
-            "Connect your GitHub token for repositories, pull requests and Actions workflows. Token permissions control repository access; tool permissions control approvals for actions."
+            "Sign in with GitHub or connect a personal access token for repositories, pull requests and Actions workflows. Token permissions control repository access; tool permissions control approvals for actions."
         } else {
             stringResource(
                 if (isMcp) R.string.mcp_details_description else R.string.web_search_details_description,
@@ -1193,14 +1230,34 @@ private fun ConnectionDetailsStep(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(vertical = 8.dp)
         )
-        CredentialField(
-            connection = connection,
-            credential = credential,
-            label = stringResource(R.string.api_key),
-            clearCredential = clearCredential,
-            onCredentialChange = onCredentialChange,
-            onClearCredentialChange = onClearCredentialChange
-        )
+        if (provider?.type == ToolConnectionType.GITHUB) {
+            listOf(ToolConnectionAuthType.OAUTH to "Sign in with GitHub", ToolConnectionAuthType.BEARER to "Personal access token").forEach { (value, label) ->
+                RadioItem(title = label, description = null, value = value, selected = authType == value) { onAuthTypeChange(value) }
+            }
+        }
+        if (provider?.type == ToolConnectionType.GITHUB && authType == ToolConnectionAuthType.OAUTH) {
+            OutlinedTextField(
+                value = oauthClientId,
+                onValueChange = onOAuthClientIdChange,
+                label = { Text("GitHub App client ID") },
+                supportingText = { Text("Use the public client ID of a GitHub App with device flow enabled. Save, then select Sign in. A client secret is not needed.") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Text("GitHub limits access to repositories shared with the app. Reconnect if the user token expires or access is revoked.", style = MaterialTheme.typography.bodySmall)
+            if (connection?.secretRef != null) {
+                LabeledCheckbox(checked = clearCredential, label = stringResource(R.string.clear_saved_credential), contentDescription = stringResource(R.string.clear_saved_credential), onCheckedChange = onClearCredentialChange)
+            }
+        } else {
+            CredentialField(
+                connection = connection,
+                credential = credential,
+                label = stringResource(R.string.api_key),
+                clearCredential = clearCredential,
+                onCredentialChange = onCredentialChange,
+                onClearCredentialChange = onClearCredentialChange
+            )
+        }
         if (provider?.type == ToolConnectionType.GITHUB) {
             Text(
                 text = "For repository writes, use a credential with Contents: read/write. Creating pull requests also needs Pull requests: read/write. Dispatching or rerunning workflows needs Actions: read/write. A 403 can also come from branch protection, SSO, installation policy, or repository rules.",

@@ -207,7 +207,7 @@ fun PlatformSettingScreen(
                 ) {
                     val isLocalPlatform = platformData.compatibleType == ClientType.LITERT_LM
                     val isFreePlatform = platformData.compatibleType == ClientType.FREE
-                    val supportsTools = !isFreePlatform || FreeAiProvider.fromApiUrl(platformData.apiUrl)?.let { dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.model(it, platformData.model)?.tools } == true
+                    val supportsTools = !isFreePlatform || FreeAiProvider.fromApiUrl(platformData.apiUrl)?.isRetired == false
                     val isOllamaPlatform = platformData.compatibleType == ClientType.OLLAMA
                     ProfileIdentityCard(platformData)
                     if (platformData.compatibleType == ClientType.NVIDIA) {

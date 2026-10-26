@@ -17,7 +17,8 @@ data class ProviderLimitDecision(
     val failureId: String? = null,
     val authority: dev.chungjungsoo.gptmobile.data.context.CapturedProviderAuthority? = null,
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
-    val continuationPrefixDigest: String? = null
+    val continuationPrefixDigest: String? = null,
+    val httpStatus: Int? = null
 ) {
     init {
         require(retryAt > 0 && scope.isNotBlank() && provider.isNotBlank())
@@ -46,7 +47,8 @@ internal fun providerLimitDecision(profile: PlatformV2, outcome: FreePreflightOu
         FreeAiRequestLimiter.shared.activeQuotaScopeKey(provider, profile.model, identity),
         outcome.category.name,
         true,
-        outcome.cooldown?.originatingFailureId
+        outcome.cooldown?.originatingFailureId,
+        httpStatus = outcome.cooldown?.status
     )
 }
 
@@ -64,7 +66,7 @@ internal fun providerLimitDecision(config: ProviderRequestConfig, model: String,
         ?: return null
     val cooldown = config.freeDiagnostics?.cooldown
     val localRejection = error is FreeAiRateLimitException && error.localBlock || category in setOf(FreeFailureCategory.LOCAL_COOLDOWN_ACTIVE, FreeFailureCategory.LOCAL_ALLOWANCE_EXHAUSTED)
-    val rejectedHttp = cooldown?.status == 429 || provider == FreeAiProvider.POLLINATIONS && cooldown?.status == 402
+    val rejectedHttp = cooldown?.status in setOf(429, 402)
     return ProviderLimitDecision(
         provider.name,
         config.profileUid.orEmpty(),
@@ -74,6 +76,7 @@ internal fun providerLimitDecision(config: ProviderRequestConfig, model: String,
         category.name,
         !receivedPayload && config.freeDiagnostics?.jobId == null && (localRejection || rejectedHttp),
         cooldown?.originatingFailureId,
-        continuationPrefixDigest = prefixDigest.takeIf { localRejection || rejectedHttp }
+        continuationPrefixDigest = prefixDigest.takeIf { localRejection || rejectedHttp },
+        httpStatus = cooldown?.status
     )
 }

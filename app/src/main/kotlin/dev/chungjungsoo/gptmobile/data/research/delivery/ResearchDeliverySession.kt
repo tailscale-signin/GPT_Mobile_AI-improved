@@ -9,6 +9,7 @@ import dev.chungjungsoo.gptmobile.data.model.ResearchReportDetail
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.transformWhile
@@ -87,36 +88,34 @@ internal class ResearchDeliverySession(
         // authorized saved-evidence reader remains available for paging retained work.
         val writeOnly = evidence?.snapshot?.let { it.complete || it.cancellationOrigin == "USER_STOP_RESEARCH_AND_SUMMARIZE" } == true
         val draftTools = if (writeOnly) tools.filter { it.name == "read_recovery_context" } else tools
-        val draftSession = initialSession(initialContext, writeOnly && draftTools.isEmpty())
-        try {
-            draftSession.streamRound(draftTools, if (writeOnly) emptyList() else exchanges).transformWhile { event ->
-                if (event is ProviderEvent.TextDelta && draft.length + event.text.length > MAX_REPORT_CHARACTERS) {
-                    overflow = true
-                    false
-                } else {
-                    emit(event)
-                    true
-                }
-            }.collect { event ->
-                when (event) {
-                    is ProviderEvent.TextDelta -> draft.append(event.text)
-                    is ProviderEvent.ToolCall -> {
-                        hasCalls = !handlesToolsInternally
-                        emit(event)
-                    }
-                    is ProviderEvent.Failed -> {
-                        failure = event
-                    }
-                    ProviderEvent.Completed -> completed = true
-                    else -> emit(event)
-                }
+        // Catch upstream writer failures only. UI/persistence collectors must keep their
+        // own exceptions; treating those as transport failures violates Flow transparency.
+        flow {
+            val draftSession = initialSession(initialContext, writeOnly && draftTools.isEmpty())
+            emitAll(draftSession.streamRound(draftTools, if (writeOnly) emptyList() else exchanges))
+        }.transformWhile { event ->
+            if (event is ProviderEvent.TextDelta && draft.length + event.text.length > MAX_REPORT_CHARACTERS) {
+                overflow = true
+                false
+            } else {
+                emit(event)
+                true
             }
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (error: Exception) {
-            if (isAuthorizationFailure(error)) throw error
+        }.catch { error ->
+            if (error is CancellationException || isAuthorizationFailure(error)) throw error
             AppLogRecorder.record("Research", "REPORT_WRITER_FAILED · reason=${error.javaClass.simpleName}", "W")
-            failure = ProviderEvent.Failed("Research writer interrupted; saved evidence is retained.", errorCode = "RESEARCH_WRITER_FAILED")
+            emit(ProviderEvent.Failed("Research writer interrupted; saved evidence is retained.", errorCode = "RESEARCH_WRITER_FAILED"))
+        }.collect { event ->
+            when (event) {
+                is ProviderEvent.TextDelta -> draft.append(event.text)
+                is ProviderEvent.ToolCall -> {
+                    hasCalls = !handlesToolsInternally
+                    emit(event)
+                }
+                is ProviderEvent.Failed -> failure = event
+                ProviderEvent.Completed -> completed = true
+                else -> emit(event)
+            }
         }
         // Dispatch admission does not authorize later publication after a buffered request.
         validateAccess()

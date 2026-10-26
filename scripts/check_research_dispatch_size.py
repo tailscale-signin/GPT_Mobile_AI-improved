@@ -20,7 +20,8 @@ AGENT_PREFIXES = (
     'Ldev/chungjungsoo/gptmobile/data/benchmark/BenchmarkRunner',
     'Ldev/chungjungsoo/gptmobile/data/benchmark/BenchmarkCaseExecution',
 )
-GUARDED_PREFIXES = ('Ldev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImpl',) + AGENT_PREFIXES
+COMBINED_PLANNER = 'Ldev/chungjungsoo/gptmobile/data/agent/CombinedSynthesisPlanner'
+GUARDED_PREFIXES = ('Ldev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImpl', COMBINED_PLANNER) + AGENT_PREFIXES
 DISPATCH_STAGES = (
     'executePreparedRequest', 'dispatchWithPreparedContext',
     'preparePrimaryAdmission', 'preparePrimaryToolContext',
@@ -35,6 +36,12 @@ DISPATCH_STAGES = (
 
 
 def is_dispatch_method(descriptor, name):
+    if descriptor.startswith(COMBINED_PLANNER):
+        stages = ('prepare', 'freezeAndPersist')
+        return name in stages or any(
+            name == 'access$' + stage or descriptor.startswith(COMBINED_PLANNER + '$' + stage + '$')
+            for stage in stages
+        )
     if descriptor.startswith(AGENT_PREFIXES):
         return True
     if not descriptor.startswith('Ldev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImpl'):
@@ -122,6 +129,8 @@ def main():
     if not any(row['method'].endswith('executePreparedRequest') and not row['method'].startswith('access$') for row in rows):
         raise ValueError('The actual executePreparedRequest method was not found; continuation wrappers alone are not a valid size check')
     for descriptor, method in (
+        (COMBINED_PLANNER + ';', 'prepare'),
+        (COMBINED_PLANNER + ';', 'freezeAndPersist'),
         ('Ldev/chungjungsoo/gptmobile/data/agent/AgentRunner;', 'executeLoop'),
         ('Ldev/chungjungsoo/gptmobile/data/agent/tool/AgentToolResolver;', 'resolve'),
         ('Ldev/chungjungsoo/gptmobile/data/research/ResearchSourceIndexer;', 'index'),

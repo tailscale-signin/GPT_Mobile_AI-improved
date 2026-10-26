@@ -2,8 +2,13 @@ package dev.chungjungsoo.gptmobile.data.agent
 
 import dev.chungjungsoo.gptmobile.data.context.canonicalCombinedAssistant
 import dev.chungjungsoo.gptmobile.data.context.hasCombinedHistory
+import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunDraft
+import dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse
+import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PersistAgentRetryRequest
+import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveRunId
 import dev.chungjungsoo.gptmobile.data.repository.ChatRepository
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
@@ -162,7 +167,7 @@ class CombinedSynthesisPlanner @Inject constructor(
         } else {
             CombinedWriterPolicy.rank(authorizedCandidates, userMessage.content, pinnedPrimary).firstOrNull()
         }
-        var localAssemblyReason: String? = "PRIVATE_SOURCES_LOCAL_ASSEMBLY".takeIf { sources.any { it.localOnly } && authorizedLead == null }
+        val localAssemblyReason: String? = "PRIVATE_SOURCES_LOCAL_ASSEMBLY".takeIf { sources.any { it.localOnly } && authorizedLead == null }
         if (combined.requested.singlePass && authorizedLead == null && localAssemblyReason == null) {
             chatRepository.markCombinedMergeUnavailable(chatId, userId, rootBudgetId, "The selected primary is unavailable for final writing. Review the primary selection; saved contributions remain available.")
             return null
@@ -177,6 +182,51 @@ class CombinedSynthesisPlanner @Inject constructor(
             "CombinedSynthesis",
             "OWNER_SELECTED · preferred=$pinnedPrimary · selected=$leadUid · reason=${if (leadUid == pinnedPrimary) "PREFERRED_PRIMARY" else "SELECTED_FALLBACK"} · primaryCollection=${if (responses.any { it.platformType == pinnedPrimary }) "SAVED" else "MISSING"} · usable=${sources.size}"
         )
+        return freezeAndPersist(
+            SynthesisHandoff(messages, userMessage, accepted, combined, acceptedUids, profiles, responses, sources, turnEvents, turnRuns, leadPlatform, authorizedLead != null, localAssemblyReason, taskRef, trigger)
+        )
+    }
+
+    /** Immutable handoff between contributor admission and final answer persistence. */
+    private data class SynthesisHandoff(
+        val messages: List<MessageV2>,
+        val userMessage: MessageV2,
+        val accepted: CombinedAcceptedTurn,
+        val combined: CombinedExecutionContext,
+        val acceptedUids: List<String>,
+        val profiles: List<PlatformV2>,
+        val responses: List<MessageV2>,
+        val sources: List<CombinedModelResponse>,
+        val turnEvents: List<ToolEvent>,
+        val turnRuns: List<AgentRun>,
+        val leadPlatform: PlatformV2,
+        val writerAvailable: Boolean,
+        val localAssemblyReason: String?,
+        val taskRef: AcceptedTaskRef,
+        val trigger: String
+    )
+
+    // Separate suspend state machines keep the preparation path small enough for ART
+    // compilation while preserving the caller's chat gate and all authority fences.
+    private suspend fun freezeAndPersist(handoff: SynthesisHandoff): AgentRunRequest? {
+        val messages = handoff.messages
+        val userMessage = handoff.userMessage
+        val accepted = handoff.accepted
+        val combined = handoff.combined
+        val acceptedUids = handoff.acceptedUids
+        val profiles = handoff.profiles
+        val responses = handoff.responses
+        val sources = handoff.sources
+        val turnEvents = handoff.turnEvents
+        val turnRuns = handoff.turnRuns
+        val leadPlatform = handoff.leadPlatform
+        var localAssemblyReason = handoff.localAssemblyReason
+        val taskRef = handoff.taskRef
+        val trigger = handoff.trigger
+        val chatId = userMessage.chatId
+        val userId = userMessage.id
+        val rootBudgetId = combined.rootBudgetId
+        val leadUid = leadPlatform.uid
         val leadMessage = responses.singleOrNull { it.platformType == leadUid }
         val evidenceAnchor = leadMessage ?: responses.firstOrNull() ?: return null
         if (evidenceAnchor.id <= 0) return null
@@ -338,7 +388,7 @@ class CombinedSynthesisPlanner @Inject constructor(
         )
 
         val frozen = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromString<CombinedInputSnapshot>(synthesisSnapshot)
-        if (authorizedLead == null || frozen.localAssemblyReason != null) {
+        if (!handoff.writerAvailable || frozen.localAssemblyReason != null) {
             chatRepository.publishCombinedEvidenceFallback(persisted.run.runId)
             return null
         }

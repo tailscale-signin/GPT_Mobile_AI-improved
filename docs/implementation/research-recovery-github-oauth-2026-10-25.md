@@ -28,7 +28,7 @@ Official protocol references:
 
 ## Validation and outstanding acceptance
 
-Local: 188 repository script tests passed; Android regex and Room schema checks passed; ktlint 1.3.1 passes changed Kotlin files. The 12 original reliability tests passed in a standalone Kotlin harness using minimal assertion stubs; this is not the Android/JUnit integration suite.
+Local: 191 repository script tests passed; Android regex and Room schema checks passed; ktlint 1.3.1 passes changed Kotlin files. The 12 original reliability tests passed in a standalone Kotlin harness using minimal assertion stubs; this is not the Android/JUnit integration suite.
 
 New Android/JUnit regression cases cover reasoning-only fallback; persisted rejected requests and turn isolation; allowance/reset scheduling; empty/thrown writer failures; authorization/cancellation boundaries; device polling/backoff, denial, expiry, cancellation, origin validation and error redaction. Android execution remains a CI gate: this host cannot download the Gradle distribution and has no Android SDK/JDK 21 build environment.
 
@@ -38,4 +38,4 @@ Still required before merge/release:
 - Registered GitHub App sign-in on a device, private repository access and expiry/reconnect acceptance. Automatic refresh remains future work.
 - Full process-death/exact-once final publication matrix and physical-device UI frame-time measurements.
 - Combined regression matrix: frozen contributions, final synthesis, attribution colours, continuation and recovery. Existing exact-quote/numerical/citation checks do not establish semantic entailment for every prose claim.
-- The CombinedSynthesisPlanner.prepare method-size warning and remaining rendering hotspots require separate profiling/refactoring.
+- CombinedSynthesisPlanner.prepare now hands an immutable context to a separate freezeAndPersist suspend stage. The packaged DEX gate checks both real methods and their generated state machines against ART's 16,383-code-unit threshold. Confirm packaged sizes in CI and profile remaining rendering hotspots on the physical device.

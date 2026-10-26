@@ -261,4 +261,29 @@ class ResearchDeliveryBoundaryTest {
         assertTrue(error is kotlinx.coroutines.CancellationException)
         assertFalse(events.any { it is ProviderEvent.TextDelta || it == ProviderEvent.Completed })
     }
+
+    @Test fun silentWriterTerminationProducesOnePartialReportAndATerminalFailure() = runTest {
+        val writer = session { }
+        val receipts = mutableListOf<ResearchDeliveryReceipt>()
+        val delivery = ResearchDeliverySession(writer, { packet }, saveReceipt = { receipts += it }) { _, _ -> writer }
+        val events = delivery.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(1, events.filterIsInstance<ProviderEvent.TextDelta>().size)
+        assertEquals("RESEARCH_PARTIAL", events.filterIsInstance<ProviderEvent.Failed>().single().errorCode)
+        assertEquals(ResearchReportValidity.EVIDENCE_ONLY, receipts.single().reportValidity)
+        assertFalse(events.contains(ProviderEvent.Completed))
+    }
+
+    @Test fun downstreamCollectorFailureCannotBeRetriedAsAWriterFailure() = runTest {
+        val writer = session { emit(ProviderEvent.Notice("writer progress")) }
+        val delivery = ResearchDeliverySession(writer, { packet }) { _, _ -> writer }
+        val events = mutableListOf<ProviderEvent>()
+        val error = runCatching {
+            delivery.streamRound(emptyList(), emptyList()).collect {
+                events += it
+                if (it is ProviderEvent.Notice && it.message == "writer progress") error("collector failed")
+            }
+        }.exceptionOrNull()
+        assertEquals("collector failed", error?.message)
+        assertFalse(events.any { it is ProviderEvent.TextDelta || it is ProviderEvent.Failed })
+    }
 }

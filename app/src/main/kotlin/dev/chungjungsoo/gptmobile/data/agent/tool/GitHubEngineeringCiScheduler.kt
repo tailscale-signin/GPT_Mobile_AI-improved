@@ -13,6 +13,7 @@ import java.util.concurrent.TimeUnit
 internal object GitHubEngineeringCiScheduler {
     fun enqueue(context: Context, taskId: String) {
         require(taskId.isNotBlank())
+        require(taskId.length <= 128)
         val request = OneTimeWorkRequestBuilder<GitHubEngineeringCiWorker>()
             .setInputData(Data.Builder().putString(GitHubEngineeringCiWorker.KEY_TASK_ID, taskId).build())
             .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())

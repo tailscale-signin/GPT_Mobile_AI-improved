@@ -342,7 +342,12 @@ internal class ResearchModelCoordinator(
                     record(event.copy(outcome = "WAITING_PROVIDER_LIMIT", reason = limit.category, failurePhase = phase, failureCategory = "RATE_LIMITED", providerLimit = limit, durationMs = elapsed(started)))
                     continue
                 }
-                val category = failureCategory(error)
+                // A completed cap-limited response can spend every token on reasoning.
+                // Preserve that distinction even when the delegate reports OUTPUT_LIMIT.
+                val reasoningOnly = delegated?.transportComplete == true &&
+                    delegated.partialText.isBlank() &&
+                    trace.snapshot().usage.any { (it.reasoningTokens ?: 0) > 0 && it.visibleOutputEstimate == 0L }
+                val category = if (reasoningOnly) "REASONING_ONLY" else failureCategory(error)
                 val dns = generateSequence<Throwable>(error) { it.cause?.takeUnless { cause -> cause === it } }.take(16).any { it is java.net.UnknownHostException } || error.message.orEmpty().contains("UnknownHostException") || error.message.orEmpty().contains("DNS", true)
                 if (dns && target.providerHost.isNotBlank()) dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.failed(target.providerHost, java.net.UnknownHostException("DNS resolution failed"))
                 val checkpoint = delegated?.partialText?.takeIf { it.isNotBlank() }?.let { keepPartial(stage, target, it) }

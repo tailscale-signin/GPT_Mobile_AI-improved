@@ -402,4 +402,27 @@ class ResearchModelCoordinatorTest {
         assertNotNull(second.generate(ResearchModelStage.PLAN, "task", 512))
         assertEquals(1, calls)
     }
+
+    @Test fun completedReasoningBudgetExhaustionIsNotMislabelledAsOrdinaryTruncation() = runTest {
+        val reasoningEndpoint = ResearchModelEndpoint("reasoning", "model", "route", false, { true }) { _, _, _ ->
+            kotlinx.coroutines.currentCoroutineContext()[ResearchStageTrace]?.usage(
+                ResearchUsageObservation("reasoning-invocation", outputTokens = 512, visibleOutputEstimate = 0, reasoningTokens = 512)
+            )
+            throw dev.chungjungsoo.gptmobile.data.agent.tool.DelegateGenerationException(
+                dev.chungjungsoo.gptmobile.data.agent.tool.DelegateFailureKind.OUTPUT_LIMIT,
+                "Output limit reached",
+                10,
+                512,
+                522,
+                false,
+                transportComplete = true
+            )
+        }
+        val worker = ResearchModelCoordinator(listOf(reasoningEndpoint, endpoint("healthy") { plan }))
+        assertNotNull(worker.generate(ResearchModelStage.PLAN, "task", 512))
+        assertEquals("REASONING_ONLY", worker.events.first().failureCategory)
+        assertEquals(dev.chungjungsoo.gptmobile.research.reliability.ProviderOutcome.REASONING_ONLY, worker.events.first().providerOutcome)
+        assertTrue(worker.events.first().transportComplete)
+        assertFalse(worker.events.first().stageAccepted)
+    }
 }

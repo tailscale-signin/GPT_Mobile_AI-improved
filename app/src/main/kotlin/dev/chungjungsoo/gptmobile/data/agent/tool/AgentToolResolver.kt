@@ -112,11 +112,11 @@ class AgentToolResolver @Inject constructor(
         }
     }
 
-    suspend fun discoverMcpTools(connection: ToolConnection, forceRefresh: Boolean = false): List<Tool> {
-        if (!forceRefresh) mcpClientManager.peekToolsForConnection(connection.connectionUid, connection.endpointUrl, connection.allowCleartext)?.let { return it }
+    suspend fun discoverMcpTools(connection: ToolConnection, forceRefresh: Boolean = false, awaitCompletion: Boolean = false): List<Tool> {
+        if (!forceRefresh && !awaitCompletion) mcpClientManager.peekToolsForConnection(connection.connectionUid, connection.endpointUrl, connection.allowCleartext)?.let { return it }
         val config = mcpConfig(connection)
         return try {
-            mcpClientManager.listTools(config, forceRefresh)
+            mcpClientManager.listTools(config, forceRefresh, awaitCompletion)
         } catch (error: Exception) {
             if (connection.authType != ToolConnectionAuthType.OAUTH || !error.isUnauthorized()) throw error
             mcpClientManager.listTools(
@@ -125,7 +125,8 @@ class AgentToolResolver @Inject constructor(
                     forceOAuthRefresh = true,
                     rejectedAuthorizationHeader = config.authorizationHeader
                 ),
-                forceRefresh = true
+                forceRefresh = true,
+                awaitCompletion = awaitCompletion
             )
         }
     }

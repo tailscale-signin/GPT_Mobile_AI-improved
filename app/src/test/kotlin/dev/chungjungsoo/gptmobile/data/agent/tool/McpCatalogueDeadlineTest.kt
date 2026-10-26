@@ -12,6 +12,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
@@ -110,6 +111,59 @@ class McpCatalogueDeadlineTest {
             assertFalse(manager.catalogueAvailability(config).schemaKnown)
             assertFalse(manager.catalogueAvailability(config).executionAvailable)
             assertTrue(manager.healthSnapshot(config.connectionUid).lastError.orEmpty().contains("8000"))
+        } finally {
+            manager.closeAll()
+            client.close()
+        }
+    }
+
+    @Test fun healthCheckWaitsForSlowCatalogueInsteadOfReportingZeroTools() = runBlocking {
+        val release = CompletableDeferred<Unit>()
+        val client = HttpClient(
+            MockEngine { request ->
+                val body = Json.parseToJsonElement((request.body as TextContent).text).jsonObject
+                val result = if (body.getValue("method").jsonPrimitive.content == "server/discover") {
+                    Json.parseToJsonElement("""{"supportedVersions":["2026-07-28"]}""")
+                } else {
+                    release.await()
+                    Json.parseToJsonElement("""{"tools":[{"name":"read","inputSchema":{"type":"object"}}]}""")
+                }
+                respond(
+                    buildJsonObject {
+                        put("jsonrpc", "2.0")
+                        put("id", body.getValue("id"))
+                        put("result", result)
+                    }.toString(),
+                    headers = headersOf("Content-Type", "application/json")
+                )
+            }
+        )
+        val manager = McpClientManager(client, modern = ModernMcpTransport(client))
+        val config = McpConnectionConfig("health-slow", "https://health-slow.example/mcp", false)
+        try {
+            val health = async { manager.listTools(config, awaitCompletion = true) }
+            // The interactive deadline expires while discovery is still running.
+            assertTrue(manager.listTools(config).isEmpty())
+            assertFalse(health.isCompleted)
+            release.complete(Unit)
+            assertEquals(listOf("read"), withTimeout(2000) { health.await() }.map { it.name })
+            assertTrue(manager.catalogueAvailability(config).executionAvailable)
+        } finally {
+            release.complete(Unit)
+            manager.closeAll()
+            client.close()
+        }
+    }
+
+    @Test fun healthCheckDeadlineIsAReportedFailureAndDoesNotCancelCaller() = runBlocking {
+        val client = HttpClient(MockEngine { delay(30_000); error("Must time out") })
+        val manager = McpClientManager(client, modern = ModernMcpTransport(client), catalogueTimeoutMs = 100L)
+        val config = McpConnectionConfig("health-timeout", "https://health-timeout.example/mcp", false)
+        try {
+            val failure = runCatching { manager.listTools(config, awaitCompletion = true) }.exceptionOrNull()
+            assertTrue(failure is McpCatalogueTimeoutException)
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            assertFalse(manager.catalogueAvailability(config).executionAvailable)
         } finally {
             manager.closeAll()
             client.close()

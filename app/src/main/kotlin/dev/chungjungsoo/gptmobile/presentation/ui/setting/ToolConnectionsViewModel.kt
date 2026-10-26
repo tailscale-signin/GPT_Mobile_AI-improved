@@ -139,7 +139,7 @@ class ToolConnectionsViewModel @Inject constructor(
     }
 
     fun refresh() {
-        viewModelScope.launch {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             runCatching {
                 val connections = toolConnectionRepository.listConnections()
                 val features = settingRepository.getFeatureSettings()
@@ -402,9 +402,8 @@ class ToolConnectionsViewModel @Inject constructor(
                         )
                     )
                 }
-                viewModelScope.launch {
-                    val checkedAt = System.currentTimeMillis()
-                    val health = runCatching { resolver.discoverMcpTools(connection, forceRefresh = true) }
+                viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    val health = runCatching { resolver.discoverMcpTools(connection, forceRefresh = force, awaitCompletion = true) }
                         .fold(
                             onSuccess = { tools ->
                                 if (tools.isEmpty()) {
@@ -412,14 +411,14 @@ class ToolConnectionsViewModel @Inject constructor(
                                         status = ToolConnectionHealthStatus.LIMITED,
                                         toolCount = 0,
                                         message = "Connected, but the server advertised no tools.",
-                                        checkedAt = checkedAt
+                                        checkedAt = System.currentTimeMillis()
                                     )
                                 } else {
                                     ToolConnectionHealth(
                                         status = ToolConnectionHealthStatus.ONLINE,
                                         toolCount = tools.size,
                                         message = "Online",
-                                        checkedAt = checkedAt
+                                        checkedAt = System.currentTimeMillis()
                                     )
                                 }
                             },
@@ -437,7 +436,7 @@ class ToolConnectionsViewModel @Inject constructor(
                                         ToolConnectionHealthStatus.OFFLINE
                                     },
                                     message = message,
-                                    checkedAt = checkedAt
+                                    checkedAt = System.currentTimeMillis()
                                 )
                             }
                         )

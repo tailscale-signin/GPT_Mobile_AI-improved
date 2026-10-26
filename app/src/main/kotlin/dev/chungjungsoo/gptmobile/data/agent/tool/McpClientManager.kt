@@ -168,11 +168,11 @@ class McpClientManager internal constructor(
         }
     }
 
-    suspend fun listTools(config: McpConnectionConfig, forceRefresh: Boolean = false): List<Tool> {
+    suspend fun listTools(config: McpConnectionConfig, forceRefresh: Boolean = false, awaitCompletion: Boolean = false): List<Tool> {
         val policyEpoch = dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.epoch
         if (healthSnapshot(config.connectionUid).state == McpConnectionHealthState.AUTHENTICATION_REQUIRED && providerCooldowns[config.connectionUid]?.first == config.validatedKey()) throw McpAuthenticationRequiredException()
         val key = config.validatedKey() + ":" + policyEpoch
-        val ready = if (forceRefresh) null else catalogue.peek(key, 300_000)
+        val ready = if (forceRefresh || awaitCompletion && healthSnapshot(config.connectionUid).state != McpConnectionHealthState.CONNECTED) null else catalogue.peek(key, 300_000)
         kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.readiness.ReadinessCacheObservation]?.read(ready != null)
         ready?.let {
             catalogueIdentities[config.connectionUid] = policyEpoch to key
@@ -200,7 +200,18 @@ class McpClientManager internal constructor(
             }
         }
         producer.start()
-        val result = withTimeoutOrNull(2_000L) { producer.await() } ?: catalogue.peek(key)?.value.orEmpty()
+        // Interactive resolution may use a cached snapshot, but a health check must
+        // observe the completed catalogue before claiming the endpoint has no tools.
+        val result = if (awaitCompletion) {
+            try {
+                withTimeout(catalogueTimeoutMs) { producer.await() }
+            } catch (deadline: kotlinx.coroutines.TimeoutCancellationException) {
+                kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                throw McpCatalogueTimeoutException(catalogueTimeoutMs)
+            }
+        } else {
+            withTimeoutOrNull(2_000L) { producer.await() } ?: catalogue.peek(key)?.value.orEmpty()
+        }
         if (catalogue.peek(key) != null) catalogueIdentities[config.connectionUid] = policyEpoch to key
         return result
     }

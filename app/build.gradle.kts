@@ -164,6 +164,9 @@ extensions.configure<ApplicationExtension> {
         buildConfigField("String", "QAIRT_VERSION", "\"${if (geniexRuntime) "bundled-geniex-${libs.versions.geniex.get()}" else libs.versions.qnn.get()}\"")
         buildConfigField("String", "HF_OAUTH_CLIENT_ID", "\"$hfClientId\"")
         buildConfigField("String", "HF_OAUTH_REDIRECT_URI", "\"$hfRedirect\"")
+        val githubClientId = providers.gradleProperty("GITHUB_OAUTH_CLIENT_ID").orElse(providers.environmentVariable("GITHUB_OAUTH_CLIENT_ID")).getOrElse("")
+        require(githubClientId.all { it.isLetterOrDigit() || it in "-_." }) { "Invalid GitHub OAuth client ID" }
+        buildConfigField("String", "GITHUB_OAUTH_CLIENT_ID", "\"$githubClientId\"")
         // App owner confirmed LLM7 integration approval on 2026-09-26.
         // A build can explicitly disable the integration if approval changes.
         buildConfigField("boolean", "FREE_LLM7_APPROVED", providers.gradleProperty("freeLlm7Approved").map { (it == "true").toString() }.getOrElse("true"))

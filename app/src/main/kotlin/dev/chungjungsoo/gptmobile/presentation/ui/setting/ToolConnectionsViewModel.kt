@@ -21,6 +21,7 @@ import java.util.Locale
 import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -238,7 +239,11 @@ class ToolConnectionsViewModel @Inject constructor(
             return
         }
         val actualEndpoint = if (provider.type == ToolConnectionType.MCP) endpointUrl.trim() else provider.endpointUrl
-        val actualAuthType = if (provider.type == ToolConnectionType.MCP) authType else provider.authType
+        val actualAuthType = if (provider.type in setOf(ToolConnectionType.MCP, ToolConnectionType.GITHUB)) authType else provider.authType
+        if (provider.type == ToolConnectionType.GITHUB && actualAuthType !in setOf(ToolConnectionAuthType.OAUTH, ToolConnectionAuthType.BEARER)) {
+            _uiState.update { it.copy(errorMessage = "Choose GitHub sign-in or a personal access token.") }
+            return
+        }
         if (provider.type == ToolConnectionType.MCP && !isValidMcpEndpoint(actualEndpoint, allowCleartext)) {
             _uiState.update { it.copy(errorMessage = "MCP endpoint must be HTTP(S); cleartext HTTP requires explicit approval.") }
             return
@@ -304,6 +309,7 @@ class ToolConnectionsViewModel @Inject constructor(
     }
 
     fun deleteConnection(connectionUid: String) {
+        if (_uiState.value.gitHubSignIn?.connectionUid == connectionUid) cancelGitHubSignIn()
         viewModelScope.launch {
             runCatching {
                 mcpClientManager.close(connectionUid)
@@ -450,6 +456,10 @@ class ToolConnectionsViewModel @Inject constructor(
 
     fun startOAuth(connectionUid: String) {
         if (oauthStartJob?.isActive == true) return
+        if (_uiState.value.connections.any { it.connectionUid == connectionUid && it.type == ToolConnectionType.GITHUB }) {
+            startGitHubSignIn(connectionUid)
+            return
+        }
         oauthStartJob = viewModelScope.launch {
             _uiState.update { it.copy(isOAuthBusy = true, errorMessage = null) }
             runCatching { oauthCoordinator.begin(connectionUid, mcpOAuthRedirectUri(connectionUid)) }
@@ -458,6 +468,52 @@ class ToolConnectionsViewModel @Inject constructor(
             _uiState.update { it.copy(isOAuthBusy = false) }
         }
     }
+
+    fun cancelGitHubSignIn() {
+        oauthStartJob?.cancel()
+        _uiState.update { it.copy(gitHubSignIn = null, isOAuthBusy = false) }
+    }
+
+    private fun startGitHubSignIn(connectionUid: String) {
+        oauthStartJob = viewModelScope.launch {
+            _uiState.update { it.copy(isOAuthBusy = true, errorMessage = null) }
+            val client = io.ktor.client.HttpClient(io.ktor.client.engine.okhttp.OkHttp) {
+                followRedirects = false
+                expectSuccess = false
+            }
+            try {
+                val connection = requireNotNull(toolConnectionRepository.getConnection(connectionUid)) { "The GitHub connection was removed." }
+                check(connection.type == ToolConnectionType.GITHUB && connection.authType == ToolConnectionAuthType.OAUTH) { "Choose GitHub sign-in for this connection." }
+                val auth = dev.chungjungsoo.gptmobile.data.github.GitHubDeviceAuthClient(client)
+                val authorization = auth.begin(connection.oauthClientId ?: dev.chungjungsoo.gptmobile.BuildConfig.GITHUB_OAUTH_CLIENT_ID)
+                _uiState.update { it.copy(gitHubSignIn = GitHubSignIn(connectionUid, authorization.userCode, authorization.verificationUri)) }
+                val token = auth.awaitToken(authorization).encodeToByteArray()
+                try {
+                    kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                    dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.withLock {
+                        val current = requireNotNull(toolConnectionRepository.getConnection(connectionUid)) { "The GitHub connection was removed." }
+                        check(current == connection) { "The GitHub connection changed. Start sign-in again." }
+                        revokeToolGrants(connectionUid)
+                        toolConnectionRepository.upsertConnection(current.copy(updatedAt = System.currentTimeMillis() / 1000), credential = token)
+                    }
+                } finally {
+                    token.fill(0)
+                }
+                refresh()
+            } catch (_: kotlinx.coroutines.TimeoutCancellationException) {
+                _uiState.update { it.copy(errorMessage = "GitHub sign-in timed out. Start sign-in again.") }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                showError(error)
+            } finally {
+                client.close()
+                _uiState.update { it.copy(isOAuthBusy = false, gitHubSignIn = null) }
+            }
+        }
+    }
+
+    data class GitHubSignIn(val connectionUid: String, val userCode: String, val verificationUri: String)
 
     fun completeOAuthCallback(callbackUri: String?) {
         if (callbackUri == null) {
@@ -492,6 +548,7 @@ class ToolConnectionsViewModel @Inject constructor(
         val remoteMcpEnabled: Boolean = true,
         val connectionHealth: Map<String, ToolConnectionHealth> = emptyMap(),
         val isOAuthBusy: Boolean = false,
+        val gitHubSignIn: GitHubSignIn? = null,
         val errorMessage: String? = null
     )
 
@@ -501,7 +558,7 @@ class ToolConnectionsViewModel @Inject constructor(
             ToolConnectionProvider("Perplexity", ToolConnectionType.PERPLEXITY, "https://api.perplexity.ai/search", ToolConnectionAuthType.BEARER),
             ToolConnectionProvider("Exa", ToolConnectionType.EXA, "https://api.exa.ai/search", ToolConnectionAuthType.API_KEY),
             ToolConnectionProvider("Brave Search", ToolConnectionType.BRAVE, "https://api.search.brave.com/res/v1/web/search", ToolConnectionAuthType.API_KEY),
-            ToolConnectionProvider("GitHub API", ToolConnectionType.GITHUB, "https://api.github.com", ToolConnectionAuthType.BEARER),
+            ToolConnectionProvider("GitHub API", ToolConnectionType.GITHUB, "https://api.github.com", ToolConnectionAuthType.OAUTH),
             ToolConnectionProvider("Amazon Search · SerpApi", ToolConnectionType.AMAZON_SERPAPI, dev.chungjungsoo.gptmobile.data.amazon.SerpApiAmazonClient.ENDPOINT, ToolConnectionAuthType.API_KEY),
             ToolConnectionProvider("MCP server", ToolConnectionType.MCP, "", ToolConnectionAuthType.NONE)
         )

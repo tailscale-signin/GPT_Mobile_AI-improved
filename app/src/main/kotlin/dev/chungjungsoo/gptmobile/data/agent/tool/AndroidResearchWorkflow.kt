@@ -184,11 +184,10 @@ internal class AndroidResearchWorkflow(
                 } else {
                     worker.generate(stage, prompt, allowance.outputTokens, extractedBy, key)?.also { lastModelReply = it }?.text?.let(::parseDelegationObject)
                 }
-                // The caller commits this removal together with accepted claims/packet receipts.
-                if (result != null && pending != null) state = state.copy(deferredStage = null)
-                // Retain provider outcomes before starting another model operation. Accepted
-                // claims and exact packet receipts are committed by their existing caller.
+                // Persist provider outcomes without clearing the unfinished operation before
+                // its accepted claims/packet receipts are committed by the caller.
                 checkpoint()
+                if (result != null && pending != null) state = state.copy(deferredStage = null)
                 result
             } catch (waiting: dev.chungjungsoo.gptmobile.data.research.ResearchProviderDeferred) {
                 val cursor = dev.chungjungsoo.gptmobile.data.research.ResearchStageCursor(

@@ -123,6 +123,7 @@ internal class ResearchDeliverySession(
         if (hasCalls || failure != null || !completed && !overflow) {
             val denied = failure?.let(::isAuthorizationFailure) == true
             if (!denied && !hasCalls) {
+                if (failure == null) failure = ProviderEvent.Failed("RESEARCH_PARTIAL: The writer stopped before completion. Saved evidence is retained.", errorCode = "RESEARCH_PARTIAL")
                 // Internal tool rounds can have accepted evidence after the initial packet.
                 evidence = withContext(Dispatchers.Default) { packet() } ?: evidence
                 validateAccess()

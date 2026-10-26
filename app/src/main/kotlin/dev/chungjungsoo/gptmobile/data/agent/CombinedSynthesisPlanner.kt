@@ -142,7 +142,23 @@ class CombinedSynthesisPlanner @Inject constructor(
         // A writer change is a user decision. Capacity is checked only after the complete
         // evidence/history envelope is assembled, so there is no second, smaller input plan.
         val authorizedLead = if (combined.requested.singlePass) {
-            authorizedCandidates.firstOrNull { it.uid == pinnedPrimary }
+            // Keep the user's primary when its route is viable. If diagnostics already
+            // proved that route cannot honor its reasoning/output contract or fit this
+            // complete request, recover using the best eligible active writer instead
+            // of repeatedly dispatching the same known-bad route.
+            authorizedCandidates.firstOrNull {
+                it.uid == pinnedPrimary &&
+                    CombinedWriterPolicy.unavailableReason(
+                        it,
+                        userMessage.content,
+                        appendContinuations = combined.requested.appendContinuations
+                    ) == null
+            } ?: CombinedWriterPolicy.rank(
+                authorizedCandidates,
+                userMessage.content,
+                pinnedPrimary,
+                appendContinuations = combined.requested.appendContinuations
+            ).firstOrNull()
         } else {
             CombinedWriterPolicy.rank(authorizedCandidates, userMessage.content, pinnedPrimary).firstOrNull()
         }

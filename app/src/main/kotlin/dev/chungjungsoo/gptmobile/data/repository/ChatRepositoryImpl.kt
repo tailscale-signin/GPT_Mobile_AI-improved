@@ -740,7 +740,7 @@ class ChatRepositoryImpl(
         onInvocation: (String) -> Unit
     ): AgentProviderSession {
         require(dev.chungjungsoo.gptmobile.data.research.feature.ExaminationOutputBudget.minimum(role) != null)
-        require(outputTokens in 1024..8192 && prompt.toByteArray().size <= 96 * 1024)
+        require(outputTokens in 256..8192 && prompt.toByteArray().size <= 96 * 1024)
         dev.chungjungsoo.gptmobile.data.research.feature.ExaminationOutputBudget.requireCapacity(role, outputTokens.toLong())
         val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == platform.uid }
         check(current == platform && current.enabled) { "Research profile changed; resume with an approved profile" }

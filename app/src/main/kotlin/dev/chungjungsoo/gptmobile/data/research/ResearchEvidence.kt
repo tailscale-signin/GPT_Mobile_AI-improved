@@ -134,6 +134,7 @@ data class ResearchClaim(val text: String, val sourceId: String, val quote: Stri
         put("questionId", questionId)
         put("relevance", relevance)
         put("exactQuoteVerified", exactQuoteVerified)
+        put("claimSupportAssessment", if (reviewInvocationId.isBlank() || verdict == "Unreviewed") "UNREVIEWED" else verdict.uppercase())
         put("extractedBy", extractedBy)
         put("extractionInvocationId", extractionInvocationId)
         put("reviewedBy", reviewedBy)

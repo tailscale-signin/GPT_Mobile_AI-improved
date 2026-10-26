@@ -12,6 +12,7 @@ internal fun examinationFailure(error: Exception, attempt: Int, now: Long = Syst
     val causes = generateSequence<Throwable>(error) { it.cause?.takeUnless { cause -> cause === it } }.take(16).toList()
     val delegated = causes.filterIsInstance<dev.chungjungsoo.gptmobile.data.agent.tool.DelegateGenerationException>().firstOrNull()
     val code = evidence?.failureCode ?: when {
+        evidence != null && evidence.text.isBlank() && evidence.retrievalStatus in setOf("read", "partially_read", "abstract_only") -> "SOURCE_TEXT_EMPTY"
         causes.any { it.message.orEmpty().contains(ExaminationOutputBudget.INSUFFICIENT) } -> "ADMITTED_CAPACITY_EXHAUSTED"
         delegated?.kind == dev.chungjungsoo.gptmobile.data.agent.tool.DelegateFailureKind.TRANSPORT_FAILURE -> "TRANSPORT_FAILED"
         delegated?.kind == dev.chungjungsoo.gptmobile.data.agent.tool.DelegateFailureKind.OUTPUT_LIMIT -> "OUTPUT_LIMIT"
@@ -20,7 +21,11 @@ internal fun examinationFailure(error: Exception, attempt: Int, now: Long = Syst
         error.javaClass.simpleName == "CombinedBudgetExceeded" || error.message.orEmpty().contains("BUDGET", true) -> "ADMITTED_CAPACITY_EXHAUSTED"
         error.message.orEmpty().contains("permission", true) -> "PERMISSION_REVOKED"
         causes.any { it is java.net.UnknownHostException || it is java.net.NoRouteToHostException } -> "NETWORK_UNAVAILABLE"
-        error.message.orEmpty().contains("EXAMINATION_OUTPUT_INVALID") -> "OUTPUT_INVALID"
+        causes.any { it.message.orEmpty().contains("EXAMINATION_OUTPUT_EMPTY") } -> "OUTPUT_EMPTY"
+        causes.any { it.message.orEmpty().contains("SOURCE_TEXT_EMPTY") } -> "SOURCE_TEXT_EMPTY"
+        causes.any { it.message.orEmpty().contains("EXTRACTION_EMPTY") } -> "NO_GROUNDED_OUTCOME"
+        causes.any { it.message.orEmpty().contains("GROUNDING_INVALID") } -> "GROUNDING_INVALID"
+        causes.any { it.message.orEmpty().contains("EXAMINATION_OUTPUT_INVALID") } -> "OUTPUT_INVALID"
         causes.any { it is java.net.SocketTimeoutException || it is io.ktor.client.plugins.HttpRequestTimeoutException } -> "TIMEOUT"
         error is java.io.IOException -> "TRANSPORT_FAILED"
         else -> evidence?.retrievalStatus?.uppercase() ?: "EXAMINATION_FAILED"

@@ -11,10 +11,16 @@ object ExaminationOutputBudget {
 
     fun minimum(role: String?): Int? = when (role) {
         "research-appraisal" -> APPRAISAL
-        "research-review" -> PART
+        "research-review" -> 256
         "research-study-review" -> STUDY_REVIEW
         "research-extraction", "research-appraisal-part", "research-study-review-part" -> PART
         else -> null
+    }
+
+    fun examinerBlocker(available: Int): String? = if (available < PART) {
+        "EXAMINER_OUTPUT_CAPACITY: This profile allows $available output tokens; article appraisal requires at least $PART. Choose a capable Examiner or increase its allowance. No model request was sent."
+    } else {
+        null
     }
 
     fun requireCapacity(role: String?, available: Long) {

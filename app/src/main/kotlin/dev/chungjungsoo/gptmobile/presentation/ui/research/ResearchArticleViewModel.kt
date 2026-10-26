@@ -15,6 +15,7 @@ import dev.chungjungsoo.gptmobile.data.research.feature.ResearchWorkVersion
 import dev.chungjungsoo.gptmobile.data.research.feature.StudyField
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -70,7 +71,8 @@ class ResearchArticleViewModel @Inject constructor(private val archive: Research
         }
         val generation = selectionGeneration
         mutable.value = if (sameSelection) mutable.value.copy(loading = true) else ArticleDetailState(loading = true)
-        loader = viewModelScope.launch {
+        // Source hashing, body decoding and detail assembly can be large; keep them off the UI thread.
+        loader = viewModelScope.launch(Dispatchers.IO) {
             try {
                 val work = requireNotNull(archive.dao.work(workId)) { "Saved article is unavailable" }
                 val version = requireNotNull(versionId?.let { archive.dao.version(it) } ?: archive.dao.latestVersion(workId)) { "Saved version is missing" }
@@ -133,6 +135,7 @@ class ResearchArticleViewModel @Inject constructor(private val archive: Research
                     val prompt = ConsentPrompt(java.util.UUID.randomUUID().toString(), profile.uid, profile.name.ifBlank { profile.model })
                     pendingConsent = PendingConsent(prompt, selectedRequest, profile, tools, generation)
                     consent.value = prompt
+                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ResearchExamine", "CONSENT_PRESENTED · promptId=${prompt.id} · profile=${profile.uid}")
                 } else {
                     examine(selectedRequest, tools)
                 }
@@ -143,6 +146,7 @@ class ResearchArticleViewModel @Inject constructor(private val archive: Research
     }
 
     fun declineExaminationConsent() {
+        pendingConsent?.let { dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ResearchExamine", "CONSENT_DISMISSED · promptId=${it.prompt.id} · profile=${it.profile.uid} · granted=false") }
         pendingConsent = null
         consent.value = null
         consentEpoch++
@@ -160,7 +164,10 @@ class ResearchArticleViewModel @Inject constructor(private val archive: Research
         val pending = pendingConsent?.takeIf { it.prompt.id == id } ?: return
         if (checkingConsent || admitting.value) return
         checkingConsent = true
-        declineExaminationConsent()
+        // Accept clears the prompt without recording a contradictory decline event.
+        pendingConsent = null
+        consent.value = null
+        consentEpoch++
         val epoch = consentEpoch
         action {
             try {
@@ -175,6 +182,7 @@ class ResearchArticleViewModel @Inject constructor(private val archive: Research
                     dev.chungjungsoo.gptmobile.data.research.feature.examinationAdmission(accepted, profile, pending.request.copy(origin = dev.chungjungsoo.gptmobile.data.research.feature.ExaminationOrigin.USER_EXAMINE), pending.tools())?.let { error(it) }
                     accepted
                 }
+                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ResearchExamine", "CONSENT_ACCEPTED · promptId=${pending.prompt.id} · profile=${profile.uid} · granted=true")
                 if (pending.generation == selectionGeneration && epoch == consentEpoch) examine(pending.request, pending.tools)
             } finally {
                 checkingConsent = false

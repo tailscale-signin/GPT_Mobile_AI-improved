@@ -59,7 +59,7 @@ internal suspend fun <T> validatedExaminationOutput(
             throw cancelled
         } catch (failure: Exception) {
             invalid(attempt, reply, failure)
-            if (attempt == 2) throw IllegalStateException("EXAMINATION_OUTPUT_INVALID: Schema or source grounding failed after two attempts; saved evidence retained", failure)
+            if (attempt == 2) throw IllegalStateException("${if (reply.isBlank()) "EXAMINATION_OUTPUT_EMPTY" else "EXAMINATION_OUTPUT_INVALID"}: ${examinationFailureDetail(failure, includeFrames = false)}; failed stage stopped after two attempts; change source, settings or Examiner before retrying", failure)
             feedback = "\nYour previous artifact failed validation: ${examinationFailureDetail(failure, includeFrames = false)}. Return a corrected complete JSON object using only the supplied source. Quotes must be exact, fields extractive, unknown values null, and every cited ID must exist. Do not add commentary or change the source evidence."
         }
     }

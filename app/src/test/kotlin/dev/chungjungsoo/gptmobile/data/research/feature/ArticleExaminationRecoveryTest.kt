@@ -42,7 +42,7 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
 class ArticleExaminationRecoveryTest {
-    @Test fun failedAppraiserResumesSavedEvidenceWithoutClaimingAnEmptyAssessmentComplete() = verifySavedRecovery(false)
+    @Test fun failedAppraiserRetainsEvidenceAndStopsUnchangedInvalidOutputRetries() = verifySavedRecovery(false)
 
     @Test fun reexaminationResumesItsExactJobAndRejectsChangedAuthority() = verifySavedRecovery(true)
 
@@ -115,13 +115,15 @@ class ArticleExaminationRecoveryTest {
             resume(failed)
             val malformed = awaitStage(ExaminationStage.FAILED)
             assertEquals(malformed.terminalReason, listOf("physical-1", "physical-2", "physical-3"), Json.decodeFromString<ExaminationCheckpoint>(malformed.checkpointJson).invocationIds)
-            resume(malformed)
-            val done = awaitStage(ExaminationStage.FAILED)
-            assertTrue(done.terminalReason.orEmpty().contains("EXTRACTION_EMPTY"))
+            assertEquals(jobId, requireNotNull(coordinator).userExamine(request.copy(versionId = if (reexamine) saved.versionId else request.versionId, resumeJobId = jobId.takeIf { reexamine })))
+            delay(50)
+            val done = requireNotNull(database.research().job(requireNotNull(jobId)))
+            assertEquals(malformed.lease, done.lease)
+            assertEquals(3, attempts)
             assertEquals(null, database.research().membership(original.workId)?.protectionReason)
             val checkpoint = Json.decodeFromString<ExaminationCheckpoint>(done.checkpointJson)
-            assertEquals(listOf("physical-1", "physical-2", "physical-3", "physical-4"), checkpoint.invocationIds)
-            assertEquals(1, checkpoint.nextChunk)
+            assertEquals(listOf("physical-1", "physical-2", "physical-3"), checkpoint.invocationIds)
+            assertEquals(0, checkpoint.nextChunk)
             assertTrue(checkpoint.pendingAppraisalIds.isEmpty())
             assertEquals(body, archive.text(requireNotNull(database.research().version(requireNotNull(checkpoint.versionId))), "public"))
             coVerify(exactly = 1) { academic.read(any(), any(), any(), any(), any(), any()) }

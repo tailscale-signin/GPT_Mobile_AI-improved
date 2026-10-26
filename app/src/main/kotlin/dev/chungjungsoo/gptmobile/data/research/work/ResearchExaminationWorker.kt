@@ -159,8 +159,8 @@ class ResearchExaminationWorker @AssistedInject constructor(
                         archive.dao.acknowledge(row.id, row.createdAt)
                     } else if (stage == dev.chungjungsoo.gptmobile.data.research.feature.ExaminationStage.PAUSED && archive.dao.job(id)?.terminalReason?.startsWith("Paused;") == true) {
                         archive.dao.outbox(row.copy(operation = Json.encodeToString(scheduled.copy(waitingReason = "USER_PAUSED", waitingRevision = null))))
-                    } else if (stage == dev.chungjungsoo.gptmobile.data.research.feature.ExaminationStage.FAILED && archive.dao.job(id)?.terminalReason?.contains("EXAMINATION_OUTPUT_INVALID") == true) {
-                        archive.dao.outbox(row.copy(operation = Json.encodeToString(scheduled.copy(waitingReason = "OUTPUT_INVALID", waitingRevision = null))))
+                    } else if (stage == dev.chungjungsoo.gptmobile.data.research.feature.ExaminationStage.FAILED && archive.dao.job(id)?.checkpointJson?.let { saved -> runCatching { dev.chungjungsoo.gptmobile.data.research.feature.blocksUnchangedExaminationRetry(Json.decodeFromString<dev.chungjungsoo.gptmobile.data.research.feature.ExaminationCheckpoint>(saved).failure) }.getOrDefault(false) } == true) {
+                        archive.dao.outbox(row.copy(operation = Json.encodeToString(scheduled.copy(waitingReason = "DETERMINISTIC_FAILURE", waitingRevision = rowRevision))))
                     } else if (stage in dev.chungjungsoo.gptmobile.data.research.feature.ExaminationLifecycle.waiting) {
                         val retained = archive.dao.job(id)?.checkpointJson?.let { Json.decodeFromString<dev.chungjungsoo.gptmobile.data.research.feature.ExaminationCheckpoint>(it) }
                         if (retained?.failure?.retryable == true) {
@@ -193,7 +193,7 @@ class ResearchExaminationWorker @AssistedInject constructor(
         return finish(pending)
     }
 
-    private fun configurationBlocked(failure: Exception): Boolean = failure.message.orEmpty().let { it.contains("Choose an enabled examination") || it.contains("consent") || it.contains("disabled") || it.contains("reviewer unavailable", true) || it.contains("REQUIRED_REVIEWER_UNAVAILABLE") || it.contains("policy changed", true) || it.contains("does not permit article retrieval") || it.contains("Article tools are excluded") || it.contains("Web-only scope") || it.contains("Increase Research Depth") || it.contains("Research is off") }
+    private fun configurationBlocked(failure: Exception): Boolean = failure.message.orEmpty().let { it.contains("EXAMINER_OUTPUT_CAPACITY") || it.contains("Choose an enabled examination") || it.contains("consent") || it.contains("disabled") || it.contains("reviewer unavailable", true) || it.contains("REQUIRED_REVIEWER_UNAVAILABLE") || it.contains("policy changed", true) || it.contains("does not permit article retrieval") || it.contains("Article tools are excluded") || it.contains("Web-only scope") || it.contains("Increase Research Depth") || it.contains("Research is off") }
 
     companion object {
         fun enqueue(context: Context, reconsider: Boolean = false) {

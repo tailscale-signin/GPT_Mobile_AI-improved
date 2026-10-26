@@ -341,12 +341,15 @@ class ChatViewModel @Inject constructor(
         researchDatabase?.research()?.jobs()?.map { rows -> rows.filter { it.chatId == chatRoomId } }?.distinctUntilChanged() ?: flowOf(emptyList())
     ) { sessions, executions, requests, jobs ->
         val byRoot = sessions.values.filter { it.chatId == chatRoomId }.groupBy { it.turnId }
+        val linkedIds = byRoot.values.flatten().flatMap { row -> row.snapshot.modelEvents.flatMap { event -> listOfNotNull(event.invocationId) + event.metrics?.invocationIds.orEmpty() } }.toSet() +
+            jobs.flatMap { job -> runCatching { kotlinx.serialization.json.Json.decodeFromString<dev.chungjungsoo.gptmobile.data.research.feature.ExaminationCheckpoint>(job.checkpointJson).invocationIds }.getOrDefault(emptyList()) }
+        val correlatedRequests = requests + invocationLedger?.linkedStatistics(linkedIds - requests.map { it.id }.toSet()).orEmpty()
         val acceptedRoots = executions.values.filter { it.accepted.chatId == chatRoomId }.associateBy { it.accepted.rootWorkId }
         (byRoot.keys + acceptedRoots.keys).associateWith { root ->
             val rows = byRoot[root].orEmpty()
             val accepted = acceptedRoots[root]?.accepted ?: researchSessionStore?.acceptedTask(root)
             val participants = accepted?.participantUids?.toSet() ?: requests.filter { it.turnKey == root }.mapNotNull { it.profileUid }.toSet()
-            dev.chungjungsoo.gptmobile.data.research.researchProfileStatistics(root, participants, rows, requests, jobs)
+            dev.chungjungsoo.gptmobile.data.research.researchProfileStatistics(root, participants, rows, correlatedRequests, jobs)
         }
     }.flowOn(Dispatchers.Default).distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 

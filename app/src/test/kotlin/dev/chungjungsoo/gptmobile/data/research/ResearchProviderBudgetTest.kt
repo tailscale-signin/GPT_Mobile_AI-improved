@@ -19,6 +19,12 @@ class ResearchProviderBudgetTest {
         assertTrue(runCatching { ResearchProviderBudget.output(profile(FreeAiProvider.POLLINATIONS), 512, 1000) }.isFailure)
     }
 
+    @Test fun customAndLocalProfilesAlsoHonorConfiguredOutputLimits() {
+        val custom = PlatformV2(uid = "custom", name = "Custom", compatibleType = ClientType.OPENAI, maxTokens = 512)
+        assertEquals(512, ResearchProviderBudget.output(custom, 6144))
+        assertEquals(256, ResearchProviderBudget.output(custom, 6144, 256))
+    }
+
     @Test fun hordeExtractionRespectsRealOutputCeiling() {
         assertEquals(256, ResearchProviderBudget.output(profile(FreeAiProvider.AI_HORDE), 512))
     }

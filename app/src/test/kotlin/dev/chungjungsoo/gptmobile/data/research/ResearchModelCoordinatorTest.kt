@@ -36,6 +36,43 @@ class ResearchModelCoordinatorTest {
         assertEquals("EMPTY_OUTPUT", ResearchModelCoordinator.failureCategory(wrapped("NO_VISIBLE_ANSWER: provider returned no answer")))
     }
 
+    @Test fun acceptedPolicyChangeStopsDependentStagesWithoutAnAuthorizationCascade() = runTest {
+        var attempts = 0
+        val target = endpoint("worker") {
+            attempts++
+            error("DISPATCH_POLICY_CHANGED: request authorization changed")
+        }
+        val coordinator = ResearchModelCoordinator(listOf(target))
+        repeat(6) { assertNull(coordinator.generate(ResearchModelStage.EXTRACT, "packet-$it", 256)) }
+        assertEquals(1, attempts)
+        assertEquals(1, coordinator.events.size)
+        assertEquals("AUTHORIZATION", coordinator.events.single().failureCategory)
+    }
+
+    @Test fun completeSchemaAtProviderOutputLimitIsStillAccepted() = runTest {
+        val target = ResearchModelEndpoint("worker", "m", "route", false, { true }) { _, _, _ ->
+            ResearchModelReply("{\"claims\":[]}", "route", outputLimitReached = true, finishReason = "length")
+        }
+        val coordinator = ResearchModelCoordinator(listOf(target))
+        assertNotNull(coordinator.generate(ResearchModelStage.EXTRACT, "packet", 256))
+        assertTrue(coordinator.events.last().stageAccepted)
+    }
+
+    @Test fun malformedExactPacketsDoNotRepeatButCorrectedPacketsCanRun() = runTest {
+        var attempts = 0
+        val target = endpoint("worker") {
+            attempts++
+            "{"
+        }
+        val coordinator = ResearchModelCoordinator(listOf(target))
+        assertNull(coordinator.generate(ResearchModelStage.EXTRACT, "packet", 256))
+        assertNull(coordinator.generate(ResearchModelStage.EXTRACT, "packet", 256))
+        assertEquals(1, attempts)
+        assertEquals("REQUEST_CONFIGURATION_REJECTED", coordinator.events.last().reason)
+        assertNull(coordinator.generate(ResearchModelStage.EXTRACT, "corrected packet", 256))
+        assertEquals(2, attempts)
+    }
+
     @Test fun remoteTransportFailuresStopRepeatedSourceDispatchAndAllowPinnedHealthyPeer() = runTest {
         var attempts = 0
         val coordinator = ResearchModelCoordinator(

@@ -121,6 +121,7 @@ internal class ResearchModelCoordinator(
     private val failures = health?.first ?: java.util.concurrent.ConcurrentHashMap<CircuitKey, FailureState>()
     private val sharedFailures = health?.second ?: java.util.concurrent.ConcurrentHashMap<String, FailureState>()
     private val history = mutableListOf<ResearchModelEvent>()
+    private var authorizationStopped = false
     private val rejectedRequests = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val stageTraces = java.util.concurrent.ConcurrentHashMap<String, ResearchStageTrace>()
     private val successfulStages = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
@@ -167,7 +168,7 @@ internal class ResearchModelCoordinator(
             val target = endpoints[event.profileUid] ?: return@forEach
             if (event.model == target.model &&
                 event.requestDigest.isNotBlank() &&
-                (event.providerOutcome == ProviderOutcome.INVALID_REQUEST || event.failureCategory == "REQUEST_INVALID")
+                (event.providerOutcome == ProviderOutcome.INVALID_REQUEST || event.failureCategory in setOf("REQUEST_INVALID", "STRUCTURED_OUTPUT"))
             ) {
                 rejectedRequests.add("${target.profileUid}:${target.modelKey}:${event.stage}:${event.requestDigest}")
             }
@@ -208,12 +209,12 @@ internal class ResearchModelCoordinator(
     }
 
     private suspend fun attemptGenerate(stage: ResearchModelStage, prompt: String, cap: Int, extractedBy: String, workItemId: String?): ResearchModelReply? {
-        if (!stillEnabled() || cap <= 0) return null
+        if (authorizationStopped || !stillEnabled() || cap <= 0) return null
         val candidates = (if (stage == ResearchModelStage.REVIEW) listOfNotNull(reviewer) + workers else workers).distinctBy { it.profileUid }
         val deferred = mutableListOf<dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision>()
         for (target in candidates) {
             if (!stillEnabled()) return null
-            val event = ResearchModelEvent(UUID.randomUUID().toString(), stage.name, target.profileUid, target.model, target.local, "QUEUED", wallClock(), inputTokensEstimate = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(prompt), requestDigest = researchHash("$cap:$prompt"))
+            val event = ResearchModelEvent(UUID.randomUUID().toString(), stage.name, target.profileUid, target.model, target.local, "QUEUED", wallClock(), inputTokensEstimate = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(prompt), requestDigest = researchHash("${runCatching { target.requestBudget(cap) }.getOrNull()}:$cap:$prompt"))
             val requestKey = "${target.profileUid}:${target.modelKey}:${stage.name}:${event.requestDigest}"
             if (requestKey in rejectedRequests) {
                 record(event.copy(outcome = "SKIPPED", reason = "REQUEST_CONFIGURATION_REJECTED", failurePhase = "READINESS", failureCategory = "ADMISSION"))
@@ -269,7 +270,7 @@ internal class ResearchModelCoordinator(
                     record(event.copy(outcome = "CANCELLED", durationMs = elapsed(started), reason = "PERMISSION_REVOKED"))
                     return null
                 }
-                if (reply != null && (!reply.transportComplete || reply.transportFailure != null || reply.outputLimitReached || reply.text.startsWith("[PARTIAL_DELEGATE_OUTPUT:"))) {
+                if (reply != null && (!reply.transportComplete || reply.transportFailure != null || reply.outputLimitReached && !valid(stage, parseDelegationObject(reply.text)) || reply.text.startsWith("[PARTIAL_DELEGATE_OUTPUT:"))) {
                     val limited = reply.outputLimitReached || reply.text.startsWith("[PARTIAL_DELEGATE_OUTPUT:")
                     val checkpoint = keepPartial(stage, target, reply.text)
                     if (!limited) failed(shared = true)
@@ -291,6 +292,7 @@ internal class ResearchModelCoordinator(
                     valid(stage, parsed)
                 )
                 if (providerOutcome != ProviderOutcome.SUCCESS_VISIBLE) {
+                    if (providerOutcome != ProviderOutcome.REASONING_ONLY) rejectedRequests.add(requestKey)
                     val checkpoint = keepPartial(stage, target, reply.text)
                     failed(shared = reply.text.isBlank() || parseDelegationObject(reply.text) == null)
                     record(
@@ -357,6 +359,10 @@ internal class ResearchModelCoordinator(
                 } else if (category !in setOf("OUTPUT_LIMIT", "BUDGET_DENIED", "CONTEXT_LIMIT", "AUTHORIZATION", "ADMISSION")) {
                     failed(shared = category in setOf("TRANSPORT", "RATE_LIMITED", "PROVIDER_UNAVAILABLE", "PROVIDER_OVERLOADED", "RUNTIME_QUARANTINED", "REASONING_ONLY", "EMPTY_OUTPUT"))
                 }
+                val policyChanged = generateSequence<Throwable>(error) { it.cause?.takeUnless { next -> next === it } }.take(12).any { cause ->
+                    listOf("DISPATCH_POLICY_CHANGED", "SOURCE_PERMISSION_REVOKED", "PERMISSION_DENIED").any { cause.message.orEmpty().contains(it, true) }
+                }
+                if (policyChanged) authorizationStopped = true
                 record(
                     event.copy(
                         outcome = if (category in setOf("ADMISSION", "BUDGET_DENIED", "CONTEXT_LIMIT")) "SKIPPED" else "FAILED",
@@ -373,6 +379,7 @@ internal class ResearchModelCoordinator(
                         providerHost = target.providerHost
                     )
                 )
+                if (authorizationStopped) return null
             } finally {
                 stageTraces.remove(event.id)
                 networkLease?.let { dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.release(it) }
@@ -427,10 +434,10 @@ internal class ResearchModelCoordinator(
                 delegated?.kind == dev.chungjungsoo.gptmobile.data.agent.tool.DelegateFailureKind.REASONING_ONLY -> "REASONING_ONLY"
                 delegated?.kind == dev.chungjungsoo.gptmobile.data.agent.tool.DelegateFailureKind.EMPTY_OUTPUT -> "EMPTY_OUTPUT"
                 Regex("(?i)\\bHTTP\\s+(400|413|415|422)\\b|REQUEST_INVALID|REQUEST_SCHEMA_INCOMPATIBLE|invalid_request_error").containsMatchIn(messages) -> "REQUEST_INVALID"
+                listOf("PERMISSION_DENIED", "SOURCE_PERMISSION_REVOKED", "DISPATCH_POLICY_CHANGED").any { messages.contains(it, true) } -> "AUTHORIZATION"
                 delegated?.kind == dev.chungjungsoo.gptmobile.data.agent.tool.DelegateFailureKind.TRANSPORT_FAILURE -> "TRANSPORT"
                 delegated?.kind == dev.chungjungsoo.gptmobile.data.agent.tool.DelegateFailureKind.OUTPUT_LIMIT -> "OUTPUT_LIMIT"
                 delegated?.kind == dev.chungjungsoo.gptmobile.data.agent.tool.DelegateFailureKind.AUTH_FAILURE -> "AUTHORIZATION"
-                listOf("PERMISSION_DENIED", "SOURCE_PERMISSION_REVOKED", "DISPATCH_POLICY_CHANGED").any { messages.contains(it, true) } -> "AUTHORIZATION"
                 messages.contains("PROFILE_", true) -> "PROFILE_RESOLUTION"
                 messages.contains("interrupted inside native", true) || messages.contains("QUARANTIN", true) -> "RUNTIME_QUARANTINED"
                 error is IllegalArgumentException -> "ARGUMENT_VALIDATION"

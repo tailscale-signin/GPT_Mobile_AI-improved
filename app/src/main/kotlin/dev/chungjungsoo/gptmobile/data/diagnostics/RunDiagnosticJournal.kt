@@ -251,7 +251,7 @@ internal class RunDiagnosticJournal(
             rejected.incrementAndGet()
             return
         }
-        if (outputPartId != null && !outputPartId.matches(Regex("[0-9:]{1,40}"))) {
+        if (outputPartId != null && !outputPartId.matches(Regex("[0-9:]{1,40}|sha256:[a-f0-9]{64}"))) {
             dropped.incrementAndGet()
             rejected.incrementAndGet()
             return
@@ -305,7 +305,7 @@ internal class RunDiagnosticJournal(
         val eligible = synchronized(lock) { runId in permittedRuns }
         if (!eligible) return
         runCatching {
-            record(runId, RunDiagnosticKind.OUTPUT_CHECKPOINT, invocationId = invocationId, fence = fence, outputBoundary = boundary, outputRepresentation = representation, outputFingerprint = outputFingerprint(text), outputPartId = partId)
+            record(runId, RunDiagnosticKind.OUTPUT_CHECKPOINT, invocationId = invocationId, fence = fence, outputBoundary = boundary, outputRepresentation = representation, outputFingerprint = outputFingerprint(text), outputPartId = outputTracePartId(partId))
         }.onFailure { failed = true }
     }
 

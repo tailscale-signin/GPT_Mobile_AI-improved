@@ -168,9 +168,12 @@ internal class OutputLimitRecoverySession(
             val transientFailure = failure != null &&
                 !limitFailure &&
                 recoverTransientFailures &&
+                // A watchdog expiry with no saved answer or evidence cannot resume anything.
+                // Repeating it silently would multiply the same stalled prefill/queue wait.
+                (failure?.progressDeadline == null || answer.isNotBlank() || evidence.isNotEmpty()) &&
                 (tools.isEmpty() || continuing) &&
                 pendingCalls.isEmpty() &&
-                isRecoverableStreamFailure(requireNotNull(failure).message) &&
+                (isRecoverableStreamFailure(requireNotNull(failure).message) || failure?.progressDeadline?.deadline == "GENERATION_STALLED") &&
                 transientRetries < 2
             if (failure != null && !limitFailure && !transientFailure) {
                 saveProgress(answer.toString(), continuations, effectiveOutputCap, if (answer.isNotEmpty()) "PARTIAL" else "FAILED")

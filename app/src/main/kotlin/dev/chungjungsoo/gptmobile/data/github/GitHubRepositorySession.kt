@@ -134,6 +134,11 @@ internal class GitHubRepositorySession(
     }
 
     suspend fun execute(action: String, owner: String, repo: String, args: JsonObject): JsonElement {
+        if (action == "changed_since") {
+            require(args.s("base").isNotBlank()) {
+                "CHANGES_BASE_REQUIRED: Supply base_sha to github_context(action=changes), or base to changed_since. Use github_pr(action=context, include_files=true) for a pull request's changed files, or github_context(action=status) for repository status."
+            }
+        }
         if (action == "read_ranges" && args.s("evidence_id").isNotEmpty()) {
             val retained = store.read(scope, "evidence:${args.s("evidence_id")}") ?: error("Evidence handle expired or belongs to another task/account.")
             require(retained.s("owner").equals(owner, true) && retained.s("repo").equals(repo, true)) { "Evidence belongs to another repository." }

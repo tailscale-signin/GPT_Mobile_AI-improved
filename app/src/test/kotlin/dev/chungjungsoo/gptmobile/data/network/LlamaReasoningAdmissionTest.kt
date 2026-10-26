@@ -24,6 +24,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LlamaReasoningAdmissionTest {
+    @Test fun textOnlyRecoveryPreservesReasoningAdmissionAndHardConstraints() {
+        val original = dev.chungjungsoo.gptmobile.data.agent.provider.RequestConstraints(
+            maxOutputTokens = 512,
+            allowGatewayLocalTools = true,
+            contextCeiling = 8192,
+            permissionRevision = "accepted-policy",
+            originalRequestLineage = "original"
+        )
+        val recovery = original.withoutTools()
+        assertFalse(recovery.allowTools)
+        assertFalse(recovery.allowGatewayLocalTools)
+        assertEquals(original.copy(allowTools = false, allowGatewayLocalTools = false), recovery)
+        assertEquals(ReasoningMode.AUTO, ReasoningPolicy.resolve(ReasoningMode.AUTO, recovery.allowReasoning, null).effective)
+        assertThrows(IllegalStateException::class.java) { ReasoningPolicy.resolve(ReasoningMode.OFF, recovery.allowReasoning, null) }
+        assertFalse(original.copy(allowReasoning = false).withoutTools().allowReasoning)
+    }
+
     @Test fun explicitOffUsesOnlyTheProbedControlAndKeepsTheConfiguredRoute() = runBlocking {
         val urls = mutableListOf<String>()
         val engine = MockEngine { incoming ->

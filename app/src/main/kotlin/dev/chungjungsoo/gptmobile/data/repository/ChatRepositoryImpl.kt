@@ -3964,7 +3964,7 @@ class ChatRepositoryImpl(
             }
             if (recalled.facts.isNotEmpty()) send(ApiState.MemoryRecalled(recalled.references))
             val passCombined = prepareCombinedDeliveryWork(combinedOverride ?: chatToolConfig?.combined, kind, runId, platform.uid, turns, invocationPlatform.systemPrompt.orEmpty(), listOfNotNull(passOutputTokens, requestConstraints.maxOutputTokens).minOrNull())
-            val constraints = (if (textOnly) requestConstraints.copy(allowTools = false, allowGatewayLocalTools = false, allowReasoning = false) else requestConstraints)
+            val constraints = (if (textOnly) requestConstraints.withoutTools() else requestConstraints)
                 .copy(requestRole = kind, combined = passCombined, continuationPrefixDigest = continuationPrefixDigest)
                 .let { original ->
                     if (passOutputTokens != null) {

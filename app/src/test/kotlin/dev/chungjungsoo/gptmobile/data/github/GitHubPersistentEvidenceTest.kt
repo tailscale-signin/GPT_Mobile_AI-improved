@@ -25,6 +25,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubPersistentEvidenceTest {
+    @Test fun changesWithoutBaseReturnsAnActionableErrorBeforeAnyNetworkWork() = runTest {
+        val client = session(GitHubRepositoryStateStore(), request = { error("Invalid request must not resolve the repository") })
+        val failure = runCatching { client.execute("changed_since", "owner", "repo", buildJsonObject {}) }.exceptionOrNull()
+        assertTrue(failure is IllegalArgumentException)
+        assertTrue(failure?.message.orEmpty().contains("CHANGES_BASE_REQUIRED"))
+        assertTrue(failure?.message.orEmpty().contains("base_sha"))
+        assertTrue(failure?.message.orEmpty().contains("github_pr"))
+    }
+
     private val head = "a".repeat(40)
     private val old = "b".repeat(40)
     private val headTree = "c".repeat(40)

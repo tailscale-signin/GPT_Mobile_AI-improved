@@ -118,7 +118,10 @@ internal class GitHubOperationTool(
                 "github_context" -> {
                     properties["action"] = choice("resolve", "status", "index", "changes", "efficiency")
                     properties["ref"] = field("string")
-                    properties["base_sha"] = field("string")
+                    properties["base_sha"] = buildJsonObject {
+                        put("type", "string")
+                        put("description", "Required for action=changes: base commit SHA or ref to compare with the pinned head. For pull request files use github_pr context with include_files=true.")
+                    }
                     properties["refresh"] = field("boolean")
                     properties["page"] = field("integer")
                 }
@@ -203,7 +206,7 @@ internal class GitHubOperationTool(
                 }
             }
             val description = when (operation) {
-                "github_context" -> "Resolve and pin the selected repository; check remote status, index, changes or request efficiency."
+                "github_context" -> "Resolve and pin the selected repository; check remote status, index, changes or request efficiency. Changes requires base_sha; for a pull request's changed files use github_pr context with include_files=true."
                 "github_search" -> "Search pinned code and symbols locally. Follow index_cursor until complete."
                 "github_read" -> "Read exact source ranges or a saved evidence_id at a pinned commit."
                 "github_stage_patch" -> "Validate expected head/blob SHAs and preview exact edits without committing."

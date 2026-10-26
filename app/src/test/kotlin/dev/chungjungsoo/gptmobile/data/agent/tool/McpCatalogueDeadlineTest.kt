@@ -156,7 +156,12 @@ class McpCatalogueDeadlineTest {
     }
 
     @Test fun healthCheckDeadlineIsAReportedFailureAndDoesNotCancelCaller() = runBlocking {
-        val client = HttpClient(MockEngine { delay(30_000); error("Must time out") })
+        val client = HttpClient(
+            MockEngine {
+                delay(30_000)
+                error("Must time out")
+            }
+        )
         val manager = McpClientManager(client, modern = ModernMcpTransport(client), catalogueTimeoutMs = 100L)
         val config = McpConnectionConfig("health-timeout", "https://health-timeout.example/mcp", false)
         try {

@@ -194,6 +194,7 @@ internal class GitHubEngineeringRoomLedger(
             val current = requireNotNull(database.ledgerDao().operation(operationId))
             require(current.stage == expectedStage.name)
             require(current.expectedHeadSha == next.expectedHeadSha)
+            require(current.remoteRefSha == null || current.remoteRefSha == next.remoteRefSha)
             require(current.blobManifestDigest == null || current.blobManifestDigest == next.blobManifestDigest)
             require(current.treeSha == null || current.treeSha == next.treeSha)
             require(current.commitSha == null || current.commitSha == next.commitSha)

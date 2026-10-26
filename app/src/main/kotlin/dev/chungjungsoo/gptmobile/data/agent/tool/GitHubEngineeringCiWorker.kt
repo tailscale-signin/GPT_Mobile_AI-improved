@@ -19,10 +19,12 @@ internal class GitHubEngineeringCiWorker(
         )
         val task = ledger.task(taskId) ?: return Result.failure()
         if (task.state != EngineeringState.CI_PENDING.name) return Result.success()
-        // A missing check client must never produce a successful CI receipt.\n        return if (runAttemptCount >= MAX_UNVERIFIED_ATTEMPTS) Result.failure() else Result.retry()
+        // A missing check client must never produce a successful CI receipt.
+        return if (runAttemptCount >= MAX_UNVERIFIED_ATTEMPTS) Result.failure() else Result.retry()
     }
 
     companion object {
-        const val KEY_TASK_ID = "engineering_task_id"\n        private const val MAX_UNVERIFIED_ATTEMPTS = 48
+        const val KEY_TASK_ID = "engineering_task_id"
+        private const val MAX_UNVERIFIED_ATTEMPTS = 48
     }
 }

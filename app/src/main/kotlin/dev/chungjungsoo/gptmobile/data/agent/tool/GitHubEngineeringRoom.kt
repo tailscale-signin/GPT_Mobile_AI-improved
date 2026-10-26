@@ -113,7 +113,7 @@ internal interface EngineeringLedgerDao {
     ): Int
 
     @Query(
-        "UPDATE engineering_git_operations SET stage = :stage, treeSha = :treeSha, " +
+        "UPDATE engineering_git_operations SET stage = :stage, blobManifestDigest = :blobManifestDigest, treeSha = :treeSha, " +
             "commitSha = :commitSha, remoteRefSha = :remoteRefSha, updatedAtEpochMs = :updatedAt " +
             "WHERE operationId = :operationId AND stage = :expectedStage",
     )
@@ -121,6 +121,7 @@ internal interface EngineeringLedgerDao {
         operationId: String,
         expectedStage: String,
         stage: String,
+        blobManifestDigest: String?,
         treeSha: String?,
         commitSha: String?,
         remoteRefSha: String?,
@@ -171,6 +172,10 @@ internal class GitHubEngineeringRoomLedger(
     ) {
         require(next.operationId == operationId)
         require(next.stage != expectedStage)
+        if (next.stage == GitSagaStage.BLOBS_STAGED) require(!next.blobManifestDigest.isNullOrBlank())
+        if (next.stage == GitSagaStage.TREE_CREATED) require(!next.treeSha.isNullOrBlank())
+        if (next.stage == GitSagaStage.COMMIT_CREATED) require(!next.commitSha.isNullOrBlank())
+        if (next.stage == GitSagaStage.REF_UPDATED) require(next.remoteRefSha == next.commitSha)
         require(
             when (expectedStage) {
                 GitSagaStage.PENDING -> next.stage == GitSagaStage.BLOBS_STAGED
@@ -184,6 +189,7 @@ internal class GitHubEngineeringRoomLedger(
             val current = requireNotNull(database.ledgerDao().operation(operationId))
             require(current.stage == expectedStage.name)
             require(current.expectedHeadSha == next.expectedHeadSha)
+            require(current.blobManifestDigest == null || current.blobManifestDigest == next.blobManifestDigest)
             require(current.treeSha == null || current.treeSha == next.treeSha)
             require(current.commitSha == null || current.commitSha == next.commitSha)
             check(
@@ -191,6 +197,7 @@ internal class GitHubEngineeringRoomLedger(
                     operationId = operationId,
                     expectedStage = expectedStage.name,
                     stage = next.stage.name,
+                    blobManifestDigest = next.blobManifestDigest,
                     treeSha = next.treeSha,
                     commitSha = next.commitSha,
                     remoteRefSha = next.remoteRefSha,

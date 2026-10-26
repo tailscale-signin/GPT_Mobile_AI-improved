@@ -531,17 +531,8 @@ class ProcessLocalRuntime(
                     } != true
                 ) {
                     quarantinedBinder = remote?.binder
-                    remote?.let {
-                        runCatching {
-                            RuntimeWireTransport.send(
-                                context,
-                                it,
-                                request.packet.copy(operation = "SHUTDOWN"),
-                                incoming
-                            )
-                        }
-                    }
                     quarantineAfterUnconfirmedCleanup("Cancellation was not acknowledged by the owning worker")
+                    terminateAndAwaitExit("cancellation_unacknowledged", 5_000)
                     recordTerminal(request, "CANCELLATION_UNACKNOWLEDGED", false)
                     disconnect("Inference worker did not acknowledge cancellation. Partial output is preserved; start a new request.")
                 }
@@ -957,7 +948,12 @@ class ProcessLocalRuntime(
         if (execution.get()?.runtimeRequestId == request.packet.requestId) execution.set(value)
     }
 
-    private fun requireSafeAdmission() {
+    private suspend fun requireSafeAdmission() {
+        if (cleanupQuarantine != null || quarantinedBinder != null) {
+            // SHUTDOWN is handled on the worker control thread, independently of
+            // a stuck native coroutine. Never clear quarantine on elapsed time.
+            terminateAndAwaitExit("quarantine_recovery", 5_000)
+        }
         quarantinedBinder?.takeIf { !it.isBinderAlive }?.let { observeWorkerExit(it, "binder_not_alive") }
         check(cleanupQuarantine == null && quarantinedBinder?.isBinderAlive != true) {
             "NATIVE_SESSION_QUARANTINED: ${cleanupQuarantine ?: "waiting for the old worker to exit"}; no new inference was dispatched"

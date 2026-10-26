@@ -55,7 +55,15 @@ internal fun ggufMemoryComponents(
         } else {
             maxOf(workspaceFloor, measured?.computeOwnedBytes ?: 0)
         }
-    val weights = maxOf(modelBytes, measured?.modelOwnedBytes ?: 0)
+    // File bytes include the tokenizer, template and tensor directory. Exact native
+    // ownership counts resident/repacked tensors directly; do not impose the file
+    // length as another floor after that evidence has been collected.
+    val weights =
+        if (exact != null && exact.modelOwnedBytes > 0 && exact.modelTensorBytes > 0) {
+            maxOf(exact.modelTensorBytes, exact.modelOwnedBytes)
+        } else {
+            maxOf(modelBytes, measured?.modelOwnedBytes ?: 0)
+        }
     val overlap = if (LocalAccelerators.isGpu(accelerator) && exact == null) modelBytes else 0L
     val uncertainty = maxOf(64 * mib, (kv + workspace) / 16)
     return linkedMapOf(

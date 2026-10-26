@@ -47,7 +47,16 @@ class LocalEngineHolder(
         }
     }
 
-    private fun requireSafeAdmission() {
+    private suspend fun requireSafeAdmission() {
+        refreshCleanupQuarantine()
+        if (cleanupQuarantine != null) {
+            // A quarantine is an obligation to reconcile, not a permanent latch.
+            // The delegate may terminate an isolated worker, but only a positive
+            // cleanup receipt permits a successor to enter native code.
+            val recovered = delegate.cleanupAfterRequest("quarantine_recovery")
+            cleanupQuarantine = if (recovered.safeForSuccessor) null else recovered
+            if (recovered.engineReleased == true || recovered.workerExitConfirmed == true) loadedSpec = null
+        }
         refreshCleanupQuarantine()
         val blocked = cleanupQuarantine ?: return
         error("NATIVE_SESSION_QUARANTINED: ${blocked.failureReason ?: "cleanup has not been confirmed"}")
@@ -70,8 +79,10 @@ class LocalEngineHolder(
         modelPath: String,
         accelerator: String?
     ) {
-        requireSafeAdmission()
-        delegate.preflightModel(modelPath, accelerator)
+        withGenerationLock {
+            requireSafeAdmission()
+            delegate.preflightModel(modelPath, accelerator)
+        }
     }
 
     override suspend fun inspectModel(modelPath: String): LocalModelCapabilities? {

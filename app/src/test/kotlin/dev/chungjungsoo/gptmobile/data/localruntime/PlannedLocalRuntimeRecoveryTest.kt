@@ -35,8 +35,14 @@ class PlannedLocalRuntimeRecoveryTest {
         var features = AppFeatureSettings()
         val native = FakeLocalRuntime()
         val nativeState = MutableStateFlow(LocalRuntimeState())
+        var memoryAfterUnload: Long? = null
         private val delegate = object : LocalRuntime by native {
             override val state = nativeState
+            override suspend fun unloadEngine() {
+                native.unloadEngine()
+                memoryAfterUnload?.let { available = it }
+                nativeState.value = LocalRuntimeState()
+            }
             override suspend fun loadEngine(spec: LocalEngineSpec) {
                 native.loadEngine(spec)
                 nativeState.value = nativeState.value.copy(engineSpec = native.loadedEngineSpec(), lifecycle = "READY")
@@ -111,5 +117,17 @@ class PlannedLocalRuntimeRecoveryTest {
         assertFalse(failure is LocalMemoryAdmissionException)
         assertTrue(failure?.message.orEmpty().contains("THERMAL_ADMISSION_REJECTED"))
         assertTrue(fixture.native.loadEngineCalls.isEmpty())
+    }
+
+    @Test fun switchingModelsReleasesResidentWeightsBeforeMeasuringHeadroom() = runTest {
+        val fixture = Fixture(backgroundScope)
+        val first = spec()
+        fixture.runtime.loadEngine(first)
+        fixture.available = 0
+        fixture.memoryAfterUnload = 3L * 1024 * 1024 * 1024
+        fixture.runtime.loadEngine(first.copy(maxTokens = 2048))
+        assertEquals(1, fixture.native.unloadEngineCalls)
+        assertEquals(2, fixture.native.loadEngineCalls.size)
+        assertEquals(2048, fixture.runtime.loadedEngineSpec()?.maxTokens)
     }
 }

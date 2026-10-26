@@ -55,6 +55,8 @@ class LocalInferenceService : Service() {
 
     @Volatile private var generatingRequest: String? = null
 
+    @Volatile private var activeCommandRequest: String? = null
+
     override fun onCreate() {
         super.onCreate()
         check(isInferenceProcess()) { "Native inference service must run in its private process" }
@@ -108,6 +110,7 @@ class LocalInferenceService : Service() {
             return
         }
         reply.deferTerminal = true
+        activeCommandRequest = packet.requestId
         val job =
             scope.launch(RuntimeWorkerContext(generation, packet.requestId, packet.physicalAttemptId), start = CoroutineStart.LAZY) {
                 try {
@@ -391,6 +394,7 @@ class LocalInferenceService : Service() {
                     )
                 } finally {
                     if (generatingRequest == packet.requestId) generatingRequest = null
+                    if (activeCommandRequest == packet.requestId) activeCommandRequest = null
                     jobs.remove(packet.requestId)
                     replies.remove(packet.requestId)
                     operationLock.unlock()
@@ -404,6 +408,9 @@ class LocalInferenceService : Service() {
 
     private fun cancel(requestId: String) {
         val job = jobs[requestId] ?: return
+        // Signal the native abort flag immediately; cancelling a coroutine cannot
+        // interrupt a blocking JNI call. Only target the command holding the lease.
+        if (activeCommandRequest == requestId) runCatching { runtime.cancelActive() }
         job.cancel()
         scope.launch {
             delay(10_000)

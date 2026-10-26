@@ -24,6 +24,31 @@ import org.junit.Test
 class GitHubToolTest {
 
     @Test
+    fun `invalid workflow arguments return actionable validation errors without network access`() = runTest {
+        val client = HttpClient(MockEngine { error("Invalid arguments must not reach the network") })
+        try {
+            val result = GitHubTool("user-token", client).execute(
+                "invalid-workflow",
+                buildJsonObject {
+                    put("action", "get_workflow_run")
+                    put("owner", "owner")
+                    put("repo", "repo")
+                    put("run_id", -1)
+                }
+            )
+            assertTrue(result.isError)
+            val message = (result.content as ToolResultContent.Text).text
+            assertTrue(message.contains("GITHUB_INVALID_ARGUMENT"))
+            assertTrue(message.contains("action=get_workflow_run"))
+            assertTrue(message.contains("positive run_id"))
+            assertFalse(message.contains("Failed requirement"))
+        } finally {
+            client.close()
+        }
+    }
+
+
+    @Test
     fun `workflow dispatch carries user ref and typed inputs and accepts no-content response`() = runTest {
         val client = HttpClient(
             MockEngine { request ->

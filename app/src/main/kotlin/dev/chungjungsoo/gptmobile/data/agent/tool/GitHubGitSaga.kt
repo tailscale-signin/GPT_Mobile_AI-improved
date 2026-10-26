@@ -31,6 +31,7 @@ internal data class GitSagaSnapshot(
 internal sealed interface GitSagaReconciliation {
     data class AlreadyApplied(val snapshot: GitSagaSnapshot) : GitSagaReconciliation
     data class ReadyToUpdateRef(val snapshot: GitSagaSnapshot) : GitSagaReconciliation
+    data object VerifyCommitObject : GitSagaReconciliation
     data class Conflict(val actualHeadSha: String) : GitSagaReconciliation
     data object InspectRemoteCommit : GitSagaReconciliation
 }
@@ -45,7 +46,32 @@ internal object GitHubGitSaga {
             )
         }
         if (remoteHeadSha != snapshot.expectedHeadSha) return GitSagaReconciliation.Conflict(remoteHeadSha)
-        return GitSagaReconciliation.ReadyToUpdateRef(snapshot)
+        // A matching branch head alone cannot prove the recovered commit's parent and tree.
+        // Call reconcileVerified after fetching the remote commit object.
+        return GitSagaReconciliation.VerifyCommitObject
+    }
+
+    fun reconcileVerified(
+        snapshot: GitSagaSnapshot,
+        remoteHeadSha: String,
+        fetchedCommitSha: String,
+        fetchedParentSha: String,
+        fetchedTreeSha: String,
+    ): GitSagaReconciliation {
+        val commit = snapshot.commitSha ?: return GitSagaReconciliation.InspectRemoteCommit
+        if (fetchedCommitSha != commit ||
+            fetchedParentSha != snapshot.expectedHeadSha ||
+            fetchedTreeSha != snapshot.treeSha
+        ) {
+            return GitSagaReconciliation.Conflict(remoteHeadSha)
+        }
+        return reconcile(snapshot, remoteHeadSha).let {
+            if (it == GitSagaReconciliation.VerifyCommitObject) {
+                GitSagaReconciliation.ReadyToUpdateRef(snapshot)
+            } else {
+                it
+            }
+        }
     }
 
     fun recordTree(snapshot: GitSagaSnapshot, treeSha: String): GitSagaSnapshot {

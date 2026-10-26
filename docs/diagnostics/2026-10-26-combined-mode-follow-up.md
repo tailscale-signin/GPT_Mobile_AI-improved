@@ -10,10 +10,13 @@ Audited `app-diagnostics-5734205571416660417.jsonl` from the Android device. The
 - Exclude a route with proven reasoning-control failure from subsequent writer selection.
 - Keep the preferred primary when it remains eligible; when it is known-ineligible or cannot satisfy the frozen output/context contract, select the highest-ranked eligible writer instead of repeatedly dispatching the same route.
 - Add a regression covering the 1,444-reasoning-token / 723-output-token failure signature and the alternate-writer selection behavior.
+- Permit the run coordinator to attempt a successor writer after single-pass finalization failures, but only through the existing typed failure policy. Empty final publication and malformed final bundles now map to recoverable writer-rotation categories; ambiguous remote jobs, cancellation, and unclassified failures remain non-retryable.
+- Replace blocking profile-pause preference commits with asynchronous persistence to avoid waiting for disk writes on the chat UI thread.
+- Add tests for empty-publication and transient HTTP 502 recovery classification.
 
 ## Acceptance and remaining device checks
 
-The source change does not claim to fix an external provider's implementation of reasoning controls. It prevents a route with observed contradictory behavior from being treated as a viable writer on subsequent synthesis planning. The current turn must still finish as failed/partial if no eligible writer can produce a valid answer; empty output must never be published as success.
+The source change does not claim to fix an external provider's implementation of reasoning controls. It prevents a route with observed contradictory behavior from being treated as a viable writer on subsequent synthesis planning. A classified failed single-pass writer may now hand off to an eligible successor while reusing the frozen source corpus; the successor snapshot still enforces participant membership, writer-authority revisions, and evidence-transfer permissions. If no eligible writer can produce a valid answer, the turn remains failed/partial and empty output is never published as success.
 
 Before release, run the Android unit and instrumented suites and verify:
 1. A preferred route with observed ignored reasoning controls is excluded, and an eligible alternative is selected without dropping saved contributor responses or source attribution.

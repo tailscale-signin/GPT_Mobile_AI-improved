@@ -404,7 +404,9 @@ class CombinedSynthesisPlanner @Inject constructor(
         val original = runCatching { kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromString<CombinedInputSnapshot>(raw) }.getOrNull() ?: return null
         val policy = original.combined ?: return null
         if (prior.terminalError?.contains("QUEUE_JOB_PENDING") == true) return null
-        if (policy.requested.singlePass && !userRequested) return null
+        // Permit bounded automatic writer rotation for a single-pass run only when the
+        // persisted failure below explicitly authorizes it. Cancellation, ambiguous remote
+        // jobs, and unclassified failures remain non-retryable; saved contributions stay frozen.
         if (!policy.requested.singlePass && !chatRepository.canRetryCombined(policy.rootBudgetId)) return null
         val messages = chatRepository.fetchMessagesV2(chatId)
         val owner = messages.singleOrNull { it.id == prior.assistantMessageId && it.currentRunId == prior.runId && it.ownershipFence == prior.ownershipFence } ?: return null

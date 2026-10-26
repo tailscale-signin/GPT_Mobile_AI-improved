@@ -91,6 +91,7 @@ class CombinedInvocationAccountingTest {
             rows[invocation.id] = invocation
         }
         override suspend fun byId(id: String): ModelInvocation? = rows[id]
+        override suspend fun byIds(ids: List<String>): List<ModelInvocation> = ids.mapNotNull(rows::get)
         override suspend fun forChat(chatId: Int): List<ModelInvocation> = rows.values.toList()
         override fun observeForChat(chatId: Int): Flow<List<ModelInvocation>> = flowOf(rows.values.toList())
         override fun recent(): Flow<List<ModelInvocation>> = flowOf(rows.values.toList())

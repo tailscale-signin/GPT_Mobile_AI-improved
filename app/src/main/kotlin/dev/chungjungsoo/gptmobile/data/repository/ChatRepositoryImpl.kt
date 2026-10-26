@@ -3803,7 +3803,7 @@ class ChatRepositoryImpl(
         return dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(taskRecovery?.originalRequest ?: latestUser?.content.orEmpty()).instruction() + "\n" + turnContextInstruction + liveToolSystemPrompt(
             platform.systemPrompt,
             tools.map { it.modelToolName },
-            compact = platform.compatibleType == ClientType.LITERT_LM || localResearch || contextTokens < 4096,
+            compact = platform.compatibleType in setOf(ClientType.LITERT_LM, ClientType.FREE) || localResearch || contextTokens < 4096,
             deferCapabilities = true,
             researchReport = researchReport
         ) + (if (quickRepliesEnabled && !synthesisRun) dev.chungjungsoo.gptmobile.data.agent.CHAT_QUICK_REPLY_INSTRUCTION else "") + projectInstructions.takeIf { it.isNotBlank() }?.let { "\nProject instructions supplied by the user:\n$it" }.orEmpty() + recoveryInstruction + progressInstruction + delegationInstruction + synthesisInstruction + contributorInstruction +

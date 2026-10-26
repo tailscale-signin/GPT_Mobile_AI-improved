@@ -13,6 +13,7 @@ import dev.chungjungsoo.gptmobile.data.research.feature.ResearchArchiveRepositor
 import dev.chungjungsoo.gptmobile.data.research.feature.ResearchWork
 import dev.chungjungsoo.gptmobile.data.research.feature.ResearchWorkVersion
 import dev.chungjungsoo.gptmobile.data.research.feature.StudyField
+import dev.chungjungsoo.gptmobile.data.research.feature.recordConsent
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -133,6 +134,10 @@ class ResearchArticleViewModel @Inject constructor(private val archive: Research
                 val blocker = profile?.let { dev.chungjungsoo.gptmobile.data.research.feature.examinationAdmission(current, it, request.copy(origin = dev.chungjungsoo.gptmobile.data.research.feature.ExaminationOrigin.USER_EXAMINE), tools()) }
                 if (profile != null && blocker == dev.chungjungsoo.gptmobile.data.research.feature.EXAMINATION_PAPERS_CONSENT_REQUIRED) {
                     val prompt = ConsentPrompt(java.util.UUID.randomUUID().toString(), profile.uid, profile.name.ifBlank { profile.model })
+                    settings.mutateFeatureSettings { current -> current.copy(researchFeature = current.researchFeature.recordConsent(prompt.id, profile.uid, "OFFERED")) }
+                    if (generation != selectionGeneration || epoch != consentEpoch) {
+                        return@action
+                    }
                     pendingConsent = PendingConsent(prompt, selectedRequest, profile, tools, generation)
                     consent.value = prompt
                     dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ResearchExamine", "CONSENT_PRESENTED · promptId=${prompt.id} · profile=${profile.uid}")
@@ -146,7 +151,18 @@ class ResearchArticleViewModel @Inject constructor(private val archive: Research
     }
 
     fun declineExaminationConsent() {
-        pendingConsent?.let { dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ResearchExamine", "CONSENT_DISMISSED · promptId=${it.prompt.id} · profile=${it.profile.uid} · granted=false") }
+        pendingConsent?.let { pending ->
+            viewModelScope.launch {
+                try {
+                    settings.mutateFeatureSettings { current -> current.copy(researchFeature = current.researchFeature.recordConsent(pending.prompt.id, pending.profile.uid, "DISMISSED")) }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    mutable.update { it.copy(error = "Consent was dismissed, but its history could not be saved.") }
+                }
+            }
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ResearchExamine", "CONSENT_DISMISSED · promptId=${pending.prompt.id} · profile=${pending.profile.uid} · granted=false")
+        }
         pendingConsent = null
         consent.value = null
         consentEpoch++
@@ -156,7 +172,7 @@ class ResearchArticleViewModel @Inject constructor(private val archive: Research
         declineExaminationConsent()
         settings.mutateFeatureSettings { current ->
             val behavior = current.profileBehavior[profileUid] ?: dev.chungjungsoo.gptmobile.data.model.ProfileBehaviorSettings()
-            current.copy(profileBehavior = current.profileBehavior + (profileUid to behavior.copy(academicSourcesAllowed = false)))
+            current.copy(profileBehavior = current.profileBehavior + (profileUid to behavior.copy(academicSourcesAllowed = false)), researchFeature = current.researchFeature.recordConsent(java.util.UUID.randomUUID().toString(), profileUid, "REVOKED"))
         }
     }
 
@@ -178,8 +194,8 @@ class ResearchArticleViewModel @Inject constructor(private val archive: Research
                     check(pending.generation == selectionGeneration && epoch == consentEpoch) { "Article selection changed. Choose Examine again." }
                     check(current.researchFeature.enabled && current.isToolPluginEnabledForProfile(profile.uid, dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH)) { "Research is disabled for this profile" }
                     val behavior = current.profileBehavior[profile.uid] ?: dev.chungjungsoo.gptmobile.data.model.ProfileBehaviorSettings()
-                    val accepted = current.copy(profileBehavior = current.profileBehavior + (profile.uid to behavior.copy(researchEnabledOverride = true, academicSourcesAllowed = true)))
-                    dev.chungjungsoo.gptmobile.data.research.feature.examinationAdmission(accepted, profile, pending.request.copy(origin = dev.chungjungsoo.gptmobile.data.research.feature.ExaminationOrigin.USER_EXAMINE), pending.tools())?.let { error(it) }
+                    val accepted = current.copy(profileBehavior = current.profileBehavior + (profile.uid to behavior.copy(researchEnabledOverride = true, academicSourcesAllowed = true)), researchFeature = current.researchFeature.recordConsent(pending.prompt.id, profile.uid, "ACCEPTED"))
+                    dev.chungjungsoo.gptmobile.data.research.feature.examinationAdmission(accepted, profile, pending.request.copy(origin = dev.chungjungsoo.gptmobile.data.research.feature.ExaminationOrigin.USER_EXAMINE), pending.tools(), checkCapacity = false)?.let { error(it) }
                     accepted
                 }
                 dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ResearchExamine", "CONSENT_ACCEPTED · promptId=${pending.prompt.id} · profile=${profile.uid} · granted=true")

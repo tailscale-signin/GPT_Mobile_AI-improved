@@ -46,7 +46,7 @@ data class ExaminationSlice(val start: Int, val end: Int, val compact: Boolean =
     /** Split only unfinished work. Earlier indexes and passage IDs never move. */
     fun split(source: String): List<ExaminationSlice> {
         text(source)
-        check(end - start > 512) { "${ExaminationOutputBudget.INSUFFICIENT}: smallest appraisal chunk cannot complete; captured evidence retained" }
+        check(end - start > 512) { "${ExaminationOutputBudget.INSUFFICIENT}: smallest appraisal chunk cannot complete; choose a capable Examiner or increase its output allowance; captured evidence retained" }
         var middle = start + (end - start) / 2
         if (source[middle].isLowSurrogate() && source[middle - 1].isHighSurrogate()) middle--
         return listOf(ExaminationSlice(start, middle, true), ExaminationSlice(middle, end, true))

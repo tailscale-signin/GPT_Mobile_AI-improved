@@ -121,7 +121,8 @@ internal class ResearchModelCoordinator(
     private val failures = health?.first ?: java.util.concurrent.ConcurrentHashMap<CircuitKey, FailureState>()
     private val sharedFailures = health?.second ?: java.util.concurrent.ConcurrentHashMap<String, FailureState>()
     private val history = mutableListOf<ResearchModelEvent>()
-    private var authorizationStopped = false
+
+    @Volatile private var authorizationStopped = false
     private val rejectedRequests = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val stageTraces = java.util.concurrent.ConcurrentHashMap<String, ResearchStageTrace>()
     private val successfulStages = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()

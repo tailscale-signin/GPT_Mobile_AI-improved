@@ -33,6 +33,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubOperationToolTest {
+    @Test fun incompleteRepositoryOverridesAreRejectedWithoutDispatch() = runBlocking {
+        val backend = Backend()
+        val operation = GitHubOperationTool("github_context", backend, "validation-test")
+        val result = operation.execute("invalid", args("""{"action":"status","owner":"team"}"""))
+        assertTrue(result.isError)
+        assertTrue((result.content as ToolResultContent.Text).text.contains("both owner and repo"))
+        assertTrue(backend.calls.isEmpty())
+    }
+
+    @Test fun omittedRepositoryUsesPinnedContext() = runBlocking {
+        val backend = Backend()
+        val operation = GitHubOperationTool("github_context", backend, "context-test")
+        operation.execute("context", args("""{"action":"status"}"""))
+        assertEquals(1, backend.calls.size)
+        assertEquals("repo_status", backend.calls.single()["action"]?.jsonPrimitive?.content)
+    }
+
     @Test fun compactContextCanRequestRemoteRepositoryStatus() {
         val arguments = GitHubOperationTool.nativeArguments("github_context", buildJsonObject { put("action", "status") })!!
         assertEquals("repo_status", arguments["action"]?.jsonPrimitive?.content)

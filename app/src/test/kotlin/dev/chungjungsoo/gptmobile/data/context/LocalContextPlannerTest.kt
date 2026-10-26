@@ -34,7 +34,7 @@ class LocalContextPlannerTest {
         val others = (1..20).map { AgentToolDefinition("a$it", "Unrelated ".repeat(80), buildJsonObject {}) }
         val goal = turn("search hulk hogan")
         val history = listOf(goal, turn("check again"))
-        listOf("check again", "test toola", "Please try again!").forEach { prompt ->
+        listOf("check again", "test toola", "Please try again!", "tell me", "what did you find").forEach { prompt ->
             val plan = LocalContextPlanner.plan(history, prompt, "", others + search, 1024, null)
             assertTrue(search in plan.tools)
             assertTrue(goal in plan.priorTurns)
@@ -52,6 +52,14 @@ class LocalContextPlannerTest {
         val disabled = LocalContextPlanner.plan(listOf(turn("search hulk hogan")), "check again", "", listOf(date), 1024, null)
         assertTrue(disabled.tools.isEmpty())
         assertEquals("required_current_request", LocalContextPlanner.plan(history, "tell me the time", "", listOf(date, search), 1024, null).toolSelectionReasons[date.name])
+    }
+
+    @Test fun explicitSearchKeepsItsReaderAvailableForTitleOnlyResults() {
+        val search = AgentToolDefinition("web_search", "Search", buildJsonObject {})
+        val reader = AgentToolDefinition("read_url", "Read a public page", buildJsonObject {})
+        val plan = LocalContextPlanner.plan(emptyList(), "Search the web for launch news", "", listOf(search, reader), 1024, null)
+        assertTrue(plan.tools.containsAll(listOf(search, reader)))
+        assertEquals("required_current_request", plan.toolSelectionReasons[reader.name])
     }
 
     @Test fun finalCapabilityInventoryIsChargedEvenWithNoTools() {

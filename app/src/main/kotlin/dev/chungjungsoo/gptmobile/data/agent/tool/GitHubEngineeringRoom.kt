@@ -147,6 +147,11 @@ internal class GitHubEngineeringRoomLedger(
     private val database: GitHubEngineeringDatabase,
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
+    suspend fun task(taskId: String): EngineeringTaskRow? = database.ledgerDao().task(taskId)
+
+    suspend fun operations(taskId: String): List<EngineeringGitOperationRow> =
+        database.ledgerDao().operationsForTask(taskId)
+
     suspend fun createTask(row: EngineeringTaskRow) {
         require(row.state == EngineeringState.CREATED.name && row.sequence == 0L && row.attempt == 1)
         require(row.repositoryOwner.isNotBlank() && row.repositoryName.isNotBlank())

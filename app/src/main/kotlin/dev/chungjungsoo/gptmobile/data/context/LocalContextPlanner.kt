@@ -179,7 +179,7 @@ internal object LocalContextPlanner {
         if (Regex("search|research|look up|latest|browse|find online").containsMatchIn(lower)) select("web_search")
         // Research needs to inspect search hits as well as obtain snippets. Protect
         // the reader alongside search so a continuation can open its sources.
-        if (Regex("research|browse|verify|sources|citations").containsMatchIn(lower)) {
+        if (Regex("search|research|browse|verify|sources|citations").containsMatchIn(lower)) {
             select("web_search")
             select("read_url")
         }
@@ -209,7 +209,7 @@ internal object LocalContextPlanner {
     internal fun isToolFollowUp(prompt: String): Boolean = prompt.trim().lowercase().let { text ->
         text.length <= 160 &&
             Regex(
-                "^(?:(?:please|can you)\\s+)?(?:check again|try again|retry|continue|go on|do that|try it again|test tool[sa]?|test the tools|check the tools)[.!?\\s]*$"
+                "^(?:(?:please|can you)\\s+)?(?:tell me|answer it|what did you find|check again|try again|retry|continue|go on|do that|try it again|test tool[sa]?|test the tools|check the tools)[.!?\\s]*$"
             ).matches(text)
     }
 

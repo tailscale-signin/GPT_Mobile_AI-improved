@@ -1967,8 +1967,8 @@ class ChatRepositoryImpl(
                             validateDocuments()
                         }
                     ) preparedDispatch@{
-                        val appSearchRequested = !explicitResearch && !synthesisRun && !resumeWriterOnly && taskRecovery?.primaryOnly != true && AppAssistedSearch.requested(latestUser?.content.orEmpty())
-                        val appSearchPlan = if (appSearchRequested) contextPlan.copy(authorizedTools = (contextPlan.authorizedTools + taskRoutedTools.filter { it.isWebSearchEngine() }.map { it.tool.definition }).distinctBy { it.name }) else contextPlan
+                        val appSearchRequested = !explicitResearch && !synthesisRun && !resumeWriterOnly && taskRecovery?.primaryOnly != true && AppAssistedSearch.requested(effectiveUserMessages)
+                        val appSearchPlan = if (appSearchRequested) contextPlan.copy(authorizedTools = (contextPlan.authorizedTools + taskRoutedTools.filter { it.isWebSearchEngine() || it.realToolName == "read_url" && it.connectionUid == null }.map { it.tool.definition }).distinctBy { it.name }) else contextPlan
                         val authorizedBoundedTools = bindAuthorizedTools(taskRoutedTools, behavior, connectedMemoryTools, localResearch, explicitResearch, appSearchPlan, acquisitionBudget, toolBudget, runId)
                         val boundedTools = dev.chungjungsoo.gptmobile.data.assist.LocalAssistToolBinder.bind(
                             tools = authorizedBoundedTools,
@@ -2701,7 +2701,7 @@ class ChatRepositoryImpl(
         val preparationPlan = toolPreparation.preparationPlan
         val latestUser = recallPreparation.latestUser
         val recalled = recallPreparation.recalled
-        var contextTurns = if (input.stage?.writerRequestPlan == null && AppAssistedSearch.requested(latestUser?.content.orEmpty())) {
+        var contextTurns = if (input.stage?.writerRequestPlan == null && AppAssistedSearch.requested(input.effectiveUserMessages)) {
             val resolvedQuestion = AppAssistedSearch.question(input.effectiveUserMessages)
             initialContextTurns.map { turn -> if (turn.isCurrentTurn && resolvedQuestion != turn.userMessage.content) turn.copy(userMessage = turn.userMessage.copy(content = "Resolved current task from this conversation:\n" + resolvedQuestion)) else turn }
         } else {
@@ -3590,7 +3590,7 @@ class ChatRepositoryImpl(
                 !platform.disableRemoteTools
         } == true ||
             !synthesisRun &&
-            (AppAssistedSearch.requested(effectiveUserMessages.lastOrNull()?.content.orEmpty()) || AppAssistedSearch.inventoryRequest(effectiveUserMessages.lastOrNull()?.content.orEmpty()))
+            (AppAssistedSearch.requested(effectiveUserMessages) || AppAssistedSearch.inventoryRequest(effectiveUserMessages.lastOrNull()?.content.orEmpty()))
         val supportsTools = when (platform.compatibleType) {
             ClientType.FREE -> !FreeAiProvider.requireFor(platform).isRetired
             ClientType.LITERT_LM -> localModelSupportsTools(platform)

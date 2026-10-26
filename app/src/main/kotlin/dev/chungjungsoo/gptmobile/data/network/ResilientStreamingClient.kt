@@ -102,6 +102,8 @@ object ResilientStreamingClient {
                     message.contains("http 401") ||
                     message.contains("http 403") ||
                     message.contains("http 404") ||
+                    message.contains("http 501") ||
+                    message.contains("status code 501") ||
                     message.contains("http 413") ||
                     message.contains("http 422")
             if (deterministicClientFailure) return false

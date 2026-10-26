@@ -1,6 +1,8 @@
 package dev.chungjungsoo.gptmobile.data.research
 
 import dev.chungjungsoo.gptmobile.data.agent.tool.parseDelegationObject
+import dev.chungjungsoo.gptmobile.research.reliability.ProviderOutcome
+import dev.chungjungsoo.gptmobile.research.reliability.ProviderOutcomeClassifier
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withTimeoutOrNull
@@ -38,7 +40,9 @@ data class ResearchModelEvent(
     val finishReason: String? = null,
     val requestId: String? = null,
     val providerLimit: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision? = null,
-    val metrics: ResearchStageMetrics? = null
+    val metrics: ResearchStageMetrics? = null,
+    val providerOutcome: ProviderOutcome? = null,
+    val requestDigest: String = ""
 )
 
 internal enum class ResearchAdmission {
@@ -72,7 +76,9 @@ internal data class ResearchModelReply(
     val requestId: String? = null,
     val providerIdentity: String = "",
     val transportFailure: String? = null,
-    val outputLimitReached: Boolean = false
+    val outputLimitReached: Boolean = false,
+    val reasoningTokens: Long = 0,
+    val outputTokens: Long = 0
 )
 
 /** Only pinned, consent-checked endpoints supplied by the parent are ever considered. */
@@ -115,6 +121,7 @@ internal class ResearchModelCoordinator(
     private val failures = health?.first ?: java.util.concurrent.ConcurrentHashMap<CircuitKey, FailureState>()
     private val sharedFailures = health?.second ?: java.util.concurrent.ConcurrentHashMap<String, FailureState>()
     private val history = mutableListOf<ResearchModelEvent>()
+    private val rejectedRequests = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val stageTraces = java.util.concurrent.ConcurrentHashMap<String, ResearchStageTrace>()
     private val successfulStages = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val incompleteStages = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
@@ -129,7 +136,20 @@ internal class ResearchModelCoordinator(
 
     private suspend fun record(event: ResearchModelEvent) {
         val measured = stageTraces[event.id]?.snapshot() ?: event.metrics
-        val observed = event.copy(metrics = measured, invocationId = event.invocationId ?: measured?.invocationIds?.lastOrNull())
+        val observed = event.copy(
+            metrics = measured,
+            invocationId = event.invocationId ?: measured?.invocationIds?.lastOrNull(),
+            providerOutcome = event.providerOutcome ?: when {
+                event.outcome == "SUCCESS" -> ProviderOutcome.SUCCESS_VISIBLE
+                event.outcome == "CANCELLED" -> ProviderOutcome.INTERRUPTED
+                event.outcome == "WAITING_PROVIDER_LIMIT" -> if (event.providerLimit?.httpStatus == 402) ProviderOutcome.ALLOWANCE_EXHAUSTED else ProviderOutcome.RATE_LIMITED
+                event.failureCategory == "REASONING_ONLY" -> ProviderOutcome.REASONING_ONLY
+                event.failureCategory == "REQUEST_INVALID" -> ProviderOutcome.INVALID_REQUEST
+                event.failureCategory == "STRUCTURED_OUTPUT" -> ProviderOutcome.INVALID_PAYLOAD
+                event.outcome in setOf("FAILED", "TIMED_OUT") -> ProviderOutcome.UPSTREAM_FAILED
+                else -> null
+            }
+        )
         if (observed.outcome == "SUCCESS") successfulStages.add(observed.stage)
         synchronized(history) {
             history.removeAll { it.id == observed.id }
@@ -137,6 +157,21 @@ internal class ResearchModelCoordinator(
             if (history.size > 200) history.removeAt(0)
         }
         onEvent(observed)
+    }
+
+    /** Restore rejected configurations, never invent permission or a completed stage from telemetry. */
+    fun restoreProviderFailures(events: List<ResearchModelEvent>) {
+        val scope = healthScope ?: return
+        val endpoints = (workers + listOfNotNull(reviewer)).associateBy { it.profileUid }
+        events.filter { it.metrics?.rootWorkId == scope }.forEach { event ->
+            val target = endpoints[event.profileUid] ?: return@forEach
+            if (event.model == target.model &&
+                event.requestDigest.isNotBlank() &&
+                (event.providerOutcome == ProviderOutcome.INVALID_REQUEST || event.failureCategory == "REQUEST_INVALID")
+            ) {
+                rejectedRequests.add("${target.profileUid}:${target.modelKey}:${event.stage}:${event.requestDigest}")
+            }
+        }
     }
 
     private fun enterCircuit(key: CircuitKey): Boolean {
@@ -178,7 +213,12 @@ internal class ResearchModelCoordinator(
         val deferred = mutableListOf<dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision>()
         for (target in candidates) {
             if (!stillEnabled()) return null
-            val event = ResearchModelEvent(UUID.randomUUID().toString(), stage.name, target.profileUid, target.model, target.local, "QUEUED", wallClock(), inputTokensEstimate = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(prompt))
+            val event = ResearchModelEvent(UUID.randomUUID().toString(), stage.name, target.profileUid, target.model, target.local, "QUEUED", wallClock(), inputTokensEstimate = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(prompt), requestDigest = researchHash("$cap:$prompt"))
+            val requestKey = "${target.profileUid}:${target.modelKey}:${stage.name}:${event.requestDigest}"
+            if (requestKey in rejectedRequests) {
+                record(event.copy(outcome = "SKIPPED", reason = "REQUEST_CONFIGURATION_REJECTED", failurePhase = "READINESS", failureCategory = "ADMISSION"))
+                continue
+            }
             val trace = ResearchStageTrace(healthScope.orEmpty(), researchHash("${healthScope.orEmpty()}|${stage.name}|${workItemId ?: researchHash(prompt)}"), event.id)
             val circuit = CircuitKey(target.profileUid, target.modelKey, stage)
             val sharedKey = "${target.profileUid}:${target.modelKey}"
@@ -242,7 +282,15 @@ internal class ResearchModelCoordinator(
                     continue
                 }
                 if (reply.transportComplete == true && target.providerHost.isNotBlank()) dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.success(target.providerHost)
-                if (!valid(stage, parseDelegationObject(reply.text))) {
+                val parsed = parseDelegationObject(reply.text)
+                val usage = trace.snapshot().usage
+                val providerOutcome = ProviderOutcomeClassifier.classifyPayload(
+                    reply.text,
+                    maxOf(reply.reasoningTokens, usage.sumOf { it.reasoningTokens ?: 0 }),
+                    maxOf(reply.outputTokens, usage.sumOf { it.outputTokens ?: 0 }),
+                    valid(stage, parsed)
+                )
+                if (providerOutcome != ProviderOutcome.SUCCESS_VISIBLE) {
                     val checkpoint = keepPartial(stage, target, reply.text)
                     failed(shared = reply.text.isBlank() || parseDelegationObject(reply.text) == null)
                     record(
@@ -252,7 +300,10 @@ internal class ResearchModelCoordinator(
                             checkpointId = checkpoint,
                             durationMs = elapsed(started),
                             invocationId = reply.invocationId,
-                            reason = if (reply.text.isBlank()) {
+                            providerOutcome = providerOutcome,
+                            reason = if (providerOutcome == ProviderOutcome.REASONING_ONLY) {
+                                "REASONING_ONLY_RESPONSE"
+                            } else if (reply.text.isBlank()) {
                                 "NO_VISIBLE_OUTPUT"
                             } else if (parseDelegationObject(reply.text) == null) {
                                 "MALFORMED_JSON"
@@ -260,7 +311,7 @@ internal class ResearchModelCoordinator(
                                 "SCHEMA_VALIDATION_FAILED"
                             },
                             failurePhase = "VALIDATION",
-                            failureCategory = "STRUCTURED_OUTPUT",
+                            failureCategory = if (providerOutcome == ProviderOutcome.REASONING_ONLY) "REASONING_ONLY" else "STRUCTURED_OUTPUT",
                             transportComplete = true,
                             providerHost = target.providerHost
                         )
@@ -296,7 +347,9 @@ internal class ResearchModelCoordinator(
                 if (dns && target.providerHost.isNotBlank()) dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.failed(target.providerHost, java.net.UnknownHostException("DNS resolution failed"))
                 val checkpoint = delegated?.partialText?.takeIf { it.isNotBlank() }?.let { keepPartial(stage, target, it) }
                 if (delegated?.transportComplete == true && target.providerHost.isNotBlank()) dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.success(target.providerHost)
-                if (category !in setOf("OUTPUT_LIMIT", "BUDGET_DENIED", "CONTEXT_LIMIT", "AUTHORIZATION", "ADMISSION")) {
+                if (category == "REQUEST_INVALID") {
+                    rejectedRequests.add(requestKey)
+                } else if (category !in setOf("OUTPUT_LIMIT", "BUDGET_DENIED", "CONTEXT_LIMIT", "AUTHORIZATION", "ADMISSION")) {
                     failed(shared = category in setOf("TRANSPORT", "RATE_LIMITED", "PROVIDER_UNAVAILABLE", "PROVIDER_OVERLOADED", "RUNTIME_QUARANTINED", "REASONING_ONLY", "EMPTY_OUTPUT"))
                 }
                 record(
@@ -368,6 +421,7 @@ internal class ResearchModelCoordinator(
                 messages.contains("DELEGATE_OVERSIZED", true) || messages.contains("CONTEXT_CAPACITY", true) -> "CONTEXT_LIMIT"
                 delegated?.kind == dev.chungjungsoo.gptmobile.data.agent.tool.DelegateFailureKind.REASONING_ONLY -> "REASONING_ONLY"
                 delegated?.kind == dev.chungjungsoo.gptmobile.data.agent.tool.DelegateFailureKind.EMPTY_OUTPUT -> "EMPTY_OUTPUT"
+                Regex("(?i)\\bHTTP\\s+(400|413|415|422)\\b|REQUEST_INVALID|REQUEST_SCHEMA_INCOMPATIBLE|invalid_request_error").containsMatchIn(messages) -> "REQUEST_INVALID"
                 delegated?.kind == dev.chungjungsoo.gptmobile.data.agent.tool.DelegateFailureKind.TRANSPORT_FAILURE -> "TRANSPORT"
                 delegated?.kind == dev.chungjungsoo.gptmobile.data.agent.tool.DelegateFailureKind.OUTPUT_LIMIT -> "OUTPUT_LIMIT"
                 delegated?.kind == dev.chungjungsoo.gptmobile.data.agent.tool.DelegateFailureKind.AUTH_FAILURE -> "AUTHORIZATION"

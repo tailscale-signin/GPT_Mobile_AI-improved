@@ -1,9 +1,16 @@
 package dev.chungjungsoo.gptmobile.research.reliability
 
 /** Provider transport success is not equivalent to a usable visible response. */
+@kotlinx.serialization.Serializable
 enum class ProviderOutcome {
-    SUCCESS_VISIBLE, REASONING_ONLY, INVALID_PAYLOAD, INVALID_REQUEST,
-    UPSTREAM_FAILED, RATE_LIMITED, ALLOWANCE_EXHAUSTED, INTERRUPTED
+    SUCCESS_VISIBLE,
+    REASONING_ONLY,
+    INVALID_PAYLOAD,
+    INVALID_REQUEST,
+    UPSTREAM_FAILED,
+    RATE_LIMITED,
+    ALLOWANCE_EXHAUSTED,
+    INTERRUPTED
 }
 
 data class ProviderObservation(
@@ -24,15 +31,26 @@ object ProviderOutcomeClassifier {
         value.httpStatus == 400 || value.httpStatus == 422 -> ProviderOutcome.INVALID_REQUEST
         value.httpStatus == null || value.httpStatus !in 200..299 -> ProviderOutcome.UPSTREAM_FAILED
         !value.payloadValid -> ProviderOutcome.INVALID_PAYLOAD
-        !value.visibleText.isNullOrBlank() -> ProviderOutcome.SUCCESS_VISIBLE
-        value.reasoningTokens > 0 || value.outputTokens > 0 -> ProviderOutcome.REASONING_ONLY
+        else -> classifyPayload(value.visibleText, value.reasoningTokens.toLong(), value.outputTokens.toLong(), value.payloadValid)
+    }
+
+    /** Called only after the transport adapter proves completion; schema acceptance stays separate. */
+    fun classifyPayload(visibleText: String?, reasoningTokens: Long = 0, outputTokens: Long = 0, payloadValid: Boolean = true): ProviderOutcome = when {
+        !visibleText.isNullOrBlank() && !payloadValid -> ProviderOutcome.INVALID_PAYLOAD
+        !visibleText.isNullOrBlank() -> ProviderOutcome.SUCCESS_VISIBLE
+        reasoningTokens > 0 || outputTokens > 0 -> ProviderOutcome.REASONING_ONLY
         else -> ProviderOutcome.INVALID_PAYLOAD
     }
 }
 
 enum class ResearchStageStatus {
-    PENDING, RUNNING, WAITING_PROVIDER_LIMIT, RETRYABLE_FAILED,
-    TERMINAL_FAILED, COMPLETED, SKIPPED_WITH_REASON
+    PENDING,
+    RUNNING,
+    WAITING_PROVIDER_LIMIT,
+    RETRYABLE_FAILED,
+    TERMINAL_FAILED,
+    COMPLETED,
+    SKIPPED_WITH_REASON
 }
 
 data class ResearchStageCheckpoint(

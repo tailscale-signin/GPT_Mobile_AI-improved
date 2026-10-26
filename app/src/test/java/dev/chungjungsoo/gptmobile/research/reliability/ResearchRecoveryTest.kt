@@ -1,6 +1,8 @@
 package dev.chungjungsoo.gptmobile.research.reliability
 
-import org.junit.Assert.*
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ResearchRecoveryTest {
@@ -29,8 +31,12 @@ class ResearchRecoveryTest {
 
     @Test fun acceptedEvidenceSurvivesFailedExtraction() {
         val accepted = ResearchEvidence("source-1", "https://example.org", EvidenceStatus.ACCEPTED)
-        val failed = ResearchEvidence("source-1", "https://example.org", EvidenceStatus.EXCLUDED,
-            exclusionReason = "provider failed")
+        val failed = ResearchEvidence(
+            "source-1",
+            "https://example.org",
+            EvidenceStatus.EXCLUDED,
+            exclusionReason = "provider failed"
+        )
         assertEquals(accepted, ResearchEvidenceLedger.merge(listOf(accepted), listOf(failed)).single())
     }
 
@@ -43,7 +49,9 @@ class ResearchRecoveryTest {
     }
 
     @Test fun providerSuccessCompletesStage() {
-        assertEquals(ResearchStageStatus.COMPLETED,
-            ResearchRecovery.onProviderResult(pending, ProviderOutcome.SUCCESS_VISIBLE, 0).status)
+        assertEquals(
+            ResearchStageStatus.COMPLETED,
+            ResearchRecovery.onProviderResult(pending, ProviderOutcome.SUCCESS_VISIBLE, 0).status
+        )
     }
 }

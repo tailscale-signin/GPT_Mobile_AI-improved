@@ -220,4 +220,45 @@ class ResearchDeliveryBoundaryTest {
         assertEquals(1, prepared)
         assertEquals(2, rounds)
     }
+
+    @Test fun emptyOrThrownWriterFailureDeliversSavedEvidenceWithoutAnotherGeneration() = runTest {
+        for (throws in listOf(false, true)) {
+            val receipts = mutableListOf<ResearchDeliveryReceipt>()
+            var generations = 0
+            val writer = session {
+                generations++
+                if (throws) throw java.io.IOException("socket closed")
+                emit(ProviderEvent.Failed("No visible answer", errorCode = "REASONING_ONLY"))
+            }
+            val delivery = ResearchDeliverySession(writer, { packet }, saveReceipt = { receipts += it }) { _, _ -> writer }
+            val events = delivery.streamRound(emptyList(), emptyList()).toList()
+            val text = events.filterIsInstance<ProviderEvent.TextDelta>().single().text
+            assertTrue(text.contains(source.url))
+            assertTrue(text.contains(source.passage))
+            assertTrue(text.contains("Partial coverage"))
+            assertEquals(1, generations)
+            assertEquals(ResearchReportValidity.EVIDENCE_ONLY, receipts.single().reportValidity)
+            assertFalse(receipts.single().accepted)
+            assertFalse(events.contains(ProviderEvent.Completed))
+            assertEquals(1, events.filterIsInstance<ProviderEvent.Failed>().size)
+        }
+    }
+
+    @Test fun authorizationFailureCannotExposeEvidenceEvenWhenWriterIsEmpty() = runTest {
+        val receipts = mutableListOf<ResearchDeliveryReceipt>()
+        val writer = session { emit(ProviderEvent.Failed("Access revoked", errorCode = "SOURCE_PERMISSION_REVOKED")) }
+        val delivery = ResearchDeliverySession(writer, { packet }, saveReceipt = { receipts += it }) { _, _ -> writer }
+        val events = delivery.streamRound(emptyList(), emptyList()).toList()
+        assertFalse(events.any { it is ProviderEvent.TextDelta || it == ProviderEvent.Completed })
+        assertTrue(receipts.isEmpty())
+    }
+
+    @Test fun writerCancellationDoesNotPublishAnEvidenceFallback() = runTest {
+        val writer = session { throw kotlinx.coroutines.CancellationException("user stopped") }
+        val delivery = ResearchDeliverySession(writer, { packet }) { _, _ -> writer }
+        val events = mutableListOf<ProviderEvent>()
+        val error = runCatching { delivery.streamRound(emptyList(), emptyList()).collect { events += it } }.exceptionOrNull()
+        assertTrue(error is kotlinx.coroutines.CancellationException)
+        assertFalse(events.any { it is ProviderEvent.TextDelta || it == ProviderEvent.Completed })
+    }
 }

@@ -26,9 +26,14 @@ object ResearchRecovery {
         }
         val retryAt = if (status == ResearchStageStatus.WAITING_PROVIDER_LIMIT) {
             val delay = (retryAfterMillis ?: DEFAULT_COOLDOWN_MILLIS).coerceAtLeast(0)
-            if (Long.MAX_VALUE - nowEpochMillis < delay) Long.MAX_VALUE
-            else nowEpochMillis + delay
-        } else null
+            if (Long.MAX_VALUE - nowEpochMillis < delay) {
+                Long.MAX_VALUE
+            } else {
+                nowEpochMillis + delay
+            }
+        } else {
+            null
+        }
         return checkpoint.copy(status = status, attempt = nextAttempt, retryAtEpochMillis = retryAt)
     }
 
@@ -47,11 +52,15 @@ object ResearchEvidenceLedger {
         (existing + incoming).forEach { candidate ->
             val old = merged[candidate.sourceId]
             val replace = old == null ||
-                (old.status != EvidenceStatus.ACCEPTED &&
-                    candidate.status == EvidenceStatus.ACCEPTED) ||
-                (old.status != EvidenceStatus.ACCEPTED &&
-                    candidate.status != EvidenceStatus.EXCLUDED &&
-                    (order[candidate.status] ?: 0) > (order[old.status] ?: 0))
+                (
+                    old.status != EvidenceStatus.ACCEPTED &&
+                        candidate.status == EvidenceStatus.ACCEPTED
+                    ) ||
+                (
+                    old.status != EvidenceStatus.ACCEPTED &&
+                        candidate.status != EvidenceStatus.EXCLUDED &&
+                        (order[candidate.status] ?: 0) > (order[old.status] ?: 0)
+                    )
             if (replace) merged[candidate.sourceId] = candidate
         }
         return merged.values.toList()

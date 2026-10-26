@@ -402,7 +402,7 @@ internal class CombinedDeliverySession(
             validateAccess()
             val fallback = withContext(Dispatchers.Default) { deterministicCombinedFallback(sources, maxCharacters, policy.maximumWords) }
             if (fallback != null) {
-                accepted = accepted.copy(text = fallback, assembledLocally = true)
+                accepted = accepted.copy(text = fallback, decoder = null, assembledLocally = true)
                 assessment = assess(accepted)
                 violations = withContext(Dispatchers.Default) { policy.violations(fallback) }
                 correctionRequired = true

@@ -13,7 +13,8 @@ internal data class LocalMemoryEstimate(
     val requestedContextTokens: Int = contextTokens,
     val planIdentity: String? = null,
     val systemMemory: LocalSystemMemorySnapshot? = null,
-    val memoryPlan: MemoryPlanReceipt? = null
+    val memoryPlan: MemoryPlanReceipt? = null,
+    val selectedBackend: String? = memoryPlan?.selectedBackend
 ) {
     val budget: LocalMemoryBudget get() = LocalMemoryBudget(requiredBytes, reserveBytes, availableBytes)
 
@@ -35,7 +36,8 @@ internal data class LocalMemoryEstimate(
         requestedContextTokens = requestedContextTokens,
         planIdentity = planIdentity,
         systemMemory = systemMemory,
-        memoryPlan = memoryPlan
+        memoryPlan = memoryPlan,
+        selectedBackend = selectedBackend
     )
 
     fun rejection(
@@ -45,7 +47,7 @@ internal data class LocalMemoryEstimate(
     ): LocalMemoryAdmissionException {
         val configuredReserveMb = reserveBytes / MIB
         fun mib(bytes: Long) = "${bytes / MIB + if (bytes % MIB == 0L) 0 else 1} MiB"
-        val summary = "Backend: ${memoryPlan?.selectedBackend ?: method}. " +
+        val summary = "Selected backend: ${selectedBackend ?: method}. " +
             "Model: ${components["weights"]?.let(::mib) ?: "included in estimate"}; " +
             "allocation: ${mib(requiredBytes)}; reserve: ${mib(reserveBytes)}; " +
             "available: ${availableBytes?.let(::mib) ?: "unknown"}; " +

@@ -29,7 +29,10 @@ data class CapturedProviderAuthority(
         if (routeRevision(admitted) != routeRevision) throw ProviderWaitAuthorityChanged("PROVIDER_WAIT_ROUTE_CHANGED")
         val live = settings.getFeatureSettings()
         val effective = acceptedTokenBudget?.takeIf { ConfiguredDispatchAuthority.allowsAcceptedTokenPlan(it, live.tokenBudget, profileUid) }?.let { live.copy(tokenBudget = it) } ?: live
-        if (ConfiguredDispatchAuthority.policyRevision(effective, profileUid, chatId) != policyRevision || settings.providerPermissionRevision(admitted) != permissionRevision || settings.providerActivationRequired(admitted)) throw ProviderWaitAuthorityChanged("PROVIDER_WAIT_PERMISSION_CHANGED")
+        val policyMatches = ConfiguredDispatchAuthority.policyRevision(effective, profileUid, chatId) == policyRevision ||
+            acceptedTokenBudget == null &&
+            ConfiguredDispatchAuthority.legacyPolicyRevision(live, profileUid, chatId) == policyRevision
+        if (!policyMatches || settings.providerPermissionRevision(admitted) != permissionRevision || settings.providerActivationRequired(admitted)) throw ProviderWaitAuthorityChanged("PROVIDER_WAIT_PERMISSION_CHANGED")
     }
 
     /** Reinstall the saved authority when work crosses an independent coroutine owner. */

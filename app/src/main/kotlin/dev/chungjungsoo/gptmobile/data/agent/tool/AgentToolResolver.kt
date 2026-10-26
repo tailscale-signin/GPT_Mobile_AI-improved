@@ -41,6 +41,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 
 data class ResolvedAgentTool(
     val tool: AgentTool,
@@ -1133,6 +1134,9 @@ class AgentToolResolver @Inject constructor(
         val features = settingRepository.getFeatureSettings()
         val engineeringPrepare: (suspend (String, JsonObject) -> JsonObject)? = if (actualConnection != null && engineeringController != null) {
             { root, args ->
+                require(userMessage?.chatId?.let { factVault?.scopeForChat(it)?.isTemporary != true } != false) {
+                    "Engineering review stores the exact patch. Use a saved conversation or open GitHub review explicitly."
+                }
                 val engineeringTaskId = engineeringController.prepareFromTool(actualConnection.connectionUid, root, args.toString())
                 kotlinx.serialization.json.buildJsonObject {
                     put("engineering_task_id", engineeringTaskId)

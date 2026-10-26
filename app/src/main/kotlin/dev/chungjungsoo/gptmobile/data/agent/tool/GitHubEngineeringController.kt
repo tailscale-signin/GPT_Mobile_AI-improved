@@ -26,7 +26,8 @@ class GitHubEngineeringController @Inject constructor(
     private val connections: ToolConnectionRepository,
     private val vault: SecretVault,
     private val apiFactory: GitHubEngineeringApiFactory,
-    private val benchmarks: dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkStore
+    private val benchmarks: dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkStore,
+    private val workQueue: GitHubEngineeringWorkQueue
 ) {
     private val database get() = GitHubEngineeringDatabaseFactory.open(context)
     private val dao get() = database.ledgerDao()
@@ -181,7 +182,7 @@ class GitHubEngineeringController @Inject constructor(
                 advance(taskId, EngineeringEvidence.USER_CANCELLED, "User cancelled; already published Git objects are retained")
             }
             dao.run(taskId)?.let { dao.saveRun(it.copy(approvalRevoked = true)) }
-            GitHubEngineeringCiScheduler.cancel(context, taskId)
+            workQueue.cancel(taskId)
         }
     }
 
@@ -276,7 +277,7 @@ class GitHubEngineeringController @Inject constructor(
                 val now = System.currentTimeMillis()
                 dao.saveRun(requireNotNull(dao.run(taskId)).copy(ciStartedAtEpochMs = now, ciDeadlineEpochMs = now + 24 * 60 * 60_000L, notice = "Remote commit verified; waiting for repository-required checks"))
             }
-            GitHubEngineeringCiScheduler.enqueue(context, taskId)
+            workQueue.enqueue(taskId)
             requireNotNull(snapshot.commitSha)
         }
     }
@@ -304,11 +305,17 @@ class GitHubEngineeringController @Inject constructor(
             try {
                 val sha = requireNotNull(op.commitSha)
                 val api = api(run.connectionUid)
-                check(head(api, task) == sha) { "Branch moved after push; CI cannot verify this task" }
+                if (head(api, task) != sha) {
+                    advance(taskId, EngineeringEvidence.REF_CONFLICT, "Branch moved after push; CI cannot verify this task")
+                    return@withRepositoryLock EngineeringWorkerOutcome.INVALID
+                }
                 val gateway = gateway(run.connectionUid)
                 val required = gateway.requiredChecks(task.repositoryOwner, task.repositoryName, run.policyBranch)
                 val checks = gateway.fetch(task.repositoryOwner, task.repositoryName, sha)
-                check(head(api, task) == sha) { "Branch moved during CI inspection" }
+                if (head(api, task) != sha) {
+                    advance(taskId, EngineeringEvidence.REF_CONFLICT, "Branch moved during CI inspection")
+                    return@withRepositoryLock EngineeringWorkerOutcome.INVALID
+                }
                 check(gateway.requiredChecks(task.repositoryOwner, task.repositoryName, run.policyBranch) == required) { "Repository check policy changed during inspection" }
                 val verdict = GitHubEngineeringCiPolicy.evaluateRules(sha, required, checks)
                 val requiredJson = JSONArray().apply { required.sortedBy { it.name + it.appId }.forEach { put(JSONObject().put("name", it.name).put("appId", it.appId)) } }.toString()
@@ -319,6 +326,10 @@ class GitHubEngineeringController @Inject constructor(
                         checks.forEach { put(JSONObject().put("name", it.name).put("id", it.runId).put("appId", it.appId).put("source", it.source).put("status", it.status.name).put("conclusion", it.conclusion?.name).put("headSha", it.headSha)) }
                     }
                 ).toString()
+                if (System.currentTimeMillis() >= run.ciDeadlineEpochMs) {
+                    advance(taskId, EngineeringEvidence.EXECUTION_FAILED, "CI deadline expired during inspection")
+                    return@withRepositoryLock EngineeringWorkerOutcome.INVALID
+                }
                 ledger.recordCi(taskId, receipt, verdict)
                 if (verdict == EngineeringCiVerdict.PASSED) {
                     finishVerified(taskId)
@@ -422,11 +433,11 @@ class GitHubEngineeringController @Inject constructor(
                 withRepositoryLock(task) {
                     if (task.state in setOf("CI_PENDING", "CI_VERIFIED", "HARDWARE_VERIFIED")) {
                         if (task.state == "CI_PENDING") {
-                            GitHubEngineeringCiScheduler.enqueue(context, task.taskId)
+                            workQueue.enqueue(task.taskId)
                         } else {
                             finishVerified(task.taskId)
                         }
-                    } else if (task.state == EngineeringState.COMMITTING.name) {
+                    } else if (task.state in setOf(EngineeringState.COMMITTING.name, EngineeringState.PUSHED.name)) {
                         val op = ledger.operations(task.taskId).singleOrNull() ?: return@withRepositoryLock
                         if (op.commitSha == null || op.treeSha == null) {
                             dao.saveRun(run.copy(notice = "Interrupted staging; review approval and resume deterministically"))
@@ -441,12 +452,12 @@ class GitHubEngineeringController @Inject constructor(
                             is GitSagaReconciliation.AlreadyApplied -> {
                                 if (op.stage != GitSagaStage.REF_UPDATED.name) ledger.checkpointOperation(op.operationId, GitSagaStage.valueOf(op.stage), decision.snapshot)
                                 database.withEngineeringTransaction {
-                                    advance(task.taskId, EngineeringEvidence.REMOTE_REF_CONFIRMED, "Recovered verified ref: ${op.commitSha}")
+                                    if (task.state == EngineeringState.COMMITTING.name) advance(task.taskId, EngineeringEvidence.REMOTE_REF_CONFIRMED, "Recovered verified ref: ${op.commitSha}")
                                     advance(task.taskId, EngineeringEvidence.CI_WATCH_STARTED, op.commitSha)
                                     val now = System.currentTimeMillis()
                                     dao.saveRun(run.copy(ciStartedAtEpochMs = now, ciDeadlineEpochMs = now + 24 * 60 * 60_000L, notice = "Recovered remote ref; CI scheduled"))
                                 }
-                                GitHubEngineeringCiScheduler.enqueue(context, task.taskId)
+                                workQueue.enqueue(task.taskId)
                             }
                             is GitSagaReconciliation.Conflict -> advance(task.taskId, EngineeringEvidence.REF_CONFLICT, decision.actualHeadSha)
                             else -> dao.saveRun(run.copy(notice = "Remote objects reconciled; approval required to resume ref update"))

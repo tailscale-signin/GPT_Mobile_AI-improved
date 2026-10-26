@@ -339,13 +339,14 @@ class PlannedLocalRuntime(
                 } else if (calibration != null) {
                     "conservative_component_calibrated"
                 } else {
-                    "conservative_unmeasured"
+                    "${if (isGguf) "gguf" else "compiled"}_${chosen.accelerator}_unmeasured"
                 },
                 components,
                 spec.maxTokens,
                 calibrationKey,
                 systemMemory = LocalWorkloadAdmission.memorySnapshot(context),
-                memoryPlan = planReceipt
+                memoryPlan = planReceipt,
+                selectedBackend = chosen.accelerator
             )
         if (isGguf && chosen.contextPolicy == "AUTO" && components.isNotEmpty() && memoryEstimate.budget.hasShortfall) {
             val suggestion =

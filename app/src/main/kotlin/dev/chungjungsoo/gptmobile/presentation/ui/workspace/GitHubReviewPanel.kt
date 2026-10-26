@@ -227,7 +227,9 @@ class GitHubReviewViewModel @Inject constructor(private val connections: ToolCon
         val task = engineering.recent().single { it.taskId == taskId }
         val run = requireNotNull(engineering.run(taskId))
         require(review.value?.files?.none { it.before != it.after } != false) { "Save or discard the current proposal before reviewing a saved task." }
-        val files = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubEngineeringAuthorization.files(run.patchJson).map { GitHubFileProposal(it.path, it.before, it.after) }
+        val files = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            dev.chungjungsoo.gptmobile.data.agent.tool.GitHubEngineeringAuthorization.files(run.patchJson).map { GitHubFileProposal(it.path, it.before, it.after) }
+        }
         record.value = null
         save(GitHubReview(run.connectionUid, task.repositoryOwner, task.repositoryName, task.workingBranch, task.baseSha, files = files))
         inspectEngineeringTaskNow(taskId)
@@ -329,7 +331,13 @@ fun GitHubReviewPanel(model: GitHubReviewViewModel = hiltViewModel()) {
             items(value.files, key = { it.path }) { file ->
                 WorkspaceCard(file.path) {
                     Text("Replacement diff", style = MaterialTheme.typography.labelLarge)
-                    SelectionContainer { Text(dev.chungjungsoo.gptmobile.data.workspace.ReviewDiff.render(file.path, file.before, file.after).take(12000), fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace) }
+                    val diff by androidx.compose.runtime.produceState("Preparing diff…", file.path, file.before, file.after) {
+                        kotlinx.coroutines.delay(120)
+                        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                            dev.chungjungsoo.gptmobile.data.workspace.ReviewDiff.render(file.path, file.before, file.after).take(12000)
+                        }
+                    }
+                    SelectionContainer { Text(diff, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace) }
                     if (file.before.length + file.after.length > 12000) Text("Diff preview may be truncated. Review the complete proposed file below before committing.", style = MaterialTheme.typography.bodySmall)
                     OutlinedTextField(file.after, { model.edit(file.path, it) }, label = { Text("Proposed complete file") }, modifier = Modifier.fillMaxWidth(), maxLines = 16)
                     Text("${file.before.lines().size} → ${file.after.lines().size} lines · ${if (file.before == file.after) "unchanged" else "modified"}")

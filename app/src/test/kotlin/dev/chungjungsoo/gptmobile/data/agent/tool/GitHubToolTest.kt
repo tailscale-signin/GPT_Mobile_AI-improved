@@ -47,7 +47,6 @@ class GitHubToolTest {
         }
     }
 
-
     @Test
     fun `workflow dispatch carries user ref and typed inputs and accepts no-content response`() = runTest {
         val client = HttpClient(

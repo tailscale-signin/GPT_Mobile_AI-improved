@@ -26,6 +26,7 @@ The audited commit predates part of the current branch. Existing code already su
 - Pinned ktlint 1.3.1 formatting and Android regex checks run locally.
 - 191 repository Python tests passed; the GGUF prefill-governor host contract passed.
 - Focused Kotlin compilation of engineering production code with Android/Room/service infrastructure stubs, plus 42 JUnit tests, passed before the final integration additions. These tests exercise reducers, approval binding/expiry/revocation, CI identities/pagination, saga/recovery decisions and do not establish a complete Android workflow.
+- A further 12 memory-estimate, retry-backoff and tokenizer tests passed in a focused JVM harness (serialization/accelerator infrastructure stubbed; native allocations were not executed).
 - Added Android-backed Room transaction tests and native-holder/model-switch regression tests, plus Combined fallback/settings and tokenizer tests. They require the Android build/test environment.
 - Local full Gradle execution is blocked by the distribution download failing with Network is unreachable. This workspace also lacks the configured Android SDK/JDK 21 toolchain and the physical ASUS device.
 

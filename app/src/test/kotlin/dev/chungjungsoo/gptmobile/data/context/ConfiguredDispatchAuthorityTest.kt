@@ -248,6 +248,8 @@ class ConfiguredDispatchAuthorityTest {
     @Test fun increasedTokenCapsPreserveAcceptedPlanButReductionsAndToolCatalogChangesDoNot() {
         val before = TokenBudgetSettings(contextTokens = 4096, outputTokens = 512, totalRunTokens = 8192)
         assertTrue(ConfiguredDispatchAuthority.allowsAcceptedTokenPlan(before, before.copy(contextTokens = 8192, outputTokens = 1024), "writer"))
+        assertFalse(ConfiguredDispatchAuthority.allowsAcceptedTokenPlan(before.copy(responseCharacterLimit = 0), before.copy(responseCharacterLimit = 4096), "writer"))
+        assertTrue(ConfiguredDispatchAuthority.allowsAcceptedTokenPlan(before, before.copy(generationTimeoutMinutes = 0, responseCharacterLimit = 0), "writer"))
         assertFalse(ConfiguredDispatchAuthority.allowsAcceptedTokenPlan(before, before.copy(outputTokens = 256), "writer"))
         assertFalse(ConfiguredDispatchAuthority.allowsAcceptedTokenPlan(before, before.copy(adaptiveToolCatalog = !before.adaptiveToolCatalog), "writer"))
         assertFalse(ConfiguredDispatchAuthority.allowsAcceptedTokenPlan(before, before.copy(profileContextCeilings = mapOf("writer" to 1024)), "writer"))

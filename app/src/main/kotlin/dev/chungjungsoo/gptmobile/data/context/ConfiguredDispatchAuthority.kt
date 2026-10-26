@@ -77,33 +77,37 @@ internal object ConfiguredDispatchAuthority {
 
     /** Increasing limits preserves an already smaller accepted allocation; reductions require revalidation. */
     internal fun allowsAcceptedTokenPlan(before: TokenBudgetSettings, after: TokenBudgetSettings, uid: String): Boolean {
-        fun output(value: Int) = if (value == 0) Int.MAX_VALUE else value
-        return after.contextTokens >= before.contextTokens &&
-            after.totalRunTokens >= before.totalRunTokens &&
-            output(after.outputTokens) >= output(before.outputTokens) &&
-            after.generationTimeoutMinutes >= before.generationTimeoutMinutes &&
-            after.responseCharacterLimit >= before.responseCharacterLimit &&
-            (after.profileContextCeilings[uid] ?: Int.MAX_VALUE) >= (before.profileContextCeilings[uid] ?: Int.MAX_VALUE) &&
-            before.copy(
-                contextTokens = after.contextTokens,
-                totalRunTokens = after.totalRunTokens,
-                outputTokens = after.outputTokens,
-                generationTimeoutMinutes = after.generationTimeoutMinutes,
-                responseCharacterLimit = after.responseCharacterLimit,
-                profileContextCeilings = after.profileContextCeilings
-            ) == after
+        val previous = before.normalized()
+        val current = after.normalized()
+        fun cap(value: Int) = if (value == 0) Int.MAX_VALUE else value
+        return current.contextTokens >= previous.contextTokens &&
+            current.totalRunTokens >= previous.totalRunTokens &&
+            cap(current.outputTokens) >= cap(previous.outputTokens) &&
+            cap(current.generationTimeoutMinutes) >= cap(previous.generationTimeoutMinutes) &&
+            cap(current.responseCharacterLimit) >= cap(previous.responseCharacterLimit) &&
+            (current.profileContextCeilings[uid] ?: Int.MAX_VALUE) >= (previous.profileContextCeilings[uid] ?: Int.MAX_VALUE) &&
+            previous.copy(
+                contextTokens = current.contextTokens,
+                totalRunTokens = current.totalRunTokens,
+                outputTokens = current.outputTokens,
+                generationTimeoutMinutes = current.generationTimeoutMinutes,
+                responseCharacterLimit = current.responseCharacterLimit,
+                profileContextCeilings = current.profileContextCeilings
+            ) == current
     }
 
     /** Display toggles, colors and wait settings apply independently and never invalidate answer bytes. */
     internal fun policyRevision(features: AppFeatureSettings, uid: String, chatId: Int?): String = researchHash(policyFields(features, uid, chatId).toString())
 
     /** Scope accounting to this writer; another contributor's quote/ceiling cannot revoke it. */
-    internal fun policyFields(features: AppFeatureSettings, uid: String, chatId: Int?) =
+    internal fun legacyPolicyRevision(features: AppFeatureSettings, uid: String, chatId: Int?): String = researchHash(policyFields(features, uid, chatId, scopeProfile = false).toString())
+
+    internal fun policyFields(features: AppFeatureSettings, uid: String, chatId: Int?, scopeProfile: Boolean = true) =
         buildJsonObject {
-            put("budget", Json.encodeToJsonElement(features.tokenBudget.copy(profileContextCeilings = features.tokenBudget.profileContextCeilings.filterKeys { it == uid })))
+            put("budget", Json.encodeToJsonElement(features.tokenBudget.copy(profileContextCeilings = features.tokenBudget.profileContextCeilings.filterKeys { !scopeProfile || it == uid })))
             // Quote refresh timestamps and provenance are telemetry, not authority.
             // Keep the actual rates and limits so a cost-changing edit still blocks dispatch.
-            put("spend", Json.encodeToJsonElement(features.spendBudget.copy(prices = features.spendBudget.prices.filterKeys { it == uid && features.spendBudget.enforced }.mapValues { (_, price) -> price.copy(checkedAt = 0, source = "") })))
+            put("spend", Json.encodeToJsonElement(features.spendBudget.copy(prices = features.spendBudget.prices.filterKeys { !scopeProfile || it == uid && features.spendBudget.enforced }.mapValues { (_, price) -> price.copy(checkedAt = 0, source = "") })))
             put("profile", Json.encodeToJsonElement(features.profileBehavior[uid]))
             put("plugins", Json.encodeToJsonElement(features.pluginExecution))
             put("tools", Json.encodeToJsonElement(features.toolPluginStates))

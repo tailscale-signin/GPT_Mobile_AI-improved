@@ -27,6 +27,20 @@ internal class GitHubOperationTool(
                 ?: return AgentToolResult(callId, ToolResultContent.Text("view_cursor must be the exact saved cursor string."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
             return views.read(scope, operation, definition.name, cursor, callId)
         }
+        // Explicit repository overrides must be complete; both absent uses the pinned task context.
+        val explicitOwner = (arguments["owner"] as? JsonPrimitive)?.content?.trim()
+        val explicitRepo = (arguments["repo"] as? JsonPrimitive)?.content?.trim()
+        if ((explicitOwner != null || explicitRepo != null) &&
+            (explicitOwner.isNullOrBlank() || explicitRepo.isNullOrBlank())
+        ) {
+            return AgentToolResult(
+                callId,
+                ToolResultContent.Text("Specify both owner and repo, or omit both to use the selected GitHub repository."),
+                true,
+                errorCode = "INVALID_ARGUMENTS",
+                dispatched = false
+            )
+        }
         val native = nativeArguments(operation, arguments)
             ?: return AgentToolResult(callId, ToolResultContent.Text("Unsupported GitHub operation."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
         val result = backend.execute(callId, native)

@@ -8,6 +8,19 @@ import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class StructuredDiagnosticExportTest {
+    @Test fun paddedLogcatJobInfoTagRemainsAnInformationalPlatformHint() {
+        val classification = classifyDiagnostic("W", "Android", "eventId=job-10 · monoNs=123 · bootMs=12 · processId=42 · processName=dev.melo.gptmobile.improved · W/JobInfo (31174): Requested important-while-foreground flag for job10 is ignored and takes no effect")
+        assertEquals("platform_job_hint", classification.category)
+        assertFalse(classification.actionable)
+    }
+
+    @Test fun logStyleProfileListsAreQuotedBeforeJsonSerialization() {
+        val line = structuredDiagnosticLine("2026-10-26T12:00:00Z I/Combined: PALETTE · represented=[builtin-free-ovhcloud,builtin-free-kilo] · count=2")
+        val fields = Json.parseToJsonElement(line).jsonObject.getValue("fields").jsonObject
+        assertEquals(Json.parseToJsonElement("""["builtin-free-ovhcloud","builtin-free-kilo"]"""), fields.getValue("represented"))
+        assertEquals("2", fields.getValue("count").jsonPrimitive.content)
+    }
+
     @Test fun nestedProviderRecordRemainsAnObjectWhenMessageContainsFieldSyntax() {
         val payload = """{"status":429,"message":"Quota code=DAILY · retryAt=tomorrow, quoted \\\"value=inside\\\"","resetHeaders":{"x-reset":"123"}}"""
         val result = Json.parseToJsonElement(structuredDiagnosticLine("2026-10-24T12:00:00Z W/Provider: PROVIDER_FAILED · provider=LLM7 · record=$payload · durationMs=15")).jsonObject

@@ -13,6 +13,24 @@ class FreeScopedHealthTest {
 
     @After fun after() = FreeCatalogState.resetForTest()
 
+    @Test fun repeatedHttp502OpensOnlyTheFailingRouteUntilRecoverySucceeds() {
+        val provider = FreeAiProvider.VIREONIX
+        FreeCatalogState.recordHttpFailure(provider, 502, "Temporarily unavailable", model = "auto", credentialIdentity = "key-a")
+        assertNull(FreeCatalogState.generationUnavailableReason(provider, "auto", "key-a"))
+        FreeCatalogState.recordHttpFailure(provider, 502, "Temporarily unavailable", model = "auto", credentialIdentity = "key-a")
+        assertNotNull(FreeCatalogState.generationUnavailableReason(provider, "auto", "key-a"))
+        assertNull(FreeCatalogState.generationUnavailableReason(provider, "other-model", "key-a"))
+        assertNull(FreeCatalogState.generationUnavailableReason(provider, "auto", "key-b"))
+        FreeCatalogState.recordResponse(provider, "auto", credentialIdentity = "key-a")
+        assertNull(FreeCatalogState.generationUnavailableReason(provider, "auto", "key-a"))
+    }
+
+    @Test fun upstreamRetryDeadlineIsNotShortenedByTheLocalCircuitBreaker() {
+        val deadline = System.currentTimeMillis() + 3_600_000
+        repeat(2) { FreeCatalogState.recordHttpFailure(FreeAiProvider.VIREONIX, 502, "Temporarily unavailable", retryAt = deadline, model = "auto") }
+        assertEquals(deadline, FreeCatalogState.generationStatus(FreeAiProvider.VIREONIX, "auto")?.retryAt)
+    }
+
     @Test fun anotherModelSuccessDoesNotClearTheFailingModel() {
         repeat(2) { FreeCatalogState.recordTerminalFailure(FreeAiProvider.LLM7, "model-a", "same failure", credentialIdentity = "key-a") }
         FreeCatalogState.recordResponse(FreeAiProvider.LLM7, "model-b", credentialIdentity = "key-a")

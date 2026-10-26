@@ -34,5 +34,5 @@ internal object CombinedResponseBudget {
 internal fun isRecoverableStreamFailure(message: String): Boolean {
     val text = message.lowercase()
     if (listOf("queue_", "free allowance", "rate limit", "429", "401", "403", "max_tokens", "context", "certificate", "handshake", "connection refused").any { it in text }) return false
-    return listOf("temporarily overloaded", "overloaded", "503", "502", "504", "connection reset", "reset by peer", "socket closed", "read error:", "timed out", "timeout", "unexpected end", "premature", "stream ended").any { it in text }
+    return listOf("temporarily overloaded", "overloaded", "503", "502", "504", "connection reset", "reset by peer", "software caused connection abort", "econnaborted", "socket closed", "read error:", "timed out", "timeout", "unexpected end", "premature", "stream ended").any { it in text }
 }

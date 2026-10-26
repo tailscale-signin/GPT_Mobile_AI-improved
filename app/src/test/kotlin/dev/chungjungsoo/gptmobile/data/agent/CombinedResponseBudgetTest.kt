@@ -16,6 +16,9 @@ class CombinedResponseBudgetTest {
     @Test fun recoverOnlyTransientEditorialStreamFailures() {
         assertTrue(isRecoverableStreamFailure("Read error: Failure in SSL library, usually a protocol error"))
         assertTrue(isRecoverableStreamFailure("Service temporarily overloaded"))
+        assertTrue(isRecoverableStreamFailure("Software caused connection abort"))
+        assertTrue(isRecoverableStreamFailure("recvfrom failed: ECONNABORTED"))
+        assertFalse(isRecoverableStreamFailure("429 rate limit: Software caused connection abort"))
         assertFalse(isRecoverableStreamFailure("LLM7 has reached its free allowance. Try again in 85492 seconds"))
         assertFalse(isRecoverableStreamFailure("Connection refused"))
         assertFalse(isRecoverableStreamFailure("SSL certificate handshake error"))

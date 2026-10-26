@@ -205,13 +205,38 @@ object FreeCatalogState {
     }
 
     fun recordFailure(provider: FreeAiProvider, message: String, readiness: FreeGenerationReadiness = FreeGenerationReadiness.GENERATION_FAILED, reachable: Boolean? = true, retryAt: Long? = null, model: String? = null, credentialIdentity: String = "unknown") {
+        val observedAt = System.currentTimeMillis()
+        val signature = dev.chungjungsoo.gptmobile.data.research.researchHash(message.take(600))
         updateHealth(provider, model, credentialIdentity) { old ->
             val denials = if (readiness == FreeGenerationReadiness.ACCESS_DENIED) {
-                if (old.deniedModel == model && System.currentTimeMillis() - old.checkedAt < 600_000) old.denialCount + 1 else 1
+                if (old.deniedModel == model && observedAt - old.checkedAt < 600_000) old.denialCount + 1 else 1
             } else {
                 0
             }
-            old.copy(readiness = readiness, reachable = reachable ?: old.reachable, retryAt = retryAt ?: (System.currentTimeMillis() + 60_000).takeIf { denials >= 2 }, deniedModel = model.takeIf { denials > 0 }, denialCount = denials, checkedAt = System.currentTimeMillis(), message = message.take(240))
+            // HTTP generation failures need the same circuit breaker as queued
+            // terminal failures; otherwise a recurring 502 never becomes ineligible.
+            val generationFailure = readiness == FreeGenerationReadiness.GENERATION_FAILED
+            val failures = if (generationFailure) {
+                if (old.failureSignature == signature && observedAt - old.checkedAt < 600_000) old.generationFailures + 1 else 1
+            } else {
+                old.generationFailures
+            }
+            val localRetry = when {
+                generationFailure && failures >= 2 -> observedAt + (60_000L * failures).coerceAtMost(300_000L)
+                denials >= 2 -> observedAt + 60_000
+                else -> null
+            }
+            old.copy(
+                readiness = readiness,
+                reachable = reachable ?: old.reachable,
+                retryAt = listOfNotNull(retryAt, localRetry).maxOrNull(),
+                deniedModel = model.takeIf { denials > 0 || generationFailure },
+                denialCount = denials,
+                generationFailures = failures,
+                failureSignature = if (generationFailure) signature else old.failureSignature,
+                checkedAt = observedAt,
+                message = message.take(240)
+            )
         }
         saveHealth()
     }

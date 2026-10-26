@@ -13,6 +13,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ChatDebugRedactorTest {
+    @Test fun historicalBareLiteralsBecomeStringsWithoutChangingJsonScalars() {
+        val retained = Json.parseToJsonElement("""{"profiles":[builtin-free-ovhcloud,builtin-free-kilo],"usage":[123,true,false,null,1.25,1e3],"authorization":"Bearer old-private-key"}""")
+        val clean = redactChatDebugData(retained)
+        assertEquals(Json.parseToJsonElement("""["builtin-free-ovhcloud","builtin-free-kilo"]"""), clean.jsonObject.getValue("profiles"))
+        assertEquals(retained.jsonObject.getValue("usage"), clean.jsonObject.getValue("usage"))
+        assertFalse(clean.toString().contains("old-private-key"))
+        assertEquals("""["[redacted]"]""", redactChatDebugData(Json.parseToJsonElement("[configured-secret-value]"), listOf("configured-secret-value")).toString())
+    }
+
     @Test fun largeConversationAndAccountingRemainCompleteWhileEmbeddedSecretsAreRemoved() {
         val text = "evidence ".repeat(10000)
         val payload = buildJsonObject {

@@ -31,7 +31,12 @@ internal class GitHubEngineeringCiHttpGateway(
             connection.setRequestProperty("Accept", "application/vnd.github+json")
             connection.setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
             check(connection.responseCode == 200) { "GitHub check-run request failed" }
-            GitHubEngineeringCiCheckParser.parse(connection.inputStream.bufferedReader().use { it.readText() }, commitSha)
+            val body = connection.inputStream.bufferedReader().use { it.readText() }
+            val root = org.json.JSONObject(body)
+            check(root.optInt("total_count", 0) <= root.getJSONArray("check_runs").length()) {
+                "Incomplete GitHub check-run pagination"
+            }
+            GitHubEngineeringCiCheckParser.parse(body, commitSha)
         } finally {
             connection.disconnect()
         }

@@ -54,6 +54,50 @@ class GitHubEngineeringStateMachineTest {
     }
 
     @Test
+    fun patchReadyRequiresExplicitCommitStart() {
+        assertThrows(IllegalArgumentException::class.java) {
+            GitHubEngineeringStateMachine.advance(
+                EngineeringState.PATCH_READY,
+                EngineeringEvidence.COMMIT_CONFIRMED,
+            )
+        }
+        assertEquals(
+            EngineeringState.COMMITTING,
+            GitHubEngineeringStateMachine.advance(
+                EngineeringState.PATCH_READY,
+                EngineeringEvidence.COMMIT_STARTED,
+            ),
+        )
+    }
+
+    @Test
+    fun failedTaskRequiresNewAttemptBeforeRecovery() {
+        assertThrows(IllegalArgumentException::class.java) {
+            GitHubEngineeringStateMachine.advance(
+                EngineeringState.CI_FAILED,
+                EngineeringEvidence.REQUIRED_CHECKS_PASSED,
+            )
+        }
+    }
+
+    @Test
+    fun ciFailureIsOnlyValidDuringCiWatch() {
+        assertThrows(IllegalArgumentException::class.java) {
+            GitHubEngineeringStateMachine.advance(
+                EngineeringState.PATCH_READY,
+                EngineeringEvidence.CI_CHECK_FAILED,
+            )
+        }
+        assertEquals(
+            EngineeringState.CI_FAILED,
+            GitHubEngineeringStateMachine.advance(
+                EngineeringState.CI_PENDING,
+                EngineeringEvidence.CI_CHECK_FAILED,
+            ),
+        )
+    }
+
+    @Test
     fun completedTasksCannotBeMutated() {
         assertThrows(IllegalArgumentException::class.java) {
             GitHubEngineeringStateMachine.advance(EngineeringState.COMPLETED, EngineeringEvidence.INSPECTION_STARTED)

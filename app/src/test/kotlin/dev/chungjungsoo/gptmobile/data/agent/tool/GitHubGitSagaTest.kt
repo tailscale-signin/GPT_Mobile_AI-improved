@@ -20,7 +20,23 @@ class GitHubGitSagaTest {
             commitSha = commit,
         )
         val result = GitHubGitSaga.reconcile(snapshot, base)
-        assertTrue(result is GitSagaReconciliation.ReadyToUpdateRef)
+        assertEquals(GitSagaReconciliation.VerifyCommitObject, result)
+        assertTrue(GitHubGitSaga.reconcileVerified(snapshot, base, commit, base, tree) is GitSagaReconciliation.ReadyToUpdateRef)
+    }
+
+    @Test
+    fun mismatchedRemoteCommitIsNotAllowedToUpdateRef() {
+        val snapshot = GitSagaSnapshot(
+            operationId = "operation-1",
+            expectedHeadSha = base,
+            stage = GitSagaStage.COMMIT_CREATED,
+            treeSha = tree,
+            commitSha = commit,
+        )
+        assertTrue(
+            GitHubGitSaga.reconcileVerified(snapshot, base, commit, "d".repeat(40), tree)
+                is GitSagaReconciliation.Conflict,
+        )
     }
 
     @Test

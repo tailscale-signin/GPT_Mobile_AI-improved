@@ -25,6 +25,7 @@ internal class GitHubEngineeringCiHttpGateway(
         )
         val connection = (url.openConnection() as HttpURLConnection)
         try {
+            connection.instanceFollowRedirects = false
             connection.connectTimeout = 15_000
             connection.readTimeout = 20_000
             connection.setRequestProperty("Authorization", "Bearer $token")

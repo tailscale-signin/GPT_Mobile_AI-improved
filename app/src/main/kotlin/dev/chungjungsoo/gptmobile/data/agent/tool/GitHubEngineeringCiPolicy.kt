@@ -24,9 +24,13 @@ internal object GitHubEngineeringCiPolicy {
     ): EngineeringCiVerdict {
         if (requiredNames.isEmpty()) return EngineeringCiVerdict.PENDING
         val matching = receipts.filter { it.headSha == expectedHeadSha }
+        var pending = false
         for (name in requiredNames) {
             val candidates = matching.filter { it.name == name }
-            if (candidates.isEmpty()) return EngineeringCiVerdict.PENDING
+            if (candidates.isEmpty()) {
+                pending = true
+                continue
+            }
             if (candidates.any {
                 it.status == EngineeringCheckStatus.COMPLETED &&
                     it.conclusion in setOf(
@@ -39,8 +43,8 @@ internal object GitHubEngineeringCiPolicy {
             if (candidates.none {
                 it.status == EngineeringCheckStatus.COMPLETED &&
                     it.conclusion == EngineeringCheckConclusion.SUCCESS
-            }) return EngineeringCiVerdict.PENDING
+            }) pending = true
         }
-        return EngineeringCiVerdict.PASSED
+        return if (pending) EngineeringCiVerdict.PENDING else EngineeringCiVerdict.PASSED
     }
 }

@@ -1059,6 +1059,15 @@ class GitHubTool(
         throwable: Throwable
     ): AgentToolResult {
         val detail = throwable.localizedMessage ?: throwable.message ?: "Unknown error"
+        if (throwable is IllegalArgumentException) {
+            val explanation = detail.takeUnless { it.isBlank() || it == "Failed requirement." }
+                ?: "Invalid or missing arguments for this GitHub operation."
+            return errorResult(
+                callId,
+                "GITHUB_INVALID_ARGUMENT · action=$action · $explanation " +
+                    "Check the action's required fields and types, then retry with corrected arguments."
+            )
+        }
         if (action in MUTATING_ACTIONS && detail.contains("HTTP 403", ignoreCase = true)) {
             return errorResult(callId, writeDeniedMessage(action, arguments, detail))
         }

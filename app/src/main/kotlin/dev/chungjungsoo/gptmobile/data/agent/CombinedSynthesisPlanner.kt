@@ -93,10 +93,12 @@ class CombinedSynthesisPlanner @Inject constructor(
                 (event.connectionUidSnapshot != null || event.toolName.startsWith("health_") || event.toolName in setOf("memory", "device_location", "query_health_data", "query_memory", "search_memory", "read_memory", "read_file", "read_file_slice", "health_query", "health_read_records"))
         }.mapTo(hashSetOf()) { it.runId }
         val privateProfiles = turnRuns.filter { it.runId in privateRuns }.mapTo(hashSetOf()) { it.profileUid }
-        val sources = (
-            combinedSynthesisInputs(responses, runs, profiles.associate { it.uid to it.name }, accepted.context.requested.requestedModels, userMessage.content, requireComplete = false)
-                ?: emptyList()
-            ).map { source -> source.copy(localOnly = source.localOnly || source.platformUid in privateProfiles, claimExtractionVersion = if (accepted.context.requested.singlePass) 4 else source.claimExtractionVersion) }
+        val sources = withContext(Dispatchers.Default) {
+            (
+                combinedSynthesisInputs(responses, runs, profiles.associate { it.uid to it.name }, accepted.context.requested.requestedModels, userMessage.content, requireComplete = false)
+                    ?: emptyList()
+                ).map { source -> source.copy(localOnly = source.localOnly || source.platformUid in privateProfiles, claimExtractionVersion = if (accepted.context.requested.singlePass) 4 else source.claimExtractionVersion) }
+        }
         val retainedPublicEvidence = if (sources.isEmpty() && accepted.context.requested.acceptedResearch != null) {
             researchSessionStore.exportTurn(chatId, setOf("$chatId:$userId")).any { session ->
                 session.turnId == "$chatId:$userId" && dev.chungjungsoo.gptmobile.data.research.researchHash(session.snapshot.task.trim()) == dev.chungjungsoo.gptmobile.data.research.researchHash(userMessage.content.trim()) && session.snapshot.sources.any { it.readable && it.publicCapture && it.retrievalReceipt.isNotBlank() }
@@ -244,16 +246,20 @@ class CombinedSynthesisPlanner @Inject constructor(
         val leadAuthority = leadMessage?.let { primaryMessage ->
             turnSessions.lastOrNull { it.runId == primaryMessage.currentRunId }?.authority
         }
-        val sharedEvidence = dev.chungjungsoo.gptmobile.data.research.ResearchCorpus.freezeAll(
-            dev.chungjungsoo.gptmobile.data.research.authorizedResearchTransfer(turnSessions, leadAuthority)
-        )
+        val sharedEvidence = withContext(Dispatchers.Default) {
+            dev.chungjungsoo.gptmobile.data.research.ResearchCorpus.freezeAll(
+                dev.chungjungsoo.gptmobile.data.research.authorizedResearchTransfer(turnSessions, leadAuthority)
+            )
+        }
         val evidenceLedger = withContext(Dispatchers.Default) {
             dev.chungjungsoo.gptmobile.data.agent.CombinedEvidenceLedger.freeze(sharedEvidence, turnEvents, turnRuns.associate { it.runId to it.profileUid })
         }
         val turnContext = dev.chungjungsoo.gptmobile.data.agent.CombinedTurnContext.capture(userMessage.createdAt)
-        val attributedSources = combinedSourcesWithEvidence(sources, sharedEvidence).map { source ->
-            val owned = evidenceLedger.records.filter { source.platformUid in it.profileUids || source.content.contains(it.url) }
-            source.copy(sourceIds = (source.sourceIds + owned.map { it.id }).distinct(), evidenceRefs = (source.evidenceRefs + owned.map { it.url }).distinct())
+        val attributedSources = withContext(Dispatchers.Default) {
+            combinedSourcesWithEvidence(sources, sharedEvidence).map { source ->
+                val owned = evidenceLedger.records.filter { source.platformUid in it.profileUids || source.content.contains(it.url) }
+                source.copy(sourceIds = (source.sourceIds + owned.map { it.id }).distinct(), evidenceRefs = (source.evidenceRefs + owned.map { it.url }).distinct())
+            }
         }
         val fullHistory = messages
         require(fullHistory.any { it.id == userMessage.id && it.platformType == null }) { "The Combined user turn is no longer available." }

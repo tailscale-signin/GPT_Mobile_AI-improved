@@ -39,3 +39,11 @@ Still required before merge/release:
 - Full process-death/exact-once final publication matrix and physical-device UI frame-time measurements.
 - Combined regression matrix: frozen contributions, final synthesis, attribution colours, continuation and recovery. Existing exact-quote/numerical/citation checks do not establish semantic entailment for every prose claim.
 - CombinedSynthesisPlanner.prepare now hands an immutable context to a separate freezeAndPersist suspend stage. The packaged DEX gate checks both real methods and their generated state machines against ART's 16,383-code-unit threshold. Confirm packaged sizes in CI and profile remaining rendering hotspots on the physical device.
+
+## Full public web tools for Free providers
+
+All active Free providers can use the authorized public web-search tool catalog, the multi-engine `web_search` facade and the crawler plugin. Tool controls are visible even when the provider has no native function-call support. Explicit user/profile/chat disables and plugin selection still apply.
+
+Native routes keep their native calls. Text-only routes use FreePromptToolSession and the existing strict prompt-call parser. It advertises the selected authorized names/schemas as text, serializes actual tool results as untrusted user data, and emits typed calls to AgentRunner only after a complete generation. AgentRunner retains execution ownership, schema validation, budgets, approvals and tool-result handling. Interrupted, unknown or malformed commands never execute. The bridge does not introduce hidden retry requests or pretend a provider has native function calls. Native tools/tool roles are not sent to text-only providers.
+
+Regression coverage runs each active text-only Free route through mocked search, read and crawler rounds followed by a final answer, checks actual result replay and tests chunked commands, interrupted/failed commands, disabled tools, unknown names, ordinary prose and cancellation. Personal tools still require their existing recipient-specific consent; a public web-tool grant does not unlock memories, health data, location or private repositories. External provider success remains subject to live smoke tests and quotas.

@@ -24,6 +24,7 @@ internal fun EngineeringRemoteReconciliation.decide(
     if (snapshot.stage != GitSagaStage.COMMIT_CREATED &&
         snapshot.stage != GitSagaStage.REF_UPDATED
     ) return EngineeringRefDecision.Unverified
+    if (snapshot.commitSha == null || snapshot.treeSha == null) return EngineeringRefDecision.Unverified
     return when (val result = verify(snapshot, remoteHead, evidence)) {
         is GitSagaReconciliation.AlreadyApplied ->
             EngineeringRefDecision.Applied(requireNotNull(result.snapshot.commitSha))

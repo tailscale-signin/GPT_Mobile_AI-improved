@@ -20,6 +20,8 @@ internal data class EngineeringTaskRow(
     val repositoryName: String,
     val workingBranch: String,
     val baseSha: String,
+    val requiresHardwareVerification: Boolean = false,
+    val requiresHumanApproval: Boolean = true,
     val state: String = EngineeringState.CREATED.name,
     val sequence: Long = 0,
     val attempt: Int = 1,
@@ -141,6 +143,13 @@ internal class GitHubEngineeringRoomLedger(
     private val database: GitHubEngineeringDatabase,
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
+    suspend fun createTask(row: EngineeringTaskRow) {
+        require(row.state == EngineeringState.CREATED.name && row.sequence == 0L && row.attempt == 1)
+        require(row.repositoryOwner.isNotBlank() && row.repositoryName.isNotBlank())
+        require(row.workingBranch.isNotBlank())
+        database.ledgerDao().insertTask(row)
+    }
+
     suspend fun append(eventId: String, event: EngineeringLedgerEvent) {
         database.withTransaction {
             val task = requireNotNull(database.ledgerDao().task(event.taskId)) { "Unknown engineering task" }

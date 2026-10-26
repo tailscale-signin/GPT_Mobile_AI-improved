@@ -1,0 +1,66 @@
+package dev.chungjungsoo.gptmobile.data.agent.tool
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class GitHubGitSagaTest {
+    private val base = "a".repeat(40)
+    private val commit = "b".repeat(40)
+    private val tree = "c".repeat(40)
+
+    @Test
+    fun processDeathAfterCommitAllowsRefUpdateWithoutNewCommit() {
+        val snapshot = GitSagaSnapshot(
+            operationId = "operation-1",
+            expectedHeadSha = base,
+            stage = GitSagaStage.COMMIT_CREATED,
+            treeSha = tree,
+            commitSha = commit,
+        )
+        val result = GitHubGitSaga.reconcile(snapshot, base)
+        assertTrue(result is GitSagaReconciliation.ReadyToUpdateRef)
+    }
+
+    @Test
+    fun processDeathAfterRefUpdateRecognizesRemoteSuccess() {
+        val snapshot = GitSagaSnapshot(
+            operationId = "operation-1",
+            expectedHeadSha = base,
+            stage = GitSagaStage.COMMIT_CREATED,
+            treeSha = tree,
+            commitSha = commit,
+        )
+        val result = GitHubGitSaga.reconcile(snapshot, commit)
+        assertTrue(result is GitSagaReconciliation.AlreadyApplied)
+        assertEquals(GitSagaStage.REF_UPDATED, (result as GitSagaReconciliation.AlreadyApplied).snapshot.stage)
+    }
+
+    @Test
+    fun advancedBranchIsConflict() {
+        val snapshot = GitSagaSnapshot(
+            operationId = "operation-1",
+            expectedHeadSha = base,
+            stage = GitSagaStage.COMMIT_CREATED,
+            treeSha = tree,
+            commitSha = commit,
+        )
+        assertTrue(GitHubGitSaga.reconcile(snapshot, "d".repeat(40)) is GitSagaReconciliation.Conflict)
+    }
+
+    @Test
+    fun missingCommitRequiresRemoteInspection() {
+        assertEquals(
+            GitSagaReconciliation.InspectRemoteCommit,
+            GitHubGitSaga.reconcile(GitSagaSnapshot("operation-1", base), base),
+        )
+    }
+
+    @Test
+    fun commitCannotBeRecordedBeforeTree() {
+        assertThrows(IllegalArgumentException::class.java) {
+            GitHubGitSaga.recordCommit(GitSagaSnapshot("operation-1", base), commit)
+        }
+    }
+}

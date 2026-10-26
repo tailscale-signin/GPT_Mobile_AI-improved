@@ -41,15 +41,13 @@ internal object GitHubGitSaga {
     fun reconcile(snapshot: GitSagaSnapshot, remoteHeadSha: String): GitSagaReconciliation {
         val commit = snapshot.commitSha ?: return GitSagaReconciliation.InspectRemoteCommit
         if (remoteHeadSha == commit) {
-            return GitSagaReconciliation.AlreadyApplied(
-                snapshot.copy(stage = GitSagaStage.REF_UPDATED, remoteRefSha = remoteHeadSha),
-            )
+            // Ref identity does not establish the remote commit parent or tree.
+            return GitSagaReconciliation.VerifyCommitObject
         }
         if (remoteHeadSha != snapshot.expectedHeadSha) return GitSagaReconciliation.Conflict(remoteHeadSha)
-        // A matching branch head alone cannot prove the recovered commit's parent and tree.
-        // Call reconcileVerified after fetching the remote commit object.
         return GitSagaReconciliation.VerifyCommitObject
     }
+
 
     fun reconcileVerified(
         snapshot: GitSagaSnapshot,
@@ -65,13 +63,13 @@ internal object GitHubGitSaga {
         ) {
             return GitSagaReconciliation.Conflict(remoteHeadSha)
         }
-        return reconcile(snapshot, remoteHeadSha).let {
-            if (it == GitSagaReconciliation.VerifyCommitObject) {
-                GitSagaReconciliation.ReadyToUpdateRef(snapshot)
-            } else {
-                it
-            }
+        if (remoteHeadSha == commit) {
+            return GitSagaReconciliation.AlreadyApplied(
+                snapshot.copy(stage = GitSagaStage.REF_UPDATED, remoteRefSha = remoteHeadSha),
+            )
         }
+        if (remoteHeadSha != snapshot.expectedHeadSha) return GitSagaReconciliation.Conflict(remoteHeadSha)
+        return GitSagaReconciliation.ReadyToUpdateRef(snapshot)
     }
 
     fun recordTree(snapshot: GitSagaSnapshot, treeSha: String): GitSagaSnapshot {

@@ -1,0 +1,408 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 2,
+    "identityHash": "027d352a668cf35c60f0659c285ad2e0",
+    "entities": [
+      {
+        "tableName": "engineering_tasks",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`taskId` TEXT NOT NULL, `repositoryOwner` TEXT NOT NULL, `repositoryName` TEXT NOT NULL, `workingBranch` TEXT NOT NULL, `baseSha` TEXT NOT NULL, `requiresHardwareVerification` INTEGER NOT NULL, `requiresHumanApproval` INTEGER NOT NULL, `state` TEXT NOT NULL, `sequence` INTEGER NOT NULL, `attempt` INTEGER NOT NULL, `updatedAtEpochMs` INTEGER NOT NULL, PRIMARY KEY(`taskId`))",
+        "fields": [
+          {
+            "fieldPath": "taskId",
+            "columnName": "taskId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "repositoryOwner",
+            "columnName": "repositoryOwner",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "repositoryName",
+            "columnName": "repositoryName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "workingBranch",
+            "columnName": "workingBranch",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "baseSha",
+            "columnName": "baseSha",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "requiresHardwareVerification",
+            "columnName": "requiresHardwareVerification",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "requiresHumanApproval",
+            "columnName": "requiresHumanApproval",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "state",
+            "columnName": "state",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sequence",
+            "columnName": "sequence",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "attempt",
+            "columnName": "attempt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAtEpochMs",
+            "columnName": "updatedAtEpochMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "taskId"
+          ]
+        }
+      },
+      {
+        "tableName": "engineering_events",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`eventId` TEXT NOT NULL, `taskId` TEXT NOT NULL, `sequence` INTEGER NOT NULL, `attempt` INTEGER NOT NULL, `previousState` TEXT NOT NULL, `evidence` TEXT NOT NULL, `resultingState` TEXT NOT NULL, `evidenceDigest` TEXT NOT NULL, `recordedAtEpochMs` INTEGER NOT NULL, PRIMARY KEY(`eventId`), FOREIGN KEY(`taskId`) REFERENCES `engineering_tasks`(`taskId`) ON UPDATE NO ACTION ON DELETE RESTRICT )",
+        "fields": [
+          {
+            "fieldPath": "eventId",
+            "columnName": "eventId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "taskId",
+            "columnName": "taskId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sequence",
+            "columnName": "sequence",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "attempt",
+            "columnName": "attempt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "previousState",
+            "columnName": "previousState",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "evidence",
+            "columnName": "evidence",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "resultingState",
+            "columnName": "resultingState",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "evidenceDigest",
+            "columnName": "evidenceDigest",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "recordedAtEpochMs",
+            "columnName": "recordedAtEpochMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "eventId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_engineering_events_taskId_sequence",
+            "unique": true,
+            "columnNames": [
+              "taskId",
+              "sequence"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_engineering_events_taskId_sequence` ON `${TABLE_NAME}` (`taskId`, `sequence`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "engineering_tasks",
+            "onDelete": "RESTRICT",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "taskId"
+            ],
+            "referencedColumns": [
+              "taskId"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "engineering_git_operations",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`operationId` TEXT NOT NULL, `taskId` TEXT NOT NULL, `idempotencyToken` TEXT NOT NULL, `expectedHeadSha` TEXT NOT NULL, `stage` TEXT NOT NULL, `blobManifestDigest` TEXT, `treeSha` TEXT, `commitSha` TEXT, `remoteRefSha` TEXT, `updatedAtEpochMs` INTEGER NOT NULL, PRIMARY KEY(`operationId`), FOREIGN KEY(`taskId`) REFERENCES `engineering_tasks`(`taskId`) ON UPDATE NO ACTION ON DELETE RESTRICT )",
+        "fields": [
+          {
+            "fieldPath": "operationId",
+            "columnName": "operationId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "taskId",
+            "columnName": "taskId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "idempotencyToken",
+            "columnName": "idempotencyToken",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "expectedHeadSha",
+            "columnName": "expectedHeadSha",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "stage",
+            "columnName": "stage",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "blobManifestDigest",
+            "columnName": "blobManifestDigest",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "treeSha",
+            "columnName": "treeSha",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "commitSha",
+            "columnName": "commitSha",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "remoteRefSha",
+            "columnName": "remoteRefSha",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "updatedAtEpochMs",
+            "columnName": "updatedAtEpochMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "operationId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_engineering_git_operations_taskId",
+            "unique": false,
+            "columnNames": [
+              "taskId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_engineering_git_operations_taskId` ON `${TABLE_NAME}` (`taskId`)"
+          },
+          {
+            "name": "index_engineering_git_operations_idempotencyToken",
+            "unique": true,
+            "columnNames": [
+              "idempotencyToken"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_engineering_git_operations_idempotencyToken` ON `${TABLE_NAME}` (`idempotencyToken`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "engineering_tasks",
+            "onDelete": "RESTRICT",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "taskId"
+            ],
+            "referencedColumns": [
+              "taskId"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "engineering_runs",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`taskId` TEXT NOT NULL, `connectionUid` TEXT NOT NULL, `patchJson` TEXT NOT NULL, `patchDigest` TEXT NOT NULL, `commitMessage` TEXT NOT NULL, `createdAtEpochMs` INTEGER NOT NULL, `policyBranch` TEXT NOT NULL, `approvedActor` TEXT, `approvedAtEpochMs` INTEGER, `approvalExpiresAtEpochMs` INTEGER, `approvalRevoked` INTEGER NOT NULL, `ciStartedAtEpochMs` INTEGER, `ciDeadlineEpochMs` INTEGER, `retryAtEpochMs` INTEGER, `requiredChecksJson` TEXT NOT NULL, `verifiedChecksJson` TEXT, `hardwareReceiptJson` TEXT, `notice` TEXT NOT NULL, PRIMARY KEY(`taskId`), FOREIGN KEY(`taskId`) REFERENCES `engineering_tasks`(`taskId`) ON UPDATE NO ACTION ON DELETE RESTRICT )",
+        "fields": [
+          {
+            "fieldPath": "taskId",
+            "columnName": "taskId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "connectionUid",
+            "columnName": "connectionUid",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "patchJson",
+            "columnName": "patchJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "patchDigest",
+            "columnName": "patchDigest",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "commitMessage",
+            "columnName": "commitMessage",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAtEpochMs",
+            "columnName": "createdAtEpochMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "policyBranch",
+            "columnName": "policyBranch",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "approvedActor",
+            "columnName": "approvedActor",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "approvedAtEpochMs",
+            "columnName": "approvedAtEpochMs",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "approvalExpiresAtEpochMs",
+            "columnName": "approvalExpiresAtEpochMs",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "approvalRevoked",
+            "columnName": "approvalRevoked",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ciStartedAtEpochMs",
+            "columnName": "ciStartedAtEpochMs",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "ciDeadlineEpochMs",
+            "columnName": "ciDeadlineEpochMs",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "retryAtEpochMs",
+            "columnName": "retryAtEpochMs",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "requiredChecksJson",
+            "columnName": "requiredChecksJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "verifiedChecksJson",
+            "columnName": "verifiedChecksJson",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "hardwareReceiptJson",
+            "columnName": "hardwareReceiptJson",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "notice",
+            "columnName": "notice",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "taskId"
+          ]
+        },
+        "foreignKeys": [
+          {
+            "table": "engineering_tasks",
+            "onDelete": "RESTRICT",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "taskId"
+            ],
+            "referencedColumns": [
+              "taskId"
+            ]
+          }
+        ]
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '027d352a668cf35c60f0659c285ad2e0')"
+    ]
+  }
+}

@@ -333,7 +333,7 @@ fun GitHubReviewPanel(model: GitHubReviewViewModel = hiltViewModel()) {
                     Text("Replacement diff", style = MaterialTheme.typography.labelLarge)
                     val diff by androidx.compose.runtime.produceState("Preparing diff…", file.path, file.before, file.after) {
                         kotlinx.coroutines.delay(120)
-                        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                        this.value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
                             dev.chungjungsoo.gptmobile.data.workspace.ReviewDiff.render(file.path, file.before, file.after).take(12000)
                         }
                     }

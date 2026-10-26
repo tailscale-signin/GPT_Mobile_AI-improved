@@ -413,7 +413,13 @@ class CombinedSynthesisPlanner @Inject constructor(
         val failure = owner.timeline.lastOrNull { it.combinedFailure != null }?.combinedFailure
         if (userRequested && policy.requested.singlePass) {
             if (prior.status !in setOf("FAILED", "INTERRUPTED", "CANCELED", "COMPLETED")) return null
-        } else if (prior.status !in setOf("FAILED", "INTERRUPTED") || !(failure?.rotateWriter ?: permitsCombinedWriterFallback(prior.status, prior.terminalError))) {
+        } else if (
+            prior.status !in setOf("FAILED", "INTERRUPTED") ||
+            !(failure?.rotateWriter ?: (
+                CombinedRecoveryFailure.fromCode(prior.terminalError?.substringBefore(':')).rotateWriter ||
+                    permitsCombinedWriterFallback(prior.status, prior.terminalError)
+                ))
+        ) {
             return null
         }
         val user = messages.singleOrNull { it.id == prior.userMessageId && it.platformType == null } ?: return null

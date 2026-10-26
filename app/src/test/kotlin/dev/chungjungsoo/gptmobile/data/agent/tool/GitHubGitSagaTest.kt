@@ -49,8 +49,26 @@ class GitHubGitSagaTest {
             commitSha = commit,
         )
         val result = GitHubGitSaga.reconcile(snapshot, commit)
-        assertTrue(result is GitSagaReconciliation.AlreadyApplied)
-        assertEquals(GitSagaStage.REF_UPDATED, (result as GitSagaReconciliation.AlreadyApplied).snapshot.stage)
+        assertEquals(GitSagaReconciliation.VerifyCommitObject, result)
+        val verified = GitHubGitSaga.reconcileVerified(snapshot, commit, commit, base, tree)
+        assertTrue(verified is GitSagaReconciliation.AlreadyApplied)
+        assertEquals(GitSagaStage.REF_UPDATED, (verified as GitSagaReconciliation.AlreadyApplied).snapshot.stage)
+    }
+
+    @Test
+    fun branchAtCommitStillRejectsMismatchedRemoteTree() {
+        val snapshot = GitSagaSnapshot(
+            operationId = "operation-1",
+            expectedHeadSha = base,
+            stage = GitSagaStage.COMMIT_CREATED,
+            treeSha = tree,
+            commitSha = commit,
+        )
+        assertEquals(GitSagaReconciliation.VerifyCommitObject, GitHubGitSaga.reconcile(snapshot, commit))
+        assertTrue(
+            GitHubGitSaga.reconcileVerified(snapshot, commit, commit, base, "d".repeat(40))
+                is GitSagaReconciliation.Conflict,
+        )
     }
 
     @Test

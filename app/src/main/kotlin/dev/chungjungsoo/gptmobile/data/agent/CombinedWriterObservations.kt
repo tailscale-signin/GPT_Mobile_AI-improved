@@ -38,21 +38,31 @@ internal object CombinedWriterObservations {
         val limited = finishReason?.lowercase() in setOf("length", "max_tokens", "output_limit")
         if ((reasoningTokens ?: 0) <= 0 && !limited) return
         val previous = get(key) ?: Observation("UNKNOWN", 0, System.currentTimeMillis())
+        val observedReasoning = (reasoningTokens ?: 0) > 0
+        val reasoningControlViolated = previous.disableRequested == true &&
+            (previous.transmitsDisable == true ||
+                (outputAllowance != null && outputAllowance > 0 && (reasoningTokens ?: 0) > outputAllowance))
+        val reasoningDisabled = if (observedReasoning) {
+            if (reasoningControlViolated) {
+                "NOT_HONORED"
+            } else {
+                "DISABLE_UNVERIFIED"
+            }
+        } else {
+            previous.reasoningDisabled
+        }
         observed[resolved[key] ?: key] = previous.copy(
             updatedAt = System.currentTimeMillis(),
-            // A provider that emits substantial reasoning while the request explicitly disables it is
-            // not safe to reuse for final writing. An allowance smaller than the observed reasoning
-            // usage is additional evidence that route accounting/control is not being honored.
-            reasoningDisabled = if ((reasoningTokens ?: 0) > 0) {
-                if (previous.disableRequested == true && (
-                    previous.transmitsDisable == true ||
-                        (outputAllowance != null && outputAllowance > 0 && (reasoningTokens ?: 0) > outputAllowance)
-                    )
-                ) "NOT_HONORED" else "DISABLE_UNVERIFIED"
-            } else previous.reasoningDisabled,
-            reasoningObserved = true.takeIf { (reasoningTokens ?: 0) > 0 } ?: previous.reasoningObserved,
+            // Reject routes that report reasoning despite an explicit disable request,
+            // especially when usage exceeds the provider's own output allowance.
+            reasoningDisabled = reasoningDisabled,
+            reasoningObserved = true.takeIf { observedReasoning } ?: previous.reasoningObserved,
             reasoningTokensHighWater = maxOf(previous.reasoningTokensHighWater, reasoningTokens ?: 0),
-            stalledOutputAllowance = if (limited) listOfNotNull(previous.stalledOutputAllowance, outputAllowance?.takeIf { it > 0 }).maxOrNull() else previous.stalledOutputAllowance
+            stalledOutputAllowance = if (limited) {
+                listOfNotNull(previous.stalledOutputAllowance, outputAllowance?.takeIf { it > 0 }).maxOrNull()
+            } else {
+                previous.stalledOutputAllowance
+            }
         )
     }
     fun recordDelivery(key: String, report: CombinedQualityReport, outputAllowance: Int?) {

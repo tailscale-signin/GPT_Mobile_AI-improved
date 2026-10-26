@@ -34,6 +34,9 @@ internal class GitHubEngineeringCiHttpGateway(
             check(connection.responseCode == 200) { "GitHub check-run request failed" }
             val body = connection.inputStream.bufferedReader().use { it.readText() }
             val root = org.json.JSONObject(body)
+            check(root.has("total_count") && root.has("check_runs")) {
+                "Missing GitHub check-run collection fields"
+            }
             check(root.optInt("total_count", 0) <= root.getJSONArray("check_runs").length()) {
                 "Incomplete GitHub check-run pagination"
             }

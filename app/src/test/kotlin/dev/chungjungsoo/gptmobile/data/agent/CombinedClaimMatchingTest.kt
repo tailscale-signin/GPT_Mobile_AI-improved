@@ -9,6 +9,18 @@ import org.junit.Test
 class CombinedClaimMatchingTest {
     private fun source(uid: String, text: String) = CombinedModelResponse(uid, uid, content = text)
 
+    @Test fun conflictScanReusesClauseFingerprintsWithoutChangingDecisions() {
+        val first = CombinedClaimMatcher.fingerprint("The council approved 12 houses in 1930.").copy(
+            eventClauses = listOf("The council approved 12 houses in 1930.", "The committee approved 14 schools in 1931.")
+        )
+        val second = CombinedClaimMatcher.fingerprint("The council approved 15 houses in 1930.")
+        val cache = mutableMapOf<String, CombinedClaimMatcher.Fingerprint>()
+        val expected = CombinedClaimMatcher.possibleConflict(first, second)
+        repeat(20) { assertEquals(expected, CombinedClaimMatcher.possibleConflict(first, second, cache)) }
+        assertEquals(2, cache.size)
+        assertTrue(expected)
+    }
+
     @Test fun reorderedParaphraseRetainsContentWithoutVerbatimWording() {
         val original = "The Athens fleet was financed by silver mines and trade."
         val revised = "Silver mines and trade funded the naval forces of Athens."

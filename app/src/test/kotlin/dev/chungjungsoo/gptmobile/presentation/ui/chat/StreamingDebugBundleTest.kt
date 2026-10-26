@@ -58,6 +58,9 @@ class StreamingDebugBundleTest {
                             listOf(
                                 buildJsonObject {
                                     put("sequence", 1)
+                                    // Retained diagnostic trees from build 129 may contain
+                                    // log-style lists accepted by the tree parser only.
+                                    put("profiles", Json.parseToJsonElement("[builtin-free-ovhcloud,builtin-free-kilo]"))
                                     put("token", secret)
                                     put("text", "Private $secret")
                                 }
@@ -87,6 +90,7 @@ class StreamingDebugBundleTest {
             assertEquals(File(directory, "conversation-source.json").readText(), parts.getValue("conversation.json"))
             assertTrue(parts.values.all { secret !in it && "private-reference" !in it })
             assertTrue(parts.getValue("events.jsonl").contains("[redacted]"))
+            assertTrue(parts.getValue("events.jsonl").contains("\"builtin-free-ovhcloud\""))
             val manifest = Json.parseToJsonElement(parts.getValue("manifest.json")).jsonObject
             assertEquals("2", manifest.getValue("journalGaps").jsonObject.getValue("missingSequences").jsonPrimitive.content)
             assertEquals(JsonPrimitive(false), manifest.getValue("journalGaps").jsonObject.getValue("storageFailed"))

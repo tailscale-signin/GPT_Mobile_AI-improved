@@ -17,7 +17,8 @@ internal fun redactChatDebugData(element: JsonElement, credentials: List<String>
         is JsonObject -> JsonObject(value.mapValues { (key, child) -> if (sensitive.matches(key)) JsonPrimitive("[redacted]") else clean(child) })
         is JsonArray -> JsonArray(value.map(::clean))
         is JsonPrimitive -> if (!value.isString) {
-            value
+            val normalized = diagnosticJsonValue(value)
+            if (normalized is JsonPrimitive && normalized.isString) clean(normalized) else normalized
         } else {
             val text = value.content
             val embedded = if (text.trimStart().startsWith("{") || text.trimStart().startsWith("[")) runCatching { Json.parseToJsonElement(text) }.getOrNull() else null

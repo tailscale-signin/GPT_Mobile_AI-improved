@@ -38,6 +38,9 @@ internal object CombinedConflictDetector {
                 .filter { it.text.length >= 16 }
         }
         val conflicts = mutableListOf<CombinedConflictCandidate>()
+        // Clause parsing is independent of the comparison partner. Reuse it across
+        // the scan instead of running normalization and regex extraction per pair.
+        val clauseFingerprints = mutableMapOf<String, CombinedClaimMatcher.Fingerprint>()
         var scanned = 0L
         var overflow = false
         for ((index, first) in claims.withIndex()) {
@@ -45,7 +48,7 @@ internal object CombinedConflictDetector {
                 val second = claims[other]
                 if (scanned >= maxPairChecks) return CombinedConflictScan(conflicts, scanned, false)
                 scanned++
-                if (CombinedClaimMatcher.possibleConflict(first.fingerprint, second.fingerprint)) {
+                if (CombinedClaimMatcher.possibleConflict(first.fingerprint, second.fingerprint, clauseFingerprints)) {
                     if (conflicts.size < maxCandidates) {
                         val kind = when {
                             first.fingerprint.qualifiers.outcome != second.fingerprint.qualifiers.outcome &&

@@ -163,11 +163,11 @@ internal object CombinedClaimMatcher {
      * Flag disputes for the final editor's evidence check. A different number is not by
      * itself a contradiction; the surrounding subject must have substantial overlap.
      */
-    fun possibleConflict(first: Fingerprint, second: Fingerprint): Boolean {
+    fun possibleConflict(first: Fingerprint, second: Fingerprint, clauseFingerprints: MutableMap<String, Fingerprint> = mutableMapOf()): Boolean {
         if (first.eventClauses.isNotEmpty() || second.eventClauses.isNotEmpty()) {
-            val firstParts = first.eventClauses.map(::fingerprint).ifEmpty { listOf(first) }
-            val secondParts = second.eventClauses.map(::fingerprint).ifEmpty { listOf(second) }
-            return firstParts.any { a -> secondParts.any { b -> possibleConflict(a, b) } }
+            val firstParts = first.eventClauses.map { clauseFingerprints.getOrPut(it) { fingerprint(it) } }.ifEmpty { listOf(first) }
+            val secondParts = second.eventClauses.map { clauseFingerprints.getOrPut(it) { fingerprint(it) } }.ifEmpty { listOf(second) }
+            return firstParts.any { a -> secondParts.any { b -> possibleConflict(a, b, clauseFingerprints) } }
         }
         if (first.eventActions.isNotEmpty() && second.eventActions.isNotEmpty() && first.eventActions.intersect(second.eventActions).isEmpty()) return false
         val sameDatedEvent = first.eventActions.intersect(second.eventActions).isNotEmpty() && (first.numbers + second.numbers).all { it.matches(Regex("[12][0-9]{3}")) }

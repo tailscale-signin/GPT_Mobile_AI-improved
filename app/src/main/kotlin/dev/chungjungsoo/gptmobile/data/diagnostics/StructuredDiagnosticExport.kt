@@ -124,7 +124,7 @@ private fun diagnosticFields(message: String): JsonObject {
             val value = if (key in setOf("eventId", "parentEventId", "monoNs", "bootMs", "processId", "processName")) formattedValue.takeWhile { !it.isWhitespace() && it != '·' } else formattedValue
             val nested = if (value.startsWith('{') || value.startsWith('[')) runCatching { Json.parseToJsonElement(value) }.getOrNull() else null
             when {
-                nested is JsonObject || nested is JsonArray -> put(key, nested)
+                nested is JsonObject || nested is JsonArray -> put(key, diagnosticJsonValue(nested))
                 value == "true" || value == "false" -> put(key, value.toBooleanStrict())
                 value == "null" -> put(key, null as String?)
                 (key == "processId" || !key.endsWith("Id", ignoreCase = true)) && value.toLongOrNull() != null -> put(key, value.toLong())

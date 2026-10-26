@@ -12,6 +12,29 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class OutputLimitRecoverySessionTest {
+    @Test fun abortedSocketRetainsThePrefixAndUsesTextOnlyRecovery() = runTest {
+        var attempts = 0
+        val wrapper = OutputLimitRecoverySession(
+            session {
+                emit(ProviderEvent.TextDelta("Saved useful prefix. "))
+                emit(ProviderEvent.Failed("Software caused connection abort"))
+            },
+            recoverTransientFailures = true
+        ) { prefix, exchanges ->
+            attempts++
+            assertTrue(prefix.contains("Saved useful prefix."))
+            assertTrue(exchanges.isEmpty())
+            session {
+                emit(ProviderEvent.TextDelta("The remaining answer."))
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val events = wrapper.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(1, attempts)
+        assertEquals("Saved useful prefix. The remaining answer.", events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
+        assertTrue(events.none { it is ProviderEvent.Failed || it is ProviderEvent.ToolCall })
+    }
+
     @Test fun restoredAnswerSurvivesContinuationAdmissionFailure() = runTest {
         val saved = mutableListOf<Pair<String, String>>()
         val prefix = "The original useful history remains available."

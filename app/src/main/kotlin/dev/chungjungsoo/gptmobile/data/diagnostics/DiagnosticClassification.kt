@@ -10,7 +10,7 @@ internal data class DiagnosticClassification(
 
 internal fun classifyDiagnostic(level: String?, tag: String?, message: String): DiagnosticClassification {
     val text = diagnosticEventMessage(message).lowercase()
-    val capturedTag = capturedAndroidPrefix.find(diagnosticRecorderPayload(message))?.groupValues?.get(1)?.lowercase()
+    val capturedTag = capturedAndroidPrefix.find(diagnosticRecorderPayload(message))?.groupValues?.get(1)?.trim()?.lowercase()
     return when {
         "oom_recovery" in text || "out_of_memory_recovered" in text -> DiagnosticClassification("memory_recovery", "warning", true, "retained_state_after_oom")
         "outofmemoryerror" in text || "failed to allocate" in text && "bytes" in text -> DiagnosticClassification("fatal", "critical", true, "reduce_peak_memory")

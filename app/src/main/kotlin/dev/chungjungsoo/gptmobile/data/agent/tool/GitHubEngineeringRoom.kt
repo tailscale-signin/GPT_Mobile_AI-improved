@@ -88,6 +88,9 @@ internal interface EngineeringLedgerDao {
     @Query("SELECT * FROM engineering_git_operations WHERE operationId = :operationId")
     suspend fun operation(operationId: String): EngineeringGitOperationRow?
 
+    @Query("SELECT * FROM engineering_tasks WHERE state NOT IN ('COMPLETED', 'CANCELLED', 'FAILED', 'BLOCKED', 'CONFLICTED', 'CI_FAILED')")
+    suspend fun activeTasks(): List<EngineeringTaskRow>
+
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertTask(row: EngineeringTaskRow)
 
@@ -148,6 +151,8 @@ internal class GitHubEngineeringRoomLedger(
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
     suspend fun task(taskId: String): EngineeringTaskRow? = database.ledgerDao().task(taskId)
+
+    suspend fun activeTasks(): List<EngineeringTaskRow> = database.ledgerDao().activeTasks()
 
     suspend fun operations(taskId: String): List<EngineeringGitOperationRow> =
         database.ledgerDao().operationsForTask(taskId)

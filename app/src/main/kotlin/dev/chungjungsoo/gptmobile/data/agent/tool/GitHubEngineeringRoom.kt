@@ -97,6 +97,9 @@ internal interface EngineeringLedgerDao {
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertOperation(row: EngineeringGitOperationRow)
 
+    @Query("SELECT * FROM engineering_git_operations WHERE taskId = :taskId ORDER BY updatedAtEpochMs DESC")
+    suspend fun operationsForTask(taskId: String): List<EngineeringGitOperationRow>
+
     @Query(
         "UPDATE engineering_tasks SET state = :state, sequence = :sequence, " +
             "updatedAtEpochMs = :updatedAt WHERE taskId = :taskId AND sequence = :expectedSequence",
@@ -148,6 +151,53 @@ internal class GitHubEngineeringRoomLedger(
         require(row.repositoryOwner.isNotBlank() && row.repositoryName.isNotBlank())
         require(row.workingBranch.isNotBlank())
         database.ledgerDao().insertTask(row)
+    }
+
+    suspend fun createOperation(row: EngineeringGitOperationRow) {
+        require(row.stage == GitSagaStage.PENDING.name)
+        require(row.operationId.isNotBlank() && row.idempotencyToken.isNotBlank())
+        require(row.expectedHeadSha.matches(Regex("[a-fA-F0-9]{40}|[a-fA-F0-9]{64}")))
+        database.ledgerDao().insertOperation(row)
+    }
+
+    /**
+     * Persist a verified remote operation checkpoint with compare-and-set semantics.
+     * Never persist speculative success before verifying the upstream API response.
+     */
+    suspend fun checkpointOperation(
+        operationId: String,
+        expectedStage: GitSagaStage,
+        next: GitSagaSnapshot,
+    ) {
+        require(next.operationId == operationId)
+        require(next.stage != expectedStage)
+        require(
+            when (expectedStage) {
+                GitSagaStage.PENDING -> next.stage == GitSagaStage.BLOBS_STAGED
+                GitSagaStage.BLOBS_STAGED -> next.stage == GitSagaStage.TREE_CREATED
+                GitSagaStage.TREE_CREATED -> next.stage == GitSagaStage.COMMIT_CREATED
+                GitSagaStage.COMMIT_CREATED -> next.stage in setOf(GitSagaStage.REF_UPDATED, GitSagaStage.CONFLICTED)
+                else -> false
+            },
+        ) { "Invalid Git saga stage progression" }
+        database.withTransaction {
+            val current = requireNotNull(database.ledgerDao().operation(operationId))
+            require(current.stage == expectedStage.name)
+            require(current.expectedHeadSha == next.expectedHeadSha)
+            require(current.treeSha == null || current.treeSha == next.treeSha)
+            require(current.commitSha == null || current.commitSha == next.commitSha)
+            check(
+                database.ledgerDao().updateOperation(
+                    operationId = operationId,
+                    expectedStage = expectedStage.name,
+                    stage = next.stage.name,
+                    treeSha = next.treeSha,
+                    commitSha = next.commitSha,
+                    remoteRefSha = next.remoteRefSha,
+                    updatedAt = clock(),
+                ) == 1,
+            ) { "Concurrent Git saga modification" }
+        }
     }
 
     suspend fun append(eventId: String, event: EngineeringLedgerEvent) {

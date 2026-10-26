@@ -23,7 +23,7 @@ internal class GitHubEngineeringCiWorker(
         if (operations.none { it.stage == GitSagaStage.REF_UPDATED.name && it.commitSha == it.remoteRefSha }) {
             return Result.failure()
         }
-        // A missing check client must never produce a successful CI receipt.
+        // Authentication and required-check configuration must be provided before CI can pass.
         return if (runAttemptCount >= MAX_UNVERIFIED_ATTEMPTS) Result.failure() else Result.retry()
     }
 

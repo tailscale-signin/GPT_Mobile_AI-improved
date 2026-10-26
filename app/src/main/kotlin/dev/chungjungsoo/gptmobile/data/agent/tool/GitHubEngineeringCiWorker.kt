@@ -19,6 +19,10 @@ internal class GitHubEngineeringCiWorker(
         )
         val task = ledger.task(taskId) ?: return Result.failure()
         if (task.state != EngineeringState.CI_PENDING.name) return Result.success()
+        val operations = ledger.operations(taskId)
+        if (operations.none { it.stage == GitSagaStage.REF_UPDATED.name && it.commitSha == it.remoteRefSha }) {
+            return Result.failure()
+        }
         // A missing check client must never produce a successful CI receipt.
         return if (runAttemptCount >= MAX_UNVERIFIED_ATTEMPTS) Result.failure() else Result.retry()
     }

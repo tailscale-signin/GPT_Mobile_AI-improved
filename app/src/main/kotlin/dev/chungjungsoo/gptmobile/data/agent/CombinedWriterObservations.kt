@@ -40,8 +40,10 @@ internal object CombinedWriterObservations {
         val previous = get(key) ?: Observation("UNKNOWN", 0, System.currentTimeMillis())
         val observedReasoning = (reasoningTokens ?: 0) > 0
         val reasoningControlViolated = previous.disableRequested == true &&
-            (previous.transmitsDisable == true ||
-                (outputAllowance != null && outputAllowance > 0 && (reasoningTokens ?: 0) > outputAllowance))
+            (
+                previous.transmitsDisable == true ||
+                    (outputAllowance != null && outputAllowance > 0 && (reasoningTokens ?: 0) > outputAllowance)
+                )
         val reasoningDisabled = if (observedReasoning) {
             if (reasoningControlViolated) {
                 "NOT_HONORED"

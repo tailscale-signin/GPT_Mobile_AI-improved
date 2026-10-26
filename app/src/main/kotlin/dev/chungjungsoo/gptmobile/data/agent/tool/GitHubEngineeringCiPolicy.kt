@@ -31,10 +31,6 @@ internal object GitHubEngineeringCiPolicy {
                 pending = true
                 continue
             }
-            if (candidates.size > 1) {
-                pending = true
-                continue
-            }
             if (candidates.any {
                 it.status == EngineeringCheckStatus.COMPLETED &&
                     it.conclusion in setOf(
@@ -44,6 +40,10 @@ internal object GitHubEngineeringCiPolicy {
                         EngineeringCheckConclusion.ACTION_REQUIRED,
                     )
             }) return EngineeringCiVerdict.FAILED
+            if (candidates.size > 1) {
+                pending = true
+                continue
+            }
             if (candidates.none {
                 it.status == EngineeringCheckStatus.COMPLETED &&
                     it.conclusion == EngineeringCheckConclusion.SUCCESS

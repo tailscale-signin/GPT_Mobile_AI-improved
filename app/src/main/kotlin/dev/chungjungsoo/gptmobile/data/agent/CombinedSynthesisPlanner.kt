@@ -398,6 +398,22 @@ class CombinedSynthesisPlanner @Inject constructor(
             chatRepository.publishCombinedEvidenceFallback(persisted.run.runId)
             return null
         }
+        return dispatchFrozenHandoff(handoff, persisted, frozen, historicalUsers, historicalReplies, editorialContext, deliveryProtocol)
+    }
+
+    private fun dispatchFrozenHandoff(
+        handoff: SynthesisHandoff,
+        persisted: dev.chungjungsoo.gptmobile.data.database.entity.PersistAgentRetryResult,
+        frozen: CombinedInputSnapshot,
+        historicalUsers: List<MessageV2>,
+        historicalReplies: List<List<MessageV2>>,
+        editorialContext: CombinedExecutionContext,
+        deliveryProtocol: String
+    ): AgentRunRequest {
+        val leadPlatform = handoff.leadPlatform
+        val userMessage = handoff.userMessage
+        val combined = handoff.combined
+        val accepted = handoff.accepted
         return AgentRunRequest(
             runId = persisted.run.runId,
             chatId = persisted.assistantMessage.chatId,

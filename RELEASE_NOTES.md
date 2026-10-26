@@ -1,3 +1,18 @@
+# 0.9.61.0
+
+Research evidence fallback and provider-limit recovery; full public web-search, multi-search and crawler access on active Free routes; GitHub App OAuth device sign-in; smaller Combined handoff stages.
+
+Unified Reliability v2 is not complete.
+
+- Unified Reliability v2 is not complete; its remaining acceptance cases are not represented as passed.
+- Physical-device performance and a production baseline profile remain unqualified until measured on a reference device.
+- Android GPU qualification requires compatible-device receipts for actual offload, prefill, decode, repeated requests and cancel/recovery; host tests do not establish those results.
+- Repeated physical NPU/GPU schema completion, reduced warm inspection latency, calibrated memory admission and Full-run performance remain device acceptance gates. The app does not infer runtime-effective settings from requested or SDK-applied values.
+- Qwen demo backend availability and live authenticated LLM7 generation are not established by deterministic tests.
+- Optional runtime extraction remains a staged packaging project. The measured payload inventory and APK code compression do not extract plugins or remove native runtimes.
+- Exact recovered France/Portugal wording and report fields, and the earlier benchmark export round-trip, do not establish a complete conversation replay; the later 16-run benchmark export remains unavailable.
+- GitHub OAuth requires a registered GitHub App client ID with device flow enabled; token refresh is manual and live sign-in remains unverified.
+
 # GPT Mobile AI 0.9.60.0 (build 128)
 
 This version extends provider privacy, durable Research recovery and source-preserving Combined answers, and integrates the supplied GGUF/benchmark reliability requirements and October 24 benchmark audit.

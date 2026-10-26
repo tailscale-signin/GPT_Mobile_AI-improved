@@ -1,8 +1,8 @@
 {
-  "version": "0.9.60.0",
-  "versionCode": 128,
+  "version": "0.9.61.0",
+  "versionCode": 129,
   "qualification": "scoped",
-  "baseCommit": "de1e67b8536971fda4c1b3401db232e241b544bc",
+  "baseCommit": "d1c415e4c22425702ec9f0da96b358066dd981ab",
   "changes": [
     "Device-local provider activation, scoped personal-data transfer grants, provenance and retired endpoint enforcement",
     "Persistent request/token reservations, credential/model health, exact deferred Research stages and accepted queue identity",
@@ -16,7 +16,8 @@
     "Suite 10 semantic/format/tool separation, rotated eight-domain intelligence, independent performance modes and execution policies",
     "Observed backend comparisons, descriptive history, explicit deadline/settings evidence and provisional benchmark UI",
     "Accept/Decline examination consent, main-thread IO repairs, coalesced metadata inspection and causal diagnostics",
-    "PR repair: cancellation-safe LiteRT replanning, deterministic retained-result scrolling, extracted dispatch stages, selected-answer revision binding and compressed release APK DEX within the existing size budgets"
+    "PR repair: cancellation-safe LiteRT replanning, deterministic retained-result scrolling, extracted dispatch stages, selected-answer revision binding and compressed release APK DEX within the existing size budgets",
+    "Research delivery recovery, Free web-tool execution, GitHub App OAuth and CI regression repairs"
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; its remaining acceptance cases are not represented as passed.",
@@ -25,7 +26,8 @@
     "Repeated physical NPU/GPU schema completion, reduced warm inspection latency, calibrated memory admission and Full-run performance remain device acceptance gates. The app does not infer runtime-effective settings from requested or SDK-applied values.",
     "Qwen demo backend availability and live authenticated LLM7 generation are not established by deterministic tests.",
     "Optional runtime extraction remains a staged packaging project. The measured payload inventory and APK code compression do not extract plugins or remove native runtimes.",
-    "Exact recovered France/Portugal wording and report fields, and the earlier benchmark export round-trip, do not establish a complete conversation replay; the later 16-run benchmark export remains unavailable."
+    "Exact recovered France/Portugal wording and report fields, and the earlier benchmark export round-trip, do not establish a complete conversation replay; the later 16-run benchmark export remains unavailable.",
+    "GitHub OAuth requires a registered GitHub App client ID with device flow enabled; token refresh is manual and live sign-in remains unverified."
   ],
   "requiredWorkflows": [
     "Build Android APK",
@@ -47,6 +49,9 @@
     ".gitignore",
     "CHANGELOG.md",
     "RELEASE_NOTES.md",
-    "release-scope.json"
+    "release-scope.json",
+    "docs/diagnostics/2026-10-26-combined-mode-follow-up.md",
+    "docs/implementation/research-recovery-github-oauth-2026-10-25.md",
+    "docs/research/RESEARCH_MODE_RELIABILITY_2026-10-25.md"
   ]
 }

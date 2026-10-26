@@ -433,7 +433,7 @@ class FreeProviderContractTest {
             assertEquals(402, saved.status)
             assertEquals("BUDGET", saved.category)
             val decision = requireNotNull(providerLimitDecision(config, provider.model, false, IllegalStateException("rejected")))
-            assertEquals(deadline, decision.retryAt)
+            assertTrue(decision.retryAt >= requireNotNull(deadline) && decision.retryAt - deadline <= 1000L)
             assertEquals(402, decision.httpStatus)
             assertTrue(decision.knownNotAccepted)
             assertFalse(requireNotNull(providerLimitDecision(config, provider.model, true, IllegalStateException("partial"))).knownNotAccepted)

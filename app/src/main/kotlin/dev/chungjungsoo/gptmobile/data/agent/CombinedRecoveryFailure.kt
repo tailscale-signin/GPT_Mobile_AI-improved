@@ -89,7 +89,7 @@ data class CombinedRecoveryFailure(
             return CombinedRecoveryFailure(
                 category,
                 when (category) {
-                    CombinedRecoveryCategory.REASONING_STALL, CombinedRecoveryCategory.EMPTY_OUTPUT, CombinedRecoveryCategory.MALFORMED_RECORD, CombinedRecoveryCategory.QUEUE_PENDING, CombinedRecoveryCategory.NETWORK_TRANSIENT, CombinedRecoveryCategory.PROVIDER_UNAVAILABLE -> "TRY_ELIGIBLE_WRITER"
+                    CombinedRecoveryCategory.REASONING_STALL, CombinedRecoveryCategory.EMPTY_OUTPUT, CombinedRecoveryCategory.MALFORMED_RECORD, CombinedRecoveryCategory.NETWORK_TRANSIENT, CombinedRecoveryCategory.PROVIDER_UNAVAILABLE -> "TRY_ELIGIBLE_WRITER"
                     CombinedRecoveryCategory.INCOMPLETE_RECORD -> if (code == "COMBINED_LENGTH_REQUIREMENT_UNMET") "STOP" else "RESUME_SAVED_RECORD"
                     CombinedRecoveryCategory.REQUIREMENTS_UNMET -> "REVIEW_COMPLETED_ANSWER"
                     else -> "STOP"

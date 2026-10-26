@@ -7,7 +7,9 @@ import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpHeaders
 import io.ktor.http.Parameters
 import java.net.URI
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -78,12 +80,14 @@ internal class GitHubDeviceAuthClient(
         error("GitHub sign-in expired. Start sign-in again.")
     }
 
-    private suspend fun post(endpoint: String, parameters: Parameters): JsonObject = withTimeout(15_000L) {
-        val response = client.submitForm(endpoint, parameters) { header(HttpHeaders.Accept, "application/json") }
-        check(response.status.value in 200..299) { "GitHub sign-in request failed (HTTP ${response.status.value}). Try again later." }
-        val body = response.bodyAsText()
-        check(body.length <= 32_768) { "GitHub sign-in returned an oversized response." }
-        runCatching { Json.parseToJsonElement(body) as? JsonObject }.getOrNull() ?: error("GitHub sign-in returned an invalid response.")
+    private suspend fun post(endpoint: String, parameters: Parameters): JsonObject = withContext(Dispatchers.IO) {
+        withTimeout(15_000L) {
+            val response = client.submitForm(endpoint, parameters) { header(HttpHeaders.Accept, "application/json") }
+            check(response.status.value in 200..299) { "GitHub sign-in request failed (HTTP ${response.status.value}). Try again later." }
+            val body = response.bodyAsText()
+            check(body.length <= 32_768) { "GitHub sign-in returned an oversized response." }
+            runCatching { Json.parseToJsonElement(body) as? JsonObject }.getOrNull() ?: error("GitHub sign-in returned an invalid response.")
+        }
     }
 
     private fun checkError(response: JsonObject) {

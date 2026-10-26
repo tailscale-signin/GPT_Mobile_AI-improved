@@ -40,7 +40,16 @@ internal object CombinedWriterObservations {
         val previous = get(key) ?: Observation("UNKNOWN", 0, System.currentTimeMillis())
         observed[resolved[key] ?: key] = previous.copy(
             updatedAt = System.currentTimeMillis(),
-            reasoningDisabled = if ((reasoningTokens ?: 0) > 0) if (previous.transmitsDisable == true) "NOT_HONORED" else "DISABLE_UNVERIFIED" else previous.reasoningDisabled,
+            // A provider that emits substantial reasoning while the request explicitly disables it is
+            // not safe to reuse for final writing. An allowance smaller than the observed reasoning
+            // usage is additional evidence that route accounting/control is not being honored.
+            reasoningDisabled = if ((reasoningTokens ?: 0) > 0) {
+                if (previous.disableRequested == true && (
+                    previous.transmitsDisable == true ||
+                        (outputAllowance != null && outputAllowance > 0 && (reasoningTokens ?: 0) > outputAllowance)
+                    )
+                ) "NOT_HONORED" else "DISABLE_UNVERIFIED"
+            } else previous.reasoningDisabled,
             reasoningObserved = true.takeIf { (reasoningTokens ?: 0) > 0 } ?: previous.reasoningObserved,
             reasoningTokensHighWater = maxOf(previous.reasoningTokensHighWater, reasoningTokens ?: 0),
             stalledOutputAllowance = if (limited) listOfNotNull(previous.stalledOutputAllowance, outputAllowance?.takeIf { it > 0 }).maxOrNull() else previous.stalledOutputAllowance

@@ -415,10 +415,12 @@ class CombinedSynthesisPlanner @Inject constructor(
             if (prior.status !in setOf("FAILED", "INTERRUPTED", "CANCELED", "COMPLETED")) return null
         } else if (
             prior.status !in setOf("FAILED", "INTERRUPTED") ||
-            !(failure?.rotateWriter ?: (
-                CombinedRecoveryFailure.fromCode(prior.terminalError?.substringBefore(':')).rotateWriter ||
-                    permitsCombinedWriterFallback(prior.status, prior.terminalError)
-                ))
+            !(
+                failure?.rotateWriter ?: (
+                    CombinedRecoveryFailure.fromCode(prior.terminalError?.substringBefore(':')).rotateWriter ||
+                        permitsCombinedWriterFallback(prior.status, prior.terminalError)
+                    )
+                )
         ) {
             return null
         }

@@ -7,6 +7,9 @@ internal object CombinedAnswerPublication {
     fun validate(text: String, report: CombinedQualityReport, formatVersion: Int = 1) {
         require(formatVersion == 1) { "COMBINED_FINAL_BUNDLE_VERSION_UNSUPPORTED" }
         require(report.revisionId.isNotBlank()) { "COMBINED_FINAL_REVISION_MISSING" }
+        // A reasoning-only or empty writer response is not a deliverable, even if its digest and
+        // zero-valued display metrics are internally consistent. Reject before persistence/render.
+        require(text.isNotBlank() && visibleWordCount(text) > 0) { "COMBINED_FINAL_EMPTY_VISIBLE_OUTPUT" }
         require(report.answerDigest == researchHash(text)) { "COMBINED_FINAL_BODY_DIGEST_MISMATCH" }
         require(report.claimMapping?.matches(text) != false) { "COMBINED_FINAL_MAPPING_DIGEST_MISMATCH" }
         fun valid(link: CombinedCoverageLink): Boolean = link.startUtf16 >= 0 &&

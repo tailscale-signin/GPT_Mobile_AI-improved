@@ -44,6 +44,17 @@ class ResilientStreamingClientTest {
     }
 
     @Test
+    fun `deterministic invalid requests are not retried even when wrapped as IO failures`() {
+        assertFalse(ResilientStreamingClient.isRetryable(IOException("REQUEST_INVALID: unsupported parameter")))
+        assertFalse(ResilientStreamingClient.isRetryable(IOException("HTTP 400 invalid request")))
+        assertFalse(ResilientStreamingClient.isRetryable(IllegalArgumentException("HTTP 422 invalid request")))
+        assertTrue(ResilientStreamingClient.isRetryable(IOException("HTTP 500 internal server error")))
+        assertTrue(ResilientStreamingClient.isRetryable(IOException("HTTP 502 bad gateway")))
+        assertFalse(ResilientStreamingClient.isRetryable(IOException("HTTP 501 not implemented")))
+        assertTrue(ResilientStreamingClient.isRetryable(IOException("HTTP 429 rate limit")))
+    }
+
+    @Test
     fun `ordinary protocol errors are not mistaken for premature close`() {
         val error = IllegalArgumentException("HTTP 400 invalid request")
 

@@ -84,9 +84,33 @@ object ResilientStreamingClient {
             val value = current ?: return false
             if (value is CancellationException) return false
             val message = value.message?.lowercase().orEmpty()
+            // Request-shape/auth/permission failures are deterministic. In particular, a
+            // provider's REQUEST_INVALID must not be replayed as if it were a network fault.
+            // Keep retryable timeout/too-early/rate-limit responses on the transient path.
+            val httpStatus = (value as? io.ktor.client.plugins.ResponseException)?.response?.status?.value
+                ?: Regex("""\\b(?:http\\s*)?(\\d{3})\\b""").find(message)?.groupValues?.get(1)?.toIntOrNull()
+            if (httpStatus != null && httpStatus in setOf(408, 425, 429, 500, 502, 503, 504)) return true
+            // A known HTTP status outside the transient allow-list is definitive. Do
+            // this before the broad IOException fallback so HTTP 501/505 are not retried.
+            if (httpStatus != null && httpStatus in 400..599) return false
+            val deterministicClientFailure =
+                (httpStatus != null && httpStatus in 400..499 && httpStatus !in setOf(408, 425, 429)) ||
+                    message.contains("request_invalid") ||
+                    message.contains("invalid request") ||
+                    message.contains("http 400") ||
+                    message.contains("status code 400") ||
+                    message.contains("http 401") ||
+                    message.contains("http 403") ||
+                    message.contains("http 404") ||
+                    message.contains("http 501") ||
+                    message.contains("status code 501") ||
+                    message.contains("http 413") ||
+                    message.contains("http 422")
+            if (deterministicClientFailure) return false
             if (value is IOException ||
                 message.contains("429") ||
                 message.contains("rate limit") ||
+                message.contains("500") ||
                 message.contains("503") ||
                 message.contains("502") ||
                 message.contains("504") ||

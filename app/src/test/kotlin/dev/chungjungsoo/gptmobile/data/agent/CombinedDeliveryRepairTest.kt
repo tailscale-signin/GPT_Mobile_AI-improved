@@ -118,11 +118,13 @@ class CombinedDeliveryRepairTest {
         assertTrue(CombinedWriterPolicy.requiredOutput(france, writer) > 6200)
     }
 
-    @Test fun typedRecoveryRotatesMalformedAndPendingButStopsAuthorityFailures() {
-        for (code in listOf("INVALID_DELIVERY_RECORD:reason", "QUEUE_JOB_PENDING", "COMBINED_WRITER_STALLED", "NETWORK_ERROR")) {
+    @Test fun typedRecoveryRotatesFailedWritersButRetainsPendingRemoteJobsAndStopsAuthorityFailures() {
+        for (code in listOf("INVALID_DELIVERY_RECORD:reason", "COMBINED_WRITER_STALLED", "NETWORK_ERROR")) {
             assertTrue(code, CombinedRecoveryFailure.from(ProviderEvent.Failed("provider detail", errorCode = code)).rotateWriter)
         }
         val pending = CombinedRecoveryFailure.fromCode("QUEUE_JOB_PENDING")
+        assertFalse(pending.rotateWriter)
+        assertEquals("STOP", pending.decision)
         assertEquals("WAITING_REMOTE_JOB", pending.localAttemptStatus)
         assertEquals("PENDING", pending.remoteJobStatus)
         assertEquals("INCOMPLETE", pending.deliveryStatus)

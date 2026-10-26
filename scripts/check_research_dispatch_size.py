@@ -37,7 +37,7 @@ DISPATCH_STAGES = (
 
 def is_dispatch_method(descriptor, name):
     if descriptor.startswith(COMBINED_PLANNER):
-        stages = ('prepare', 'freezeAndPersist')
+        stages = ('prepare', 'freezeAndPersist', 'persistFrozenHandoff')
         return name in stages or any(
             name == 'access$' + stage or descriptor.startswith(COMBINED_PLANNER + '$' + stage + '$')
             for stage in stages
@@ -131,6 +131,7 @@ def main():
     for descriptor, method in (
         (COMBINED_PLANNER + ';', 'prepare'),
         (COMBINED_PLANNER + ';', 'freezeAndPersist'),
+        (COMBINED_PLANNER + ';', 'persistFrozenHandoff'),
         ('Ldev/chungjungsoo/gptmobile/data/agent/AgentRunner;', 'executeLoop'),
         ('Ldev/chungjungsoo/gptmobile/data/agent/tool/AgentToolResolver;', 'resolve'),
         ('Ldev/chungjungsoo/gptmobile/data/research/ResearchSourceIndexer;', 'index'),

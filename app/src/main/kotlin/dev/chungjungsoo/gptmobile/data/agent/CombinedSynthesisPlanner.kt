@@ -363,6 +363,24 @@ class CombinedSynthesisPlanner @Inject constructor(
             "CombinedSynthesis",
             "SYNTHESIS_INPUT_FROZEN · trigger=${trigger.take(64)} · runId=$synthesisRunId · sourceCount=${attributedSources.size} · profileUids=${attributedSources.map { it.platformUid }.distinct().joinToString(",")} · candidateUnits=${CombinedClaimSemantics.records(attributedSources).size} · promptChars=${synthesisPrompt.length} · protocol=$deliveryProtocol"
         )
+        return persistFrozenHandoff(handoff, synthesisRunId, synthesisSnapshot, attributedSources, historicalUsers, historicalReplies, editorialContext, deliveryProtocol)
+    }
+
+    private suspend fun persistFrozenHandoff(
+        handoff: SynthesisHandoff,
+        synthesisRunId: String,
+        synthesisSnapshot: String,
+        attributedSources: List<CombinedModelResponse>,
+        historicalUsers: List<MessageV2>,
+        historicalReplies: List<List<MessageV2>>,
+        editorialContext: CombinedExecutionContext,
+        deliveryProtocol: String
+    ): AgentRunRequest? {
+        val userMessage = handoff.userMessage
+        val leadPlatform = handoff.leadPlatform
+        val leadMessage = handoff.responses.singleOrNull { it.platformType == leadPlatform.uid }
+        val evidenceAnchor = leadMessage ?: handoff.responses.firstOrNull() ?: return null
+        val rootBudgetId = handoff.combined.rootBudgetId
         val run = AgentRunDraft(
             runId = synthesisRunId,
             profileUid = leadPlatform.uid,
@@ -386,14 +404,14 @@ class CombinedSynthesisPlanner @Inject constructor(
                 freezeCombinedSources = attributedSources.isNotEmpty()
             )
         )
+        val frozen = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromString<CombinedInputSnapshot>(synthesisSnapshot)
         // The durable run now owns this answer slot. No automatic retry may
         // replace it, even if UI publication or provider dispatch subsequently fails.
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
             "CombinedSynthesis",
-            "SYNTHESIS_RUN_PERSISTED · runId=$synthesisRunId · leadProfileUid=$leadUid · sourceCount=${attributedSources.size} · evidenceRecords=${evidenceLedger.records.size}"
+            "SYNTHESIS_RUN_PERSISTED · runId=$synthesisRunId · leadProfileUid=${leadPlatform.uid} · sourceCount=${attributedSources.size} · evidenceRecords=${frozen.evidence.records.size}"
         )
 
-        val frozen = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromString<CombinedInputSnapshot>(synthesisSnapshot)
         if (!handoff.writerAvailable || frozen.localAssemblyReason != null) {
             chatRepository.publishCombinedEvidenceFallback(persisted.run.runId)
             return null

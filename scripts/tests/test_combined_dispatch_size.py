@@ -8,12 +8,12 @@ SPEC.loader.exec_module(SIZE)
 
 
 class CombinedDispatchSizeTest(unittest.TestCase):
-    def test_both_real_suspend_stages_are_guarded(self):
-        for method in ('prepare', 'freezeAndPersist', 'access$freezeAndPersist'):
+    def test_all_real_suspend_stages_are_guarded(self):
+        for method in ('prepare', 'freezeAndPersist', 'persistFrozenHandoff', 'access$freezeAndPersist', 'access$persistFrozenHandoff'):
             self.assertTrue(SIZE.is_dispatch_method(SIZE.COMBINED_PLANNER + ';', method))
 
     def test_generated_state_machines_and_nested_lambdas_are_guarded(self):
-        for stage in ('prepare', 'freezeAndPersist'):
+        for stage in ('prepare', 'freezeAndPersist', 'persistFrozenHandoff'):
             self.assertTrue(SIZE.is_dispatch_method(SIZE.COMBINED_PLANNER + '$' + stage + '$1;', 'invokeSuspend'))
             self.assertTrue(SIZE.is_dispatch_method(SIZE.COMBINED_PLANNER + '$' + stage + '$assembled$1;', 'invokeSuspend'))
 

@@ -105,4 +105,20 @@ class CombinedRetainedRecoveryTest {
         val recordedRevision = saved.copy(revisions = saved.revisions.map { it.copy(timeline = message(report.copy(revisionId = "original-revision")).timeline) })
         assertSame(recorded, CombinedRecoveryFailure.retained(recordedRevision))
     }
+
+    @Test fun emptyPublicationAndTransientProviderFailuresPermitBoundedWriterRotation() {
+        val empty = CombinedRecoveryFailure.fromCode("COMBINED_FINAL_EMPTY_VISIBLE_OUTPUT")
+        assertEquals(CombinedRecoveryCategory.EMPTY_OUTPUT, empty.category)
+        assertEquals("TRY_ELIGIBLE_WRITER", empty.decision)
+        assertEquals(true, empty.rotateWriter)
+
+        val unavailable = CombinedRecoveryFailure.fromCode("502")
+        assertEquals(CombinedRecoveryCategory.NETWORK_TRANSIENT, unavailable.category)
+        assertEquals("TRY_ELIGIBLE_WRITER", unavailable.decision)
+        assertEquals(true, unavailable.rotateWriter)
+
+        val pending = CombinedRecoveryFailure.fromCode("QUEUE_JOB_PENDING")
+        assertEquals(CombinedRecoveryCategory.QUEUE_PENDING, pending.category)
+        assertFalse(pending.rotateWriter)
+    }
 }

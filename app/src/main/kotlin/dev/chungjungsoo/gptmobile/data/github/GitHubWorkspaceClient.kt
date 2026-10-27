@@ -1388,6 +1388,9 @@ class GitHubWorkspaceClient(
         }
     }
 
+    @Volatile
+    private var authenticationRejected = false
+
     private suspend fun request(
         path: String,
         method: HttpMethod = HttpMethod.Get,
@@ -1395,6 +1398,7 @@ class GitHubWorkspaceClient(
         authenticated: Boolean = false
     ): JsonElement {
         if (authenticated || method != HttpMethod.Get) require(token.isNotBlank()) { "A GitHub credential is required." }
+        check(!authenticationRejected) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
         val cacheKey = "${method.value}:$path"
         val cacheable = conditionalReads && method == HttpMethod.Get && path != "/rate_limit"
         val cached = if (cacheable) responseCache.get(cacheKey) else null
@@ -1431,6 +1435,7 @@ class GitHubWorkspaceClient(
             scheduler.recordBytes(text.encodeToByteArray().size.toLong())
             if (!response.status.isSuccess()) {
                 if (response.status.value in setOf(401, 403)) responseCache.clear()
+                if (response.status.value == 401) authenticationRejected = true
                 val githubMessage = runCatching {
                     json.parseToJsonElement(text).jsonObject["message"]?.jsonPrimitive?.content
                 }.getOrNull()?.takeIf { it.isNotBlank() }

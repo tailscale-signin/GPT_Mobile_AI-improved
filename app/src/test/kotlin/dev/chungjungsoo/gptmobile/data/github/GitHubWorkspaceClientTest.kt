@@ -171,8 +171,10 @@ class GitHubWorkspaceClientTest {
     @Test
     fun `overwriting existing files without blob preconditions is rejected before creating git objects`() = runTest {
         var requests = 0
-        val http = HttpClient(MockEngine { request ->
-            requests++
+        val http =
+            HttpClient(
+                MockEngine { request ->
+                    requests++
             assertEquals(HttpMethod.Get, request.method)
             respond(
                 when (requests) {
@@ -183,7 +185,8 @@ class GitHubWorkspaceClientTest {
                     else -> error("Mutation reached GitHub without expected_blob_sha")
                 }
             )
-        })
+                }
+            )
         try {
             val change = buildJsonObject {
                 put("owner", "owner")
@@ -191,12 +194,17 @@ class GitHubWorkspaceClientTest {
                 put("branch", "feature/code")
                 put("expected_head_sha", head)
                 put("message", "Replace README")
-                put("files", buildJsonArray {
-                    add(buildJsonObject {
+                put(
+                    "files",
+                    buildJsonArray {
+                        add(
+                            buildJsonObject {
                         put("path", "README.md")
                         put("content", "New contents")
-                    })
-                })
+                            }
+                        )
+                    }
+                )
             }
             val error = runCatching { GitHubWorkspaceClient("token", http).execute("commit_files", change) }.exceptionOrNull()
             assertTrue(error?.message?.contains("expected_blob_sha") == true)
@@ -209,8 +217,10 @@ class GitHubWorkspaceClientTest {
     @Test
     fun `stale blob SHA prevents overwrite before creating git objects`() = runTest {
         var requests = 0
-        val http = HttpClient(MockEngine { request ->
-            requests++
+        val http =
+            HttpClient(
+                MockEngine { request ->
+                    requests++
             assertEquals(HttpMethod.Get, request.method)
             respond(
                 when (requests) {
@@ -221,7 +231,8 @@ class GitHubWorkspaceClientTest {
                     else -> error("Stale blob attempted a mutation")
                 }
             )
-        })
+                }
+            )
         try {
             val change = buildJsonObject {
                 put("owner", "owner")
@@ -229,13 +240,18 @@ class GitHubWorkspaceClientTest {
                 put("branch", "feature/code")
                 put("expected_head_sha", head)
                 put("message", "Update README")
-                put("files", buildJsonArray {
-                    add(buildJsonObject {
+                put(
+                    "files",
+                    buildJsonArray {
+                        add(
+                            buildJsonObject {
                         put("path", "README.md")
                         put("expected_blob_sha", "old-blob")
                         put("content", "Updated")
-                    })
-                })
+                            }
+                        )
+                    }
+                )
             }
             val error = runCatching { GitHubWorkspaceClient("token", http).execute("commit_files", change) }.exceptionOrNull()
             assertTrue(error?.message?.contains("Original blob changed") == true)

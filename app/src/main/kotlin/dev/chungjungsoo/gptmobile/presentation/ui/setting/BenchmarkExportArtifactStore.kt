@@ -42,6 +42,7 @@ internal class BenchmarkExportArtifactStore(
         val receiptPartial = File(folder, "$id.receipt.partial")
         val receipt = File(folder, "$id.receipt")
         val digest = MessageDigest.getInstance("SHA-256")
+        val preparationContext = currentCoroutineContext()
         var bytes = 0L
         val lease = File(folder, "$id.lock")
         try {
@@ -52,11 +53,13 @@ internal class BenchmarkExportArtifactStore(
                         FileOutputStream(partial).use { file ->
                             val counted = object : OutputStream() {
                                 override fun write(value: Int) {
+                                    preparationContext.ensureActive()
                                     file.write(value)
                                     digest.update(value.toByte())
                                     bytes++
                                 }
                                 override fun write(buffer: ByteArray, offset: Int, length: Int) {
+                                    preparationContext.ensureActive()
                                     file.write(buffer, offset, length)
                                     digest.update(buffer, offset, length)
                                     bytes += length

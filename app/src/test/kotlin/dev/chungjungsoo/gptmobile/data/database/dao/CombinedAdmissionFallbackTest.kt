@@ -28,6 +28,14 @@ import org.robolectric.annotation.Config
 @Config(sdk = [34], application = android.app.Application::class)
 class CombinedAdmissionFallbackTest {
     @Test fun budgetFailurePublishesAttributedSourcesOnceWithoutCompletingTheWriterOrChangingContributors() = runBlocking {
+        verifyFallback("QUEUED")
+    }
+
+    @Test fun runningWriterFailurePublishesThroughTheSameFencedTerminalTransaction() = runBlocking {
+        verifyFallback("RUNNING")
+    }
+
+    private suspend fun verifyFallback(runStatus: String) {
         val db = Room.inMemoryDatabaseBuilder(RuntimeEnvironment.getApplication(), ChatDatabaseV2::class.java).build()
         try {
             val user = MessageV2(id = 2, chatId = 1, content = "Explain the findings", platformType = null)
@@ -42,6 +50,7 @@ class CombinedAdmissionFallbackTest {
             val raw = snapshot.encode()
             val dao = db.agentPersistenceDao()
             val run = dao.persistAgentRetry(PersistAgentRetryRequest(user, primary.copy(combinedSources = sources), AgentRunDraft("combined-synthesis:fallback", "p", "CUSTOM", "model", synthesisKey = researchHash(raw), synthesisSnapshot = raw), freezeCombinedSources = true)).run
+            if (runStatus == "RUNNING") dao.updateRunStatus(run.runId, "RUNNING", 1, null, null)
             assertNull(dao.publishRetainedCombinedFallback(run.runId, run.ownershipFence + 1, 10000, "COMBINED_CONTEXT_CAPACITY: too large"))
             assertNull(dao.publishRetainedCombinedFallback(run.runId, run.ownershipFence, 10000, "DISPATCH_POLICY_CHANGED: changed fields=tools."))
             val published = requireNotNull(dao.publishRetainedCombinedFallback(run.runId, run.ownershipFence, 10000, "DISPATCH_POLICY_CHANGED: changed fields=budget."))
@@ -52,9 +61,16 @@ class CombinedAdmissionFallbackTest {
             assertNotNull(report.claimMapping)
             assertTrue(report.passages.isNotEmpty())
             assertEquals("FAILED", dao.recoveryRun(run.runId)?.status)
+            val restored = requireNotNull(dao.recoveryMessage(published.id))
+            assertEquals(published.content, restored.content)
+            assertEquals(report.answerDigest, restored.timeline.mapNotNull { it.combinedQuality }.single().answerDigest)
+            val publication = requireNotNull(dao.publication("1:2:combined"))
+            assertEquals("PARTIAL", publication.deliveryKind)
+            assertEquals(1L, publication.committedRevision)
             assertEquals(primary.content, dao.recoveryMessage(primary.id)?.content)
             assertEquals(second.content, dao.recoveryMessage(second.id)?.content)
             assertNull(dao.publishRetainedCombinedFallback(run.runId, run.ownershipFence, 10000, "COMBINED_CONTEXT_CAPACITY: too large"))
+            assertEquals(publication, dao.publication("1:2:combined"))
         } finally {
             db.close()
         }

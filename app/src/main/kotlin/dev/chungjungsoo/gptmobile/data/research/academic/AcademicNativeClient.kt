@@ -575,9 +575,9 @@ class AcademicNativeClient @Inject constructor(@param:ApplicationContext context
                     }
                     if (response.status.value == 429) {
                         val retry = response.headers["Retry-After"]
-                        val duration = retry?.toLongOrNull()?.coerceIn(1, 86400)?.times(1000)
-                            ?: runCatching { java.time.ZonedDateTime.parse(retry, java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME).toInstant().toEpochMilli() - System.currentTimeMillis() }.getOrNull()?.coerceIn(1000, 86_400_000) ?: 60_000
-                        val until = System.currentTimeMillis() + duration
+                        val now = System.currentTimeMillis()
+                        val duration = dev.chungjungsoo.gptmobile.data.network.ProviderRetryPolicy.retryAfterMillis(retry.orEmpty(), now) ?: 60_000
+                        val until = dev.chungjungsoo.gptmobile.data.network.ProviderRetryPolicy.deadlineMillis(now, duration)
                         withContext(Dispatchers.IO) { preferences.edit().putLong("$provider:cooldown", until).commit() }
                         throw AcademicHttpFailure(429, until, target)
                     }

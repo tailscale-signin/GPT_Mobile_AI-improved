@@ -240,4 +240,21 @@ class LocalPromptToolBridgeTest {
             assertEquals(PromptToolParseResult.NoCall, LocalPromptToolBridge.parseResult(it, setOf("web_search"), allowBareCalls = true))
         }
     }
+
+    @Test fun contradictoryToolEnvelopesAreRejectedRatherThanChoosingOne() {
+        listOf(
+            """{"type":"tool_call","name":"web_search","tool":"read_url","arguments":{}}""",
+            """{"type":"tool_call","name":"web_search","arguments":{},"parameters":{"query":"other"}}""",
+            """{"tool_call":{"name":"web_search","arguments":{}},"name":"read_url","arguments":{}}""",
+            """{"tool_call":{"name":"web_search","arguments":{}},"tool_calls":[]}""",
+            """{"tool_calls":[{}],"name":"web_search","arguments":{}}"""
+        ).forEach { payload ->
+            assertEquals(PromptToolParseResult.Rejected("ambiguous_call"), LocalPromptToolBridge.parseResult(payload, setOf("web_search", "read_url")))
+        }
+        assertEquals(PromptToolParseResult.Rejected("malformed_call"), LocalPromptToolBridge.parseResult("""{"tool_calls":[{}]}""", setOf("web_search")))
+    }
+
+    @Test fun stringNamedToolEnvelopeRemainsSupported() {
+        assertEquals(PromptToolCall("web_search", "{\"query\":\"weather\"}"), LocalPromptToolBridge.parse("""{"tool_call":"web_search","arguments":{"query":"weather"}}""", setOf("web_search")))
+    }
 }

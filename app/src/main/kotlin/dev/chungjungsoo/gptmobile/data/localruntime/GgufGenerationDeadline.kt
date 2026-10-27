@@ -23,18 +23,20 @@ internal class GgufGenerationDeadline(
     private var processedTokens = -1L
     private var sampledTokens = -1L
     private var prefillFinished = false
+    private val preparationMilestones = hashSetOf<String>()
 
     @Synchronized fun observe(
         progress: GgufNativeProgress,
         nowMs: Long
     ) {
-        if (progress.stage == "PREFILL_BEGIN") {
+        if (progress.stage == "PREFILL_BEGIN" && prefillStartedAtMs == null) {
             prefillStartedAtMs = nowMs
             reusedTokens = progress.processedTokens.coerceAtLeast(0)
         }
         if (progress.processedTokens > processedTokens ||
             progress.sampledTokens > sampledTokens ||
-            progress.stage in setOf("RENDER_END", "TOKENIZE_END")
+            progress.stage in setOf("RENDER_END", "TOKENIZE_END") &&
+            preparationMilestones.add(progress.stage)
         ) {
             lastUsefulAtMs = nowMs
         }

@@ -33,4 +33,4 @@ internal fun examinationAuthorizationChange(accepted: Map<String, String>, curre
     (accepted.keys + current.keys).sorted().firstOrNull { accepted[it] != current[it] }
 
 internal fun blocksUnchangedExaminationRetry(failure: ExaminationFailure?): Boolean =
-    failure != null && !failure.retryable && failure.code in setOf("OUTPUT_INVALID", "OUTPUT_EMPTY", "SOURCE_TEXT_EMPTY", "NO_GROUNDED_OUTCOME", "GROUNDING_INVALID", "ADMITTED_CAPACITY_EXHAUSTED", "EXAMINER_OUTPUT_CAPACITY")
+    failure != null && !failure.retryable && failure.code in setOf("OUTPUT_INVALID", "OUTPUT_EMPTY", "REASONING_ONLY", "SOURCE_TEXT_EMPTY", "NO_GROUNDED_OUTCOME", "GROUNDING_INVALID", "ADMITTED_CAPACITY_EXHAUSTED", "EXAMINER_OUTPUT_CAPACITY")

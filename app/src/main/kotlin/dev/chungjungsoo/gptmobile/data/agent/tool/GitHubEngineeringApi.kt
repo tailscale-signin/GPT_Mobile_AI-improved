@@ -36,8 +36,13 @@ internal open class GitHubEngineeringApi(private val token: suspend () -> String
             }
             if (connection.responseCode !in 200..299) {
                 val now = System.currentTimeMillis()
-                val retry = connection.getHeaderField("Retry-After")?.toLongOrNull()?.coerceIn(0, 86_400)?.let { now + it * 1000 }
-                    ?: connection.getHeaderField("X-RateLimit-Reset")?.toLongOrNull()?.let { it * 1000 }
+                val retry = engineeringRetryDeadline(
+                    connection.responseCode,
+                    connection.getHeaderField("Retry-After"),
+                    connection.getHeaderField("X-RateLimit-Reset"),
+                    connection.getHeaderField("X-RateLimit-Remaining"),
+                    now
+                )
                 throw EngineeringApiException(connection.responseCode, retry)
             }
             val bytes = connection.inputStream.use { input ->

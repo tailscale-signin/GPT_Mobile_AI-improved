@@ -91,3 +91,26 @@ This follow-up implements the gaps found in the 50-item Combined audit:
 - **Regression coverage:** new budget, preflight, scoped writer-plan, fallback eligibility, Room admission-fallback, section-allocation and dashboard tests cover these behaviors. The existing strict-overflow regression explicitly selects strict mode. Full Android tests and real-device acceptance remain required; passing source checks cannot certify semantic completeness, server behavior or phone performance.
 
 Local checks at implementation time: pinned ktlint 1.3.1 formatting, diff checks, Android regex/resource validation and all 191 repository Python tests pass. Five focused allocator/fallback-eligibility JUnit tests pass. Android integration results must be checked on the new commit; earlier-head checks are not its validation evidence.
+
+## Comprehensive backlog follow-up
+
+The [165-task backlog](comprehensive-backlog-2026-10-26.md) retains every requested acceptance item with a stable ID and the environment needed to establish completion. All eight workstreams remain subject to their acceptance gates.
+
+Additional implementation repairs:
+
+- Restrict duplicate cleanup to case-sensitive prose and standalone headings. Preserve fenced/unclosed/indented code, list steps, quotations and table blocks instead of editing their contents or conflating identifiers that differ by case.
+- Use one overflow-safe Retry-After parser/deadline calculation for shared provider throttles, academic 429 persistence, GitHub engineering errors and GitHub workspace rate limits. Preserve server dates and waits beyond one day. Ordinary quota-reset headers on authentication/permission errors are not a rate-limit retry instruction.
+- Separate invalid assessment fields from genuine resource denial, including error text mentioning a budget. Recover provider/source identity and deadline from wrapped retrieval exceptions. Distinguish reasoning-only output from empty output and use the existing unchanged-configuration retry gate.
+- Reject contradictory tool envelopes and name/argument aliases before app-managed execution. Existing native/tagged/string-named bridge forms still work; dispatch schema and authorization checks remain required.
+- Do not count repeated preparation-stage callbacks as useful native progress, and do not reset the throughput baseline on repeated prefill-begin callbacks.
+- Check cancellation at benchmark export buffer writes, including synchronous serialization, while retaining existing partial-file cleanup and durable receipts.
+- CI on `5c3071d37` found an unresolved `finishMessage` reference in retained Combined fallback. Route it through the existing `finishRunningWithMessage` staging and ownership-fenced terminal transaction. Extend Room regressions to queued and running writers, persisted attribution, PARTIAL publication and no duplicate publication after a second call.
+
+Local validation: 50 focused JUnit tests for production duplicate cleanup, bridge parsing, native deadlines, assessment failure classification and provider/GitHub engineering deadline policies passed. Four additional production GitHub rate-limit-manager tests passed. The focused harness uses infrastructure/entity declarations and minimal Ktor-header/timeout stubs; it does not execute Android, Room, the network or native inference. All 191 repository Python tests, the native prefill-governor host test, Android regex checks, resource preflight, pinned ktlint 1.3.1 and whitespace checks passed. The new Room publication tests and benchmark export cancellation test require the Android Gradle suite; no local result is claimed for them.
+
+Local `:app:testDebugUnitTest` could not start because the Gradle distribution download returned `Network is unreachable`. This workspace has JRE 17, lacks the configured Android SDK/JDK 21 toolchain and has no attached ASUS device. Final-commit CI, real-provider search/Examine, GitHub sign-in/private-write recovery, physical GPU/NPU execution and performance/release artifact qualification remain open.
+
+
+## October 27 diagnostic follow-up
+
+The overlapping build-129 diagnostics are tracked in [the 28-item follow-up](diagnostic-follow-up-4469105389837727079-8227105213855579286.md). Source and report counts overlap and are not additive. This pass fixed the retained Combined fallback compile error and permits the already-authorized public article reader to recover blocked reader results, while keeping remote fallback behind its existing permission. Live provider/MCP, Room/Android suite and device acceptance remain open.

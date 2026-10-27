@@ -32,4 +32,25 @@ class ProviderThrottleRegistryTest {
         now = 41_000
         repeat(20) { assertEquals(0L, registry.remainingMillis("account")) }
     }
+
+    @Test fun serverCooldownBeyondOneDayIsNotShortened() {
+        var now = 1000L
+        val registry = ProviderThrottleRegistry({ now }, { 0 })
+        registry.defer("account", 172_800_000)
+        now += 86_400_000
+        assertEquals(86_400_000L, registry.remainingMillis("account"))
+        registry.defer("account", 5000)
+        assertEquals(86_400_000L, registry.remainingMillis("account"))
+    }
+
+    @Test fun oversizedDeadlineCannotOverflowAndNegativeMonotonicOriginsWork() {
+        var now = -1000L
+        val registry = ProviderThrottleRegistry({ now }, { 0 })
+        registry.defer("account", 2000)
+        assertEquals(2000L, registry.remainingMillis("account"))
+        now = 1000
+        assertEquals(0L, registry.remainingMillis("account"))
+        registry.defer("account", Long.MAX_VALUE)
+        assertEquals(Long.MAX_VALUE - now, registry.remainingMillis("account"))
+    }
 }

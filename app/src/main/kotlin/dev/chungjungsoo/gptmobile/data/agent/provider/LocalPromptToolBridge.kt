@@ -7,7 +7,6 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.jsonPrimitive
 
 internal data class PromptToolCall(val name: String, val argumentsJson: String)
 internal data class ToolMarkupUpdate(val visibleText: String, val captured: Boolean)
@@ -183,9 +182,19 @@ internal object LocalPromptToolBridge {
         }
         val nested = root["tool_call"]
         val nativeCalls = root["tool_calls"] as? JsonArray
+        if ("tool_call" in root &&
+            "tool_calls" in root ||
+            (nested is JsonObject || "tool_calls" in root) &&
+            root.keys.any { it in setOf("name", "tool", "arguments", "parameters") } ||
+            nested is JsonPrimitive &&
+            root.keys.any { it in setOf("name", "tool") }
+        ) {
+            return PromptToolParseResult.Rejected("ambiguous_call")
+        }
         if (nativeCalls != null && nativeCalls.size != 1) return PromptToolParseResult.Rejected("unsupported_format")
         val nativeCall = nativeCalls?.singleOrNull() as? JsonObject
         val function = nativeCall?.get("function") as? JsonObject
+        if (nativeCalls != null && function == null) return PromptToolParseResult.Rejected("malformed_call")
         val call = (nested as? JsonObject) ?: function
         val isTypedCall = (root["type"] as? JsonPrimitive)?.contentOrNull() == "tool_call"
         val stringNamedCall = (nested as? JsonPrimitive)?.contentOrNull()
@@ -200,8 +209,10 @@ internal object LocalPromptToolBridge {
         if (call == null && !isTypedCall && stringNamedCall == null && !tagged && !mistral && !bareCall) {
             return if ("tool_call" in root || "tool_calls" in root) PromptToolParseResult.Rejected("unsupported_format") else PromptToolParseResult.NoCall
         }
-        val name = stringNamedCall ?: (call?.get("name") ?: call?.get("tool") ?: root["name"] ?: root["tool"])
-            ?.let { runCatching { it.jsonPrimitive.content }.getOrNull() }
+        val fields = call ?: root
+        if ("name" in fields && "tool" in fields || "arguments" in fields && "parameters" in fields) return PromptToolParseResult.Rejected("ambiguous_call")
+        val name = stringNamedCall ?: (fields["name"] ?: fields["tool"])
+            ?.let { (it as? JsonPrimitive)?.contentOrNull() }
             ?: return PromptToolParseResult.Rejected("malformed_call")
         val rawArguments = call?.get("arguments") ?: call?.get("parameters") ?: root["arguments"] ?: root["parameters"]
         val arguments = rawArguments as? JsonObject ?: (rawArguments as? JsonPrimitive)?.takeIf { it.isString }?.let {

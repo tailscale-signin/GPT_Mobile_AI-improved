@@ -8,17 +8,29 @@ data class ExaminationFailure(val code: String, val stage: ExaminationStage, val
 internal class ExaminationRetrievalException(val evidence: AcademicEvidence) : java.io.IOException(evidence.failureCode ?: evidence.retrievalStatus)
 
 internal fun examinationFailure(error: Exception, attempt: Int, now: Long = System.currentTimeMillis()): ExaminationFailure {
-    val evidence = (error as? ExaminationRetrievalException)?.evidence
     val causes = generateSequence<Throwable>(error) { it.cause?.takeUnless { cause -> cause === it } }.take(16).toList()
+    val evidence = causes.filterIsInstance<ExaminationRetrievalException>().firstOrNull()?.evidence
     val delegated = causes.filterIsInstance<dev.chungjungsoo.gptmobile.data.agent.tool.DelegateGenerationException>().firstOrNull()
     val code = evidence?.failureCode ?: when {
         evidence != null && evidence.text.isBlank() && evidence.retrievalStatus in setOf("read", "partially_read", "abstract_only") -> "SOURCE_TEXT_EMPTY"
-        causes.any { it.message.orEmpty().contains(ExaminationOutputBudget.INSUFFICIENT) } -> "ADMITTED_CAPACITY_EXHAUSTED"
+        causes.any { it.message.orEmpty().startsWith("EXAMINATION_OUTPUT_EMPTY") } -> "OUTPUT_EMPTY"
+        causes.any { it.message.orEmpty().startsWith("EXAMINATION_OUTPUT_INVALID") } -> "OUTPUT_INVALID"
+        causes.any { it.message.orEmpty().startsWith("SOURCE_TEXT_EMPTY") } -> "SOURCE_TEXT_EMPTY"
+        causes.any { it.message.orEmpty().startsWith("EXTRACTION_EMPTY") } -> "NO_GROUNDED_OUTCOME"
+        causes.any { it.message.orEmpty().startsWith("GROUNDING_INVALID") } -> "GROUNDING_INVALID"
+        causes.any {
+            it.message.orEmpty().startsWith(ExaminationOutputBudget.INSUFFICIENT) ||
+                it.message.orEmpty().startsWith(ExaminationOutputBudget.CONTEXT_INSUFFICIENT) ||
+                it.message.orEmpty().startsWith("REVIEW_PACKET_TOO_LARGE")
+        } -> "ADMITTED_CAPACITY_EXHAUSTED"
+        causes.any { it.message.orEmpty().startsWith("EXAMINER_OUTPUT_CAPACITY") } -> "EXAMINER_OUTPUT_CAPACITY"
         delegated?.kind == dev.chungjungsoo.gptmobile.data.agent.tool.DelegateFailureKind.TRANSPORT_FAILURE -> "TRANSPORT_FAILED"
         delegated?.kind == dev.chungjungsoo.gptmobile.data.agent.tool.DelegateFailureKind.OUTPUT_LIMIT -> "OUTPUT_LIMIT"
         delegated?.kind == dev.chungjungsoo.gptmobile.data.agent.tool.DelegateFailureKind.AUTH_FAILURE -> "EXAMINER_AUTH_REQUIRED"
-        error is dev.chungjungsoo.gptmobile.data.diagnostics.JavaHeapWorkDeferred || error.message.orEmpty().contains("JAVA_HEAP_PRESSURE") -> "JAVA_HEAP_PRESSURE"
-        error.javaClass.simpleName == "CombinedBudgetExceeded" || error.message.orEmpty().contains("BUDGET", true) -> "ADMITTED_CAPACITY_EXHAUSTED"
+        delegated?.kind == dev.chungjungsoo.gptmobile.data.agent.tool.DelegateFailureKind.REASONING_ONLY -> "REASONING_ONLY"
+        delegated?.kind == dev.chungjungsoo.gptmobile.data.agent.tool.DelegateFailureKind.EMPTY_OUTPUT -> "OUTPUT_EMPTY"
+        causes.any { it is dev.chungjungsoo.gptmobile.data.diagnostics.JavaHeapWorkDeferred || it.message.orEmpty().startsWith("JAVA_HEAP_PRESSURE") } -> "JAVA_HEAP_PRESSURE"
+        causes.any { it is dev.chungjungsoo.gptmobile.data.agent.CombinedBudgetExceeded } -> "ADMITTED_CAPACITY_EXHAUSTED"
         error.message.orEmpty().contains("permission", true) -> "PERMISSION_REVOKED"
         causes.any { it is java.net.UnknownHostException || it is java.net.NoRouteToHostException } -> "NETWORK_UNAVAILABLE"
         causes.any { it.message.orEmpty().contains("HTTP 429", true) || it.message.orEmpty().contains("429 Too Many Requests", true) } -> "RATE_LIMITED"
@@ -36,7 +48,7 @@ internal fun examinationFailure(error: Exception, attempt: Int, now: Long = Syst
         else -> evidence?.retrievalStatus?.uppercase() ?: "EXAMINATION_FAILED"
     }
     val stage = when (code) {
-        "JAVA_HEAP_PRESSURE", "ADMITTED_CAPACITY_EXHAUSTED", "OUTPUT_LIMIT" -> ExaminationStage.WAITING_CAPACITY
+        "JAVA_HEAP_PRESSURE", "ADMITTED_CAPACITY_EXHAUSTED", "EXAMINER_OUTPUT_CAPACITY", "OUTPUT_LIMIT" -> ExaminationStage.WAITING_CAPACITY
         "NETWORK_UNAVAILABLE", "TRANSPORT_FAILED", "TIMEOUT", "OFFLINE", "SERVER_TEMPORARY", "DNS_RECOVERY", "DNS_FAILED" -> ExaminationStage.WAITING_NETWORK
         "RATE_LIMITED", "HTTP_429", "TOO_MANY_REQUESTS" -> ExaminationStage.WAITING_RATE_LIMIT
         "SOURCE_ACCESS_BLOCKED", "BLOCKED", "REDIRECT_FAILED", "HTTP_403", "FORBIDDEN" -> ExaminationStage.BLOCKED_SOURCE

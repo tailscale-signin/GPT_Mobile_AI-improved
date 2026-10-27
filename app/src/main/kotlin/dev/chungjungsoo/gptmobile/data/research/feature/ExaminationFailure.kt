@@ -45,6 +45,8 @@ internal fun examinationFailure(error: Exception, attempt: Int, now: Long = Syst
         else -> ExaminationStage.FAILED
     }
     val retry = attempt < 5 && (stage in setOf(ExaminationStage.WAITING_NETWORK, ExaminationStage.WAITING_RATE_LIMIT) || code == "JAVA_HEAP_PRESSURE")
+    // Output-limit recovery requires a new admitted budget or a smaller checkpointed slice.
+    // Do not schedule the identical request repeatedly without changing its capacity.
     val due = if (retry) evidence?.retryAtMs ?: (now + (15_000L shl attempt.coerceIn(0, 4))) else null
     return ExaminationFailure(code, stage, retry, due, (evidence?.failureReason ?: error.message).orEmpty().take(1000), evidence?.sourceUrl.orEmpty(), evidence?.redirectChain.orEmpty())
 }

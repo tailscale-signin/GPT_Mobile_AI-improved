@@ -49,3 +49,5 @@ This is an implementation tracking document, not a claim that fixes are complete
 - [ ] Emulator sharing/import and provider contracts green.
 - [ ] Physical Snapdragon GPU reproduction and recovery tests green.
 - [ ] No regressions to existing branch GitHub tools, Research, Combined or local runtime.
+
+- [x] Prefill timeout watchdog checks the native operation owner as well as coroutine completion (commit 9ec55c08; device verification pending).

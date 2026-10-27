@@ -141,7 +141,7 @@ internal object RuntimeWireTransport {
                 val directory = File(context.noBackupFilesDir, "runtime-ipc-${android.os.Process.myPid()}").apply { mkdirs() }
                 val file = File.createTempFile("request-", ".json", directory)
                 try {
-                    file.writeText(content)
+                    file.writeBytes(contentBytes)
                     descriptor = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
                     data.putParcelable("fd", descriptor)
                 } finally {

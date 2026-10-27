@@ -447,7 +447,9 @@ class LocalInferenceService : Service() {
             delay(10_000)
             // Cancellation may finish the coroutine while JNI remains blocked. Do
             // not trust Job completion alone as proof that the native lease was released.
-            if (activeCommandRequest == requestId || !job.isCompleted) {
+            if (!terminationGate.isTerminating() &&
+                (activeCommandRequest == requestId || !job.isCompleted)
+            ) {
                 terminateWorker("CANCELLATION_UNACKNOWLEDGED", requestId)
             }
         }

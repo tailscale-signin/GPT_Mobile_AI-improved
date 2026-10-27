@@ -17,6 +17,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -69,10 +70,17 @@ class Transactions:
             db.execute("CREATE TABLE IF NOT EXISTS refresh_attempts (operation_id TEXT PRIMARY KEY, token_hash TEXT UNIQUE NOT NULL, expires INTEGER NOT NULL)")
         path.chmod(0o600)
 
+    @contextmanager
     def connect(self):
         db = sqlite3.connect(self.path, timeout=5)
-        db.execute("PRAGMA busy_timeout=5000")
-        return db
+        try:
+            db.execute("PRAGMA busy_timeout=5000")
+            # sqlite3.Connection.__exit__ commits/rolls back but does not close.
+            # Close explicitly even when a transaction or admission check raises.
+            with db:
+                yield db
+        finally:
+            db.close()
 
     def begin(self, challenge: str) -> str:
         if not re.fullmatch(r"[A-Za-z0-9_-]{43}", challenge):

@@ -6,6 +6,7 @@ import unittest
 import urllib.parse
 import uuid
 from pathlib import Path
+from unittest.mock import patch
 
 from authentication.github_broker import AuthorizationError, Broker, Config, Transactions, challenge_for
 
@@ -37,6 +38,31 @@ class BrokerTest(unittest.TestCase):
         self.assertEqual([self.config.callback_url], query["redirect_uri"])
         self.assertNotIn("server-secret", json.dumps(start))
         self.assertNotIn("server-secret", repr(self.config))
+
+    def test_transactions_close_connections_on_success_and_rejection(self):
+        real_connect = sqlite3.connect
+        retained = []
+        def tracked(*args, **kwargs):
+            connection = real_connect(*args, **kwargs)
+            retained.append(connection)
+            return connection
+        with patch("authentication.github_broker.sqlite3.connect", side_effect=tracked):
+            broker = Broker(self.config, self.exchange, lambda: self.clock[0])
+            state = broker.begin(challenge_for(self.verifier))["state"]
+            with self.assertRaises(AuthorizationError):
+                broker.complete(state, "x" * 43, "code")
+            broker.complete(state, self.verifier, "code")
+            with self.assertRaises(AuthorizationError):
+                broker.complete(state, self.verifier, "code")
+            operation = str(uuid.uuid4())
+            broker.refresh(operation, "ghr_close_test")
+            with self.assertRaises(AuthorizationError):
+                broker.refresh(operation, "ghr_close_test")
+        self.assertTrue(retained)
+        # Holding every reference defeats GC and reproduces the Windows file lock.
+        for connection in retained:
+            with self.assertRaises(sqlite3.ProgrammingError):
+                connection.execute("SELECT 1")
 
     def test_transaction_survives_restart_and_is_consumed_exactly_once(self):
         state = self.start()

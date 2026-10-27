@@ -1638,11 +1638,6 @@ internal fun ChatMessagePair(
                     onContinueClick = onContinueClick.takeIf { smartSuggestionsEnabled && !isSourceResponse },
                     onActionClick = onActionClick.takeIf { smartSuggestionsEnabled && !isSourceResponse }
                 )
-                if (isCombinedConversation && !isSourceResponse) {
-                    assistantTimeline.lastOrNull { it.combinedQuality?.finalAssessment == true }?.combinedQuality?.let { report ->
-                        CombinedQualityDashboardCard(report, assistantContent, selectedAssistantMessage?.effectiveCombinedManifest()?.bodyDigest, combinedProfiles.associate { it.uid to it.name })
-                    }
-                }
                 assistantTimeline.lastOrNull { it.runError != null }?.runError?.let { error ->
                     Column(Modifier.fillMaxWidth().padding(12.dp)) {
                         Text(stringResource(R.string.audit_response_interrupted), style = MaterialTheme.typography.titleSmall)
@@ -1904,6 +1899,9 @@ fun ChatDropdownMenu(
 
 private suspend fun exportChat(context: Context, chatViewModel: ChatViewModel, format: ChatExportFormat) {
     try {
+        if (format == ChatExportFormat.DEBUG) {
+            Toast.makeText(context, "Preparing detailed conversation diagnostics…", Toast.LENGTH_SHORT).show()
+        }
         val file = if (format == ChatExportFormat.DEBUG) {
             withContext(Dispatchers.IO) { chatViewModel.exportDebugFile(context.getExternalFilesDir(null) ?: context.filesDir) }
         } else {

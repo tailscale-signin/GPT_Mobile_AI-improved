@@ -174,4 +174,39 @@ class McpCatalogueDeadlineTest {
             client.close()
         }
     }
+
+    @Test fun lastKnownCatalogueRemainsAvailableDuringTransientNetworkRecovery() = runBlocking {
+        val client = HttpClient(
+            MockEngine { request ->
+                val body = Json.parseToJsonElement((request.body as TextContent).text).jsonObject
+                val result = if (body.getValue("method").jsonPrimitive.content == "server/discover") {
+                    Json.parseToJsonElement("""{"supportedVersions":["2026-07-28"]}""")
+                } else {
+                    Json.parseToJsonElement("""{"tools":[{"name":"read","inputSchema":{"type":"object"}}]}""")
+                }
+                respond(
+                    buildJsonObject {
+                        put("jsonrpc", "2.0")
+                        put("id", body.getValue("id"))
+                        put("result", result)
+                    }.toString(),
+                    headers = headersOf("Content-Type", "application/json")
+                )
+            }
+        )
+        val manager = McpClientManager(client, modern = ModernMcpTransport(client))
+        val config = McpConnectionConfig("offline-catalogue", "https://offline.example/mcp", false)
+        try {
+            assertEquals(listOf("read"), manager.listTools(config).map { it.name })
+            LocalServiceHealth.networkChanged()
+            manager.resetHealth(config.connectionUid) // RECOVERING: a fresh handshake is pending.
+            assertEquals(
+                listOf("read"),
+                manager.peekToolsForConnection(config.connectionUid, config.endpointUrl, config.allowCleartext)?.map { it.name }
+            )
+        } finally {
+            manager.closeAll()
+            client.close()
+        }
+    }
 }

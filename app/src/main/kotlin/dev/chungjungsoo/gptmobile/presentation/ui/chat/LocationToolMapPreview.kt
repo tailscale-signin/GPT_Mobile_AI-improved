@@ -165,6 +165,7 @@ internal fun EmbeddedLocationMap(
     val owner = LocalLifecycleOwner.current
     val origin = data.origin
     var expanded by rememberSaveable { mutableStateOf(false) }
+    var mapRequested by rememberSaveable(origin) { mutableStateOf(false) }
     var cameraFitted by rememberSaveable(origin, data.places.map { it.id }) { mutableStateOf(false) }
     var cameraState by rememberSaveable(origin) { mutableStateOf(listOf(origin.latitude, origin.longitude, 15.0, 0.0, 0.0)) }
     var selectedId by rememberSaveable(origin) { mutableStateOf<String?>(null) }
@@ -182,7 +183,7 @@ internal fun EmbeddedLocationMap(
     var ready by remember(context, owner, origin, mapAttempt) { mutableStateOf(false) }
     val accent = MaterialTheme.colorScheme.primary.toArgb()
     val secondary = MaterialTheme.colorScheme.secondary.toArgb()
-    val mapView = remember(context, owner, origin, mapAttempt) {
+    val mapView = if (mapRequested) remember(context, owner, origin, mapAttempt) {
         org.maplibre.android.MapLibre.getInstance(context)
         EmbeddedMapView(context).apply {
             onCreate(null)
@@ -218,33 +219,34 @@ internal fun EmbeddedLocationMap(
                 }
             }
         }
-    }
-    DisposableEffect(mapView, owner) {
+    } else null
+    if (mapView != null) DisposableEffect(mapView, owner) {
+        val activeMapView = mapView
         var started = false
         var resumed = false
         fun start() {
             if (!started) {
-                mapView.onStart()
+                activeMapView.onStart()
                 started = true
             }
         }
         fun resume() {
             if (!resumed) {
                 start()
-                mapView.onResume()
+                activeMapView.onResume()
                 resumed = true
             }
         }
         fun pause() {
             if (resumed) {
-                mapView.onPause()
+                activeMapView.onPause()
                 resumed = false
             }
         }
         fun stop() {
             pause()
             if (started) {
-                mapView.onStop()
+                activeMapView.onStop()
                 started = false
             }
         }
@@ -265,7 +267,7 @@ internal fun EmbeddedLocationMap(
             disposed.set(true)
             owner.lifecycle.removeObserver(observer)
             stop()
-            mapView.onDestroy()
+            activeMapView.onDestroy()
         }
     }
     LaunchedEffect(ready, data.places, data.showOrigin, accent, secondary) {
@@ -283,7 +285,8 @@ internal fun EmbeddedLocationMap(
         style.getLayerAs<CircleLayer>("location-places-pins")?.setProperties(PropertyFactory.circleColor(secondary))
         style.getLayerAs<LineLayer>("location-route-line")?.setProperties(PropertyFactory.lineColor(accent))
     }
-    LaunchedEffect(mapView, ready) {
+    LaunchedEffect(mapRequested, mapView, ready) {
+        if (!mapRequested) return@LaunchedEffect
         if (!ready) {
             kotlinx.coroutines.delay(20_000)
             if (!disposed.get()) mapError = "Map loading timed out. Check connectivity and retry; listing cards remain available."
@@ -328,15 +331,17 @@ internal fun EmbeddedLocationMap(
         runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
     }
     val mapContent: @Composable (Modifier) -> Unit = { mapModifier ->
-        androidx.compose.runtime.key(mapView) {
-            AndroidView(
-                factory = {
-                    // Move the existing view between the inline and expanded containers.
-                    (mapView.parent as? android.view.ViewGroup)?.removeView(mapView)
-                    mapView
-                },
-                modifier = mapModifier
-            )
+        if (mapView != null) {
+            androidx.compose.runtime.key(mapView) {
+                AndroidView(
+                    factory = {
+                        // Move the existing view between the inline and expanded containers.
+                        (mapView.parent as? android.view.ViewGroup)?.removeView(mapView)
+                        mapView
+                    },
+                    modifier = mapModifier
+                )
+            }
         }
     }
     if (expanded) {
@@ -354,8 +359,10 @@ internal fun EmbeddedLocationMap(
     }
     Card(modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow), border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))) {
         Column {
-            if (!expanded) mapContent(Modifier.fillMaxWidth().height(250.dp))
-            TextButton(onClick = { expanded = true }) { Text(stringResource(dev.chungjungsoo.gptmobile.R.string.map_expand)) }
+            if (!mapRequested) {
+                Text("Interactive map loads on demand. Place details and directions are available below.", Modifier.padding(horizontal = 14.dp, vertical = 12.dp), style = MaterialTheme.typography.bodySmall)
+            } else if (!expanded) mapContent(Modifier.fillMaxWidth().height(250.dp))
+            TextButton(onClick = { mapRequested = true; expanded = true }) { Text(stringResource(dev.chungjungsoo.gptmobile.R.string.map_expand)) }
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Icon(Icons.Rounded.Place, null, tint = MaterialTheme.colorScheme.primary)
@@ -364,7 +371,7 @@ internal fun EmbeddedLocationMap(
                         Icon(Icons.Rounded.MyLocation, if (data.showOrigin) "Your location" else "Recenter listing area", tint = MaterialTheme.colorScheme.primary)
                     }
                 }
-                if (!ready && mapError == null) LinearProgressIndicator(Modifier.fillMaxWidth())
+                if (mapRequested && !ready && mapError == null) LinearProgressIndicator(Modifier.fillMaxWidth())
                 mapError?.let {
                     Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                     TextButton(onClick = { mapAttempt++ }) { Text("Retry map") }

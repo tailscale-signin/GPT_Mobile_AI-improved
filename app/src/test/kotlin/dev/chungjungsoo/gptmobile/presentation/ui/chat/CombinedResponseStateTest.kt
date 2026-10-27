@@ -62,6 +62,22 @@ class CombinedResponseStateTest {
     }
 
     @Test
+    fun `selected profiles without responses retain empty swipe slots`() {
+        val profiles = combinedResponseProfiles(
+            responses = emptyList(),
+            platformUids = listOf("first", "second", "third"),
+            profileNames = mapOf("first" to "First", "second" to "Second", "third" to "Third"),
+            participatingUids = setOf("first", "second", "third"),
+            preparing = false,
+            runsById = emptyMap()
+        )
+
+        assertEquals(listOf("first", "second", "third"), profiles.map { it.uid })
+        assertTrue(profiles.all { it.message == null })
+        assertTrue(profiles.all { it.status == CombinedResponseStatus.FAILED })
+    }
+
+    @Test
     fun `legacy archived Combined without snapshots never borrows current sources`() {
         val lead = response("lead", "Latest combined", "combined-synthesis:latest").copy(
             combinedSources = listOf(CombinedModelResponse("other", "Other", content = "New contribution")),

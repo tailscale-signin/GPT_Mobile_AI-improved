@@ -108,7 +108,10 @@ internal object CombinedFinalCheck {
         if (passages.any { !it.matches(answer) }) checks += CombinedAnswerCheck("STALE_PASSAGE_REVISION", "PROVENANCE", "FAIL", true)
 
         val sourceAssessments = inventory.associate { claim -> claim.id to CombinedEvidenceVerifier.assess(claim.id, claim.proposition, evidence) }
-        val mapping = CombinedAnswerMappings.get(answer, sources)
+        val mappingClaims = inventory.flatMapTo(linkedSetOf()) { claim ->
+            claim.candidateIds + claim.id + claim.canonicalId
+        }
+        val mapping = CombinedAnswerMappings.get(answer, sources, mappingClaims)
         val mapped = mapping.claims.associateBy { it.claimId }
         val matches = inventory.associate { claim -> claim.id to mapped[claim.id]?.takeIf { it.fullyLinked }?.links.orEmpty() }
 

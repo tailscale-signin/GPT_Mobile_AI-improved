@@ -22,6 +22,9 @@ internal class CompleteBackupPreferences(private val context: Context, private v
         context.getSharedPreferences(name, Context.MODE_PRIVATE).all.mapValues { (_, value) -> encode(requireNotNull(value)) }
     }
 
+    fun readSectionOwnedShared(name: String): Map<String, BackupValue> =
+        context.getSharedPreferences(name, Context.MODE_PRIVATE).all.mapValues { (_, value) -> encode(requireNotNull(value)) }
+
     suspend fun captureConversationSettings(chatIds: Set<Int>): ConversationCombinedPortableSnapshot {
         var result: ConversationCombinedPortableSnapshot? = null
         dataStore.edit { prefs ->
@@ -74,7 +77,7 @@ internal class CompleteBackupPreferences(private val context: Context, private v
                 }
             }
         }
-        (sharedNames() + shared.keys).filterNot { it in SECTION_OWNED_SHARED_PREFERENCES }.forEach { name ->
+        (sharedNames() + shared.keys).filterNot { it in SECTION_OWNED_SHARED_PREFERENCES && it != PROFILE_STATISTICS_PREFERENCES }.forEach { name ->
             val editor = context.getSharedPreferences(name, Context.MODE_PRIVATE).edit().clear()
             shared[name].orEmpty().forEach { (key, value) ->
                 when (val decoded = decode(value)) {
@@ -134,5 +137,6 @@ internal class CompleteBackupPreferences(private val context: Context, private v
 
 // History and qualification mirrors belong to Statistics, never generic Settings.
 internal val DEVICE_LOCAL_CONSENT_PREFERENCES = setOf("free_model_tool_consent_v1", "free_model_tool_consent_v2")
+internal const val PROFILE_STATISTICS_PREFERENCES = "profile_statistics"
 
-internal val SECTION_OWNED_SHARED_PREFERENCES = DEVICE_LOCAL_CONSENT_PREFERENCES + setOf("complete_backup_ui_v1", "profile_benchmarks_v1", "generation_completion_inbox_v1", "conversation_read_state_v1")
+internal val SECTION_OWNED_SHARED_PREFERENCES = DEVICE_LOCAL_CONSENT_PREFERENCES + setOf("complete_backup_ui_v1", "profile_benchmarks_v1", "generation_completion_inbox_v1", "conversation_read_state_v1", PROFILE_STATISTICS_PREFERENCES)

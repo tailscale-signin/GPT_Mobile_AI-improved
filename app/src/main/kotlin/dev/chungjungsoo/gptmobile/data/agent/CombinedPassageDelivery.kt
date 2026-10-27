@@ -376,7 +376,7 @@ internal class CombinedPassageDecoder(
         val claims = strings("claims")
         if (claims.any { it !in claimIds }) issues += "UNKNOWN_CLAIM_REFERENCE"
         val retainedClaims = claims.filter { it in claimIds }.toSet()
-        val mapping = CombinedAnswerMappings.get(body, sources)
+        val mapping = CombinedAnswerMappings.get(body, sources, retainedClaims)
         val mappedClaims = mapping.claims.flatMap { claim -> (claim.aliases + claim.canonicalId + claim.claimId).map { it to claim } }.toMap()
         val linkedClaims = retainedClaims.filterTo(linkedSetOf()) { mappedClaims[it]?.links?.isNotEmpty() == true }
         if (linkedClaims != retainedClaims) issues += "UNESTABLISHED_CONTRIBUTION_LINK"

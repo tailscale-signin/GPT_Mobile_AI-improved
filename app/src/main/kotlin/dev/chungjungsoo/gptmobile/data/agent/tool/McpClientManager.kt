@@ -137,9 +137,26 @@ class McpClientManager internal constructor(
     fun peekTools(config: McpConnectionConfig): List<Tool>? = catalogue.peek(config.validatedKey() + ":" + dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.epoch)?.value
 
     suspend fun peekToolsForConnection(uid: String, endpointUrl: String? = null, allowCleartext: Boolean = false): List<Tool>? {
-        if (endpointUrl != null) McpConnectionConfig(uid, endpointUrl, allowCleartext).validatedKey()
-        if (healthSnapshot(uid).state == McpConnectionHealthState.AUTHENTICATION_REQUIRED) return null
-        val snapshot = catalogueIdentities[uid]?.takeIf { it.first == dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.epoch && (endpointUrl == null || it.second.startsWith("$endpointUrl|")) && it.second.endsWith("|${dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.networkEpoch}:${it.first}") }?.let { catalogue.peek(it.second) }
+        val validatedKey = endpointUrl?.let { McpConnectionConfig(uid, it, allowCleartext).validatedKey() }
+        val health = healthSnapshot(uid)
+        if (health.state == McpConnectionHealthState.AUTHENTICATION_REQUIRED) return null
+        if (validatedKey != null && configurationFailures[uid] == validatedKey) return null
+        val identity = catalogueIdentities[uid]?.takeIf {
+            it.first == dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.epoch &&
+                (validatedKey == null || it.second.substringBeforeLast('|') == validatedKey.substringBeforeLast('|'))
+        }
+        val networkEpoch = dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.networkEpoch
+        val current = identity?.takeIf { it.second.endsWith("|$networkEpoch:${it.first}") }?.let { catalogue.peek(it.second) }
+        // Keep the last-known schema usable during transient network recovery. The cache
+        // is scoped to the same endpoint, credentials and permission epoch, and expires
+        // sooner than the normal readiness snapshot. Calls still pass through live
+        // authorization, trust and transport checks before execution.
+        val staleNetworkEligible = health.state in setOf(
+            McpConnectionHealthState.DEGRADED,
+            McpConnectionHealthState.UNREACHABLE,
+            McpConnectionHealthState.RECOVERING
+        )
+        val snapshot = current ?: identity?.takeIf { staleNetworkEligible }?.let { catalogue.peek(it.second, 15 * 60_000L) }
         kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.readiness.ReadinessCacheObservation]?.read(snapshot != null, snapshot?.let { System.nanoTime() / 1_000_000 - it.observedAt > 300_000 } == true)
         return snapshot?.value
     }

@@ -126,7 +126,7 @@ fun PlatformSettingScreen(
     activationRequest?.let { ProviderActivationDialog(it, settingViewModel::confirmProviderActivation, settingViewModel::dismissProviderActivation) }
     val features by settingViewModel.featureSettings.collectAsStateWithLifecycle()
     val behavior = features.profileBehavior[settingViewModel.platformUid] ?: dev.chungjungsoo.gptmobile.data.model.ProfileBehaviorSettings()
-    var profileTab by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableIntStateOf(initialTab.coerceIn(0, 2)) }
+    var profileTab by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableIntStateOf(initialTab.coerceIn(0, 3)) }
     val scrollState = rememberScrollState()
     val scrollBehavior = pinnedExitUntilCollapsedScrollBehavior(
         canScroll = { scrollState.canScrollForward || scrollState.canScrollBackward }
@@ -224,7 +224,7 @@ fun PlatformSettingScreen(
                         )
                     }
                     Column(Modifier.padding(horizontal = 16.dp)) {
-                        SettingsTabs(listOf("Profile", "Tools", "Advanced"), profileTab) { profileTab = it }
+                        SettingsTabs(listOf("Profile", "Tools", "Advanced", "Statistics"), profileTab) { profileTab = it }
                     }
                     if (profileTab == 0) {
                         PreferenceSwitchWithContainer(
@@ -732,6 +732,14 @@ fun PlatformSettingScreen(
                                 showLeadingIcon = false
                             )
                         }
+                    }
+                    if (profileTab == 3) {
+                        ProfileStatisticsTab(
+                            profileUid = platformData.uid,
+                            profileName = platformData.name,
+                            onQuickBenchmark = onNavigateToBenchmarks,
+                            onViewAllStatistics = onNavigateToUsage
+                        )
                     }
 
                     PlatformNameDialog(dialogState, platformData.name, settingViewModel)

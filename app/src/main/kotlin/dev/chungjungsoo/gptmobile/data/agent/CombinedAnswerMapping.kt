@@ -43,28 +43,42 @@ data class CombinedAnswerMapping(
 /** One versioned map is consumed by delivery checks, colours, inspector and export. */
 internal object CombinedAnswerMappings {
     private const val MAX_COMPARISONS = 1_000_000L
-    private data class Key(val answer: String, val corpus: String)
+    private data class Key(val answer: String, val corpus: String, val selection: String)
     private val cache = LinkedHashMap<Key, CombinedAnswerMapping>(4, 0.75f, true)
     private data class Destination(val text: String, val span: CombinedCoverageLink, val partialMention: Boolean = false)
 
-    fun get(answer: String, sources: List<CombinedModelResponse>): CombinedAnswerMapping {
+    fun get(answer: String, sources: List<CombinedModelResponse>, claimIds: Set<String>? = null): CombinedAnswerMapping {
         val index = CombinedContentIndexes.get(sources)
         val corpus = researchHash(sources.joinToString("\n") { "${it.platformUid.length}:${it.platformUid}:${researchHash(it.content)}:${it.claimExtractionVersion}:${it.contentCompleteness}" })
-        val key = Key(researchHash(answer), corpus)
+        val selection = claimIds?.sorted()?.joinToString("|")?.let(::researchHash).orEmpty()
+        val key = Key(researchHash(answer), corpus, selection)
         synchronized(cache) { cache[key]?.let { return it } }
         return CombinedOperationTrace.measure("source_mapping", CombinedOperationOwner(digest = key.answer)) {
-            build(answer, sources, index, corpus, key)
+            build(answer, sources, index, corpus, key, claimIds)
         }
     }
 
-    private fun build(answer: String, sources: List<CombinedModelResponse>, index: CombinedContentIndex, corpus: String, key: Key): CombinedAnswerMapping {
+    private fun build(
+        answer: String,
+        sources: List<CombinedModelResponse>,
+        index: CombinedContentIndex,
+        corpus: String,
+        key: Key,
+        claimIds: Set<String>?
+    ): CombinedAnswerMapping {
         val destinations = destinations(answer)
         val prints = destinations.map { CombinedClaimMatcher.fingerprint(it.text) }
         val byTerm = mutableMapOf<String, MutableSet<Int>>()
         prints.forEachIndexed { i, value -> value.terms.forEach { byTerm.getOrPut(it) { linkedSetOf() } += i } }
         var comparisons = 0L
         var evaluated = true
-        val claims = index.records.map { claim ->
+        val selectedClaims = index.records.filter { claim ->
+            claimIds == null ||
+                claim.id in claimIds ||
+                claim.canonicalId in claimIds ||
+                claim.candidateIds.any { it in claimIds }
+        }
+        val claims = selectedClaims.map { claim ->
             val source = index.fingerprints.getValue(claim.proposition)
             // Qualifications that span several sentences cannot be detached by a split.
             val qualified = source.negative || source.hedged || source.restrictions.isNotEmpty() || claim.qualifiers.uncertainty.isNotEmpty() || claim.qualifiers.outcome in setOf("NULL_EFFECT", "INSUFFICIENT_EVIDENCE")

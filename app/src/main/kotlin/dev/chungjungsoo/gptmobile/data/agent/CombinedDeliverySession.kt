@@ -193,7 +193,8 @@ internal class CombinedDeliverySession(
                 issues.any { it != "LEXICAL_COVERAGE_UNRESOLVED_HINTS" } || checked.verificationNeeds.isNotEmpty() -> "COMPLETED_WITH_LIMITS"
                 else -> "COMPLETED"
             }
-            val mapping = withContext(Dispatchers.Default) { CombinedAnswerMappings.get(candidate.text, sources) }
+            val relevantClaimIds = coverage.units.mapTo(linkedSetOf()) { it.claimId }
+            val mapping = withContext(Dispatchers.Default) { CombinedAnswerMappings.get(candidate.text, sources, relevantClaimIds) }
             val meaningfulClaimIds = CombinedContentIndexes.get(sources).records.flatMapTo(linkedSetOf()) { it.candidateIds }
             val semanticCoverageVerified = meaningfulClaimIds.isEmpty() ||
                 checked.checks.none { it.id.startsWith("SEMANTIC_CONTRIBUTION_UNRESOLVED:") }
@@ -411,7 +412,8 @@ internal class CombinedDeliverySession(
             }
         }
         val writerText = accepted.text
-        val writerMapping = withContext(Dispatchers.Default) { CombinedAnswerMappings.get(writerText, sources) }
+        val relevantClaimIds = coverage.units.mapTo(linkedSetOf()) { it.claimId }
+        val writerMapping = withContext(Dispatchers.Default) { CombinedAnswerMappings.get(writerText, sources, relevantClaimIds) }
         val writerAssessment = CombinedAssessmentSnapshot(
             researchHash(writerText),
             currentRevision,

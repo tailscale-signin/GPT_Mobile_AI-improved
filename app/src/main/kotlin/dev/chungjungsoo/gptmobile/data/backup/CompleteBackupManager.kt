@@ -340,7 +340,12 @@ class CompleteBackupManager @Inject constructor(
             } else {
                 emptyMap()
             },
-            sharedPreferences = if (CompleteBackupSection.SETTINGS in selected.sections) preferences.readShared() else emptyMap(),
+            sharedPreferences = buildMap {
+                if (CompleteBackupSection.SETTINGS in selected.sections) putAll(preferences.readShared())
+                if (CompleteBackupSection.STATISTICS in selected.sections) {
+                    put(dev.chungjungsoo.gptmobile.data.backup.PROFILE_STATISTICS_PREFERENCES, preferences.readSectionOwnedShared(dev.chungjungsoo.gptmobile.data.backup.PROFILE_STATISTICS_PREFERENCES))
+                }
+            },
             secrets = toolSecretsSnapshot ?: readSecrets(selected),
             files = sources.mapValues { it.value.length() },
             sections = selected.sections.mapTo(linkedSetOf()) { it.name },
@@ -530,7 +535,7 @@ class CompleteBackupManager @Inject constructor(
         }
         val restoreSettings = CompleteBackupSection.SETTINGS in effective.sections
         val restoreConversations = CompleteBackupSection.CONVERSATIONS in effective.sections
-        val restorePreferences = restoreSettings || restoreConversations || CompleteBackupSection.TOOLS in effective.sections
+        val restorePreferences = restoreSettings || restoreConversations || CompleteBackupSection.TOOLS in effective.sections || CompleteBackupSection.STATISTICS in effective.sections
         if (restoreSettings || restoreConversations) manifest.conversationSettings?.let(ConversationCombinedPortable::validate)
         val restoreSecrets = effective.requiresEncryption
         val selectedSecrets = manifest.secrets.filterKeys { secretBelongsTo(it, effective) }
@@ -694,7 +699,14 @@ class CompleteBackupManager @Inject constructor(
                                     )
                                     nextPreferences = nextPreferences + (ConversationCombinedPortable.FEATURE_KEY to BackupValue("string", combined))
                                 }
-                                preferences.replace(nextPreferences, if (restoreSettings) manifest.sharedPreferences else oldShared)
+                                val nextShared = if (restoreSettings) {
+                                    manifest.sharedPreferences
+                                } else if (CompleteBackupSection.STATISTICS in effective.sections) {
+                                    oldShared + (dev.chungjungsoo.gptmobile.data.backup.PROFILE_STATISTICS_PREFERENCES to manifest.sharedPreferences[dev.chungjungsoo.gptmobile.data.backup.PROFILE_STATISTICS_PREFERENCES].orEmpty())
+                                } else {
+                                    oldShared
+                                }
+                                preferences.replace(nextPreferences, nextShared)
                             }
                             if (selectedPaths.any(CompleteBackupFiles::isPluginPath)) nativePlugins?.reload()
                             if (restoreSettings) manifest.protection?.let { saveProtection(it.copy(password = oldProtection.password)) }

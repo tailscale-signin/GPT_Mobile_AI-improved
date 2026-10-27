@@ -94,7 +94,7 @@ object AppLogRecorder {
                     val batch = mutableListOf(entry)
                     repeat(255) { queue.tryReceive().getOrNull()?.let(batch::add) }
                     batch.forEach(recent::addLast)
-                    while (recent.size > 500) recent.removeFirst()
+                    while (recent.size > 2_000) recent.removeFirst()
                     if (publication?.isActive != true) {
                         publication = scope.launch {
                             kotlinx.coroutines.delay(250)
@@ -190,7 +190,7 @@ object AppLogRecorder {
         synchronized(fileLock) {
             if (!mutableEnabled.value || privateSessions.isNotEmpty()) return
             recent.addLast(entry)
-            while (recent.size > 500) recent.removeFirst()
+            while (recent.size > 2_000) recent.removeFirst()
             mutableEntries.value = recent.toList()
             runCatching {
                 append(entry.line(), durable = true)

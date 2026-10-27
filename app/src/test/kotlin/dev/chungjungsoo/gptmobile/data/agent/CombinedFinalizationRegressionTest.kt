@@ -17,6 +17,22 @@ import org.junit.Test
 
 /** Regressions for the exported Combined answer and its finalization transaction. */
 class CombinedFinalizationRegressionTest {
+    @Test fun answerMappingCanRestrictWorkToRequestRelevantClaims() {
+        val sources = listOf(
+            CombinedModelResponse("one", "One", content = "The first distinct source claim describes coastal erosion."),
+            CombinedModelResponse("two", "Two", content = "The second distinct source claim describes urban rainfall.")
+        )
+
+        val mapping = CombinedAnswerMappings.get(
+            "The second distinct source claim describes urban rainfall.",
+            sources,
+            setOf("C2.1")
+        )
+
+        assertEquals(listOf("C2.1"), mapping.claims.map { it.claimId })
+        assertTrue(mapping.links.any { "two" in it.profileUids })
+    }
+
     private fun context(request: String): CombinedExecutionContext {
         val requested = CombinedPolicyResolver.accept(ConversationCombinedSettings(), listOf("source"), mapOf("source" to "model"), request, singlePass = true)
         return CombinedExecutionContext(requested, rootBudgetId = "finalization-regression")

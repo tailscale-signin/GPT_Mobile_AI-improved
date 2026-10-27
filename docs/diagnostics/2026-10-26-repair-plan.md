@@ -18,7 +18,7 @@ This is an implementation tracking document, not a claim that fixes are complete
 - [ ] Add cross-process share/import instrumentation tests. Avoid broad FileProvider root-path exposure.
 
 ## P1 — Research Examine
-- [ ] Do not reject otherwise valid Chat Completions content solely for missing terminal usage metadata; distinguish estimated usage.
+- [ ] Integrate optional usage normalization into the live Chat Completions response adapter; do not reject otherwise valid content for missing terminal usage metadata.\n- [x] Add isolated optional-usage normalization helper and five regression test cases (tests not yet executed).
 - [ ] Separate transport, provider payload, output schema, grounding and persistence errors.
 - [ ] Preserve grounded evidence and citations; do not invent sources when validation fails.
 - [ ] Checkpoint source extraction and appraisal stages independently; retry only failed stage.

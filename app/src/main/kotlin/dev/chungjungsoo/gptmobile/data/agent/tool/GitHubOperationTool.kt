@@ -132,8 +132,8 @@ internal class GitHubOperationTool(
             if (Regex("\\b(pr|pull request|review|merge)\\b").containsMatchIn(text)) selected += "github_pr"
             if (Regex("\\b(ci|build|test failure|workflow|pipeline)\\b").containsMatchIn(text)) selected += "github_ci"
             if (Regex("\\b(fix|patch|edit|change|implement)\\b").containsMatchIn(text)) selected += "github_stage_patch"
-            if (Regex("\\b(commit|push|branch)\\b").containsMatchIn(text)) selected += "github_commit"
-            if (Regex("\\b(write|create file|edit file|modify file|delete|remove file|commit|push|patch|implement)\\b").containsMatchIn(text)) selected += "github_write"
+            if (Regex("\\b(commit|committing|push|pushing|branch)\\b").containsMatchIn(text)) selected += "github_commit"
+            if (Regex("\\b(write|writing|create file|edit file|modify file|delete|remove file|commit|committing|push|pushing|patch|implement|apply changes)\\b").containsMatchIn(text)) selected += "github_write"
             if ("release" in text) selected += "github_release"
             return selected
         }

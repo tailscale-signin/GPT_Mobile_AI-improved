@@ -312,9 +312,12 @@ class LocalInferenceService : Service() {
                                                     // A cancelled coroutine can report completion while
                                                     // native prefill still owns the operation lease.
                                                     // Match the explicit cancellation watchdog.
-                                                    if (!terminationGate.isTerminating() &&
-                                                        (activeCommandRequest == packet.requestId ||
-                                                            owner?.isCompleted == false)
+                                                    if (NativeCancellationWatchdog.shouldTerminate(
+                                                            terminationGate.isTerminating(),
+                                                            packet.requestId,
+                                                            activeCommandRequest,
+                                                            owner?.isCompleted
+                                                        )
                                                     ) {
                                                         terminateWorker("PREFILL_CANCELLATION_UNACKNOWLEDGED", packet.requestId)
                                                     }
@@ -447,8 +450,12 @@ class LocalInferenceService : Service() {
             delay(10_000)
             // Cancellation may finish the coroutine while JNI remains blocked. Do
             // not trust Job completion alone as proof that the native lease was released.
-            if (!terminationGate.isTerminating() &&
-                (activeCommandRequest == requestId || !job.isCompleted)
+            if (NativeCancellationWatchdog.shouldTerminate(
+                    terminationGate.isTerminating(),
+                    requestId,
+                    activeCommandRequest,
+                    job.isCompleted
+                )
             ) {
                 terminateWorker("CANCELLATION_UNACKNOWLEDGED", requestId)
             }

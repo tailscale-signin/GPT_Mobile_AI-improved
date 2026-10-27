@@ -42,7 +42,7 @@ internal class GitHubOperationTool(
                 dispatched = false
             )
         }
-        if (operation == "github_write" || operation == "github_search") {
+        if (operation in setOf("github_write", "github_search", "github_pr", "github_commit", "github_stage_patch")) {
             val errors = ToolArgumentValidator.errors(arguments, definition.inputSchema)
             if (errors.isNotEmpty()) {
                 return AgentToolResult(

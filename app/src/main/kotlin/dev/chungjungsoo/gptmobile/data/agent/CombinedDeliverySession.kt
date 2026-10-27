@@ -194,13 +194,16 @@ internal class CombinedDeliverySession(
                 else -> "COMPLETED"
             }
             val mapping = withContext(Dispatchers.Default) { CombinedAnswerMappings.get(candidate.text, sources) }
+            val meaningfulClaimIds = CombinedContentIndexes.get(sources).records.flatMapTo(linkedSetOf()) { it.candidateIds }
+            val semanticCoverageVerified = meaningfulClaimIds.isNotEmpty() &&
+                checked.checks.none { it.id.startsWith("SEMANTIC_CONTRIBUTION_UNRESOLVED:") }
             val mappedPassages = CombinedAnswerMappings.passages(candidate.text, mapping, if (candidate.assembledLocally) emptyList() else candidate.decoder?.passages.orEmpty())
             val represented = mapping.links.flatMapTo(linkedSetOf()) { it.profileUids }
             return CombinedQualityReport(
                 version = 6,
                 answerDigest = researchHash(candidate.text),
                 claimMapping = mapping,
-                complete = candidate.text.isNotBlank() && providerComplete && framingValid && !material && violations.isEmpty() && !unresolvedResearch && checked.requiredFailures.isEmpty(),
+                complete = candidate.text.isNotBlank() && providerComplete && framingValid && !material && violations.isEmpty() && !unresolvedResearch && checked.requiredFailures.isEmpty() && semanticCoverageVerified,
                 status = when {
                     candidate.text.isBlank() -> "FAILED"
                     material -> "CORRECTION_REQUIRED"
@@ -246,6 +249,7 @@ internal class CombinedDeliverySession(
                 protocolComplete = providerComplete && framingValid,
                 identityLinkStatus = if (candidate.decoder?.issues.orEmpty().any { it in setOf("UNKNOWN_CLAIM_REFERENCE", "UNKNOWN_PROFILE_REFERENCE") }) "REJECTED_REFERENCES" else "KNOWN_OCCURRENCES",
                 semanticSupportStatus = if (represented.isEmpty()) "UNESTABLISHED" else "CONSERVATIVE_TEXT_LINKS_ONLY",
+                semanticCoverageVerified = semanticCoverageVerified,
                 lengthCompliance = if (violations.any { it.contains("WORD") || it.contains("LENGTH") }) "UNMET" else "MET",
                 topicCoverage = if (checked.checks.any { it.category in setOf("SCOPE", "RESEARCH_SCOPE") && it.result != "PASS" }) "UNRESOLVED" else "LOCAL_CHECKS_PASSED",
                 sourceLinkStatus = when {
@@ -490,7 +494,7 @@ internal class CombinedDeliverySession(
                 sourceAccountingStatus = "IMMUTABLE_ORIGINALS_AND_CLAIM_LINKS_V4"
             )
         }
-        AppLogRecorder.record("CombinedSynthesis", "SYNTHESIS_QUALITY · status=${finalReport.status} · delivered=${finalReport.deliveredScopeStatus} · verification=${finalReport.verificationStatus} · revision=${finalReport.revisionId} · assessedDigest=${finalReport.answerDigest} · assessmentStage=${finalReport.assessmentStage} · wordCounter=${finalReport.wordCounterVersion} · words=${finalReport.wordCount} · writerDigest=${finalReport.writerAnswerDigest} · writerCharacters=${finalReport.writerCharacters} · locallyAddedCharacters=${finalReport.locallyAddedCharacters} · locallyRemovedCharacters=${finalReport.locallyRemovedCharacters} · displayedCharacters=${finalReport.displayedCharacters} · fullyLinkedClaims=${finalReport.fullyLinkedClaims} · partialSourceLinks=${finalReport.partialSourceLinks} · unresolvedSourceLinks=${finalReport.unresolvedSourceLinks} · repairs=$repairs · accepted=$repairAccepted · rejected=$repairRejected · rejectionReasons=${rejections.joinToString(";")} · stoppingReason=$repairSkippedReason · semanticCoverageVerified=false · factualAccuracyVerified=false")
+        AppLogRecorder.record("CombinedSynthesis", "SYNTHESIS_QUALITY · status=${finalReport.status} · delivered=${finalReport.deliveredScopeStatus} · verification=${finalReport.verificationStatus} · revision=${finalReport.revisionId} · assessedDigest=${finalReport.answerDigest} · assessmentStage=${finalReport.assessmentStage} · wordCounter=${finalReport.wordCounterVersion} · words=${finalReport.wordCount} · writerDigest=${finalReport.writerAnswerDigest} · writerCharacters=${finalReport.writerCharacters} · locallyAddedCharacters=${finalReport.locallyAddedCharacters} · locallyRemovedCharacters=${finalReport.locallyRemovedCharacters} · displayedCharacters=${finalReport.displayedCharacters} · fullyLinkedClaims=${finalReport.fullyLinkedClaims} · partialSourceLinks=${finalReport.partialSourceLinks} · unresolvedSourceLinks=${finalReport.unresolvedSourceLinks} · repairs=$repairs · accepted=$repairAccepted · rejected=$repairRejected · rejectionReasons=${rejections.joinToString(";")} · stoppingReason=$repairSkippedReason · semanticCoverageVerified=${finalReport.semanticCoverageVerified} · factualAccuracyVerified=${finalReport.factualAccuracyVerified}")
         phase(CombinedDeliveryPhase.PUBLISHING)
         validateAccess()
         val linkedPassages = finalReport.passages.filter { it.semanticLinkStatus == "CONSERVATIVE_LINK_CHECKED" }

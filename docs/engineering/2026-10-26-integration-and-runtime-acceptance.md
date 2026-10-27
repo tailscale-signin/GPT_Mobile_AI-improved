@@ -110,6 +110,14 @@ Local validation: 50 focused JUnit tests for production duplicate cleanup, bridg
 
 Local `:app:testDebugUnitTest` could not start because the Gradle distribution download returned `Network is unreachable`. This workspace has JRE 17, lacks the configured Android SDK/JDK 21 toolchain and has no attached ASUS device. Final-commit CI, real-provider search/Examine, GitHub sign-in/private-write recovery, physical GPU/NPU execution and performance/release artifact qualification remain open.
 
+## October 27 Combined Mode redesign follow-up
+
+- Writer failure and no-writer recovery now publish a short, explicitly partial recovery message. Contributor answers and evidence remain in their original records for tabs, inspection and retry; neither local nor retained fallback copies raw source paragraphs into the final answer.
+- Semantic coverage checks now require each extracted contributor claim to have a validated final span or a validated duplicate disposition. Unresolved, partial or scope-dropped claims add a required final check and prevent the report from being marked complete.
+- Combined reports compute answer words and displayed characters from the exact final body. The durable publication invariant rejects `complete=true` unless protocol checks and semantic coverage both pass. Factual accuracy remains unverified unless the separate evidence checks can support that claim; source wording alone is not treated as ground truth.
+- Existing answer mapping continues to bind attribution to exact final text digests and ranges; profile-colour rendering consumes that mapping, while names are not inserted beside synthesized claims.
+- Regression coverage was added for omitted unique claims, labelled fallback behavior and final-display metrics. Full Android suite/CI and device acceptance are still required; no run result is inferred from source changes.
+
 
 ## October 27 diagnostic follow-up
 

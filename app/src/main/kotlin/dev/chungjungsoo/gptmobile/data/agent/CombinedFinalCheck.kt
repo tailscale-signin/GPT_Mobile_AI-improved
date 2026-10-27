@@ -166,6 +166,37 @@ internal object CombinedFinalCheck {
             }
         }
 
+        // A nonempty response is not sufficient evidence of successful synthesis.
+        // Every extracted contributor claim must be linked into the answer or have a
+        // validated duplicate disposition before delivery can be marked complete.
+        val coverageDecisions = reviewed.associateBy { it.claimId }
+        val unresolvedContributions = inventory.flatMap { claim ->
+            claim.candidateIds.filter { candidateId ->
+                val decision = coverageDecisions[candidateId] ?: return@filter true
+                when (decision.disposition) {
+                    "INCLUDED", "MERGED", "QUALIFIED", "DISPUTED", "CORRECTED" ->
+                        decision.finalSpans.isEmpty() || decision.semanticStatus == "UNESTABLISHED"
+                    "OMITTED_DUPLICATE" -> {
+                        val hasEquivalentClaim = inventory.any { other ->
+                            other.id != claim.id &&
+                                CombinedClaimMatcher.match(claim.proposition, other.proposition) >= CombinedClaimMatcher.Match.PARAPHRASE &&
+                                CombinedClaimMatcher.match(other.proposition, claim.proposition) >= CombinedClaimMatcher.Match.PARAPHRASE
+                        }
+                        !hasEquivalentClaim || decision.reason.isBlank() || decision.semanticStatus == "UNESTABLISHED"
+                    }
+                    else -> true
+                }
+            }
+        }.distinct()
+        unresolvedContributions.forEach { candidateId ->
+            checks += CombinedAnswerCheck(
+                "SEMANTIC_CONTRIBUTION_UNRESOLVED:$candidateId",
+                "SCOPE",
+                "FAIL",
+                message = "A distinct contributor claim is not represented, qualified, or verified as a duplicate in the final answer."
+            )
+        }
+
         destinations.forEachIndexed { index, (text, span) ->
             val id = "F${index + 1}"
             val cited = passages.filter { span.startUtf16 >= it.start && span.endUtf16 <= it.end }.flatMapTo(linkedSetOf()) { it.sourceIds }

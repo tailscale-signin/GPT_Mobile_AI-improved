@@ -69,6 +69,21 @@ class CombinedFinalizationRegressionTest {
         assertTrue(account.dispositions.none { it.disposition == "MISSING" })
     }
 
+    @Test fun omittedUniqueContributorClaimBlocksSuccessfulSynthesis() {
+        val sources = listOf(
+            CombinedModelResponse("source", "Source", content = "Portugal joined NATO in 1949 and the EEC in 1986.", claimExtractionVersion = 4),
+            CombinedModelResponse("other", "Other", content = "Portugal restored independence in 1640.", claimExtractionVersion = 4)
+        )
+        val assessment = CombinedFinalCheck.check(
+            "Portugal joined NATO in 1949.",
+            sources,
+            CombinedEvidenceLedger(),
+            CombinedAnswerPolicy.from("Explain the history of Portugal")
+        )
+        assertTrue(assessment.checks.any { it.id.startsWith("SEMANTIC_CONTRIBUTION_UNRESOLVED:") && it.result == "FAIL" })
+        assertTrue(assessment.requiredFailures.any { it.startsWith("SEMANTIC_CONTRIBUTION_UNRESOLVED:") })
+    }
+
     @Test fun oversizedWriterRecordIsMappedPerHeadingAndIndividualListItem() {
         val sources = listOf(
             CombinedModelResponse("first", "First", content = "The northern garden contains twelve apple trees.", claimExtractionVersion = 4),

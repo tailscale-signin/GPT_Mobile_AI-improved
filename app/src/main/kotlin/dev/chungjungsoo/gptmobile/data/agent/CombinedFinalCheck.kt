@@ -64,7 +64,12 @@ internal object CombinedFinalCheck {
                 checks += CombinedAnswerCheck("TASK_COVERAGE_UNMET:${CombinedHistoryOutline.labels[period]}", "SCOPE", "FAIL", true, message = "Retained contributions cover this requested historical period, but the answer does not.")
             }
         }
-        val inventory = CombinedClaimSemantics.records(sources)
+        val completeInventory = CombinedClaimSemantics.records(sources)
+        val inventory = CombinedEditorialInventory.select(
+            completeInventory,
+            policy.task?.request.orEmpty(),
+            policy
+        )
         val byId = CombinedContentIndexes.get(sources).byId
         val scoped = sources.any { it.claimExtractionVersion >= 2 }
         val destinations = if (passages.isEmpty()) sentencesWithSpans(answer, scoped = scoped) else passages.filter { it.matches(answer) }.flatMap { sentencesWithSpans(answer, it.start, it.end, scoped) }
@@ -115,7 +120,7 @@ internal object CombinedFinalCheck {
                 declaration.copy(finalSpans = outputs, semanticStatus = "CONSERVATIVE_PROPOSITION_AND_QUALIFIER_CHECKED")
             } else if (declaration.disposition == "OMITTED_DUPLICATE" &&
                 claim != null &&
-                inventory.none { other ->
+                completeInventory.none { other ->
                     other.id != claim.id &&
                         CombinedClaimMatcher.match(claim.proposition, other.proposition) >= CombinedClaimMatcher.Match.PARAPHRASE &&
                         CombinedClaimMatcher.match(other.proposition, claim.proposition) >= CombinedClaimMatcher.Match.PARAPHRASE
@@ -170,14 +175,22 @@ internal object CombinedFinalCheck {
         // Every extracted contributor claim must be linked into the answer or have a
         // validated duplicate disposition before delivery can be marked complete.
         val coverageDecisions = reviewed.associateBy { it.claimId }
+        // A user who explicitly asks for one example/fact accepts a deliberate choice
+        // among relevant candidates. All other requests still require every selected
+        // in-scope contribution to have a checked destination or explicit resolution.
+        val singleExampleCovered = policy.singleExample &&
+            inventory.any { claim ->
+                matches[claim.id].orEmpty().isNotEmpty() || corrections[claim.id].orEmpty().isNotEmpty()
+            }
         val unresolvedContributions = inventory.flatMap { claim ->
             claim.candidateIds.filter { candidateId ->
+                if (singleExampleCovered && matches[claim.id].orEmpty().isEmpty() && corrections[claim.id].orEmpty().isEmpty()) return@filter false
                 val decision = coverageDecisions[candidateId] ?: return@filter true
                 when (decision.disposition) {
                     "INCLUDED", "MERGED", "QUALIFIED", "DISPUTED", "CORRECTED" ->
                         decision.finalSpans.isEmpty() || decision.semanticStatus == "UNESTABLISHED"
                     "OMITTED_DUPLICATE" -> {
-                        val hasEquivalentClaim = inventory.any { other ->
+                        val hasEquivalentClaim = completeInventory.any { other ->
                             other.id != claim.id &&
                                 CombinedClaimMatcher.match(claim.proposition, other.proposition) >= CombinedClaimMatcher.Match.PARAPHRASE &&
                                 CombinedClaimMatcher.match(other.proposition, claim.proposition) >= CombinedClaimMatcher.Match.PARAPHRASE

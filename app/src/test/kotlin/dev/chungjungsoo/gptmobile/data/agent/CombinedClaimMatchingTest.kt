@@ -31,6 +31,12 @@ class CombinedClaimMatchingTest {
         assertEquals(0, result.missing.size)
     }
 
+    @Test fun compactParaphraseCanOmitNonessentialConstructionWordingWithoutLosingAttribution() {
+        val source = "The silver mines of Athens financed construction of naval ships."
+        val answer = "Silver mines funded Athenian ships."
+        assertEquals(CombinedClaimMatcher.Match.PARAPHRASE, CombinedClaimMatcher.match(source, answer))
+    }
+
     @Test fun contradictoryNumbersNegationAndUnsupportedCertaintyNeverMatch() {
         assertEquals(
             CombinedClaimMatcher.Match.NONE,

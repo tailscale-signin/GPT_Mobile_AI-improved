@@ -206,8 +206,8 @@ internal class CombinedDeliverySession(
                 complete = candidate.text.isNotBlank() && providerComplete && framingValid && !material && violations.isEmpty() && !unresolvedResearch && checked.requiredFailures.isEmpty() && semanticCoverageVerified,
                 status = when {
                     candidate.text.isBlank() -> "FAILED"
-                    material -> "CORRECTION_REQUIRED"
                     !providerComplete -> "INTERRUPTED"
+                    material -> "CORRECTION_REQUIRED"
                     delivered == "PARTIAL" -> "PARTIAL"
                     issues.isEmpty() -> "COMPLETED_UNVERIFIED"
                     else -> "COMPLETED_WITH_ISSUES"

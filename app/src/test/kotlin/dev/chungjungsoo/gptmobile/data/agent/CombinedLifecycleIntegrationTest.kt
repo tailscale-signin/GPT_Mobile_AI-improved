@@ -388,7 +388,8 @@ class CombinedLifecycleIntegrationTest {
         assertEquals(before, requests.size)
         assertEquals("FAILED", owner.status)
         assertEquals("NO_AUTHORIZED_WRITER", owner.terminalError)
-        assertTrue(message.effectiveContent().contains("The result is retained."))
+        assertTrue(message.effectiveContent().contains("unified answer could not be completed"))
+        assertFalse(message.effectiveContent().contains("The result is retained."))
         assertTrue(message.timeline.any { it.combinedFallback != null })
         assertFalse(requireNotNull(budgets.snapshot(root(accepted).rootBudgetId)).closed)
     }

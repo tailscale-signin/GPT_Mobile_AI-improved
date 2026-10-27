@@ -54,12 +54,13 @@ class CombinedAdmissionFallbackTest {
             assertNull(dao.publishRetainedCombinedFallback(run.runId, run.ownershipFence + 1, 10000, "COMBINED_CONTEXT_CAPACITY: too large"))
             assertNull(dao.publishRetainedCombinedFallback(run.runId, run.ownershipFence, 10000, "DISPATCH_POLICY_CHANGED: changed fields=tools."))
             val published = requireNotNull(dao.publishRetainedCombinedFallback(run.runId, run.ownershipFence, 10000, "DISPATCH_POLICY_CHANGED: changed fields=budget."))
-            sources.forEach { assertTrue(published.content.contains(it.content)) }
+            assertTrue(published.content.contains("unified answer could not be completed"))
+            sources.forEach { assertFalse(published.content.contains(it.content)) }
             val report = published.timeline.mapNotNull { it.combinedQuality }.single()
             assertFalse(report.complete)
             assertEquals("PARTIAL", report.deliveredScopeStatus)
             assertNotNull(report.claimMapping)
-            assertTrue(report.passages.isNotEmpty())
+            assertTrue(report.passages.isEmpty())
             assertEquals("FAILED", dao.recoveryRun(run.runId)?.status)
             val restored = requireNotNull(dao.recoveryMessage(published.id))
             assertEquals(published.content, restored.content)

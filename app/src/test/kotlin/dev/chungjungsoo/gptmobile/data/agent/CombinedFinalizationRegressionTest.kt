@@ -137,7 +137,7 @@ class CombinedFinalizationRegressionTest {
         assertEquals("NEEDS_VERIFICATION", report.verificationStatus)
         assertFalse(report.correctionRequired)
         assertFalse(report.factualAccuracyVerified)
-        assertFalse(report.semanticCoverageVerified)
+        assertTrue(report.semanticCoverageVerified)
         assertTrue(report.protocolComplete)
         assertTrue(report.complete)
         assertEquals(ProviderEvent.Completed, events.last())

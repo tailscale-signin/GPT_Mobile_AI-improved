@@ -50,6 +50,21 @@ class CombinedHistoryRegressionTest {
         assertEquals("EVIDENCE_UNAVAILABLE", history.timeline.single().combinedQuality?.verificationStatus)
     }
 
+    @Test fun writerUnavailableStatusAndEvidenceOnlyFallbackAreNotReusedAsAssistantAnswers() {
+        val status = final("A unified answer could not be completed.", CombinedQualityReport(status = "SYNTHESIS_UNAVAILABLE"))
+        assertNull(listOf(status).canonicalCombinedAssistant())
+        val evidenceOnly = final("Evidence remains saved for retry.", CombinedQualityReport(status = "PARTIAL")).copy(
+            timeline = listOf(
+                AssistantTimelineItem(
+                    AssistantTimelineItemType.NOTICE,
+                    combinedQuality = CombinedQualityReport(status = "PARTIAL"),
+                    combinedFallback = dev.chungjungsoo.gptmobile.data.agent.CombinedFallbackReceipt("EVIDENCE_ONLY", null, null, null, researchHash("Evidence remains saved for retry."), "snapshot", "run")
+                )
+            )
+        )
+        assertNull(listOf(evidenceOnly).canonicalCombinedAssistant())
+    }
+
     @Test fun selectedArchivedCombinedRevisionRetainsItsDeliveryIdentityAfterRegeneration() {
         val historical = AssistantRevision("Prior merged final", createdAt = 1, runId = "combined-synthesis:old", timeline = listOf(AssistantTimelineItem(AssistantTimelineItemType.NOTICE, combinedQuality = CombinedQualityReport(answerDigest = researchHash("Prior merged final"), complete = true))))
         val row = candidate("p", "New candidate", "CANDIDATE_PENDING").copy(revisions = listOf(historical), activeRevisionIndex = 0)

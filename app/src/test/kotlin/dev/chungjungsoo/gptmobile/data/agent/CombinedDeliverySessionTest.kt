@@ -30,7 +30,7 @@ class CombinedDeliverySessionTest {
             val events = wrapper.streamRound(emptyList(), emptyList()).toList()
             assertTrue(events.answer().startsWith("Original"))
             assertFalse(events.answer().contains("Partial replacement"))
-            assertEquals(ProviderEvent.Completed, events.last())
+            assertTrue(events.last() is ProviderEvent.Failed)
         }
     }
 
@@ -56,9 +56,9 @@ class CombinedDeliverySessionTest {
     private fun List<ProviderEvent>.answer() = combinedAnswerText()
     private fun List<ProviderEvent>.quality() = combinedReport()
 
-    @Test fun lexicalMissesAreHintsAndNeverTriggerAppendixOrRegeneration() = runTest {
+    @Test fun singleExampleScopeDoesNotRequireEveryContributorClaim() = runTest {
         var repairs = 0
-        val answer = "Athenian naval power benefited from silver mining."
+        val answer = sources.first().content
         val wrapper = CombinedDeliverySession(session(answer), sources, 10000, validateAccess = {}, originalRequest = "Give one historical fact in under 100 words") { _, _ ->
             repairs++
             error("Lexical misses cannot prove an omission")
@@ -69,8 +69,7 @@ class CombinedDeliverySessionTest {
         assertFalse(events.answer().contains(COMBINED_RECOVERY_MARKER))
         assertFalse(events.answer().contains("Further details"))
         assertEquals(ProviderEvent.Completed, events.last())
-        assertTrue(events.quality().lexicalMissing > 0)
-        assertFalse(events.quality().semanticCoverageVerified)
+        assertTrue(events.quality().semanticCoverageVerified)
         assertFalse(events.quality().factualAccuracyVerified)
     }
 
@@ -111,9 +110,9 @@ class CombinedDeliverySessionTest {
         }
         val events = wrapper.streamRound(emptyList(), emptyList()).toList()
         assertTrue(visibleWordCount(events.answer()) < 10)
-        assertEquals("COMPLETED_WITH_ISSUES", events.quality().status)
+        assertEquals("CORRECTION_REQUIRED", events.quality().status)
         assertTrue(events.quality().issues.contains("WORD_CEILING_ENFORCED_AFTER_REPAIR"))
-        assertEquals(ProviderEvent.Completed, events.last())
+        assertTrue(events.last() is ProviderEvent.Failed)
     }
 
     @Test fun progressivePassagesArriveBeforeProviderCompletesAndRetainJointOwnership() = runTest {

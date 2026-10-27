@@ -38,6 +38,7 @@ internal fun List<MessageV2>.canonicalCombinedAssistant(): MessageV2? {
     if (quality != null && quality.answerDigest.isNotBlank()) {
         require(quality.answerDigest == researchHash(content)) { "The selected Combined history revision changed; reload before sending." }
     }
+    if (timeline.any { it.combinedFallback?.kind == "EVIDENCE_ONLY" } || quality?.status in setOf("FALLBACK_SOURCE_COMPILATION", "SYNTHESIS_UNAVAILABLE")) return null
     if (content.isBlank() || isAssistantErrorMessage(content)) return null
     // A partial or cancelled delivery may contain useful committed prose. Preserve those exact
     // bytes and its quality report; never invent an assistant answer or append internal notices.

@@ -104,7 +104,7 @@ class CombinedDiagnosticRepairTest {
 
     @Test fun advisoryAttributionFailureKeepsUsableDraftAndDoesNotLaunchAnExpensiveWholeAnswerRepair() = runTest {
         val source = CombinedModelResponse("a", "A", content = "Provider A supports a free model API for chat applications.")
-        val wire = passage("A local endpoint example is http://localhost:11434; current provider terms remain unverified.") +
+        val wire = passage("Provider A supports a free model API for chat applications. A local endpoint example is http://localhost:11434; current provider terms remain unverified.") +
             """{"type":"decision","claim":"C1.1","disposition":"MERGED","reason":"Combined elsewhere","final_quote":"Text that is absent"}""" + "\n"
         val wrapper = CombinedDeliverySession(session(wire), listOf(source), 10000, validateAccess = {}, structured = true, combined = execution(), originalRequest = "Rank free model APIs") { _, _ -> error("Advisory attribution does not require a rewrite") }
         val events = wrapper.streamRound(emptyList(), emptyList()).toList()

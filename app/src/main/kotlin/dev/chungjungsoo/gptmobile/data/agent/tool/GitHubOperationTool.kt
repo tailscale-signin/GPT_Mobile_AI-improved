@@ -224,13 +224,19 @@ internal class GitHubOperationTool(
                         put("type", "array")
                         put("minItems", 1)
                         put("maxItems", 20)
-                        put("items", buildJsonObject {
-                            put("type", "object")
-                            put("properties", buildJsonObject {
-                                listOf("path", "content", "expected_blob_sha").forEach { put(it, field("string")) }
-                            })
-                            put("required", JsonArray(listOf("path", "content").map(::JsonPrimitive)))
-                        })
+                        put(
+                            "items",
+                            buildJsonObject {
+                                put("type", "object")
+                                put(
+                                    "properties",
+                                    buildJsonObject {
+                                        listOf("path", "content", "expected_blob_sha").forEach { put(it, field("string")) }
+                                    }
+                                )
+                                put("required", JsonArray(listOf("path", "content").map(::JsonPrimitive)))
+                            }
+                        )
                     }
                 }
                 "github_pr" -> {

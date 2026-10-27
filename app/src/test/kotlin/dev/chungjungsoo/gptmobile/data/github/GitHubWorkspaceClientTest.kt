@@ -510,6 +510,33 @@ class GitHubWorkspaceClientTest {
         }
     }
     @Test
+    fun actionsPermissionDeniedExplainsRequiredPermissionWithoutClaimingRateLimit() = runTest {
+        val http = HttpClient(
+            MockEngine {
+                respond(
+                    """{"message":"Resource not accessible by integration: Actions workflow permission required"}""",
+                    HttpStatusCode.Forbidden
+                )
+            }
+        )
+        try {
+            val failure = runCatching {
+                GitHubWorkspaceClient("token", http).execute(
+                    "get_repository",
+                    buildJsonObject {
+                        put("owner", "owner")
+                        put("repo", "repo")
+                    }
+                )
+            }.exceptionOrNull()
+            assertTrue(failure != null)
+            assertTrue(failure!!.message.orEmpty().contains("workflow write permission", ignoreCase = true))
+        } finally {
+            http.close()
+        }
+    }
+
+    @Test
     fun rejectedGitHubCredentialsStopFurtherRequestsWithinTheClient() = runTest {
         var requests = 0
         val http = HttpClient(

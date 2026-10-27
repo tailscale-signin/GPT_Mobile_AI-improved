@@ -23,7 +23,7 @@ class CompletionUsageNormalizerTest {
     fun incompleteUsageRetainsValidCounters() {
         assertEquals(
             CompletionUsageNormalizer.Usage(12, null, null),
-            CompletionUsageNormalizer.parse(json("""{"usage":{"prompt_tokens":12}}""")),
+            CompletionUsageNormalizer.parse(json("""{"usage":{"prompt_tokens":12}}"""))
         )
     }
 
@@ -46,7 +46,7 @@ class CompletionUsageNormalizerTest {
     fun zeroCountersAreValid() {
         assertEquals(
             CompletionUsageNormalizer.Usage(0, 0, 0),
-            CompletionUsageNormalizer.parse(json("""{"usage":{"prompt_tokens":0,"completion_tokens":0,"total_tokens":0}}""")),
+            CompletionUsageNormalizer.parse(json("""{"usage":{"prompt_tokens":0,"completion_tokens":0,"total_tokens":0}}"""))
         )
     }
 
@@ -54,7 +54,7 @@ class CompletionUsageNormalizerTest {
     fun completeUsageIsPreserved() {
         assertEquals(
             CompletionUsageNormalizer.Usage(10, 5, 15),
-            CompletionUsageNormalizer.parse(json("""{"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}""")),
+            CompletionUsageNormalizer.parse(json("""{"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}"""))
         )
     }
 }

@@ -133,7 +133,7 @@ internal class GitHubOperationTool(
             if (Regex("\\b(ci|build|test failure|workflow|pipeline)\\b").containsMatchIn(text)) selected += "github_ci"
             if (Regex("\\b(fix|patch|edit|change|implement)\\b").containsMatchIn(text)) selected += "github_stage_patch"
             if (Regex("\\b(commit|push|branch)\\b").containsMatchIn(text)) selected += "github_commit"
-            if (Regex("\\b(write|create file|edit file|modify file|commit|push|patch|implement)\\b").containsMatchIn(text)) selected += "github_write"
+            if (Regex("\\b(write|create file|edit file|modify file|delete|remove file|commit|push|patch|implement)\\b").containsMatchIn(text)) selected += "github_write"
             if ("release" in text) selected += "github_release"
             return selected
         }
@@ -236,6 +236,27 @@ internal class GitHubOperationTool(
                                     }
                                 )
                                 put("required", JsonArray(listOf("path").map(::JsonPrimitive)))
+                                put(
+                                    "oneOf",
+                                    JsonArray(
+                                        listOf(
+                                            buildJsonObject {
+                                                put("required", JsonArray(listOf(JsonPrimitive("content"))))
+                                                put("properties", buildJsonObject { put("delete", buildJsonObject { put("const", false) }) })
+                                            },
+                                            buildJsonObject {
+                                                put("required", JsonArray(listOf("delete", "expected_blob_sha").map(::JsonPrimitive)))
+                                                put(
+                                                    "properties",
+                                                    buildJsonObject {
+                                                        put("delete", buildJsonObject { put("const", true) })
+                                                        put("content", buildJsonObject { put("const", "") })
+                                                    }
+                                                )
+                                            }
+                                        )
+                                    )
+                                )
                             }
                         )
                     }

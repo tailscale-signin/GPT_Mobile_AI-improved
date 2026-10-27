@@ -1,6 +1,6 @@
 # GitHub Engineering Agent 2.0 — implementation contract
 
-Status: architecture baseline; implementation and tests pending.
+Status: Android controller, Room ledger, approval, Git saga and CI watcher implemented; end-to-end and device acceptance remains open. See `docs/engineering/2026-10-26-integration-and-runtime-acceptance.md`.
 Target: Android Kotlin/Room, existing GitHubOperationTool and native GitHub backend.
 Branch: `fix/local-tools-answers-gguf-gpu-2026-10-26`.
 
@@ -17,8 +17,7 @@ Branch: `fix/local-tools-answers-gguf-gpu-2026-10-26`.
 ## Task state machine
 
 CREATED -> INSPECTING -> PATCH_GENERATED -> VALIDATING_LOCAL -> PATCH_READY
-PATCH_READY -> AWAITING_APPROVAL -> COMMITTING (when approval required)
-PATCH_READY -> COMMITTING (only when policy explicitly preauthorizes)
+PATCH_READY -> AWAITING_APPROVAL -> COMMITTING (exact user approval required)
 COMMITTING -> PUSHED -> CI_PENDING -> CI_VERIFIED
 CI_VERIFIED -> AWAITING_HARDWARE_VERIFICATION -> HARDWARE_VERIFIED (when required)
 CI_VERIFIED or HARDWARE_VERIFIED -> COMPLETED (when policy requirements satisfied)
@@ -51,7 +50,7 @@ Note: GitHub's update-ref endpoint is not generally a transactional compare-and-
 - Apply patch in a sandbox; run parser/syntax validation where available. Parsing is not equivalent to full compilation.
 - Scan added content for secrets; redact detected values from all evidence.
 - Evaluate changed file count, line count, protected paths and permissions.
-- If thresholds are exceeded, transition to AWAITING_APPROVAL; reject expired or mismatched approval tokens.
+- Every patch transitions to AWAITING_APPROVAL; reject expired, revoked or mismatched approval tokens. Blast-radius thresholds may block a patch but cannot waive approval.
 - Treat build failures as CI_FAILED; classify and retain bounded sanitized log excerpts.
 - Check conclusions and required-check policy against the exact current head SHA, not HTTP transport status.
 - Verify commit signatures separately from commit SHA identity.

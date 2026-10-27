@@ -114,6 +114,22 @@ class GitHubOperationToolTest {
         assertTrue(backend.calls.isEmpty())
     }
 
+    @Test fun deletionSchemaRequiresExplicitIntentAndBlobWithoutReplacementContent() {
+        val schema = GitHubOperationTool.definition("github_write").inputSchema
+        fun arguments(file: String) = args("""{"branch":"fix/example","expected_head_sha":"$sha","message":"Delete file","files":[$file]}""")
+        val valid = arguments("""{"path":"old.txt","delete":true,"expected_blob_sha":"$sha"}""")
+        assertTrue(ToolArgumentValidator.errors(valid, schema).isEmpty())
+        for (file in listOf(
+            """{"path":"old.txt"}""",
+            """{"path":"old.txt","delete":false}""",
+            """{"path":"old.txt","delete":true}""",
+            """{"path":"old.txt","delete":true,"expected_blob_sha":"$sha","content":"replacement"}"""
+        )) {
+            assertTrue(ToolArgumentValidator.errors(arguments(file), schema).isNotEmpty())
+        }
+        assertTrue("github_write" in GitHubOperationTool.taskTools("Delete old.txt in the GitHub repository"))
+    }
+
     @Test fun directWriteRequiresAllCommitPreconditions() = runBlocking {
         val backend = Backend()
         val tool = GitHubOperationTool("github_write", backend, "missing-fields")

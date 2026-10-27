@@ -24,6 +24,14 @@ class CombinedContinuationProgressTest {
         assertEquals(CombinedContinuationProgress.Result.ADVANCED, CombinedContinuationProgress.assess("First. Second.", "Second. Third."))
     }
 
+    @Test fun entirelyNewReplacementCountsAsProgress() {
+        assertEquals(CombinedContinuationProgress.Result.ADVANCED, CombinedContinuationProgress.assess("Draft with unresolved errors.", "Corrected answer with supporting details."))
+    }
+
+    @Test fun emptyPriorDraftAcceptsVisibleText() {
+        assertEquals(CombinedContinuationProgress.Result.ADVANCED, CombinedContinuationProgress.assess("", "Recovered visible answer."))
+    }
+
     @Test fun shorterSuffixIsNotProgress() {
         assertEquals(CombinedContinuationProgress.Result.REPEATED, CombinedContinuationProgress.assess("Introduction. Middle Ages. Revolution.", "Middle Ages. Revolution."))
     }

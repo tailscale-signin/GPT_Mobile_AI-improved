@@ -27,7 +27,8 @@ class GitHubWorkspaceClientTest {
     @Test fun reviewReplyUsesPullRequestScopedEndpoint() = runTest {
         val sha = "a".repeat(40)
         var requests = 0
-        val http = HttpClient(MockEngine { request ->
+        val http = HttpClient(
+            MockEngine { request ->
             requests++
             val body = when (requests) {
                 1 -> {
@@ -45,17 +46,21 @@ class GitHubWorkspaceClientTest {
                 }
                 else -> error("Unexpected request")
             }
-            respond(body)
-        })
+                respond(body)
+            }
+        )
         try {
-            GitHubWorkspaceClient("token", http).execute("reply_pull_request_comment", buildJsonObject {
+            GitHubWorkspaceClient("token", http).execute(
+                "reply_pull_request_comment",
+                buildJsonObject {
                 put("owner", "owner")
                 put("repo", "repo")
                 put("pull_number", 7)
                 put("comment_id", 9)
                 put("expected_head_sha", sha)
-                put("body", "Addressed in the current revision.")
-            })
+                    put("body", "Addressed in the current revision.")
+                }
+            )
             assertEquals(3, requests)
         } finally {
             http.close()

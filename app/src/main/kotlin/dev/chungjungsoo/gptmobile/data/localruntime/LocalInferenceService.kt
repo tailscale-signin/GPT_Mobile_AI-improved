@@ -80,7 +80,8 @@ class LocalInferenceService : Service() {
                         when (packet.operation) {
                             "ACK" ->
                                 if ((packet.generation.isBlank() || packet.generation == generation) &&
-                                    packet.requestId == activeCommandRequest
+                                    packet.requestId == activeCommandRequest &&
+                                    packet.sessionId == sessionId
                                 ) {
                                     replies[packet.requestId]?.acknowledge(packet.sequence)
                                 }

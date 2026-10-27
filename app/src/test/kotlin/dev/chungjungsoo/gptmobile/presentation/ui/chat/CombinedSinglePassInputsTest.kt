@@ -49,6 +49,8 @@ class CombinedSinglePassInputsTest {
             assertTrue(claim.getValue("source_ranges_utf16").jsonArray.isNotEmpty())
         }
         assertTrue(prompt.getValue("preservation_instruction").jsonPrimitive.content.contains("one coherent answer"))
+        assertTrue(prompt.getValue("preservation_instruction").jsonPrimitive.content.contains("organized by subject, not by contributor or response order"))
+        assertTrue(prompt.getValue("preservation_instruction").jsonPrimitive.content.contains("keep provenance in passage metadata"))
         assertTrue(prompt.getValue("preservation_instruction").jsonPrimitive.content.contains("Explicit user"))
     }
 

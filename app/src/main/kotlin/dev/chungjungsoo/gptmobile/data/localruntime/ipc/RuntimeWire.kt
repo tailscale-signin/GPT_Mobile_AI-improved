@@ -132,13 +132,14 @@ internal object RuntimeWireTransport {
                 packet.sequence >= 0
         ) { "Unsupported local IPC protocol" }
         val content = json.encodeToString(packet)
-        require(content.toByteArray(Charsets.UTF_8).size <= MAX_PAYLOAD_BYTES) {
+        val contentBytes = content.toByteArray(Charsets.UTF_8)
+        require(contentBytes.size <= MAX_PAYLOAD_BYTES) {
             "Local request exceeds the IPC payload limit; reduce attached images or history."
         }
         var descriptor: ParcelFileDescriptor? = null
         try {
             val data = Bundle()
-            if (content.length < 16 * 1024) {
+            if (contentBytes.size < 16 * 1024) {
                 data.putString("json", content)
             } else {
                 val directory = File(context.noBackupFilesDir, "runtime-ipc-${android.os.Process.myPid()}").apply { mkdirs() }

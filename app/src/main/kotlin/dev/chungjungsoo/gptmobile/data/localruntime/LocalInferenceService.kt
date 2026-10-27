@@ -86,8 +86,16 @@ class LocalInferenceService : Service() {
                                 ) {
                                     toolResults[packet.callId]?.complete(packet)
                                 }
-                            "CANCEL" -> cancel(packet.requestId)
-                            "SHUTDOWN" -> terminateWorker("CLIENT_SHUTDOWN", packet.requestId)
+                            // Delayed control messages from an old worker generation must
+                            // never cancel or kill a newly started native process.
+                            "CANCEL" ->
+                                if (packet.generation.isBlank() || packet.generation == generation) {
+                                    cancel(packet.requestId)
+                                }
+                            "SHUTDOWN" ->
+                                if (packet.generation.isBlank() || packet.generation == generation) {
+                                    terminateWorker("CLIENT_SHUTDOWN", packet.requestId)
+                                }
                             else -> start(packet, target)
                         }
                     }

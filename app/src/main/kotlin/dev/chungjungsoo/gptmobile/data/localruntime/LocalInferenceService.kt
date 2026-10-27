@@ -115,6 +115,13 @@ class LocalInferenceService : Service() {
             reply.send("ERROR", text = "The native worker is still busy or cancelling")
             return
         }
+        // A shutdown may win the race between the first check and acquiring the
+        // operation lease. Never start native work after termination is requested.
+        if (terminationRequested.get()) {
+            operationLock.unlock()
+            reply.send("ERROR", text = "Native worker is terminating; reconnect to a fresh process.")
+            return
+        }
         reply.deferTerminal = true
         activeCommandRequest = packet.requestId
         val job =

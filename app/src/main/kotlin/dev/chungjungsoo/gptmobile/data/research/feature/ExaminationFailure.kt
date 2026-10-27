@@ -21,6 +21,7 @@ internal fun examinationFailure(error: Exception, attempt: Int, now: Long = Syst
         error.javaClass.simpleName == "CombinedBudgetExceeded" || error.message.orEmpty().contains("BUDGET", true) -> "ADMITTED_CAPACITY_EXHAUSTED"
         error.message.orEmpty().contains("permission", true) -> "PERMISSION_REVOKED"
         causes.any { it is java.net.UnknownHostException || it is java.net.NoRouteToHostException } -> "NETWORK_UNAVAILABLE"
+        causes.any { it.message.orEmpty().contains("HTTP 429", true) || it.message.orEmpty().contains("429 Too Many Requests", true) } -> "RATE_LIMITED"
         causes.any { it.message.orEmpty().contains("HTTP 403", true) || it.message.orEmpty().contains("403 Forbidden", true) } -> "SOURCE_ACCESS_BLOCKED"
         causes.any { it.message.orEmpty().contains("HTTP 401", true) || it.message.orEmpty().contains("401 Unauthorized", true) } -> "EXAMINER_AUTH_REQUIRED"
         causes.any { it.message.orEmpty().contains("INVALID_JSON", true) || it.message.orEmpty().contains("JSON_DECODING", true) } -> "OUTPUT_INVALID"

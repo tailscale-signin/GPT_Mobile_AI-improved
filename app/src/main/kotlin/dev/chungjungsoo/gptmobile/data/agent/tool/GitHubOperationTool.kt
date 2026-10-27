@@ -59,12 +59,12 @@ internal class GitHubOperationTool(
             val requiredFields = when (action) {
                 "create" -> listOf("title", "head", "base")
                 "update", "merge" -> listOf("pull_number", "expected_head_sha")
-                "comment" -> listOf("pull_number", "body")
-                "review" -> listOf("pull_number")
-                "reply" -> listOf("pull_number", "comment_id", "body")
+                "comment" -> listOf("pull_number", "body", "expected_head_sha")
+                "review" -> listOf("pull_number", "expected_head_sha")
+                "reply" -> listOf("pull_number", "comment_id", "body", "expected_head_sha")
                 else -> emptyList()
             }
-            val shaActions = setOf("update", "merge")
+            val shaActions = setOf("update", "merge", "comment", "reply", "review")
             if (action in shaActions) {
                 val expected = (arguments["expected_head_sha"] as? JsonPrimitive)?.content.orEmpty()
                 if (!expected.matches(Regex("[a-fA-F0-9]{40}"))) {

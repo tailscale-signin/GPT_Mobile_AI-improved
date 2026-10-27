@@ -78,7 +78,10 @@ class LocalInferenceService : Service() {
                         val target = message.replyTo ?: return
                         val packet = runCatching { RuntimeWireTransport.read(message) }.getOrElse { return }
                         when (packet.operation) {
-                            "ACK" -> replies[packet.requestId]?.acknowledge(packet.sequence)
+                            "ACK" ->
+                                if (packet.generation.isBlank() || packet.generation == generation) {
+                                    replies[packet.requestId]?.acknowledge(packet.sequence)
+                                }
                             "TOOL_RESULT" ->
                                 if (packet.generation == generation &&
                                     packet.requestId == generatingRequest &&

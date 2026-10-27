@@ -320,7 +320,7 @@ internal class CombinedDeliverySession(
             }
             val rewritten = repairSession?.let { collect(it, false) }
             validateAccess()
-            if (rewritten != null && CombinedContinuationProgress.assess(accepted.text, rewritten.text) != CombinedContinuationProgress.Result.ADVANCED && rewritten.decoder?.decisions == accepted.decoder?.decisions) {
+            if (rewritten != null && CombinedContinuationProgress.assess(accepted.text, rewritten.text) != CombinedContinuationProgress.Result.ADVANCED) {
                 repairRejected++
                 rejections += "REPLACEMENT_MADE_NO_TEXT_PROGRESS"
                 repairSkippedReason = "NO_PROGRESS_AFTER_REQUIRED_REVISION"

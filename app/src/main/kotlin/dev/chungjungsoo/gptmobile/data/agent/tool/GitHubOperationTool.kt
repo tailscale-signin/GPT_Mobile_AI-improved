@@ -94,17 +94,23 @@ internal class GitHubOperationTool(
                 }
                 "github_pr" -> when (requested) {
                     "", "context" -> "pr_context"
+                    "comments" -> "get_pull_request_comments"
                     "create" -> "create_pull_request"
                     "update" -> "update_pull_request"
                     "comment" -> "create_issue_comment"
+                    "reply" -> "reply_pull_request_comment"
+                    "review" -> "create_pull_request_review"
                     "merge" -> "merge_pull_request"
                     else -> return null
                 }
                 "github_ci" -> when (requested) {
                     "", "failure" -> "ci_failure_digest"
+                    "workflows" -> "list_workflows"
                     "runs" -> "list_workflow_runs"
+                    "run" -> "get_workflow_run"
                     "jobs" -> "list_workflow_jobs"
                     "logs" -> "get_job_logs"
+                    "artifacts" -> "list_workflow_artifacts"
                     "dispatch" -> "dispatch_workflow"
                     "rerun" -> "rerun_failed_jobs"
                     "cancel" -> "cancel_workflow"
@@ -133,7 +139,7 @@ internal class GitHubOperationTool(
             if (Regex("\\b(ci|build|test failure|workflow|pipeline)\\b").containsMatchIn(text)) selected += "github_ci"
             if (Regex("\\b(fix|patch|edit|change|implement)\\b").containsMatchIn(text)) selected += "github_stage_patch"
             if (Regex("\\b(commit|committing|push|pushing|branch)\\b").containsMatchIn(text)) selected += "github_commit"
-            if (Regex("\\b(write|writing|create file|edit file|modify file|delete|remove file|commit|committing|push|pushing|patch|implement|apply changes)\\b").containsMatchIn(text)) selected += "github_write"
+            if (Regex("\\b(write|writing|create file|edit|modify|change|fix|add|update|delete|remove file|commit|committing|push|pushing|patch|implement|apply changes)\\b").containsMatchIn(text)) selected += "github_write"
             if ("release" in text) selected += "github_release"
             return selected
         }
@@ -262,9 +268,28 @@ internal class GitHubOperationTool(
                     }
                 }
                 "github_pr" -> {
-                    properties["action"] = choice("context", "create", "update", "comment", "merge")
+                    properties["action"] = choice("context", "comments", "create", "update", "comment", "reply", "review", "merge")
                     properties["pull_number"] = field("integer")
                     listOf("title", "body", "head", "base", "expected_head_sha", "expected_base_sha").forEach { properties[it] = field("string") }
+                    properties["comment_id"] = field("integer")
+                    properties["event"] = choice("APPROVE", "REQUEST_CHANGES", "COMMENT")
+                    properties["comments"] = buildJsonObject {
+                        put("type", "array")
+                        put("maxItems", 30)
+                        put("items", buildJsonObject {
+                            put("type", "object")
+                            put("properties", buildJsonObject {
+                                put("path", field("string"))
+                                put("line", field("integer"))
+                                put("side", choice("LEFT", "RIGHT"))
+                                put("body", field("string"))
+                                put("start_line", field("integer"))
+                                put("start_side", choice("LEFT", "RIGHT"))
+                            })
+                            put("required", JsonArray(listOf("path", "line", "body").map(::JsonPrimitive)))
+                            put("additionalProperties", false)
+                        })
+                    }
                     properties["draft"] = field("boolean")
                     properties["page"] = field("integer")
                     properties["check_page"] = field("integer")
@@ -273,7 +298,7 @@ internal class GitHubOperationTool(
                     properties["include_checks"] = field("boolean")
                 }
                 "github_ci" -> {
-                    properties["action"] = choice("failure", "runs", "jobs", "logs", "dispatch", "rerun", "cancel")
+                    properties["action"] = choice("failure", "workflows", "runs", "run", "jobs", "logs", "artifacts", "dispatch", "rerun", "cancel")
                     listOf("run_id", "job_id", "page").forEach { properties[it] = field("integer") }
                     listOf("workflow_id", "branch", "ref").forEach { properties[it] = field("string") }
                     properties["inputs"] = field("object")
@@ -292,8 +317,8 @@ internal class GitHubOperationTool(
                 "github_stage_patch" -> "Validate expected head/blob SHAs and preview exact edits without committing."
                 "github_commit" -> "Create a working branch or commit a validated stage_id with head checks."
                 "github_write" -> "Stage up to 20 UTF-8 file creations, replacements or deletions for exact user approval and one atomic commit on a working branch. Supply expected_head_sha and expected_blob_sha for existing files. Replacements require content; deletions require delete=true and no content. Never write to the default branch."
-                "github_pr" -> "Read or explicitly create/update/comment/merge a pull request."
-                "github_ci" -> "Read concise CI failure evidence, or explicitly dispatch/rerun/cancel a run."
+                "github_pr" -> "Read PR files, checks and review threads; explicitly post inline review comments, reply to review comments, update/comment/create, or merge after all checks pass. Writes require the current expected head SHA."
+                "github_ci" -> "List workflows and runs, inspect run/job status, artifacts and parsed failure logs, or explicitly dispatch/rerun/cancel a workflow."
                 else -> "Check release readiness or explicitly publish the selected release."
             } + " Omitted repository uses this task's context. Expand retained results with view_cursor."
             return AgentToolDefinition(

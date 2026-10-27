@@ -197,7 +197,17 @@ class ResearchExaminationWorker @AssistedInject constructor(
 
     companion object {
         fun enqueue(context: Context, reconsider: Boolean = false) {
-            WorkManager.getInstance(context).enqueueUniqueWork("research-examination-outbox", if (reconsider) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP, OneTimeWorkRequestBuilder<ResearchExaminationWorker>().setBackoffCriteria(androidx.work.BackoffPolicy.EXPONENTIAL, 30, java.util.concurrent.TimeUnit.SECONDS).build())
+            val networkReady = androidx.work.Constraints.Builder()
+                .setRequiredNetworkType(androidx.work.NetworkType.CONNECTED)
+                .build()
+            WorkManager.getInstance(context).enqueueUniqueWork(
+                "research-examination-outbox",
+                if (reconsider) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP,
+                OneTimeWorkRequestBuilder<ResearchExaminationWorker>()
+                    .setConstraints(networkReady)
+                    .setBackoffCriteria(androidx.work.BackoffPolicy.EXPONENTIAL, 30, java.util.concurrent.TimeUnit.SECONDS)
+                    .build()
+            )
         }
     }
 }

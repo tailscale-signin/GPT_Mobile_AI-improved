@@ -115,7 +115,18 @@ internal object LocalContextPlanner {
             }
         }
         protectedTools.forEach(::admitTool)
-        require(selectedTools.map { it.name }.containsAll(requiredNames)) { "Required tool schemas do not fit this local context. Select fewer tools or a larger-context model; the app cannot complete this tool-dependent request without them." }
+        val missingRequiredNames = requiredNames - selectedTools.map { it.name }.toSet()
+        if (missingRequiredNames.isNotEmpty()) {
+            val missingGitHubOperations = missingRequiredNames.mapNotNull { name ->
+                dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(name)
+            }.distinct()
+            if (missingGitHubOperations.isNotEmpty()) {
+                throw IllegalArgumentException(
+                    "GITHUB_REQUIRED_TOOL_CONTEXT_BUDGET: GitHub operation schemas (${missingGitHubOperations.joinToString()}) do not fit this local model's $contextTokens-token context. Select a larger-context model or shorten the request, system instructions, and attached history. No GitHub write was dispatched."
+                )
+            }
+            throw IllegalArgumentException("Required tool schemas do not fit this local context. Select fewer tools or a larger-context model; the app cannot complete this tool-dependent request without them.")
+        }
         // Required capabilities take precedence, but optional schemas must not starve
         // the original goal or the most recent exchange (including extracted documents).
         val retainedIndices = mutableSetOf<Int>()
@@ -172,6 +183,13 @@ internal object LocalContextPlanner {
                 }
             }
             matching?.let { required += it.name }
+        }
+        val requestedGitHubOperations = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(prompt)
+        if (requestedGitHubOperations.isNotEmpty()) {
+            tools.forEach { tool ->
+                val operation = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(tool.name)
+                if (operation in requestedGitHubOperations) required += tool.name
+            }
         }
         if (Regex("nearby|nearest|closest|my location|current location").containsMatchIn(lower)) select("device_location")
         if ("airbnb" in lower) select("airbnb")

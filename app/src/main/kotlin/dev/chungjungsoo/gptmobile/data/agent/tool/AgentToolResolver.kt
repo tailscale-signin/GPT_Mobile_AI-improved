@@ -326,8 +326,25 @@ class AgentToolResolver @Inject constructor(
                         } catch (error: CancellationException) {
                             throw error
                         } catch (error: Exception) {
-                            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ToolCatalog", "TOOL_RESOLUTION_FAILED · connection=${connection.connectionUid} · reason=${error.javaClass.simpleName} · cachedOnly=$cachedCataloguesOnly", "W")
-                            emptyList<ResolvedAgentTool>() to "${connection.name}: tools unavailable. Check authentication and connection diagnostics."
+                            val outcome = when {
+                                error is McpBackoffException -> "WAITING_RECOVERY"
+                                generateSequence(error) { current -> current.cause?.takeUnless { cause -> cause === current } }.take(8).any { it is McpAuthenticationRequiredException } -> "AUTHENTICATION_REQUIRED"
+                                generateSequence(error) { current -> current.cause?.takeUnless { cause -> cause === current } }.take(8).any { it is McpEndpointConfigurationException } -> "ENDPOINT_CONFIGURATION"
+                                generateSequence(error) { current -> current.cause?.takeUnless { cause -> cause === current } }.take(8).any { it is java.io.IOException } -> "NETWORK_UNAVAILABLE"
+                                error is IllegalStateException -> "MCP_STATE_OR_CATALOG_INVALID"
+                                else -> "DISCOVERY_FAILED"
+                            }
+                            val event = if (outcome == "WAITING_RECOVERY") "TOOL_RESOLUTION_WAITING_RECOVERY" else "TOOL_RESOLUTION_FAILED"
+                            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ToolCatalog", "$event · connection=${connection.connectionUid} · outcome=$outcome · reason=${error.javaClass.simpleName} · cachedOnly=$cachedCataloguesOnly · health=${mcpClientManager.healthSnapshot(connection.connectionUid).state}", if (outcome == "WAITING_RECOVERY") "I" else "W")
+                            val message = when (outcome) {
+                                "WAITING_RECOVERY" -> "${connection.name}: temporarily waiting for the MCP connection backoff to expire. The tool catalogue is retained and can be refreshed when recovery is available."
+                                "AUTHENTICATION_REQUIRED" -> "${connection.name}: authentication is required. Reconnect or update this server's credentials."
+                                "ENDPOINT_CONFIGURATION" -> "${connection.name}: the MCP endpoint path or server configuration is invalid. Check the configured URL and reconnect."
+                                "NETWORK_UNAVAILABLE" -> "${connection.name}: network access to this MCP server is unavailable. The saved catalogue is retained for retry after connectivity returns."
+                                "MCP_STATE_OR_CATALOG_INVALID" -> "${connection.name}: the MCP connection or tool catalogue changed during discovery. Refresh the catalogue after the connection settles."
+                                else -> "${connection.name}: tool discovery failed. Check connection diagnostics and retry catalogue discovery."
+                            }
+                            emptyList<ResolvedAgentTool>() to message
                         }
                     }
                 }.awaitAll()

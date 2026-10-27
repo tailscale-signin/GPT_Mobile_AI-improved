@@ -33,7 +33,26 @@ internal fun planAuthorizedToolContext(turns: List<ConversationTurn>, prompt: St
     val definitions = tools.map { it.tool.definition }
     val catalog = if (externalTools) tools.firstNotNullOfOrNull { it.progressiveCatalog } ?: if (limits.adaptiveToolCatalog) ProgressiveToolCatalog.create(definitions, turns.lastOrNull { it.isCurrentTurn }?.userMessage?.content.orEmpty()) else null else null
     val advertised = catalog?.selected(definitions + catalog.definition) ?: definitions.filter { it.modelVisible }
-    val plan = ContextBudgetService.plan(turns, prompt, advertised, limits)
+    val requestedGitHubOperations = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(prompt)
+    val requiredGitHubSchemas = advertised.filter { definition ->
+        dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(definition.name) in requestedGitHubOperations
+    }
+    val prioritized = requiredGitHubSchemas + advertised.filterNot { it in requiredGitHubSchemas }
+    val plan = ContextBudgetService.plan(turns, prompt, prioritized, limits)
+    val omittedRequiredGitHubSchemas = requiredGitHubSchemas.filterNot { required -> plan.tools.any { it.name == required.name } }
+    if (omittedRequiredGitHubSchemas.isNotEmpty()) {
+        val operations = omittedRequiredGitHubSchemas.mapNotNull { definition ->
+            dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(definition.name)
+        }.distinct()
+        AppLogRecorder.record(
+            "ToolCatalog",
+            "GITHUB_REQUIRED_SCHEMA_BLOCKED · operations=${operations.joinToString()} · reason=CONTEXT_BUDGET · contextTokens=${limits.normalized().contextTokens} · dispatched=false",
+            "W"
+        )
+        throw IllegalArgumentException(
+            "GITHUB_REQUIRED_TOOL_CONTEXT_BUDGET: This request requires GitHub operation schemas (${operations.joinToString()}), but they do not fit the selected context budget. Increase this profile's context size or reduce the attached history and instructions; no GitHub write was dispatched."
+        )
+    }
     advertised.filterNot { candidate -> plan.tools.any { it.name == candidate.name } }.forEach { tool ->
         AppLogRecorder.record("ToolCatalog", "TOOL_OMITTED · stage=initial_context · name=${tool.name} · reason=CONTEXT_BUDGET · schemaTokens=${ProgressiveToolCatalog.schemaTokens(tool)}")
     }

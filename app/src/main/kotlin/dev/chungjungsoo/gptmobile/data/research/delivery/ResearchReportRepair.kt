@@ -12,7 +12,7 @@ import kotlinx.serialization.json.put
 /** A correction may replace only rejected paragraph bytes; valid paragraphs retain their identity. */
 internal object ResearchReportRepair {
     data class Block(val id: String, val start: Int, val end: Int, val text: String, val digest: String, val issues: List<String>)
-    private val globalIssues = listOf("MISSING_SECTION:", "OMITTED_LEADING_STUDY:", "OMITTED_UNREAD_LEAD:", "DIRECT_REFERENCE_MISSING:", "PARTIAL_COVERAGE_NOT_DISCLOSED", "REVIEW_STATUS_NOT_DISCLOSED", "QUESTION_EVIDENCE_NOT_CITED:", "QUESTION_EVIDENCE_METADATA_REQUIRED:", "QUESTION_EVIDENCE_UNCOVERED:", "COUNTEREVIDENCE_NOT_DISCLOSED")
+    private val globalIssues = listOf("MISSING_SECTION:", "OMITTED_LEADING_STUDY:", "OMITTED_UNREAD_LEAD:", "DIRECT_REFERENCE_MISSING:", "PARTIAL_COVERAGE_NOT_DISCLOSED", "REVIEW_STATUS_NOT_DISCLOSED", "QUESTION_EVIDENCE_NOT_CITED:", "QUESTION_EVIDENCE_METADATA_REQUIRED:", "QUESTION_EVIDENCE_UNCOVERED:", "EVIDENCE_CLAIM_NOT_COVERED:", "COUNTEREVIDENCE_NOT_DISCLOSED")
     fun sectionIssues(body: String, packet: ResearchDeliveryPacket): List<String> = ResearchDeliveryValidator.validate(body, packet).issues.filter { issue -> globalIssues.none(issue::startsWith) }
 
     fun blocks(text: String, packet: ResearchDeliveryPacket): List<Block> {
@@ -34,6 +34,7 @@ internal object ResearchReportRepair {
         val rejected = blocks(text, packet).filter { it.issues.isNotEmpty() }
         val plan = buildJsonObject {
             put("issues", JsonArray(issues.map(::JsonPrimitive)))
+            put("repairHints", JsonArray(ResearchDeliveryValidator.validate(text, packet).repairHints.map(::JsonPrimitive)))
             put(
                 "replaceable",
                 JsonArray(

@@ -60,6 +60,7 @@ class GitHubWorkspaceClient(
 ) {
     companion object {
         const val API_VERSION = "2026-03-10"
+        private const val API_ROOT = "https://api.github.com"
 
         private val sharedClient by lazy {
             HttpClient(OkHttp) {
@@ -79,7 +80,7 @@ class GitHubWorkspaceClient(
             "read_code", "get_branch_head", "get_pull_request_files", "get_commit_checks", "compare_refs",
             "repo_status", "repo_map", "repo_docs", "find_symbol", "find_references", "find_tests", "related_files",
             "changed_since", "pr_context", "rate_limit_status", "plan_change", "write_capabilities",
-            "list_releases", "get_release", "get_release_by_tag", "list_tags", "release_status",
+            "list_releases", "get_release", "get_release_by_tag", "list_tags", "release_status", "get_pull_request_comments",
             "resolve_context", "task_context", "index_status", "search_repository", "read_ranges", "ci_failure_digest", "efficiency"
         )
         val writeActions = setOf(
@@ -87,7 +88,8 @@ class GitHubWorkspaceClient(
             "create_tag",
             "create_release",
             "update_release",
-            "publish_release", "update_pull_request", "mark_ready_for_review", "submit_pull_request_review", "merge_pull_request"
+            "publish_release", "update_pull_request", "mark_ready_for_review", "submit_pull_request_review", "merge_pull_request",
+            "create_pull_request_review", "reply_pull_request_comment"
         )
         val actions = readActions + writeActions
 
@@ -205,6 +207,7 @@ class GitHubWorkspaceClient(
                 val number = required("pull_number").toInt().also { require(it > 0) }
                 pageResult(request("$root/pulls/$number/files?$pagination"), page, "filename", "status", "additions", "deletions", "changes", "sha", "previous_filename", "patch")
             }
+            "get_pull_request_comments" -> pullRequestComments(root, required("pull_number").toInt().also { require(it > 0) }, page)
             "pr_context" -> prContext(root, required("pull_number").toInt().also { require(it > 0) }, args, page)
             "ci_failure_digest" -> ciFailureDigest(root, ref, args)
             "get_commit_checks" -> compactChecks(request("$root/commits/${segment(required("ref"))}/check-runs?$pagination").jsonObject, page)
@@ -224,7 +227,7 @@ class GitHubWorkspaceClient(
             "create_release" -> createRelease(root, args)
             "update_release" -> updateRelease(root, args)
             "publish_release" -> publishRelease(root, args)
-            "update_pull_request", "mark_ready_for_review", "submit_pull_request_review", "merge_pull_request" -> pullRequestLifecycle(root, action, args)
+            "update_pull_request", "mark_ready_for_review", "submit_pull_request_review", "merge_pull_request", "create_pull_request_review", "reply_pull_request_comment" -> pullRequestLifecycle(root, action, args)
             "commit_files" -> commitFiles(root, args)
             else -> error("Unsupported workspace action: $action")
         }
@@ -619,6 +622,28 @@ class GitHubWorkspaceClient(
         }
     }
 
+    private suspend fun pullRequestComments(root: String, number: Int, page: Int): JsonObject {
+        val comments = request("$root/pulls/$number/comments?per_page=30&page=$page").jsonArray
+        val rows = comments.map { it.jsonObject }
+        return buildJsonObject {
+            put("pull_number", number)
+            put("page", page)
+            put("returned", rows.size)
+            put("has_more", rows.size == 30)
+            put("comments", JsonArray(rows.map { comment ->
+                buildJsonObject {
+                    listOf("id", "pull_request_review_id", "in_reply_to_id", "path", "line", "original_line", "side", "commit_id", "original_commit_id", "body", "created_at", "updated_at", "html_url").forEach { key -> comment[key]?.let { put(key, it) } }
+                    comment["user"]?.jsonObject?.let { put("user", project(it, "login", "html_url")) }
+                }
+            }))
+            if (rows.size == 30) put("continuation", buildJsonObject {
+                put("action", "get_pull_request_comments")
+                put("pull_number", number)
+                put("page", page + 1)
+            })
+        }
+    }
+
     private fun compactChecks(result: JsonObject, page: Int = 1): JsonObject {
         val runs = result["check_runs"]?.jsonArray.orEmpty()
         return buildJsonObject {
@@ -716,6 +741,60 @@ class GitHubWorkspaceClient(
                         put("event", event)
                         put("body", body)
                     }
+                )
+            }
+            "create_pull_request_review" -> {
+                val event = args["event"]?.jsonPrimitive?.content.orEmpty().ifBlank { "COMMENT" }
+                require(event in setOf("APPROVE", "REQUEST_CHANGES", "COMMENT")) { "event must be APPROVE, REQUEST_CHANGES or COMMENT." }
+                val comments = args["comments"]?.jsonArray.orEmpty()
+                require(comments.size in 1..30) { "A code review must contain between 1 and 30 inline comments." }
+                val validatedComments = comments.map { value ->
+                    val comment = value.jsonObject
+                    val path = comment["path"]?.jsonPrimitive?.content.orEmpty()
+                    filePath(path)
+                    val line = comment["line"]?.jsonPrimitive?.content?.toIntOrNull()?.also { require(it > 0) }
+                        ?: error("Every inline review comment needs a positive line number.")
+                    val side = comment["side"]?.jsonPrimitive?.content.orEmpty().ifBlank { "RIGHT" }
+                    require(side in setOf("LEFT", "RIGHT")) { "Inline comment side must be LEFT or RIGHT." }
+                    val text = comment["body"]?.jsonPrimitive?.content.orEmpty()
+                    require(text.isNotBlank() && text.length <= 10_000) { "Every inline review comment needs nonempty text of at most 10,000 characters." }
+                    buildJsonObject {
+                        put("path", path)
+                        put("line", line)
+                        put("side", side)
+                        put("body", text)
+                        comment["start_line"]?.jsonPrimitive?.content?.toIntOrNull()?.let { startLine ->
+                            require(startLine in 1..line) { "Inline comment start_line must not exceed line." }
+                            val startSide = comment["start_side"]?.jsonPrimitive?.content ?: side
+                            require(startSide in setOf("LEFT", "RIGHT")) { "Inline comment start_side must be LEFT or RIGHT." }
+                            put("start_line", startLine)
+                            put("start_side", startSide)
+                        }
+                    }
+                }
+                request(
+                    "$root/pulls/$number/reviews",
+                    HttpMethod.Post,
+                    buildJsonObject {
+                        put("commit_id", expected)
+                        put("event", event)
+                        put("body", body)
+                        put("comments", JsonArray(validatedComments))
+                    }
+                )
+            }
+            "reply_pull_request_comment" -> {
+                val commentId = args["comment_id"]?.jsonPrimitive?.content?.toLongOrNull()?.also { require(it > 0) }
+                    ?: error("comment_id is required.")
+                require(body.isNotBlank() && body.length <= 10_000) { "A reply body of 1–10,000 characters is required." }
+                val comment = request("$root/pulls/comments/$commentId").jsonObject
+                val expectedUrl = "$API_ROOT$root/pulls/$number"
+                val commentUrl = comment["pull_request_url"]?.jsonPrimitive?.content.orEmpty()
+                require(commentUrl == expectedUrl) { "The review comment does not belong to the selected pull request." }
+                request(
+                    "$root/pulls/$number/comments/$commentId/replies",
+                    HttpMethod.Post,
+                    buildJsonObject { put("body", body) }
                 )
             }
             else -> {

@@ -32,6 +32,7 @@ data class AppLogEntry(val time: Long, val level: String, val tag: String, val m
 /** Opt-in, app-process-only diagnostics. No network upload and no HTTP bodies. */
 object AppLogRecorder {
     private const val QUEUE_CAPACITY = 2048
+    private const val RECENT_ENTRY_LIMIT = 2000
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val droppedRecords = java.util.concurrent.atomic.AtomicLong()
     private val queue = Channel<AppLogEntry>(QUEUE_CAPACITY, BufferOverflow.DROP_OLDEST, onUndeliveredElement = { droppedRecords.incrementAndGet() })
@@ -94,7 +95,7 @@ object AppLogRecorder {
                     val batch = mutableListOf(entry)
                     repeat(255) { queue.tryReceive().getOrNull()?.let(batch::add) }
                     batch.forEach(recent::addLast)
-                    while (recent.size > 2_000) recent.removeFirst()
+                    while (recent.size > RECENT_ENTRY_LIMIT) recent.removeFirst()
                     if (publication?.isActive != true) {
                         publication = scope.launch {
                             kotlinx.coroutines.delay(250)
@@ -190,7 +191,7 @@ object AppLogRecorder {
         synchronized(fileLock) {
             if (!mutableEnabled.value || privateSessions.isNotEmpty()) return
             recent.addLast(entry)
-            while (recent.size > 2_000) recent.removeFirst()
+            while (recent.size > RECENT_ENTRY_LIMIT) recent.removeFirst()
             mutableEntries.value = recent.toList()
             runCatching {
                 append(entry.line(), durable = true)

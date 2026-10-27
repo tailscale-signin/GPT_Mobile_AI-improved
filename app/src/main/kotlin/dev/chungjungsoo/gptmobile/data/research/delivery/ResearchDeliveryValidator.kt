@@ -5,7 +5,15 @@ import dev.chungjungsoo.gptmobile.data.research.assessResearchCoverage
 
 /** Deterministic delivery checks. This is not an entailment model or scientific truth score. */
 internal object ResearchDeliveryValidator {
-    data class Result(val issues: List<String>, val citedIds: Set<String>, val blocks: List<ResearchReportBlock> = emptyList(), val repairHints: List<String> = emptyList()) {
+    data class Result(
+        val issues: List<String>,
+        val citedIds: Set<String>,
+        val blocks: List<ResearchReportBlock> = emptyList(),
+        val repairHints: List<String> = emptyList(),
+        val semanticCoverageVerified: Boolean = false,
+        val coveredClaimCount: Int = 0,
+        val eligibleClaimCount: Int = 0
+    ) {
         val accepted: Boolean get() = issues.isEmpty()
     }
     private val citations = Regex("\\[(S[0-9a-f]+)\\]")
@@ -13,6 +21,8 @@ internal object ResearchDeliveryValidator {
     private val heading = Regex("^ {0,3}#{1,6}\\s+")
     private val scientificLanguage = Regex("(?i)trial|participants|patients|randomi[sz]|significant|associated|improv|reduc|increase|efficacy|adverse|observed|researchers|study|studies")
     private val headingFinding = Regex("(?i)enrolled|significant|associated|improved|improves|reduced|reduces|increased|increases|observed|reported|effective|caused|cured")
+    private val claimWords = Regex("[\\p{L}\\p{N}]{4,}")
+    private val claimStopWords = setOf("about", "after", "against", "among", "also", "been", "before", "being", "between", "both", "could", "does", "each", "from", "have", "into", "more", "most", "other", "over", "same", "some", "such", "than", "that", "their", "them", "then", "there", "these", "they", "this", "those", "through", "under", "using", "very", "were", "what", "when", "where", "which", "while", "with", "within", "without")
 
     fun validate(text: String, packet: ResearchDeliveryPacket): Result {
         val issues = mutableListOf<String>()
@@ -39,7 +49,7 @@ internal object ResearchDeliveryValidator {
         if (text.isBlank()) issues += "EMPTY_REPORT"
         if (allIds.any { it !in known }) issues += "UNKNOWN_CITATION"
         if (!packet.snapshot.complete && !Regex("(?i)partial|incomplete|coverage.*limited|limited.*coverage").containsMatchIn(text.take(1200))) issues += "PARTIAL_COVERAGE_NOT_DISCLOSED"
-        if (packet.claims.none { it.independentReview } && !Regex("(?i)independent.{0,40}(unavailable|not|unverified)|not.{0,25}independently|unreviewed").containsMatchIn(text)) issues += "REVIEW_STATUS_NOT_DISCLOSED"
+        if (!Regex("(?im)^Review status:\\s*(reviewed|partially reviewed|unreviewed)\\b").containsMatchIn(text)) issues += "REVIEW_STATUS_NOT_DISCLOSED"
         if (packet.detail != ResearchReportDetail.BRIEF) {
             packet.sections.filterNot { text.contains(it, ignoreCase = true) }.forEach { issues += "MISSING_SECTION:$it" }
         }
@@ -81,8 +91,36 @@ internal object ResearchDeliveryValidator {
             val supporting = packet.claims.filter { it.questionId == question.id }.map { it.sourceId }.toSet()
             if (supporting.isNotEmpty() && supporting.none { it in ids }) issues += "QUESTION_EVIDENCE_NOT_CITED:${question.id}"
         }
+        val evidenceBearingParagraphs = paragraphs.map { paragraph ->
+            Triple(
+                ResearchReportReferences.cited(paragraph, packet),
+                claimWords.findAll(paragraph.lowercase(java.util.Locale.ROOT)).map { it.value }.toSet(),
+                paragraph
+            )
+        }
+        val eligibleClaims = packet.claims.filter {
+            it.exactQuoteVerified && it.relevance != "Irrelevant" && it.verdict in setOf("Supported", "Contradicted", "Insufficient")
+        }
+        val coveredClaims = eligibleClaims.filter { claim ->
+            val keyTerms = claimWords.findAll(claim.text.lowercase(java.util.Locale.ROOT))
+                .map { it.value }
+                .filterNot(claimStopWords::contains)
+                .toSet()
+            evidenceBearingParagraphs.any { (cited, paragraphTerms, _) ->
+                claim.sourceId in cited && keyTerms.isNotEmpty() &&
+                    keyTerms.intersect(paragraphTerms).size >=
+                    minOf(keyTerms.size, maxOf(1, kotlin.math.ceil(keyTerms.size * 0.4).toInt()))
+            }
+        }
+        val uncoveredClaims = eligibleClaims - coveredClaims.toSet()
+        uncoveredClaims.take(20).forEach { claim ->
+            issues += "EVIDENCE_CLAIM_NOT_COVERED:${dev.chungjungsoo.gptmobile.data.research.researchHash(claim.sourceId + claim.text + claim.quote).take(16)}"
+            if (repairHints.size < 12) repairHints += "Include the source-bound ${claim.verdict.lowercase()} claim from [${claim.sourceId}] or explicitly identify it as a research gap: ${claim.text.take(320)}"
+        }
         if (packet.claims.any { it.verdict == "Contradicted" } && !Regex("(?i)contradict|disagree|mixed|negative|uncertain|no (?:significant|benefit|effect)|not support").containsMatchIn(body)) issues += "COUNTEREVIDENCE_NOT_DISCLOSED"
-        return Result(issues.distinct(), ids, blocks, repairHints.take(12))
+        val semanticCoverageVerified = eligibleClaims.isNotEmpty() && uncoveredClaims.isEmpty() && coverage.missingQuestionIds.isEmpty() &&
+            (packet.detail == ResearchReportDetail.BRIEF || packet.sections.all { section -> text.contains(section, ignoreCase = true) })
+        return Result(issues.distinct(), ids, blocks, repairHints.take(12), semanticCoverageVerified, coveredClaims.size, eligibleClaims.size)
     }
 
     /** A failed repair delivers captured evidence and honest gaps, never an unchecked scientific answer. */

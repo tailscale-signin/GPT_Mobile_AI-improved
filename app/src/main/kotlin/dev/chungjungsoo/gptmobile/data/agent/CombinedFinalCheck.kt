@@ -28,6 +28,37 @@ internal data class CombinedFinalAssessment(
 
 /** Live delivery uses the same claim inventory as synthesis; no independent, unenforced sidecar. */
 internal object CombinedFinalCheck {
+    private fun duplicateStructureChecks(answer: String): List<CombinedAnswerCheck> {
+        val checks = mutableListOf<CombinedAnswerCheck>()
+        val paragraphs = answer.split(Regex("\\n\\s*\\n+"))
+            .map { CombinedContentCoverage.normalized(it) }
+            .filter { it.split(' ').size >= 12 }
+        if (paragraphs.size != paragraphs.distinct().size) {
+            checks += CombinedAnswerCheck(
+                "DUPLICATE_FINAL_PARAGRAPH",
+                "STRUCTURE",
+                "FAIL",
+                material = true,
+                message = "The final answer repeats a substantive paragraph."
+            )
+        }
+        val headings = Regex("(?m)^\\s{0,3}#{1,6}\\s+(.+?)\\s*#*\\s*$")
+            .findAll(answer)
+            .map { CombinedContentCoverage.normalized(it.groupValues[1]) }
+            .filter(String::isNotBlank)
+            .toList()
+        if (headings.size != headings.distinct().size) {
+            checks += CombinedAnswerCheck(
+                "DUPLICATE_FINAL_HEADING",
+                "STRUCTURE",
+                "FAIL",
+                material = true,
+                message = "The final answer repeats a section heading."
+            )
+        }
+        return checks
+    }
+
     private fun sentencesWithSpans(answer: String, start: Int = 0, end: Int = answer.length, scoped: Boolean = false): List<Pair<String, CombinedCoverageLink>> {
         val body = answer.substring(start, end)
         if (scoped) return CombinedSourceClaims.units(body).map { unit -> unit.text to CombinedCoverageLink(start + unit.start, start + unit.end, dev.chungjungsoo.gptmobile.data.research.researchHash(body.substring(unit.start, unit.end))) }
@@ -50,6 +81,7 @@ internal object CombinedFinalCheck {
         revisionId: String = ""
     ): CombinedFinalAssessment {
         val checks = mutableListOf<CombinedAnswerCheck>()
+        checks += duplicateStructureChecks(answer)
         val receipts = mutableListOf<CombinedVerificationReceipt>()
         val edges = mutableListOf<CombinedSupportEdge>()
         val needs = mutableListOf<CombinedVerificationNeed>()

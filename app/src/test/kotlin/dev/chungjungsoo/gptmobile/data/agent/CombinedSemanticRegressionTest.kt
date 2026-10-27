@@ -22,6 +22,16 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CombinedSemanticRegressionTest {
+    @Test fun repeatedSubstantiveParagraphsAndHeadingsBlockFinalPublication() {
+        val paragraph = "The study reports a measured improvement among participants after the intervention, while noting that follow up was limited."
+        val answer = "## Findings\n\n$paragraph\n\n## Findings\n\n$paragraph"
+
+        val assessment = CombinedFinalCheck.check(answer, emptyList(), CombinedEvidenceLedger(), CombinedAnswerPolicy())
+
+        assertTrue(assessment.requiredFailures.contains("DUPLICATE_FINAL_PARAGRAPH"))
+        assertTrue(assessment.requiredFailures.contains("DUPLICATE_FINAL_HEADING"))
+    }
+
     private fun source(text: String, uid: String = "one") = CombinedModelResponse(uid, uid, content = text)
     private fun ledger(text: String) = CombinedEvidenceLedger(listOf(CombinedEvidenceRecord("E1", "https://example.org/study", passage = text, retrieval = "READABLE_PASSAGE")))
     private fun context(collection: Int = 25, effort: Int = 50) = CombinedExecutionContext(CombinedRequestedPolicy(settings = ConversationCombinedSettings(collectionBias = collection, effort = effort), participantUids = listOf("one", "two")), rootBudgetId = "root-budget", role = CombinedRunRole.SYNTHESIS)

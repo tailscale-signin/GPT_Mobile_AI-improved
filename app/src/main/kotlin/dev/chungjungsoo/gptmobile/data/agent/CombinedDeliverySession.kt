@@ -260,7 +260,7 @@ internal class CombinedDeliverySession(
 
         while (!singlePass && accepted.terminal == ProviderEvent.Completed) {
             validateAccess()
-            correctionRequired = correctionRequired || assessment.correctionRequired
+            correctionRequired = correctionRequired || assessment.correctionRequired || assessment.requiredFailures.isNotEmpty()
             if (correctionRequired) {
                 emit(ProviderEvent.CombinedQuality(report(accepted, assessment, false)))
                 emit(ProviderEvent.Notice("This draft has a material support problem and needs correction. Its earlier assessment has been invalidated.", persistent = true))
@@ -277,7 +277,7 @@ internal class CombinedDeliverySession(
                     if (acquired != null) currentEvidence = currentEvidence.mergedWith(acquired)
                 }
                 assessment = assess(accepted)
-                correctionRequired = correctionRequired || assessment.correctionRequired
+                correctionRequired = correctionRequired || assessment.correctionRequired || assessment.requiredFailures.isNotEmpty()
                 // Continue only for a shrinking set of concrete unresolved claims. Merely opening
                 // more pages does not justify another batch, and known errors proceed to revision.
                 if (!correctionRequired && assessment.verificationNeeds.isNotEmpty() && assessment.verificationNeeds.size < previousNeeds) continue
@@ -354,7 +354,7 @@ internal class CombinedDeliverySession(
             if (canAccept && rewritten != null && rewrittenChecks != null) {
                 val nextCoverage = withContext(Dispatchers.Default) { coverage.check(rewritten.text) }
                 val priorCorrection = correctionRequired
-                correctionRequired = false
+                correctionRequired = rewrittenChecks.correctionRequired || rewrittenChecks.requiredFailures.isNotEmpty()
                 val oldCoverage = coverageResult
                 coverageResult = nextCoverage
                 val oldViolations = violations
@@ -432,7 +432,7 @@ internal class CombinedDeliverySession(
             accepted = accepted.copy(text = bounded, assembledLocally = true)
             violations = policy.violations(bounded)
             assessment = assess(accepted)
-            correctionRequired = assessment.correctionRequired
+            correctionRequired = assessment.correctionRequired || assessment.requiredFailures.isNotEmpty()
             ceilingEnforced = true
         }
         coverageResult = withContext(Dispatchers.Default) { coverage.check(accepted.text) }

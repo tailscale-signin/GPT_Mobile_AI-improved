@@ -64,6 +64,19 @@ internal class GitHubOperationTool(
                 "reply" -> listOf("pull_number", "comment_id", "body")
                 else -> emptyList()
             }
+            val shaActions = setOf("update", "merge")
+            if (action in shaActions) {
+                val expected = (arguments["expected_head_sha"] as? JsonPrimitive)?.content.orEmpty()
+                if (!expected.matches(Regex("[a-fA-F0-9]{40}"))) {
+                    return AgentToolResult(
+                        callId,
+                        ToolResultContent.Text("GitHub PR $action requires a current 40-character expected_head_sha. Refresh the PR head before retrying."),
+                        true,
+                        errorCode = "INVALID_ARGUMENTS",
+                        dispatched = false
+                    )
+                }
+            }
             val missing = requiredFields.filter { key ->
                 val value = arguments[key]
                 value == null || (value is JsonPrimitive && value.content.isBlank())

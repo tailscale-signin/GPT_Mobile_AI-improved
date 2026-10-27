@@ -14,6 +14,14 @@ internal object GitHubSessionCaches {
     fun schedulerForCredential(token: String): GitHubRequestScheduler = state(token).scheduler
     fun stateForCredential(token: String): GitHubRepositoryStateStore = state(token).store
 
+    /** Explicit credential replacement reopens authentication while preserving write receipts and rate limits. */
+    @Synchronized fun credentialReconnected(token: String) {
+        states[GitHubRepositoryStateStore.digest(token)]?.let {
+            it.authenticationRejected.set(false)
+            it.cache.clear()
+        }
+    }
+
     @Synchronized fun clear() {
         states.values.forEach { it.cache.clear() }
         states.clear()

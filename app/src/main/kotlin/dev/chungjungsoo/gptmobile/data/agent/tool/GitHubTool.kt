@@ -1087,6 +1087,9 @@ class GitHubTool(
         ) {
             return errorResult(callId, "GITHUB_SSO_REQUIRED · $detail")
         }
+        if (action in MUTATING_ACTIONS && Regex("(?i)protected branch|branch protection|repository rule|GH006|GH013").containsMatchIn(detail)) {
+            return errorResult(callId, "GITHUB_BRANCH_RULES_BLOCKED · $detail. Use a permitted working branch and PR; changing token scope does not override repository rules.")
+        }
         if (action in MUTATING_ACTIONS && detail.contains("HTTP 403", ignoreCase = true)) {
             return errorResult(callId, writeDeniedMessage(action, arguments, detail))
         }
@@ -1134,6 +1137,10 @@ class GitHubTool(
             response.status.value == 403 &&
                 (response.headers["X-GitHub-SSO"] != null || githubMessage?.contains("SAML", ignoreCase = true) == true) ->
                 errorResult(callId, "GITHUB_SSO_REQUIRED · $detail. Authorize this GitHub App or token with the organization before retrying.")
+            action in MUTATING_ACTIONS &&
+                response.status.value in setOf(403, 409, 422) &&
+                Regex("(?i)protected branch|branch protection|repository rule|GH006|GH013").containsMatchIn(githubMessage.orEmpty()) ->
+                errorResult(callId, "GITHUB_BRANCH_RULES_BLOCKED · $detail. Use a permitted working branch and PR; changing token scope does not override repository rules.")
             action in MUTATING_ACTIONS && response.status.value == 403 ->
                 errorResult(callId, writeDeniedMessage(action, arguments, detail))
             response.status.value == 404 ->
@@ -1188,7 +1195,7 @@ class GitHubTool(
         }.getOrNull()
         val capability = capabilities?.get("write_capability")?.jsonPrimitive?.content ?: "unknown"
         val canPush = capabilities?.get("can_push")?.jsonPrimitive?.content ?: "unknown"
-        val requiredPermission = requiredGitHubPermission(action)
+        val requiredPermission = if (action == "publish_release" && githubDetail.contains("Actions endpoint denied access")) "Actions: write" else requiredGitHubPermission(action)
         val diagnosis = when (capability) {
             "denied" ->
                 "Repository-level permission check reports can_push=false. The authenticated GitHub actor does not have repository write authority."
@@ -1205,6 +1212,7 @@ class GitHubTool(
 
     private fun requiredGitHubPermission(action: String): String = when (action) {
         "create_pull_request", "update_pull_request", "mark_ready_for_review", "submit_pull_request_review", "create_pull_request_review", "reply_pull_request_comment" -> "Pull requests: write"
+        "create_issue_comment" -> "Issues: write or Pull requests: write"
         "dispatch_workflow", "rerun_workflow", "rerun_failed_jobs", "cancel_workflow" -> "Actions: write"
         else -> "Contents: write"
     }
@@ -1274,6 +1282,7 @@ class GitHubTool(
                 errorMessage.startsWith("GITHUB_INVALID_ARGUMENT") -> "INVALID_ARGUMENTS"
                 errorMessage.startsWith("GITHUB_RATE_LIMITED") -> "RATE_LIMITED"
                 errorMessage.startsWith("GITHUB_SSO_REQUIRED") -> "GITHUB_SSO_REQUIRED"
+                errorMessage.startsWith("GITHUB_BRANCH_RULES_BLOCKED") -> "GITHUB_BRANCH_RULES_BLOCKED"
                 errorMessage.startsWith("GITHUB_WRITE_BLOCKED") -> "GITHUB_ENDPOINT_PERMISSION_REQUIRED"
                 else -> null
             }

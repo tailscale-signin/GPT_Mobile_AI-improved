@@ -956,6 +956,7 @@ fun ChatScreen(
                             pausedUids = disabledPlatformUids,
                             generatingUids = if (combined) frozenProfiles.filter { it.status == CombinedResponseStatus.GENERATING }.mapTo(hashSetOf()) { it.uid } else chatViewModel.enabledPlatformsInChat.filterIndexed { index, _ -> dockTurn == lastMessageIndex && loadingStates.getOrNull(index) == ChatViewModel.LoadingState.Loading }.toSet(),
                             combined = combined,
+                            combinedWaiting = combined && frozenProfiles.any { it.status != CombinedResponseStatus.COMPLETED },
                             combinedGenerating = combined && dockTurn >= 0 && combinedAnswerStatus(replies.firstOrNull { it.isCombinedSynthesis() }, frozenProfiles, agentRunsById) == CombinedResponseStatus.GENERATING,
                             onSelect = { uid ->
                                 listState.requestScrollToItem(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset)

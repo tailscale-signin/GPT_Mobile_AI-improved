@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Retry dependency throttling without retrying compilation or test failures."""
+import os
 import re
 import subprocess
 import sys
@@ -15,9 +16,11 @@ def retryable(lines):
 
 
 def run(arguments, attempts=3, delay_seconds=10, executable='./gradlew'):
+    environment = dict(os.environ)
+    environment.setdefault('OBX_DISABLE_ANALYTICS', 'true')
     for attempt in range(attempts):
         dependency = transient = deterministic = False
-        with subprocess.Popen([executable, *arguments], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors='replace') as process:
+        with subprocess.Popen([executable, *arguments], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors='replace', env=environment) as process:
             for line in process.stdout:
                 print(line, end='', flush=True)
                 dependency |= bool(DEPENDENCY.search(line))

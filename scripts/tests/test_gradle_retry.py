@@ -29,6 +29,7 @@ class GradleRetryTest(unittest.TestCase):
             counter = root / 'count'
             fake = root / 'gradlew'
             fake.write_text('#!/bin/sh\n' +
+                            'test "$OBX_DISABLE_ANALYTICS" = true || exit 9\n' +
                             f'echo "$*" >> "{counter}"\n' +
                             f'if [ "$(wc -l < "{counter}")" -eq 1 ]; then\n' +
                             ' echo "Could not resolve dependency. HTTP 429"\n exit 1\nfi\nexit 0\n')

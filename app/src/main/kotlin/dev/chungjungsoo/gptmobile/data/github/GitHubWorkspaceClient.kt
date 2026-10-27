@@ -302,6 +302,9 @@ class GitHubWorkspaceClient(
         return buildJsonObject {
             put("authenticated", token.isNotBlank())
             put("permission_source", "repository_actor")
+            put("endpoint_write_capability", "unverified")
+            put("actions_write_capability", "unverified")
+            put("permission_note", "Repository actor permissions do not establish this credential's endpoint permissions, organization SSO authorization or branch rules.")
             put("can_push", push?.let { JsonPrimitive(it) } ?: JsonNull)
             put("can_maintain", maintain?.let { JsonPrimitive(it) } ?: JsonNull)
             put("can_admin", admin?.let { JsonPrimitive(it) } ?: JsonNull)
@@ -1282,7 +1285,7 @@ class GitHubWorkspaceClient(
         val expectedHead = args["expected_head_sha"]?.jsonPrimitive?.content.orEmpty()
         val head = run?.get("head_sha")?.jsonPrimitive?.content.orEmpty().ifBlank { resolvedJob["head_sha"]?.jsonPrimitive?.content.orEmpty() }
         require(expectedHead.isBlank() || expectedHead == head) { "CI evidence belongs to a different commit." }
-        val log = GitHubCiLogReader(client, token, scheduler, responseCache, requestPriority).read("$root/actions/jobs/$resolvedJobId/logs", resolvedJob["status"]?.jsonPrimitive?.content == "completed")
+        val log = GitHubCiLogReader(client, token, scheduler, responseCache, requestPriority, authenticationRejected).read("$root/actions/jobs/$resolvedJobId/logs", resolvedJob["status"]?.jsonPrimitive?.content == "completed")
         val lines = log.text.split('\n')
         val failure = Regex("error|failed|failure|exception|fatal|traceback|exit code", RegexOption.IGNORE_CASE)
         val positions = lines.indices.filter { failure.containsMatchIn(lines[it]) }.takeLast(60)

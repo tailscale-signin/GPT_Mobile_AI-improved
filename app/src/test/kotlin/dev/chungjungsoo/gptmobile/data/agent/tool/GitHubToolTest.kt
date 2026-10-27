@@ -467,4 +467,36 @@ class GitHubToolTest {
             client.close()
         }
     }
+
+    @Test
+    fun `repository rule denial is distinguished from missing Actions permission`() = runTest {
+        var requests = 0
+        val client = HttpClient(
+            MockEngine {
+                requests++
+                if (requests == 1) {
+                    respond("""{"object":{"sha":"abc123"}}""", HttpStatusCode.OK)
+                } else {
+                    respond("""{"message":"GH013: Repository rule violations found"}""", HttpStatusCode.Forbidden)
+                }
+            }
+        )
+        try {
+            val result = GitHubTool("rule-test", client).execute(
+                "branch",
+                buildJsonObject {
+                    put("action", "create_branch")
+                    put("owner", "owner")
+                    put("repo", "repo")
+                    put("branch", "fix/test")
+                    put("base", "main")
+                }
+            )
+            assertTrue(result.isError)
+            assertEquals("GITHUB_BRANCH_RULES_BLOCKED", result.errorCode)
+            assertEquals(2, requests)
+        } finally {
+            client.close()
+        }
+    }
 }

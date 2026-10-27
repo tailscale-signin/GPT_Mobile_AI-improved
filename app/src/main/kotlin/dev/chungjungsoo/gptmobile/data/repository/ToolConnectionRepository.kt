@@ -139,6 +139,9 @@ class ToolConnectionRepository internal constructor(
                 if (previousSecretRef != null && previousSecretRef != secretRef) {
                     secretVault.delete(previousSecretRef)
                 }
+                if (connection.type == ToolConnectionType.GITHUB) {
+                    dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.credentialReconnected(credential.toString(StandardCharsets.UTF_8))
+                }
             } catch (error: Exception) {
                 restoreCredential(secretRef, previousSecretRef, previousBytes)
                 throw error

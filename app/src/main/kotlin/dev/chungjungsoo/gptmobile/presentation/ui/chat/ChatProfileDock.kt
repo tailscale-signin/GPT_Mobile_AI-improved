@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
@@ -23,6 +24,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.model.ProfileColorIdentity
 
@@ -43,7 +45,8 @@ internal fun ChatProfileDock(
     combinedFailed: Boolean = false,
     profileColorIdentities: Map<String, ProfileColorIdentity> = emptyMap(),
     responseLabels: Map<String, String> = emptyMap(),
-    combinedLabel: String? = null
+    combinedLabel: String? = null,
+    combinedWaiting: Boolean = false
 ) {
     val colors = MaterialTheme.colorScheme
     Surface(
@@ -82,6 +85,8 @@ internal fun ChatProfileDock(
                     }
                 val status = if (paused) {
                     "Paused"
+                } else if (uid == null && combinedWaiting) {
+                    "Waiting"
                 } else if (running) {
                     "Responding"
                 } else if (failed) {
@@ -110,8 +115,8 @@ internal fun ChatProfileDock(
                 ) {
                     Row(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         if (running) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp, color = colors.primary)
-                        Text(label, style = MaterialTheme.typography.labelLarge, color = labelColor)
-                        Text(status, style = MaterialTheme.typography.labelSmall)
+                        Text(label.take(120), modifier = Modifier.widthIn(max = 160.dp), style = MaterialTheme.typography.labelLarge, color = labelColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(status, style = MaterialTheme.typography.labelSmall, maxLines = 1)
                     }
                 }
             }

@@ -830,8 +830,8 @@ class ChatViewModel @Inject constructor(
     }
 
     fun sendPromptResponse(promptText: String) {
-        if (promptText.isNotBlank()) {
-            submitOrQueueQuestion(promptText.trim(), emptyList())
+        ChatResponseActionParser.answerRequest(promptText)?.let { request ->
+            submitOrQueueQuestion(request, emptyList())
         }
     }
 

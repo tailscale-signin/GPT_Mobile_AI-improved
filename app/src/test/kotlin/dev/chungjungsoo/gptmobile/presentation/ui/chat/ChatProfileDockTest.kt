@@ -8,6 +8,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -41,5 +44,19 @@ class ChatProfileDockTest {
         compose.onNodeWithTag("dock_profile_a").performClick().assertIsSelected()
         assertTrue(recipients == listOf("a", "b"))
         compose.onNodeWithTag("dock_profile_combined").performClick().assertIsSelected()
+    }
+
+    @Test fun combinedTabWaitsForContributorsThenRespondsWhenSynthesisStarts() {
+        var waiting by mutableStateOf(true)
+        compose.setContent {
+            MaterialTheme {
+                ChatProfileDock(listOf("a"), mapOf("a" to "Alpha"), null, emptySet(), setOf("a"), true, true, {}, {}, combinedWaiting = waiting)
+            }
+        }
+        val primary = compose.onNodeWithTag("dock_profile_combined")
+        primary.assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Waiting"))
+        compose.onNodeWithTag("dock_profile_a").assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Responding"))
+        compose.runOnIdle { waiting = false }
+        primary.assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Responding"))
     }
 }

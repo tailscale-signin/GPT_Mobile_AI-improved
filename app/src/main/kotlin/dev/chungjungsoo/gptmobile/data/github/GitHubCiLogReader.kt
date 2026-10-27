@@ -10,10 +10,11 @@ import java.io.ByteArrayOutputStream
 import java.net.URI
 import kotlinx.coroutines.yield
 
-internal class GitHubCiLogReader(private val client: HttpClient, private val token: String, private val scheduler: GitHubRequestScheduler, private val cache: GitHubResponseCache, private val requestPriority: Int = 0) {
+internal class GitHubCiLogReader(private val client: HttpClient, private val token: String, private val scheduler: GitHubRequestScheduler, private val cache: GitHubResponseCache, private val requestPriority: Int = 0, private val authenticationRejected: java.util.concurrent.atomic.AtomicBoolean = java.util.concurrent.atomic.AtomicBoolean()) {
     data class Log(val text: String, val bytes: Int, val complete: Boolean)
 
     suspend fun read(path: String, immutable: Boolean): Log {
+        check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
         if (immutable) {
             cache.getDecodedBlob("ci-log:$path")?.let {
                 scheduler.recordCacheHit()
@@ -42,6 +43,10 @@ internal class GitHubCiLogReader(private val client: HttpClient, private val tok
                             val location = response.headers[HttpHeaders.Location] ?: error("CI log redirect has no location.")
                             url = target.resolve(location).toASCIIString()
                             continue
+                        }
+                        if (host == "api.github.com" && response.status.value == 401) {
+                            authenticationRejected.set(true)
+                            cache.clear()
                         }
                         check(response.status.value in 200..299) { "GitHub CI log HTTP ${response.status.value}." }
                         val output = ByteArrayOutputStream()

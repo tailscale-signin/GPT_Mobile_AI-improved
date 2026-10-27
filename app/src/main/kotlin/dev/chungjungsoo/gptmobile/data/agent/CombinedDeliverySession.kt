@@ -184,7 +184,7 @@ internal class CombinedDeliverySession(
         suspend fun report(candidate: Candidate, checked: CombinedFinalAssessment, final: Boolean): CombinedQualityReport {
             val unresolvedResearch = checked.checks.any { it.category == "RESEARCH_SCOPE" && it.result != "PASS" }
             val providerComplete = candidate.terminal == ProviderEvent.Completed
-            val material = correctionRequired || checked.correctionRequired
+            val material = correctionRequired || checked.correctionRequired || checked.checks.any { it.material && it.result == "FAIL" }
             val issues = (violations + listOfNotNull("NO_FINAL_OUTPUT".takeIf { candidate.text.isBlank() }) + candidate.decoder?.issues.orEmpty() + checked.issues + listOfNotNull("LEXICAL_COVERAGE_NOT_EVALUATED".takeIf { !coverageResult.evaluated }, "LEXICAL_COVERAGE_UNRESOLVED_HINTS".takeIf { coverageResult.missing.isNotEmpty() })).distinct()
             val framingValid = candidate.decoder?.issues.orEmpty().none { it in COMBINED_FRAMING_FAILURES }
             val delivered = when {
@@ -200,7 +200,7 @@ internal class CombinedDeliverySession(
                 version = 6,
                 answerDigest = researchHash(candidate.text),
                 claimMapping = mapping,
-                complete = candidate.text.isNotBlank() && providerComplete && framingValid && !material && violations.isEmpty() && !unresolvedResearch,
+                complete = candidate.text.isNotBlank() && providerComplete && framingValid && !material && violations.isEmpty() && !unresolvedResearch && checked.requiredFailures.isEmpty(),
                 status = when {
                     candidate.text.isBlank() -> "FAILED"
                     material -> "CORRECTION_REQUIRED"

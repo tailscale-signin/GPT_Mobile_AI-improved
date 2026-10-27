@@ -263,7 +263,7 @@ internal class CombinedDeliverySession(
             correctionRequired = correctionRequired || assessment.correctionRequired || assessment.requiredFailures.isNotEmpty()
             if (correctionRequired) {
                 emit(ProviderEvent.CombinedQuality(report(accepted, assessment, false)))
-                emit(ProviderEvent.Notice("This draft has a material support problem and needs correction. Its earlier assessment has been invalidated.", persistent = true))
+                emit(ProviderEvent.Notice("This draft has unresolved required checks or material support problems and needs correction. Its earlier assessment has been invalidated.", persistent = true))
             }
             val evidenceState = researchHash(currentEvidence.records.flatMap { record -> record.retainedExcerpts.map { record.id + ":" + it.digest + ":" + it.retrieval } }.sorted().joinToString("|"))
             val needs = assessment.verificationNeeds.filter { verificationAttempts.add(researchHash(it.proposition + "|" + it.reason + "|" + evidenceState)) }

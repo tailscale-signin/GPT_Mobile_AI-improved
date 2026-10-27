@@ -6,8 +6,10 @@ mkdir -p "$acceptance_output"
 adb shell wm size 640x1280
 adb shell wm density 320
 adb shell settings put system font_scale 2.0
-adb install -r app/build/outputs/apk/debug/*x86_64*.apk
-adb install -r app/build/outputs/apk/androidTest/debug/*.apk
+application_apk=$(python3 scripts/select_android_test_apk.py app/build/outputs/apk/debug --application-id dev.melo.gptmobile.improved --abi x86_64)
+instrumentation_apk=$(python3 scripts/select_android_test_apk.py app/build/outputs/apk/androidTest/debug --application-id dev.melo.gptmobile.improved.test)
+adb install -r "$application_apk"
+adb install -r "$instrumentation_apk"
 adb shell pm list instrumentation > "$acceptance_output/instrumentations.txt"
 adb logcat -c
 # Gradle's connected-test cleanup uninstalls the app. Run explicit named cases

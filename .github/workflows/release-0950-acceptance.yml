@@ -2,10 +2,10 @@ name: v0.9.50 Android acceptance
 on:
   pull_request:
     branches: [main, feat/unified-reliability-v2-2026-10-13]
-    paths: ['app/**', 'scripts/run_release0950_acceptance.sh', '.github/workflows/release-0950-acceptance.yml']
+    paths: ['app/**', 'scripts/run_release0950_acceptance.sh', 'scripts/select_android_test_apk.py', 'scripts/tests/test_select_android_test_apk.py', '.github/workflows/release-0950-acceptance.yml']
   push:
     branches: [main]
-    paths: ['app/**', 'scripts/run_release0950_acceptance.sh', '.github/workflows/release-0950-acceptance.yml']
+    paths: ['app/**', 'scripts/run_release0950_acceptance.sh', 'scripts/select_android_test_apk.py', 'scripts/tests/test_select_android_test_apk.py', '.github/workflows/release-0950-acceptance.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -52,6 +52,10 @@ jobs:
           "-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC
           -Djava.util.concurrent.ForkJoinPool.common.parallelism=1
           -Xlog:gc:file=${RUNNER_TEMP}/acceptance-package-gc.log:time,level,tags -Dfile.encoding=UTF-8"
+      - name: Verify compatible device APK artifacts before booting
+        run: |
+          python3 scripts/select_android_test_apk.py app/build/outputs/apk/debug --application-id dev.melo.gptmobile.improved --abi x86_64
+          python3 scripts/select_android_test_apk.py app/build/outputs/apk/androidTest/debug --application-id dev.melo.gptmobile.improved.test
       - name: Run editor and Combined finalization regressions and measure database/catalog operations
         uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
         with:
@@ -69,4 +73,5 @@ jobs:
             app/build/reports/androidTests/
             app/build/outputs/androidTest-results/
             app/build/acceptance-0950/
+            app/build/outputs/apk/**/output-metadata.json
             ${{ runner.temp }}/acceptance-package-gc.log

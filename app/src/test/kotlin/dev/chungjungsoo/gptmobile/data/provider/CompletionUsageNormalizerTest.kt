@@ -33,6 +33,24 @@ class CompletionUsageNormalizerTest {
     }
 
     @Test
+    fun quotedCountersAreNotTreatedAsMeasuredUsage() {
+        assertNull(CompletionUsageNormalizer.parse(json("""{"usage":{"prompt_tokens":"12","total_tokens":"15"}}""")))
+    }
+
+    @Test
+    fun fractionalAndBooleanCountersAreIgnored() {
+        assertNull(CompletionUsageNormalizer.parse(json("""{"usage":{"prompt_tokens":1.5,"completion_tokens":true}}""")))
+    }
+
+    @Test
+    fun zeroCountersAreValid() {
+        assertEquals(
+            CompletionUsageNormalizer.Usage(0, 0, 0),
+            CompletionUsageNormalizer.parse(json("""{"usage":{"prompt_tokens":0,"completion_tokens":0,"total_tokens":0}}""")),
+        )
+    }
+
+    @Test
     fun completeUsageIsPreserved() {
         assertEquals(
             CompletionUsageNormalizer.Usage(10, 5, 15),

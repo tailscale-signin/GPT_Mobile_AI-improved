@@ -26,6 +26,12 @@ class ExaminationFailureClassificationTest {
         assertEquals(true, failure.retryable)
     }
 
+    @Test fun nestedForbiddenCauseIsDetected() {
+        val failure = examinationFailure(IllegalStateException("Reader failed", IllegalStateException("HTTP 403 Forbidden")), 0, 1000L)
+        assertEquals("SOURCE_ACCESS_BLOCKED", failure.code)
+        assertEquals(ExaminationStage.BLOCKED_SOURCE, failure.stage)
+    }
+
     @Test fun malformedJsonIsNotMisclassifiedAsTransportFailure() {
         val failure = examinationFailure(IllegalStateException("INVALID_JSON in extraction packet"), 0, 1000L)
         assertEquals("OUTPUT_INVALID", failure.code)

@@ -2883,7 +2883,17 @@ class ChatViewModel @Inject constructor(
                 savedStateHandle["combinedConversationIdentity"] = _combinedConversationIdentity.value
             }
             val features = settingRepository.getFeatureSettings()
-            _chatToolConfig.update { it.copy(delegation = features.conversationDelegation[room.id], reasoning = features.conversationReasoning[room.id], research = features.conversationResearch[room.id]) }
+            _chatToolConfig.update {
+                val workspace = features.conversationGitHub[room.id]
+                it.copy(
+                    delegation = features.conversationDelegation[room.id],
+                    reasoning = features.conversationReasoning[room.id],
+                    research = features.conversationResearch[room.id],
+                    github = workspace,
+                    allowAllByDefault = if (workspace != null) false else it.allowAllByDefault,
+                    enabledToolIds = workspace?.let { scope -> setOf(scope.connectionUid) } ?: it.enabledToolIds
+                )
+            }
             _chatRoom.value = room
             dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.setPrivateSession(diagnosticPrivacyOwner, room.isTemporary)
             applyChatPlatformState(room)

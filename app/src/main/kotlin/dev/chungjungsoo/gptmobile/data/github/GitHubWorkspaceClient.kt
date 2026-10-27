@@ -82,7 +82,7 @@ class GitHubWorkspaceClient(
             "repo_status", "repo_map", "repo_docs", "find_symbol", "find_references", "find_tests", "related_files",
             "changed_since", "pr_context", "rate_limit_status", "plan_change", "write_capabilities",
             "list_releases", "get_release", "get_release_by_tag", "list_tags", "release_status", "get_pull_request_comments",
-            "resolve_context", "task_context", "index_status", "search_repository", "read_ranges", "ci_failure_digest", "efficiency"
+            "resolve_context", "task_context", "index_status", "build_index", "search_repository", "read_ranges", "ci_failure_digest", "efficiency"
         )
         val writeActions = setOf(
             "commit_files", "stage_patch", "commit_staged_patch",
@@ -149,7 +149,7 @@ class GitHubWorkspaceClient(
         }
         val root = "/repos/${segment(owner)}/${segment(repo)}"
         val ref = field("commit_sha").ifBlank { field("ref").ifBlank { field("branch") } }
-        if (action in setOf("resolve_context", "task_context", "index_status", "search_repository", "read_ranges", "stage_patch", "commit_staged_patch", "changed_since")) {
+        if (action in setOf("resolve_context", "task_context", "index_status", "build_index", "search_repository", "read_ranges", "stage_patch", "commit_staged_patch", "changed_since")) {
             return repositorySession.execute(action, owner, repo, args)
         }
         val refQuery = ref.takeIf { it.isNotBlank() }?.let { "?ref=${segment(it)}" }.orEmpty()

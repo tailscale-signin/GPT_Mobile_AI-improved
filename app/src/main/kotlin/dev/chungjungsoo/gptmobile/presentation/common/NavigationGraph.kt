@@ -648,6 +648,7 @@ fun NavGraphBuilder.settingNavigation(
             ToolConnectionsScreen(
                 viewModel = toolConnectionsViewModel,
                 onLaunchOAuth = onLaunchOAuth,
+                onOpenGitHubConversation = { id -> navController.navigate("chat_room/$id") },
                 onNavigationClick = { navController.navigateUp() },
                 onMarketplaceClick = { navController.navigate(Route.MCP_MARKETPLACE) },
                 onAddConnectionClick = { navController.navigate(Route.ADD_TOOL_CONNECTION) },

@@ -24,6 +24,32 @@ import org.junit.Test
 class GitHubToolTest {
 
     @Test
+    fun `programmer workspace rejects other repositories and unselected indexing before dispatch`() = runTest {
+        val client = HttpClient(MockEngine { error("Out of scope operations must not reach GitHub") })
+        try {
+            val scope = dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext("connection", "owner", "repo", "feature", "a".repeat(40), "profile")
+            val tool = GitHubTool("user-token", client, repositoryScope = scope)
+            for ((action, repository) in listOf("read_code" to "other", "list_repositories" to "repo", "search_code" to "repo", "build_index" to "repo")) {
+                val result = tool.execute(
+                    "scoped-$action",
+                    buildJsonObject {
+                        put("action", action)
+                        put("owner", "owner")
+                        put("repo", repository)
+                        put("path", "README.md")
+                        put("query", "fun main")
+                    }
+                )
+                assertTrue(result.isError)
+                assertEquals("REPOSITORY_SCOPE_MISMATCH", result.errorCode)
+                assertEquals(false, result.dispatched)
+            }
+        } finally {
+            client.close()
+        }
+    }
+
+    @Test
     fun `invalid workflow arguments return actionable validation errors without network access`() = runTest {
         val client = HttpClient(MockEngine { error("Invalid arguments must not reach the network") })
         try {

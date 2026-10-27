@@ -179,6 +179,7 @@ class AgentToolResolver @Inject constructor(
         val configuredNativeGitHubConnections = connections.filter { it.type == ToolConnectionType.GITHUB }
         val nativeGitHubConnections = configuredNativeGitHubConnections.filter { connection ->
             featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.GITHUB) &&
+                (chatToolConfig?.github?.connectionUid?.let { it == connection.connectionUid } != false) &&
                 featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.connection(connection.connectionUid))
         }
 
@@ -277,10 +278,10 @@ class AgentToolResolver @Inject constructor(
             // connection exists but is disabled, do not silently replace it with
             // anonymous GitHub access because that would bypass the plugin toggle.
             if (featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.GITHUB)) {
-                if (configuredNativeGitHubConnections.isEmpty()) {
+                if (configuredNativeGitHubConnections.isEmpty() && chatToolConfig?.github == null) {
                     resolved += resolveGitHub(null, profileUid, userMessage)
                 }
-                nativeGitHubConnections.forEach { connection -> resolved += resolveGitHub(connection, profileUid, userMessage) }
+                nativeGitHubConnections.forEach { connection -> resolved += resolveGitHub(connection, profileUid, userMessage, chatToolConfig?.github) }
             }
             if (featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.WEB_SEARCH)) {
                 resolved += defaultWebSearch.resolved(null, null, WEB_SEARCH_TOOL)
@@ -1136,7 +1137,7 @@ class AgentToolResolver @Inject constructor(
         }
     }
 
-    private suspend fun resolveGitHub(connection: ToolConnection?, profileUid: String, userMessage: MessageV2?): ResolvedAgentTool {
+    private suspend fun resolveGitHub(connection: ToolConnection?, profileUid: String, userMessage: MessageV2?, workspaceContext: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext? = null): ResolvedAgentTool {
         val actualConnection = connection
         val token = actualConnection?.secretRef?.let { secretRef ->
             secretVault.read(secretRef)?.let { bytes ->
@@ -1170,11 +1171,12 @@ class AgentToolResolver @Inject constructor(
             featureSettings = features,
             modelToolName = actualConnection?.let { "github__${it.alias}" } ?: BuiltInAgentTool.GITHUB,
             accountName = actualConnection?.name,
-            repositoryContext = actualConnection?.let { gitHubWorkspaceStore?.get(it.connectionUid) },
+            repositoryContext = workspaceContext?.repository ?: actualConnection?.let { gitHubWorkspaceStore?.get(it.connectionUid) },
             connectionUid = actualConnection?.connectionUid.orEmpty(), conversationId = userMessage?.chatId?.toString().orEmpty(), taskId = userMessage?.let { "${it.chatId}:${it.id}" }.orEmpty(),
             persistentState = userMessage?.chatId?.let { factVault?.scopeForChat(it)?.isTemporary != true } ?: true,
             stateStore = gitHubRepositoryState,
-            engineeringPrepare = engineeringPrepare
+            engineeringPrepare = engineeringPrepare,
+            repositoryScope = workspaceContext
         )
         val admittedProfile = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
         // resolved() normally wraps telemetry immediately; this backend must stay

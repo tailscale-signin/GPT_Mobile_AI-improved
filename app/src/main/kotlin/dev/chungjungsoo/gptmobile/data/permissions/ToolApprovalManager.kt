@@ -167,7 +167,7 @@ class ToolApprovalManager @Inject constructor(private val database: ChatDatabase
         val readOnly = githubRead && tool in connection.approvedReadTools.lines().map(String::trim)
         if (policy == ToolPolicy.READ_ONLY && !readOnly) return false
         if (readOnly) return true
-        val exactApproval = github
+        val exactApproval = github && !(if (tool == "github") githubRead else readOnly)
         val scope = schema?.let { definition -> database.agentRunDao().getById(runId)?.let { ScopedToolGrant.from(it.chatId, definition, arguments) } }
         val id = "$runId:$callId"
         scope?.let { requestScopes[id] = it }

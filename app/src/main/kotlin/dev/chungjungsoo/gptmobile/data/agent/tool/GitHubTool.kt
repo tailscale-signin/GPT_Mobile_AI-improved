@@ -58,7 +58,8 @@ class GitHubTool(
     private val taskId: String = "",
     private val persistentState: Boolean = true,
     private val stateStore: dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore? = null,
-    private val engineeringPrepare: (suspend (String, JsonObject) -> JsonObject)? = null
+    private val engineeringPrepare: (suspend (String, JsonObject) -> JsonObject)? = null,
+    private val repositoryScope: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext? = null
 ) : AgentTool {
 
     private val authenticationRejected = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.authenticationForCredential(apiToken) else java.util.concurrent.atomic.AtomicBoolean()
@@ -443,6 +444,15 @@ class GitHubTool(
             )
         } catch (invalid: IllegalArgumentException) {
             return errorResult(callId, invalid.message ?: "Invalid repository reference.")
+        }
+        repositoryScope?.let { selected ->
+            val action = (arguments["action"] as? JsonPrimitive)?.content.orEmpty()
+            if (action in setOf("search_repositories", "search_issues", "search_code", "list_repositories") || (action == "build_index" && !selected.prepareIndex)) {
+                return AgentToolResult(callId, ToolResultContent.Text("This programmer conversation uses the selected repository only. Use pinned repository search; index preparation requires its workspace option."), true, errorCode = "REPOSITORY_SCOPE_MISMATCH", dispatched = false)
+            }
+            if ((repository.first != null && !repository.first.equals(selected.owner, true)) || (repository.second != null && !repository.second.equals(selected.repo, true))) {
+                return AgentToolResult(callId, ToolResultContent.Text("This programmer conversation is bound to ${selected.owner}/${selected.repo}. Open a separate workspace to use another repository."), true, errorCode = "REPOSITORY_SCOPE_MISMATCH", dispatched = false)
+            }
         }
         val normalizedArguments = buildJsonObject {
             arguments.forEach { (key, value) -> put(key, value) }

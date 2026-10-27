@@ -14,14 +14,15 @@ internal object GitHubAuthorizationBoundary {
             connection.type == "MCP" &&
                 runCatching {
                     val uri = URI(connection.endpointUrl.orEmpty())
-                    uri.scheme == "https" && (uri.host == "api.githubcopilot.com" || uri.host == "api.github.com" && uri.path.orEmpty().startsWith("/mcp"))
+                    uri.scheme.equals("https", true) && (uri.host.equals("api.githubcopilot.com", true) || uri.host.equals("api.github.com", true) && uri.path.orEmpty().startsWith("/mcp"))
                 }.getOrDefault(false)
             )
 
     fun requiresElevatedAuthorization(tool: String, arguments: JsonObject): Boolean {
         val operation = if (tool == "github") (arguments["action"] as? JsonPrimitive)?.content.orEmpty() else tool.substringAfterLast("__")
         val method = (arguments["method"] as? JsonPrimitive)?.content.orEmpty()
-        val names = listOf(operation, method).map { it.lowercase() }
+        val action = (arguments["action"] as? JsonPrimitive)?.content.orEmpty()
+        val names = listOf(operation, method, action).map { it.lowercase() }
         return names.any { name ->
             if (name.contains("secret")) return@any true
             if (listOf("get_", "list_", "inspect_").any(name::startsWith)) return@any false

@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.github
 
 import java.util.Base64
+import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -164,6 +165,7 @@ internal class GitHubRepositorySession(
                 put("persistent_scope", scope.substringBefore(':'))
             }
             "index_status" -> indexStatus(context)
+            "build_index" -> buildIndex(context, args)
             "search_repository" -> search(context, args)
             "read_ranges" -> read(context, args)
             "stage_patch" -> stage(context, args)
@@ -188,6 +190,61 @@ internal class GitHubRepositorySession(
             put("kind", "lexical")
             put("compiler_resolution", false)
         }
+    }
+
+    /** Explicit foreground preparation. Every batch is bounded and pinned to one SHA. */
+    private suspend fun buildIndex(context: GitHubTaskSnapshot, args: JsonObject): JsonObject {
+        val entries = tree(context)["tree"]!!.jsonArray.map { it.jsonObject }.filter { it.s("type") == "blob" }.sortedBy { it.s("path") }
+        val sourceExtensions = setOf("kt", "kts", "java", "py", "js", "jsx", "ts", "tsx", "json", "yaml", "yml", "xml", "toml", "md", "c", "cpp", "h", "hpp", "rs", "go", "cs", "swift", "sh", "properties", "gradle", "txt")
+        val eligible = entries.filter { item -> item.s("path").substringAfterLast('.').lowercase() in sourceExtensions || item.s("path").substringAfterLast('/').uppercase() in setOf("README", "LICENSE", "DOCKERFILE", "MAKEFILE") }
+        val cursor = args.s("index_cursor").ifBlank { "0" }.toInt().also { require(it in 0..eligible.size) }
+        var next = cursor
+        var bytes = 0L
+        var fetched = 0
+        var attempted = 0
+        var skipped = 0
+        while (next < eligible.size && next - cursor < 100 && attempted < 24 && bytes < 4L * 1024 * 1024) {
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            val item = eligible[next++]
+            if (store.contains(blobScope(context), "blob:${item.s("sha")}")) continue
+            val size = item["size"]?.jsonPrimitive?.longOrNull ?: MAX_BLOB_BYTES.toLong()
+            if (size > MAX_BLOB_BYTES || size < 0) {
+                skipped++
+                continue
+            }
+            if (bytes + size > 4L * 1024 * 1024) {
+                next--
+                break
+            }
+            try {
+                attempted++
+                val retained = blob(context, item)
+                bytes += retained.s("content").toByteArray(Charsets.UTF_8).size
+                fetched++
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: IllegalArgumentException) {
+                skipped++
+            } catch (_: java.nio.charset.CharacterCodingException) {
+                skipped++
+            }
+        }
+        val status = indexStatus(context)
+        val result = buildJsonObject {
+            status.forEach { (key, value) -> put(key, value) }
+            put("preparation_scope", "bounded_text_source_files")
+            put("eligible_paths", eligible.size)
+            put("prepared_through", next)
+            put("fetched_this_batch", fetched)
+            put("attempted_this_batch", attempted)
+            put("skipped_this_batch", skipped)
+            put("prepared_bytes_this_batch", bytes)
+            put("preparation_finished", next == eligible.size && status["tree_complete"]?.jsonPrimitive?.booleanOrNull == true)
+            // Finished traversal is not proof that every file was ingested.
+            if (next < eligible.size) put("next_index_cursor", next)
+        }
+        store.write(scope, "index-preparation:${context.commitSha}", result)
+        return result
     }
 
     private suspend fun search(context: GitHubTaskSnapshot, args: JsonObject): JsonObject {

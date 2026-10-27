@@ -19,6 +19,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -71,13 +72,33 @@ class GitHubReviewViewModel @Inject constructor(private val connections: ToolCon
     internal val engineeringEvents = MutableStateFlow<List<dev.chungjungsoo.gptmobile.data.agent.tool.EngineeringEventRow>>(emptyList())
     internal val selectedEngineeringRun = MutableStateFlow<dev.chungjungsoo.gptmobile.data.agent.tool.EngineeringRunRow?>(null)
     internal val pendingEngineeringTask = MutableStateFlow<String?>(null)
+    internal val programmerScope = MutableStateFlow<dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext?>(null)
+    fun restrictTo(scope: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext?) {
+        if (programmerScope.value == scope) return
+        programmerScope.value = scope
+        engineeringTasks.value = emptyList()
+        engineeringEvents.value = emptyList()
+        selectedEngineeringRun.value = null
+        pendingEngineeringTask.value = null
+        review.value = null
+        record.value = null
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) { refreshEngineeringTasksNow() }
+    }
+    private suspend fun refreshEngineeringTasksNow() {
+        val scope = programmerScope.value
+        val tasks = engineering.recent().filter { task -> scope == null || (task.repositoryOwner.equals(scope.owner, true) && task.repositoryName.equals(scope.repo, true) && engineering.run(task.taskId)?.connectionUid == scope.connectionUid) }
+        if (programmerScope.value == scope) engineeringTasks.value = tasks
+    }
+    fun refreshEngineeringTasks() = action { refreshEngineeringTasksNow() }
     init {
         action {
-            engineeringTasks.value = engineering.recent()
+            refreshEngineeringTasksNow()
             accounts.value = connections.listConnections().filter { it.type == "GITHUB" }
             workspace.dao.list("github").firstOrNull()?.let {
                 record.value = it
-                review.value = workspace.json.decodeFromString(it.payload)
+                val saved: GitHubReview = workspace.json.decodeFromString(it.payload)
+                val scope = programmerScope.value
+                if (scope == null || (saved.connectionUid == scope.connectionUid && saved.owner.equals(scope.owner, true) && saved.repo.equals(scope.repo, true))) review.value = saved
             }
         }
     }
@@ -182,7 +203,7 @@ class GitHubReviewViewModel @Inject constructor(private val connections: ToolCon
         pendingEngineeringTask.value = taskId
         selectedEngineeringRun.value = engineering.run(taskId)
         engineeringEvents.value = engineering.events(taskId)
-        engineeringTasks.value = engineering.recent()
+        refreshEngineeringTasksNow()
         notice.value = "Patch validated for paths, size and credentials. Review and approve this exact snapshot. Compilation and hardware remain unverified."
     }
     fun approveCommit(taskId: String, digest: String) = action {
@@ -205,13 +226,13 @@ class GitHubReviewViewModel @Inject constructor(private val connections: ToolCon
         pendingEngineeringTask.value = null
         selectedEngineeringRun.value = engineering.run(taskId)
         engineeringEvents.value = engineering.events(taskId)
-        engineeringTasks.value = engineering.recent()
+        refreshEngineeringTasksNow()
         notice.value = "Remote commit verified. CI evidence is pending."
     }
     fun inspectEngineeringTask(taskId: String) = action {
         selectedEngineeringRun.value = engineering.run(taskId)
         engineeringEvents.value = engineering.events(taskId)
-        engineeringTasks.value = engineering.recent()
+        refreshEngineeringTasksNow()
     }
     fun resumeEngineering(taskId: String) = action {
         engineering.recover()
@@ -220,7 +241,7 @@ class GitHubReviewViewModel @Inject constructor(private val connections: ToolCon
     private suspend fun inspectEngineeringTaskNow(taskId: String) {
         selectedEngineeringRun.value = engineering.run(taskId)
         engineeringEvents.value = engineering.events(taskId)
-        engineeringTasks.value = engineering.recent()
+        refreshEngineeringTasksNow()
     }
     fun verifyEngineeringHardware(taskId: String) = action {
         engineering.attachHardwareVerification(taskId)
@@ -237,13 +258,18 @@ class GitHubReviewViewModel @Inject constructor(private val connections: ToolCon
     fun reviewEngineering(taskId: String) = action {
         val task = engineering.recent().single { it.taskId == taskId }
         val run = requireNotNull(engineering.run(taskId))
-        require(review.value?.files?.none { it.changed } != false) { "Save or discard the current proposal before reviewing a saved task." }
+        require(review.value?.files?.none { it.changed } != false || selectedEngineeringRun.value?.taskId == taskId) { "Save or discard the current proposal before reviewing a saved task." }
         val files = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
             dev.chungjungsoo.gptmobile.data.agent.tool.GitHubEngineeringAuthorization.files(run.patchJson).map { GitHubFileProposal(it.path, it.before, it.after, it.delete) }
         }
         record.value = null
         save(GitHubReview(run.connectionUid, task.repositoryOwner, task.repositoryName, task.workingBranch, task.baseSha, files = files))
         inspectEngineeringTaskNow(taskId)
+        pendingEngineeringTask.value = null
+        notice.value = "Review the proposed files below, then choose Approve reviewed patch. No commit has been sent."
+    }
+    fun requestEngineeringApproval(taskId: String) = action {
+        require(selectedEngineeringRun.value?.taskId == taskId && review.value != null) { "Open and review the saved patch first." }
         pendingEngineeringTask.value = taskId
     }
     fun dismissApproval() {
@@ -267,7 +293,9 @@ class GitHubReviewViewModel @Inject constructor(private val connections: ToolCon
 }
 
 @Composable
-fun GitHubReviewPanel(model: GitHubReviewViewModel = hiltViewModel()) {
+fun GitHubReviewPanel(model: GitHubReviewViewModel = hiltViewModel(), programmerContext: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext? = null) {
+    val activeScope by model.programmerScope.collectAsState()
+    LaunchedEffect(programmerContext) { model.restrictTo(programmerContext) }
     val accounts by model.accounts.collectAsState()
     val review by model.review.collectAsState()
     val notice by model.notice.collectAsState()
@@ -285,15 +313,26 @@ fun GitHubReviewPanel(model: GitHubReviewViewModel = hiltViewModel()) {
     var confirming by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf("") }
     var requiresHardware by remember { mutableStateOf(false) }
+    if (programmerContext != null && activeScope != programmerContext) {
+        LinearProgressIndicator(Modifier.fillMaxWidth())
+        return
+    }
     LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
             WorkspaceCard("GitHub review") {
-                Row(Modifier.horizontalScroll(rememberScrollState())) { accounts.forEach { FilterChip(uid == it.connectionUid, { uid = it.connectionUid }, label = { Text(it.name) }) } }
-                OutlinedTextField(owner, { owner = it }, label = { Text("Owner") })
-                OutlinedTextField(repo, { repo = it }, label = { Text("Repository") })
-                OutlinedTextField(branch, { branch = it }, label = { Text("Working branch") })
-                OutlinedTextField(pr, { pr = it }, label = { Text("Pull request number · optional") })
-                Button(enabled = !busy, onClick = { model.inspect(uid, owner, repo, branch, pr) }) { Text("Inspect branch") }
+                if (programmerContext == null) {
+                    Row(Modifier.horizontalScroll(rememberScrollState())) { accounts.forEach { FilterChip(uid == it.connectionUid, { uid = it.connectionUid }, label = { Text(it.name) }) } }
+                    OutlinedTextField(owner, { owner = it }, label = { Text("Owner") })
+                    OutlinedTextField(repo, { repo = it }, label = { Text("Repository") })
+                    OutlinedTextField(branch, { branch = it }, label = { Text("Working branch") })
+                    OutlinedTextField(pr, { pr = it }, label = { Text("Pull request number · optional") })
+                    Button(enabled = !busy, onClick = { model.inspect(uid, owner, repo, branch, pr) }) { Text("Inspect branch") }
+                } else {
+                    Text("${programmerContext.owner}/${programmerContext.repo}", style = MaterialTheme.typography.titleMedium)
+                    Text("Review AI-proposed changes and verified operation states.")
+                    TextButton(onClick = model::refreshEngineeringTasks, enabled = !busy) { Text("Refresh proposed changes") }
+                    if (tasks.isEmpty()) Text("No engineering proposals yet. Ask your main AI profile to prepare a change.")
+                }
                 if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
                 Text(notice)
             }
@@ -314,7 +353,8 @@ fun GitHubReviewPanel(model: GitHubReviewViewModel = hiltViewModel()) {
                         SelectionContainer { Text(run.verifiedChecksJson.orEmpty().take(12000)) }
                         TextButton(enabled = !busy, onClick = { model.resumeEngineering(run.taskId) }) { Text("Reconcile & refresh") }
                         if (tasks.firstOrNull { it.taskId == run.taskId }?.state in setOf("AWAITING_APPROVAL", "COMMITTING")) {
-                            TextButton(enabled = !busy, onClick = { model.reviewEngineering(run.taskId) }) { Text("Review & renew approval") }
+                            TextButton(enabled = !busy, onClick = { model.reviewEngineering(run.taskId) }) { Text("View proposed changes") }
+                            if (review != null) TextButton(enabled = !busy, onClick = { model.requestEngineeringApproval(run.taskId) }) { Text("Approve reviewed patch") }
                         }
                         if (tasks.firstOrNull { it.taskId == run.taskId }?.state == "AWAITING_HARDWARE_VERIFICATION") {
                             TextButton(enabled = !busy, onClick = { model.verifyEngineeringHardware(run.taskId) }) { Text("Verify this device's benchmark receipts") }
@@ -334,9 +374,11 @@ fun GitHubReviewPanel(model: GitHubReviewViewModel = hiltViewModel()) {
                     SelectionContainer { Text(value.checks.toString()) }
                     TextButton(enabled = !busy, onClick = { model.refresh() }) { Text("Refresh head, checks & rate limit") }
                     if (value.changedFiles.isNotEmpty()) SelectionContainer { Text(value.changedFiles.toString().take(16000)) }
-                    OutlinedTextField(path, { path = it }, label = { Text("Repository file path") })
-                    TextButton(enabled = !busy && !value.stale, onClick = { model.openFile(path) }) { Text("Open at inspected SHA") }
-                    OutlinedTextField(value.reviewNotes, { model.notes(it) }, label = { Text("Review & test evidence for this SHA") }, maxLines = 4)
+                    if (programmerContext == null) {
+                        OutlinedTextField(path, { path = it }, label = { Text("Repository file path") })
+                        TextButton(enabled = !busy && !value.stale, onClick = { model.openFile(path) }) { Text("Open at inspected SHA") }
+                        OutlinedTextField(value.reviewNotes, { model.notes(it) }, label = { Text("Review & test evidence for this SHA") }, maxLines = 4)
+                    }
                 }
             }
             items(value.files, key = { it.path }) { file ->
@@ -350,8 +392,8 @@ fun GitHubReviewPanel(model: GitHubReviewViewModel = hiltViewModel()) {
                     }
                     SelectionContainer { Text(diff, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace) }
                     if (file.before.length + file.after.length > 12000) Text("Diff preview may be truncated. Review the complete proposed file below before committing.", style = MaterialTheme.typography.bodySmall)
-                    OutlinedTextField(file.after, { model.edit(file.path, it) }, enabled = !file.delete, label = { Text("Proposed complete file") }, modifier = Modifier.fillMaxWidth(), maxLines = 16)
-                    TextButton(enabled = !busy && !value.stale, onClick = { model.deleteFile(file.path) }) { Text(if (file.delete) "Restore file" else "Delete file in this commit") }
+                    OutlinedTextField(file.after, { model.edit(file.path, it) }, readOnly = programmerContext != null, enabled = !file.delete, label = { Text("Proposed complete file") }, modifier = Modifier.fillMaxWidth(), maxLines = 16)
+                    if (programmerContext == null) TextButton(enabled = !busy && !value.stale, onClick = { model.deleteFile(file.path) }) { Text(if (file.delete) "Restore file" else "Delete file in this commit") }
                     Text(
                         "${file.before.lines().size} → ${file.after.lines().size} lines · ${if (file.delete) {
                             "deleted"

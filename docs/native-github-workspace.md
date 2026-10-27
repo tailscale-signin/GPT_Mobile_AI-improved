@@ -4,6 +4,18 @@ Open **Settings → Tool connections**, add or edit a **GitHub API** connection,
 
 The October 21 upgrade adds persistent repository sessions, revision search, source evidence handles, exact patch staging, CI failure digests and incremental review. Implementation and validation are tracked in [the reliability repair record](repairs/2026-10-21-reliability-and-workspace.md).
 
+## AI programmer home
+
+The workspace opens on **AI**, with the same command composer used by conversations. Select a **main AI profile** for the GitHub connection, choose a repository and branch, and describe the desired outcome. **Fix CI**, **Review PRs**, **Plan a change**, and **Summarize work** fill the composer for review before sending.
+
+Commands use the existing durable conversation queue. The selected profile, model, connection, repository and branch are captured with the command; the workspace shows the actual run state, pending approvals, recent tool results and latest answer. **Open full conversation** keeps that repository's connection scope. Changing repositories or profiles selects a separate conversation and encrypted command draft. A storage failure keeps the command available and reports the error.
+
+**Review changes** opens the engineering review surface scoped to the selected account and repository. View the proposed patch before requesting its approval. Approval still covers the exact patch and expected head; selecting a main AI profile grants no additional permissions.
+
+**Prepare code context** enables optional lexical indexing. Each foreground batch makes at most 24 blob-fetch attempts, visits at most 100 eligible paths, and uses a bounded byte budget. Cached blobs are reused by account/repository/blob SHA; continuation stays pinned to the inspected commit. An incomplete repository tree or skipped file never becomes proof of full coverage. Files remain available on demand with the option off.
+
+**Checks**, **Review**, **PRs**, and **Files** retain the detailed tools. Repository structure and manual editing are secondary to the command and its outcomes.
+
 ## Account and repository access
 
 The existing connection editor stores the token in `SecretVault`. Use a fine-grained GitHub token restricted to the repositories you want. Browsing needs Contents read access; commits need Contents write access; draft pull requests need Pull requests write access. Editing workflow files also requires the appropriate GitHub workflow permission. Repository permissions and the connection's read-only policy disable editing when appropriate.

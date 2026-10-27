@@ -110,6 +110,7 @@ fun ToolConnectionsScreen(
     viewModel: ToolConnectionsViewModel = hiltViewModel(),
     onLaunchOAuth: (String) -> Unit = {},
     onMarketplaceClick: () -> Unit = {},
+    onOpenGitHubConversation: (Int) -> Unit = {},
     onAddConnectionClick: () -> Unit,
     onEditConnectionClick: (String) -> Unit,
     onNavigationClick: () -> Unit
@@ -204,12 +205,16 @@ fun ToolConnectionsScreen(
             dismissButton = { TextButton(onClick = viewModel::cancelGitHubSignIn) { Text("Cancel") } }
         )
     }
-    var browsingConnection by remember { mutableStateOf<ToolConnection?>(null) }
+    var browsingConnectionUid by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
+    val browsingConnection = uiState.connections.firstOrNull { it.connectionUid == browsingConnectionUid }
     browsingConnection?.let { connection ->
         if (connection.type == ToolConnectionType.GITHUB) {
-            GitHubWorkspaceScreen(connection, onDismiss = { browsingConnection = null })
+            GitHubWorkspaceScreen(connection, onDismiss = { browsingConnectionUid = null }, onOpenConversation = { id ->
+                browsingConnectionUid = null
+                onOpenGitHubConversation(id)
+            })
         } else {
-            McpBrowserDialog(connection, onDismiss = { browsingConnection = null })
+            McpBrowserDialog(connection, onDismiss = { browsingConnectionUid = null })
         }
     }
     var permissionsConnection by remember { mutableStateOf<ToolConnection?>(null) }
@@ -420,7 +425,7 @@ fun ToolConnectionsScreen(
                                 onEditClick = { onEditConnectionClick(connection.connectionUid) },
                                 onRuntimeSettings = { pluginSettings = ToolPluginId.connection(connection.connectionUid) },
                                 onPermissionsClick = { permissionsConnection = connection },
-                                onBrowseClick = { browsingConnection = connection },
+                                onBrowseClick = { browsingConnectionUid = connection.connectionUid },
                                 onOAuthClick = { startOAuth(connection) },
                                 onDeleteClick = { deletingConnection = connection },
                                 health = uiState.connectionHealth[connection.connectionUid],

@@ -34,6 +34,7 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
 @kotlinx.serialization.Serializable
@@ -546,6 +547,21 @@ class GitHubWorkspaceViewModel @Inject constructor(
     fun explainFailedCi() = work {
         val result = api("ci_failure_digest").jsonObject
         _state.update { it.copy(ciDigest = result) }
+    }
+
+    fun prepareCodeIndex() = work {
+        val state = _state.value
+        require(state.headSha.isNotBlank()) { "Select a repository snapshot first." }
+        val current = state.indexStatus
+        val next = if (current?.text("commit_sha") == state.headSha) current["next_index_cursor"]?.jsonPrimitive?.content else null
+        val result = api(
+            "build_index",
+            buildJsonObject {
+                put("commit_sha", state.headSha)
+                next?.let { put("index_cursor", it) }
+            }
+        ).jsonObject
+        _state.update { it.copy(indexStatus = result, notice = if (result["next_index_cursor"] != null) "Code context prepared in a bounded batch. Continue when useful; other files remain available on demand." else "Index preparation finished. Files not cached remain available on demand.") }
     }
     fun markReviewed() {
         _state.update { it.copy(reviewBaseline = it.headSha, changedFiles = null, notice = "Review baseline saved at ${it.headSha.take(8)}.") }

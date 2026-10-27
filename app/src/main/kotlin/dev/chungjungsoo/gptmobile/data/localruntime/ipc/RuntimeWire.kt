@@ -176,7 +176,14 @@ internal object RuntimeWireTransport {
                 data.getString("json").orEmpty()
             }
         return json.decodeFromString<RuntimeWire>(content).also {
-            require(it.version == 1 && it.requestId.length in 1..128 && it.sessionId.length <= 128) { "Unsupported local IPC protocol" }
+            require(
+                it.version == 1 &&
+                    it.requestId.length in 1..128 &&
+                    it.sessionId.length <= 128 &&
+                    it.generation.length <= 128 &&
+                    it.callId.length <= 128 &&
+                    it.sequence >= 0
+            ) { "Unsupported local IPC protocol" }
         }
     }
 }

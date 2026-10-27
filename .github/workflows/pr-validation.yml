@@ -79,10 +79,9 @@ jobs:
           SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           test -x "$SDKMANAGER"
           yes | "$SDKMANAGER" --licenses > sdk-licenses.log 2>&1 || status=$?
-          if [[ "${status:-0}" -ne 0 && "${status:-0}" -ne 141 ]]; then
-            cat sdk-licenses.log
-            exit "$status"
-          fi
+          # sdkmanager can return nonzero after successful acceptance when the
+          # yes producer is terminated by a closed pipe. Trust the final SDK
+          # acceptance report, not the pipeline status alone.
           if ! grep -Eq "All SDK package licenses accepted" sdk-licenses.log; then
             cat sdk-licenses.log
             exit 1

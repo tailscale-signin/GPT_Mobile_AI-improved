@@ -55,3 +55,5 @@ This is an implementation tracking document, not a claim that fixes are complete
 - [x] Return local streaming backpressure credit when an IPC send throws (commit e4627816; regression test pending).
 
 - [x] Reject delayed cancellation when the request no longer owns the active native operation (commit d04f0516; tests pending).
+
+- [x] Cancellation and prefill watchdogs skip redundant termination when shutdown has begun (commits 8882262d, c26639c4; tests pending).

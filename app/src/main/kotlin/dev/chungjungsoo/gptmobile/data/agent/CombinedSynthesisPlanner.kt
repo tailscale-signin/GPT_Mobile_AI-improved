@@ -302,7 +302,8 @@ class CombinedSynthesisPlanner @Inject constructor(
                             outputSettings?.outputTokens,
                             listOfNotNull(outputSettings?.contextTokens, outputSettings?.profileContextCeilings?.get(leadUid)).minOrNull(),
                             writerContext,
-                            appendContinuations = combined.requested.appendContinuations
+                            appendContinuations = combined.requested.appendContinuations,
+                            incrementalSynthesis = combined.requested.incrementalSynthesis
                         )
                     } catch (capacity: CombinedInputCapacityException) {
                         if (!permitsLocalAssembly) throw capacity

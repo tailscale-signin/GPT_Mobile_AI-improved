@@ -57,6 +57,7 @@ internal fun CompactAgentActivityBar(
         run == null ->
             stringResource(R.string.agent_live_preparing)
 
+        run.combinedStage != null -> run.combinedStage.label
         run.phase == LocalInferencePhase.QUEUED -> "Waiting for local model"
         run.phase == LocalInferencePhase.INSPECTING -> "Checking model"
         run.phase == LocalInferencePhase.LOADING -> "Loading model"

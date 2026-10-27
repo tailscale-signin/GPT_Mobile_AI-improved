@@ -17,6 +17,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ConfiguredDispatchAuthorityTest {
+    @Test fun outputIncreasesAreHarmlessButDecreasesAndCredentialChangesRequireReview() {
+        val before = PlatformV2(uid = "p", name = "P", model = "model", maxTokens = 1024, token = "secret")
+        assertTrue(ConfiguredDispatchAuthority.allowsAcceptedProfile(before, before.copy(maxTokens = 4096, name = "Renamed")))
+        assertFalse(ConfiguredDispatchAuthority.allowsAcceptedProfile(before, before.copy(maxTokens = 512)))
+        assertFalse(ConfiguredDispatchAuthority.allowsAcceptedProfile(before, before.copy(maxTokens = 4096, token = "changed")))
+        assertFalse(ConfiguredDispatchAuthority.allowsAcceptedProfile(before.copy(maxTokens = null), before))
+    }
+
     @Test
     fun savedAuthorityRetainsTheAdmittedModelWhileRevalidatingTheRegisteredProfile() = runTest {
         val settings = mockk<SettingRepository>()

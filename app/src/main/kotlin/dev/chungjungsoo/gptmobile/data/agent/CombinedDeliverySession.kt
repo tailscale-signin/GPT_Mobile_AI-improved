@@ -23,6 +23,7 @@ internal class CombinedDeliverySession(
     private val committedPrefix: String = "",
     private val preserveSourceContent: Boolean = false,
     private val validateAccess: suspend () -> Unit,
+    private val onStage: suspend (CombinedDeliveryPhase) -> Unit = {},
     private val onCoverage: suspend (CombinedContentCoverage.Result, Boolean) -> Unit = { _, _ -> },
     private val maxRepairRounds: Int = 1,
     private val localConversationAnswer: String? = null,
@@ -61,11 +62,12 @@ internal class CombinedDeliverySession(
                 "PLAIN_TEXT"
             }} · progressive=$progressive · constrained=$constrained · revision=$currentRevision · policy=${combined?.requested?.requestedPolicyDigest.orEmpty()}"
         )
-        data class Candidate(val text: String, val terminal: ProviderEvent?, val decoder: CombinedPassageDecoder?, val assembledLocally: Boolean = false)
+        data class Candidate(val text: String, val terminal: ProviderEvent?, val decoder: CombinedPassageDecoder?, val assembledLocally: Boolean = false, val usage: CombinedReportedUsage? = null)
         suspend fun collect(candidate: AgentProviderSession, publish: Boolean): Candidate {
             val text = StringBuilder()
             val decoder = if (structured) CombinedPassageDecoder(sources, currentEvidence, maxCharacters, strictRecords = recordProtocol) else null
             var terminal: ProviderEvent? = null
+            var usage: CombinedReportedUsage? = null
             flow { emitAll(candidate.streamRound(emptyList(), emptyList())) }.catch { error ->
                 if (error is CancellationException) throw error
                 emit(ProviderEvent.Failed("Combined synthesis stream failed. The partial answer and original contributions are retained."))
@@ -93,6 +95,12 @@ internal class CombinedDeliverySession(
                             if (deltas.isNotEmpty() && decoder != null) emit(ProviderEvent.CombinedQuality(CombinedQualityReport(passages = decoder.passages.toList(), turnContext = turnContext, revisionId = currentRevision)))
                         }
                     }
+                    is ProviderEvent.Usage -> {
+                        if (event.inputTokens != null || event.outputTokens != null) {
+                            usage = CombinedReportedUsage(event.inputTokens?.takeIf { it >= 0 } ?: usage?.inputTokens, event.outputTokens?.takeIf { it >= 0 } ?: usage?.outputTokens, if (event.inputTokens != null) event.inputSource else usage?.inputSource ?: "unknown", if (event.outputTokens != null) event.outputSource else usage?.outputSource ?: "unknown")
+                        }
+                        emit(event)
+                    }
                     is ProviderEvent.Failed -> terminal = event
                     ProviderEvent.Completed -> if (terminal == null) terminal = event
                     else -> emit(event)
@@ -111,8 +119,13 @@ internal class CombinedDeliverySession(
             } else {
                 rawAnswer
             }
-            return Candidate(answer, terminal, decoder)
+            return Candidate(answer, terminal, decoder, usage = usage)
         }
+        suspend fun phase(stage: CombinedDeliveryPhase) {
+            onStage(stage)
+            emit(ProviderEvent.Notice(stage.label))
+        }
+        phase(CombinedDeliveryPhase.VALIDATING)
         validateAccess()
         if (!singlePass && policy.requiresCurrentEvidence && currentEvidence.records.none { it.readable && it.article && it.dated }) {
             if (combined != null && !policy.noSearch) {
@@ -129,7 +142,7 @@ internal class CombinedDeliverySession(
                 return@flow
             }
         }
-        emit(ProviderEvent.Notice("Combining the contributions within your requested scope and checking their support."))
+        phase(CombinedDeliveryPhase.COMBINING)
         var accepted = collect(base, progressive)
         validateAccess()
         val deferred = (accepted.terminal as? ProviderEvent.Failed)?.takeIf { combined?.requested?.appendContinuations == true && it.providerLimit?.knownNotAccepted == true }
@@ -155,6 +168,7 @@ internal class CombinedDeliverySession(
             val invalid = checked.receipts.filterNot { CombinedEvidenceVerifier.validateReceipt(candidate.text, currentRevision, currentEvidence, it) }
             if (invalid.isEmpty()) checked else checked.copy(checks = checked.checks + CombinedAnswerCheck("INVALID_REVISION_EVIDENCE_RECEIPT", "PROVENANCE", "FAIL", true, invalid.mapTo(linkedSetOf()) { it.claimId }, "A support receipt did not validate against this answer revision and retained evidence."))
         }
+        phase(CombinedDeliveryPhase.CHECKING)
         var assessment = assess(accepted)
         var violations = withContext(Dispatchers.Default) { policy.violations(accepted.text) }
         var coverageResult = withContext(Dispatchers.Default) { coverage.check(accepted.text) }
@@ -195,7 +209,7 @@ internal class CombinedDeliverySession(
                     issues.isEmpty() -> "COMPLETED_UNVERIFIED"
                     else -> "COMPLETED_WITH_ISSUES"
                 },
-                wordCount = visibleWordCount(candidate.text), issues = issues,
+                wordCount = visibleWordCount(candidate.text), issues = issues, writerUsage = candidate.usage,
                 passages = mappedPassages.map { passage -> passage.copy(evidenceStatus = CombinedEvidenceVerifier.assess(passage.passageId, candidate.text.substring(passage.start, passage.end), currentEvidence, passage.sourceIds).result) },
                 decisions = checked.decisions,
                 sourceUnits = coverageResult.total, lexicalMissing = coverageResult.missing.size,
@@ -446,6 +460,7 @@ internal class CombinedDeliverySession(
             )
         }
         AppLogRecorder.record("CombinedSynthesis", "SYNTHESIS_QUALITY · status=${finalReport.status} · delivered=${finalReport.deliveredScopeStatus} · verification=${finalReport.verificationStatus} · revision=${finalReport.revisionId} · assessedDigest=${finalReport.answerDigest} · assessmentStage=${finalReport.assessmentStage} · wordCounter=${finalReport.wordCounterVersion} · words=${finalReport.wordCount} · writerDigest=${finalReport.writerAnswerDigest} · writerCharacters=${finalReport.writerCharacters} · locallyAddedCharacters=${finalReport.locallyAddedCharacters} · locallyRemovedCharacters=${finalReport.locallyRemovedCharacters} · displayedCharacters=${finalReport.displayedCharacters} · fullyLinkedClaims=${finalReport.fullyLinkedClaims} · partialSourceLinks=${finalReport.partialSourceLinks} · unresolvedSourceLinks=${finalReport.unresolvedSourceLinks} · repairs=$repairs · accepted=$repairAccepted · rejected=$repairRejected · rejectionReasons=${rejections.joinToString(";")} · stoppingReason=$repairSkippedReason · semanticCoverageVerified=false · factualAccuracyVerified=false")
+        phase(CombinedDeliveryPhase.PUBLISHING)
         validateAccess()
         val linkedPassages = finalReport.passages.filter { it.semanticLinkStatus == "CONSERVATIVE_LINK_CHECKED" }
         val failedChecks = assessment.checks.filter { it.result != "PASS" }.map { it.id }

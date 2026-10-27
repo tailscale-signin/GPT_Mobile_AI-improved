@@ -1638,6 +1638,11 @@ internal fun ChatMessagePair(
                     onContinueClick = onContinueClick.takeIf { smartSuggestionsEnabled && !isSourceResponse },
                     onActionClick = onActionClick.takeIf { smartSuggestionsEnabled && !isSourceResponse }
                 )
+                if (isCombinedConversation && !isSourceResponse) {
+                    assistantTimeline.lastOrNull { it.combinedQuality?.finalAssessment == true }?.combinedQuality?.let { report ->
+                        CombinedQualityDashboardCard(report, assistantContent, selectedAssistantMessage?.effectiveCombinedManifest()?.bodyDigest, combinedProfiles.associate { it.uid to it.name })
+                    }
+                }
                 assistantTimeline.lastOrNull { it.runError != null }?.runError?.let { error ->
                     Column(Modifier.fillMaxWidth().padding(12.dp)) {
                         Text(stringResource(R.string.audit_response_interrupted), style = MaterialTheme.typography.titleSmall)

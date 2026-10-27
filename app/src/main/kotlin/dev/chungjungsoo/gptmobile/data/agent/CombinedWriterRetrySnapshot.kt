@@ -21,7 +21,8 @@ internal object CombinedWriterRetrySnapshot {
             combinedWriterSystemPrompt(original.systemPrompt, original.deliveryProtocol, original.userMessage.content, nextContext.requested.appendContinuations),
             original.writerContext?.historyText() ?: combinedWriterHistory(original.history, original.replies, original.profileUid),
             original.deliveryProtocol, nextContext.plan?.finalOutputTokens ?: 0, userOutputLimit, userContextLimit, original.writerContext,
-            appendContinuations = nextContext.requested.appendContinuations
+            appendContinuations = nextContext.requested.appendContinuations,
+            incrementalSynthesis = nextContext.requested.incrementalSynthesis
         )
         return original.copy(
             snapshotId = UUID.randomUUID().toString(),

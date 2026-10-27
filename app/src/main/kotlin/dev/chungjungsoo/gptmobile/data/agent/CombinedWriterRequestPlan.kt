@@ -47,7 +47,7 @@ data class CombinedWriterRequestPlan(
     val preparedContextDigest: String? = null
 ) {
     fun validate(snapshot: CombinedInputSnapshot) {
-        require(version in 1..2 && planId.isNotBlank()) { "COMBINED_WRITER_PLAN_UNAVAILABLE" }
+        require(version in 1..3 && planId.isNotBlank()) { "COMBINED_WRITER_PLAN_UNAVAILABLE" }
         require(profileUid == snapshot.profileUid && model == snapshot.model && deliveryProtocol == snapshot.deliveryProtocol) { "COMBINED_WRITER_PLAN_IDENTITY_CHANGED" }
         require(promptDigest == combinedDigest(snapshot.prompt)) { "COMBINED_WRITER_PLAN_PROMPT_CHANGED" }
         require(systemPromptDigest == combinedDigest(combinedWriterSystemPrompt(snapshot.systemPrompt, snapshot.deliveryProtocol, snapshot.userMessage.content, version >= 2 && snapshot.combined?.requested?.appendContinuations == true))) { "COMBINED_WRITER_PLAN_SYSTEM_CHANGED" }
@@ -92,15 +92,18 @@ data class CombinedWriterRequestPlan(
             userOutputLimit: Int? = null,
             userContextLimit: Int? = null,
             writerContext: CombinedWriterContext? = null,
-            appendContinuations: Boolean = false
+            appendContinuations: Boolean = false,
+            incrementalSynthesis: Boolean = false
         ): CombinedWriterRequestPlan {
             CombinedProviderEligibility.unavailableReason(profile, request, writer = true, appendContinuations = appendContinuations)?.let { error(it) }
             CombinedWriterPolicy.unavailableReason(profile, request, appendContinuations = appendContinuations)?.let { error(it) }
             val required = CombinedWriterPolicy.requiredOutput(request, profile, appendContinuations)
             val requested = maxOf(required, plannedOutputTokens)
-            val output = minOf(ProviderRouteCapacity.output(profile, requested), userOutputLimit?.takeIf { it > 0 } ?: Int.MAX_VALUE)
-            require(output >= required) { "The selected writer needs $required generation tokens including reasoning and record framing; its accepted limit is $output. Choose a writer or raise the limit before starting." }
             val context = listOfNotNull(ProviderRouteCapacity.context(profile), userContextLimit?.takeIf { it > 0 && it < Int.MAX_VALUE }).minOrNull()
+            val fixedOutput = if (profile.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.FREE) dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.fromApiUrl(profile.apiUrl)?.fixedOutputTokens ?: 0 else 0
+            val contextOutput = if (incrementalSynthesis && context != null) maxOf(required, fixedOutput, context / 4) else Int.MAX_VALUE
+            val output = minOf(ProviderRouteCapacity.output(profile, requested), userOutputLimit?.takeIf { it > 0 } ?: Int.MAX_VALUE, contextOutput)
+            require(output >= required) { "The selected writer needs $required generation tokens including reasoning and record framing; its accepted limit is $output. Choose a writer or raise the limit before starting." }
             val envelope = buildJsonObject {
                 put("model", profile.model)
                 put("system", systemPrompt)
@@ -110,10 +113,17 @@ data class CombinedWriterRequestPlan(
             }.toString()
             val measured = RequestAdmission.estimate(envelope)
             val total = Math.addExact(Math.addExact(measured.promptTokens, measured.uncertaintyTokens), output.toLong())
-            if (context != null && total > context) throw CombinedInputCapacityException("The complete frozen input, safety margin and final answer need approximately $total tokens; the selected writer's accepted context is $context. Saved contributions remain available.")
+            val needsInspection = context != null && total > context
+            if (needsInspection && !incrementalSynthesis) throw CombinedInputCapacityException("The complete frozen input, safety margin and final answer need approximately $total tokens; the selected writer's accepted context is $context. Saved contributions remain available.")
             val digest = combinedDigest(envelope + "|" + protocol + "|" + ProviderRouteCapacity.key(profile))
             return CombinedWriterRequestPlan(
-                version = if (appendContinuations) 2 else 1,
+                version = if (incrementalSynthesis) {
+                    3
+                } else if (appendContinuations) {
+                    2
+                } else {
+                    1
+                },
                 planId = digest,
                 profileUid = profile.uid,
                 model = profile.model,
@@ -127,7 +137,13 @@ data class CombinedWriterRequestPlan(
                 requiredOutputTokens = required,
                 effectiveOutputTokens = output,
                 contextTokens = context,
-                capacityState = if (context == null) "CAPACITY_UNVERIFIED" else "ESTIMATED_FIT_REQUIRES_WIRE_ADMISSION",
+                capacityState = if (needsInspection) {
+                    "FULL_CORPUS_INSPECTION_REQUIRED"
+                } else if (context == null) {
+                    "CAPACITY_UNVERIFIED"
+                } else {
+                    "ESTIMATED_FIT_REQUIRES_WIRE_ADMISSION"
+                },
                 preparedContextDigest = writerContext?.envelopeDigest(prompt)
             )
         }
@@ -140,6 +156,29 @@ internal class CombinedInputCapacityException(message: String) : IllegalArgument
 internal class CombinedWriterDispatchGuard(val plan: CombinedWriterRequestPlan) : AbstractCoroutineContextElement(Key) {
     private val prepared = AtomicBoolean(false)
     private val admittedPlan = java.util.concurrent.atomic.AtomicReference(plan)
+
+    private var corpusFinalPlan: CombinedWriterRequestPlan? = null
+
+    /** Called only by the application-owned corpus session after validating its complete frozen input. */
+    internal fun corpusRequest(profile: PlatformV2, turns: List<ConversationTurn>, output: Int, final: Boolean): CombinedWriterDispatchGuard {
+        require(plan.version == 3) { "COMBINED_CORPUS_NOT_ACCEPTED" }
+        plan.validateProfile(profile)
+        require(turns.isNotEmpty() && turns.last().isCurrentTurn && turns.last().assistantMessage == null)
+        require(output > 0 && output <= plan.effectiveOutputTokens)
+        val scoped = plan.copy(
+            promptDigest = combinedDigest(turns.last().userMessage.content),
+            historyDigest = writerHistoryDigest(turns.dropLast(1).flatMap { listOf(it.userMessage.content, it.assistantMessage?.content.orEmpty()) }),
+            preparedContextDigest = CombinedWriterContext.digest(turns),
+            requiredOutputTokens = if (final) plan.requiredOutputTokens else 1,
+            effectiveOutputTokens = output
+        )
+        if (final) {
+            require(output >= plan.requiredOutputTokens)
+            corpusFinalPlan = scoped
+            admittedPlan.set(scoped)
+        }
+        return CombinedWriterDispatchGuard(scoped)
+    }
 
     fun validatePreparedRequest(profile: PlatformV2, turns: List<ConversationTurn>) {
         prepared.set(false)
@@ -159,7 +198,8 @@ internal class CombinedWriterDispatchGuard(val plan: CombinedWriterRequestPlan) 
         require(state.lastAttemptOutcome in setOf("COMPLETED", "OUTPUT_LIMIT", "KNOWN_PROVIDER_REJECTION")) { "COMBINED_APPEND_REMOTE_COMPLETION_UNKNOWN" }
         require(state.retryAtMillis?.let { System.currentTimeMillis() >= it } != false) { "COMBINED_APPEND_PROVIDER_WAIT" }
         plan.validate(snapshot)
-        plan.validatePreparedRequest(profile, initialTurns)
+        val initialPlan = corpusFinalPlan ?: plan
+        initialPlan.validatePreparedRequest(profile, initialTurns)
         require(continued.size == initialTurns.size && continued.dropLast(1) == initialTurns.dropLast(1)) { "COMBINED_APPEND_HISTORY_CHANGED" }
         val original = initialTurns.last()
         val current = continued.last()
@@ -182,7 +222,7 @@ internal class CombinedWriterDispatchGuard(val plan: CombinedWriterRequestPlan) 
         // measures the complete continued request before the next physical dispatch.
         prepared.set(false)
         admittedPlan.set(
-            plan.copy(
+            initialPlan.copy(
                 promptDigest = combinedDigest(current.userMessage.content),
                 preparedContextDigest = plan.preparedContextDigest?.let { CombinedWriterContext.digest(continued) }
             )

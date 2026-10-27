@@ -48,7 +48,7 @@ internal object ConfiguredDispatchAuthority {
         val capturedPolicyRevision = policyRevision(capturedFeatures, platform.uid, chatId)
         val revision = researchHash("$capturedProfileRevision|$capturedPolicyRevision|${inherited?.revision}")
         val authority = capturedProfileRevision?.let {
-            CapturedProviderAuthority(platform.uid, platform.model, it, capturedPolicyRevision, privacyRevision, CapturedProviderAuthority.routeRevision(platform), chatId, listOfNotNull(inherited?.authority), acceptedTokenBudget = capturedFeatures.tokenBudget)
+            CapturedProviderAuthority(platform.uid, platform.model, it, capturedPolicyRevision, privacyRevision, CapturedProviderAuthority.routeRevision(platform), chatId, listOfNotNull(inherited?.authority), acceptedTokenBudget = capturedFeatures.tokenBudget, acceptedProfileOutputLimit = registered?.maxTokens, profileWithoutOutputLimitRevision = registered?.let(::profileWithoutOutputLimitRevision))
         }
         return RequestAuthorizationGuard("configured:$revision", authority) {
             inherited?.validate?.invoke()
@@ -58,8 +58,12 @@ internal object ConfiguredDispatchAuthority {
             check(currentMatches.size <= 1) { "PROFILE_IDENTITY_AMBIGUOUS: multiple profiles use the same identity." }
             val current = currentMatches.singleOrNull()
             if (registered != null) {
-                check(current != null && current.enabled && profileRevision(current) == capturedProfileRevision) {
-                    "PROFILE_CONFIGURATION_CHANGED: the profile, credentials or inference configuration changed; prepare a new request."
+                if (current == null) throw DispatchPolicyChangedException(listOf("profile.removed"))
+                if (!current.enabled) throw DispatchPolicyChangedException(listOf("profile.enabled"))
+                if (profileRevision(current) != capturedProfileRevision && !allowsAcceptedProfile(registered, current)) {
+                    val before = Json.encodeToJsonElement(registered) as kotlinx.serialization.json.JsonObject
+                    val after = Json.encodeToJsonElement(current) as kotlinx.serialization.json.JsonObject
+                    throw DispatchPolicyChangedException((before.keys + after.keys).filter { before[it] != after[it] }.sorted().map { "profile.$it" })
                 }
             } else {
                 check(current == null) { "PROFILE_IDENTITY_CHANGED: an ephemeral identity became a configured profile." }
@@ -74,6 +78,11 @@ internal object ConfiguredDispatchAuthority {
     }
 
     internal fun profileRevision(profile: PlatformV2): String = researchHash(Json.encodeToString(profile.copy(name = "", labels = "", isFavorite = false)))
+
+    internal fun outputLimit(value: Int?): Int = value?.takeIf { it > 0 } ?: Int.MAX_VALUE
+    internal fun profileWithoutOutputLimitRevision(profile: PlatformV2): String = profileRevision(profile.copy(maxTokens = null))
+    internal fun allowsAcceptedProfile(before: PlatformV2, after: PlatformV2): Boolean =
+        outputLimit(after.maxTokens) >= outputLimit(before.maxTokens) && profileWithoutOutputLimitRevision(before) == profileWithoutOutputLimitRevision(after)
 
     /** Increasing limits preserves an already smaller accepted allocation; reductions require revalidation. */
     internal fun allowsAcceptedTokenPlan(before: TokenBudgetSettings, after: TokenBudgetSettings, uid: String): Boolean {

@@ -19,12 +19,20 @@ data class CapturedProviderAuthority(
     val chatId: Int? = null,
     val parents: List<CapturedProviderAuthority> = emptyList(),
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
-    val acceptedTokenBudget: TokenBudgetSettings? = null
+    val acceptedTokenBudget: TokenBudgetSettings? = null,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val acceptedProfileOutputLimit: Int? = null,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val profileWithoutOutputLimitRevision: String? = null
 ) {
     internal suspend fun validate(settings: SettingRepository) {
         parents.forEach { it.validate(settings) }
         val current = settings.fetchPlatformV2s().singleOrNull { it.uid == profileUid }
-        if (current == null || !current.enabled || ConfiguredDispatchAuthority.profileRevision(current) != registeredRevision) throw ProviderWaitAuthorityChanged("PROVIDER_WAIT_AUTHORITY_CHANGED")
+        val increasedOutputOnly = current != null &&
+            profileWithoutOutputLimitRevision != null &&
+            ConfiguredDispatchAuthority.profileWithoutOutputLimitRevision(current) == profileWithoutOutputLimitRevision &&
+            ConfiguredDispatchAuthority.outputLimit(current.maxTokens) >= ConfiguredDispatchAuthority.outputLimit(acceptedProfileOutputLimit)
+        if (current == null || !current.enabled || ConfiguredDispatchAuthority.profileRevision(current) != registeredRevision && !increasedOutputOnly) throw ProviderWaitAuthorityChanged("PROVIDER_WAIT_AUTHORITY_CHANGED")
         val admitted = current.copy(model = model)
         if (routeRevision(admitted) != routeRevision) throw ProviderWaitAuthorityChanged("PROVIDER_WAIT_ROUTE_CHANGED")
         val live = settings.getFeatureSettings()

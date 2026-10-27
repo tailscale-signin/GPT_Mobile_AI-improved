@@ -26,7 +26,7 @@ object CombinedPolicyResolver {
         require(participants.isNotEmpty()) { "Select at least one Combined participant." }
         val requested = CombinedRequestedPolicy(
             version = if (append) 2 else 1,
-            settings = settings.normalized(),
+            settings = if (singlePass) CombinedSynthesisPreferences.from(settings).applyTo(settings.normalized()) else settings.normalized(),
             participantUids = participants,
             requestedModels = requestedModels.filterKeys { it in participants }.toSortedMap(),
             requestedTemperatures = requestedTemperatures.filterKeys { it in participants }.mapValues { (_, temperature) -> temperature?.takeIf { it.isFinite() }?.coerceIn(0f, 2f) }.toSortedMap(),
@@ -84,7 +84,7 @@ object CombinedPolicyResolver {
         val finalTokens = minOf(requestedFinal.toLong(), availableOutput).coerceAtLeast(0)
         // Research editing includes the compact contribution inventory and registered evidence,
         // not just the original user prompt. Reserve these inputs before dispatching workers.
-        val editorialInput = if (requested.acceptedResearch != null) Math.addExact(input, Math.addExact(Math.multiplyExact(requested.participantUids.size.toLong(), draftOutput.toLong()), 8000L)) else input
+        val editorialInput = if (requested.acceptedResearch != null || requested.incrementalSynthesis) Math.addExact(input, Math.addExact(Math.multiplyExact(requested.participantUids.size.toLong(), draftOutput.toLong()), 8000L)) else input
         val finalInput = minOf(editorialInput, hardLimits.inputTokens ?: Long.MAX_VALUE)
         // Single-pass turns cannot spend a second generation; protect exactly one writer.
         val finalPasses = if (requested.singlePass) 1 else 2

@@ -17,7 +17,7 @@ internal object CombinedSectionPlan {
             else -> topics.keys.toList().ifEmpty { listOf("Answer the current question with relevant headings and grouped, nonduplicated details") }
         }
         val budget = (policy.targetWords ?: policy.maximumWords ?: policy.minimumWords)?.coerceAtLeast(0)
-        return labels.mapIndexed { index, label ->
+        val sections = labels.mapIndexed { index, label ->
             val candidates = when {
                 history && policy.requiredTopics.isEmpty() && !oneItem && policy.requestedItems == null -> claims.filter { index in CombinedHistoryOutline.periods(it.proposition) }
                 policy.requiredTopics.isNotEmpty() -> {
@@ -30,7 +30,7 @@ internal object CombinedSectionPlan {
             }
             Section(
                 label,
-                budget?.let { it / labels.size + if (index < it % labels.size) 1 else 0 },
+                null,
                 candidates.map { it.id },
                 when {
                     history && policy.requiredTopics.isEmpty() && !oneItem && policy.requestedItems == null -> "PERIOD_CANDIDATES_ONLY"
@@ -39,6 +39,8 @@ internal object CombinedSectionPlan {
                 }
             )
         }
+        val allocations = budget?.let { CombinedSectionBudget.allocate(it, sections.map { section -> section.candidateIds.distinct().size }) }
+        return sections.mapIndexed { index, section -> section.copy(targetWords = allocations?.get(index)) }
     }
 
     /** A local, editable plan gives every candidate a destination without another model call. */

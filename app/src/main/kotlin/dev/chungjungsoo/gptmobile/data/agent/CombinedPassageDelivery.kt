@@ -144,7 +144,9 @@ data class CombinedQualityReport(
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
     val partialSourceLinks: Int = 0,
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
-    val unresolvedSourceLinks: Int = 0
+    val unresolvedSourceLinks: Int = 0,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val writerUsage: CombinedReportedUsage? = null
 )
 
 /** One NDJSON record per paragraph permits progressive delivery without leaking protocol data. */
@@ -436,3 +438,6 @@ internal class CombinedPassageDecoder(
         deltas += separator + rendered
     }
 }
+
+@Serializable
+data class CombinedReportedUsage(val inputTokens: Int?, val outputTokens: Int?, val inputSource: String, val outputSource: String)

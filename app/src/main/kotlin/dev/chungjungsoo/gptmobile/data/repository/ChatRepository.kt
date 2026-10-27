@@ -37,6 +37,8 @@ interface ChatRepository {
     suspend fun isCombinedTurnCancelled(rootBudgetId: String): Boolean = false
     suspend fun markCombinedMergeUnavailable(chatId: Int, userMessageId: Int, rootBudgetId: String, reason: String? = null) = Unit
     suspend fun canRetryCombined(rootBudgetId: String): Boolean = !isCombinedTurnCancelled(rootBudgetId)
+    suspend fun publishCombinedRetainedFallback(runId: String, reason: String): MessageV2? = null
+
     suspend fun publishCombinedEvidenceFallback(runId: String): Boolean = false
     suspend fun useCombinedReply(runId: String, expectedFence: Long, sourceProfileUid: String): MessageV2? = null
     suspend fun reconcileCombinedLifecycle() = Unit

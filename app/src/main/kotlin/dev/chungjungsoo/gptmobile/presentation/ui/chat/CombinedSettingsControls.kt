@@ -103,6 +103,13 @@ fun CombinedSettingsControls(
             }
             Switch(preferences.checkRetainedEvidence, { onChange(preferences.copy(checkRetainedEvidence = it).applyTo(normalized)) }, enabled = enabled && normalized.isSupported)
         }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Inspect large contributions in batches", style = MaterialTheme.typography.titleSmall)
+                Text("Save source inspections and publish one final answer. Extra requests use the accepted budget.", style = MaterialTheme.typography.bodySmall)
+            }
+            Switch(preferences.incrementalSynthesis, { onChange(preferences.copy(incrementalSynthesis = it).applyTo(normalized)) }, enabled = enabled && normalized.isSupported)
+        }
         if (dev.chungjungsoo.gptmobile.BuildConfig.COMBINED_APPEND_CONTINUATIONS) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {

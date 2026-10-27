@@ -536,6 +536,43 @@ interface AgentPersistenceDao :
         return published
     }
 
+    /** A failed writer can expose an owned, public-source compilation without another provider request. */
+    suspend fun publishRetainedCombinedFallback(runId: String, expectedFence: Long, maxCharacters: Int, reason: String): MessageV2? {
+        if (!dev.chungjungsoo.gptmobile.data.agent.CombinedFallbackEligibility.allows(reason)) return null
+        val run = recoveryRun(runId) ?: return null
+        if (run.displayRole != "COMBINED_FINAL" || run.status !in setOf("RUNNING", "QUEUED")) return null
+        val current = recoveryMessage(run.assistantMessageId) ?: return null
+        if (current.currentRunId != runId || current.ownershipFence != expectedFence || current.content.isNotBlank()) return null
+        val raw = run.synthesisSnapshot ?: return null
+        if (run.synthesisKey != dev.chungjungsoo.gptmobile.data.research.researchHash(raw)) return null
+        val snapshot = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromString<dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot>(raw)
+        if (snapshot.version < 6 || snapshot.inputDigest != snapshot.contentDigest() || snapshot.committedPrefix.isNotBlank() || snapshot.sources.any { it.localOnly }) return null
+        val text = dev.chungjungsoo.gptmobile.data.agent.deterministicCombinedFallback(snapshot.sources, maxCharacters, (snapshot.answerContract ?: dev.chungjungsoo.gptmobile.data.agent.CombinedAnswerPolicy.from(snapshot.userMessage.content)).maximumWords) ?: return null
+        val mapping = dev.chungjungsoo.gptmobile.data.agent.CombinedAnswerMappings.get(text, snapshot.sources)
+        val account = dev.chungjungsoo.gptmobile.data.agent.CombinedSourcePreservation.account(text, snapshot.sources)
+        val owners = snapshot.sources.mapTo(linkedSetOf()) { it.platformUid }
+        val report = dev.chungjungsoo.gptmobile.data.agent.CombinedQualityReport(
+            version = 6, answerDigest = dev.chungjungsoo.gptmobile.data.research.researchHash(text), complete = false,
+            status = "FALLBACK_SOURCE_COMPILATION", deliveredScopeStatus = "PARTIAL", correctionRequired = true,
+            issues = listOf("WRITER_ADMISSION_FAILED_LOCAL_COMPILATION", "NO_FINAL_OUTPUT_FROM_WRITER"),
+            wordCount = dev.chungjungsoo.gptmobile.data.agent.visibleWordCount(text), displayedCharacters = text.length,
+            passages = account.passages, sourceDispositions = account.dispositions, claimMapping = mapping,
+            consideredProfileUids = owners, includedProfileUids = owners, representedProfileUids = mapping.links.flatMapTo(linkedSetOf()) { it.profileUids },
+            revisionId = snapshot.liveRevisionId(runId), finalAssessment = true, assessmentStage = "FINAL_DISPLAY", displayableDraft = true,
+            fullyLinkedClaims = mapping.claims.count { it.fullyLinked }, partialSourceLinks = mapping.claims.count { it.status == "PARTIAL" },
+            unresolvedSourceLinks = mapping.claims.count { it.status in setOf("UNMATCHED", "NOT_EVALUATED") }
+        )
+        dev.chungjungsoo.gptmobile.data.agent.CombinedAnswerPublication.validate(text, report)
+        val published = current.copy(
+            content = text,
+            timeline = listOf(
+                dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.TEXT, content = text),
+                dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE, content = "Saved contributions; final writing requires resume.", combinedQuality = report)
+            )
+        )
+        return published.takeIf { finishMessage(it, runId, "FAILED", System.currentTimeMillis() / 1000, reason) }
+    }
+
     @Transaction
     suspend fun publishCombinedFallback(runId: String, expectedFence: Long, sourceProfileUid: String? = null): MessageV2? {
         val prior = recoveryRun(runId) ?: return null

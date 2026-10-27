@@ -72,6 +72,7 @@ data class ActiveAgentRun(
     val phase: LocalInferencePhase? = null,
     val nativeProgress: dev.chungjungsoo.gptmobile.data.localruntime.GgufNativeProgress? = null,
     val gatewayStage: String? = null,
+    val combinedStage: CombinedDeliveryPhase? = null,
     val gatewayMessage: String? = null,
     val gatewayCheckpoint: Int? = null,
     val gatewayRound: Int? = null,
@@ -303,7 +304,8 @@ class AgentRunCoordinator @Inject constructor(
                     runId = request.runId,
                     chatId = request.chatId,
                     profileUid = request.platform.uid,
-                    assistantMessageId = request.assistantMessage.id.takeIf { it > 0 }
+                    assistantMessageId = request.assistantMessage.id.takeIf { it > 0 },
+                    combinedStage = request.chatToolConfig?.combined?.let { if (it.role.finalization) CombinedDeliveryPhase.VALIDATING else CombinedDeliveryPhase.COLLECTING }
                 )
             }
         }
@@ -829,6 +831,9 @@ class AgentRunCoordinator @Inject constructor(
                         }
                     },
                     onNotice = { notice, persistent ->
+                        CombinedDeliveryPhase.entries.firstOrNull { it.label == notice }?.let { stage ->
+                            _activeRuns.update { runs -> runs[request.runId]?.let { runs + (request.runId to it.copy(combinedStage = stage)) } ?: runs }
+                        }
                         _notices.tryEmit(AgentRunNotice(request.chatId, request.runId, notice, persistent))
                     },
                     onResearchReplacement = { digest, text ->
@@ -898,6 +903,15 @@ class AgentRunCoordinator @Inject constructor(
                 val limit = (outcome as? ApiStateFlowOutcome.Failed)?.providerLimit
                 if (limit != null && pauseForProvider(limit)) return@coroutineScope
                 val terminal = outcome.toTerminalUpdate()
+                if (terminal.status == AgentRunStatus.FAILED && assistantMessage.content.isBlank()) {
+                    val fallback = chatRepository.publishCombinedRetainedFallback(request.runId, terminal.error.orEmpty())
+                    if (fallback != null) {
+                        assistantMessage = fallback
+                        _streamMessages.update { it + (fallback.id to fallback) }
+                        committedForHandoff = true
+                        return@coroutineScope
+                    }
+                }
                 val completedAt = currentEpochSeconds()
                 val waitingRemote = terminal.status == AgentRunStatus.WAITING_REMOTE_JOB
                 val terminalMessage = terminalAgentMessage(assistantMessage, terminal.error.takeUnless { waitingRemote }, completedAt).withCombinedOutcome(terminal.status)
@@ -959,6 +973,15 @@ class AgentRunCoordinator @Inject constructor(
                 val revokedWait = terminalFailure is dev.chungjungsoo.gptmobile.data.context.ProviderWaitAuthorityChanged
                 val status = if (revokedWait) AgentRunStatus.INTERRUPTED else AgentRunStatus.FAILED
                 if (finishUnavailablePolicy(terminalFailure, status)) return@withContext
+                if (assistantMessage.content.isBlank() && !revokedWait) {
+                    val fallback = runCatching { chatRepository.publishCombinedRetainedFallback(request.runId, message) }.getOrNull()
+                    if (fallback != null) {
+                        assistantMessage = fallback
+                        _streamMessages.update { it + (fallback.id to fallback) }
+                        committedForHandoff = true
+                        return@withContext
+                    }
+                }
                 runCatching {
                     val terminalMessage = terminalAgentMessage(assistantMessage, message, completedAt).withCombinedOutcome(status)
                     traceReducedOutput(terminalMessage)

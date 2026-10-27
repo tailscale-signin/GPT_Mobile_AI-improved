@@ -11,7 +11,8 @@ internal data class CombinedSynthesisPreferences(
     val completeness: Int = 100,
     val verbosity: Int = 50,
     val sourceDiversity: Int = 100,
-    val checkRetainedEvidence: Boolean = false
+    val checkRetainedEvidence: Boolean = false,
+    val incrementalSynthesis: Boolean = true
 ) {
     fun applyTo(settings: ConversationCombinedSettings): ConversationCombinedSettings = settings.copy(
         preservedFields = JsonObject(
@@ -19,7 +20,8 @@ internal data class CombinedSynthesisPreferences(
                 "synthesisCompleteness" to JsonPrimitive(completeness.coerceIn(0, 100)),
                 "synthesisVerbosity" to JsonPrimitive(verbosity.coerceIn(0, 100)),
                 "synthesisSourceDiversity" to JsonPrimitive(sourceDiversity.coerceIn(0, 100)),
-                "synthesisCheckRetainedEvidence" to JsonPrimitive(checkRetainedEvidence)
+                "synthesisCheckRetainedEvidence" to JsonPrimitive(checkRetainedEvidence),
+                "synthesisIncremental" to JsonPrimitive(incrementalSynthesis)
             )
         )
     )
@@ -36,8 +38,13 @@ internal data class CombinedSynthesisPreferences(
                 number("synthesisCompleteness", 100),
                 number("synthesisVerbosity", 50),
                 number("synthesisSourceDiversity", 100),
-                (settings.preservedFields["synthesisCheckRetainedEvidence"] as? JsonPrimitive)?.booleanOrNull ?: false
+                (settings.preservedFields["synthesisCheckRetainedEvidence"] as? JsonPrimitive)?.booleanOrNull ?: false,
+                (settings.preservedFields["synthesisIncremental"] as? JsonPrimitive)?.booleanOrNull ?: true
             )
         }
     }
 }
+
+/** Old sealed runs lacking the field remain strict; only a newly accepted snapshot opts in. */
+internal val CombinedRequestedPolicy.incrementalSynthesis: Boolean
+    get() = singlePass && (settings.preservedFields["synthesisIncremental"] as? JsonPrimitive)?.booleanOrNull == true

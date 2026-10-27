@@ -123,6 +123,14 @@ internal object RuntimeWireTransport {
         packet: RuntimeWire,
         replyTo: Messenger? = null
     ) {
+        require(
+            packet.version == 1 &&
+                packet.requestId.length in 1..128 &&
+                packet.sessionId.length <= 128 &&
+                packet.generation.length <= 128 &&
+                packet.callId.length <= 128 &&
+                packet.sequence >= 0
+        ) { "Unsupported local IPC protocol" }
         val content = json.encodeToString(packet)
         require(content.toByteArray(Charsets.UTF_8).size <= MAX_PAYLOAD_BYTES) {
             "Local request exceeds the IPC payload limit; reduce attached images or history."

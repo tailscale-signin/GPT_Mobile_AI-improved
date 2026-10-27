@@ -512,8 +512,16 @@ class LocalInferenceService : Service() {
         ) {
             credits.acquire()
             synchronized(this) {
-                outstanding.add(sequence + 1)
-                send(kind, text)
+                val nextSequence = sequence + 1
+                outstanding.add(nextSequence)
+                try {
+                    send(kind, text)
+                } catch (failure: Throwable) {
+                    // A failed Binder send cannot ever be acknowledged.
+                    // Return its credit so a later stream does not deadlock.
+                    if (outstanding.remove(nextSequence)) credits.release()
+                    throw failure
+                }
             }
         }
 

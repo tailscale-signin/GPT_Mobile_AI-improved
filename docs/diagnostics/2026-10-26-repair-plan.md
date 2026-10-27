@@ -57,3 +57,5 @@ This is an implementation tracking document, not a claim that fixes are complete
 - [x] Reject delayed cancellation when the request no longer owns the active native operation (commit d04f0516; tests pending).
 
 - [x] Cancellation and prefill watchdogs skip redundant termination when shutdown has begun (commits 8882262d, c26639c4; tests pending).
+
+- [x] Reuse UTF-8 bytes when writing large IPC payload files, avoiding a second encoding pass (commit 743a52f9; performance verification pending).

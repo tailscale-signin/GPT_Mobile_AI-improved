@@ -112,20 +112,26 @@ internal class ResearchTaskStore(private val directory: File) {
     suspend fun manifest(root: String, persistent: Boolean) = task(root) { manifestUnlocked(root, persistent) }
     suspend fun retainedEvidence(root: String, authorities: Set<String>, persistent: Boolean) = task(root) { retainedEvidenceUnlocked(root, authorities, persistent) }
     suspend fun retainPartial(root: String, checkpointId: String, persistent: Boolean) = task(root) { retainPartialUnlocked(root, checkpointId, persistent) }
-    suspend fun partial(root: String, checkpointId: String, persistent: Boolean, chatId: Int, authority: String, stage: String, profileUid: String): String? = task(root) {
+    suspend fun partial(root: String, checkpointId: String, persistent: Boolean, chatId: Int, authority: String, stage: String, profileUid: String, expectedRunId: String): String? = task(root) {
         if (!persistent || !checkpointId.matches(Regex("[a-f0-9]{64}\\.partial"))) return@task null
-        val accepted = acceptedUnlocked(root, persistent) ?: return@task null
-        if (accepted.chatId != chatId || isDeleted(chatId)) return@task null
-        val manifest = manifestUnlocked(root, persistent) ?: return@task null
-        if (manifest.taskId != accepted.taskId || manifest.rootWorkId != root || manifest.chatId != chatId || checkpointId !in manifest.partialCheckpointIds) return@task null
+        if (isDeleted(chatId)) return@task null
+        val accepted = acceptedUnlocked(root, persistent)
+        if (accepted != null && accepted.chatId != chatId) return@task null
+        val manifest = manifestUnlocked(root, persistent)
+        if (accepted != null && (manifest == null || manifest.taskId != accepted.taskId || manifest.rootWorkId != root || manifest.chatId != chatId || checkpointId !in manifest.partialCheckpointIds)) return@task null
+        if (accepted == null && manifest != null && (manifest.rootWorkId != root || manifest.chatId != chatId || checkpointId !in manifest.partialCheckpointIds)) return@task null
         val path = File(directory, checkpointId)
         val body = readFile(path) ?: return@task null
         val value = runCatching { json.parseToJsonElement(body) as? kotlinx.serialization.json.JsonObject }.getOrNull() ?: return@task null
+        val generation = (value["generationFence"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.toLongOrNull() ?: return@task null
+        val expectedName = researchHash("$chatId:$root:$authority:$expectedRunId:$generation:$stage:$profileUid") + ".partial"
         val matchesScope = listOf(
             value.number("schemaVersion") == 1,
             value.number("chatId") == chatId,
             value.text("turnId") == root,
             value.text("authority") == authority,
+            value.text("runId") == expectedRunId,
+            checkpointId == expectedName,
             value.text("stage") == stage,
             value.text("profileUid") == profileUid,
             value["accepted"] == kotlinx.serialization.json.JsonPrimitive(false),

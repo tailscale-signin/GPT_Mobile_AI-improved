@@ -440,7 +440,7 @@ class ArticleExaminationCoordinator @Inject constructor(
                     val partial = if (!resumeLookupAttempted) {
                         resumeLookupAttempted = true
                         checkpoint.unfinishedModelCheckpoint?.let { id ->
-                            sessions.loadPartial(checkpoint.rootWorkId ?: "examination:${record.jobId}", id, request.chatId, request.authority, kind, actor.uid)
+                            sessions.loadPartial(checkpoint.rootWorkId ?: "examination:${record.jobId}", id, request.chatId, request.authority, kind, actor.uid, "examination:${record.jobId}")
                                 ?.takeIf { it.length < maxChars }
                         }
                     } else {

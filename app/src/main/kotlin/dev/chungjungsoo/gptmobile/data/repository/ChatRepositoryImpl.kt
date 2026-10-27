@@ -2947,9 +2947,16 @@ class ChatRepositoryImpl(
         settings: dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings
     ): dev.chungjungsoo.gptmobile.data.context.ContextPlan {
         val frozenOutput = if (synthesisRun) kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.CombinedWriterDispatchGuard]?.plan?.effectiveOutputTokens else null
-        val requestedOutput = listOfNotNull(settings.outputTokens.takeIf { it > 0 }, combined?.plan?.outputTokens(combined.role)).minOrNull()
+        val engineering = settingRepository.getFeatureSettings().engineeringProfiles[platform.uid]
+        val task = turns.lastOrNull { it.isCurrentTurn }?.userMessage?.effectiveContent().orEmpty()
+        val adaptiveSettings = if (engineering != null && combined == null && !synthesisRun) {
+            dev.chungjungsoo.gptmobile.data.context.EngineeringAdaptivePolicy.budgets(engineering, task, settings)
+        } else {
+            settings
+        }
+        val requestedOutput = listOfNotNull(adaptiveSettings.outputTokens.takeIf { it > 0 }, combined?.plan?.outputTokens(combined.role)).minOrNull()
         val routeOutput = dev.chungjungsoo.gptmobile.data.agent.provider.ProviderRouteCapacity.output(platform, requestedOutput)
-        val admittedSettings = settings.copy(outputTokens = frozenOutput ?: dev.chungjungsoo.gptmobile.data.agent.responseOutputAllowance(settings, routeOutput))
+        val admittedSettings = adaptiveSettings.copy(outputTokens = frozenOutput ?: dev.chungjungsoo.gptmobile.data.agent.responseOutputAllowance(adaptiveSettings, routeOutput))
         return if (synthesisRun) {
             dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.planFullInputOrMultipass(turns, prompt, admittedSettings, combined)
         } else {

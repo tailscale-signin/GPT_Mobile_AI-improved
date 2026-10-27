@@ -86,6 +86,7 @@ data class AppFeatureSettings(
     val conversationResearch: Map<Int, MultiSearchResearchSelection> = emptyMap(),
     val conversationReasoning: Map<Int, Boolean> = emptyMap(),
     val profileProgressDeadlines: Map<String, dev.chungjungsoo.gptmobile.data.agent.ProgressDeadlineSettings> = emptyMap(),
+    val engineeringProfiles: Map<String, dev.chungjungsoo.gptmobile.data.context.EngineeringProfileSettings> = emptyMap(),
     val llamaReasoningModes: Map<String, dev.chungjungsoo.gptmobile.data.context.ReasoningMode> = emptyMap(),
     val conversationDelegation: Map<Int, ConversationDelegationSettings> = emptyMap(),
     val conversationCombined: Map<Int, ConversationCombinedSettings> = emptyMap(),

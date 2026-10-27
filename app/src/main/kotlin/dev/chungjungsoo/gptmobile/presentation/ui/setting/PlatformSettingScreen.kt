@@ -528,6 +528,15 @@ fun PlatformSettingScreen(
                                 )
                             }
                         )
+                        SettingItem(
+                            modifier = Modifier.heightIn(min = 64.dp),
+                            title = "Engineering budget: " + (features.engineeringProfiles[platformData.uid]?.mode?.name ?: "OFF").lowercase().replace('_', ' '),
+                            description = "Tap to cycle Off, Quick, Standard, Deep, Engineering Max and Adaptive. GitHub context and output targets respect existing limits. Provider thinking controls remain separate.",
+                            enabled = platformData.enabled,
+                            onItemClick = settingViewModel::cycleEngineeringMode,
+                            showLeadingIcon = false,
+                            showTrailingIcon = true
+                        )
                         if (!isLocalPlatform && !isFreePlatform) {
                             SettingItem(
                                 modifier = Modifier.heightIn(min = 64.dp),

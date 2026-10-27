@@ -184,7 +184,7 @@ internal class CombinedDeliverySession(
         suspend fun report(candidate: Candidate, checked: CombinedFinalAssessment, final: Boolean): CombinedQualityReport {
             val unresolvedResearch = checked.checks.any { it.category == "RESEARCH_SCOPE" && it.result != "PASS" }
             val providerComplete = candidate.terminal == ProviderEvent.Completed
-            val material = correctionRequired || checked.correctionRequired || checked.checks.any { it.material && it.result == "FAIL" }
+            val material = correctionRequired || checked.correctionRequired || checked.requiredFailures.isNotEmpty() || checked.checks.any { it.material && it.result == "FAIL" }
             val issues = (violations + listOfNotNull("NO_FINAL_OUTPUT".takeIf { candidate.text.isBlank() }) + candidate.decoder?.issues.orEmpty() + checked.issues + listOfNotNull("LEXICAL_COVERAGE_NOT_EVALUATED".takeIf { !coverageResult.evaluated }, "LEXICAL_COVERAGE_UNRESOLVED_HINTS".takeIf { coverageResult.missing.isNotEmpty() })).distinct()
             val framingValid = candidate.decoder?.issues.orEmpty().none { it in COMBINED_FRAMING_FAILURES }
             val delivered = when {

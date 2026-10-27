@@ -5,6 +5,7 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 enum class ResearchReportValidity { ACCEPTED, EVIDENCE_ONLY, REJECTED, INCOMPLETE }
+
 @Serializable
 enum class ResearchReviewStatus { REVIEWED, PARTIALLY_REVIEWED, UNREVIEWED }
 

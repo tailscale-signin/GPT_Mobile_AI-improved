@@ -62,7 +62,6 @@ class GitHubWorkspaceClientTest {
         }
     }
 
-
     @Test fun legacyWritesRejectMissingOrConflictingBranchBeforeAnyRequest() = runTest {
         var requests = 0
         val http = HttpClient(

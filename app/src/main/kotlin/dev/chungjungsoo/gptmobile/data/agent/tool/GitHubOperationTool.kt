@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.agent.tool
 import dev.chungjungsoo.gptmobile.data.agent.AgentTool
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
+import dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -40,6 +41,18 @@ internal class GitHubOperationTool(
                 errorCode = "INVALID_ARGUMENTS",
                 dispatched = false
             )
+        }
+        if (operation == "github_write") {
+            val errors = ToolArgumentValidator.errors(arguments, definition.inputSchema)
+            if (errors.isNotEmpty()) {
+                return AgentToolResult(
+                    callId,
+                    ToolResultContent.Text("Invalid GitHub write arguments: " + errors.joinToString("; ")),
+                    true,
+                    errorCode = "INVALID_ARGUMENTS",
+                    dispatched = false
+                )
+            }
         }
         val native = nativeArguments(operation, arguments)
             ?: return AgentToolResult(callId, ToolResultContent.Text("Unsupported GitHub operation."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)

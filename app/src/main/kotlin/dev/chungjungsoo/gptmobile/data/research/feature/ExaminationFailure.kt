@@ -25,6 +25,7 @@ internal fun examinationFailure(error: Exception, attempt: Int, now: Long = Syst
         causes.any { it.message.orEmpty().contains("HTTP 403", true) || it.message.orEmpty().contains("403 Forbidden", true) } -> "SOURCE_ACCESS_BLOCKED"
         causes.any { it.message.orEmpty().contains("HTTP 401", true) || it.message.orEmpty().contains("401 Unauthorized", true) } -> "EXAMINER_AUTH_REQUIRED"
         causes.any { it.message.orEmpty().contains("INVALID_JSON", true) || it.message.orEmpty().contains("JSON_DECODING", true) } -> "OUTPUT_INVALID"
+        causes.any { it.message.orEmpty().contains("OUTPUT_LIMIT", true) } -> "OUTPUT_LIMIT"
         causes.any { it.message.orEmpty().contains("EXAMINATION_OUTPUT_EMPTY") } -> "OUTPUT_EMPTY"
         causes.any { it.message.orEmpty().contains("SOURCE_TEXT_EMPTY") } -> "SOURCE_TEXT_EMPTY"
         causes.any { it.message.orEmpty().contains("EXTRACTION_EMPTY") } -> "NO_GROUNDED_OUTCOME"

@@ -183,91 +183,97 @@ internal fun EmbeddedLocationMap(
     var ready by remember(context, owner, origin, mapAttempt) { mutableStateOf(false) }
     val accent = MaterialTheme.colorScheme.primary.toArgb()
     val secondary = MaterialTheme.colorScheme.secondary.toArgb()
-    val mapView = if (mapRequested) remember(context, owner, origin, mapAttempt) {
-        org.maplibre.android.MapLibre.getInstance(context)
-        EmbeddedMapView(context).apply {
-            onCreate(null)
-            addOnDidFailLoadingMapListener {
-                post { if (!disposed.get()) mapError = "The embedded map could not load. Listing cards remain available. Retry the map or open your maps app." }
-            }
-            getMapAsync { active ->
-                if (!disposed.get()) {
-                    active.cameraPosition = CameraPosition.Builder().target(LatLng(cameraState[0], cameraState[1])).zoom(cameraState[2]).bearing(cameraState[3]).tilt(cameraState[4]).build()
-                    active.addOnCameraIdleListener {
-                        val position = active.cameraPosition
-                        position.target?.let { target -> cameraState = listOf(target.latitude, target.longitude, position.zoom, position.bearing, position.tilt) }
-                    }
-                    active.setStyle(Style.Builder().fromUri("https://tiles.openfreemap.org/styles/dark")) { style ->
-                        if (!disposed.get()) {
-                            style.addSource(GeoJsonSource("location-origin", FeatureCollection.fromFeatures(if (data.showOrigin) listOf(Feature.fromGeometry(Point.fromLngLat(origin.longitude, origin.latitude))) else emptyList())))
-                            style.addSource(GeoJsonSource("location-places", FeatureCollection.fromFeatures(emptyArray<Feature>())))
-                            style.addSource(GeoJsonSource("location-route", FeatureCollection.fromFeatures(emptyArray<Feature>())))
-                            style.addLayer(LineLayer("location-route-line", "location-route").withProperties(PropertyFactory.lineColor(accent), PropertyFactory.lineWidth(5f)))
-                            style.addLayer(CircleLayer("location-places-pins", "location-places").withProperties(PropertyFactory.circleRadius(9f), PropertyFactory.circleColor(secondary), PropertyFactory.circleStrokeWidth(2f), PropertyFactory.circleStrokeColor("#FFFFFF")))
-                            style.addLayer(SymbolLayer("location-place-labels", "location-places").withProperties(PropertyFactory.textField("{label}"), PropertyFactory.textFont(arrayOf("Noto Sans Regular")), PropertyFactory.textSize(12f), PropertyFactory.textColor("#FFFFFF"), PropertyFactory.textAllowOverlap(true)))
-                            style.addLayer(CircleLayer("location-origin-pin", "location-origin").withProperties(PropertyFactory.circleRadius(8f), PropertyFactory.circleColor(accent), PropertyFactory.circleStrokeWidth(3f), PropertyFactory.circleStrokeColor("#FFFFFF")))
-                            active.addOnMapClickListener { point ->
-                                val hit = active.queryRenderedFeatures(active.projection.toScreenLocation(point), "location-places-pins").firstOrNull()
-                                hit?.getStringProperty("placeId")?.let { selectedId = it }
-                                hit != null
+    val mapView = if (mapRequested) {
+        remember(context, owner, origin, mapAttempt) {
+            org.maplibre.android.MapLibre.getInstance(context)
+            EmbeddedMapView(context).apply {
+                onCreate(null)
+                addOnDidFailLoadingMapListener {
+                    post { if (!disposed.get()) mapError = "The embedded map could not load. Listing cards remain available. Retry the map or open your maps app." }
+                }
+                getMapAsync { active ->
+                    if (!disposed.get()) {
+                        active.cameraPosition = CameraPosition.Builder().target(LatLng(cameraState[0], cameraState[1])).zoom(cameraState[2]).bearing(cameraState[3]).tilt(cameraState[4]).build()
+                        active.addOnCameraIdleListener {
+                            val position = active.cameraPosition
+                            position.target?.let { target -> cameraState = listOf(target.latitude, target.longitude, position.zoom, position.bearing, position.tilt) }
+                        }
+                        active.setStyle(Style.Builder().fromUri("https://tiles.openfreemap.org/styles/dark")) { style ->
+                            if (!disposed.get()) {
+                                style.addSource(GeoJsonSource("location-origin", FeatureCollection.fromFeatures(if (data.showOrigin) listOf(Feature.fromGeometry(Point.fromLngLat(origin.longitude, origin.latitude))) else emptyList())))
+                                style.addSource(GeoJsonSource("location-places", FeatureCollection.fromFeatures(emptyArray<Feature>())))
+                                style.addSource(GeoJsonSource("location-route", FeatureCollection.fromFeatures(emptyArray<Feature>())))
+                                style.addLayer(LineLayer("location-route-line", "location-route").withProperties(PropertyFactory.lineColor(accent), PropertyFactory.lineWidth(5f)))
+                                style.addLayer(CircleLayer("location-places-pins", "location-places").withProperties(PropertyFactory.circleRadius(9f), PropertyFactory.circleColor(secondary), PropertyFactory.circleStrokeWidth(2f), PropertyFactory.circleStrokeColor("#FFFFFF")))
+                                style.addLayer(SymbolLayer("location-place-labels", "location-places").withProperties(PropertyFactory.textField("{label}"), PropertyFactory.textFont(arrayOf("Noto Sans Regular")), PropertyFactory.textSize(12f), PropertyFactory.textColor("#FFFFFF"), PropertyFactory.textAllowOverlap(true)))
+                                style.addLayer(CircleLayer("location-origin-pin", "location-origin").withProperties(PropertyFactory.circleRadius(8f), PropertyFactory.circleColor(accent), PropertyFactory.circleStrokeWidth(3f), PropertyFactory.circleStrokeColor("#FFFFFF")))
+                                active.addOnMapClickListener { point ->
+                                    val hit = active.queryRenderedFeatures(active.projection.toScreenLocation(point), "location-places-pins").firstOrNull()
+                                    hit?.getStringProperty("placeId")?.let { selectedId = it }
+                                    hit != null
+                                }
+                                map = active
+                                mapError = null
+                                ready = true
                             }
-                            map = active
-                            mapError = null
-                            ready = true
                         }
                     }
                 }
             }
         }
-    } else null
-    if (mapView != null) DisposableEffect(mapView, owner) {
-        val activeMapView = mapView
-        var started = false
-        var resumed = false
-        fun start() {
-            if (!started) {
-                activeMapView.onStart()
-                started = true
+    } else {
+        null
+    }
+    if (mapView != null) {
+        DisposableEffect(mapView, owner) {
+            val activeMapView = mapView
+            var started = false
+            var resumed = false
+            fun start() {
+                if (!started) {
+                    activeMapView.onStart()
+                    started = true
+                }
             }
-        }
-        fun resume() {
-            if (!resumed) {
-                start()
-                activeMapView.onResume()
-                resumed = true
+            fun resume() {
+                if (!resumed) {
+                    start()
+                    activeMapView.onResume()
+                    resumed = true
+                }
             }
-        }
-        fun pause() {
-            if (resumed) {
-                activeMapView.onPause()
-                resumed = false
+            fun pause() {
+                if (resumed) {
+                    activeMapView.onPause()
+                    resumed = false
+                }
             }
-        }
-        fun stop() {
-            pause()
-            if (started) {
-                activeMapView.onStop()
-                started = false
+            fun stop() {
+                pause()
+                if (started) {
+                    activeMapView.onStop()
+                    started = false
+                }
             }
-        }
-        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            when (event) {
-                androidx.lifecycle.Lifecycle.Event.ON_START -> start()
-                androidx.lifecycle.Lifecycle.Event.ON_RESUME -> resume()
-                androidx.lifecycle.Lifecycle.Event.ON_PAUSE -> pause()
-                androidx.lifecycle.Lifecycle.Event.ON_STOP -> stop()
-                else -> Unit
+            val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+                when (event) {
+                    androidx.lifecycle.Lifecycle.Event.ON_START -> start()
+                    androidx.lifecycle.Lifecycle.Event.ON_RESUME -> resume()
+                    androidx.lifecycle.Lifecycle.Event.ON_PAUSE -> pause()
+                    androidx.lifecycle.Lifecycle.Event.ON_STOP -> stop()
+                    else -> Unit
+                }
             }
-        }
-        owner.lifecycle.addObserver(observer)
-        // Synchronize immediately; guards also cover catch-up events dispatched by Lifecycle.
-        if (owner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) start()
-        if (owner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) resume()
-        onDispose {
-            disposed.set(true)
-            owner.lifecycle.removeObserver(observer)
-            stop()
-            activeMapView.onDestroy()
+            owner.lifecycle.addObserver(observer)
+            // Synchronize immediately; guards also cover catch-up events dispatched by Lifecycle.
+            if (owner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) start()
+            if (owner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) resume()
+            onDispose {
+                disposed.set(true)
+                owner.lifecycle.removeObserver(observer)
+                stop()
+                activeMapView.onDestroy()
+            }
         }
     }
     LaunchedEffect(ready, data.places, data.showOrigin, accent, secondary) {
@@ -361,8 +367,15 @@ internal fun EmbeddedLocationMap(
         Column {
             if (!mapRequested) {
                 Text("Interactive map loads on demand. Place details and directions are available below.", Modifier.padding(horizontal = 14.dp, vertical = 12.dp), style = MaterialTheme.typography.bodySmall)
-            } else if (!expanded) mapContent(Modifier.fillMaxWidth().height(250.dp))
-            TextButton(onClick = { mapRequested = true; expanded = true }) { Text(stringResource(dev.chungjungsoo.gptmobile.R.string.map_expand)) }
+            } else if (!expanded) {
+                mapContent(Modifier.fillMaxWidth().height(250.dp))
+            }
+            TextButton(onClick = {
+                mapRequested = true
+                expanded = true
+            }) {
+                Text(stringResource(dev.chungjungsoo.gptmobile.R.string.map_expand))
+            }
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Icon(Icons.Rounded.Place, null, tint = MaterialTheme.colorScheme.primary)

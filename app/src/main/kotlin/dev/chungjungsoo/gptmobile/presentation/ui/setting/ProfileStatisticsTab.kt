@@ -175,4 +175,4 @@ private fun UsageStatistics.daysLabel(): String = when (days) {
     else -> "stored history"
 }
 
-private fun formatProfileLatency(ms: Long): String = if (ms < 1000) "${ms} ms" else "%.2f s".format(ms / 1000.0)
+private fun formatProfileLatency(ms: Long): String = if (ms < 1000) "$ms ms" else "%.2f s".format(ms / 1000.0)

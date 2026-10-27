@@ -14,6 +14,7 @@ import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
 import java.io.File
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -37,6 +38,7 @@ class LocalInferenceService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val thread = HandlerThread("local-inference-ipc")
     private val generation = UUID.randomUUID().toString()
+    private val terminationRequested = AtomicBoolean(false)
     private var settings = AppFeatureSettings()
     private var backend = LocalRuntimeBackend.DEFAULT
     private lateinit var runtime: LocalRuntime
@@ -103,6 +105,10 @@ class LocalInferenceService : Service() {
         val reply = Reply(packet, target)
         if (packet.generation.isNotBlank() && packet.generation != generation) {
             reply.send("ERROR", text = "Inference worker changed. Start a new request; interrupted work is not replayed.")
+            return
+        }
+        if (terminationRequested.get()) {
+            reply.send("ERROR", text = "Native worker is terminating; reconnect to a fresh process.")
             return
         }
         if (!operationLock.tryLock()) {
@@ -422,6 +428,9 @@ class LocalInferenceService : Service() {
         reason: String,
         requestId: String
     ) {
+        // Multiple watchdogs, cancellation and service destruction may race.
+        // Only the first request records a termination; no further native calls are allowed.
+        if (!terminationRequested.compareAndSet(false, true)) return
         runCatching {
             NativeWorkerTermination.record(
                 File(noBackupFilesDir, "native-worker"),

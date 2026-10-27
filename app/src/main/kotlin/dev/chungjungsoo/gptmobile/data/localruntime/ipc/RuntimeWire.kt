@@ -123,14 +123,10 @@ internal object RuntimeWireTransport {
         packet: RuntimeWire,
         replyTo: Messenger? = null
     ) {
-        require(
-            packet.version == 1 &&
-                packet.requestId.length in 1..128 &&
-                packet.sessionId.length <= 128 &&
-                packet.generation.length <= 128 &&
-                packet.callId.length <= 128 &&
-                packet.sequence >= 0
-        ) { "Unsupported local IPC protocol" }
+        RuntimeWireEnvelope.validate(
+            packet.version, packet.requestId, packet.sessionId,
+            packet.generation, packet.callId, packet.sequence
+        )
         val content = json.encodeToString(packet)
         val contentBytes = content.toByteArray(Charsets.UTF_8)
         require(contentBytes.size <= MAX_PAYLOAD_BYTES) {
@@ -189,14 +185,10 @@ internal object RuntimeWireTransport {
                 }
             }
         return json.decodeFromString<RuntimeWire>(content).also {
-            require(
-                it.version == 1 &&
-                    it.requestId.length in 1..128 &&
-                    it.sessionId.length <= 128 &&
-                    it.generation.length <= 128 &&
-                    it.callId.length <= 128 &&
-                    it.sequence >= 0
-            ) { "Unsupported local IPC protocol" }
+            RuntimeWireEnvelope.validate(
+                it.version, it.requestId, it.sessionId,
+                it.generation, it.callId, it.sequence
+            )
         }
     }
 }

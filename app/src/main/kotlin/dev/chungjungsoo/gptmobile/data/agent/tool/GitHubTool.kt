@@ -1073,6 +1073,20 @@ class GitHubTool(
                     "Check the action's required fields and types, then retry with corrected arguments."
             )
         }
+        if (detail.contains("HTTP 401", ignoreCase = true)) {
+            return errorResult(callId, "GITHUB_AUTHENTICATION_REQUIRED · $detail")
+        }
+        if (detail.contains("HTTP 429", ignoreCase = true) ||
+            detail.contains("HTTP 403", ignoreCase = true) &&
+            (detail.contains("rateLimitRemaining=0") || detail.contains("secondary rate", ignoreCase = true))
+        ) {
+            return errorResult(callId, "GITHUB_RATE_LIMITED · $detail")
+        }
+        if (detail.contains("HTTP 403", ignoreCase = true) &&
+            (detail.contains("sso=", ignoreCase = true) || detail.contains("SAML", ignoreCase = true))
+        ) {
+            return errorResult(callId, "GITHUB_SSO_REQUIRED · $detail")
+        }
         if (action in MUTATING_ACTIONS && detail.contains("HTTP 403", ignoreCase = true)) {
             return errorResult(callId, writeDeniedMessage(action, arguments, detail))
         }
@@ -1254,7 +1268,15 @@ class GitHubTool(
         return AgentToolResult(
             callId = callId,
             content = ToolResultContent.Text(errorMessage),
-            isError = true
+            isError = true,
+            errorCode = when {
+                errorMessage.startsWith("GITHUB_AUTHENTICATION_REQUIRED") -> "AUTH_REQUIRED"
+                errorMessage.startsWith("GITHUB_INVALID_ARGUMENT") -> "INVALID_ARGUMENTS"
+                errorMessage.startsWith("GITHUB_RATE_LIMITED") -> "RATE_LIMITED"
+                errorMessage.startsWith("GITHUB_SSO_REQUIRED") -> "GITHUB_SSO_REQUIRED"
+                errorMessage.startsWith("GITHUB_WRITE_BLOCKED") -> "GITHUB_ENDPOINT_PERMISSION_REQUIRED"
+                else -> null
+            }
         )
     }
 }

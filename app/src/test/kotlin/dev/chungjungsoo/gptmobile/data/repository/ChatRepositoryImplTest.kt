@@ -1632,7 +1632,7 @@ class ChatRepositoryImplTest {
                                 (1..count).map { n ->
                                     buildJsonObject {
                                         put("sourceId", "S$index")
-                                        put("text", "Panel finding $index/$n")
+                                        put("text", if (n == 1) "Panel finding: performance was measured under the stated conditions." else "Panel finding: uncertainty and scope remain explicit.")
                                         put("questionId", "Q1")
                                         put("quote", passage)
                                     }

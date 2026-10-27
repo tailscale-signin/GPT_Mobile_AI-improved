@@ -3,6 +3,8 @@ on:
   pull_request:
     branches: [main, feat/unified-reliability-v2-2026-10-13]
     paths:
+      - 'scripts/gradle_retry.py'
+      - 'scripts/tests/test_gradle_retry.py'
       - 'app/**'
       - '.github/workflows/ui-review-apk.yml'
       - 'macrobenchmark/**'
@@ -40,14 +42,14 @@ jobs:
         # Native-library packaging needs more heap after a cold Kotlin/KSP compile.
         # Keep the compiler in-process and one worker within the runner's RAM budget.
         run: >-
-          ./gradlew :app:assembleDebug --no-daemon --stacktrace --console=plain --max-workers=1
+          python3 scripts/gradle_retry.py -- :app:assembleDebug --no-daemon --stacktrace --console=plain --max-workers=1
           '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8'
       - name: Compile device regressions
         timeout-minutes: 25
-        run: ./gradlew :app:compileDebugAndroidTestKotlin --no-daemon --stacktrace --console=plain
+        run: python3 scripts/gradle_retry.py -- :app:compileDebugAndroidTestKotlin --no-daemon --stacktrace --console=plain
       - name: Compile benchmark regressions
         timeout-minutes: 30
-        run: ./gradlew :app:compileBenchmarkKotlin :macrobenchmark:compileBenchmarkKotlin --no-daemon --stacktrace --console=plain
+        run: python3 scripts/gradle_retry.py -- :app:compileBenchmarkKotlin :macrobenchmark:compileBenchmarkKotlin --no-daemon --stacktrace --console=plain
       - name: Verify packaged local runtime and privacy
         run: |
           python3 scripts/check_local_runtime_apk.py app/build/outputs/apk/debug/*.apk

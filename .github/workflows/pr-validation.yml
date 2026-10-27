@@ -104,7 +104,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          ./gradlew :app:testDebugUnitTest :app:jacocoTestReport --no-daemon --info 2>&1 | tee test.log || (echo "=== TEST FAILURE LOG ===" && tail -n 100 test.log && exit 1)
+          python3 scripts/gradle_retry.py -- :app:testDebugUnitTest :app:jacocoTestReport --no-daemon --info 2>&1 | tee test.log || (echo "=== TEST FAILURE LOG ===" && tail -n 100 test.log && exit 1)
           python3 scripts/check_jacoco_coverage.py app/build/reports/jacoco/jacocoTestReport/jacocoTestReport.xml
 
       - name: Upload generated statistics schema and reports
@@ -131,7 +131,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          ./gradlew :app:lintDebug --no-daemon --info 2>&1 | tee lint.log || (echo "=== LINT FAILURE LOG ===" && tail -n 100 lint.log && exit 1)
+          python3 scripts/gradle_retry.py -- :app:lintDebug --no-daemon --info 2>&1 | tee lint.log || (echo "=== LINT FAILURE LOG ===" && tail -n 100 lint.log && exit 1)
 
       - name: Verify recovery and exports with a 256 MiB Java heap
         id: heap_recovery
@@ -139,7 +139,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          ./gradlew -I scripts/heap-stress.init.gradle :app:testDebugUnitTest --no-daemon \
+          python3 scripts/gradle_retry.py -- -I scripts/heap-stress.init.gradle :app:testDebugUnitTest --no-daemon \
             --tests '*ResearchSessionStoreHeapTest' --tests '*StreamingDebugBundleTest' \
             --tests '*BenchmarkStreamingExportHeapTest' \
             --tests '*BenchmarkColdStreamingExportHeapTest' 2>&1 | tee heap.log
@@ -159,7 +159,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          ./gradlew :app:assembleDebug --no-daemon 2>&1 | tee apk.log
+          python3 scripts/gradle_retry.py -- :app:assembleDebug --no-daemon 2>&1 | tee apk.log
           python3 scripts/check_local_runtime_apk.py app/build/outputs/apk/debug/*.apk
           python3 scripts/check_no_telemetry.py app/build/outputs/apk/debug/*.apk
           for apk in app/build/outputs/apk/debug/*.apk; do

@@ -433,4 +433,38 @@ class GitHubToolTest {
             client.close()
         }
     }
+
+    @Test
+    fun `401 from a workspace operation also blocks legacy read endpoints`() = runTest {
+        var requests = 0
+        val client = HttpClient(
+            MockEngine {
+                requests++
+                respond("""{"message":"Bad credentials"}""", HttpStatusCode.Unauthorized)
+            }
+        )
+        try {
+            val tool = GitHubTool("expired", client)
+            val repository = buildJsonObject {
+                put("action", "get_repository")
+                put("owner", "owner")
+                put("repo", "repo")
+            }
+            val rejected = tool.execute("repository", repository)
+            assertTrue(rejected.isError)
+            assertEquals("AUTH_REQUIRED", rejected.errorCode)
+            val issue = buildJsonObject {
+                put("action", "get_issue")
+                put("owner", "owner")
+                put("repo", "repo")
+                put("issue_number", 1)
+            }
+            val result = tool.execute("issue", issue)
+            assertTrue(result.isError)
+            assertTrue((result.content as ToolResultContent.Text).text.contains("Reconnect"))
+            assertEquals(1, requests)
+        } finally {
+            client.close()
+        }
+    }
 }

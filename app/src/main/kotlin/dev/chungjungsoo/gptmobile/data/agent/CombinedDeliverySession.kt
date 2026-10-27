@@ -442,6 +442,27 @@ internal class CombinedDeliverySession(
             locallyAddedCharacters = (accepted.text.length - writerText.length).coerceAtLeast(0),
             locallyRemovedCharacters = (writerText.length - accepted.text.length).coerceAtLeast(0)
         )
+        // A historical survey must not be marked complete if the displayed answer
+        // omits periods required by the same outline used to plan synthesis.
+        if (policy.task?.historicalSurvey == true && accepted.text.isNotBlank()) {
+            val expectedPeriods = CombinedHistoryOutline.labels.indices.toSet()
+            val coveredPeriods = CombinedHistoryOutline.periods(accepted.text).toSet()
+            val missingPeriods = expectedPeriods - coveredPeriods
+            if (missingPeriods.isNotEmpty()) {
+                finalReport = finalReport.copy(
+                    complete = false,
+                    status = "CORRECTION_REQUIRED",
+                    deliveredScopeStatus = "PARTIAL",
+                    correctionRequired = true,
+                    topicCoverage = "UNRESOLVED",
+                    issues = (finalReport.issues + "HISTORICAL_PERIOD_COVERAGE_INCOMPLETE").distinct()
+                )
+                AppLogRecorder.record(
+                    "CombinedSynthesis",
+                    "HISTORICAL_PERIOD_COVERAGE_INCOMPLETE · revision=$currentRevision · missingPeriods=${missingPeriods.sorted().map { CombinedHistoryOutline.labels[it] }}"
+                )
+            }
+        }
         if (deterministicFallback) {
             finalReport = finalReport.copy(
                 complete = false,

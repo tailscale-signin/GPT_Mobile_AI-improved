@@ -178,15 +178,15 @@ class GitHubWorkspaceClientTest {
                     assertEquals(HttpMethod.Get, request.method)
                     respond(
                         when (requests) {
-                    1 -> """{"default_branch":"main"}"""
-                    2 -> """{"object":{"sha":"$head"}}"""
-                    3 -> """{"tree":{"sha":"base-tree"}}"""
-                    4 -> """{"truncated":false,"tree":[{"path":"README.md","type":"blob","mode":"100644","sha":"readme-blob"}]}"""
-                    else -> error("Mutation reached GitHub without expected_blob_sha")
+                            1 -> """{"default_branch":"main"}"""
+                            2 -> """{"object":{"sha":"$head"}}"""
+                            3 -> """{"tree":{"sha":"base-tree"}}"""
+                            4 -> """{"truncated":false,"tree":[{"path":"README.md","type":"blob","mode":"100644","sha":"readme-blob"}]}"""
+                            else -> error("Mutation reached GitHub without expected_blob_sha")
                         }
                     )
-                        }
-                    )
+                }
+            )
         try {
             val change = buildJsonObject {
                 put("owner", "owner")
@@ -224,15 +224,15 @@ class GitHubWorkspaceClientTest {
                     assertEquals(HttpMethod.Get, request.method)
                     respond(
                         when (requests) {
-                    1 -> """{"default_branch":"main"}"""
-                    2 -> """{"object":{"sha":"$head"}}"""
-                    3 -> """{"tree":{"sha":"base-tree"}}"""
-                    4 -> """{"truncated":false,"tree":[{"path":"README.md","type":"blob","mode":"100644","sha":"current-blob"}]}"""
-                    else -> error("Stale blob attempted a mutation")
+                            1 -> """{"default_branch":"main"}"""
+                            2 -> """{"object":{"sha":"$head"}}"""
+                            3 -> """{"tree":{"sha":"base-tree"}}"""
+                            4 -> """{"truncated":false,"tree":[{"path":"README.md","type":"blob","mode":"100644","sha":"current-blob"}]}"""
+                            else -> error("Stale blob attempted a mutation")
                         }
                     )
-                        }
-                    )
+                }
+            )
         try {
             val change = buildJsonObject {
                 put("owner", "owner")

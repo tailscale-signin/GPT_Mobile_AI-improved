@@ -89,7 +89,7 @@ class GitHubOperationToolTest {
         println("GitHub ordinary schema: ${wire.toByteArray().size} UTF-8 bytes, $estimate estimated tokens, ${selected.size} facade definitions")
         assertTrue("Ordinary schema estimate was $estimate", estimate < 1000)
         assertFalse(catalog.selected(listOf(Backend().definition) + definitions).any { it.name == "github" })
-        assertEquals(setOf("github_context", "github_search", "github_read", "github_stage_patch", "github_commit"), GitHubOperationTool.taskTools("Fix code in the repository, create a branch and push the commit"))
+        assertEquals(setOf("github_context", "github_search", "github_read", "github_stage_patch", "github_commit", "github_write"), GitHubOperationTool.taskTools("Fix code in the repository, create a branch and push the commit"))
     }
 
     @Test fun directWriteAdvertisesGuardedMultiFileCommits() {

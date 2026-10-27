@@ -328,9 +328,9 @@ class AgentToolResolver @Inject constructor(
                         } catch (error: Exception) {
                             val outcome = when {
                                 error is McpBackoffException -> "WAITING_RECOVERY"
-                                generateSequence(error) { current -> current.cause?.takeUnless { cause -> cause === current } }.take(8).any { it is McpAuthenticationRequiredException } -> "AUTHENTICATION_REQUIRED"
-                                generateSequence(error) { current -> current.cause?.takeUnless { cause -> cause === current } }.take(8).any { it is McpEndpointConfigurationException } -> "ENDPOINT_CONFIGURATION"
-                                generateSequence(error) { current -> current.cause?.takeUnless { cause -> cause === current } }.take(8).any { it is java.io.IOException } -> "NETWORK_UNAVAILABLE"
+                                generateSequence<Throwable>(error) { current -> current.cause?.takeUnless { cause -> cause === current } }.take(8).any { it is McpAuthenticationRequiredException } -> "AUTHENTICATION_REQUIRED"
+                                generateSequence<Throwable>(error) { current -> current.cause?.takeUnless { cause -> cause === current } }.take(8).any { it is McpEndpointConfigurationException } -> "ENDPOINT_CONFIGURATION"
+                                generateSequence<Throwable>(error) { current -> current.cause?.takeUnless { cause -> cause === current } }.take(8).any { it is java.io.IOException } -> "NETWORK_UNAVAILABLE"
                                 error is IllegalStateException -> "MCP_STATE_OR_CATALOG_INVALID"
                                 else -> "DISCOVERY_FAILED"
                             }

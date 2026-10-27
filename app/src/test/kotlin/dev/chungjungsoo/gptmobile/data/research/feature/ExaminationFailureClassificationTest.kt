@@ -19,6 +19,13 @@ class ExaminationFailureClassificationTest {
         assertFalse(failure.retryable)
     }
 
+    @Test fun rateLimitedReaderIsScheduledForRetry() {
+        val failure = examinationFailure(IllegalStateException("HTTP 429 Too Many Requests"), 0, 1000L)
+        assertEquals("RATE_LIMITED", failure.code)
+        assertEquals(ExaminationStage.WAITING_RATE_LIMIT, failure.stage)
+        assertEquals(true, failure.retryable)
+    }
+
     @Test fun malformedJsonIsNotMisclassifiedAsTransportFailure() {
         val failure = examinationFailure(IllegalStateException("INVALID_JSON in extraction packet"), 0, 1000L)
         assertEquals("OUTPUT_INVALID", failure.code)

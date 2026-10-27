@@ -54,6 +54,29 @@ internal class GitHubOperationTool(
                 )
             }
         }
+        if (operation == "github_pr") {
+            val action = (arguments["action"] as? JsonPrimitive)?.content.orEmpty().ifBlank { "context" }
+            val requiredFields = when (action) {
+                "create" -> listOf("title", "head", "base")
+                "update", "merge" -> listOf("pull_number", "expected_head_sha")
+                "comment", "review" -> listOf("pull_number")
+                "reply" -> listOf("pull_number", "comment_id", "body")
+                else -> emptyList()
+            }
+            val missing = requiredFields.filter { key ->
+                val value = arguments[key]
+                value == null || (value is JsonPrimitive && value.content.isBlank())
+            }
+            if (missing.isNotEmpty()) {
+                return AgentToolResult(
+                    callId,
+                    ToolResultContent.Text("GitHub PR $action requires: " + missing.joinToString(", ") + ". Correct the request before retrying; nothing was dispatched."),
+                    true,
+                    errorCode = "INVALID_ARGUMENTS",
+                    dispatched = false
+                )
+            }
+        }
         val native = nativeArguments(operation, arguments)
             ?: return AgentToolResult(callId, ToolResultContent.Text("Unsupported GitHub operation."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
         val result = backend.execute(callId, native)

@@ -124,8 +124,12 @@ internal object RuntimeWireTransport {
         replyTo: Messenger? = null
     ) {
         RuntimeWireEnvelope.validate(
-            packet.version, packet.requestId, packet.sessionId,
-            packet.generation, packet.callId, packet.sequence
+            packet.version,
+            packet.requestId,
+            packet.sessionId,
+            packet.generation,
+            packet.callId,
+            packet.sequence
         )
         val content = json.encodeToString(packet)
         val contentBytes = content.toByteArray(Charsets.UTF_8)
@@ -186,8 +190,12 @@ internal object RuntimeWireTransport {
             }
         return json.decodeFromString<RuntimeWire>(content).also {
             RuntimeWireEnvelope.validate(
-                it.version, it.requestId, it.sessionId,
-                it.generation, it.callId, it.sequence
+                it.version,
+                it.requestId,
+                it.sessionId,
+                it.generation,
+                it.callId,
+                it.sequence
             )
         }
     }

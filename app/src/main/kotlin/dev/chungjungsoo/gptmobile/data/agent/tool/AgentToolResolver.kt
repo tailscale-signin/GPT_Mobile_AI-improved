@@ -1201,12 +1201,23 @@ class AgentToolResolver @Inject constructor(
         val temporary = userMessage?.chatId?.let { factVault?.scopeForChat(it)?.isTemporary == true } == true
         val previous = if (temporary) null else store?.read(scope, "github")?.get("task")?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
         val explicit = GitHubOperationTool.taskTools(task).isNotEmpty()
-        val followup = Regex("(?i)\\b(continue|resume|fix|patch|push|pushing|commit|committing|branch|release|review|test|build|write|writing)\\b").containsMatchIn(task)
-        val selected = when {
+        val followup = Regex("(?i)\\b(continue|resume|fix(?:es|ed|ing)?|repair(?:s|ed|ing)?|correct(?:ions?|ed|ing)?|changes?|patch|push|pushing|commit|committing|branch|release|review|test|build|write|writing)\\b").containsMatchIn(task)
+        val selectedTask = when {
             explicit -> task
             followup && (selectedRepository || previous != null) -> "repository " + task + " " + previous.orEmpty()
             else -> task
-        }.take(4096)
+        }
+        // Catalogue selection must inspect the whole request before compacting its
+        // durable context. Otherwise a write instruction after a long diagnostic
+        // report disappears and both this turn and its continuation become read-only.
+        // These are schemas, never permissions: execution still validates grants,
+        // approval, repository scope, expected SHAs and GitHub endpoint access.
+        val capabilities = GitHubOperationTool.taskTools(selectedTask)
+        val selected = if (capabilities.isEmpty()) {
+            selectedTask.take(4096)
+        } else {
+            (capabilities.joinToString(" ") + "\n" + selectedTask).take(4096)
+        }
         if (!temporary && GitHubOperationTool.taskTools(selected).isNotEmpty()) store?.write(scope, "github", kotlinx.serialization.json.buildJsonObject { put("task", kotlinx.serialization.json.JsonPrimitive(selected)) })
         return selected
     }

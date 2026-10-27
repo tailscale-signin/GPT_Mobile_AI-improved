@@ -115,6 +115,7 @@ internal class GitHubOperationTool(
                     "index" -> "index_status"
                     "changes" -> "changed_since"
                     "efficiency" -> "efficiency"
+                    "capabilities" -> "write_capabilities"
                     else -> return null
                 }
                 "github_search" -> "search_repository"
@@ -170,13 +171,17 @@ internal class GitHubOperationTool(
 
         fun taskTools(task: String): Set<String> {
             val text = task.lowercase(java.util.Locale.ROOT)
-            if (!isGitHubTask(text) && !Regex("\\b(code|source|ci|pr)\\b").containsMatchIn(text)) return emptySet()
+            val explicitlyNamed = names.filter { name ->
+                Regex("(?<![a-z0-9_])" + Regex.escape(name) + "(?:__[a-z0-9_-]+)?(?![a-z0-9_])").containsMatchIn(text)
+            }
+            if (explicitlyNamed.isEmpty() && !isGitHubTask(text) && !Regex("\\b(code|source|ci|pr)\\b").containsMatchIn(text)) return emptySet()
             val selected = linkedSetOf("github_context", "github_search", "github_read")
+            selected += explicitlyNamed
             if (Regex("\\b(pr|pull request|review|merge)\\b").containsMatchIn(text)) selected += "github_pr"
             if (Regex("\\b(ci|build|test failure|workflow|pipeline)\\b").containsMatchIn(text)) selected += "github_ci"
-            if (Regex("\\b(fix|patch|edit|change|implement)\\b").containsMatchIn(text)) selected += "github_stage_patch"
+            if (Regex("\\b(fix(?:es|ed|ing)?|repair(?:s|ed|ing)?|correct(?:ions?|ed|ing)?|patch(?:es|ed|ing)?|edit(?:s|ed|ing)?|changes?|implement(?:ation|ed|ing)?)\\b").containsMatchIn(text)) selected += "github_stage_patch"
             if (Regex("\\b(commit|committing|push|pushing|branch)\\b").containsMatchIn(text)) selected += "github_commit"
-            if (Regex("\\b(write|writing|create file|edit|modify|change|fix|add|update|delete|remove file|commit|committing|push|pushing|patch|implement|apply changes)\\b").containsMatchIn(text)) selected += "github_write"
+            if (Regex("\\b(write|writing|create files?|edit(?:s|ed|ing)?|modify|changes?|fix(?:es|ed|ing)?|repair(?:s|ed|ing)?|correct(?:ions?|ed|ing)?|add(?:ed|ing)?|updat(?:e|ed|ing)|delet(?:e|ed|ing)|remove files?|commit|committing|push|pushing|patch(?:es|ed|ing)?|implement(?:ation|ed|ing)?|apply changes)\\b").containsMatchIn(text)) selected += "github_write"
             if ("release" in text) selected += "github_release"
             return selected
         }
@@ -191,7 +196,7 @@ internal class GitHubOperationTool(
             val properties = linkedMapOf("owner" to field("string"), "repo" to field("string"), "commit_sha" to field("string"), "view_cursor" to field("string"))
             when (operation) {
                 "github_context" -> {
-                    properties["action"] = choice("resolve", "status", "index", "changes", "efficiency")
+                    properties["action"] = choice("resolve", "status", "index", "changes", "efficiency", "capabilities")
                     properties["ref"] = field("string")
                     properties["base_sha"] = buildJsonObject {
                         put("type", "string")
@@ -354,7 +359,7 @@ internal class GitHubOperationTool(
                 }
             }
             val description = when (operation) {
-                "github_context" -> "Resolve and pin the selected repository; check remote status, index, changes or request efficiency. Changes requires base_sha; for a pull request's changed files use github_pr context with include_files=true."
+                "github_context" -> "Resolve and pin the selected repository; check status, index, changes, efficiency or capabilities. action=capabilities inspects remote write permissions. A compact read-only schema selection does not prove write tools are disabled: discover github_write for edits. Changes requires base_sha; PR files use github_pr context with include_files=true."
                 "github_search" -> "Search pinned code and symbols locally. Follow index_cursor until complete."
                 "github_read" -> "Read exact source ranges or a saved evidence_id at a pinned commit."
                 "github_stage_patch" -> "Validate expected head/blob SHAs and preview exact edits without committing."

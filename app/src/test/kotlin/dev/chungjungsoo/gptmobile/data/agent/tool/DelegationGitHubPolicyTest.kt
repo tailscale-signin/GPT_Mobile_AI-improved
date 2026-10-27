@@ -118,6 +118,8 @@ class DelegationGitHubPolicyTest {
         assertTrue(gitHubCapabilityRefusal(task, "I cannot do it because **no GitHub integration, Git CLI, shell, or remote repository write tools are enabled**."))
         assertFalse(gitHubCapabilityRefusal(task, "Created the GitHub draft PR successfully."))
         assertFalse(gitHubCapabilityRefusal("Explain this error message", "No GitHub integration is enabled."))
+        assertTrue(gitHubCapabilityRefusal("Repair the GitHub repository and push the fix", "The `github_write__github_api` tool is currently not enabled in this session, which prevents directly pushing fixes."))
+        assertFalse(gitHubCapabilityRefusal("Repair the GitHub repository", "github_write__github_api returned HTTP 403: Actions write permission is not enabled for this endpoint."))
     }
 
     @Test fun `maximum delegation final pass has no tools even when follow ups are enabled`() {

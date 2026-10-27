@@ -98,7 +98,9 @@ internal fun reviewedSynthesisTools(tools: List<ResolvedAgentTool>, processingOw
 
 internal fun gitHubCapabilityRefusal(task: String, response: String): Boolean {
     if (!isGitHubTask(task)) return false
-    val text = response.lowercase().replace("**", "")
+    val text = response.lowercase().replace("**", "").replace("`", "")
+    val writesRequested = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(task).any { it in setOf("github_write", "github_stage_patch", "github_commit") }
+    if (writesRequested && Regex("\\bgithub_write(?:__[a-z0-9_-]+)?\\s+(?:tool\\s+)?(?:is\\s+)?(?:currently\\s+)?(?:not (?:enabled|available)|unavailable)\\b").containsMatchIn(text)) return true
     return "github" in text &&
         (
             "no github integration" in text ||

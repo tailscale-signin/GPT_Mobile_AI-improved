@@ -103,6 +103,15 @@ class GitHubOperationToolTest {
         assertTrue(GitHubOperationTool.taskTools("Write files and push changes in GitHub").contains("github_write"))
     }
 
+    @Test fun repairsAndExactModelFacingWriteNamesRetainExecutableSchemas() {
+        for (task in listOf("Repair the repository failures", "Correct code in this repo", "Apply all these changes to GitHub", "Enable github_write__github_api for the current task")) {
+            assertTrue("Missing write contract for: $task", "github_write" in GitHubOperationTool.taskTools(task))
+        }
+        val args = args("""{"action":"capabilities"}""")
+        assertTrue(ToolArgumentValidator.errors(args, GitHubOperationTool.definition("github_context").inputSchema).isEmpty())
+        assertEquals("write_capabilities", GitHubOperationTool.nativeArguments("github_context", args)?.get("action")?.jsonPrimitive?.content)
+    }
+
     @Test fun directWriteRejectsMalformedFileListsBeforeDispatch() = runBlocking {
         val backend = Backend()
         val tool = GitHubOperationTool("github_write", backend, "write-validation")

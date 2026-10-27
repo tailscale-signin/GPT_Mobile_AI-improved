@@ -570,7 +570,7 @@ interface AgentPersistenceDao :
                 dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE, content = "Saved contributions; final writing requires resume.", combinedQuality = report)
             )
         )
-        return published.takeIf { finishMessage(it, runId, "FAILED", System.currentTimeMillis() / 1000, reason) }
+        return published.takeIf { finishRunningWithMessage(it, runId, "FAILED", System.currentTimeMillis() / 1000, reason) }
     }
 
     @Transaction

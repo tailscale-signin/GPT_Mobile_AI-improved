@@ -30,7 +30,10 @@ internal fun examinationFailure(error: Exception, attempt: Int, now: Long = Syst
         delegated?.kind == dev.chungjungsoo.gptmobile.data.agent.tool.DelegateFailureKind.REASONING_ONLY -> "REASONING_ONLY"
         delegated?.kind == dev.chungjungsoo.gptmobile.data.agent.tool.DelegateFailureKind.EMPTY_OUTPUT -> "OUTPUT_EMPTY"
         causes.any { it is dev.chungjungsoo.gptmobile.data.diagnostics.JavaHeapWorkDeferred || it.message.orEmpty().startsWith("JAVA_HEAP_PRESSURE") } -> "JAVA_HEAP_PRESSURE"
-        causes.any { it is dev.chungjungsoo.gptmobile.data.agent.CombinedBudgetExceeded } -> "ADMITTED_CAPACITY_EXHAUSTED"
+        causes.any {
+            it is dev.chungjungsoo.gptmobile.data.agent.CombinedBudgetExceeded ||
+                it.message.orEmpty().startsWith("CombinedBudgetExceeded")
+        } -> "ADMITTED_CAPACITY_EXHAUSTED"
         error.message.orEmpty().contains("permission", true) -> "PERMISSION_REVOKED"
         causes.any { it is java.net.UnknownHostException || it is java.net.NoRouteToHostException } -> "NETWORK_UNAVAILABLE"
         causes.any { it.message.orEmpty().contains("HTTP 429", true) || it.message.orEmpty().contains("429 Too Many Requests", true) } -> "RATE_LIMITED"

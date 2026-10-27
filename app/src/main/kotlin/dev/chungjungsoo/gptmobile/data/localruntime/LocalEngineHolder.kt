@@ -53,8 +53,12 @@ class LocalEngineHolder(
             // A quarantine is an obligation to reconcile, not a permanent latch.
             // The delegate may terminate an isolated worker, but only a positive
             // cleanup receipt permits a successor to enter native code.
+            val blocked = requireNotNull(cleanupQuarantine)
             val recovered = delegate.cleanupAfterRequest("quarantine_recovery")
-            cleanupQuarantine = if (recovered.safeForSuccessor) null else recovered
+            val sameWorker = blocked.workerGenerationId == null || recovered.workerGenerationId == blocked.workerGenerationId
+            val currentReceipt = blocked.observedAtElapsedMs == null ||
+                recovered.observedAtElapsedMs?.let { it >= blocked.observedAtElapsedMs } == true
+            cleanupQuarantine = if (recovered.safeForSuccessor && sameWorker && currentReceipt) null else blocked
             if (recovered.engineReleased == true || recovered.workerExitConfirmed == true) loadedSpec = null
         }
         refreshCleanupQuarantine()
@@ -294,14 +298,18 @@ class LocalEngineHolder(
     override fun <T> runExclusiveFlow(
         onContended: suspend () -> Unit,
         block: suspend LocalRuntime.() -> Flow<T>
-    ): Flow<T> =
-        channelFlow {
+    ): Flow<T> {
+        val contentionReported = java.util.concurrent.atomic.AtomicBoolean(false)
+        suspend fun reportContention() {
+            if (contentionReported.compareAndSet(false, true)) onContended()
+        }
+        val upstream = channelFlow {
             if (coroutineContext[GenerationLock] != null) {
                 markAccessed()
                 block(this@LocalEngineHolder).collect { send(it) }
                 return@channelFlow
             }
-            acquireGenerationLock(onContended)
+            acquireGenerationLock { reportContention() }
             try {
                 withContext(GenerationLock()) {
                     markAccessed()
@@ -310,7 +318,16 @@ class LocalEngineHolder(
             } finally {
                 mutex.unlock()
             }
-        }.let { InferenceAdmission.sharedFlow(it) }
+        }
+        return InferenceAdmission.sharedFlow(upstream, onState = { state ->
+            if (state is AdmissionOutcome.Waiting) {
+                // Admission can queue before the holder mutex is reached (for
+                // example behind an isolated measurement). Report the same
+                // cancellable wait state at either queue boundary.
+                reportContention()
+            }
+        })
+    }
 
     private fun markAccessed() {
         lastAccessedElapsedRealtimeMs = timeProvider()

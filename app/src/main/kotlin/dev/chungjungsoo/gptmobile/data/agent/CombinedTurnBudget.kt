@@ -255,7 +255,14 @@ class CombinedTurnBudget(
             }
             val append = context.requested.appendContinuations && context.role == CombinedRunRole.CONTINUATION
             if (context.role != CombinedRunRole.SYNTHESIS && !append) return@withLock CombinedBudgetAdmission.Denied("COMBINED_SINGLE_PASS: Automatic verification, continuation and repair are disabled.")
-            val previous = state.reservations.values.filter { it.role.finalization && it.resources.inputTokens > 0 && it.status != CombinedReservationStatus.RELEASED }
+            // Corpus inspections are controller-authorized preparation work. They
+            // must not consume the single user-facing writer dispatch.
+            val previous = state.reservations.values.filter {
+                it.role.finalization &&
+                    !isCombinedCorpusInspection(it.workItemId) &&
+                    it.resources.inputTokens > 0 &&
+                    it.status != CombinedReservationStatus.RELEASED
+            }
             if (!append && previous.isNotEmpty()) {
                 return@withLock CombinedBudgetAdmission.Denied("COMBINED_ALREADY_DISPATCHED: This turn's primary request was already admitted. Saved or uncertain output must not be recomputed.")
             }

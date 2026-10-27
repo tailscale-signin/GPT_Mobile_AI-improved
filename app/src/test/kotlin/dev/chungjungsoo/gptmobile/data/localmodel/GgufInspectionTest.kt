@@ -47,7 +47,7 @@ class GgufInspectionTest {
         try {
             file.writeBytes(fixture())
             val first = GgufImportAdapter.inspect(file)
-            assertEquals(mapOf("general.architecture" to "gemma", "gemma.context_length" to "8192"), first)
+            assertEquals(mapOf("tokenizer.ggml.vocab_size" to "20000", "general.architecture" to "gemma", "gemma.context_length" to "8192"), first)
             assertEquals(first, GgufImportAdapter.inspect(file))
             val time = file.lastModified()
             file.writeBytes(fixture(true))

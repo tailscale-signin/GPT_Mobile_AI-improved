@@ -67,7 +67,7 @@ class GgufMetadataCoalescingTest {
             val first = owner.get(5, TimeUnit.SECONDS)
             assertSame(first, waiter.get(5, TimeUnit.SECONDS))
             assertSame(first, GgufImportAdapter.inspect(file))
-            assertEquals(mapOf("general.architecture" to "gemma"), first)
+            assertEquals(mapOf("tokenizer.ggml.vocab_size" to "128", "general.architecture" to "gemma"), first)
             assertEquals(hashedBefore, PackageDigest.bytesHashed.get())
         } finally {
             release.countDown()

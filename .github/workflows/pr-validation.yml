@@ -72,8 +72,22 @@ jobs:
           packages: "platforms;android-37.0 build-tools;37.0.0"
 
       - name: Accept Android licenses
+        env:
+          GRADLE_LICENSE_ACCEPT: "y"
         run: |
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+          set -euo pipefail
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses > sdk-licenses.log 2>&1 || status=$?
+          if [[ "${status:-0}" -ne 0 && "${status:-0}" -ne 141 ]]; then
+            cat sdk-licenses.log
+            exit "$status"
+          fi
+          if grep -Eq "[1-9][0-9]* of [0-9]+ SDK package licenses? not accepted" sdk-licenses.log; then
+            cat sdk-licenses.log
+            exit 1
+          fi
+          tail -n 20 sdk-licenses.log
 
       - name: Install Vulkan shader headers for Android GGUF backend
         run: sudo apt-get update && sudo apt-get install -y glslc libvulkan-dev spirv-headers

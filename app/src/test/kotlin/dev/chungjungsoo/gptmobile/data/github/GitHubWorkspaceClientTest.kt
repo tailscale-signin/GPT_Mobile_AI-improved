@@ -207,6 +207,45 @@ class GitHubWorkspaceClientTest {
     }
 
     @Test
+    fun `stale blob SHA prevents overwrite before creating git objects`() = runTest {
+        var requests = 0
+        val http = HttpClient(MockEngine { request ->
+            requests++
+            assertEquals(HttpMethod.Get, request.method)
+            respond(
+                when (requests) {
+                    1 -> """{"default_branch":"main"}"""
+                    2 -> """{"object":{"sha":"$head"}}"""
+                    3 -> """{"tree":{"sha":"base-tree"}}"""
+                    4 -> """{"truncated":false,"tree":[{"path":"README.md","type":"blob","mode":"100644","sha":"current-blob"}]}"""
+                    else -> error("Stale blob attempted a mutation")
+                }
+            )
+        })
+        try {
+            val change = buildJsonObject {
+                put("owner", "owner")
+                put("repo", "repo")
+                put("branch", "feature/code")
+                put("expected_head_sha", head)
+                put("message", "Update README")
+                put("files", buildJsonArray {
+                    add(buildJsonObject {
+                        put("path", "README.md")
+                        put("expected_blob_sha", "old-blob")
+                        put("content", "Updated")
+                    })
+                })
+            }
+            val error = runCatching { GitHubWorkspaceClient("token", http).execute("commit_files", change) }.exceptionOrNull()
+            assertTrue(error?.message?.contains("Original blob changed") == true)
+            assertEquals(4, requests)
+        } finally {
+            http.close()
+        }
+    }
+
+    @Test
     fun `stale branch rejects changes before creating git objects`() = runTest {
         var requests = 0
         val http = HttpClient(

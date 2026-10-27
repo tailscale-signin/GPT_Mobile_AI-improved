@@ -350,6 +350,7 @@ internal class CombinedDeliverySession(
                 rewrittenChecks.requiredFailures.size <= assessment.requiredFailures.size &&
                 (assessment.requiredFailures.isEmpty() || rewrittenChecks.requiredFailures.size < assessment.requiredFailures.size || (rewritten.text.length > accepted.text.length && rewrittenChecks.requiredFailures.toSet() == assessment.requiredFailures.toSet())) &&
                 rewrittenChecks.hardFailures.none { it !in previousFailures } &&
+                rewrittenChecks.requiredFailures.none { it !in assessment.requiredFailures } &&
                 (rewrittenChecks.verificationNeeds.size <= assessment.verificationNeeds.size || "TASK_SUBJECT_MISMATCH" in previousFailures)
             if (canAccept && rewritten != null && rewrittenChecks != null) {
                 val nextCoverage = withContext(Dispatchers.Default) { coverage.check(rewritten.text) }

@@ -95,7 +95,7 @@ class GitHubOperationToolTest {
     @Test fun directWriteAdvertisesGuardedMultiFileCommits() {
         val schema = GitHubOperationTool.definition("github_write").inputSchema
         val arguments = args(
-            """{"action":"commit","branch":"fix/example","expected_head_sha":"${sha}","message":"Fix code","files":[{"path":"src/Fix.kt","content":"updated","expected_blob_sha":"${sha}"}]}"""
+            """{"action":"commit","branch":"fix/example","expected_head_sha":"$sha","message":"Fix code","files":[{"path":"src/Fix.kt","content":"updated","expected_blob_sha":"$sha"}]}"""
         )
         assertEquals(emptyList<String>(), ToolArgumentValidator.errors(arguments, schema))
         assertEquals("commit_files", GitHubOperationTool.nativeArguments("github_write", arguments)?.get("action")?.jsonPrimitive?.content)
@@ -146,7 +146,7 @@ class GitHubOperationToolTest {
         val backend = Backend()
         val tool = GitHubOperationTool("github_write", backend, "write-test")
         val arguments = args(
-            """{"action":"commit","branch":"fix/example","expected_head_sha":"${sha}","message":"Fix code","files":[{"path":"src/Fix.kt","content":"updated"}]}"""
+            """{"action":"commit","branch":"fix/example","expected_head_sha":"$sha","message":"Fix code","files":[{"path":"src/Fix.kt","content":"updated"}]}"""
         )
         tool.execute("write", arguments)
         assertEquals(1, backend.calls.size)

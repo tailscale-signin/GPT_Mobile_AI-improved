@@ -215,7 +215,11 @@ internal class GitHubOperationTool(
                 }
                 "github_write" -> {
                     properties["action"] = choice("commit")
-                    listOf("branch", "expected_head_sha", "message").forEach { properties[it] = field("string") }
+                    listOf("branch", "message").forEach { properties[it] = field("string") }
+                    properties["expected_head_sha"] = buildJsonObject {
+                        put("type", "string")
+                        put("pattern", "^[a-fA-F0-9]{40}$")
+                    }
                     properties["files"] = buildJsonObject {
                         put("type", "array")
                         put("minItems", 1)

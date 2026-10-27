@@ -107,7 +107,8 @@ internal object ResearchDeliveryValidator {
                 .filterNot(claimStopWords::contains)
                 .toSet()
             evidenceBearingParagraphs.any { (cited, paragraphTerms, _) ->
-                claim.sourceId in cited && keyTerms.isNotEmpty() &&
+                claim.sourceId in cited &&
+                    keyTerms.isNotEmpty() &&
                     keyTerms.intersect(paragraphTerms).size >=
                     minOf(keyTerms.size, maxOf(1, kotlin.math.ceil(keyTerms.size * 0.4).toInt()))
             }
@@ -118,7 +119,9 @@ internal object ResearchDeliveryValidator {
             if (repairHints.size < 12) repairHints += "Include the source-bound ${claim.verdict.lowercase()} claim from [${claim.sourceId}] or explicitly identify it as a research gap: ${claim.text.take(320)}"
         }
         if (packet.claims.any { it.verdict == "Contradicted" } && !Regex("(?i)contradict|disagree|mixed|negative|uncertain|no (?:significant|benefit|effect)|not support").containsMatchIn(body)) issues += "COUNTEREVIDENCE_NOT_DISCLOSED"
-        val semanticCoverageVerified = eligibleClaims.isNotEmpty() && uncoveredClaims.isEmpty() && coverage.missingQuestionIds.isEmpty() &&
+        val semanticCoverageVerified = eligibleClaims.isNotEmpty() &&
+            uncoveredClaims.isEmpty() &&
+            coverage.missingQuestionIds.isEmpty() &&
             (packet.detail == ResearchReportDetail.BRIEF || packet.sections.all { section -> text.contains(section, ignoreCase = true) })
         return Result(issues.distinct(), ids, blocks, repairHints.take(12), semanticCoverageVerified, coveredClaims.size, eligibleClaims.size)
     }

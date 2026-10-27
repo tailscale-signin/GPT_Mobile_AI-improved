@@ -173,7 +173,11 @@ internal object RuntimeWireTransport {
                     output.toString("UTF-8")
                 }
             } else {
-                data.getString("json").orEmpty()
+                data.getString("json").orEmpty().also { inline ->
+                    require(inline.toByteArray(Charsets.UTF_8).size <= MAX_PAYLOAD_BYTES) {
+                        "Local IPC inline input is too large"
+                    }
+                }
             }
         return json.decodeFromString<RuntimeWire>(content).also {
             require(

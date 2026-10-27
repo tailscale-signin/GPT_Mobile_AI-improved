@@ -12,6 +12,7 @@ internal object CombinedContinuationProgress {
         val next = normalize(candidate)
         if (next.isEmpty()) return Result.EMPTY
         if (next == old || old.contains(next)) return Result.REPEATED
+        if (next.length < old.length && old.endsWith(next)) return Result.NO_NEW_SUFFIX
         if (next.startsWith(old) && next.length > old.length) return Result.ADVANCED
         val overlap = (minOf(old.length, next.length) downTo 1)
             .firstOrNull { old.takeLast(it) == next.take(it) } ?: 0

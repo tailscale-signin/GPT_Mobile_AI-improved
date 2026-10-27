@@ -140,7 +140,7 @@ class LiteRtLmAdapter(
                         }
                     ) {
                         flow {
-                            preflightModel(modelPath, platform.accelerator)
+                            localRuntime.preflightModel(modelPath, platform.accelerator)
                             emit(Unit)
                         }
                     }.single()

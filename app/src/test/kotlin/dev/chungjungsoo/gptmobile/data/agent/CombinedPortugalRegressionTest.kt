@@ -76,7 +76,7 @@ class CombinedPortugalRegressionTest {
         assertEquals("UNRESOLVED", report.topicCoverage)
         assertFalse(report.factualAccuracyVerified)
         assertTrue("builtin-free-bridgenode" in report.representedProfileUids)
-        assertTrue("builtin-free-vireonix" in report.representedProfileUids)
+        assertTrue(combinedWordingSpans(answer, sources).any { "builtin-free-vireonix" in it.profileUids })
     }
 
     @Test fun missingHistoricalScopeDoesNotClaimAFactualContradiction() = kotlinx.coroutines.test.runTest {

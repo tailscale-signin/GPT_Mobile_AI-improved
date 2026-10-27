@@ -327,7 +327,7 @@ class ChatRepositoryImplTest {
         assertTrue(api.requests.single().toString().contains(sources[1].content))
         val report = final.report
         assertTrue(report.lexicalMissing > 0)
-        assertFalse(report.semanticCoverageVerified)
+        assertTrue("The requested single event is covered; the excluded second event must not invalidate it", report.semanticCoverageVerified)
     }
 
     @Test

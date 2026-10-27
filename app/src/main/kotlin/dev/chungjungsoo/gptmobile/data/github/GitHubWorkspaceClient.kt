@@ -304,6 +304,8 @@ class GitHubWorkspaceClient(
             put("permission_source", "repository_actor")
             put("endpoint_write_capability", "unverified")
             put("actions_write_capability", "unverified")
+            put("administrative_write_capability", "separate_elevated_authorization_required")
+            put("ordinary_grant_authorizes_administration", false)
             put("permission_note", "Repository actor permissions do not establish this credential's endpoint permissions, organization SSO authorization or branch rules.")
             put("can_push", push?.let { JsonPrimitive(it) } ?: JsonNull)
             put("can_maintain", maintain?.let { JsonPrimitive(it) } ?: JsonNull)
@@ -1354,6 +1356,7 @@ class GitHubWorkspaceClient(
         require(token.isNotBlank()) { "A GitHub credential is required for GraphQL." }
         check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
         return scheduler.execute(priority = requestPriority) {
+            check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
             rateLimits.requireAvailable("graphql")
             scheduler.recordRequest()
             val response = client.request("https://api.github.com/graphql") {
@@ -1416,6 +1419,7 @@ class GitHubWorkspaceClient(
             return cached.value
         }
         return scheduler.execute(if (method == HttpMethod.Get && immutablePath(path)) cacheKey else null, priority = requestPriority) {
+            check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
             if (path != "/rate_limit") rateLimits.requireAvailable(if (path.startsWith("/search/")) "search" else "core")
             scheduler.recordRequest()
             val response = client.request("https://api.github.com$path") {

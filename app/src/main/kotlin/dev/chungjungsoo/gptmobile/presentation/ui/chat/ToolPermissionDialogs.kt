@@ -36,6 +36,7 @@ import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.permissions.PersonalDataCategory
 import dev.chungjungsoo.gptmobile.data.permissions.PersonalDataGrantOptions
 import dev.chungjungsoo.gptmobile.data.permissions.ToolApproval
+import dev.chungjungsoo.gptmobile.data.permissions.requiresExactConfirmation
 import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 
@@ -94,18 +95,20 @@ internal fun ToolApprovalDialog(
                     }
                 }
                 Text(
-                    "Allow once for this action, or remember it for every model. Change this anytime in Plugins/Tools → Permissions.",
+                    if (approval.requiresExactConfirmation) "Review this exact GitHub action. Approval applies once to the displayed arguments; remembered permissions cannot approve it." else "Allow once for this action, or remember it for every model. Change this anytime in Plugins/Tools → Permissions.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                FilledTonalButton(onClick = onAlwaysAllowTool, modifier = Modifier.fillMaxWidth()) {
-                    Icon(Icons.Rounded.CheckCircle, null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Always allow this tool · all models")
-                }
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(checked = allowProvider, onCheckedChange = { allowProvider = it })
-                    Text("Always allow all tools from ${approval.connection}", style = MaterialTheme.typography.bodyMedium)
+                if (!approval.requiresExactConfirmation) {
+                    FilledTonalButton(onClick = onAlwaysAllowTool, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Rounded.CheckCircle, null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Always allow this tool · all models")
+                    }
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = allowProvider, onCheckedChange = { allowProvider = it })
+                        Text("Always allow all tools from ${approval.connection}", style = MaterialTheme.typography.bodyMedium)
+                    }
                 }
             }
         },

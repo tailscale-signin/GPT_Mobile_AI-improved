@@ -22,6 +22,7 @@ internal class GitHubCiLogReader(private val client: HttpClient, private val tok
             }
         }
         return scheduler.execute(if (immutable) "ci-log:$path" else null, priority = requestPriority) {
+            check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
             val network = client.config { followRedirects = false }
             try {
                 var url = "https://api.github.com$path"

@@ -83,6 +83,7 @@ class ToolApprovalManager @Inject constructor(private val database: ChatDatabase
     suspend fun allowInConversation(id: String) {
         val request = dao.observe(id).first() ?: return
         if (request.state != "PENDING") return
+        if (request.requiresExactConfirmation) return
         val connection = requestConnections[id]?.let { connections.getConnection(it) } ?: return
         val scope = requestScopes[id] ?: return
         requireNotNull(trust).allowScoped(connection, request.tool, scope)
@@ -91,6 +92,7 @@ class ToolApprovalManager @Inject constructor(private val database: ChatDatabase
     suspend fun alwaysAllowProvider(id: String) {
         val request = dao.observe(id).first() ?: return
         if (request.state != "PENDING") return
+        if (request.requiresExactConfirmation) return
         val connection = requestConnections[id]?.let { connections.getConnection(it) } ?: return
         requireNotNull(trust) { "Persistent tool permissions are unavailable." }.allowProvider(connection)
         approveWaiting(connection.connectionUid, id)
@@ -98,6 +100,7 @@ class ToolApprovalManager @Inject constructor(private val database: ChatDatabase
     suspend fun alwaysAllow(id: String) {
         val request = dao.observe(id).first() ?: return
         if (request.state != "PENDING") return
+        if (request.requiresExactConfirmation) return
         val connection = requestConnections[id]?.let { connections.getConnection(it) } ?: return
         requireNotNull(trust) { "Persistent tool permissions are unavailable." }.allow(connection, request.tool)
         approveWaiting(connection.connectionUid, id, request.tool)
@@ -107,7 +110,7 @@ class ToolApprovalManager @Inject constructor(private val database: ChatDatabase
         submissionMutex.withLock {
             dao.decide(approvedId, "APPROVED")
             dao.pending().first().filter { request ->
-                requestConnections[request.id] == connectionUid && (tool == null || request.tool == tool)
+                !request.requiresExactConfirmation && requestConnections[request.id] == connectionUid && (tool == null || request.tool == tool)
             }.forEach { request ->
                 val previous = dao.previousMatchingAction(request.runId, request.connection, request.tool, request.argumentHash, request.id)
                 dao.decide(request.id, if (previous == null) "APPROVED" else "DENIED")
@@ -149,7 +152,11 @@ class ToolApprovalManager @Inject constructor(private val database: ChatDatabase
             }
         }
         val connection = connections.getConnection(connectionId) ?: return false
-        if (connection.type !in setOf("MCP", "AMAZON_SERPAPI") && tool != "github") return true
+        val github = GitHubAuthorizationBoundary.applies(connection)
+        if (github && GitHubAuthorizationBoundary.requiresElevatedAuthorization(tool, arguments)) {
+            throw ToolAuthorizationRejected("ELEVATED_AUTH_REQUIRED", "This GitHub administrative operation requires a separate elevated authorization and explicit confirmation. Ordinary repository permissions and remembered tool grants cannot authorize it. No request was sent.")
+        }
+        if (connection.type !in setOf("MCP", "AMAZON_SERPAPI") && tool != "github") return connection.type != "GITHUB"
         val policy = runCatching { ToolPolicy.valueOf(connection.toolPolicy) }.getOrDefault(ToolPolicy.ASK_WRITES)
         val githubRead = tool != "github" ||
             arguments["action"]?.let {
@@ -160,6 +167,7 @@ class ToolApprovalManager @Inject constructor(private val database: ChatDatabase
         val readOnly = githubRead && tool in connection.approvedReadTools.lines().map(String::trim)
         if (policy == ToolPolicy.READ_ONLY && !readOnly) return false
         if (readOnly) return true
+        val exactApproval = github
         val scope = schema?.let { definition -> database.agentRunDao().getById(runId)?.let { ScopedToolGrant.from(it.chatId, definition, arguments) } }
         val id = "$runId:$callId"
         scope?.let { requestScopes[id] = it }
@@ -167,19 +175,19 @@ class ToolApprovalManager @Inject constructor(private val database: ChatDatabase
         val hash = ScopedToolGrant.canonicalHash(arguments)
         val inserted = submissionMutex.withLock {
             val previous = dao.previousMatchingAction(runId, connection.name, tool, hash)
-            val trusted = policy == ToolPolicy.TRUSTED || trust?.allows(connection, tool) == true
+            val trusted = !exactApproval && (policy == ToolPolicy.TRUSTED || trust?.allows(connection, tool) == true)
             // Permanent permission must never prompt again. Keep the duplicate-action
             // guard: already-dispatched writes in this turn are rejected, not repeated.
-            if (trusted && previous != null) return@withLock -1L
+            if ((trusted || exactApproval) && previous != null) return@withLock -1L
             val request = ToolApproval(
                 id,
                 runId,
                 connection.name,
                 tool,
                 hash,
-                argumentPreview = (scope?.let { "Conversation #${it.chatId}" + it.resource.takeIf(String::isNotBlank)?.let { resource -> " · $resource" }.orEmpty() + "\n" }.orEmpty()) + (previous?.let { "A matching action in this turn has status $it. Check its effect before approving a repeat.\n" }.orEmpty()) +
+                argumentPreview = (if (exactApproval) GitHubAuthorizationBoundary.EXACT_APPROVAL_PREFIX else "") + (scope?.let { "Conversation #${it.chatId}" + it.resource.takeIf(String::isNotBlank)?.let { resource -> " · $resource" }.orEmpty() + "\n" }.orEmpty()) + (previous?.let { "A matching action in this turn has status $it. Check its effect before approving a repeat.\n" }.orEmpty()) +
                     dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.arguments(arguments),
-                state = if ((policy == ToolPolicy.TRUSTED || trust?.allows(connection, tool) == true || scope?.let { trust?.allowsScoped(connection, tool, it) } == true) && previous == null) "APPROVED" else "PENDING"
+                state = if (!exactApproval && (policy == ToolPolicy.TRUSTED || trust?.allows(connection, tool) == true || scope?.let { trust?.allowsScoped(connection, tool, it) } == true) && previous == null) "APPROVED" else "PENDING"
             )
             dao.insert(request)
         }

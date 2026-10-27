@@ -149,7 +149,7 @@ internal fun BubbleActionHost(identity: Any, actions: List<BubbleAction>, conten
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
                     var lastPosition = down.position
-                    val releasedOrCanceled = withTimeoutOrNull(100L) {
+                    val releasedOrCanceled = withTimeoutOrNull(1_000L) {
                         while (true) {
                             val event = awaitPointerEvent(PointerEventPass.Main)
                             val change = event.changes.firstOrNull { it.id == down.id }

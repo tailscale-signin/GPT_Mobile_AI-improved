@@ -1259,6 +1259,8 @@ private fun ConnectionDetailsStep(
             )
         }
         if (provider?.type == ToolConnectionType.GITHUB) {
+            Text("GitHub sign-in and repository operations require an internet connection. Your AI model can run locally; a user-operated gateway is optional.", style = MaterialTheme.typography.bodySmall)
+            Text("Normal repository access does not authorize changes to security rules, permissions, secrets or branch protection. Administrative changes require a separate elevated authorization and explicit review.", style = MaterialTheme.typography.bodySmall)
             Text(
                 text = "For repository writes, use a credential with Contents: read/write. Creating pull requests also needs Pull requests: read/write. Dispatching or rerunning workflows needs Actions: read/write. A 403 can also come from branch protection, SSO, installation policy, or repository rules.",
                 style = MaterialTheme.typography.bodySmall,

@@ -630,17 +630,27 @@ class GitHubWorkspaceClient(
             put("page", page)
             put("returned", rows.size)
             put("has_more", rows.size == 30)
-            put("comments", JsonArray(rows.map { comment ->
-                buildJsonObject {
-                    listOf("id", "pull_request_review_id", "in_reply_to_id", "path", "line", "original_line", "side", "commit_id", "original_commit_id", "body", "created_at", "updated_at", "html_url").forEach { key -> comment[key]?.let { put(key, it) } }
-                    comment["user"]?.jsonObject?.let { put("user", project(it, "login", "html_url")) }
-                }
-            }))
-            if (rows.size == 30) put("continuation", buildJsonObject {
-                put("action", "get_pull_request_comments")
-                put("pull_number", number)
-                put("page", page + 1)
-            })
+            put(
+                "comments",
+                JsonArray(
+                    rows.map { comment ->
+                        buildJsonObject {
+                            listOf("id", "pull_request_review_id", "in_reply_to_id", "path", "line", "original_line", "side", "commit_id", "original_commit_id", "body", "created_at", "updated_at", "html_url").forEach { key -> comment[key]?.let { put(key, it) } }
+                            comment["user"]?.jsonObject?.let { put("user", project(it, "login", "html_url")) }
+                        }
+                    }
+                )
+            )
+            if (rows.size == 30) {
+                put(
+                    "continuation",
+                    buildJsonObject {
+                        put("action", "get_pull_request_comments")
+                        put("pull_number", number)
+                        put("page", page + 1)
+                    }
+                )
+            }
         }
     }
 

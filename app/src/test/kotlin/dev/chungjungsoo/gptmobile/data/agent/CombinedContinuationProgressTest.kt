@@ -24,6 +24,10 @@ class CombinedContinuationProgressTest {
         assertEquals(CombinedContinuationProgress.Result.ADVANCED, CombinedContinuationProgress.assess("First. Second.", "Second. Third."))
     }
 
+    @Test fun shorterSuffixIsNotProgress() {
+        assertEquals(CombinedContinuationProgress.Result.REPEATED, CombinedContinuationProgress.assess("Introduction. Middle Ages. Revolution.", "Middle Ages. Revolution."))
+    }
+
     @Test fun suffixOnlyDoesNotAdvance() {
         assertEquals(CombinedContinuationProgress.Result.REPEATED, CombinedContinuationProgress.assess("First. Second.", "Second."))
     }

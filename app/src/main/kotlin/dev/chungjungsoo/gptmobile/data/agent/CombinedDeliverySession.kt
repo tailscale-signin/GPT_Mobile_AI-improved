@@ -492,6 +492,9 @@ internal class CombinedDeliverySession(
         } else {
             emit(ProviderEvent.CombinedQuality(finalReport))
         }
+        if (finalReport.issues.contains("HISTORICAL_PERIOD_COVERAGE_INCOMPLETE")) {
+            emit(ProviderEvent.Notice("The retained historical survey is missing required periods. It remains a partial draft until those sections are completed and checked.", persistent = true))
+        }
         if (violations.isNotEmpty()) emit(ProviderEvent.Notice(if (accepted.text.isBlank()) "Final assembly did not deliver answer text. Saved contributions and recovery actions remain available." else "The retained draft has an unmet instruction check.", persistent = true))
         if (correctionRequired) emit(ProviderEvent.Notice("The retained draft requires correction; it is not a checked final answer.", persistent = true))
         if (accepted.text.isBlank()) {

@@ -435,6 +435,9 @@ class LocalInferenceService : Service() {
     private fun cancel(requestId: String) {
         if (terminationGate.isTerminating()) return
         val job = jobs[requestId] ?: return
+        // Never let a delayed cancellation target a newer command. Request IDs
+        // are unique per operation, and only the current owner may touch JNI.
+        if (activeCommandRequest != requestId) return
         // Signal the native abort flag immediately; cancelling a coroutine cannot
         // interrupt a blocking JNI call. Only target the command holding the lease.
         if (activeCommandRequest == requestId) runCatching { runtime.cancelActive() }

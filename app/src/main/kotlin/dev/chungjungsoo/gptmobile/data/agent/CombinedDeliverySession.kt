@@ -348,7 +348,7 @@ internal class CombinedDeliverySession(
                 (!addedVerificationNeeds || "TASK_SUBJECT_MISMATCH" in previousFailures) &&
                 rewrittenChecks != null &&
                 rewrittenChecks.requiredFailures.size <= assessment.requiredFailures.size &&
-                (assessment.requiredFailures.isEmpty() || rewrittenChecks.requiredFailures.size < assessment.requiredFailures.size || rewritten.text.length > accepted.text.length) &&
+                (assessment.requiredFailures.isEmpty() || rewrittenChecks.requiredFailures.size < assessment.requiredFailures.size || (rewritten.text.length > accepted.text.length && rewrittenChecks.requiredFailures.toSet() == assessment.requiredFailures.toSet())) &&
                 rewrittenChecks.hardFailures.none { it !in previousFailures } &&
                 (rewrittenChecks.verificationNeeds.size <= assessment.verificationNeeds.size || "TASK_SUBJECT_MISMATCH" in previousFailures)
             if (canAccept && rewritten != null && rewrittenChecks != null) {

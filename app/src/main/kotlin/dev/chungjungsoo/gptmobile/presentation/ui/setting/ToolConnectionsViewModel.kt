@@ -56,7 +56,8 @@ class ToolConnectionsViewModel @Inject constructor(
     private val settingRepository: SettingRepository,
     private val agentToolResolver: AgentToolResolver? = null,
     private val toolTrust: dev.chungjungsoo.gptmobile.data.permissions.ToolTrustStore? = null,
-    private val freeToolConsent: dev.chungjungsoo.gptmobile.data.permissions.FreeModelToolConsentStore? = null
+    private val freeToolConsent: dev.chungjungsoo.gptmobile.data.permissions.FreeModelToolConsentStore? = null,
+    private val gitHubPublicAuth: dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator? = null
 ) : ViewModel() {
     private val permissionAuditMutable = MutableStateFlow<List<Triple<String, String, Boolean>>>(emptyList())
     val permissionAudit = permissionAuditMutable.asStateFlow()
@@ -143,11 +144,21 @@ class ToolConnectionsViewModel @Inject constructor(
             runCatching {
                 val connections = toolConnectionRepository.listConnections()
                 val features = settingRepository.getFeatureSettings()
-                connections to features
-            }.onSuccess { (connections, features) ->
+                val accounts = mutableMapOf<String, dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator.Account>()
+                connections.filter { it.type == ToolConnectionType.GITHUB }.forEach { connection ->
+                    try {
+                        gitHubPublicAuth?.connectedAccount(connection.connectionUid)?.let { accounts[connection.connectionUid] = it }
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) { /* One unreadable receipt cannot hide healthy connections. */ }
+                }
+                Triple(connections, features, accounts to gitHubPublicAuth?.pendingConnectionUid())
+            }.onSuccess { (connections, features, github) ->
                 _uiState.update { state ->
                     state.copy(
                         connections = connections,
+                        gitHubAccounts = github.first,
+                        gitHubPublicSignInUid = github.second,
                         pluginStates = features.toolPluginStates,
                         remoteMcpEnabled = features.remoteMcpConnections,
                         connectionHealth = state.connectionHealth.filterKeys { uid ->
@@ -461,7 +472,10 @@ class ToolConnectionsViewModel @Inject constructor(
         }
         oauthStartJob = viewModelScope.launch {
             _uiState.update { it.copy(isOAuthBusy = true, errorMessage = null) }
-            runCatching { oauthCoordinator.begin(connectionUid, mcpOAuthRedirectUri(connectionUid)) }
+            runCatching {
+                check(gitHubPublicAuth?.pendingConnectionUid() == null) { "Complete or cancel the pending GitHub sign-in first." }
+                oauthCoordinator.begin(connectionUid, mcpOAuthRedirectUri(connectionUid))
+            }
                 .onSuccess { authorizationUri -> _oauthLaunches.emit(authorizationUri) }
                 .onFailure(::showError)
             _uiState.update { it.copy(isOAuthBusy = false) }
@@ -470,7 +484,14 @@ class ToolConnectionsViewModel @Inject constructor(
 
     fun cancelGitHubSignIn() {
         oauthStartJob?.cancel()
-        _uiState.update { it.copy(gitHubSignIn = null, isOAuthBusy = false) }
+        _uiState.update { it.copy(gitHubSignIn = null, gitHubPublicSignInUid = null, isOAuthBusy = false) }
+        viewModelScope.launch {
+            try {
+                gitHubPublicAuth?.cancel()
+            } catch (failure: Exception) {
+                showError(failure)
+            }
+        }
     }
 
     private fun startGitHubSignIn(connectionUid: String) {
@@ -479,14 +500,30 @@ class ToolConnectionsViewModel @Inject constructor(
             val client = io.ktor.client.HttpClient(io.ktor.client.engine.okhttp.OkHttp) {
                 followRedirects = false
                 expectSuccess = false
+                engine { config { retryOnConnectionFailure(false) } }
             }
             try {
                 val connection = requireNotNull(toolConnectionRepository.getConnection(connectionUid)) { "The GitHub connection was removed." }
                 check(connection.type == ToolConnectionType.GITHUB && connection.authType == ToolConnectionAuthType.OAUTH) { "Choose GitHub sign-in for this connection." }
+                if (gitHubPublicAuth?.canAuthorize(connection) == true) {
+                    val authorizationUri = gitHubPublicAuth.begin(connectionUid)
+                    _uiState.update { it.copy(gitHubPublicSignInUid = connectionUid) }
+                    _oauthLaunches.emit(authorizationUri)
+                    return@launch
+                }
                 val auth = dev.chungjungsoo.gptmobile.data.github.GitHubDeviceAuthClient(client)
+                check(gitHubPublicAuth?.pendingConnectionUid() == null) { "Complete or cancel the pending GitHub sign-in first." }
                 val authorization = auth.begin(connection.oauthClientId ?: dev.chungjungsoo.gptmobile.BuildConfig.GITHUB_OAUTH_CLIENT_ID)
                 _uiState.update { it.copy(gitHubSignIn = GitHubSignIn(connectionUid, authorization.userCode, authorization.verificationUri)) }
-                val token = auth.awaitToken(authorization).encodeToByteArray()
+                val credential = auth.awaitCredential(authorization)
+                kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                if (gitHubPublicAuth != null) {
+                    gitHubPublicAuth.completeDevice(connection, authorization.clientId, credential)
+                    revokeToolGrants(connectionUid)
+                    refresh()
+                    return@launch
+                }
+                val token = credential.accessToken.encodeToByteArray()
                 try {
                     kotlinx.coroutines.currentCoroutineContext().ensureActive()
                     dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.withLock {
@@ -512,9 +549,51 @@ class ToolConnectionsViewModel @Inject constructor(
         }
     }
 
+    fun disconnectGitHub(connectionUid: String) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                if (gitHubPublicAuth != null) {
+                    gitHubPublicAuth.disconnect(connectionUid)
+                } else {
+                    val connection = requireNotNull(toolConnectionRepository.getConnection(connectionUid))
+                    require(connection.type == ToolConnectionType.GITHUB)
+                    dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.withLock { toolConnectionRepository.upsertConnection(connection, clearCredential = true) }
+                }
+                revokeToolGrants(connectionUid)
+                refresh()
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                showError(failure)
+            }
+        }
+    }
+
     data class GitHubSignIn(val connectionUid: String, val userCode: String, val verificationUri: String)
 
     fun completeOAuthCallback(callbackUri: String?) {
+        val publicAuth = gitHubPublicAuth
+        if (callbackUri != null && publicAuth?.acceptsCallback(callbackUri) == true) {
+            viewModelScope.launch {
+                _uiState.update { it.copy(isOAuthBusy = true, errorMessage = null) }
+                try {
+                    publicAuth.complete(callbackUri)
+                    refresh()
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) {
+                    showError(failure)
+                } finally {
+                    val pending = try {
+                        publicAuth.pendingConnectionUid()
+                    } catch (_: Exception) {
+                        null
+                    }
+                    _uiState.update { it.copy(isOAuthBusy = false, gitHubPublicSignInUid = pending) }
+                }
+            }
+            return
+        }
         if (callbackUri == null) {
             _uiState.update { it.copy(errorMessage = "OAuth authorization was canceled.") }
             return
@@ -534,6 +613,7 @@ class ToolConnectionsViewModel @Inject constructor(
     }
 
     fun failOAuthLaunch(message: String = "No browser is available for OAuth authorization.") {
+        if (_uiState.value.gitHubPublicSignInUid != null) cancelGitHubSignIn()
         _uiState.update { it.copy(isOAuthBusy = false, errorMessage = message) }
     }
 
@@ -543,6 +623,8 @@ class ToolConnectionsViewModel @Inject constructor(
 
     data class ToolConnectionsUiState(
         val connections: List<ToolConnection> = emptyList(),
+        val gitHubAccounts: Map<String, dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator.Account> = emptyMap(),
+        val gitHubPublicSignInUid: String? = null,
         val pluginStates: Map<String, Boolean> = emptyMap(),
         val remoteMcpEnabled: Boolean = true,
         val connectionHealth: Map<String, ToolConnectionHealth> = emptyMap(),

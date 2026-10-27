@@ -22,6 +22,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubToolTest {
+    @Test fun unavailableCredentialVerificationReturnsAnExplicitErrorWithoutDispatchOrCatalogOmission() = runTest {
+        val http = HttpClient(MockEngine { error("An unverified account must not reach GitHub") })
+        try {
+            val tool = GitHubTool("configured-token", http, credentialAdmissionFailed = true)
+            assertTrue(tool.hasCredential)
+            assertTrue(tool.operations().any { it.operation == "github_write" })
+            val result = tool.execute("authorization", buildJsonObject { put("action", "get_account") })
+            assertTrue(result.isError)
+            assertEquals(false, result.dispatched)
+            assertEquals("GITHUB_AUTHORIZATION_UNVERIFIED", result.errorCode)
+        } finally {
+            http.close()
+        }
+    }
 
     @Test
     fun `programmer workspace rejects other repositories and unselected indexing before dispatch`() = runTest {

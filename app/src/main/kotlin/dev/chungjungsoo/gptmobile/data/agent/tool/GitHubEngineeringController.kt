@@ -27,7 +27,8 @@ class GitHubEngineeringController @Inject constructor(
     private val vault: SecretVault,
     private val apiFactory: GitHubEngineeringApiFactory,
     private val benchmarks: dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkStore,
-    private val workQueue: GitHubEngineeringWorkQueue
+    private val workQueue: GitHubEngineeringWorkQueue,
+    private val gitHubPublicAuth: dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator? = null
 ) {
     private val database get() = GitHubEngineeringDatabaseFactory.open(context)
     private val dao get() = database.ledgerDao()
@@ -36,6 +37,7 @@ class GitHubEngineeringController @Inject constructor(
     private suspend fun credential(uid: String): String {
         val connection = requireNotNull(connections.getConnection(uid)) { "GitHub connection removed; reconnect" }
         require(connection.type == ToolConnectionType.GITHUB)
+        gitHubPublicAuth?.let { return it.accessToken(connection) }
         val bytes = connection.secretRef?.let { vault.read(it) }
         return try {
             requireNotNull(bytes?.decodeToString()?.takeIf { it.isNotBlank() }) { "GitHub credential unavailable; reconnect" }

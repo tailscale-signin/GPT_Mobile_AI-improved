@@ -587,6 +587,36 @@ class CompleteBackupManagerTest {
         assertEquals("first-token", vault.read("provider")!!.decodeToString())
     }
 
+    @Test fun githubCredentialsNeverEnterPortableArchivesAndLegacyCredentialsCannotReconnect() = runBlocking {
+        database.toolConnectionDao().upsertConnection(dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection("github-account", "GitHub", "github", "GITHUB", null, "OAUTH", "connection_github-account", null))
+        vault.put("connection_github-account", "ghu_private_access".toByteArray())
+        vault.put("github-oauth-session-private", "ghr_private_refresh".toByteArray())
+        vault.put("github-public-auth-pending", "private-verifier".toByteArray())
+        vault.put("github-account-binding-private", "public-account-1".toByteArray())
+        vault.put("provider", "other-provider".toByteArray())
+        val selection = CompleteBackupSelection(setOf(CompleteBackupSection.TOOLS, CompleteBackupSection.CREDENTIALS))
+        val archive = File(context.cacheDir, "github-credential-policy.gptbackup")
+        val result = backupFixture(archive, selection)
+        assertTrue(result.message, result.success)
+        val stage = File(context.cacheDir, "github-credential-inspection").apply { mkdirs() }
+        val manifest = CompleteBackupArchive.read(archive, stage, Long.MAX_VALUE)
+        assertFalse("connection_github-account" in manifest.secrets)
+        assertFalse(manifest.secrets.keys.any { it.startsWith("github-") })
+        assertTrue("provider" in manifest.secrets)
+        // An older archive can still carry a raw token. Its connection metadata
+        // must restore without that credential, even when credentials are selected.
+        val legacy = manifest.copy(secrets = manifest.secrets + ("connection_github-account" to java.util.Base64.getEncoder().encodeToString("ghu_old_archive".toByteArray())))
+        CompleteBackupArchive.write(archive, legacy, manifest.files.mapValues { (path, _) -> File(stage, path) })
+        val restored = manager.restore(Uri.fromFile(archive), selection = selection)
+        assertTrue(restored.message, restored.success)
+        assertEquals(null, database.toolConnectionDao().getConnection("github-account")?.secretRef)
+        assertEquals(null, vault.read("connection_github-account"))
+        assertEquals(null, vault.read("github-oauth-session-private"))
+        assertEquals(null, vault.read("github-public-auth-pending"))
+        assertEquals("public-account-1", vault.read("github-account-binding-private")!!.decodeToString())
+        assertEquals("other-provider", vault.read("provider")!!.decodeToString())
+    }
+
     /** Structural migration tests inspect a decrypted archive, never a plaintext export. */
     private suspend fun backupFixture(archive: File, selection: CompleteBackupSelection = CompleteBackupSelection()): BackupRestoreResult {
         val keyFile = File(context.cacheDir, "${UUID.randomUUID()}.gptkey")
@@ -664,8 +694,8 @@ class CompleteBackupManagerTest {
         database.toolConnectionDao().upsertConnection(
             dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection(
                 "connection",
-                "GitHub",
-                "github",
+                "Example tools",
+                "example_tools",
                 "MCP",
                 "https://example.com/mcp",
                 "BEARER",

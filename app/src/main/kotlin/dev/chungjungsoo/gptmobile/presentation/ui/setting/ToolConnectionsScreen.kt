@@ -70,6 +70,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -177,6 +178,14 @@ fun ToolConnectionsScreen(
         canScroll = { scrollState.canScrollForward || scrollState.canScrollBackward }
     )
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    uiState.gitHubPublicSignInUid?.let {
+        AlertDialog(
+            onDismissRequest = viewModel::cancelGitHubSignIn,
+            title = { Text("Finish GitHub sign-in") },
+            text = { Text("Complete secure authorization in your browser. Check the project app name and requested repository access. GitHub authorization requires an internet connection.") },
+            confirmButton = { TextButton(onClick = viewModel::cancelGitHubSignIn) { Text("Cancel sign-in") } }
+        )
+    }
     uiState.gitHubSignIn?.let { signIn ->
         val browserContext = LocalContext.current
         AlertDialog(
@@ -428,6 +437,8 @@ fun ToolConnectionsScreen(
                                 onBrowseClick = { browsingConnectionUid = connection.connectionUid },
                                 onOAuthClick = { startOAuth(connection) },
                                 onDeleteClick = { deletingConnection = connection },
+                                gitHubAccount = uiState.gitHubAccounts[connection.connectionUid],
+                                onDisconnectGitHub = { viewModel.disconnectGitHub(connection.connectionUid) },
                                 health = uiState.connectionHealth[connection.connectionUid],
                                 onRefreshHealth = {
                                     if (connection.type == ToolConnectionType.AMAZON_SERPAPI) {
@@ -628,7 +639,9 @@ private fun CollapsibleToolConnectionCard(
     globallyPaused: Boolean = false,
     enabled: Boolean? = null,
     onEnabledChange: (Boolean) -> Unit = {},
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    gitHubAccount: dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator.Account? = null,
+    onDisconnectGitHub: () -> Unit = {}
 ) {
     var expanded by androidx.compose.runtime.saveable.rememberSaveable(connection.connectionUid) { mutableStateOf(false) }
     val missingCredential = connection.authType != ToolConnectionAuthType.NONE && connection.secretRef == null
@@ -657,6 +670,18 @@ private fun CollapsibleToolConnectionCard(
             } else if (connection.type == ToolConnectionType.MCP || health != null) {
                 ConnectionHealthLine(health)
             }
+            gitHubAccount?.let { account ->
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    val avatar = account.avatarUrl?.takeIf { value ->
+                        runCatching {
+                            val uri = java.net.URI(value)
+                            uri.scheme == "https" && uri.host == "avatars.githubusercontent.com" && uri.userInfo == null && uri.port == -1
+                        }.getOrDefault(false)
+                    }
+                    if (avatar != null) GitHubAccountAvatar(avatar, Modifier.size(32.dp).clip(androidx.compose.foundation.shape.CircleShape))
+                    Text("@${account.login}", style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
             AnimatedVisibility(expanded) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     dev.chungjungsoo.gptmobile.presentation.ui.setting.toolstatistics.ToolStatisticsPanel(ToolPluginId.connection(connection.connectionUid), connection.name, enabled ?: true)
@@ -672,7 +697,20 @@ private fun CollapsibleToolConnectionCard(
                         OutlinedButton(onClick = onPermissionsClick) { Text("Permissions") }
                         if (connection.type == ToolConnectionType.MCP && showBrowseAction) OutlinedButton(onClick = onBrowseClick) { Text("Resources & prompts") }
                         if (connection.type == ToolConnectionType.GITHUB && showBrowseAction) OutlinedButton(onClick = onBrowseClick) { Text("Workspace") }
-                        if (connection.authType == ToolConnectionAuthType.OAUTH) OutlinedButton(onClick = onOAuthClick) { Text(if (missingCredential) "Sign in" else "Reconnect") }
+                        if (connection.authType == ToolConnectionAuthType.OAUTH) {
+                            OutlinedButton(onClick = onOAuthClick) {
+                                Text(
+                                    if (missingCredential && connection.type == ToolConnectionType.GITHUB) {
+                                        "Sign in with GitHub"
+                                    } else if (missingCredential) {
+                                        "Sign in"
+                                    } else {
+                                        "Reconnect"
+                                    }
+                                )
+                            }
+                        }
+                        if (connection.type == ToolConnectionType.GITHUB && !missingCredential) OutlinedButton(onClick = onDisconnectGitHub) { Text("Disconnect GitHub") }
                     }
                     connection.endpointUrl?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     if (connection.type in setOf(ToolConnectionType.MCP, ToolConnectionType.AMAZON_SERPAPI, ToolConnectionType.BRAVE, ToolConnectionType.EXA, ToolConnectionType.FIRECRAWL, ToolConnectionType.PERPLEXITY)) {

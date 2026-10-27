@@ -88,7 +88,8 @@ class AgentToolResolver @Inject constructor(
     private val researchArchive: dev.chungjungsoo.gptmobile.data.research.feature.ResearchArchiveRepository? = null,
     private val articleExaminations: javax.inject.Provider<dev.chungjungsoo.gptmobile.data.research.feature.ArticleExaminationCoordinator>? = null,
     private val gitHubRepositoryState: dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore? = null,
-    private val engineeringController: GitHubEngineeringController? = null
+    private val engineeringController: GitHubEngineeringController? = null,
+    private val gitHubPublicAuth: dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator? = null
 ) {
     suspend fun warmSelectedCatalogues(profileUid: String, limit: Int = 4) {
         val features = settingRepository.getFeatureSettings()
@@ -1139,6 +1140,16 @@ class AgentToolResolver @Inject constructor(
 
     private suspend fun resolveGitHub(connection: ToolConnection?, profileUid: String, userMessage: MessageV2?, workspaceContext: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext? = null): ResolvedAgentTool {
         val actualConnection = connection
+        var authorizationFailed = false
+        if (actualConnection?.secretRef != null && gitHubPublicAuth != null) {
+            try {
+                gitHubPublicAuth.accessToken(actualConnection)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                authorizationFailed = true
+            }
+        }
         val token = actualConnection?.secretRef?.let { secretRef ->
             secretVault.read(secretRef)?.let { bytes ->
                 try {
@@ -1176,7 +1187,8 @@ class AgentToolResolver @Inject constructor(
             persistentState = userMessage?.chatId?.let { factVault?.scopeForChat(it)?.isTemporary != true } ?: true,
             stateStore = gitHubRepositoryState,
             engineeringPrepare = engineeringPrepare,
-            repositoryScope = workspaceContext
+            repositoryScope = workspaceContext,
+            credentialAdmissionFailed = authorizationFailed
         )
         val admittedProfile = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
         // resolved() normally wraps telemetry immediately; this backend must stay
@@ -1184,7 +1196,20 @@ class AgentToolResolver @Inject constructor(
         return tool.resolved(actualConnection?.connectionUid, actualConnection?.name, BuiltInAgentTool.GITHUB).copy(tool = tool, nativeGitHub = true, nativeGitHubAuthenticated = tool.hasCredential, canReuseResult = {
             val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
             val live = settingRepository.getFeatureSettings()
-            current != null &&
+            val credentialUnchanged = if (actualConnection == null) {
+                true
+            } else {
+                actualConnection.secretRef?.let { reference ->
+                    val bytes = secretVault.read(reference)
+                    try {
+                        bytes != null && bytes.decodeToString().trim() == token
+                    } finally {
+                        bytes?.fill(0)
+                    }
+                } ?: token.isEmpty()
+            }
+            credentialUnchanged &&
+                current != null &&
                 admittedProfile != null &&
                 dev.chungjungsoo.gptmobile.data.agent.sameRecoveryDestination(admittedProfile, current) &&
                 current.enabled &&

@@ -1086,6 +1086,24 @@ class AgentToolResolverTest {
         assertTrue(advertised("continue", chatId = 8).isEmpty())
     }
 
+    @Test fun githubCredentialReplacementRevokesAnAlreadyResolvedToolEvenWhenMetadataIsUnchanged() = runBlocking {
+        val profile = PlatformV2(uid = "profile", name = "Writer")
+        val settings = ResolverFakeSettingRepository(listOf(profile))
+        val dao = ResolverFakeToolConnectionDao()
+        val connection = connection("github_api", ToolConnectionType.GITHUB, "https://api.github.com", "stable-reference")
+        dao.upsertConnection(connection)
+        val vault = ResolverFakeSecretVault(mapOf("stable-reference" to "first-token".encodeToByteArray()))
+        val available = resolver(dao = dao, vault = vault, settings = settings).resolve(profile.uid, userMessage = dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(id = 1, chatId = 7, content = "Fix the GitHub repository and push", platformType = null))
+        val write = available.first { it.realToolName == "github_write" }
+        assertTrue(requireNotNull(write.canReuseResult).invoke())
+        vault.put("stable-reference", "replacement-token".encodeToByteArray())
+        assertEquals(connection, dao.getConnection(connection.connectionUid))
+        assertFalse(requireNotNull(write.canReuseResult).invoke())
+        assertTrue(vault.lastReadBytes!!.all { it == 0.toByte() })
+        vault.delete("stable-reference")
+        assertFalse(requireNotNull(write.canReuseResult).invoke())
+    }
+
     @Test fun longDiagnosticsCannotHideWritesOrLoseThemOnContinuation() = runBlocking {
         val profile = PlatformV2(uid = "profile", name = "Writer")
         val settings = ResolverFakeSettingRepository(listOf(profile))

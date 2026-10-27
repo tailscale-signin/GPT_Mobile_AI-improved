@@ -94,7 +94,8 @@ class GitHubWorkspaceViewModel @Inject constructor(
     private val store: GitHubWorkspaceStore,
     private val drafts: dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceDraftStore,
     private val settings: dev.chungjungsoo.gptmobile.data.repository.SettingRepository,
-    private val repositoryState: dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore? = null
+    private val repositoryState: dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore? = null,
+    private val gitHubPublicAuth: dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator? = null
 ) : ViewModel() {
     private val _state = MutableStateFlow(GitHubWorkspaceState())
     val state = _state.asStateFlow()
@@ -142,7 +143,6 @@ class GitHubWorkspaceViewModel @Inject constructor(
     }
 
     fun open(connection: ToolConnection) {
-        if (_state.value.connection?.connectionUid == connection.connectionUid && client != null) return
         if (_state.value.busy) return
         client = null
         tool = null
@@ -151,6 +151,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
         work {
             val current = connections.getConnection(connection.connectionUid) ?: error("Connection was removed.")
             require(current.type == ToolConnectionType.GITHUB) { "This connection is no longer a GitHub connection. Reopen the workspace with a GitHub connection." }
+            if (current.secretRef != null) gitHubPublicAuth?.accessToken(current)
             val bytes = current.secretRef?.let { vault.read(it) }
             val token = try {
                 credentialDigest = bytes?.let { MessageDigest.getInstance("SHA-256").digest(it) }

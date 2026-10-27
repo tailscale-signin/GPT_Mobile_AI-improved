@@ -101,6 +101,19 @@
                 <category android:name="android.intent.category.HEALTH_PERMISSIONS" />
             </intent-filter>
         </activity-alias>
+        <activity
+            android:name=".presentation.ui.setting.GitHubAuthCallbackActivity"
+            android:exported="true"
+            android:enabled="${githubPublicAuthEnabled}"
+            android:noHistory="true"
+            android:theme="@style/Theme.Gptmobile">
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="${githubAuthCallbackHost}" android:path="/oauth/github/callback" />
+            </intent-filter>
+        </activity>
         <activity android:name=".presentation.ui.setting.McpMediaActivity" android:exported="false" />
         <activity android:name=".presentation.ui.setting.KnowledgeSourceActivity" android:exported="false" />
         <activity

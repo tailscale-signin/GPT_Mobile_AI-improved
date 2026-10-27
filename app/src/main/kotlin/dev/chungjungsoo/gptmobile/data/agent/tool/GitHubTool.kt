@@ -59,7 +59,8 @@ class GitHubTool(
     private val persistentState: Boolean = true,
     private val stateStore: dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore? = null,
     private val engineeringPrepare: (suspend (String, JsonObject) -> JsonObject)? = null,
-    private val repositoryScope: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext? = null
+    private val repositoryScope: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext? = null,
+    private val credentialAdmissionFailed: Boolean = false
 ) : AgentTool {
 
     private val authenticationRejected = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.authenticationForCredential(apiToken) else java.util.concurrent.atomic.AtomicBoolean()
@@ -104,9 +105,15 @@ class GitHubTool(
         private val defaultHttpClient: HttpClient by lazy {
             HttpClient(OkHttp) {
                 install(dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsHttpPlugin)
+                followRedirects = false
+                install(io.ktor.client.plugins.HttpTimeout) {
+                    requestTimeoutMillis = 60_000
+                    connectTimeoutMillis = 15_000
+                    socketTimeoutMillis = 30_000
+                }
                 engine {
                     config {
-                        retryOnConnectionFailure(true)
+                        retryOnConnectionFailure(false)
                     }
                 }
             }
@@ -437,6 +444,8 @@ class GitHubTool(
     )
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+        if (credentialAdmissionFailed) return AgentToolResult(callId, ToolResultContent.Text("GitHub authorization could not be verified. Check the internet connection and reconnect GitHub if authorization expired. No remote request was dispatched; reconcile any previous uncertain write before retrying."), true, errorCode = "GITHUB_AUTHORIZATION_UNVERIFIED", dispatched = false)
+
         val repository = try {
             dev.chungjungsoo.gptmobile.data.github.normalizeGitHubRepository(
                 (arguments["owner"] as? JsonPrimitive)?.content,

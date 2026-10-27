@@ -538,7 +538,8 @@ class CompleteBackupManager @Inject constructor(
         val restorePreferences = restoreSettings || restoreConversations || CompleteBackupSection.TOOLS in effective.sections || CompleteBackupSection.STATISTICS in effective.sections
         if (restoreSettings || restoreConversations) manifest.conversationSettings?.let(ConversationCombinedPortable::validate)
         val restoreSecrets = effective.requiresEncryption
-        val selectedSecrets = manifest.secrets.filterKeys { secretBelongsTo(it, effective) }
+        val currentGitHubSecrets = githubCredentialReferences(database.toolConnectionDao().getAllConnections())
+        var selectedSecrets = manifest.secrets.filterKeys { secretBelongsTo(it, effective) && it !in currentGitHubSecrets }
         val restoreAttachments = CompleteBackupSection.ATTACHMENTS in effective.sections
         val restoreModels = CompleteBackupSection.LOCAL_MODELS in effective.sections
         val restoreDatabase = effective.sections.any(::isDatabaseSection) &&
@@ -601,6 +602,10 @@ class CompleteBackupManager @Inject constructor(
                 CompleteBackupDatabase.validate(source, database.openHelper.writableDatabase)
 
                 if (CompleteBackupSection.TOOLS in effective.sections) {
+                    // Older archives may contain GitHub credentials. Restoring metadata
+                    // must still require a fresh connection on this installation.
+                    val githubReferences = githubCredentialReferences(source)
+                    selectedSecrets = selectedSecrets.filterKeys { it !in githubReferences }
                     clearMissingToolSecrets(source, selectedSecrets.keys)
                 }
 
@@ -635,7 +640,7 @@ class CompleteBackupManager @Inject constructor(
                         val currentFeatures = oldPreferences[ConversationCombinedPortable.FEATURE_KEY]?.value?.let(dev.chungjungsoo.gptmobile.data.model.FeatureSettingsJson::decode)
                         check(currentFeatures?.combinedSettingsJournal?.values?.none { !it.roomSettled } != false) { "Finish or recover the conversation settings save before restoring." }
                     }
-                    val oldSecrets = if (restoreSecrets) readSecrets(effective) else emptyMap()
+                    val oldSecrets = if (restoreSecrets) readSecrets(effective, includeGitHubForRollback = true) else emptyMap()
                     val protectedMemory = if (effective.includes(CompleteBackupSection.MEMORY)) memoryStore?.read() else null
                     val oldProtection = savedProtection()
                     val restoreTransactionId = UUID.randomUUID().toString()
@@ -971,12 +976,16 @@ class CompleteBackupManager @Inject constructor(
         }
     }
 
-    private suspend fun readSecrets(selection: CompleteBackupSelection): Map<String, String> {
+    private suspend fun readSecrets(selection: CompleteBackupSelection, includeGitHubForRollback: Boolean = false): Map<String, String> {
+        val githubReferences = githubCredentialReferences(database.toolConnectionDao().getAllConnections())
         val refs = (
             secretVault.references() +
                 database.platformDao().getPlatforms().mapNotNull { it.secretRef } +
                 database.toolConnectionDao().getAllConnections().mapNotNull { it.secretRef }
-            ).filter { secretBelongsTo(it, selection) }
+            ).filter { reference ->
+            val rollbackCredential = includeGitHubForRollback && selection.includes(CompleteBackupSection.CREDENTIALS) && (reference in githubReferences || reference.startsWith("github-oauth-session-"))
+            rollbackCredential || (secretBelongsTo(reference, selection) && reference !in githubReferences)
+        }
         val portableMemory = if (selection.includes(CompleteBackupSection.MEMORY)) memoryStore?.exportPortable().orEmpty() else emptyMap()
         return buildMap {
             putAll(portableMemory)
@@ -992,7 +1001,29 @@ class CompleteBackupManager @Inject constructor(
         }
     }
 
+    private fun githubCredentialReferences(connections: List<dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection>): Set<String> =
+        connections.filter { connection ->
+            connection.type == "GITHUB" || connection.marketplaceProviderId.orEmpty().contains("github", true) || dev.chungjungsoo.gptmobile.data.model.ToolServiceCatalog.forConnection(connection).id == dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB
+        }.flatMap { connection -> listOfNotNull(connection.secretRef, "connection_${connection.connectionUid}", dev.chungjungsoo.gptmobile.data.security.EndpointSecrets.reference(connection.connectionUid)) }.toSet()
+
+    private fun githubCredentialReferences(source: SupportSQLiteDatabase): Set<String> {
+        val connections = source.query("SELECT connection_uid, name, alias, type, endpoint_url, secret_ref, marketplace_provider_id, marketplace_origin FROM tool_connections").use { rows ->
+            buildList {
+                while (rows.moveToNext()) {
+                    add(
+                        dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection(
+                            rows.getString(0), rows.getString(1), rows.getString(2), rows.getString(3), if (rows.isNull(4)) null else rows.getString(4), "NONE", if (rows.isNull(5)) null else rows.getString(5), null,
+                            marketplaceProviderId = if (rows.isNull(6)) null else rows.getString(6), marketplaceOrigin = rows.getString(7)
+                        )
+                    )
+                }
+            }
+        }
+        return githubCredentialReferences(connections)
+    }
+
     private fun secretBelongsTo(reference: String, selection: CompleteBackupSelection): Boolean = when {
+        reference.startsWith("github-") || reference.startsWith("mcp_oauth_pending_") -> false
         reference.startsWith("openrouter-management-") -> false
         reference == dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceDraftStore.KEY || reference.startsWith("share-") || reference.startsWith(RestoreStoreJournal.PREFIX) -> false
         reference.startsWith("memory-portable-") -> selection.includes(CompleteBackupSection.MEMORY)
@@ -1024,6 +1055,9 @@ class CompleteBackupManager @Inject constructor(
             }
         }
         (secretVault.references().filter { secretBelongsTo(it, selection) }.toSet() - values.keys).forEach { secretVault.delete(it) }
+        if (selection.includes(CompleteBackupSection.CREDENTIALS)) {
+            secretVault.references().filter { ((it.startsWith("github-") && !it.startsWith("github-account-binding-")) || it.startsWith("mcp_oauth_pending_")) && it !in values }.forEach { secretVault.delete(it) }
+        }
     }
 
     private suspend fun requireExistingBackupKey(): ByteArray {

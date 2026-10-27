@@ -167,6 +167,16 @@ extensions.configure<ApplicationExtension> {
         val githubClientId = providers.gradleProperty("GITHUB_OAUTH_CLIENT_ID").orElse(providers.environmentVariable("GITHUB_OAUTH_CLIENT_ID")).getOrElse("")
         require(githubClientId.all { it.isLetterOrDigit() || it in "-_." }) { "Invalid GitHub OAuth client ID" }
         buildConfigField("String", "GITHUB_OAUTH_CLIENT_ID", "\"$githubClientId\"")
+        val githubBroker = providers.gradleProperty("GITHUB_AUTH_BROKER_ORIGIN").orElse(providers.environmentVariable("GITHUB_AUTH_BROKER_ORIGIN")).getOrElse("").trimEnd('/')
+        val githubBrokerUri = githubBroker.takeIf(String::isNotEmpty)?.let(::URI)
+        require(githubBrokerUri == null || (githubBrokerUri.scheme == "https" && githubBrokerUri.host != null && githubBrokerUri.userInfo == null && githubBrokerUri.port in setOf(-1, 443) && githubBrokerUri.path.isNullOrEmpty() && githubBrokerUri.query == null && githubBrokerUri.fragment == null && githubClientId.isNotEmpty())) { "GitHub public sign-in requires the registered client ID and a fixed HTTPS broker origin." }
+        val githubCallbackHost = providers.gradleProperty("GITHUB_AUTH_CALLBACK_HOST").orElse(providers.environmentVariable("GITHUB_AUTH_CALLBACK_HOST")).getOrElse(githubBrokerUri?.host ?: "github-auth.invalid")
+        require(githubCallbackHost.length <= 253 && githubCallbackHost.split('.').all { it.matches(Regex("[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")) }) { "Invalid GitHub verified callback host." }
+        require(githubBrokerUri == null || !githubCallbackHost.endsWith(".invalid")) { "Configure a project-owned verified HTTPS callback host before enabling public sign-in." }
+        buildConfigField("String", "GITHUB_AUTH_BROKER_ORIGIN", "\"$githubBroker\"")
+        buildConfigField("String", "GITHUB_AUTH_CALLBACK_URI", "\"https://$githubCallbackHost/oauth/github/callback\"")
+        manifestPlaceholders["githubAuthCallbackHost"] = githubCallbackHost
+        manifestPlaceholders["githubPublicAuthEnabled"] = githubBroker.isNotBlank().toString()
         // App owner confirmed LLM7 integration approval on 2026-09-26.
         // A build can explicitly disable the integration if approval changes.
         buildConfigField("boolean", "FREE_LLM7_APPROVED", providers.gradleProperty("freeLlm7Approved").map { (it == "true").toString() }.getOrElse("true"))

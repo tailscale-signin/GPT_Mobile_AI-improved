@@ -67,6 +67,7 @@ class GitHubWorkspaceClient(
             HttpClient(OkHttp) {
                 install(dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsHttpPlugin)
                 followRedirects = false
+                engine { config { retryOnConnectionFailure(false) } }
                 install(HttpTimeout) {
                     requestTimeoutMillis = 60_000
                     connectTimeoutMillis = 15_000

@@ -147,7 +147,11 @@ class MainActivity : dev.chungjungsoo.gptmobile.presentation.ui.main.ProtectedAc
 
         val uri = Uri.parse(authorizationUri)
         try {
-            AuthTabIntent.Builder().build().launch(authTabLauncher, uri, MCP_OAUTH_SCHEME)
+            if (dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthConfiguration.project().acceptsAuthorizationLaunch(authorizationUri)) {
+                CustomTabsIntent.Builder().build().launchUrl(this, uri)
+            } else {
+                AuthTabIntent.Builder().build().launch(authTabLauncher, uri, MCP_OAUTH_SCHEME)
+            }
         } catch (_: ActivityNotFoundException) {
             try {
                 CustomTabsIntent.Builder().build().launchUrl(this, uri)
@@ -164,7 +168,7 @@ class MainActivity : dev.chungjungsoo.gptmobile.presentation.ui.main.ProtectedAc
     }
 
     private fun dispatchOAuthIntent(intent: Intent?) = intent?.data?.toString()
-        ?.takeIf(::isMcpOAuthCallbackUri)
+        ?.takeIf { isMcpOAuthCallbackUri(it) || dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthConfiguration.project().acceptsCallback(it) }
         ?.let(::dispatchOAuthCallback)
 
     private fun NavHostController.checkForExistingSettings() {

@@ -69,6 +69,30 @@ class ToolConnectionRepositoryTest {
         assertEquals("old-secret", vault.values.getValue("connection_alpha").decodeToString())
     }
 
+    @Test fun githubDisconnectRemovesTokensAndKeepsItsAccountBindingUntilConnectionRemoval() = runBlocking {
+        val events = mutableListOf<String>()
+        val dao = FakeToolConnectionDao(events = events)
+        val vault = ConnectionFakeSecretVault(events = events)
+        val repository = ToolConnectionRepository(dao, vault)
+        val connection = testConnection("github").copy(type = "GITHUB", authType = "OAUTH")
+        repository.upsertConnection(connection, credential = "ghu_access".encodeToByteArray())
+        val session = dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator.sessionReference("github")
+        val binding = dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator.bindingReference("github")
+        vault.values[session] = "ghr_refresh".encodeToByteArray()
+        vault.values[binding] = "public-account-id".encodeToByteArray()
+        events.clear()
+        repository.upsertConnection(connection, clearCredential = true)
+        assertEquals("dao.upsert:github:null", events.first())
+        assertNull(vault.values["connection_github"])
+        assertNull(vault.values[session])
+        assertEquals("public-account-id", vault.values[binding]!!.decodeToString())
+        events.clear()
+        repository.deleteConnection("github")
+        assertEquals("dao.delete:github", events.first())
+        assertNull(vault.values[binding])
+        assertNull(dao.connections["github"])
+    }
+
     @Test
     fun `explicit credential clear updates database before deleting the vault record`() = runBlocking {
         val events = mutableListOf<String>()

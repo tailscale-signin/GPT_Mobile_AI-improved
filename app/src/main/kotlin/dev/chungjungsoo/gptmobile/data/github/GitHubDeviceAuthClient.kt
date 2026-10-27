@@ -21,7 +21,8 @@ import kotlinx.serialization.json.longOrNull
 internal class GitHubDeviceAuthClient(
     private val client: HttpClient,
     private val elapsedMillis: () -> Long = { System.nanoTime() / 1_000_000 },
-    private val pause: suspend (Long) -> Unit = { delay(it) }
+    private val pause: suspend (Long) -> Unit = { delay(it) },
+    private val wallMillis: () -> Long = System::currentTimeMillis
 ) {
     class Authorization internal constructor(
         internal val clientId: String,
@@ -49,11 +50,14 @@ internal class GitHubDeviceAuthClient(
     }
 
     /** Polling waits before every attempt and slows down cumulatively. Cancellation never saves a token. */
-    suspend fun awaitToken(authorization: Authorization): String {
+    suspend fun awaitToken(authorization: Authorization): String = awaitCredential(authorization).accessToken
+
+    suspend fun awaitCredential(authorization: Authorization): GitHubOAuthCredential {
         var interval = authorization.intervalMillis
         while (elapsedMillis() < authorization.expiresAt) {
             pause(minOf(interval, (authorization.expiresAt - elapsedMillis()).coerceAtLeast(0)))
             check(elapsedMillis() < authorization.expiresAt) { "GitHub sign-in expired. Start sign-in again." }
+            val started = wallMillis()
             val response = post(
                 TOKEN_ENDPOINT,
                 Parameters.build {
@@ -71,8 +75,7 @@ internal class GitHubDeviceAuthClient(
                 }
                 "" -> {
                     check(response.text("token_type").equals("bearer", true)) { "GitHub returned an unsupported token type." }
-                    return response.text("access_token").takeIf { it.length in 1..4096 && it.all { character -> character.code in 33..126 } }
-                        ?: error("GitHub did not return a usable access token.")
+                    return decodeGitHubOAuthCredential(response, started)
                 }
                 else -> checkError(response)
             }

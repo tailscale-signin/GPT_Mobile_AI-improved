@@ -68,7 +68,8 @@ constructor(
     @ApplicationContext private val context: Context,
     private val connections: ToolConnectionRepository,
     private val vault: SecretVault,
-    private val downloadManager: GitHubApkDownloadManager
+    private val downloadManager: GitHubApkDownloadManager,
+    private val gitHubPublicAuth: dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator? = null
 ) : ViewModel() {
     private val mutableState = MutableStateFlow(GitHubBuildsState())
     val state = mutableState.asStateFlow()
@@ -135,6 +136,7 @@ constructor(
                     val result = withContext(Dispatchers.IO) {
                         val connection = requireNotNull(connections.getConnection(destination.connectionUid)) { context.getString(R.string.github_builds_connection_missing) }
                         require(connection.type == ToolConnectionType.GITHUB) { context.getString(R.string.github_builds_connection_missing) }
+                        if (connection.secretRef != null) gitHubPublicAuth?.accessToken(connection)
                         val bytes = connection.secretRef?.let { vault.read(it) }
                         val token = try {
                             bytes?.decodeToString()?.trim().orEmpty()

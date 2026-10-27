@@ -62,7 +62,7 @@ data class GitHubFileProposal(val path: String, val before: String, val after: S
 data class GitHubReview(val connectionUid: String, val owner: String, val repo: String, val branch: String, val head: String, val checks: JsonObject = JsonObject(emptyMap()), val files: List<GitHubFileProposal> = emptyList(), val pullNumber: Int? = null, val changedFiles: JsonObject = JsonObject(emptyMap()), val reviewNotes: String = "", val inspectedAt: Long = System.currentTimeMillis(), val stale: Boolean = false)
 
 @HiltViewModel
-class GitHubReviewViewModel @Inject constructor(private val connections: ToolConnectionRepository, private val vault: SecretVault, private val workspace: WorkspaceRepository, private val engineering: dev.chungjungsoo.gptmobile.data.agent.tool.GitHubEngineeringController) : ViewModel() {
+class GitHubReviewViewModel @Inject constructor(private val connections: ToolConnectionRepository, private val vault: SecretVault, private val workspace: WorkspaceRepository, private val engineering: dev.chungjungsoo.gptmobile.data.agent.tool.GitHubEngineeringController, private val gitHubPublicAuth: dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator? = null) : ViewModel() {
     val accounts = MutableStateFlow<List<ToolConnection>>(emptyList())
     val record = MutableStateFlow<WorkspaceRecord?>(null)
     val review = MutableStateFlow<GitHubReview?>(null)
@@ -104,6 +104,7 @@ class GitHubReviewViewModel @Inject constructor(private val connections: ToolCon
     }
     private suspend fun client(uid: String): GitHubWorkspaceClient {
         val connection = requireNotNull(connections.getConnection(uid)) { "Select a GitHub connection." }
+        gitHubPublicAuth?.let { return GitHubWorkspaceClient(it.accessToken(connection), freshnessSeconds = 0) }
         val bytes = connection.secretRef?.let { vault.read(it) }
         val token = try {
             bytes?.decodeToString().orEmpty()

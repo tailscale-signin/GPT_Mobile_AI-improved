@@ -1452,9 +1452,13 @@ class GitHubWorkspaceClient(
                 error(
                     "GitHub HTTP ${response.status.value}" +
                         (if (details.isBlank()) ". " else " · $details. ") +
-                        (if (response.status.value == 403 && path.contains("/actions/") && response.headers["X-RateLimit-Remaining"] != "0") {
-                            "Actions endpoint denied access. Check the GitHub App installation repository access and Actions: write permission, or the token workflow scope; also verify organization SSO and repository rules. Repository can_push alone does not grant Actions API access. "
-                        } else "") +
+                        (
+                            if (response.status.value == 403 && path.contains("/actions/") && response.headers["X-RateLimit-Remaining"] != "0") {
+                                "Actions endpoint denied access. Check the GitHub App installation repository access and Actions: write permission, or the token workflow scope; also verify organization SSO and repository rules. Repository can_push alone does not grant Actions API access. "
+                            } else {
+                                ""
+                            }
+                            ) +
                         requestHint(
                             response.status.value,
                             response.headers["Retry-After"],
@@ -1485,10 +1489,11 @@ class GitHubWorkspaceClient(
             "GitHub rate limiting blocked this request. Retry after: ${retryAfter ?: reset ?: "not supplied"}."
         status == 403 && githubMessage?.contains("saml", ignoreCase = true) == true ->
             "Organization SSO authorization is required for this credential. Authorize the GitHub App or token with the organization before retrying."
-        status == 403 && (
-            githubMessage?.contains("workflow", ignoreCase = true) == true ||
-                githubMessage?.contains("actions", ignoreCase = true) == true
-        ) ->
+        status == 403 &&
+            (
+                githubMessage?.contains("workflow", ignoreCase = true) == true ||
+                    githubMessage?.contains("actions", ignoreCase = true) == true
+                ) ->
             "This operation needs GitHub Actions or workflow write permission. Update the GitHub App installation permissions or token scope; repository push permission is insufficient."
         status == 403 && githubMessage?.contains("resource not accessible", ignoreCase = true) == true ->
             "The credential or GitHub App installation cannot perform this API operation. Check the plugin's repository access and required write permission."

@@ -509,6 +509,7 @@ class GitHubWorkspaceClientTest {
             http.close()
         }
     }
+
     @Test
     fun actionsPermissionDeniedExplainsRequiredPermissionWithoutClaimingRateLimit() = runTest {
         val http = HttpClient(
@@ -588,5 +589,4 @@ class GitHubWorkspaceClientTest {
             http.close()
         }
     }
-
 }

@@ -440,7 +440,7 @@ class LocalInferenceService : Service() {
         if (activeCommandRequest != requestId) return
         // Signal the native abort flag immediately; cancelling a coroutine cannot
         // interrupt a blocking JNI call. Only target the command holding the lease.
-        if (activeCommandRequest == requestId) runCatching { runtime.cancelActive() }
+        runCatching { runtime.cancelActive() }
         job.cancel()
         scope.launch {
             delay(10_000)

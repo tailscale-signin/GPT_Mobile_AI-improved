@@ -1452,6 +1452,9 @@ class GitHubWorkspaceClient(
                 error(
                     "GitHub HTTP ${response.status.value}" +
                         (if (details.isBlank()) ". " else " · $details. ") +
+                        (if (response.status.value == 403 && path.contains("/actions/") && response.headers["X-RateLimit-Remaining"] != "0") {
+                            "Actions endpoint denied access. Check the GitHub App installation repository access and Actions: write permission, or the token workflow scope; also verify organization SSO and repository rules. Repository can_push alone does not grant Actions API access. "
+                        } else "") +
                         requestHint(
                             response.status.value,
                             response.headers["Retry-After"],

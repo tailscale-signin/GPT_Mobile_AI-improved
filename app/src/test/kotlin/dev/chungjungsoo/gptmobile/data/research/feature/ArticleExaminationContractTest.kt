@@ -7,8 +7,8 @@ import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import dev.chungjungsoo.gptmobile.data.model.DeepResearchSettings
-import dev.chungjungsoo.gptmobile.data.model.MultiSearchResearchSelection
 import dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings
+import dev.chungjungsoo.gptmobile.data.model.MultiSearchResearchSelection
 import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json

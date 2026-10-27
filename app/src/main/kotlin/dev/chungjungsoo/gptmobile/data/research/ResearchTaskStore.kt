@@ -121,10 +121,19 @@ internal class ResearchTaskStore(private val directory: File) {
         val path = File(directory, checkpointId)
         val body = readFile(path) ?: return@task null
         val value = runCatching { json.parseToJsonElement(body) as? kotlinx.serialization.json.JsonObject }.getOrNull() ?: return@task null
-        if (value.number("schemaVersion") != 1 || value.number("chatId") != chatId || value.text("turnId") != root ||
-            value.text("authority") != authority || value.text("stage") != stage || value.text("profileUid") != profileUid ||
-            value["accepted"] != kotlinx.serialization.json.JsonPrimitive(false) || value.text("text").isBlank()
-        ) return@task null
+        val matchesScope = listOf(
+            value.number("schemaVersion") == 1,
+            value.number("chatId") == chatId,
+            value.text("turnId") == root,
+            value.text("authority") == authority,
+            value.text("stage") == stage,
+            value.text("profileUid") == profileUid,
+            value["accepted"] == kotlinx.serialization.json.JsonPrimitive(false),
+            value.text("text").isNotBlank()
+        ).all { it }
+        if (!matchesScope) {
+            return@task null
+        }
         value.text("text")
     }
     suspend fun retainDelivery(root: String, runId: String, authority: String, generation: Long, receipt: dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryReceipt, persistent: Boolean) = task(root) { retainDeliveryUnlocked(root, runId, authority, generation, receipt, persistent) }

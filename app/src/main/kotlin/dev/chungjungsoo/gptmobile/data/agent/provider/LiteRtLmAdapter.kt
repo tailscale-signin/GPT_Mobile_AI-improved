@@ -133,7 +133,17 @@ class LiteRtLmAdapter(
                 val installedRecord = selection.record
                 val modelPath = selection.path
                 try {
-                    localRuntime.preflightModel(modelPath, platform.accelerator)
+                    requestExclusiveFlow(
+                        onContended = {
+                            send(ProviderEvent.PhaseChanged(dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase.QUEUED))
+                            send(ProviderEvent.Notice(waitingForEngineNotice))
+                        }
+                    ) {
+                        flow {
+                            preflightModel(modelPath, platform.accelerator)
+                            emit(Unit)
+                        }
+                    }.single()
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (blocked: Exception) {

@@ -49,7 +49,7 @@ internal object ResearchDeliveryValidator {
         if (text.isBlank()) issues += "EMPTY_REPORT"
         if (allIds.any { it !in known }) issues += "UNKNOWN_CITATION"
         if (!packet.snapshot.complete && !Regex("(?i)partial|incomplete|coverage.*limited|limited.*coverage").containsMatchIn(text.take(1200))) issues += "PARTIAL_COVERAGE_NOT_DISCLOSED"
-        if (!Regex("(?im)^Review status:\\s*(reviewed|partially reviewed|unreviewed)\\b").containsMatchIn(text)) issues += "REVIEW_STATUS_NOT_DISCLOSED"
+        if (!ResearchReportReviewStatus.hasDisclosure(text)) issues += "REVIEW_STATUS_NOT_DISCLOSED"
         if (packet.detail != ResearchReportDetail.BRIEF) {
             packet.sections.filterNot { text.contains(it, ignoreCase = true) }.forEach { issues += "MISSING_SECTION:$it" }
         }
@@ -116,7 +116,7 @@ internal object ResearchDeliveryValidator {
         val uncoveredClaims = eligibleClaims - coveredClaims.toSet()
         uncoveredClaims.take(20).forEach { claim ->
             issues += "EVIDENCE_CLAIM_NOT_COVERED:${dev.chungjungsoo.gptmobile.data.research.researchHash(claim.sourceId + claim.text + claim.quote).take(16)}"
-            if (repairHints.size < 12) repairHints += "Include the source-bound ${claim.verdict.lowercase()} claim from [${claim.sourceId}] or explicitly identify it as a research gap: ${claim.text.take(320)}"
+            if (repairHints.isEmpty()) repairHints += "Include the source-bound ${claim.verdict.lowercase()} claim from [${claim.sourceId}] or explicitly identify it as a research gap: ${claim.text.take(320)}"
         }
         if (packet.claims.any { it.verdict == "Contradicted" } && !Regex("(?i)contradict|disagree|mixed|negative|uncertain|no (?:significant|benefit|effect)|not support").containsMatchIn(body)) issues += "COUNTEREVIDENCE_NOT_DISCLOSED"
         val semanticCoverageVerified = eligibleClaims.isNotEmpty() &&

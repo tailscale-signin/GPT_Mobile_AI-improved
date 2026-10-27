@@ -37,7 +37,7 @@ data class CombinedAnswerPolicy(
             val qualifier = goal?.groupValues?.get(1)?.lowercase().orEmpty()
             val minimum = qualifier.startsWith("at least") || qualifier.startsWith("minimum") || qualifier in setOf("more than", "over")
             val strict = qualifier in setOf("under", "fewer than", "less than")
-            val single = Regex("(?i)\\b(?:one|single|a random|random|an interesting random|a)\\s+(?:historical\\s+|history\\s+)?(?:fact|example|event|story|joke)\\b").containsMatchIn(request)
+            val single = Regex("(?i)\\b(?:one|single|a random|random|an interesting random|a)\\s+(?:(?:random|[\\p{L}-]+)\\s+){0,3}(?:fact|example|event|story|joke)\\b").containsMatchIn(request)
             val pricing = Regex("(?i)\\b(?:prices?|pricing|costs?)\\b").containsMatchIn(request)
             val current = pricing || Regex("(?i)\\b(?:newest|latest|breaking|current|today'?s?)\\b.*\\b(?:news|story|stories|headlines?|events?)\\b|\\b(?:news|story|stories|headlines?)\\b.*\\b(?:newest|latest|current|today)\\b").containsMatchIn(request)
             val itemToken = itemCount.findAll(request).lastOrNull()?.groupValues?.get(1)?.lowercase()

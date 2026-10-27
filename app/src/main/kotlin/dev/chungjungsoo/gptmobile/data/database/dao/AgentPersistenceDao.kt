@@ -562,7 +562,7 @@ interface AgentPersistenceDao :
             status = "FALLBACK_SOURCE_COMPILATION", deliveredScopeStatus = "PARTIAL", correctionRequired = true,
             issues = listOf("WRITER_ADMISSION_FAILED_LOCAL_COMPILATION", "NO_FINAL_OUTPUT_FROM_WRITER"),
             wordCount = dev.chungjungsoo.gptmobile.data.agent.visibleWordCount(text), displayedCharacters = text.length,
-            passages = account.passages, sourceDispositions = account.dispositions, claimMapping = mapping,
+            passages = emptyList(), sourceDispositions = account.dispositions, claimMapping = mapping,
             consideredProfileUids = owners, includedProfileUids = owners, representedProfileUids = mapping.links.flatMapTo(linkedSetOf()) { it.profileUids },
             revisionId = snapshot.liveRevisionId(runId), finalAssessment = true, assessmentStage = "FINAL_DISPLAY", displayableDraft = true,
             fullyLinkedClaims = mapping.claims.count { it.fullyLinked }, partialSourceLinks = mapping.claims.count { it.status == "PARTIAL" },

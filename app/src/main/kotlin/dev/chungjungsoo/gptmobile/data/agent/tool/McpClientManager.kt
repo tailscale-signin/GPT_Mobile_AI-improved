@@ -143,7 +143,7 @@ class McpClientManager internal constructor(
         if (validatedKey != null && configurationFailures[uid] == validatedKey) return null
         val identity = catalogueIdentities[uid]?.takeIf {
             it.first == dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.epoch &&
-                (validatedKey == null || it.second.substringBeforeLast('|') == validatedKey.substringBeforeLast('|'))
+                (validatedKey == null || it.second.substringBefore('|') == validatedKey.substringBefore('|'))
         }
         val networkEpoch = dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.networkEpoch
         val current = identity?.takeIf { it.second.endsWith("|$networkEpoch:${it.first}") }?.let { catalogue.peek(it.second) }

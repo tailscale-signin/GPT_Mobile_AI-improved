@@ -220,10 +220,13 @@ internal object CombinedFinalCheck {
         val unresolvedContributions = inventory.flatMap { claim ->
             claim.candidateIds.filter { candidateId ->
                 if (singleExampleCovered && matches[claim.id].orEmpty().isEmpty() && corrections[claim.id].orEmpty().isEmpty()) return@filter false
+                // A malformed model declaration cannot invalidate an independently established text link.
+                if (matches[claim.id].orEmpty().isNotEmpty() || corrections[claim.id].orEmpty().isNotEmpty()) return@filter false
                 val decision = coverageDecisions[candidateId] ?: return@filter true
                 when (decision.disposition) {
                     "INCLUDED", "MERGED", "QUALIFIED", "DISPUTED", "CORRECTED" ->
                         decision.finalSpans.isEmpty() || decision.semanticStatus == "UNESTABLISHED"
+                    "OMITTED_SCOPE" -> !(singleExampleCovered && decision.reason.isNotBlank())
                     "OMITTED_DUPLICATE" -> {
                         val hasEquivalentClaim = completeInventory.any { other ->
                             other.id != claim.id &&

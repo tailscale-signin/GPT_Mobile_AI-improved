@@ -56,6 +56,7 @@ class GitHubWorkspaceClient(
     stateStore: GitHubRepositoryStateStore? = null,
     private val scheduler: GitHubRequestScheduler = GitHubSessionCaches.schedulerForCredential(token),
     private val requestPriority: Int = 0,
+    private val authenticationRejected: java.util.concurrent.atomic.AtomicBoolean = if (client === sharedClient) GitHubSessionCaches.authenticationForCredential(token) else java.util.concurrent.atomic.AtomicBoolean(),
     private val engineeringPrepare: (suspend (String, JsonObject) -> JsonObject)? = null
 ) {
     companion object {
@@ -1348,6 +1349,7 @@ class GitHubWorkspaceClient(
 
     private suspend fun graphQl(query: String, variables: JsonObject): JsonObject {
         require(token.isNotBlank()) { "A GitHub credential is required for GraphQL." }
+        check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
         return scheduler.execute(priority = requestPriority) {
             rateLimits.requireAvailable("graphql")
             scheduler.recordRequest()
@@ -1367,6 +1369,10 @@ class GitHubWorkspaceClient(
             }
             rateLimits.record(response.headers, response.status.value)
             val text = response.bodyAsText()
+            if (response.status.value == 401) {
+                authenticationRejected.set(true)
+                responseCache.clear()
+            }
             if (!response.status.isSuccess()) {
                 val githubMessage = runCatching {
                     json.parseToJsonElement(text).jsonObject["message"]?.jsonPrimitive?.content
@@ -1388,9 +1394,6 @@ class GitHubWorkspaceClient(
         }
     }
 
-    @Volatile
-    private var authenticationRejected = false
-
     private suspend fun request(
         path: String,
         method: HttpMethod = HttpMethod.Get,
@@ -1398,7 +1401,7 @@ class GitHubWorkspaceClient(
         authenticated: Boolean = false
     ): JsonElement {
         if (authenticated || method != HttpMethod.Get) require(token.isNotBlank()) { "A GitHub credential is required." }
-        check(!authenticationRejected) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
+        check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
         val cacheKey = "${method.value}:$path"
         val cacheable = conditionalReads && method == HttpMethod.Get && path != "/rate_limit"
         val cached = if (cacheable) responseCache.get(cacheKey) else null
@@ -1435,7 +1438,7 @@ class GitHubWorkspaceClient(
             scheduler.recordBytes(text.encodeToByteArray().size.toLong())
             if (!response.status.isSuccess()) {
                 if (response.status.value in setOf(401, 403)) responseCache.clear()
-                if (response.status.value == 401) authenticationRejected = true
+                if (response.status.value == 401) authenticationRejected.set(true)
                 val githubMessage = runCatching {
                     json.parseToJsonElement(text).jsonObject["message"]?.jsonPrimitive?.content
                 }.getOrNull()?.takeIf { it.isNotBlank() }

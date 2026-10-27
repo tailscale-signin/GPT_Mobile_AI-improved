@@ -61,13 +61,14 @@ class GitHubTool(
     private val engineeringPrepare: (suspend (String, JsonObject) -> JsonObject)? = null
 ) : AgentTool {
 
+    private val authenticationRejected = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.authenticationForCredential(apiToken) else java.util.concurrent.atomic.AtomicBoolean()
     private val rateLimits = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.rateLimitsForCredential(apiToken) else dev.chungjungsoo.gptmobile.data.github.GitHubRateLimitManager()
     internal val hasCredential get() = apiToken.isNotBlank()
     internal val hasRepositoryContext get() = repositoryContext != null
     private val scheduler = dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.schedulerForCredential(apiToken)
     private val workspaceClient by lazy {
         GitHubWorkspaceClient(
-            apiToken, httpClient, rateLimits = rateLimits,
+            apiToken, httpClient, rateLimits = rateLimits, authenticationRejected = authenticationRejected,
             responseCache = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.forCredential(apiToken) else dev.chungjungsoo.gptmobile.data.github.GitHubResponseCache(),
             conditionalReads = featureSettings.githubConditionalReads, blobCache = featureSettings.githubBlobCache,
             freshnessSeconds = featureSettings.pluginExecution[dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB]?.githubCacheSeconds ?: 15,
@@ -1112,6 +1113,13 @@ class GitHubTool(
             }
         }
         return when {
+            response.status.value == 429 ||
+                response.status.value == 403 &&
+                (response.headers["X-RateLimit-Remaining"] == "0" || githubMessage?.contains("secondary rate", ignoreCase = true) == true) ->
+                errorResult(callId, "GITHUB_RATE_LIMITED · $detail. Wait for the rate-limit reset before retrying; repository write permission has not been revoked.")
+            response.status.value == 403 &&
+                (response.headers["X-GitHub-SSO"] != null || githubMessage?.contains("SAML", ignoreCase = true) == true) ->
+                errorResult(callId, "GITHUB_SSO_REQUIRED · $detail. Authorize this GitHub App or token with the organization before retrying.")
             action in MUTATING_ACTIONS && response.status.value == 403 ->
                 errorResult(callId, writeDeniedMessage(action, arguments, detail))
             response.status.value == 404 ->
@@ -1182,7 +1190,7 @@ class GitHubTool(
     }
 
     private fun requiredGitHubPermission(action: String): String = when (action) {
-        "create_pull_request" -> "Pull requests: write"
+        "create_pull_request", "update_pull_request", "mark_ready_for_review", "submit_pull_request_review", "create_pull_request_review", "reply_pull_request_comment" -> "Pull requests: write"
         "dispatch_workflow", "rerun_workflow", "rerun_failed_jobs", "cancel_workflow" -> "Actions: write"
         else -> "Contents: write"
     }
@@ -1196,6 +1204,7 @@ class GitHubTool(
     }
 
     private suspend fun writeGitHubApi(url: String, method: HttpMethod, body: JsonObject): HttpResponse = scheduler.execute(null) {
+        check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
         rateLimits.requireAvailable("core")
         scheduler.recordRequest()
         httpClient.request(url) {
@@ -1206,10 +1215,14 @@ class GitHubTool(
             header("X-GitHub-Api-Version", GitHubWorkspaceClient.API_VERSION)
             header(HttpHeaders.Authorization, "Bearer $apiToken")
             setBody(body.toString())
-        }.also { rateLimits.record(it.headers) }
+        }.also {
+            rateLimits.record(it.headers, it.status.value)
+            if (it.status.value == 401) authenticationRejected.set(true)
+        }
     }
 
     private suspend fun getGitHubApi(url: String): HttpResponse = scheduler.execute(null) {
+        check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
         rateLimits.requireAvailable(if (url.contains("/search/")) "search" else "core")
         scheduler.recordRequest()
         httpClient.get(url) {
@@ -1217,7 +1230,10 @@ class GitHubTool(
             header(HttpHeaders.UserAgent, "GPT-Mobile-App")
             header("X-GitHub-Api-Version", GitHubWorkspaceClient.API_VERSION)
             if (apiToken.isNotBlank()) header(HttpHeaders.Authorization, "Bearer $apiToken")
-        }.also { rateLimits.record(it.headers) }
+        }.also {
+            rateLimits.record(it.headers, it.status.value)
+            if (it.status.value == 401) authenticationRejected.set(true)
+        }
     }
 
     private fun truncate(text: String, maxLength: Int): String = if (text.length <= maxLength) text else text.take(maxLength) + "\n...[truncated]"

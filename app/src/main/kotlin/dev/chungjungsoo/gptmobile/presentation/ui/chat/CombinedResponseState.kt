@@ -108,7 +108,7 @@ internal fun combinedResponseProfiles(
         } == true
         // Keep every selected profile in the tab/swipe sequence, even before its first
         // response exists. This prevents the pager from appearing to stop at empty slots.
-        if (source == null && !hasResponse && uid !in participatingUids) return@mapIndexedNotNull null
+        if (source == null && !hasResponse && !preparing) return@mapIndexedNotNull null
         val projection = cache?.projection(uid, original, source, preparing, runsById)
             ?: combinedResponseProjection(original, source, preparing, runsById)
         CombinedResponseProfile(

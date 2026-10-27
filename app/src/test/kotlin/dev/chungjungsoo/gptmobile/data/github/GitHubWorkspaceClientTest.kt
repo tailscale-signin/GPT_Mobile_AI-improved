@@ -589,4 +589,35 @@ class GitHubWorkspaceClientTest {
             http.close()
         }
     }
+
+    @Test
+    fun rejectedCredentialStateIsSharedAcrossClientsAndReplacementCredentialCanRecover() = runTest {
+        var requests = 0
+        val rejected = java.util.concurrent.atomic.AtomicBoolean()
+        val http = HttpClient(
+            MockEngine {
+                requests++
+                if (requests == 1) {
+                    respond("""{"message":"Bad credentials"}""", HttpStatusCode.Unauthorized)
+                } else {
+                    respond("""{"name":"repo"}""", HttpStatusCode.OK)
+                }
+            }
+        )
+        try {
+            val args = buildJsonObject {
+                put("owner", "owner")
+                put("repo", "repo")
+            }
+            val first = GitHubWorkspaceClient("expired", http, authenticationRejected = rejected)
+            val sibling = GitHubWorkspaceClient("expired", http, authenticationRejected = rejected)
+            assertTrue(runCatching { first.execute("get_repository", args) }.isFailure)
+            assertTrue(runCatching { sibling.execute("get_repository", args) }.exceptionOrNull()!!.message.orEmpty().contains("Reconnect"))
+            assertEquals(1, requests)
+            GitHubWorkspaceClient("replacement", http).execute("get_repository", args)
+            assertEquals(2, requests)
+        } finally {
+            http.close()
+        }
+    }
 }

@@ -271,6 +271,9 @@ internal class GitHubOperationTool(
                     put("type", "object")
                     put("properties", JsonObject(properties))
                     put("additionalProperties", false)
+                    if (operation == "github_write") {
+                        put("required", JsonArray(listOf("branch", "expected_head_sha", "message", "files").map(::JsonPrimitive)))
+                    }
                 }
             )
         }

@@ -29,23 +29,23 @@ class GitHubWorkspaceClientTest {
         var requests = 0
         val http = HttpClient(
             MockEngine { request ->
-            requests++
-            val body = when (requests) {
-                1 -> {
-                    assertEquals("/repos/owner/repo/pulls/7", request.url.encodedPath)
-                    """{"state":"open","head":{"sha":"$sha"}}"""
+                requests++
+                val body = when (requests) {
+                    1 -> {
+                        assertEquals("/repos/owner/repo/pulls/7", request.url.encodedPath)
+                        """{"state":"open","head":{"sha":"$sha"}}"""
+                    }
+                    2 -> {
+                        assertEquals("/repos/owner/repo/pulls/comments/9", request.url.encodedPath)
+                        """{"pull_request_url":"https://api.github.com/repos/owner/repo/pulls/7"}"""
+                    }
+                    3 -> {
+                        assertEquals(HttpMethod.Post, request.method)
+                        assertEquals("/repos/owner/repo/pulls/7/comments/9/replies", request.url.encodedPath)
+                        """{"id":10}"""
+                    }
+                    else -> error("Unexpected request")
                 }
-                2 -> {
-                    assertEquals("/repos/owner/repo/pulls/comments/9", request.url.encodedPath)
-                    """{"pull_request_url":"https://api.github.com/repos/owner/repo/pulls/7"}"""
-                }
-                3 -> {
-                    assertEquals(HttpMethod.Post, request.method)
-                    assertEquals("/repos/owner/repo/pulls/7/comments/9/replies", request.url.encodedPath)
-                    """{"id":10}"""
-                }
-                else -> error("Unexpected request")
-            }
                 respond(body)
             }
         )
@@ -53,11 +53,11 @@ class GitHubWorkspaceClientTest {
             GitHubWorkspaceClient("token", http).execute(
                 "reply_pull_request_comment",
                 buildJsonObject {
-                put("owner", "owner")
-                put("repo", "repo")
-                put("pull_number", 7)
-                put("comment_id", 9)
-                put("expected_head_sha", sha)
+                    put("owner", "owner")
+                    put("repo", "repo")
+                    put("pull_number", 7)
+                    put("comment_id", 9)
+                    put("expected_head_sha", sha)
                     put("body", "Addressed in the current revision.")
                 }
             )

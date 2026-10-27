@@ -109,6 +109,22 @@ internal fun examinationAdmission(features: AppFeatureSettings, profile: Platfor
     }
 }
 
+/** Selected gateways must expose both source-read operations before an Examine job is queued. */
+internal fun examinationGatewayReadinessBlocker(
+    selection: MultiSearchResearchSelection,
+    tools: List<dev.chungjungsoo.gptmobile.data.agent.tool.ResolvedAgentTool>
+): String? {
+    val gatewayUid = selection.gatewayConnectionUid ?: return null
+    val required = listOf("get_paper", "read_paper")
+    val missing = required.filter { operation ->
+        val resolved = tools.singleOrNull { it.modelToolName == "deep_research_$operation" }
+        resolved == null || (!selection.allowNativeFallback && resolved.connectionUid != gatewayUid)
+    }
+    if (missing.isEmpty()) return null
+    val operations = missing.joinToString(", ") { "deep_research_$it" }
+    return "RESEARCH_TOOL_NOT_READY: The selected academic gateway is missing approved reader tools ($operations). Reconnect it and approve both tools, or explicitly allow native fallback. No examination job was queued."
+}
+
 data class ExaminationAdmissionResult(val jobId: String? = null, val blocker: String? = null, val message: String? = null)
 
 /** Application-owned jobs; UI disposal never owns the model/read coroutine. */
@@ -165,6 +181,7 @@ class ArticleExaminationCoordinator @Inject constructor(
         val message = failure.message.orEmpty()
         val blocker = when {
             message.contains("EXAMINER_OUTPUT_CAPACITY") -> "EXAMINER_OUTPUT_CAPACITY"
+            message.contains("RESEARCH_TOOL_NOT_READY") -> "RESEARCH_TOOL_NOT_READY"
             message.contains("Choose an enabled examination") -> "EXAMINER_NOT_CONFIGURED"
             message.contains("consent") -> "PAPER_PERMISSION_REQUIRED"
             message.contains("disabled") -> "PROFILE_DISABLED"
@@ -201,9 +218,21 @@ class ArticleExaminationCoordinator @Inject constructor(
         }
         return lock.withLock {
             val features = settings.getFeatureSettings()
-            val selection = ResearchProfileResolver.examinerSelection(features, settings.fetchPlatformV2s(), request.chatId, currentTools(), request.profileUid)
+            val acceptedTools = currentTools()
+            val researchSelection = features.conversationResearch[request.chatId] ?: acceptedTools.research ?: MultiSearchResearchSelection()
+            val admittedTools = if (features.conversationResearch.containsKey(request.chatId)) acceptedTools.copy(research = researchSelection) else acceptedTools
+            val selection = ResearchProfileResolver.examinerSelection(features, settings.fetchPlatformV2s(), request.chatId, acceptedTools, request.profileUid)
             val profile = requireNotNull(selection.profile) { "Choose an enabled examination profile: EXAMINER_${selection.status.name}" }
-            examinationAdmission(features, profile, request, currentTools())?.let { error(it) }
+            examinationAdmission(features, profile, request, admittedTools)?.let { error(it) }
+            if (researchSelection.gatewayConnectionUid != null) {
+                val resolvedTools = toolResolver.get().resolve(
+                    profile.uid,
+                    admittedTools,
+                    dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(chatId = request.chatId, content = "", platformType = null),
+                    examinationRunKey = "examination-readiness:${request.workId}:${request.chatId}"
+                )
+                examinationGatewayReadinessBlocker(researchSelection, resolvedTools)?.let { error(it) }
+            }
             val reviewPolicy = dev.chungjungsoo.gptmobile.data.delegation.DelegationPolicyResolver.suppressForCombined(features.delegationFor(profile.uid).normalized(), acceptedCombined)
             val reviewer = ResearchProfileResolver.dedicatedReviewer(features, settings.fetchPlatformV2s(), profile)
                 ?: resolveReviewer(reviewPolicy, settings.fetchPlatformV2s(), profile)
@@ -228,7 +257,7 @@ class ArticleExaminationCoordinator @Inject constructor(
                         runCatching { Json.decodeFromString<ExaminationCheckpoint>(prior.checkpointJson).rootWorkId == request.rootWorkId }.getOrDefault(false)
                 }?.let { return@withLock it.jobId }
             }
-            val policy = policyHash(features, profile, currentTools(), request.chatId)
+            val policy = policyHash(features, profile, admittedTools, request.chatId)
             val acceptedRoot = acceptedCombined?.let { "|combined:${it.rootBudgetId}:${it.workItemId.orEmpty()}" }.orEmpty()
             if (request.origin != ExaminationOrigin.USER_EXAMINE) {
                 val changed = archive.dao.jobsForWork(request.workId).any { prior ->
@@ -267,9 +296,9 @@ class ArticleExaminationCoordinator @Inject constructor(
             if (!request.reexamine && blocksUnchangedExaminationRetry(old?.checkpointJson?.let { runCatching { Json.decodeFromString<ExaminationCheckpoint>(it).failure }.getOrNull() })) return@withLock requireNotNull(old).jobId
             val checkpoint = old?.checkpointJson?.let { saved -> Json.encodeToString(Json.decodeFromString<ExaminationCheckpoint>(saved).let { if (automaticRetry) it else it.copy(failure = null, retryAttempt = 0) }) } ?: Json.encodeToString(
                 ExaminationCheckpoint(
-                    authorization = examinationAuthorization(features, profile, currentTools(), request.chatId),
+                    authorization = examinationAuthorization(features, profile, admittedTools, request.chatId),
                     admittedAt = System.currentTimeMillis(),
-                    acceptedTools = currentTools(),
+                    acceptedTools = admittedTools,
                     rootWorkId = request.rootWorkId,
                     parentRunId = request.parentRunId,
                     archiveEpoch = archive.dao.sequence()?.archiveEpoch ?: 0,

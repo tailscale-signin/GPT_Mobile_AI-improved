@@ -51,6 +51,8 @@ class CombinedSinglePassInputsTest {
         assertTrue(prompt.getValue("preservation_instruction").jsonPrimitive.content.contains("one coherent answer"))
         assertTrue(prompt.getValue("preservation_instruction").jsonPrimitive.content.contains("organized by subject, not by contributor or response order"))
         assertTrue(prompt.getValue("preservation_instruction").jsonPrimitive.content.contains("keep provenance in passage metadata"))
+        assertTrue(prompt.getValue("preservation_instruction").jsonPrimitive.content.contains("Use factual material only from supplied contribution bodies or explicitly authorized evidence_ledger records"))
+        assertTrue(prompt.getValue("preservation_instruction").jsonPrimitive.content.contains("disclose gaps instead of adding model background knowledge"))
         assertTrue(prompt.getValue("preservation_instruction").jsonPrimitive.content.contains("Explicit user"))
     }
 

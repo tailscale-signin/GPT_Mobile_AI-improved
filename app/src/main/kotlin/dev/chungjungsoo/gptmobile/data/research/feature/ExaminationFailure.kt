@@ -35,7 +35,7 @@ internal fun examinationFailure(error: Exception, attempt: Int, now: Long = Syst
         else -> evidence?.retrievalStatus?.uppercase() ?: "EXAMINATION_FAILED"
     }
     val stage = when (code) {
-        "JAVA_HEAP_PRESSURE", "ADMITTED_CAPACITY_EXHAUSTED" -> ExaminationStage.WAITING_CAPACITY
+        "JAVA_HEAP_PRESSURE", "ADMITTED_CAPACITY_EXHAUSTED", "OUTPUT_LIMIT" -> ExaminationStage.WAITING_CAPACITY
         "NETWORK_UNAVAILABLE", "TRANSPORT_FAILED", "TIMEOUT", "OFFLINE", "SERVER_TEMPORARY", "DNS_RECOVERY", "DNS_FAILED" -> ExaminationStage.WAITING_NETWORK
         "RATE_LIMITED", "HTTP_429", "TOO_MANY_REQUESTS" -> ExaminationStage.WAITING_RATE_LIMIT
         "SOURCE_ACCESS_BLOCKED", "BLOCKED", "REDIRECT_FAILED", "HTTP_403", "FORBIDDEN" -> ExaminationStage.BLOCKED_SOURCE

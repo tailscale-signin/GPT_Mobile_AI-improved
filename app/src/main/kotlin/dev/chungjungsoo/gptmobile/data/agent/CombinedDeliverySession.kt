@@ -331,7 +331,7 @@ internal class CombinedDeliverySession(
             val rewrittenChecks = rewritten?.let { assess(it) }
             val rewrittenViolations = rewritten?.let { policy.violations(it.text) }.orEmpty()
             val protocolFailures = rewritten?.decoder?.issues.orEmpty().filter { it in COMBINED_FRAMING_FAILURES }
-            val newMaterial = rewrittenChecks?.correctionRequired == true || rewrittenChecks?.requiredFailures?.isNotEmpty() == true && assessment.requiredFailures.isEmpty()
+            val newMaterial = rewrittenChecks?.checks.orEmpty().any { it.material && it.result == "FAIL" && it.id !in previousFailures } || rewrittenChecks?.requiredFailures.orEmpty().any { it !in assessment.requiredFailures }
             val addedVerificationNeeds = rewrittenChecks?.verificationNeeds.orEmpty().any { next ->
                 assessment.verificationNeeds.none { previous ->
                     next.proposition == previous.proposition ||

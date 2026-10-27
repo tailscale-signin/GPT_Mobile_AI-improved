@@ -66,6 +66,29 @@ class ResearchTaskStoreTest {
         }
     }
 
+    @Test fun examinationPartialOutputCanResumeOnlyForItsAcceptedTaskAndStage() = kotlinx.coroutines.runBlocking {
+        val dir = Files.createTempDirectory("examination-partial").toFile()
+        try {
+            val app = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
+            val context = object : android.content.ContextWrapper(app) {
+                override fun getFilesDir() = dir
+            }
+            val sessions = ResearchSessionStore(context)
+            sessions.acceptTask(1, "1:10", 10, "Compare the original evidence", listOf("examiner"), "examiner", "settings", "authority", true)
+            val journal = sessions.journal("examination:job", 1, true, "1:10", authority = "public", shareEnabled = false)
+            val partial = "{\"schemaVersion\":1,\"passages\":["
+            val checkpoint = requireNotNull(journal.retainPartial("research-appraisal", "examiner", partial))
+
+            assertEquals(partial, sessions.loadPartial("1:10", checkpoint, 1, "public", "research-appraisal", "examiner"))
+            assertNull(sessions.loadPartial("1:10", checkpoint, 2, "public", "research-appraisal", "examiner"))
+            assertNull(sessions.loadPartial("1:10", checkpoint, 1, "private", "research-appraisal", "examiner"))
+            assertNull(sessions.loadPartial("1:10", checkpoint, 1, "public", "research-review", "examiner"))
+            assertNull(sessions.loadPartial("1:10", checkpoint, 1, "public", "research-appraisal", "another-profile"))
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
     @Test fun acceptedTaskAndRecoveryAreImmutableAcrossRestart() = kotlinx.coroutines.runBlocking {
         val dir = Files.createTempDirectory("accepted-research").toFile()
         try {

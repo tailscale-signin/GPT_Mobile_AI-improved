@@ -112,6 +112,21 @@ internal class ResearchTaskStore(private val directory: File) {
     suspend fun manifest(root: String, persistent: Boolean) = task(root) { manifestUnlocked(root, persistent) }
     suspend fun retainedEvidence(root: String, authorities: Set<String>, persistent: Boolean) = task(root) { retainedEvidenceUnlocked(root, authorities, persistent) }
     suspend fun retainPartial(root: String, checkpointId: String, persistent: Boolean) = task(root) { retainPartialUnlocked(root, checkpointId, persistent) }
+    suspend fun partial(root: String, checkpointId: String, persistent: Boolean, chatId: Int, authority: String, stage: String, profileUid: String): String? = task(root) {
+        if (!persistent || !checkpointId.matches(Regex("[a-f0-9]{64}\\.partial"))) return@task null
+        val accepted = acceptedUnlocked(root, persistent) ?: return@task null
+        if (accepted.chatId != chatId || isDeleted(chatId)) return@task null
+        val manifest = manifestUnlocked(root, persistent) ?: return@task null
+        if (manifest.taskId != accepted.taskId || manifest.rootWorkId != root || manifest.chatId != chatId || checkpointId !in manifest.partialCheckpointIds) return@task null
+        val path = File(directory, checkpointId)
+        val body = readFile(path) ?: return@task null
+        val value = runCatching { json.parseToJsonElement(body) as? kotlinx.serialization.json.JsonObject }.getOrNull() ?: return@task null
+        if (value.number("schemaVersion") != 1 || value.number("chatId") != chatId || value.text("turnId") != root ||
+            value.text("authority") != authority || value.text("stage") != stage || value.text("profileUid") != profileUid ||
+            value["accepted"] != kotlinx.serialization.json.JsonPrimitive(false) || value.text("text").isBlank()
+        ) return@task null
+        value.text("text")
+    }
     suspend fun retainDelivery(root: String, runId: String, authority: String, generation: Long, receipt: dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryReceipt, persistent: Boolean) = task(root) { retainDeliveryUnlocked(root, runId, authority, generation, receipt, persistent) }
     suspend fun plan(root: String, value: String? = null, persistent: Boolean) = task(root) { planUnlocked(root, value, persistent) }
 

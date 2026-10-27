@@ -54,20 +54,12 @@ class GitHubEngineeringStateMachineTest {
     }
 
     @Test
-    fun patchReadyRequiresExplicitCommitStart() {
-        assertThrows(IllegalArgumentException::class.java) {
-            GitHubEngineeringStateMachine.advance(
-                EngineeringState.PATCH_READY,
-                EngineeringEvidence.COMMIT_CONFIRMED
-            )
+    fun patchReadyCannotBypassApproval() {
+        for (evidence in listOf(EngineeringEvidence.COMMIT_STARTED, EngineeringEvidence.COMMIT_CONFIRMED, EngineeringEvidence.APPROVAL_GRANTED, EngineeringEvidence.REMOTE_REF_CONFIRMED)) {
+            assertThrows(IllegalArgumentException::class.java) {
+                GitHubEngineeringStateMachine.advance(EngineeringState.PATCH_READY, evidence)
+            }
         }
-        assertEquals(
-            EngineeringState.COMMITTING,
-            GitHubEngineeringStateMachine.advance(
-                EngineeringState.PATCH_READY,
-                EngineeringEvidence.COMMIT_STARTED
-            )
-        )
     }
 
     @Test

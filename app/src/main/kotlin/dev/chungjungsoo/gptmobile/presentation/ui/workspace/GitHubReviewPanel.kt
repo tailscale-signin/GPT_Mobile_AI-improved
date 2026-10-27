@@ -53,7 +53,9 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
 @Serializable
-data class GitHubFileProposal(val path: String, val before: String, val after: String)
+data class GitHubFileProposal(val path: String, val before: String, val after: String, val delete: Boolean = false) {
+    val changed: Boolean get() = delete || before != after
+}
 
 @Serializable
 data class GitHubReview(val connectionUid: String, val owner: String, val repo: String, val branch: String, val head: String, val checks: JsonObject = JsonObject(emptyMap()), val files: List<GitHubFileProposal> = emptyList(), val pullNumber: Int? = null, val changedFiles: JsonObject = JsonObject(emptyMap()), val reviewNotes: String = "", val inspectedAt: Long = System.currentTimeMillis(), val stale: Boolean = false)
@@ -103,7 +105,7 @@ class GitHubReviewViewModel @Inject constructor(private val connections: ToolCon
         review.value = value
     }
     fun inspect(uid: String, owner: String, repo: String, branch: String, pr: String) = action {
-        require(review.value?.files?.none { it.before != it.after } != false) { "Discard or commit the current proposal before changing destination." }
+        require(review.value?.files?.none { it.changed } != false) { "Discard or commit the current proposal before changing destination." }
         val client = client(uid)
         val base = GitHubReview(uid, owner.trim(), repo.trim(), branch.trim(), "")
         val head = client.execute("get_branch_head", arguments(base)).jsonObject["object"]?.jsonObject?.get("sha")?.jsonPrimitive?.content ?: error("Branch head unavailable.")
@@ -147,7 +149,16 @@ class GitHubReviewViewModel @Inject constructor(private val connections: ToolCon
         save(old.copy(files = old.files.filterNot { it.path == path } + GitHubFileProposal(path, text, text)))
     }
     fun edit(path: String, value: String) {
-        review.value = review.value?.let { it.copy(files = it.files.map { file -> if (file.path == path) file.copy(after = value) else file }) }
+        review.value = review.value?.let { it.copy(files = it.files.map { file -> if (file.path == path) file.copy(after = value, delete = false) else file }) }
+    }
+    fun deleteFile(path: String) {
+        review.value = review.value?.let { proposal ->
+            proposal.copy(
+                files = proposal.files.map { file ->
+                    if (file.path == path) file.copy(after = if (file.delete) file.before else "", delete = !file.delete) else file
+                }
+            )
+        }
     }
     fun saveDraft() = action {
         save(requireNotNull(review.value))
@@ -164,8 +175,8 @@ class GitHubReviewViewModel @Inject constructor(private val connections: ToolCon
     fun prepareCommit(message: String, requiresHardware: Boolean = false) = action {
         val proposal = requireNotNull(review.value)
         require(!proposal.stale) { "Refresh the moved branch before committing." }
-        val files = proposal.files.filter { it.before != it.after }.map {
-            dev.chungjungsoo.gptmobile.data.agent.tool.EngineeringFilePatch(it.path, it.before, it.after)
+        val files = proposal.files.filter { it.changed }.map {
+            dev.chungjungsoo.gptmobile.data.agent.tool.EngineeringFilePatch(it.path, it.before, it.after, it.delete)
         }
         val taskId = engineering.prepare(proposal.connectionUid, proposal.owner, proposal.repo, proposal.branch, proposal.head, files, message, requiresHardware)
         pendingEngineeringTask.value = taskId
@@ -181,8 +192,8 @@ class GitHubReviewViewModel @Inject constructor(private val connections: ToolCon
         require(visible.owner == task.repositoryOwner && visible.repo == task.repositoryName && visible.branch == task.workingBranch && visible.head == task.baseSha)
         require(
             dev.chungjungsoo.gptmobile.data.agent.tool.GitHubEngineeringAuthorization.patchJson(
-                visible.files.filter { it.before != it.after }.map {
-                    dev.chungjungsoo.gptmobile.data.agent.tool.EngineeringFilePatch(it.path, it.before, it.after)
+                visible.files.filter { it.changed }.map {
+                    dev.chungjungsoo.gptmobile.data.agent.tool.EngineeringFilePatch(it.path, it.before, it.after, it.delete)
                 }
             ) == frozen.patchJson
         ) { "The visible patch changed; validate and review it again." }
@@ -226,9 +237,9 @@ class GitHubReviewViewModel @Inject constructor(private val connections: ToolCon
     fun reviewEngineering(taskId: String) = action {
         val task = engineering.recent().single { it.taskId == taskId }
         val run = requireNotNull(engineering.run(taskId))
-        require(review.value?.files?.none { it.before != it.after } != false) { "Save or discard the current proposal before reviewing a saved task." }
+        require(review.value?.files?.none { it.changed } != false) { "Save or discard the current proposal before reviewing a saved task." }
         val files = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
-            dev.chungjungsoo.gptmobile.data.agent.tool.GitHubEngineeringAuthorization.files(run.patchJson).map { GitHubFileProposal(it.path, it.before, it.after) }
+            dev.chungjungsoo.gptmobile.data.agent.tool.GitHubEngineeringAuthorization.files(run.patchJson).map { GitHubFileProposal(it.path, it.before, it.after, it.delete) }
         }
         record.value = null
         save(GitHubReview(run.connectionUid, task.repositoryOwner, task.repositoryName, task.workingBranch, task.baseSha, files = files))
@@ -330,8 +341,8 @@ fun GitHubReviewPanel(model: GitHubReviewViewModel = hiltViewModel()) {
             }
             items(value.files, key = { it.path }) { file ->
                 WorkspaceCard(file.path) {
-                    Text("Replacement diff", style = MaterialTheme.typography.labelLarge)
-                    val diff by androidx.compose.runtime.produceState("Preparing diff…", file.path, file.before, file.after) {
+                    Text(if (file.delete) "Delete file" else "Replacement diff", style = MaterialTheme.typography.labelLarge)
+                    val diff by androidx.compose.runtime.produceState("Preparing diff…", file.path, file.before, file.after, file.delete) {
                         kotlinx.coroutines.delay(120)
                         this.value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
                             dev.chungjungsoo.gptmobile.data.workspace.ReviewDiff.render(file.path, file.before, file.after).take(12000)
@@ -339,15 +350,24 @@ fun GitHubReviewPanel(model: GitHubReviewViewModel = hiltViewModel()) {
                     }
                     SelectionContainer { Text(diff, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace) }
                     if (file.before.length + file.after.length > 12000) Text("Diff preview may be truncated. Review the complete proposed file below before committing.", style = MaterialTheme.typography.bodySmall)
-                    OutlinedTextField(file.after, { model.edit(file.path, it) }, label = { Text("Proposed complete file") }, modifier = Modifier.fillMaxWidth(), maxLines = 16)
-                    Text("${file.before.lines().size} → ${file.after.lines().size} lines · ${if (file.before == file.after) "unchanged" else "modified"}")
+                    OutlinedTextField(file.after, { model.edit(file.path, it) }, enabled = !file.delete, label = { Text("Proposed complete file") }, modifier = Modifier.fillMaxWidth(), maxLines = 16)
+                    TextButton(enabled = !busy && !value.stale, onClick = { model.deleteFile(file.path) }) { Text(if (file.delete) "Restore file" else "Delete file in this commit") }
+                    Text(
+                        "${file.before.lines().size} → ${file.after.lines().size} lines · ${if (file.delete) {
+                            "deleted"
+                        } else if (file.before == file.after) {
+                            "unchanged"
+                        } else {
+                            "modified"
+                        }}"
+                    )
                 }
             }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(enabled = !busy, onClick = { model.saveDraft() }) { Text("Save proposal") }
                     TextButton(enabled = !busy, onClick = { model.discard() }) { Text("Discard") }
-                    TextButton(enabled = !busy && !value.stale && value.files.any { it.before != it.after }, onClick = { confirming = true }) { Text("Review commit") }
+                    TextButton(enabled = !busy && !value.stale && value.files.any { it.changed }, onClick = { confirming = true }) { Text("Review commit") }
                 }
             }
         }
@@ -355,7 +375,7 @@ fun GitHubReviewPanel(model: GitHubReviewViewModel = hiltViewModel()) {
     if (confirming) {
         AlertDialog(onDismissRequest = { confirming = false }, title = { Text("Commit reviewed changes?") }, text = {
             Column {
-                Text("${review?.owner}/${review?.repo} → ${review?.branch}\nExpected head: ${review?.head}\n${review?.files?.filter { it.before != it.after }?.joinToString("\n") { it.path }}")
+                Text("${review?.owner}/${review?.repo} → ${review?.branch}\nExpected head: ${review?.head}\n${review?.files?.filter { it.changed }?.joinToString("\n") { if (it.delete) "DELETE ${it.path}" else it.path }}")
                 Text("The branch must still match the inspected SHA. This creates a commit on the working branch; merging remains separate.")
                 OutlinedTextField(message, { message = it }, label = { Text("Commit message") })
                 FilterChip(requiresHardware, { requiresHardware = !requiresHardware }, label = { Text("Require physical-device verification") })

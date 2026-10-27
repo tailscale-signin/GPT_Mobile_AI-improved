@@ -1,6 +1,8 @@
 package dev.chungjungsoo.gptmobile.data.agent.tool
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -36,5 +38,20 @@ class GitHubEngineeringAuthorizationTest {
         assertTrue(runCatching { GitHubEngineeringAuthorization.patchJson(listOf(EngineeringFilePatch("a", "old", "x".repeat(2 * 1024 * 1024 + 1)))) }.isFailure)
         val json = GitHubEngineeringAuthorization.patchJson(listOf(EngineeringFilePatch("a", "old", "new")))
         assertFalse(json.isBlank())
+    }
+
+    @Test fun deletionSurvivesPersistenceAndCannotReuseReplacementApproval() {
+        val deletion = EngineeringFilePatch("empty.txt", "", "", delete = true)
+        val json = GitHubEngineeringAuthorization.patchJson(listOf(deletion))
+        assertEquals(listOf(deletion), GitHubEngineeringAuthorization.files(json))
+        val replacement = EngineeringFilePatch("a.kt", "old", "")
+        val deleted = replacement.copy(delete = true)
+        val (task, run) = fixture()
+        assertNotEquals(
+            GitHubEngineeringAuthorization.digest(task, run.copy(patchJson = GitHubEngineeringAuthorization.patchJson(listOf(replacement)))),
+            GitHubEngineeringAuthorization.digest(task, run.copy(patchJson = GitHubEngineeringAuthorization.patchJson(listOf(deleted))))
+        )
+        assertTrue(runCatching { GitHubEngineeringAuthorization.patchJson(listOf(deleted.copy(after = "new"))) }.isFailure)
+        assertEquals(listOf(replacement), GitHubEngineeringAuthorization.files("""[{"path":"a.kt","before":"old","after":""}]"""))
     }
 }

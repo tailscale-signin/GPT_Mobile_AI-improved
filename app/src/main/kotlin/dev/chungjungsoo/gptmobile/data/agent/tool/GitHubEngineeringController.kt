@@ -136,6 +136,11 @@ class GitHubEngineeringController @Inject constructor(
             val path = change.getString("path")
             dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceClient.filePath(path)
             val existing = entries[path]
+            val delete = change.optBoolean("delete", false)
+            require(!delete || existing != null) { "Cannot delete a missing file: $path" }
+            val expectedBlob = if (change.has("expected_blob_sha") && !change.isNull("expected_blob_sha")) change.getString("expected_blob_sha") else null
+            require(existing == null || expectedBlob == existing.getString("sha")) { "Read the current file and supply its expected_blob_sha: $path" }
+            require(existing != null || expectedBlob == null) { "Original file no longer exists: $path" }
             val before = if (existing == null) {
                 ""
             } else {
@@ -146,7 +151,13 @@ class GitHubEngineeringController @Inject constructor(
                 require(bytes.size <= 2 * 1024 * 1024)
                 Charsets.UTF_8.newDecoder().decode(java.nio.ByteBuffer.wrap(bytes)).toString().also { check(gitBlob(it) == existing.getString("sha")) }
             }
-            EngineeringFilePatch(path, before, change.getString("content"))
+            val after = if (delete) {
+                require(!change.has("content") || change.getString("content").isEmpty()) { "A deletion cannot include replacement content" }
+                ""
+            } else {
+                change.getString("content")
+            }
+            EngineeringFilePatch(path, before, after, delete)
         }
         prepare(uid, owner, repo, args.getString("branch"), base, files, args.getString("message"))
     }
@@ -216,12 +227,14 @@ class GitHubEngineeringController @Inject constructor(
                 val entries = (0 until rows.length()).map { rows.getJSONObject(it) }.associateBy { it.getString("path") }
                 files.forEach { file ->
                     val existing = entries[file.path]
+                    require(!file.delete || existing != null) { "Cannot delete a missing file: ${file.path}" }
                     require(existing == null && file.before.isEmpty() || existing?.optString("sha") == gitBlob(file.before)) { "Original blob changed: ${file.path}" }
                     require(existing == null || existing.getString("mode") in setOf("100644", "100755")) { "Only ordinary text files can be replaced" }
                 }
                 suspend fun authorize() = GitHubEngineeringAuthorization.requireApproval(requireNotNull(ledger.task(taskId)), requireNotNull(dao.run(taskId)), identity, System.currentTimeMillis())
                 if (snapshot.stage == GitSagaStage.PENDING) {
                     for (file in files) {
+                        if (file.delete) continue
                         authorize()
                         val blob = JSONObject(api.request("${root(task)}/git/blobs", "POST", JSONObject().put("content", file.after).put("encoding", "utf-8")))
                         check(blob.getString("sha") == gitBlob(file.after))
@@ -232,7 +245,7 @@ class GitHubEngineeringController @Inject constructor(
                 }
                 if (snapshot.stage == GitSagaStage.BLOBS_STAGED) {
                     authorize()
-                    val changes = JSONArray().apply { files.forEach { file -> put(JSONObject().put("path", file.path).put("mode", entries[file.path]?.optString("mode") ?: "100644").put("type", "blob").put("sha", gitBlob(file.after))) } }
+                    val changes = JSONArray().apply { files.forEach { file -> put(JSONObject().put("path", file.path).put("mode", entries[file.path]?.optString("mode") ?: "100644").put("type", "blob").put("sha", if (file.delete) JSONObject.NULL else gitBlob(file.after))) } }
                     val created = JSONObject(api.request("${root(task)}/git/trees", "POST", JSONObject().put("base_tree", treeSha).put("tree", changes)))
                     val next = GitHubGitSaga.recordTree(snapshot, created.getString("sha"))
                     ledger.checkpointOperation(snapshot.operationId, snapshot.stage, next)

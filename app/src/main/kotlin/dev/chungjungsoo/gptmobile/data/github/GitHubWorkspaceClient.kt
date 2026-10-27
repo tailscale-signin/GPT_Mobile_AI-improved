@@ -766,7 +766,19 @@ class GitHubWorkspaceClient(
         require(files.size in 1..20) { "Commit between 1 and 20 text files at a time." }
         val paths = files.map { it.jsonObject["path"]?.jsonPrimitive?.content.orEmpty().also { filePath(it) } }
         require(paths.distinct().size == paths.size) { "Duplicate file paths are not allowed." }
-        val contents = files.map { it.jsonObject["content"]?.jsonPrimitive?.content ?: error("Every file needs UTF-8 content.") }
+        val deletions = files.map { file ->
+            val value = file.jsonObject["delete"] ?: return@map false
+            (value as? JsonPrimitive)?.booleanOrNull ?: error("delete must be a boolean.")
+        }
+        val contents = files.mapIndexed { index, file ->
+            val content = (file.jsonObject["content"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+            if (deletions[index]) {
+                require(content == null || content.isEmpty()) { "A deletion cannot include replacement content." }
+                ""
+            } else {
+                requireNotNull(content) { "Every replacement needs UTF-8 content." }
+            }
+        }
         require(contents.all { it.toByteArray().size <= 2 * 1024 * 1024 && '\u0000' !in it } && contents.sumOf { it.toByteArray().size } <= 4 * 1024 * 1024) {
             "Text change set exceeds the workspace budget."
         }
@@ -787,6 +799,7 @@ class GitHubWorkspaceClient(
                 buildJsonArray {
                     paths.forEachIndexed { index, file ->
                         val existing = entries[file]
+                        require(!deletions[index] || existing != null) { "Cannot delete a missing file: $file" }
                         val expectedBlob = files[index].jsonObject["expected_blob_sha"]?.jsonPrimitive?.content
                         require(expectedBlob != null || existing == null) {
                             "Updating $file requires expected_blob_sha; read the current file before writing."
@@ -808,7 +821,7 @@ class GitHubWorkspaceClient(
                                 put("path", file)
                                 put("mode", mode)
                                 put("type", "blob")
-                                put("content", contents[index])
+                                if (deletions[index]) put("sha", JsonNull) else put("content", contents[index])
                             }
                         )
                     }

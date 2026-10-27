@@ -169,6 +169,69 @@ class GitHubWorkspaceClientTest {
     }
 
     @Test
+    fun deletionIsAtomicWithCreationAndRequiresTheCurrentBlob() = runTest {
+        for (expectedBlob in listOf("script-blob", "stale", null)) {
+            var step = 0
+            val http = HttpClient(
+                MockEngine { request ->
+                    val body = (request.body as? TextContent)?.text?.let { Json.parseToJsonElement(it).jsonObject }
+                    val response = when (step++) {
+                        0 -> """{"default_branch":"main"}"""
+                        1 -> """{"object":{"sha":"$head"}}"""
+                        2 -> """{"tree":{"sha":"base-tree"}}"""
+                        3 -> """{"truncated":false,"tree":[{"path":"run.sh","type":"blob","mode":"100755","sha":"script-blob"}]}"""
+                        4 -> {
+                            assertEquals("script-blob", expectedBlob)
+                            assertEquals(HttpMethod.Post, request.method)
+                            val entries = body!!["tree"]!!.jsonArray
+                            assertEquals(2, entries.size)
+                            assertEquals(kotlinx.serialization.json.JsonNull, entries[0].jsonObject["sha"])
+                            assertFalse(entries[0].jsonObject.containsKey("content"))
+                            assertEquals("100755", entries[0].jsonObject["mode"]!!.jsonPrimitive.content)
+                            assertEquals("Updated docs", entries[1].jsonObject["content"]!!.jsonPrimitive.content)
+                            """{"sha":"new-tree"}"""
+                        }
+                        5 -> """{"sha":"new-commit"}"""
+                        6 -> {
+                            assertEquals(HttpMethod.Patch, request.method)
+                            assertEquals("false", body!!["force"].toString())
+                            "{}"
+                        }
+                        else -> error("Unexpected mutation")
+                    }
+                    respond(response)
+                }
+            )
+            try {
+                val args = JsonObject(
+                    changeSet() + (
+                        "files" to buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("path", "run.sh")
+                                    put("delete", true)
+                                    if (expectedBlob != null) put("expected_blob_sha", expectedBlob)
+                                }
+                            )
+                            add(
+                                buildJsonObject {
+                                    put("path", "README.md")
+                                    put("content", "Updated docs")
+                                }
+                            )
+                        }
+                        )
+                )
+                val result = runCatching { GitHubWorkspaceClient("token", http).execute("commit_files", args) }
+                assertEquals(expectedBlob == "script-blob", result.isSuccess)
+                assertEquals(if (expectedBlob == "script-blob") 7 else 4, step)
+            } finally {
+                http.close()
+            }
+        }
+    }
+
+    @Test
     fun `overwriting existing files without blob preconditions is rejected before creating git objects`() = runTest {
         var requests = 0
         val http =

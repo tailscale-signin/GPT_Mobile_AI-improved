@@ -55,10 +55,7 @@ internal object GitHubEngineeringStateMachine {
         EngineeringState.INSPECTING to mapOf(EngineeringEvidence.PATCH_GENERATED to EngineeringState.PATCH_GENERATED),
         EngineeringState.PATCH_GENERATED to mapOf(EngineeringEvidence.LOCAL_VALIDATION_STARTED to EngineeringState.VALIDATING_LOCAL),
         EngineeringState.VALIDATING_LOCAL to mapOf(EngineeringEvidence.LOCAL_VALIDATION_PASSED to EngineeringState.PATCH_READY),
-        EngineeringState.PATCH_READY to mapOf(
-            EngineeringEvidence.APPROVAL_REQUIRED to EngineeringState.AWAITING_APPROVAL,
-            EngineeringEvidence.COMMIT_STARTED to EngineeringState.COMMITTING
-        ),
+        EngineeringState.PATCH_READY to mapOf(EngineeringEvidence.APPROVAL_REQUIRED to EngineeringState.AWAITING_APPROVAL),
         EngineeringState.AWAITING_APPROVAL to mapOf(EngineeringEvidence.APPROVAL_GRANTED to EngineeringState.COMMITTING),
         EngineeringState.COMMITTING to mapOf(EngineeringEvidence.REMOTE_REF_CONFIRMED to EngineeringState.PUSHED),
         EngineeringState.PUSHED to mapOf(EngineeringEvidence.CI_WATCH_STARTED to EngineeringState.CI_PENDING),

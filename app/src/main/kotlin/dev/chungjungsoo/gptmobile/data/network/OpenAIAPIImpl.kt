@@ -306,7 +306,7 @@ class OpenAIAPIImpl @Inject constructor(
                             (!preparedRequest.stream && responseType?.match(ContentType.Text.EventStream) != true)
                         ) {
                             val responseBody = response.body<String>()
-                            val decoded = NetworkClient.openAIJson.decodeFromString<ChatCompletionChunk>(responseBody)
+                            val decoded = decodeOpenAICompletion(NetworkClient.openAIJson, responseBody)
                             config.freeDiagnostics?.response = FreeResponseObservation.fromHeaders("json") { response.headers[it] }.withChunk(decoded)
                             usageReceipt.observe(decoded.usage, decoded.hasAssistantStreamPayload())
                             usageReceipt.completed(decoded.error == null)
@@ -385,7 +385,7 @@ class OpenAIAPIImpl @Inject constructor(
                             }
 
                             val decoded = try {
-                                NetworkClient.openAIJson.decodeFromString<ChatCompletionChunk>(data)
+                                decodeOpenAICompletion(NetworkClient.openAIJson, data)
                             } catch (_: kotlinx.serialization.SerializationException) {
                                 parseFailures++
                                 config.freeDiagnostics?.response = config.freeDiagnostics?.response?.copy(discardedChunks = parseFailures)

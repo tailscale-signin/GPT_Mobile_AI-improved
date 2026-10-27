@@ -23,6 +23,14 @@ import org.robolectric.annotation.Config
 @Config(sdk = [34], application = Application::class)
 class GitHubEngineeringControllerIntegrationTest {
     @Test fun approvedPatchPublishesOnceAndRestartCompletesOnlyFromExactCiEvidence() = runBlocking {
+        verifyApprovedWorkflow(delete = false)
+    }
+
+    @Test fun approvedDeletionPublishesNullTreeEntryWithoutCreatingAnEmptyBlob() = runBlocking {
+        verifyApprovedWorkflow(delete = true)
+    }
+
+    private suspend fun verifyApprovedWorkflow(delete: Boolean) {
         val context = RuntimeEnvironment.getApplication()
         val base = "a".repeat(40)
         val baseTree = "b".repeat(40)
@@ -43,8 +51,16 @@ class GitHubEngineeringControllerIntegrationTest {
                     path.endsWith("/git/ref/heads/fix%2Fworkflow") -> JSONObject().put("object", JSONObject().put("sha", remote)).toString()
                     path.endsWith("/git/commits/$base") -> JSONObject().put("tree", JSONObject().put("sha", baseTree)).toString()
                     path.endsWith("/git/trees/$baseTree?recursive=1") -> JSONObject().put("truncated", false).put("tree", JSONArray().put(JSONObject().put("path", "A.kt").put("type", "blob").put("mode", "100644").put("sha", blob("before")))).toString()
-                    method == "POST" && path.endsWith("/git/blobs") -> JSONObject().put("sha", blob(requireNotNull(body).getString("content"))).toString()
-                    method == "POST" && path.endsWith("/git/trees") -> JSONObject().put("sha", tree).toString()
+                    method == "POST" && path.endsWith("/git/blobs") -> {
+                        assertFalse(delete)
+                        JSONObject().put("sha", blob(requireNotNull(body).getString("content"))).toString()
+                    }
+                    method == "POST" && path.endsWith("/git/trees") -> {
+                        val entry = requireNotNull(body).getJSONArray("tree").getJSONObject(0)
+                        assertEquals("A.kt", entry.getString("path"))
+                        if (delete) assertTrue(entry.isNull("sha")) else assertEquals(blob("after"), entry.getString("sha"))
+                        JSONObject().put("sha", tree).toString()
+                    }
                     method == "POST" && path.endsWith("/git/commits") -> JSONObject().put("sha", commit).toString()
                     path.endsWith("/git/commits/$commit") -> JSONObject().put("sha", commit).put("tree", JSONObject().put("sha", tree)).put("parents", JSONArray().put(JSONObject().put("sha", base))).toString()
                     method == "PATCH" -> {
@@ -73,7 +89,7 @@ class GitHubEngineeringControllerIntegrationTest {
         }
         fun createController() = GitHubEngineeringController(context, mockk<ToolConnectionRepository>(), mockk<SecretVault>(), factory, mockk<BenchmarkStore>(), queue)
         val controller = createController()
-        val taskId = controller.prepare("connection", "owner", "repo", "fix/workflow", base, listOf(EngineeringFilePatch("A.kt", "before", "after")), "Fix")
+        val taskId = controller.prepare("connection", "owner", "repo", "fix/workflow", base, listOf(EngineeringFilePatch("A.kt", "before", if (delete) "" else "after", delete)), "Fix")
         assertTrue(writes.isEmpty())
         assertTrue(runCatching { controller.execute(taskId) }.isFailure)
         assertTrue(writes.isEmpty())

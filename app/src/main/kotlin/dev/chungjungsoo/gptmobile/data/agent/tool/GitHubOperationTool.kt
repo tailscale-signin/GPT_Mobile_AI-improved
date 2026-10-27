@@ -232,9 +232,10 @@ internal class GitHubOperationTool(
                                     "properties",
                                     buildJsonObject {
                                         listOf("path", "content", "expected_blob_sha").forEach { put(it, field("string")) }
+                                        put("delete", field("boolean"))
                                     }
                                 )
-                                put("required", JsonArray(listOf("path", "content").map(::JsonPrimitive)))
+                                put("required", JsonArray(listOf("path").map(::JsonPrimitive)))
                             }
                         )
                     }
@@ -269,7 +270,7 @@ internal class GitHubOperationTool(
                 "github_read" -> "Read exact source ranges or a saved evidence_id at a pinned commit."
                 "github_stage_patch" -> "Validate expected head/blob SHAs and preview exact edits without committing."
                 "github_commit" -> "Create a working branch or commit a validated stage_id with head checks."
-                "github_write" -> "Directly commit up to 20 UTF-8 files to an explicit working branch using expected_head_sha and optional expected_blob_sha guards; never write to the default branch."
+                "github_write" -> "Stage up to 20 UTF-8 file creations, replacements or deletions for exact user approval and one atomic commit on a working branch. Supply expected_head_sha and expected_blob_sha for existing files. Replacements require content; deletions require delete=true and no content. Never write to the default branch."
                 "github_pr" -> "Read or explicitly create/update/comment/merge a pull request."
                 "github_ci" -> "Read concise CI failure evidence, or explicitly dispatch/rerun/cancel a run."
                 else -> "Check release readiness or explicitly publish the selected release."

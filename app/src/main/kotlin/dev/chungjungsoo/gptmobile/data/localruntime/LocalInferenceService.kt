@@ -427,8 +427,13 @@ class LocalInferenceService : Service() {
                     if (activeCommandRequest == packet.requestId) activeCommandRequest = null
                     jobs.remove(packet.requestId)
                     replies.remove(packet.requestId)
-                    operationLock.unlock()
-                    reply.flushTerminal()
+                    try {
+                        // Publish the terminal response before admitting another
+                        // native command; always release the lease if Binder fails.
+                        reply.flushTerminal()
+                    } finally {
+                        operationLock.unlock()
+                    }
                 }
             }
         jobs[packet.requestId] = job

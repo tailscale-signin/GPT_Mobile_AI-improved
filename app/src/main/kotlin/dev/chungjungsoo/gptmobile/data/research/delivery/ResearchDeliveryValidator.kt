@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.research.delivery
 
 import dev.chungjungsoo.gptmobile.data.model.ResearchReportDetail
+import dev.chungjungsoo.gptmobile.data.research.assessResearchCoverage
 
 /** Deterministic delivery checks. This is not an entailment model or scientific truth score. */
 internal object ResearchDeliveryValidator {
@@ -69,6 +70,13 @@ internal object ResearchDeliveryValidator {
         ids.mapNotNull(known::get).filter { source -> source.url !in urls && source.canonicalUrl !in urls && (source.doi.isBlank() || "https://doi.org/${source.doi}" !in urls) }.forEach { issues += "DIRECT_REFERENCE_MISSING:${it.id}" }
 
         val blocks = ResearchReportBlocks.parse(text, packet)
+        val coverage = assessResearchCoverage(packet.snapshot.questionPlan, packet.claims, packet.studies)
+        coverage.missingQuestionIds.forEach { questionId ->
+            val code = if (questionId in coverage.metadataRequiredQuestionIds) "QUESTION_EVIDENCE_METADATA_REQUIRED" else "QUESTION_EVIDENCE_UNCOVERED"
+            issues += "$code:$questionId"
+            val question = packet.snapshot.questionPlan.firstOrNull { it.id == questionId }
+            repairHints += "Question $questionId lacks a supported, source-bound claim${question?.let { " for: ${it.text.take(300)}" }.orEmpty()}. Preserve it as an explicit research gap; do not infer an answer from metadata or unrelated sources."
+        }
         packet.snapshot.questionPlan.forEach { question ->
             val supporting = packet.claims.filter { it.questionId == question.id }.map { it.sourceId }.toSet()
             if (supporting.isNotEmpty() && supporting.none { it in ids }) issues += "QUESTION_EVIDENCE_NOT_CITED:${question.id}"

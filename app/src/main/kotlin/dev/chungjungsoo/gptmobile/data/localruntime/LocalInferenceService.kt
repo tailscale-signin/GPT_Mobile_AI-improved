@@ -309,8 +309,11 @@ class LocalInferenceService : Service() {
                                                 val owner = jobs[packet.requestId]
                                                 scope.launch {
                                                     delay(10_000)
-                                                    if (owner?.isCompleted ==
-                                                        false
+                                                    // A cancelled coroutine can report completion while
+                                                    // native prefill still owns the operation lease.
+                                                    // Match the explicit cancellation watchdog.
+                                                    if (activeCommandRequest == packet.requestId ||
+                                                        owner?.isCompleted == false
                                                     ) {
                                                         terminateWorker("PREFILL_CANCELLATION_UNACKNOWLEDGED", packet.requestId)
                                                     }

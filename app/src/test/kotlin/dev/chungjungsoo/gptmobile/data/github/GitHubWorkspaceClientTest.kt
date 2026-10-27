@@ -537,6 +537,33 @@ class GitHubWorkspaceClientTest {
     }
 
     @Test
+    fun ssoDeniedRequestExplainsOrganizationAuthorization() = runTest {
+        val http = HttpClient(
+            MockEngine {
+                respond(
+                    """{"message":"Resource protected by organization SAML enforcement"}""",
+                    HttpStatusCode.Forbidden
+                )
+            }
+        )
+        try {
+            val failure = runCatching {
+                GitHubWorkspaceClient("token", http).execute(
+                    "get_repository",
+                    buildJsonObject {
+                        put("owner", "owner")
+                        put("repo", "repo")
+                    }
+                )
+            }.exceptionOrNull()
+            assertTrue(failure != null)
+            assertTrue(failure!!.message.orEmpty().contains("SSO authorization", ignoreCase = true))
+        } finally {
+            http.close()
+        }
+    }
+
+    @Test
     fun rejectedGitHubCredentialsStopFurtherRequestsWithinTheClient() = runTest {
         var requests = 0
         val http = HttpClient(

@@ -42,12 +42,12 @@ internal class GitHubOperationTool(
                 dispatched = false
             )
         }
-        if (operation == "github_write") {
+        if (operation == "github_write" || operation == "github_search") {
             val errors = ToolArgumentValidator.errors(arguments, definition.inputSchema)
             if (errors.isNotEmpty()) {
                 return AgentToolResult(
                     callId,
-                    ToolResultContent.Text("Invalid GitHub write arguments: " + errors.joinToString("; ")),
+                    ToolResultContent.Text("Invalid $operation arguments: " + errors.joinToString("; ") + ". Correct the fields before retrying; this request was not dispatched."),
                     true,
                     errorCode = "INVALID_ARGUMENTS",
                     dispatched = false

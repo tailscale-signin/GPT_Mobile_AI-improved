@@ -136,9 +136,9 @@ internal class CombinedDeliverySession(
             if (currentEvidence.records.none { it.readable && it.article && it.dated }) {
                 val allowance = policy.maximumWords ?: policy.targetWords ?: Int.MAX_VALUE
                 val answer = if (allowance < 12) "Unverified." else "I couldn’t verify the newest story from the available article evidence."
-                val report = CombinedQualityReport(version = 6, answerDigest = researchHash(answer), complete = true, status = "COMPLETED_WITH_ISSUES", wordCount = visibleWordCount(answer), issues = listOf("CURRENT_ARTICLE_EVIDENCE_UNAVAILABLE"), sourceUnits = coverage.units.size, lexicalMissing = coverage.units.size, turnContext = turnContext, deliveredScopeStatus = "COMPLETED_WITH_LIMITS", verificationStatus = "EVIDENCE_UNAVAILABLE", revisionId = currentRevision, consideredProfileUids = sources.mapTo(linkedSetOf()) { it.platformUid }, finalAssessment = true, assessmentStage = "FINAL_DISPLAY", displayedCharacters = answer.length, displayableDraft = true, protocolComplete = true)
+                val report = CombinedQualityReport(version = 6, answerDigest = researchHash(answer), complete = false, status = "PARTIAL", wordCount = visibleWordCount(answer), issues = listOf("CURRENT_ARTICLE_EVIDENCE_UNAVAILABLE"), sourceUnits = coverage.units.size, lexicalMissing = coverage.units.size, turnContext = turnContext, deliveredScopeStatus = "PARTIAL", verificationStatus = "EVIDENCE_UNAVAILABLE", correctionRequired = true, revisionId = currentRevision, consideredProfileUids = sources.mapTo(linkedSetOf()) { it.platformUid }, finalAssessment = true, assessmentStage = "FINAL_DISPLAY", displayedCharacters = answer.length, displayableDraft = true, protocolComplete = true, semanticCoverageVerified = false, topicCoverage = "UNRESOLVED")
                 emit(ProviderEvent.CombinedAnswer(answer, report))
-                emit(ProviderEvent.Completed)
+                emit(ProviderEvent.Failed("COMBINED_REQUIREMENTS_UNMET: A dated, readable article was unavailable, so this is a partial status response rather than a completed synthesis.", errorCode = "COMBINED_REQUIREMENTS_UNMET", transportComplete = true))
                 return@flow
             }
         }

@@ -171,7 +171,11 @@ class CombinedDeliverySessionTest {
         assertFalse(dispatched)
         assertFalse(events.answer().contains("Waymo"))
         assertEquals(listOf("CURRENT_ARTICLE_EVIDENCE_UNAVAILABLE"), events.quality().issues)
-        assertEquals(ProviderEvent.Completed, events.last())
+        assertFalse(events.quality().complete)
+        assertFalse(events.quality().semanticCoverageVerified)
+        assertEquals("PARTIAL", events.quality().deliveredScopeStatus)
+        CombinedAnswerPublication.validate(events.answer(), events.quality())
+        assertTrue(events.last() is ProviderEvent.Failed)
     }
 
     @Test fun malformedProtocolAndUnknownIdsNeverBecomeRawControlTextOrCertifiedOwnership() = runTest {

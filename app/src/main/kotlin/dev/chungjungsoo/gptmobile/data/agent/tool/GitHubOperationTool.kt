@@ -48,7 +48,7 @@ internal class GitHubOperationTool(
     }
 
     companion object {
-        val names = setOf("github_context", "github_search", "github_read", "github_pr", "github_ci", "github_stage_patch", "github_commit", "github_release")
+        val names = setOf("github_context", "github_search", "github_read", "github_pr", "github_ci", "github_stage_patch", "github_commit", "github_write", "github_release")
         fun operationName(name: String): String? = name.substringBefore("__").takeIf { it in names }
         fun immutableRead(name: String, arguments: JsonObject): Boolean = operationName(name) in setOf("github_read", "github_search") &&
             (arguments["commit_sha"] as? JsonPrimitive)?.content?.matches(Regex("[a-fA-F0-9]{40}|[a-fA-F0-9]{64}")) == true &&
@@ -73,6 +73,10 @@ internal class GitHubOperationTool(
                 "github_commit" -> when (requested) {
                     "", "commit" -> "commit_staged_patch"
                     "branch" -> "create_branch"
+                    else -> return null
+                }
+                "github_write" -> when (requested) {
+                    "", "commit" -> "commit_files"
                     else -> return null
                 }
                 "github_pr" -> when (requested) {
@@ -116,6 +120,7 @@ internal class GitHubOperationTool(
             if (Regex("\\b(ci|build|test failure|workflow|pipeline)\\b").containsMatchIn(text)) selected += "github_ci"
             if (Regex("\\b(fix|patch|edit|change|implement)\\b").containsMatchIn(text)) selected += "github_stage_patch"
             if (Regex("\\b(commit|push|branch)\\b").containsMatchIn(text)) selected += "github_commit"
+            if (Regex("\\b(write|create file|edit file|modify file|commit files|push changes)\\b").containsMatchIn(text)) selected += "github_write"
             if ("release" in text) selected += "github_release"
             return selected
         }
@@ -195,6 +200,22 @@ internal class GitHubOperationTool(
                     properties["action"] = choice("commit", "branch")
                     listOf("stage_id", "branch", "message", "expected_head_sha", "from_branch").forEach { properties[it] = field("string") }
                 }
+                "github_write" -> {
+                    properties["action"] = choice("commit")
+                    listOf("branch", "expected_head_sha", "message").forEach { properties[it] = field("string") }
+                    properties["files"] = buildJsonObject {
+                        put("type", "array")
+                        put("minItems", 1)
+                        put("maxItems", 20)
+                        put("items", buildJsonObject {
+                            put("type", "object")
+                            put("properties", buildJsonObject {
+                                listOf("path", "content", "expected_blob_sha").forEach { put(it, field("string")) }
+                            })
+                            put("required", JsonArray(listOf("path", "content").map(::JsonPrimitive)))
+                        })
+                    }
+                }
                 "github_pr" -> {
                     properties["action"] = choice("context", "create", "update", "comment", "merge")
                     properties["pull_number"] = field("integer")
@@ -225,6 +246,7 @@ internal class GitHubOperationTool(
                 "github_read" -> "Read exact source ranges or a saved evidence_id at a pinned commit."
                 "github_stage_patch" -> "Validate expected head/blob SHAs and preview exact edits without committing."
                 "github_commit" -> "Create a working branch or commit a validated stage_id with head checks."
+                "github_write" -> "Directly commit up to 20 UTF-8 files to an explicit working branch using expected_head_sha and optional expected_blob_sha guards; never write to the default branch."
                 "github_pr" -> "Read or explicitly create/update/comment/merge a pull request."
                 "github_ci" -> "Read concise CI failure evidence, or explicitly dispatch/rerun/cancel a run."
                 else -> "Check release readiness or explicitly publish the selected release."

@@ -509,4 +509,30 @@ class GitHubWorkspaceClientTest {
             http.close()
         }
     }
+    @Test
+    fun rejectedGitHubCredentialsStopFurtherRequestsWithinTheClient() = runTest {
+        var requests = 0
+        val http = HttpClient(
+            MockEngine {
+                requests++
+                respond("""{"message":"Bad credentials"}""", HttpStatusCode.Unauthorized)
+            }
+        )
+        try {
+            val client = GitHubWorkspaceClient("invalid-token", http)
+            val args = buildJsonObject {
+                put("owner", "owner")
+                put("repo", "repo")
+            }
+            val first = runCatching { client.execute("get_repository", args) }
+            assertTrue(first.isFailure)
+            val second = runCatching { client.execute("get_repository", args) }
+            assertTrue(second.isFailure)
+            assertTrue(second.exceptionOrNull()?.message.orEmpty().contains("Reconnect"))
+            assertEquals(1, requests)
+        } finally {
+            http.close()
+        }
+    }
+
 }

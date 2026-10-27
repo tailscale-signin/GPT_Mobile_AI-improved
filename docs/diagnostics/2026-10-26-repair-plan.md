@@ -51,3 +51,5 @@ This is an implementation tracking document, not a claim that fixes are complete
 - [ ] No regressions to existing branch GitHub tools, Research, Combined or local runtime.
 
 - [x] Prefill timeout watchdog checks the native operation owner as well as coroutine completion (commit 9ec55c08; device verification pending).
+
+- [x] Return local streaming backpressure credit when an IPC send throws (commit e4627816; regression test pending).

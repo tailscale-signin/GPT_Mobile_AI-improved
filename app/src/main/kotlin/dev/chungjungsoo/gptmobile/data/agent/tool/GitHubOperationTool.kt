@@ -276,19 +276,25 @@ internal class GitHubOperationTool(
                     properties["comments"] = buildJsonObject {
                         put("type", "array")
                         put("maxItems", 30)
-                        put("items", buildJsonObject {
-                            put("type", "object")
-                            put("properties", buildJsonObject {
-                                put("path", field("string"))
-                                put("line", field("integer"))
-                                put("side", choice("LEFT", "RIGHT"))
-                                put("body", field("string"))
-                                put("start_line", field("integer"))
-                                put("start_side", choice("LEFT", "RIGHT"))
-                            })
-                            put("required", JsonArray(listOf("path", "line", "body").map(::JsonPrimitive)))
-                            put("additionalProperties", false)
-                        })
+                        put(
+                            "items",
+                            buildJsonObject {
+                                put("type", "object")
+                                put(
+                                    "properties",
+                                    buildJsonObject {
+                                        put("path", field("string"))
+                                        put("line", field("integer"))
+                                        put("side", choice("LEFT", "RIGHT"))
+                                        put("body", field("string"))
+                                        put("start_line", field("integer"))
+                                        put("start_side", choice("LEFT", "RIGHT"))
+                                    }
+                                )
+                                put("required", JsonArray(listOf("path", "line", "body").map(::JsonPrimitive)))
+                                put("additionalProperties", false)
+                            }
+                        )
                     }
                     properties["draft"] = field("boolean")
                     properties["page"] = field("integer")

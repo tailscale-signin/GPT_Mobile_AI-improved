@@ -83,7 +83,7 @@ jobs:
             cat sdk-licenses.log
             exit "$status"
           fi
-          if grep -Eq "[1-9][0-9]* of [0-9]+ SDK package licenses? not accepted" sdk-licenses.log && ! grep -Eq "All SDK package licenses accepted" sdk-licenses.log; then
+          if ! grep -Eq "All SDK package licenses accepted" sdk-licenses.log; then
             cat sdk-licenses.log
             exit 1
           fi

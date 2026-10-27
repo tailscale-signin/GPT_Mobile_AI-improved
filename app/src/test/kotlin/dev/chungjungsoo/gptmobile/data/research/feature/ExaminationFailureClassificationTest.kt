@@ -26,6 +26,12 @@ class ExaminationFailureClassificationTest {
         assertEquals(true, failure.retryable)
     }
 
+    @Test fun outputLimitWaitsForCapacityInsteadOfFailingPermanently() {
+        val failure = examinationFailure(IllegalStateException("OUTPUT_LIMIT during extraction"), 0, 1000L)
+        assertEquals("OUTPUT_LIMIT", failure.code)
+        assertEquals(ExaminationStage.WAITING_CAPACITY, failure.stage)
+    }
+
     @Test fun nestedForbiddenCauseIsDetected() {
         val failure = examinationFailure(IllegalStateException("Reader failed", IllegalStateException("HTTP 403 Forbidden")), 0, 1000L)
         assertEquals("SOURCE_ACCESS_BLOCKED", failure.code)

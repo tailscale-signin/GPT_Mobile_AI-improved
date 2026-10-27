@@ -561,7 +561,16 @@ class GitHubWorkspaceViewModel @Inject constructor(
                 next?.let { put("index_cursor", it) }
             }
         ).jsonObject
-        _state.update { it.copy(indexStatus = result, notice = if (result["next_index_cursor"] != null) "Code context prepared in a bounded batch. Continue when useful; other files remain available on demand." else "Index preparation finished. Files not cached remain available on demand.") }
+        _state.update {
+            it.copy(
+                indexStatus = result,
+                notice = when {
+                    result["next_index_cursor"] != null -> "Code context prepared in a bounded batch. Continue when useful; other files remain available on demand."
+                    result.flag("preparation_finished") -> "Index preparation finished. Files not cached remain available on demand."
+                    else -> "The repository tree is partial. Cached files are available, but complete index coverage could not be established."
+                }
+            )
+        }
     }
     fun markReviewed() {
         _state.update { it.copy(reviewBaseline = it.headSha, changedFiles = null, notice = "Review baseline saved at ${it.headSha.take(8)}.") }

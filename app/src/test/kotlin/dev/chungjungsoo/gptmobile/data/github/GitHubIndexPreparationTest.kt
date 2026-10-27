@@ -25,16 +25,18 @@ class GitHubIndexPreparationTest {
 
     @Test fun preparationIsPinnedBoundedAndResumesWithoutFetchingCachedBlobs() = runTest {
         var blobs = 0
+        var treeSize = 50
+        var treeTruncated = false
         val state = GitHubRepositoryStateStore()
         val request: suspend (String) -> kotlinx.serialization.json.JsonElement = { path ->
             when {
                 "/commits/" in path -> Json.parseToJsonElement("""{"sha":"$head","commit":{"tree":{"sha":"$tree"}}}""")
                 "/git/trees/" in path -> buildJsonObject {
-                    put("truncated", false)
+                    put("truncated", treeTruncated)
                     put(
                         "tree",
                         buildJsonArray {
-                            (1..50).forEach { n ->
+                            (1..treeSize).forEach { n ->
                                 add(
                                     buildJsonObject {
                                         put("path", "src/File$n.kt")
@@ -71,6 +73,13 @@ class GitHubIndexPreparationTest {
         assertTrue(final.getValue("complete").jsonPrimitive.content.toBoolean())
         session("another-task").execute("build_index", "owner", "repo", args())
         assertEquals("Cached blobs must survive a new task without more physical fetches", 50, blobs)
+        treeSize = 1
+        treeTruncated = true
+        val partial = GitHubRepositorySession("account", "connection", "workspace", "partial-tree", GitHubRepositoryStateStore(), request, { _, _ -> error("Unexpected mutation") }).execute("build_index", "owner", "repo", args()).jsonObject
+        assertEquals(51, blobs)
+        assertFalse(partial.getValue("tree_complete").jsonPrimitive.content.toBoolean())
+        assertFalse("Exhausting the returned subset cannot finish preparation of a truncated tree", partial.getValue("preparation_finished").jsonPrimitive.content.toBoolean())
+        assertFalse(partial.getValue("complete").jsonPrimitive.content.toBoolean())
     }
 
     @Test fun malformedTextStillConsumesThePhysicalFetchAllowance() = runTest {

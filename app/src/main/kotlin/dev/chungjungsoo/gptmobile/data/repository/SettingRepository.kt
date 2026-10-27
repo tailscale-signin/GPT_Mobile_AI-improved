@@ -47,7 +47,10 @@ interface SettingRepository {
     suspend fun saveCombinedSettings(chatId: Int, settings: ConversationCombinedSettings, expectedRevision: Long): ConversationCombinedSettings =
         mutateFeatureSettings { ConversationCombinedLifecycle.save(it, chatId, settings, expectedRevision) }.conversationCombined.getValue(chatId)
     suspend fun copyConversationCombinedSettings(sourceId: Int, targetId: Int) {
-        mutateFeatureSettings { ConversationCombinedLifecycle.copy(it, sourceId, targetId) }
+        mutateFeatureSettings { current ->
+            val copied = ConversationCombinedLifecycle.copy(current, sourceId, targetId)
+            copied.copy(conversationGitHub = copied.conversationGitHub + listOfNotNull(current.conversationGitHub[sourceId]?.let { targetId to it }).toMap())
+        }
     }
     suspend fun adoptConversationCombinedSettings(sourceId: Int, targetId: Int, expectedIdentity: String) {
         mutateFeatureSettings { ConversationCombinedLifecycle.adopt(it, sourceId, targetId, expectedIdentity) }
@@ -56,10 +59,10 @@ interface SettingRepository {
         mutateFeatureSettings { ConversationCombinedLifecycle.prepareDeletion(it, chatId) }
     }
     suspend fun deleteConversationCombinedSettings(chatId: Int) {
-        mutateFeatureSettings { ConversationCombinedLifecycle.delete(it, chatId) }
+        mutateFeatureSettings { ConversationCombinedLifecycle.delete(it, chatId).copy(conversationGitHub = it.conversationGitHub - chatId) }
     }
     suspend fun recoverConversationCombinedDeletions(existingChatIds: Set<Int>) {
-        mutateFeatureSettings { ConversationCombinedLifecycle.recoverDeletions(it, existingChatIds) }
+        mutateFeatureSettings { ConversationCombinedLifecycle.recoverDeletions(it, existingChatIds).copy(conversationGitHub = it.conversationGitHub.filterKeys(existingChatIds::contains)) }
     }
     suspend fun ensureFreeModels() {}
     suspend fun migrateToPlatformV2()

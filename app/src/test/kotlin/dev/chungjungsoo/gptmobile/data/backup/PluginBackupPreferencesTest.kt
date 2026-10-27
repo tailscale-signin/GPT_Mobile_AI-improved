@@ -8,6 +8,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PluginBackupPreferencesTest {
+    @Test fun restoringReusedIdentifiersCannotAttachAnOldGitHubWorkspaceToAnotherChat() {
+        val raw = """{"conversationGitHub":{"12":{"connectionUid":"old-account","owner":"private-owner","repo":"private-repo","ref":"main","commitSha":"${"a".repeat(40)}","mainProfileUid":"old-profile"}},"githubMainProfiles":{"old-account":"old-profile"},"githubPrepareIndex":["old-account"],"remoteMcpConnections":false}"""
+        val incoming = mapOf("advanced_feature_settings_json" to BackupValue("string", raw))
+        val restored = PluginBackupPreferences.sanitizeAcademic(incoming).getValue("advanced_feature_settings_json").value
+        val settings = Json.decodeFromString<dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings>(restored)
+        assertTrue(settings.conversationGitHub.isEmpty())
+        assertTrue(settings.githubMainProfiles.isEmpty())
+        assertTrue(settings.githubPrepareIndex.isEmpty())
+        assertEquals(false, settings.remoteMcpConnections)
+        assertTrue(!restored.contains("private-owner"))
+    }
+
     @Test fun academicRestorePreservesDepthAndSourcesButRequiresFreshConsent() {
         val incoming = mapOf("advanced_feature_settings_json" to BackupValue("string", """{"toolPluginStates":{"deep_research":true},"conversationResearch":{"12":{"researchToggle":true,"depth":80,"gatewayConnectionUid":"private","allowNativeFallback":true,"enabledProviders":["arxiv"]}}}"""))
         val restored = PluginBackupPreferences.sanitizeAcademic(incoming).getValue("advanced_feature_settings_json").value

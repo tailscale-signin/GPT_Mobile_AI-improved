@@ -27,8 +27,13 @@ internal object PluginBackupPreferences {
     /** Restore nonsecret preferences, but never reopen academic network access or a gateway grant. */
     fun sanitizeAcademic(preferences: Map<String, BackupValue>): Map<String, BackupValue> {
         val raw = preferences[KEY]?.value ?: return preferences
-        val saved = Json.parseToJsonElement(raw) as? JsonObject ?: return preferences
-        if ("conversationResearch" !in saved && "deep_research" !in raw) return preferences
+        val original = Json.parseToJsonElement(raw) as? JsonObject ?: return preferences
+        // Restored chat/profile/connection IDs are not proof of the original account
+        // binding. Re-select a GitHub workspace after restore; never attach its scope
+        // to an unrelated room that happens to reuse a numeric ID.
+        val saved = JsonObject(original.filterKeys { it !in setOf("conversationGitHub", "githubMainProfiles", "githubPrepareIndex") })
+        val sanitized = if (saved == original) preferences else preferences + (KEY to BackupValue("string", saved.toString()))
+        if ("conversationResearch" !in saved && "deep_research" !in raw) return sanitized
         val states = JsonObject((saved["toolPluginStates"] as? JsonObject).orEmpty() + ("deep_research" to JsonPrimitive(false)))
         val conversations = JsonObject(
             (saved["conversationResearch"] as? JsonObject).orEmpty().mapValues { (_, value) ->

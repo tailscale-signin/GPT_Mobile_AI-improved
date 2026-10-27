@@ -103,10 +103,15 @@ class GitHubOperationToolTest {
         assertTrue(GitHubOperationTool.taskTools("Write files and push changes in GitHub").contains("github_write"))
     }
 
-    @Test fun directWriteRejectsMalformedFileListsBeforeDispatch() {
-        val schema = GitHubOperationTool.definition("github_write").inputSchema
+    @Test fun directWriteRejectsMalformedFileListsBeforeDispatch() = runBlocking {
+        val backend = Backend()
+        val tool = GitHubOperationTool("github_write", backend, "write-validation")
         val invalid = args("""{"branch":"fix/example","files":[{"path":"src/Fix.kt"}]}""")
-        assertTrue(ToolArgumentValidator.errors(invalid, schema).isNotEmpty())
+        val result = tool.execute("invalid-write", invalid)
+        assertTrue(result.isError)
+        assertEquals("INVALID_ARGUMENTS", result.errorCode)
+        assertFalse(result.dispatched)
+        assertTrue(backend.calls.isEmpty())
     }
 
     @Test fun directWriteRoutesThroughAuthorizedBackend() = runBlocking {

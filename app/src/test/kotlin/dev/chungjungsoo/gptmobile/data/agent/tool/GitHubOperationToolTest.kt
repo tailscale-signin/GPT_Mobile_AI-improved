@@ -130,6 +130,18 @@ class GitHubOperationToolTest {
         assertTrue(backend.calls.isEmpty())
     }
 
+    @Test fun directWriteRejectsMalformedHeadShaWithoutDispatch() = runBlocking {
+        val backend = Backend()
+        val tool = GitHubOperationTool("github_write", backend, "invalid-head")
+        val result = tool.execute(
+            "invalid-head",
+            args("""{"branch":"fix/example","expected_head_sha":"main","message":"Update","files":[{"path":"new.txt","content":"text"}]}""")
+        )
+        assertEquals("INVALID_ARGUMENTS", result.errorCode)
+        assertFalse(result.dispatched)
+        assertTrue(backend.calls.isEmpty())
+    }
+
     @Test fun directWriteRoutesThroughAuthorizedBackend() = runBlocking {
         val backend = Backend()
         val tool = GitHubOperationTool("github_write", backend, "write-test")

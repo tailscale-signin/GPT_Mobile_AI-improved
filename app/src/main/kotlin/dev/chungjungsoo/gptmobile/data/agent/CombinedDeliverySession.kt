@@ -501,7 +501,7 @@ internal class CombinedDeliverySession(
             emit(ProviderEvent.Notice("The retained historical survey is missing required periods. It remains a partial draft until those sections are completed and checked.", persistent = true))
         }
         if (violations.isNotEmpty()) emit(ProviderEvent.Notice(if (accepted.text.isBlank()) "Final assembly did not deliver answer text. Saved contributions and recovery actions remain available." else "The retained draft has an unmet instruction check.", persistent = true))
-        if (correctionRequired) emit(ProviderEvent.Notice("The retained draft requires correction; it is not a checked final answer.", persistent = true))
+        if (finalReport.correctionRequired || finalReport.status == "CORRECTION_REQUIRED") emit(ProviderEvent.Notice("The retained draft requires correction; it is not a checked final answer.", persistent = true))
         if (accepted.text.isBlank()) {
             emit(accepted.terminal as? ProviderEvent.Failed ?: ProviderEvent.Failed("Combined synthesis produced no usable answer records.", errorCode = if (finalReport.issues.any { it in COMBINED_FRAMING_FAILURES }) "OUTPUT_PROTOCOL_INVALID" else "COMBINED_PARTIAL"))
         } else if (!finalReport.complete || finalReport.deliveredScopeStatus == "PARTIAL") {

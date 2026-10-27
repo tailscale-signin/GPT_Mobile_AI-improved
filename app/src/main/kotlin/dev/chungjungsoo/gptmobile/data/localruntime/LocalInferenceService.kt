@@ -312,8 +312,9 @@ class LocalInferenceService : Service() {
                                                     // A cancelled coroutine can report completion while
                                                     // native prefill still owns the operation lease.
                                                     // Match the explicit cancellation watchdog.
-                                                    if (activeCommandRequest == packet.requestId ||
-                                                        owner?.isCompleted == false
+                                                    if (!terminationGate.isTerminating() &&
+                                                        (activeCommandRequest == packet.requestId ||
+                                                            owner?.isCompleted == false)
                                                     ) {
                                                         terminateWorker("PREFILL_CANCELLATION_UNACKNOWLEDGED", packet.requestId)
                                                     }

@@ -424,14 +424,14 @@ class LocalInferenceService : Service() {
                     )
                 } finally {
                     if (generatingRequest == packet.requestId) generatingRequest = null
-                    if (activeCommandRequest == packet.requestId) activeCommandRequest = null
-                    jobs.remove(packet.requestId)
-                    replies.remove(packet.requestId)
                     try {
-                        // Publish the terminal response before admitting another
-                        // native command; always release the lease if Binder fails.
+                        // Keep native ownership visible until the terminal packet
+                        // is published, even if its Binder delivery fails.
                         reply.flushTerminal()
                     } finally {
+                        if (activeCommandRequest == packet.requestId) activeCommandRequest = null
+                        jobs.remove(packet.requestId)
+                        replies.remove(packet.requestId)
                         operationLock.unlock()
                     }
                 }

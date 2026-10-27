@@ -53,3 +53,5 @@ This is an implementation tracking document, not a claim that fixes are complete
 - [x] Prefill timeout watchdog checks the native operation owner as well as coroutine completion (commit 9ec55c08; device verification pending).
 
 - [x] Return local streaming backpressure credit when an IPC send throws (commit e4627816; regression test pending).
+
+- [x] Reject delayed cancellation when the request no longer owns the active native operation (commit d04f0516; tests pending).

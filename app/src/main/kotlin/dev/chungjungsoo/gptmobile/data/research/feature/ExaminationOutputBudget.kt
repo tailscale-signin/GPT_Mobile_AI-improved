@@ -31,6 +31,8 @@ object ExaminationOutputBudget {
     fun canSplit(failure: Throwable): Boolean = generateSequence(failure) { it.cause?.takeUnless { next -> next === it } }.take(12).any {
         it.message.orEmpty().contains(INSUFFICIENT) ||
             it.message.orEmpty().contains("OUTPUT_LIMIT", ignoreCase = true) ||
+            it.message.orEmpty().contains("max output tokens", ignoreCase = true) ||
+            it.message.orEmpty().contains("maximum output tokens", ignoreCase = true) ||
             it.message.orEmpty().contains(CONTEXT_INSUFFICIENT) ||
             it is dev.chungjungsoo.gptmobile.data.agent.tool.DelegateGenerationException &&
             it.kind == dev.chungjungsoo.gptmobile.data.agent.tool.DelegateFailureKind.OUTPUT_LIMIT

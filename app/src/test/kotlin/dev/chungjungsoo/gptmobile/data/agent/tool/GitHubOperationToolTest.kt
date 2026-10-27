@@ -92,6 +92,35 @@ class GitHubOperationToolTest {
         assertEquals(setOf("github_context", "github_search", "github_read", "github_stage_patch", "github_commit"), GitHubOperationTool.taskTools("Fix code in the repository, create a branch and push the commit"))
     }
 
+    @Test fun directWriteAdvertisesGuardedMultiFileCommits() {
+        val schema = GitHubOperationTool.definition("github_write").inputSchema
+        val arguments = args(
+            """{"action":"commit","branch":"fix/example","expected_head_sha":"${sha}","message":"Fix code","files":[{"path":"src/Fix.kt","content":"updated","expected_blob_sha":"${sha}"}]}"""
+        )
+        assertEquals(emptyList<String>(), ToolArgumentValidator.errors(arguments, schema))
+        assertEquals("commit_files", GitHubOperationTool.nativeArguments("github_write", arguments)?.get("action")?.jsonPrimitive?.content)
+        assertTrue(GitHubOperationTool.names.contains("github_write"))
+        assertTrue(GitHubOperationTool.taskTools("Write files and push changes in GitHub").contains("github_write"))
+    }
+
+    @Test fun directWriteRejectsMalformedFileListsBeforeDispatch() {
+        val schema = GitHubOperationTool.definition("github_write").inputSchema
+        val invalid = args("""{"branch":"fix/example","files":[{"path":"src/Fix.kt"}]}""")
+        assertTrue(ToolArgumentValidator.errors(invalid, schema).isNotEmpty())
+    }
+
+    @Test fun directWriteRoutesThroughAuthorizedBackend() = runBlocking {
+        val backend = Backend()
+        val tool = GitHubOperationTool("github_write", backend, "write-test")
+        val arguments = args(
+            """{"action":"commit","branch":"fix/example","expected_head_sha":"${sha}","message":"Fix code","files":[{"path":"src/Fix.kt","content":"updated"}]}"""
+        )
+        tool.execute("write", arguments)
+        assertEquals(1, backend.calls.size)
+        assertEquals("commit_files", backend.calls.single()["action"]?.jsonPrimitive?.content)
+        assertEquals("fix/example", backend.calls.single()["branch"]?.jsonPrimitive?.content)
+    }
+
     @Test fun readContinuationPreservesCommitAndLongLineOffsetsUsingOnlyAdvertisedFields() = runBlocking {
         val backend = Backend()
         backend.body = buildJsonObject {

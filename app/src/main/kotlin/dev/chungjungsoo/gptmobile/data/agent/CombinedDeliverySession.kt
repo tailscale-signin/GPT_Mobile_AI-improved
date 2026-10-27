@@ -175,7 +175,7 @@ internal class CombinedDeliverySession(
         var repairs = 0
         var repairAccepted = 0
         var repairRejected = 0
-        var correctionRequired = assessment.correctionRequired
+        var correctionRequired = assessment.correctionRequired || assessment.requiredFailures.isNotEmpty()
         val rejections = mutableListOf<String>()
         val verificationAttempts = linkedSetOf<String>()
         var noProgress = 0

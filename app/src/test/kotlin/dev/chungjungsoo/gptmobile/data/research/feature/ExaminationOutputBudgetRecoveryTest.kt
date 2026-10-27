@@ -10,6 +10,10 @@ class ExaminationOutputBudgetRecoveryTest {
         assertTrue(ExaminationOutputBudget.canSplit(failure))
     }
 
+    @Test fun providerMaximumOutputTokenErrorCanSplit() {
+        assertTrue(ExaminationOutputBudget.canSplit(IllegalStateException("Maximum output tokens exceeded")))
+    }
+
     @Test fun authenticationFailureMustNotSplitScientificEvidence() {
         assertFalse(ExaminationOutputBudget.canSplit(IllegalStateException("HTTP 401 Unauthorized")))
     }

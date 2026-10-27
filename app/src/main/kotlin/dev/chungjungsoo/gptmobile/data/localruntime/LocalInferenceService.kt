@@ -419,6 +419,7 @@ class LocalInferenceService : Service() {
     }
 
     private fun cancel(requestId: String) {
+        if (terminationGate.isTerminating()) return
         val job = jobs[requestId] ?: return
         // Signal the native abort flag immediately; cancelling a coroutine cannot
         // interrupt a blocking JNI call. Only target the command holding the lease.
@@ -426,7 +427,11 @@ class LocalInferenceService : Service() {
         job.cancel()
         scope.launch {
             delay(10_000)
-            if (!job.isCompleted) terminateWorker("CANCELLATION_UNACKNOWLEDGED", requestId)
+            // Cancellation may finish the coroutine while JNI remains blocked. Do
+            // not trust Job completion alone as proof that the native lease was released.
+            if (activeCommandRequest == requestId || !job.isCompleted) {
+                terminateWorker("CANCELLATION_UNACKNOWLEDGED", requestId)
+            }
         }
     }
 

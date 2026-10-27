@@ -13,7 +13,7 @@ internal object CompletionUsageNormalizer {
     data class Usage(
         val promptTokens: Int?,
         val completionTokens: Int?,
-        val totalTokens: Int?,
+        val totalTokens: Int?
     )
 
     fun parse(response: JsonObject): Usage? {

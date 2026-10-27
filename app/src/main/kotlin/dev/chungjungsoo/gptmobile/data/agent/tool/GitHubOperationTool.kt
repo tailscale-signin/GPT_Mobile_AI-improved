@@ -59,7 +59,8 @@ internal class GitHubOperationTool(
             val requiredFields = when (action) {
                 "create" -> listOf("title", "head", "base")
                 "update", "merge" -> listOf("pull_number", "expected_head_sha")
-                "comment", "review" -> listOf("pull_number")
+                "comment" -> listOf("pull_number", "body")
+                "review" -> listOf("pull_number")
                 "reply" -> listOf("pull_number", "comment_id", "body")
                 else -> emptyList()
             }

@@ -62,10 +62,13 @@ if(ANDROID AND GGUF_VULKAN)
     # Stage just these headers: adding /usr/include to an Android target would
     # also expose host libc headers and break NDK cross-compilation.
     find_path(GGUF_HOST_VULKAN_INCLUDE_DIR vulkan/vulkan.hpp
-        HINTS "$ENV{VULKAN_SDK}/include" NO_CMAKE_FIND_ROOT_PATH REQUIRED)
+        HINTS "$ENV{VULKAN_SDK}/include" NO_CMAKE_FIND_ROOT_PATH)
     find_path(GGUF_HOST_SPIRV_INCLUDE_DIR spirv/unified1/spirv.hpp
-        HINTS "$ENV{VULKAN_SDK}/include" NO_CMAKE_FIND_ROOT_PATH REQUIRED)
-    find_package(SPIRV-Headers CONFIG REQUIRED NO_CMAKE_FIND_ROOT_PATH)
+        HINTS "$ENV{VULKAN_SDK}/include" NO_CMAKE_FIND_ROOT_PATH)
+    find_package(SPIRV-Headers CONFIG QUIET NO_CMAKE_FIND_ROOT_PATH)
+    if(NOT GGUF_HOST_VULKAN_INCLUDE_DIR OR NOT GGUF_HOST_SPIRV_INCLUDE_DIR OR NOT SPIRV-Headers_FOUND)
+        message(FATAL_ERROR "GGUF_VULKAN=ON requires host Vulkan-Hpp and SPIRV-Headers SDK files. Install the host SDK or configure -DGGUF_VULKAN=OFF.")
+    endif()
     set(GGUF_VULKAN_HEADERS "${CMAKE_CURRENT_BINARY_DIR}/vulkan-headers/include")
     file(COPY "${GGUF_HOST_VULKAN_INCLUDE_DIR}/vulkan"
               "${GGUF_HOST_SPIRV_INCLUDE_DIR}/spirv" DESTINATION "${GGUF_VULKAN_HEADERS}")

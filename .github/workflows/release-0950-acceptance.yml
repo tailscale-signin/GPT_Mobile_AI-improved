@@ -54,8 +54,8 @@ jobs:
           -Xlog:gc:file=${RUNNER_TEMP}/acceptance-package-gc.log:time,level,tags -Dfile.encoding=UTF-8"
       - name: Verify compatible device APK artifacts before booting
         run: |
-          python3 scripts/select_android_test_apk.py app/build/outputs/apk/debug --application-id dev.melo.gptmobile.improved --abi x86_64
-          python3 scripts/select_android_test_apk.py app/build/outputs/apk/androidTest/debug --application-id dev.melo.gptmobile.improved.test
+          python3 scripts/select_android_test_apk.py app/build/intermediates/apk/debug --application-id dev.melo.gptmobile.improved --abi x86_64
+          python3 scripts/select_android_test_apk.py app/build/intermediates/apk/androidTest/debug --application-id dev.melo.gptmobile.improved.test
       - name: Run editor and Combined finalization regressions and measure database/catalog operations
         uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
         with:
@@ -74,4 +74,5 @@ jobs:
             app/build/outputs/androidTest-results/
             app/build/acceptance-0950/
             app/build/outputs/apk/**/output-metadata.json
+            app/build/intermediates/apk/**/output-metadata.json
             ${{ runner.temp }}/acceptance-package-gc.log

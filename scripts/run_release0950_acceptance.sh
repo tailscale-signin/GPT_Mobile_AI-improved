@@ -6,8 +6,8 @@ mkdir -p "$acceptance_output"
 adb shell wm size 640x1280
 adb shell wm density 320
 adb shell settings put system font_scale 2.0
-application_apk=$(python3 scripts/select_android_test_apk.py app/build/outputs/apk/debug --application-id dev.melo.gptmobile.improved --abi x86_64)
-instrumentation_apk=$(python3 scripts/select_android_test_apk.py app/build/outputs/apk/androidTest/debug --application-id dev.melo.gptmobile.improved.test)
+application_apk=$(python3 scripts/select_android_test_apk.py app/build/intermediates/apk/debug --application-id dev.melo.gptmobile.improved --abi x86_64)
+instrumentation_apk=$(python3 scripts/select_android_test_apk.py app/build/intermediates/apk/androidTest/debug --application-id dev.melo.gptmobile.improved.test)
 adb install -r "$application_apk"
 adb install -r "$instrumentation_apk"
 adb shell pm list instrumentation > "$acceptance_output/instrumentations.txt"

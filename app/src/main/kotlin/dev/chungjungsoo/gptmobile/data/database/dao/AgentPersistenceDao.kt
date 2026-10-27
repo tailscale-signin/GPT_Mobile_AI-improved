@@ -623,6 +623,7 @@ interface AgentPersistenceDao :
                 dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.TEXT, content = text),
                 dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(
                     dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE,
+                    content = if (source != null) "This is one selected contributor response, not a combined synthesis." else "No unified answer was completed. Evidence remains saved for retry.",
                     combinedQuality = report,
                     combinedFallback = receipt,
                     researchDeliveryReceipt = if (source == null) {

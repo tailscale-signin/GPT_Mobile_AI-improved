@@ -195,7 +195,7 @@ internal class CombinedDeliverySession(
             }
             val mapping = withContext(Dispatchers.Default) { CombinedAnswerMappings.get(candidate.text, sources) }
             val meaningfulClaimIds = CombinedContentIndexes.get(sources).records.flatMapTo(linkedSetOf()) { it.candidateIds }
-            val semanticCoverageVerified = meaningfulClaimIds.isNotEmpty() &&
+            val semanticCoverageVerified = meaningfulClaimIds.isEmpty() ||
                 checked.checks.none { it.id.startsWith("SEMANTIC_CONTRIBUTION_UNRESOLVED:") }
             val mappedPassages = CombinedAnswerMappings.passages(candidate.text, mapping, if (candidate.assembledLocally) emptyList() else candidate.decoder?.passages.orEmpty())
             val represented = mapping.links.flatMapTo(linkedSetOf()) { it.profileUids }

@@ -1184,7 +1184,7 @@ class AgentToolResolver @Inject constructor(
         val temporary = userMessage?.chatId?.let { factVault?.scopeForChat(it)?.isTemporary == true } == true
         val previous = if (temporary) null else store?.read(scope, "github")?.get("task")?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
         val explicit = GitHubOperationTool.taskTools(task).isNotEmpty()
-        val followup = Regex("(?i)\\b(continue|resume|fix|patch|push|commit|branch|release|review|test|build)\\b").containsMatchIn(task)
+        val followup = Regex("(?i)\\b(continue|resume|fix|patch|push|pushing|commit|committing|branch|release|review|test|build|write|writing)\\b").containsMatchIn(task)
         val selected = when {
             explicit -> task
             followup && (selectedRepository || previous != null) -> "repository " + task + " " + previous.orEmpty()

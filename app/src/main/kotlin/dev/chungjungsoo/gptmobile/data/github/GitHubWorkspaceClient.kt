@@ -787,8 +787,14 @@ class GitHubWorkspaceClient(
                 buildJsonArray {
                     paths.forEachIndexed { index, file ->
                         val existing = entries[file]
-                        files[index].jsonObject["expected_blob_sha"]?.jsonPrimitive?.content?.let { expectedBlob ->
-                            require(expectedBlob == existing?.get("sha")?.jsonPrimitive?.content) { "Original blob changed for $file; restage the patch." }
+                        val expectedBlob = files[index].jsonObject["expected_blob_sha"]?.jsonPrimitive?.content
+                        require(expectedBlob != null || existing == null) {
+                            "Updating $file requires expected_blob_sha; read the current file before writing."
+                        }
+                        if (expectedBlob != null) {
+                            require(expectedBlob == existing?.get("sha")?.jsonPrimitive?.content) {
+                                "Original blob changed for $file; restage the patch."
+                            }
                         }
                         val mode = existing?.get("mode")?.jsonPrimitive?.content ?: "100644"
                         require(mode in setOf("100644", "100755")) { "Cannot replace a directory, symlink or submodule: $file" }

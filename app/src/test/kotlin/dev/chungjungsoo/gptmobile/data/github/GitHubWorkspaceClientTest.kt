@@ -106,6 +106,7 @@ class GitHubWorkspaceClientTest {
                 add(
                     buildJsonObject {
                         put("path", "run.sh")
+                        put("expected_blob_sha", "script-blob")
                         put("content", "#!/bin/sh\necho updated")
                     }
                 )
@@ -132,7 +133,7 @@ class GitHubWorkspaceClientTest {
                     }
                     1 -> """{"object":{"sha":"$head"}}"""
                     2 -> """{"tree":{"sha":"base-tree"}}"""
-                    3 -> """{"truncated":false,"tree":[{"path":"run.sh","type":"blob","mode":"100755"}]}"""
+                    3 -> """{"truncated":false,"tree":[{"path":"run.sh","type":"blob","mode":"100755","sha":"script-blob"}]}"""
                     4 -> {
                         assertEquals(HttpMethod.Post, request.method)
                         assertEquals("base-tree", body!!["base_tree"]!!.jsonPrimitive.content)
@@ -162,6 +163,44 @@ class GitHubWorkspaceClientTest {
             val result = GitHubWorkspaceClient("token", http).execute("commit_files", changeSet()).jsonObject
             assertEquals("new-commit", result["sha"]!!.jsonPrimitive.content)
             assertEquals(7, step)
+        } finally {
+            http.close()
+        }
+    }
+
+    @Test
+    fun `overwriting existing files without blob preconditions is rejected before creating git objects`() = runTest {
+        var requests = 0
+        val http = HttpClient(MockEngine { request ->
+            requests++
+            assertEquals(HttpMethod.Get, request.method)
+            respond(
+                when (requests) {
+                    1 -> """{"default_branch":"main"}"""
+                    2 -> """{"object":{"sha":"$head"}}"""
+                    3 -> """{"tree":{"sha":"base-tree"}}"""
+                    4 -> """{"truncated":false,"tree":[{"path":"README.md","type":"blob","mode":"100644","sha":"readme-blob"}]}"""
+                    else -> error("Mutation reached GitHub without expected_blob_sha")
+                }
+            )
+        })
+        try {
+            val change = buildJsonObject {
+                put("owner", "owner")
+                put("repo", "repo")
+                put("branch", "feature/code")
+                put("expected_head_sha", head)
+                put("message", "Replace README")
+                put("files", buildJsonArray {
+                    add(buildJsonObject {
+                        put("path", "README.md")
+                        put("content", "New contents")
+                    })
+                })
+            }
+            val error = runCatching { GitHubWorkspaceClient("token", http).execute("commit_files", change) }.exceptionOrNull()
+            assertTrue(error?.message?.contains("expected_blob_sha") == true)
+            assertEquals(4, requests)
         } finally {
             http.close()
         }

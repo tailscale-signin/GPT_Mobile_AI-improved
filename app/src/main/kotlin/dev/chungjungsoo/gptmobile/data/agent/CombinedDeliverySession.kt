@@ -320,7 +320,7 @@ internal class CombinedDeliverySession(
             }
             val rewritten = repairSession?.let { collect(it, false) }
             validateAccess()
-            if (rewritten != null && researchHash(rewritten.text) == previousDigest && rewritten.decoder?.decisions == accepted.decoder?.decisions) {
+            if (rewritten != null && CombinedContinuationProgress.assess(accepted.text, rewritten.text) != CombinedContinuationProgress.Result.ADVANCED && rewritten.decoder?.decisions == accepted.decoder?.decisions) {
                 repairRejected++
                 rejections += "REPLACEMENT_MADE_NO_TEXT_PROGRESS"
                 repairSkippedReason = "NO_PROGRESS_AFTER_REQUIRED_REVISION"
@@ -445,7 +445,10 @@ internal class CombinedDeliverySession(
         // A historical survey must not be marked complete if the displayed answer
         // omits periods required by the same outline used to plan synthesis.
         if (policy.task?.historicalSurvey == true && accepted.text.isNotBlank()) {
-            val expectedPeriods = CombinedHistoryOutline.labels.indices.toSet()
+            val expectedPeriods = sources.flatMap { CombinedContentCoverage.sentences(it.content) }
+                .filter(CombinedHistoryOutline::substantive)
+                .flatMap { CombinedHistoryOutline.periods(it) }
+                .toSet()
             val coveredPeriods = CombinedHistoryOutline.periods(accepted.text).toSet()
             val missingPeriods = expectedPeriods - coveredPeriods
             if (missingPeriods.isNotEmpty()) {

@@ -114,6 +114,22 @@ class GitHubOperationToolTest {
         assertTrue(backend.calls.isEmpty())
     }
 
+    @Test fun directWriteRequiresAllCommitPreconditions() = runBlocking {
+        val backend = Backend()
+        val tool = GitHubOperationTool("github_write", backend, "missing-fields")
+        for (raw in listOf(
+            """{"branch":"fix/example","message":"Update","files":[{"path":"new.txt","content":"text"}]}""",
+            """{"expected_head_sha":"$sha","message":"Update","files":[{"path":"new.txt","content":"text"}]}""",
+            """{"branch":"fix/example","expected_head_sha":"$sha","files":[{"path":"new.txt","content":"text"}]}""",
+            """{"branch":"fix/example","expected_head_sha":"$sha","message":"Update"}"""
+        )) {
+            val result = tool.execute("missing", args(raw))
+            assertEquals("INVALID_ARGUMENTS", result.errorCode)
+            assertFalse(result.dispatched)
+        }
+        assertTrue(backend.calls.isEmpty())
+    }
+
     @Test fun directWriteRoutesThroughAuthorizedBackend() = runBlocking {
         val backend = Backend()
         val tool = GitHubOperationTool("github_write", backend, "write-test")

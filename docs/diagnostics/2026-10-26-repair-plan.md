@@ -8,7 +8,7 @@ This is an implementation tracking document, not a claim that fixes are complete
 - [ ] Reproduce Vulkan `mul_mat_vec_q4_k_f32_f32` `createComputePipeline ErrorUnknown` on Snapdragon 8 Elite.
 - [ ] Record actual GPU offload count, Vulkan capabilities, driver version, shader variant and quantization.
 - [ ] Gate unsupported shaders using device/backend capability tests, with explicit CPU fallback and visible reason.
-- [ ] Isolate native worker cancellation: do not reuse native state until process exit is confirmed; guard operations with generation IDs.
+- [ ] Verify process exit before client reconnect and prevent reuse of stale native state; maintain generation IDs.\n- [x] Make service-side termination requests idempotent using an atomic guard and reject new commands during termination (not yet tested).
 - [ ] Test prefill, token generation, cancellation during shader failure, restart and repeated model loads.
 
 ## P0 — Android sharing and import

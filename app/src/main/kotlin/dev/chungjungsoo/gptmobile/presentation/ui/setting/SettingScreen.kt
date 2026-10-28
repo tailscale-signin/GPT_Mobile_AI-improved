@@ -240,7 +240,10 @@ fun SettingScreen(
                                 if (featureSettings.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH)) {
                                     SettingsDestination(Icons.Rounded.Psychology, "Research", { showResearch = true })
                                 }
-                                if (githubWorkspaceEnabled) SettingsDestination(Icons.Rounded.Build, "GitHub Workspace", onNavigateToWorkspaces)
+                                if (githubWorkspaceEnabled) {
+                                    SettingsDestination(Icons.Rounded.Build, "GitHub Workspace", onNavigateToWorkspaces)
+                                    GitHubProfilePicker(platforms, featureSettings.githubDefaultProfileUid, settingViewModel::selectGitHubDefaultProfile, global = true)
+                                }
                             }
                         }
                         item {

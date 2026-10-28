@@ -86,6 +86,7 @@ data class AppFeatureSettings(
     val conversationResearch: Map<Int, MultiSearchResearchSelection> = emptyMap(),
     val conversationGitHub: Map<Int, dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext> = emptyMap(),
     val githubMainProfiles: Map<String, String> = emptyMap(),
+    val githubDefaultProfileUid: String? = null,
     val githubPrepareIndex: Set<String> = emptySet(),
     val conversationReasoning: Map<Int, Boolean> = emptyMap(),
     val profileProgressDeadlines: Map<String, dev.chungjungsoo.gptmobile.data.agent.ProgressDeadlineSettings> = emptyMap(),

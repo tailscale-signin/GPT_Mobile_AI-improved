@@ -36,6 +36,14 @@ internal object GitHubAuthorizationBoundary {
             )
     }
 
+    /** Selecting a mutable branch changes subsequent engineering destinations. */
+    fun isBranchSelection(tool: String, arguments: JsonObject): Boolean {
+        val native = if (tool == "github") arguments else dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.nativeArguments(tool, arguments) ?: return false
+        val action = (native["action"] as? JsonPrimitive)?.content
+        val ref = (native["ref"] as? JsonPrimitive)?.content.orEmpty()
+        return action in setOf("resolve_context", "task_context") && ref.isNotBlank() && !ref.matches(Regex("[a-fA-F0-9]{40}|[a-fA-F0-9]{64}"))
+    }
+
     fun requiresElevatedAuthorization(tool: String, arguments: JsonObject): Boolean {
         val operation = if (tool == "github") (arguments["action"] as? JsonPrimitive)?.content.orEmpty() else tool.substringAfterLast("__")
         val method = (arguments["method"] as? JsonPrimitive)?.content.orEmpty()

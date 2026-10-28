@@ -178,10 +178,11 @@ class ToolApprovalManager @Inject constructor(private val database: ChatDatabase
             GitHubAuthorizationBoundary.isReplayableRead(tool, arguments) ||
             (arguments["action"] as? kotlinx.serialization.json.JsonPrimitive)?.content == "stage_patch"
         val replayableRead = connection.type == "GITHUB" && GitHubAuthorizationBoundary.isReplayableRead(tool, arguments)
+        val branchSelection = github && GitHubAuthorizationBoundary.isBranchSelection(tool, arguments)
         val readOnly = githubRead && tool in connection.approvedReadTools.lines().map(String::trim)
         if (policy == ToolPolicy.READ_ONLY && !readOnly) return false
-        if (readOnly) return true
-        val exactApproval = github && !(if (tool == "github") githubRead else readOnly)
+        if (readOnly && !branchSelection) return true
+        val exactApproval = github && (branchSelection || !(if (tool == "github") githubRead else readOnly))
         val scope = schema?.let { definition -> database.agentRunDao().getById(runId)?.let { ScopedToolGrant.from(it.chatId, definition, arguments) } }
         val id = "$runId:$callId"
         scope?.let { requestScopes[id] = it }

@@ -29,7 +29,13 @@ import dev.chungjungsoo.gptmobile.data.research.ResearchSource
 import dev.chungjungsoo.gptmobile.data.research.feature.ResearchArchiveRepository
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.buildJsonObject
@@ -37,14 +43,18 @@ import kotlinx.serialization.json.put
 
 @HiltViewModel
 class CrawlerJobsViewModel @Inject constructor(@ApplicationContext context: Context, private val resolver: AgentToolResolver, private val archive: ResearchArchiveRepository, private val connections: dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository, private val vault: dev.chungjungsoo.gptmobile.data.security.SecretVault) : ViewModel() {
-    private val store = CrawlStore.forDirectory(context.filesDir)
-    val jobs = store.jobs
+    // Context.filesDir may create/check directories. Resolve it only on IO,
+    // including when the first collector opens this settings panel.
+    private val store by lazy { CrawlStore.forDirectory(context.filesDir) }
+    val jobs = flow { emitAll(store.jobs) }
+        .flowOn(Dispatchers.IO)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val busy = MutableStateFlow<Set<String>>(emptySet())
     val message = MutableStateFlow("")
     val companions = MutableStateFlow<List<dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection>>(emptyList())
     val readyKeys = MutableStateFlow<Set<String>>(emptySet())
     fun refresh() {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             store.list()
             companions.value = connections.listConnections().filter(dev.chungjungsoo.gptmobile.data.crawl.CrawlerCompanionGrant::recognizes)
             val references = vault.references()
@@ -73,7 +83,7 @@ class CrawlerJobsViewModel @Inject constructor(@ApplicationContext context: Cont
     }
     fun action(job: CrawlJob, action: String) {
         if (job.id in busy.value && action != "cancel") return
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             busy.update { it + job.id }
             try {
                 when (action) {

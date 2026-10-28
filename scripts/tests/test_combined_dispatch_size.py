@@ -17,6 +17,16 @@ class CombinedDispatchSizeTest(unittest.TestCase):
             self.assertTrue(SIZE.is_dispatch_method(SIZE.COMBINED_PLANNER + '$' + stage + '$1;', 'invokeSuspend'))
             self.assertTrue(SIZE.is_dispatch_method(SIZE.COMBINED_PLANNER + '$' + stage + '$assembled$1;', 'invokeSuspend'))
 
+    def test_local_inference_planning_and_execution_are_guarded(self):
+        prefix = 'Ldev/chungjungsoo/gptmobile/data/agent/provider/LiteRtLmAdapter'
+        for descriptor, method in (
+            (prefix + '$openSession$3$streamPlannedRound$1;', 'invokeSuspend'),
+            (prefix + '$openSession$3$streamPlannedRound$1;', 'invokeSuspend$runInference'),
+            (prefix + '$openSession$3$streamPlannedRound$1$runInference$2$1;', 'invokeSuspend'),
+            (prefix + '$openSession$3$streamPlannedRound$1$runInference$2$1;', 'invokeSuspend$generateReply'),
+        ):
+            self.assertTrue(SIZE.is_dispatch_method(descriptor, method))
+
     def test_guard_uses_art_code_units_and_does_not_match_unrelated_names(self):
         self.assertEqual(16383, SIZE.ART_CODE_UNIT_LIMIT)
         self.assertFalse(SIZE.is_dispatch_method(SIZE.COMBINED_PLANNER + ';', 'prepareFallback'))

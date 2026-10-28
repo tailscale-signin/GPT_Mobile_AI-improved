@@ -34,6 +34,8 @@ import kotlinx.coroutines.sync.withLock
 data class GitHubProgrammerState(
     val profiles: List<PlatformV2> = emptyList(),
     val profileUid: String? = null,
+    val profileOverrideUid: String? = null,
+    val canLoadEarlier: Boolean = false,
     val context: GitHubConversationContext? = null,
     val chatId: Int? = null,
     val messages: List<MessageV2> = emptyList(),
@@ -65,6 +67,7 @@ class GitHubProgrammerViewModel @Inject constructor(
     private val destination = MutableStateFlow<GitHubWorkspaceState?>(null)
     private var conversationJob: Job? = null
     private var observedChat: Int? = null
+    private var historyTurns = 10
     private data class CommandDraft(val key: String, val text: String, val revision: Long)
     private val draftRevision = java.util.concurrent.atomic.AtomicLong()
     private val latestDrafts = java.util.concurrent.ConcurrentHashMap<String, CommandDraft>()
@@ -79,7 +82,7 @@ class GitHubProgrammerViewModel @Inject constructor(
                 val selected = workspace?.selection
                 val storedUid = connection?.connectionUid?.let(features.githubMainProfiles::get)
                 val enabled = profiles.filter { it.enabled }
-                val uid = storedUid ?: enabled.sortedWith(compareByDescending<PlatformV2> { it.isFavorite }.thenBy { it.name }).firstOrNull()?.uid
+                val uid = storedUid ?: features.githubDefaultProfileUid ?: enabled.sortedWith(compareByDescending<PlatformV2> { it.isFavorite }.thenBy { it.name }).firstOrNull()?.uid
                 val prepare = connection?.connectionUid?.let { it in features.githubPrepareIndex } == true
                 val context = if (connection != null && selected != null && workspace.headSha.isNotBlank() && uid != null) {
                     GitHubConversationContext(connection.connectionUid, selected.owner, selected.repo, selected.ref, workspace.headSha, uid, prepare)
@@ -89,7 +92,7 @@ class GitHubProgrammerViewModel @Inject constructor(
                 val previousKey = mutable.value.context?.let(::key)
                 val nextKey = context?.let(::key)
                 if (previousKey != nextKey) observeConversation(null)
-                mutable.update { it.copy(profiles = enabled, profileUid = uid, context = context, prepareIndex = prepare, draftLoaded = it.draftLoaded && previousKey == nextKey) }
+                mutable.update { it.copy(profiles = enabled, profileUid = uid, profileOverrideUid = storedUid, context = context, prepareIndex = prepare, draftLoaded = it.draftLoaded && previousKey == nextKey) }
                 if (previousKey != nextKey || !mutable.value.draftLoaded) {
                     try {
                         val restored = nextKey?.let { latestDrafts[it]?.text ?: drafts.read(it) }.orEmpty()
@@ -149,12 +152,12 @@ class GitHubProgrammerViewModel @Inject constructor(
         if (current?.connection?.connectionUid != workspace.connection?.connectionUid || current?.selection != workspace.selection || current?.headSha != workspace.headSha) destination.value = workspace
     }
 
-    fun selectProfile(uid: String) {
+    fun selectProfile(uid: String?) {
         val connectionUid = destination.value?.connection?.connectionUid ?: return
-        if (mutable.value.profiles.none { it.uid == uid }) return
+        if (uid != null && mutable.value.profiles.none { it.uid == uid }) return
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                settings.mutateFeatureSettings { it.copy(githubMainProfiles = it.githubMainProfiles + (connectionUid to uid)) }
+                settings.mutateFeatureSettings { it.copy(githubMainProfiles = if (uid == null) it.githubMainProfiles - connectionUid else it.githubMainProfiles + (connectionUid to uid)) }
             } catch (_: Exception) {
                 mutable.update { it.copy(error = "Could not save the GitHub main profile.") }
             }
@@ -172,20 +175,26 @@ class GitHubProgrammerViewModel @Inject constructor(
         }
     }
 
-    private fun observeConversation(chatId: Int?) {
-        if (observedChat == chatId) return
+    private fun observeConversation(chatId: Int?, reload: Boolean = false) {
+        if (observedChat == chatId && !reload) return
+        if (observedChat != chatId) historyTurns = 10
         observedChat = chatId
         conversationJob?.cancel()
-        mutable.update { it.copy(chatId = chatId, messages = emptyList(), runs = emptyList(), events = emptyList(), pending = emptyList(), approvals = emptyList()) }
+        if (!reload) mutable.update { it.copy(chatId = chatId, messages = emptyList(), runs = emptyList(), events = emptyList(), pending = emptyList(), approvals = emptyList()) }
         if (chatId == null) return
         conversationJob = viewModelScope.launch(Dispatchers.IO) {
-            combine(chats.observeMessageWindow(chatId, 10), chats.observeAgentRuns(chatId), chats.observeToolEvents(chatId), queue.observe(chatId), approvals.pending) { messages, runs, events, pending, prompts ->
+            combine(chats.observeMessageWindow(chatId, historyTurns), chats.observeAgentRuns(chatId), chats.observeToolEvents(chatId), queue.observe(chatId), approvals.pending) { messages, runs, events, pending, prompts ->
                 val ids = runs.mapTo(HashSet()) { it.runId }
-                GitHubProgrammerState(messages = messages.takeLast(20), runs = runs, events = events.takeLast(100), pending = pending, approvals = prompts.filter { it.runId in ids })
+                GitHubProgrammerState(messages = messages, canLoadEarlier = messages.count { it.platformType == null } >= historyTurns, runs = runs, events = events.takeLast(100), pending = pending, approvals = prompts.filter { it.runId in ids })
             }.collect { value ->
-                if (observedChat == chatId) mutable.update { it.copy(messages = value.messages, runs = value.runs, events = value.events, pending = value.pending, approvals = value.approvals) }
+                if (observedChat == chatId) mutable.update { it.copy(messages = value.messages, canLoadEarlier = value.canLoadEarlier, runs = value.runs, events = value.events, pending = value.pending, approvals = value.approvals) }
             }
         }
+    }
+
+    fun loadEarlierMessages() {
+        historyTurns += 10
+        observeConversation(observedChat, reload = true)
     }
 
     fun send(text: String, accepted: () -> Unit) {
@@ -205,7 +214,7 @@ class GitHubProgrammerViewModel @Inject constructor(
                 if (room == null) room = chats.createDraftChat(listOf(profile.uid), "STANDARD", "${context.owner}/${context.repo}", profile.uid)
                 val chatId = room.id
                 chats.saveChatPlatformModels(chatId, mapOf(profile.uid to profile.model))
-                settings.mutateFeatureSettings { it.copy(conversationGitHub = it.conversationGitHub + (chatId to context), githubMainProfiles = it.githubMainProfiles + (context.connectionUid to profile.uid)) }
+                settings.mutateFeatureSettings { it.copy(conversationGitHub = it.conversationGitHub + (chatId to context)) }
                 val tools = ChatMcpToolConfig(allowAllByDefault = false, enabledToolIds = setOf(context.connectionUid), github = context)
                 val prompt = "GitHub workspace: ${context.owner}/${context.repo}\nBranch: ${context.ref}\n\n" + text
                 queue.enqueue(chatId, prompt, PendingPromptPayload(profileUids = listOf(profile.uid), models = mapOf(profile.uid to profile.model), tools = tools))

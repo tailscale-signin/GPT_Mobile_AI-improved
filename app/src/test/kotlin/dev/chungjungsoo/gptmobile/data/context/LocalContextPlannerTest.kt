@@ -235,5 +235,27 @@ class LocalContextPlannerTest {
         assertEquals(setOf(reader.name), LocalContextPlanner.requiredToolNames("Read the file", listOf(reader)))
     }
 
+    @Test
+    fun smallContextBorrowsResultAllowanceBeforeRejectingRequiredTools() {
+        val search = AgentToolDefinition("web_search", "Search", buildJsonObject {})
+        val reader = AgentToolDefinition("read_url", "Read", buildJsonObject {})
+        val prompt = "Search with sources " + "x".repeat(4200)
+        val system = "s".repeat(1600)
+        val plan = LocalContextPlanner.plan(emptyList(), prompt, system, listOf(search, reader), 4224, 4096)
+        assertEquals(listOf(search, reader).toSet(), plan.tools.toSet())
+        assertTrue(plan.toolResultBytes in 512 until 2112)
+        assertTrue(plan.outputReserveTokens >= 128)
+        assertTrue(plan.estimatedPromptTokens + plan.outputReserveTokens + plan.toolResultBytes / 2 + 256 < 4224)
+        assertEquals(0, plan.omittedTurns)
+    }
+
+    @Test
+    fun reducedResultAllowanceCannotAdmitInputWithoutMinimumEvidenceSpace() {
+        val search = AgentToolDefinition("web_search", "Search", buildJsonObject {})
+        assertThrows(IllegalArgumentException::class.java) {
+            LocalContextPlanner.plan(emptyList(), "Search " + "x".repeat(7600), "", listOf(search), 4224, 4096)
+        }
+    }
+
     private fun turn(text: String) = ConversationTurn(MessageV2(content = text, platformType = null), null, false)
 }

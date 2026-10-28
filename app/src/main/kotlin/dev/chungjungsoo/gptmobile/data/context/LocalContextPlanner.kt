@@ -55,7 +55,6 @@ internal object LocalContextPlanner {
         // Tool definitions are charged below at their measured cost. Reserving another
         // tool block here double-counted the same tokens and caused local conversations
         // to silently receive zero tools on small-context models.
-        val toolResultReserve = if (relevantTools.isEmpty()) 0 else maxOf(128, contextTokens / 4)
         val templateReserve = 256 // Matches the minimum uncertainty reserve at physical dispatch.
         // Reserve explicit result headroom for small local contexts; larger engines have
         // provider-level response budgeting and should not lose tools unnecessarily.
@@ -65,8 +64,21 @@ internal object LocalContextPlanner {
             estimate(turn.assistantMessage?.effectiveContent().orEmpty()) + 32 +
             historyImageCount(turn).toLong() * IMAGE_TOKEN_ESTIMATE
 
-        val safetyReserve = templateReserve + toolResultReserve + 1
         val requiredSchemaTokens = schemaCost(requiredTools)
+        // Result space is an allowance, not fixed input. On small contexts the
+        // quarter-context target can reject an otherwise usable required catalog.
+        // Borrow only from that allowance, retaining the full request and schemas,
+        // template safety, and at least a modest reply. The delivery budget below
+        // enforces the smaller result allowance on every tool callback. At least
+        // 512 bytes are needed before executeBoundTool can dispatch any tool.
+        val minimumReply = minOf(outputLimit?.takeIf { it > 0 } ?: 128, 128)
+        val resultHeadroom = contextTokens.toLong() - used - requiredSchemaTokens - templateReserve - minimumReply - 1
+        val toolResultReserve = if (relevantTools.isEmpty()) {
+            0
+        } else {
+            minOf(maxOf(256, contextTokens / 4).toLong(), resultHeadroom.coerceAtLeast(256)).toInt()
+        }
+        val safetyReserve = templateReserve + toolResultReserve + 1
         val baselineOutput = LocalOutputAllocation.reserve(contextTokens, used + requiredSchemaTokens, safetyReserve, outputLimit)
         val baselinePromptLimit = contextTokens.toLong() - baselineOutput - templateReserve - toolResultReserve
         var anchorTokens = 0L

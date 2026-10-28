@@ -1,0 +1,39 @@
+# Diagnostics review: 4850535716760586708
+
+Repository: `tailscale-signin/GPT_Mobile_AI-improved`.
+Target: `fix/consolidated-engineering-review-2026-10-27`; existing draft PR #750.
+Implementation base: `1eeb4bb65d0099cec3dbbec102abf72b3714c50c`.
+Source build: 0.9.61.0 / 129, debug, commit `499b3494382641d8d0dc64fbe6cc525fec78e0f6`.
+Export: October 27, 2026, 23:05 Toronto (October 28, 03:05 UTC).
+Input SHA-256: `3efed95d9bfdf79f0fd0438ddfa7652808190978d3d9b222071c0925d6bca431`.
+
+All 6,419 JSONL records were parsed: 4,461 events, 1,958 continuations, zero malformed JSON and zero records marked truncated. There are 387 incident roots, including 9 informational roots and 378 issue-labelled roots. These are recorder classifications, not 378 independently established causes. Of the issue-labelled roots, 182 are Rendering, 169 Android, 12 Model, 7 ReadUrl, 3 LocalRuntimeIncident, 3 MCP, 1 LocalModel and 1 LocalImport. Stack frames and repeated downstream failures are not separate defects. Private diagnostic payloads are not committed.
+
+## Changes and disposition
+
+| Family | Evidence and action | Acceptance still needed |
+| --- | --- | --- |
+| Crawler settings disk access | A 124 ms StrictMode disk-read violation traces `Context.getFilesDir` to `CrawlerJobsViewModel` construction. Defer CrawlStore resolution until IO collection; refresh and actions also run on IO. The shared jobs stream keeps its current snapshot while subscribed. | Device StrictMode rerun while opening Crawlers, listing jobs, resuming, cancelling, archiving and deleting. |
+| Local coroutine compilation | ART reports 26,992 and 17,138 code units in local inference planning and leased execution. Extract non-inline suspend boundaries for leased inference and the generation loop, retaining the existing lease, cancellation, authority, single-pass rules and repair state. Add the adapter and its generated methods to the packaged DEX size gate. | DEX size validation and physical-device performance measurements. Splitting oversized methods does not establish the cause of every UI stall. |
+| Local context planning | One rejection reports input=2,999, reserve=1,313, context=4,224. Other plans retain only 7 reply tokens while allocating 2,112 result bytes. Allow the quarter-context result target to shrink before rejecting required input/schemas, preserving template safety and aiming to leave 128 reply tokens. Retain at least 512 result bytes, the minimum for tool dispatch. The resulting allowance feeds existing tool-delivery and physical-dispatch gates. Truly oversized required input still fails intact. | Exact-model tokenizer/native dispatch qualification; conservative estimates are not measured tokenizer counts. |
+| Repeated binding expiry | Five NPU load failures and one GPU load failure say `Inference binding expired`. The log also contains successful QNN engine-ready/generation receipts and service-destruction intent. The existing branch already fences stale connection/death callbacks against the current connection. Preserve current-worker failure, positive exit evidence and quarantine; never replay uncertain generation or tools. | Phone lifecycle/worker-death reproduction on this branch. Binding expiry does not prove an incompatible NPU export, OOM or GPU driver failure. No claim that these six failures are resolved by the source race fix. |
+| Rendering stalls | 182 frame-timing issue records, 72 skipped-frame reports, slow delivery/dispatch and thread suspension. Apply the proven Crawler IO fix and compiler-method extraction above. Blur/run correlation is retained. | Perfetto/main-thread sampling on the affected device. Do not infer blur causality or mark all stalls fixed from correlation. |
+| OEM/framework messages | Framework finalizer exception, inactive IME callback, monitor inflation, device-property access and InteractionJankMonitor permission notice. | Firmware/keyboard/device comparison as appropriate. No hidden-setting calls, blanket exception suppression or privileged permission added. |
+| MCP endpoint reachability | Three health failures for the same private service on port 8101, including degraded/unreachable states. Existing bounded backoff and catalog recovery remain. | Restore server/network reachability from the phone and run a known tool. Client code cannot guarantee the remote endpoint is reachable. |
+| Oversized source reads | Six bounded Wikipedia reads retain 1 MiB, explicitly reporting the source limit. Existing truncation and bounded evidence handling remain. | Narrow the requested source or fetch relevant sections; a bounded partial read is not full-page coverage. |
+| HTTP source rejection | One `read_url` request returns HTTP 403 from ludwig.guru. Keep the structured failure and existing retry policy; do not bypass access controls or retry a permanent rejection indefinitely. | Use an accessible source or an authorized service route. |
+| Archived native warnings | Three archived incidents report token-control metadata overrides, EOG corrections, full SWA and V-cache padding, alongside successful ready receipts. | Compatible upstream model export and measured memory/correctness qualification. Do not patch tokenizer metadata without model evidence or count every warning as a crash. |
+| Linked model access | External documents provider refuses native path access with errno 13 and reports `copyAvailable=true`. Existing Copy import is the supported recovery. | Copy-import, digest verification and native readability on the phone. No storage permission expansion. |
+| OS process exits | Historical exit reasons include signal 9, package/user-related lifecycle exits and other reason codes; causes remain incompletely attributed. Preserve OS receipts and distinguish termination intent from confirmed exit. | Correlate Binder/Android exit evidence and device memory traces. Signal 9 alone is not proof of OOM. |
+| Combined/Research and provider continuation | Existing branch retains durable recovery, partial/unverified delivery, tool budgets and approval/write reconciliation. This export does not establish a new root cause for every unfinished or historical run. | Live provider/tool acquisition, continuation and claim-to-source acceptance. Do not relabel unverified output as factually verified. |
+
+The earlier review of `8869528556717839264` remains relevant to already implemented GitHub read recovery, search bounding, profile-statistics IO and callback ownership. It is a separate input and must not be substituted for this export.
+
+## Validation
+
+- Debug Kotlin/Java compilation passed.
+- 160 focused Kotlin tests passed with zero failures/errors/skips, covering local planning/inference, workspace/profile behavior, native rendered UI, branch receipts and GitHub exact approvals. The first test run hit a local MockK self-attachment limitation; the completed passing run used the cached Byte Buddy Java agent.
+- All 204 script tests passed. Changed Kotlin files pass ktlint; whitespace, Android resource (29 XML) and regex checks passed (946 literal patterns; 59 dynamic patterns skipped).
+- D8 inspection of compiled adapter classes measured a maximum of 12,996 code units, below ART's 16,383-unit threshold. Leased execution measures 6,836 and the generation lambda 4,716. The same direct D8 procedure measured the baseline's oversized methods at 26,900 and 17,132 units. These are compiled-class measurements, not a full packaged APK/device performance claim; the extended packaged DEX gate will run in CI.
+- The final UI follow-up rerun passed 16 additional workspace/profile/rendered-UI checks with zero failures/errors/skips; these overlap the 160-test run rather than representing 16 new test cases.
+- New-head CI, physical GPU/NPU, remote endpoints, full phone lifecycle/IME/performance and public-auth deployment acceptance remain open. Main is unchanged; no merge or release is implied.

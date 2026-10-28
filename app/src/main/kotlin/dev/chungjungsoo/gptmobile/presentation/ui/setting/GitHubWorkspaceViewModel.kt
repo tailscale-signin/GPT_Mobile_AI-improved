@@ -252,10 +252,26 @@ class GitHubWorkspaceViewModel @Inject constructor(
         _state.update { it.copy(branches = if (page == 1) branches else (it.branches + branches).distinct(), branchPage = page, moreBranches = result.flag("has_more")) }
     }
 
-    fun selectBranch(branch: String) = work {
+    fun selectBranch(branch: String, programmerChatId: Int? = null) = work {
         require(_state.value.staged.isEmpty() && _state.value.editorDrafts.isEmpty() && _state.value.patchStage == null) { "Commit or discard staged edits before switching branches." }
         _state.update { it.copy(selection = it.selection?.copy(ref = branch), directory = "", file = null, entries = emptyList(), headSha = "", commits = emptyList(), commitDetail = null, activityUpdatedAt = null, snapshot = null, indexStatus = null, searchResult = null, ciDigest = null, changedFiles = null, activityLoaded = false, directoryLoaded = false, pullPackage = null) }
         loadHeadAndDirectory()
+        syncProgrammerBranch(programmerChatId)
+    }
+
+    private suspend fun syncProgrammerBranch(programmerChatId: Int?) {
+        if (programmerChatId != null) {
+            val current = _state.value
+            val selected = requireNotNull(current.selection)
+            settings.mutateFeatureSettings { features ->
+                val prior = features.conversationGitHub[programmerChatId]
+                if (prior != null && prior.connectionUid == current.connection?.connectionUid && prior.owner.equals(selected.owner, true) && prior.repo.equals(selected.repo, true)) {
+                    features.copy(conversationGitHub = features.conversationGitHub + (programmerChatId to prior.copy(ref = selected.ref, commitSha = current.headSha)))
+                } else {
+                    features
+                }
+            }
+        }
     }
 
     fun refreshBranch() = work {
@@ -357,19 +373,22 @@ class GitHubWorkspaceViewModel @Inject constructor(
         _state.update { it.copy(notice = "Default GitHub repository context cleared.") }
     }
 
-    fun createBranch(name: String) = work {
+    fun createBranch(name: String, expectedHead: String = _state.value.headSha, programmerChatId: Int? = null) = work {
         val state = _state.value
-        require(state.canWrite && state.staged.isEmpty()) { "Commit or discard staged changes first; write access is required." }
+        check(state.headSha == expectedHead && expectedHead.matches(Regex("[a-fA-F0-9]{40}"))) { "Branch head changed; review the creation request again." }
+        require(state.canWrite && state.staged.isEmpty() && state.editorDrafts.isEmpty() && state.patchStage == null) { "Commit or discard staged changes first; write access is required." }
         toolRequest(
             "create_branch",
             buildJsonObject {
                 put("branch", name.trim())
                 put("base", requireNotNull(state.selection).ref)
+                put("expected_head_sha", state.headSha)
             }
         )
         _state.update { it.copy(selection = it.selection?.copy(ref = name.trim()), notice = "Working branch created.", directory = "") }
         loadBranches(1)
         loadHeadAndDirectory()
+        syncProgrammerBranch(programmerChatId)
     }
 
     fun commit(message: String) = work {

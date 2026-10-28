@@ -131,6 +131,44 @@ class GitHubAuthorizationBoundaryTest {
         assertTrue(GitHubAuthorizationBoundary.requiresElevatedAuthorization("get_repository_secret", buildJsonObject {}))
     }
 
+    @Test fun branchSelectionRequiresExactApprovalDespiteTrustedReadGrants() = runTest {
+        coEvery { connections.getConnection("github") } returns connection.copy(approvedReadTools = "github")
+        val state = MutableStateFlow<ToolApproval?>(null)
+        coEvery { dao.insert(any()) } coAnswers {
+            state.value = firstArg()
+            1L
+        }
+        every { dao.observe(any()) } returns state
+        coEvery { dao.claim(any()) } returns 1
+        val decision = async {
+            manager.authorize(
+                "github",
+                "run",
+                "switch",
+                "github_context__github_api",
+                buildJsonObject {
+                    put("action", "resolve")
+                    put("ref", "fix/new")
+                }
+            )
+        }
+        runCurrent()
+        assertFalse(decision.isCompleted)
+        val pending = requireNotNull(state.value)
+        assertTrue(pending.requiresExactConfirmation)
+        assertEquals("PENDING", pending.state)
+        manager.alwaysAllow(pending.id)
+        coVerify(exactly = 0) { dao.decide(any(), any()) }
+        state.value = pending.copy(state = "APPROVED")
+        assertTrue(decision.await())
+    }
+
+    @Test fun immutableRevisionInspectionIsNotABranchSwitch() {
+        assertFalse(GitHubAuthorizationBoundary.isBranchSelection("github_context", buildJsonObject { put("ref", "a".repeat(40)) }))
+        assertFalse(GitHubAuthorizationBoundary.isBranchSelection("github_read", buildJsonObject { put("ref", "fix/new") }))
+        assertFalse(GitHubAuthorizationBoundary.isBranchSelection("github_context", buildJsonObject {}))
+    }
+
     @Test fun approvedReadRemainsAvailableWithoutMutationConfirmation() = runTest {
         coEvery { connections.getConnection("github") } returns connection.copy(approvedReadTools = "github")
         assertTrue(manager.authorize("github", "run", "call", "github", buildJsonObject { put("action", "get_file_contents") }))

@@ -50,25 +50,23 @@ class GitHubProgrammerHomeTest {
     private val workspace = GitHubWorkspaceState(selection = GitHubRepositoryContext("owner", "repo", "feature/programmer"), headSha = context.commitSha)
 
     @Test fun commandShortcutsUseTheConversationComposerAndProfileChoice() {
-        var profile by mutableStateOf("local")
         var sent = ""
         compose.setContent {
             MaterialTheme {
                 val input = rememberTextFieldState()
-                Column(Modifier.width(360.dp)) {
-                    Column(Modifier.height(520.dp).verticalScroll(rememberScrollState())) {
-                        GitHubProgrammerHome(workspace, GitHubProgrammerState(profiles = listOf(PlatformV2(uid = "local", name = "Local coder"), PlatformV2(uid = "reviewer", name = "Cloud reviewer")), profileUid = profile, context = context), { profile = it }, { text -> input.edit { append(text) } }, {}, {}, {}, {}, {}, {}, {})
+                Column(Modifier.width(360.dp).height(800.dp)) {
+                    Column(Modifier.weight(1f)) {
+                        GitHubProgrammerHome(workspace, GitHubProgrammerState(profiles = listOf(PlatformV2(uid = "local", name = "Local coder")), profileUid = "local", context = context), { text -> input.edit { append(text) } }, {}, {}, {}, {}, {})
                     }
                     ChatInputBox(inputState = input, placeholder = "Ask your AI programmer…", attachmentsEnabled = false, onSendButtonClick = { sent = input.text.toString() })
                 }
             }
         }
-        compose.onNodeWithText("Fix CI").performScrollTo().performClick()
+        compose.onNodeWithText("Fix CI").performClick()
         compose.onNodeWithTag("chat_send").performClick()
         assertTrue(sent.contains("failing GitHub checks"))
-        compose.onNodeWithTag("github_main_profile").performScrollTo().performClick()
-        compose.onNodeWithText("Cloud reviewer").performClick()
-        compose.runOnIdle { assertEquals("reviewer", profile) }
+        compose.onNodeWithText("Prepare code context").assertDoesNotExist()
+        compose.onNodeWithTag("github_main_profile").assertDoesNotExist()
         val image = compose.onRoot().captureToImage().asAndroidBitmap()
         val output = File(System.getProperty("java.io.tmpdir"), "github-programmer-home.png")
         output.outputStream().use { assertTrue(image.compress(Bitmap.CompressFormat.PNG, 100, it)) }
@@ -82,12 +80,12 @@ class GitHubProgrammerHomeTest {
             CompositionLocalProvider(LocalDensity provides Density(density.density, 2f)) {
                 MaterialTheme {
                     Column(Modifier.width(320.dp).height(700.dp).verticalScroll(rememberScrollState())) {
-                        GitHubProgrammerHome(workspace, GitHubProgrammerState(profiles = listOf(PlatformV2(uid = "local", name = "A very long programming profile name ".repeat(20))), profileUid = "local", context = context, prepareIndex = indexing), {}, {}, {}, {}, {}, {}, { indexing = it }, { preparations++ }, {})
+                        GitHubProgrammerSettings(workspace, GitHubProgrammerState(profiles = listOf(PlatformV2(uid = "local", name = "A very long programming profile name ".repeat(20))), profileUid = "local", profileOverrideUid = "local", context = context, prepareIndex = indexing), {}, { indexing = it }, { preparations++ })
                     }
                 }
             }
         }
-        val home = compose.onNodeWithTag("github_programmer_home").fetchSemanticsNode().boundsInRoot
+        val home = compose.onRoot().fetchSemanticsNode().boundsInRoot
         val profile = compose.onNodeWithTag("github_main_profile").fetchSemanticsNode().boundsInRoot
         assertTrue(profile.left >= home.left && profile.right <= home.right)
         compose.onNodeWithTag("github_index_option").performScrollTo().performClick()

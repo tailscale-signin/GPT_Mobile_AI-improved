@@ -98,6 +98,16 @@ class GitHubProgrammerViewModelTest {
         assertEquals("repo", features.value.conversationGitHub.getValue(42).repo)
     }
 
+    @Test fun sendingWithGlobalDefaultDoesNotCreateAConnectionOverride() = runBlocking {
+        features.value = features.value.copy(githubMainProfiles = emptyMap(), githubDefaultProfileUid = "coder")
+        withTimeout(5000) { model.state.first { it.draftLoaded && it.profileOverrideUid == null } }
+        val accepted = CompletableDeferred<Unit>()
+        model.send("Inspect this branch") { accepted.complete(Unit) }
+        withTimeout(5000) { accepted.await() }
+        assertTrue(features.value.githubMainProfiles.isEmpty())
+        assertEquals("coder", model.state.value.profileUid)
+    }
+
     @Test fun queueFailurePreservesEncryptedDraftAndReportsFailureWithoutAcceptance() = runBlocking {
         withTimeout(5000) { model.state.first { it.draftLoaded } }
         val context = model.state.value.context!!

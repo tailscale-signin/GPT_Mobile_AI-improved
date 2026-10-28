@@ -89,9 +89,14 @@ internal class GitHubResultViews(
         val entry = parts.firstOrNull()?.let(entries::get)
         val offset = parts.getOrNull(1)?.toIntOrNull()
         if (parts.size != 2 || entry == null || offset == null || entry.scope != scope || entry.operation != operation || offset !in entry.fragments.indices) {
-            return AgentToolResult(callId, ToolResultContent.Text("This saved GitHub view is unavailable or outside the authorized task. Reconcile a prior mutation using its receipt; do not repeat the mutation to recover output."), true, errorCode = "SAVED_VIEW_UNAVAILABLE", dispatched = false)
+            return AgentToolResult(callId, ToolResultContent.Text("This saved GitHub view is unavailable or outside the authorized task. Use the exact continuation_call from the latest result in this task; never invent or reuse a cursor from another task. For an expired immutable read, request a smaller range at the same commit_sha. Reconcile a prior mutation using its receipt; do not repeat the mutation to recover output."), true, errorCode = "SAVED_VIEW_UNAVAILABLE", dispatched = false)
         }
-        return AgentToolResult(callId, ToolResultContent.Json(page(parts[0], entry, offset, modelName)), entry.originalError, sharedResult = true, dispatched = false)
+        // Active readers can take longer than ten minutes to consume a large result.
+        // Inactive views still expire and the existing byte/entry bounds still apply.
+        val refreshed = entry.copy(expires = now() + 10 * 60_000)
+        entries.remove(parts[0])
+        entries[parts[0]] = refreshed
+        return AgentToolResult(callId, ToolResultContent.Json(page(parts[0], refreshed, offset, modelName)), entry.originalError, sharedResult = true, dispatched = false)
     }
 
     private fun page(id: String, entry: Entry, offset: Int, modelName: String): JsonObject {

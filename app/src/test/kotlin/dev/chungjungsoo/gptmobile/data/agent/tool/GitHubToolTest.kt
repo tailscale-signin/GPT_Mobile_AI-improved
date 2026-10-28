@@ -22,6 +22,57 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubToolTest {
+    @Test fun commitUsesTheExplicitlySelectedTaskBranchInsteadOfTheConstructorBranch() = runTest {
+        val sha = "a".repeat(40)
+        val tree = "b".repeat(40)
+        val client = HttpClient(
+            MockEngine { request ->
+                when (request.url.encodedPath) {
+                    "/repos/owner/repo/commits/working" -> respond("""{"sha":"$sha","commit":{"tree":{"sha":"$tree"}}}""", HttpStatusCode.OK)
+                    "/repos/owner/repo/git/trees/$tree" -> respond("""{"tree":[],"truncated":false}""", HttpStatusCode.OK)
+                    else -> error("Unexpected request: ${request.url}")
+                }
+            }
+        )
+        var proposedBranch = ""
+        try {
+            val tool = GitHubTool("token", client, repositoryContext = GitHubRepositoryContext("owner", "repo", "main"), engineeringPrepare = { _, arguments ->
+                proposedBranch = arguments.getValue("branch").jsonPrimitive.content
+                buildJsonObject { put("status", "AWAITING_APPROVAL") }
+            })
+            val selected = tool.execute(
+                "select",
+                buildJsonObject {
+                    put("action", "resolve_context")
+                    put("ref", "working")
+                }
+            )
+            assertFalse(selected.isError)
+            val proposed = tool.execute(
+                "propose",
+                buildJsonObject {
+                    put("action", "commit_files")
+                    put("branch", "working")
+                    put("expected_head_sha", sha)
+                }
+            )
+            assertFalse(proposed.isError)
+            assertEquals("working", proposedBranch)
+            val rejected = tool.execute(
+                "wrong-branch",
+                buildJsonObject {
+                    put("action", "commit_files")
+                    put("branch", "unselected")
+                    put("expected_head_sha", sha)
+                }
+            )
+            assertTrue(rejected.isError)
+            assertEquals("working", proposedBranch)
+        } finally {
+            client.close()
+        }
+    }
+
     @Test fun unavailableCredentialVerificationReturnsAnExplicitErrorWithoutDispatchOrCatalogOmission() = runTest {
         val http = HttpClient(MockEngine { error("An unverified account must not reach GitHub") })
         try {

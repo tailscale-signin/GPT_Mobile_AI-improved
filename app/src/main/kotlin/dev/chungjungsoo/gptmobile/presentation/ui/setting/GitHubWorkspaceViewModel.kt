@@ -46,6 +46,12 @@ data class GitHubWorkspaceState(
     val busy: Boolean = false,
     val error: String? = null,
     val notice: String? = null,
+    val appAuthorization: Boolean = false,
+    val installations: List<JsonObject> = emptyList(),
+    val installationId: String? = null,
+    val installationPage: Int = 1,
+    val moreInstallations: Boolean = false,
+    val recoveryRepository: String? = null,
     val repositories: List<JsonObject> = emptyList(),
     val repositoryPage: Int = 1,
     val moreRepositories: Boolean = false,
@@ -104,7 +110,11 @@ class GitHubWorkspaceViewModel @Inject constructor(
     private var credentialDigest: ByteArray? = null
 
     @kotlinx.serialization.Serializable
-    private data class Draft(val selection: GitHubRepositoryContext?, val baseSha: String, val directory: String, val file: JsonObject?, val staged: List<GitHubStagedFile>, val edits: Map<String, String>, val reviewBaseline: String = "", val patchStage: JsonObject? = null)
+    private data class Draft(val selection: GitHubRepositoryContext?, val baseSha: String, val directory: String, val file: JsonObject?, val staged: List<GitHubStagedFile>, val edits: Map<String, String>, val reviewBaseline: String = "", val patchStage: JsonObject? = null) {
+        val dirty: Boolean get() = staged.isNotEmpty() || edits.isNotEmpty() || patchStage != null
+    }
+
+    private var pendingRecovery: Draft? = null
 
     private val draftWrites = kotlinx.coroutines.sync.Mutex()
     private val draftSequence = java.util.concurrent.atomic.AtomicLong()
@@ -147,6 +157,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
         client = null
         tool = null
         credentialDigest = null
+        pendingRecovery = null
         _state.value = GitHubWorkspaceState(connection = connection)
         work {
             val current = connections.getConnection(connection.connectionUid) ?: error("Connection was removed.")
@@ -165,31 +176,26 @@ class GitHubWorkspaceViewModel @Inject constructor(
             tool = GitHubTool(token, featureSettings = features)
             _state.update { it.copy(connection = current) }
             val account = api("get_account").jsonObject
-            _state.update { it.copy(connection = current, login = account.text("login")) }
-            loadRepositories(1)
             val recovered = draftWrites.withLock { drafts.read(current.connectionUid)?.let { Json.decodeFromString(Draft.serializer(), it) } }
+            pendingRecovery = recovered
             val requested = initialContext?.repository
-            require(requested == null || recovered == null || recovered.selection == requested || (recovered.staged.isEmpty() && recovered.edits.isEmpty() && recovered.patchStage == null)) {
+            _state.update { it.copy(recoveryRepository = recovered?.takeIf { it.dirty }?.selection?.fullName) }
+            require(requested == null || recovered?.dirty != true || recovered.selection == requested) {
                 "Saved edits belong to another branch. Open GitHub Workspace in Settings to save or discard them before opening this chat."
             }
-            (requested ?: recovered?.selection ?: store.get(current.connectionUid))?.let { selectRepositoryInternal(it.owner, it.repo, it.ref) }
-            recovered?.takeIf { it.selection == _state.value.selection }?.let { draft ->
-                val dirty = draft.staged.isNotEmpty() || draft.edits.isNotEmpty() || draft.patchStage != null
-                val changed = dirty && _state.value.headSha != draft.baseSha
-                _state.update { currentState ->
-                    currentState.copy(
-                        headSha = if (dirty) draft.baseSha else currentState.headSha,
-                        directory = draft.directory,
-                        file = draft.file.takeIf { dirty || currentState.headSha == draft.baseSha },
-                        directoryLoaded = draft.file != null && (dirty || currentState.headSha == draft.baseSha),
-                        staged = draft.staged,
-                        editorDrafts = draft.edits,
-                        reviewBaseline = draft.reviewBaseline,
-                        patchStage = draft.patchStage,
-                        notice = if (changed) "Edits recovered at their original base. The branch moved; review before committing." else "Workspace edits recovered."
-                    )
-                }
+            val previousSelection = requested ?: recovered?.selection ?: store.get(current.connectionUid)
+            val appAuthorization = current.authType == "OAUTH" && gitHubPublicAuth?.connectedAccount(current.connectionUid) != null
+            _state.update { it.copy(connection = current, login = account.text("login"), appAuthorization = appAuthorization, recoveryRepository = recovered?.takeIf { it.dirty }?.selection?.fullName) }
+            if (appAuthorization) {
+                loadInstallations(1)
+                val installation = _state.value.installations.firstOrNull { it["account"]?.jsonObject?.text("login").equals(previousSelection?.owner, true) } ?: _state.value.installations.singleOrNull()
+                installation?.takeIf { it["suspended_at"] == null || it["suspended_at"] == kotlinx.serialization.json.JsonNull }?.let { selectInstallationInternal(it.text("id")) }
+            } else {
+                loadRepositories(1)
             }
+            previousSelection?.takeIf { selection ->
+                !appAuthorization || _state.value.repositories.any { it.text("full_name").equals(selection.fullName, true) }
+            }?.let { selectRepositoryInternal(it.owner, it.repo, it.ref) }
         }
     }
 
@@ -219,10 +225,46 @@ class GitHubWorkspaceViewModel @Inject constructor(
         _state.update { it.copy(staged = it.staged.filterNot { file -> file.path == path }) }
     }
     fun discard() = _state.update { it.copy(staged = emptyList(), editorDrafts = emptyMap(), patchStage = null) }
+    fun discardSavedRecovery() = work {
+        if (pendingRecovery?.dirty != true || _state.value.recoveryRepository == null) return@work
+        val connection = requireNotNull(_state.value.connection)
+        draftWrites.withLock { drafts.write(connection.connectionUid, Json.encodeToString(Draft.serializer(), Draft(null, "", "", null, emptyList(), emptyMap()))) }
+        pendingRecovery = null
+        _state.update { it.copy(recoveryRepository = null, notice = "Saved edits discarded.") }
+    }
     fun moreRepositories() = work { loadRepositories(_state.value.repositoryPage + 1) }
 
+    fun moreInstallations() = work { loadInstallations(_state.value.installationPage + 1) }
+
+    private suspend fun loadInstallations(page: Int) {
+        val result = api("list_installations", buildJsonObject { put("page", page) }).jsonObject
+        val items = result["items"]?.jsonArray.orEmpty().map { it.jsonObject }
+        _state.update { it.copy(installations = if (page == 1) items else (it.installations + items).distinctBy { installation -> installation.text("id") }, installationPage = page, moreInstallations = result.flag("has_more")) }
+    }
+
+    fun selectInstallation(id: String) = work {
+        require(_state.value.staged.isEmpty() && _state.value.editorDrafts.isEmpty() && _state.value.patchStage == null) { "Commit or discard edits before switching installations." }
+        selectInstallationInternal(id)
+    }
+
+    private suspend fun selectInstallationInternal(id: String) {
+        val current = _state.value
+        val installation = current.installations.singleOrNull { it.text("id") == id }
+        require(current.appAuthorization && installation != null && (installation["suspended_at"] == null || installation["suspended_at"] == kotlinx.serialization.json.JsonNull)) { "Choose an active installation for the connected GitHub App." }
+        _state.value = GitHubWorkspaceState(connection = current.connection, login = current.login, busy = true, appAuthorization = true, installations = current.installations, installationId = id, installationPage = current.installationPage, moreInstallations = current.moreInstallations, recoveryRepository = current.recoveryRepository)
+        loadRepositories(1)
+    }
+
     private suspend fun loadRepositories(page: Int) {
-        val result = api("list_repositories", buildJsonObject { put("page", page) }).jsonObject
+        val installation = _state.value.installationId
+        if (_state.value.appAuthorization && installation == null) return
+        val result = api(
+            if (_state.value.appAuthorization) "list_installation_repositories" else "list_repositories",
+            buildJsonObject {
+                put("page", page)
+                installation?.let { put("installation_id", it) }
+            }
+        ).jsonObject
         val items = result["items"]?.jsonArray.orEmpty().map { it.jsonObject }
         _state.update { it.copy(repositories = if (page == 1) items else (it.repositories + items).distinctBy { repo -> repo.text("full_name") }, repositoryPage = page, moreRepositories = result.flag("has_more")) }
     }
@@ -233,6 +275,10 @@ class GitHubWorkspaceViewModel @Inject constructor(
     }
 
     private suspend fun selectRepositoryInternal(owner: String, repo: String, preferredRef: String? = null) {
+        val current = _state.value
+        val recovery = pendingRecovery
+        require(recovery?.dirty != true || recovery.selection?.fullName.equals("$owner/$repo", true)) { "Restore ${recovery?.selection?.fullName} or explicitly discard its saved edits before choosing another repository." }
+        require(!current.appAuthorization || current.installationId != null && current.repositories.any { it.text("full_name").equals("$owner/$repo", true) }) { "Choose a repository accessible through the selected GitHub App installation." }
         val metadata = api(
             "get_repository",
             buildJsonObject {
@@ -242,11 +288,31 @@ class GitHubWorkspaceViewModel @Inject constructor(
         ).jsonObject
         val default = metadata.text("default_branch")
         require(default.isNotBlank()) { "Repository has no default branch." }
-        val selected = GitHubRepositoryContext(owner, repo, preferredRef ?: default)
-        val canWrite = metadata["permissions"]?.jsonObject?.flag("push") == true && !metadata.flag("archived") && _state.value.connection?.toolPolicy != "READ_ONLY"
+        val recoveredRef = recovery?.selection?.takeIf { it.fullName.equals("$owner/$repo", true) }?.ref
+        val selected = GitHubRepositoryContext(owner, repo, preferredRef ?: recoveredRef ?: default)
+        val appCanWrite = !current.appAuthorization || current.installations.firstOrNull { it.text("id") == current.installationId }?.get("permissions")?.jsonObject?.text("contents") == "write"
+        val canWrite = appCanWrite && metadata["permissions"]?.jsonObject?.flag("push") == true && !metadata.flag("archived") && current.connection?.toolPolicy != "READ_ONLY"
         _state.update { it.copy(selection = selected, defaultBranch = default, canWrite = canWrite, branches = emptyList(), file = null, staged = emptyList(), editorDrafts = emptyMap(), pullRequests = emptyList(), pullsLoaded = false, pullPage = 1, morePullRequests = false, commits = emptyList(), commitDetail = null, activityUpdatedAt = null, pullDetail = null, directory = "", headSha = "", entries = emptyList(), snapshot = null, indexStatus = null, searchResult = null, ciDigest = null, patchStage = null, changedFiles = null, reviewBaseline = "", activityLoaded = false, directoryLoaded = false, pullPackage = null) }
         loadBranches(1)
         loadHeadAndDirectory()
+        recovery?.takeIf { it.selection?.fullName.equals(selected.fullName, true) && it.selection?.ref == selected.ref }?.let { draft ->
+            val changed = draft.dirty && _state.value.headSha != draft.baseSha
+            _state.update { currentState ->
+                currentState.copy(
+                    headSha = if (draft.dirty) draft.baseSha else currentState.headSha,
+                    directory = draft.directory,
+                    file = draft.file.takeIf { draft.dirty || currentState.headSha == draft.baseSha },
+                    directoryLoaded = draft.file != null && (draft.dirty || currentState.headSha == draft.baseSha),
+                    staged = draft.staged,
+                    editorDrafts = draft.edits,
+                    reviewBaseline = draft.reviewBaseline,
+                    patchStage = draft.patchStage,
+                    recoveryRepository = null,
+                    notice = if (changed) "Edits recovered at their original base. The branch moved; review before committing." else "Workspace edits recovered."
+                )
+            }
+        }
+        pendingRecovery = null
     }
 
     fun moreBranches() = work { loadBranches(_state.value.branchPage + 1) }

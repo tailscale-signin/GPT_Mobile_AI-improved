@@ -1,3 +1,15 @@
+# GPT Mobile AI 0.9.63.0 (build 131) — candidate
+
+- Clean up GitHub Workspace with outlined buttons, icons, a solid background and collapsed operation history.
+- Automatically authorize scoped workspace repository tools. Present one commit popup with its branch and file-change bullets; approval validates the immutable patch and continues the saved task.
+- Follow an explicitly selected task branch when preparing a commit, and move the complete chat-deletion operation to IO.
+- Refresh device-issued GitHub App credentials directly with their registered client, retaining account binding and uncertain-rotation protection. Browser-issued credentials retain the confidential PKCE broker.
+- Select GitHub App installations and their permitted repositories. Preserve saved edits during selection and combine installation Contents permission with repository membership when displaying edit access.
+
+This candidate is unmerged and unpublished. GitHub App registration, a real release client ID, clean-device sign-in and live private-repository read/write and refresh acceptance remain required before merge/publication. Browser PKCE also requires its registered broker and verified HTTPS callback deployment. Workflows write permission is pending explicit approval after automatic approval review rejected preparation of that privileged access.
+
+Unified Reliability v2 is not complete. Physical-device frame timing, external provider/token permissions, private server/MCP reachability and ASUS firmware limitations remain unqualified. See the diagnostic disposition table and GitHub sign-in implementation document.
+
 # GPT Mobile AI 0.9.62.0 (130)
 
 This scoped maintenance release includes the current main branch and the October 28 diagnostic repairs from PR #751. The earlier chat-first GitHub workspace and reliability integration are described in PR #750; this maintenance audit does not requalify every inherited feature.

@@ -24,6 +24,9 @@ internal class GitHubOperationTool(
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
         if ("view_cursor" in arguments) {
+            if (arguments.size != 1) {
+                return AgentToolResult(callId, ToolResultContent.Text("Use only view_cursor with the exact arguments from continuation_call. Repository, commit and range fields belong to a new read, not a saved page."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
+            }
             val cursor = (arguments["view_cursor"] as? JsonPrimitive)?.takeIf { it.isString }?.content
                 ?: return AgentToolResult(callId, ToolResultContent.Text("view_cursor must be the exact saved cursor string."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
             if (!cursor.contains(':')) {
@@ -45,7 +48,7 @@ internal class GitHubOperationTool(
                 dispatched = false
             )
         }
-        if (operation in setOf("github_context", "github_write", "github_search", "github_pr", "github_commit", "github_stage_patch")) {
+        if (operation in setOf("github_context", "github_write", "github_search", "github_read", "github_pr", "github_commit", "github_stage_patch")) {
             val errors = ToolArgumentValidator.errors(arguments, definition.inputSchema)
             if (errors.isNotEmpty()) {
                 return AgentToolResult(

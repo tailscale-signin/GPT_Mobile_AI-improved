@@ -47,8 +47,9 @@ internal object CombinedOperationTrace {
         val duration = (System.nanoTime() - token.startedNanos).coerceAtLeast(0)
         if (token.platformTrace) runCatching { Trace.endAsyncSection("Combined.${token.operation}", token.cookie) }
         // Perfetto retains every enabled slice. Text diagnostics sample frequent
-        // operations at 16 ms; these records are not a complete latency population.
-        val threshold = if (token.operation in highFrequency) 16_000_000L else 0L
+        // operations at 16 ms and other operations at 100 ms; these records are
+        // not a complete latency population.
+        val threshold = if (token.operation in highFrequency) 16_000_000L else 100_000_000L
         if (!AppLogRecorder.enabled.value || duration < threshold) return
         fun value(text: String?) = text?.replace('\n', ' ')?.replace('\r', ' ')?.take(160) ?: "unknown"
         val owner = token.owner

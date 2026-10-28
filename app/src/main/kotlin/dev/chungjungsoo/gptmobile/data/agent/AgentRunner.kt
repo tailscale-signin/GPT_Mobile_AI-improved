@@ -404,7 +404,12 @@ class AgentRunner(
         val message = if (call.callId in hostSuppressedIds) {
             "This website failed repeatedly and is paused for this response. read_url remains available for other hosts; choose another source."
         } else if (call.callId in perToolSuppressedIds) {
-            "This operation reached the per-response repeat limit. Use results already collected; do not repeat these arguments. Other authorized sources may still be read within the remaining budget."
+            "This operation reached the per-response repeat limit. Use results already collected; do not repeat these arguments. " +
+                if (dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(call.name) in setOf("github_read", "github_search")) {
+                    "For more GitHub data, use the exact continuation_call returned by the last result or request a different unread range at the same commit_sha. Never repeat a mutation to recover output."
+                } else {
+                    "Other authorized sources may still be read within the remaining budget."
+                }
         } else {
             FINAL_RESPONSE_INSTRUCTION
         }

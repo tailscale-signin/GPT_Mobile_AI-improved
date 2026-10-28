@@ -125,7 +125,7 @@ class GitHubProgrammerViewModelTest {
                 42,
                 match { it.contains("owner/repo") && it.contains("Branch: feature") && it.endsWith("Fix the failing checks") },
                 match<PendingPromptPayload> {
-                    it.profileUids == listOf("coder") && it.models == mapOf("coder" to "selected-model") && it.tools.github?.commitSha == "a".repeat(40) && !it.tools.allowAllByDefault && it.tools.enabledToolIds == setOf("github")
+                    it.profileUids == listOf("coder") && it.models == mapOf("coder" to "selected-model") && it.tools.github?.commitSha == "a".repeat(40) && it.tools.github?.autoApproveTools == true && !it.tools.allowAllByDefault && it.tools.enabledToolIds == setOf("github")
                 }
             )
         }

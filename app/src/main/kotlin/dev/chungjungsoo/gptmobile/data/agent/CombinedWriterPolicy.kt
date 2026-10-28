@@ -5,6 +5,15 @@ import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 
 /** Unknown routes may be probed; only validated records count as demonstrated structured delivery. */
 internal object CombinedWriterPolicy {
+    /** Fund useful packets on capable routes; the minimum only establishes eligibility. */
+    fun preferredOutput(request: String, profile: PlatformV2, appendContinuations: Boolean = false, userOutputLimit: Int? = null, userContextLimit: Int? = null): Int {
+        val minimum = requiredOutput(request, profile, appendContinuations)
+        if (!appendContinuations) return minimum
+        val usefulPacket = requiredOutput(request, profile).coerceIn(4096, 16_384)
+        val contextBound = listOfNotNull(ProviderRouteCapacity.context(profile), userContextLimit?.takeIf { it > 0 }).minOrNull()?.let { maxOf(minimum, it / 4) } ?: Int.MAX_VALUE
+        return maxOf(minimum, minOf(ProviderRouteCapacity.output(profile, usefulPacket), contextBound, userOutputLimit?.takeIf { it > 0 } ?: Int.MAX_VALUE))
+    }
+
     fun requiredOutput(request: String, profile: PlatformV2, appendContinuations: Boolean = false): Int {
         val policy = CombinedAnswerPolicy.from(request)
         val requestedWords = policy.maximumWords ?: policy.targetWords ?: policy.minimumWords ?: if (CombinedTaskContract.from(request).action == "CONVERSATION") 30 else 500

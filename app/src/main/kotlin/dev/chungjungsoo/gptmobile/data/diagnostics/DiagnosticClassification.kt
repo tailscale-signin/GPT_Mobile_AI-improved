@@ -71,6 +71,8 @@ internal fun classifyDiagnostic(level: String?, tag: String?, message: String): 
             text.startsWith("connected") ->
             DiagnosticClassification("recovery", "info", false, "reported_success")
         tag == "AppCrash" || "fatal exception" in text || level == "F" -> DiagnosticClassification("fatal", "critical", true)
+        level !in setOf("E", "W") && tag in setOf("Frame", "Rendering") && text.startsWith("frame_timing") ->
+            if (significantFrameWindow(message)) DiagnosticClassification("performance", "warning", true, "profile_main_thread_and_rendering") else DiagnosticClassification("performance_sample", "info", false)
         level == "E" -> DiagnosticClassification("error", "error", true)
         level == "W" -> DiagnosticClassification("warning", "warning", true)
         Regex("(?:^| · )(?:error=true|status=FAILED|outcome=FAILED)(?: · |$)", RegexOption.IGNORE_CASE).containsMatchIn(message) ->
@@ -81,6 +83,15 @@ internal fun classifyDiagnostic(level: String?, tag: String?, message: String): 
             DiagnosticClassification("performance", "warning", true)
         else -> DiagnosticClassification("informational", "info", false)
     }
+}
+
+/** Keep isolated missed deadlines visible without reporting every high-refresh sample as a fault. */
+private fun significantFrameWindow(message: String): Boolean {
+    fun value(name: String): Double? = Regex("(?:^| · )$name=([0-9]+(?:\\.[0-9]+)?)").find(message)?.groupValues?.get(1)?.toDoubleOrNull()
+    if ((value("stallsOver100Ms") ?: 0.0) > 0 || (value("maxMs") ?: 0.0) >= 100 || (value("droppedSamples") ?: 0.0) > 0) return true
+    val missed = value("jankFrames") ?: value("jankyFrames") ?: value("slowFrames") ?: return false
+    val frames = value("frames") ?: return missed > 0
+    return frames > 0 && missed / frames >= 0.05
 }
 
 /** Strip recorder metadata without swallowing the event label. */

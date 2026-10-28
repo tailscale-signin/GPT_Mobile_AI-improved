@@ -134,7 +134,7 @@ class GitHubProgrammerViewModel @Inject constructor(
                 }
                 val prepare = connection?.connectionUid?.let { it in features.githubPrepareIndex } == true
                 val context = if (connection != null && selected != null && workspace.headSha.isNotBlank() && uid != null) {
-                    GitHubConversationContext(connection.connectionUid, selected.owner, selected.repo, selected.ref, workspace.headSha, uid, prepare)
+                    GitHubConversationContext(connection.connectionUid, selected.owner, selected.repo, selected.ref, workspace.headSha, uid, prepare, autoApproveTools = true)
                 } else {
                     null
                 }

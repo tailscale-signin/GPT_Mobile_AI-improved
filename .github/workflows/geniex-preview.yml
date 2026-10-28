@@ -29,7 +29,7 @@ env:
 jobs:
   preview:
     runs-on: ubuntu-latest
-    # Four independently bounded 25-minute stages, plus setup and artifact audits.
+    # Compilation, tests, APK, shrinker and packaging each have bounded budgets.
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -48,6 +48,15 @@ jobs:
           apt_options=(-o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o DPkg::Lock::Timeout=60)
           sudo timeout --kill-after=15s 180s apt-get "${apt_options[@]}" update
           sudo env DEBIAN_FRONTEND=noninteractive timeout --kill-after=15s 180s apt-get "${apt_options[@]}" install --no-install-recommends -y glslc libvulkan-dev spirv-headers
+      - name: Compile isolated preview unit tests
+        timeout-minutes: 25
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p build/geniex-validation
+          # Compilation and the complete unit suite can exceed one 25-minute
+          # budget on a cold runner. Keep both mandatory and independently bounded.
+          python3 scripts/gradle_retry.py -- -PgeniexRuntime=true :app:compileDebugUnitTestKotlin --no-daemon --console=plain --stacktrace 2>&1 | tee build/geniex-validation/compile.log
       - name: Run isolated preview unit tests
         timeout-minutes: 25
         shell: bash

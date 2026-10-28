@@ -6,7 +6,8 @@
   "changes": [
     "October 28 diagnostic repairs: deferred draft IO and indexing, chat deletion IO, validated GitHub search/change requests and bounded missing-usage continuation recovery",
     "Cleaner GitHub workspace with automatic scoped tool execution and one branch/change-summary approval per commit",
-    "Repair the inherited draft-store formatting and continuation CI regressions"
+    "Repair the inherited draft-store formatting and continuation CI regressions",
+    "Separate mandatory GenieX unit compilation and full-suite execution into bounded stages after an observed cold-runner timeout"
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; its remaining acceptance cases are not represented as passed.",
@@ -24,6 +25,7 @@
     "release-scope.json",
     "RELEASE_NOTES.md",
     "docs/diagnostics/2026-10-28-log-remediation.md",
-    "docs/diagnostics/2026-10-28-build129-workspace-remediation.md"
+    "docs/diagnostics/2026-10-28-build129-workspace-remediation.md",
+    ".github/workflows/geniex-preview.yml"
   ]
 }

@@ -48,3 +48,7 @@ Reviewed all 5,398 rows in app-diagnostics-7604554342784736769.jsonl: 3,098 even
 | Android historical exit reason 10 | Marked informational in the export, not evidence of a fresh application crash. |
 
 The proposed 0.9.62.0 release remains scoped. CI and signed-artifact checks cannot close remote-service or physical-device acceptance. At preparation time local whitespace review passed; full Android execution runs in CI because this host cannot reach GitHub/Gradle downloads and has no Android SDK. Exact final CI results are recorded on PR #751 and the release workflow, not inferred here.
+
+### CI follow-up
+
+At candidate 4d56669a, CodeQL, formatting, preflight, APK-download contracts and emulator acceptance passed. The four added/repaired regression cases named above passed in the GenieX full-suite log. PR unit/coverage and GenieX unit stages hit their 25-minute combined compilation/execution deadline while tests were still passing; compilation consumed about 15 minutes. Split compilation into a separately bounded process before the unchanged complete test command. Preserve 25-minute stage limits, full test selection, coverage checking, pipefail and diagnostics. Raise only the enclosing job allowance to accommodate the additional bounded stage. Final-head checks must run again before merge.

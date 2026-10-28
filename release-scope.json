@@ -8,7 +8,8 @@
     "Validate compact GitHub search inputs and require an explicit comparison base before dispatch.",
     "Retain the low-yield continuation guard when providers omit usage; preserve the earlier immediate empty-restored-continuation stop.",
     "Resolve chat deletion and temporary-chat cleanup directories on Dispatchers.IO.",
-    "Regression coverage for encrypted draft persistence, search/comparison validation, missing-usage continuation bounds and cleanup dispatcher ownership."
+    "Regression coverage for encrypted draft persistence, search/comparison validation, missing-usage continuation bounds and cleanup dispatcher ownership.",
+    "Separate cold unit-test compilation from full-suite execution in PR and GenieX CI; retain bounded stages, complete test selection and coverage failure gates."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; its remaining acceptance cases are not represented as passed.",
@@ -33,6 +34,8 @@
     "app/",
     "RELEASE_NOTES.md",
     "release-scope.json",
-    "docs/diagnostics/2026-10-28-log-remediation.md"
+    "docs/diagnostics/2026-10-28-log-remediation.md",
+    ".github/workflows/pr-validation.yml",
+    ".github/workflows/geniex-preview.yml"
   ]
 }

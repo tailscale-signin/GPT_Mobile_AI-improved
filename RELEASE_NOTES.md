@@ -10,6 +10,8 @@ This scoped maintenance release includes the current main branch and the October
 - Resolve chat deletion and temporary-chat cleanup directories on Dispatchers.IO.
 - Regression coverage for encrypted draft persistence, search/comparison validation, missing-usage continuation bounds and cleanup dispatcher ownership.
 
+- Separate cold compilation and full-suite execution deadlines in PR/GenieX validation; retain all tests and the coverage gate.
+
 ## Qualification and remaining limitations
 
 - Unified Reliability v2 is not complete; its remaining acceptance cases are not represented as passed.

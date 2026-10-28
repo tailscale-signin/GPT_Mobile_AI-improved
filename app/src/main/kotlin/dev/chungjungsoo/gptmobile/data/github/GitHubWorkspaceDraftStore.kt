@@ -20,7 +20,9 @@ import kotlinx.coroutines.withContext
 /** Private encrypted drafts are independent of commits and never replay writes on startup. */
 @Singleton
 class GitHubWorkspaceDraftStore @Inject constructor(@ApplicationContext context: Context, private val vault: SecretVault) {
-    private val directory = File(context.noBackupFilesDir, "github-workspace-drafts")
+    // Context resolves this directory with filesystem checks. Defer until read/write
+    // enters Dispatchers.IO instead of doing it during Hilt construction on Main.
+    private val directory by lazy { File(context.noBackupFilesDir, "github-workspace-drafts") }
     private val mutex = Mutex()
     private fun file(connection: String): AtomicFile = AtomicFile(
         File(

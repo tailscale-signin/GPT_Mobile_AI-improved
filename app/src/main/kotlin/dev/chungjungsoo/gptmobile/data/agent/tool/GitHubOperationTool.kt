@@ -54,6 +54,18 @@ internal class GitHubOperationTool(
                 )
             }
         }
+        if (operation == "github_search") {
+            val query = (arguments["query"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+            if (query.isNullOrBlank() || query.length > 200) {
+                return AgentToolResult(
+                    callId,
+                    ToolResultContent.Text("github_search requires a non-blank query of at most 200 characters. Use mode=paths to find file names; use index_cursor to continue a previous search with the same query."),
+                    true,
+                    errorCode = "INVALID_ARGUMENTS",
+                    dispatched = false
+                )
+            }
+        }
         if (operation == "github_pr") {
             val action = (arguments["action"] as? JsonPrimitive)?.content.orEmpty().ifBlank { "context" }
             val requiredFields = when (action) {
@@ -207,7 +219,11 @@ internal class GitHubOperationTool(
                 }
                 "github_search" -> {
                     properties["path_prefix"] = field("string")
-                    properties["query"] = field("string")
+                    properties["query"] = buildJsonObject {
+                        put("type", "string")
+                        put("minLength", 1)
+                        put("maxLength", 200)
+                    }
                     properties["mode"] = choice("literal", "definitions", "references", "paths", "tests")
                     properties["index_cursor"] = field("integer")
                     properties["page"] = field("integer")
@@ -360,7 +376,7 @@ internal class GitHubOperationTool(
             }
             val description = when (operation) {
                 "github_context" -> "Resolve and pin the selected repository; check status, index, changes, efficiency or capabilities. action=capabilities inspects remote write permissions. A compact read-only schema selection does not prove write tools are disabled: discover github_write for edits. Changes requires base_sha; PR files use github_pr context with include_files=true."
-                "github_search" -> "Search pinned code and symbols locally. Follow index_cursor until complete."
+                "github_search" -> "Search pinned code and symbols locally. Supply a non-blank query (1-200 characters). Follow index_cursor with the same query until complete."
                 "github_read" -> "Read exact source ranges or a saved evidence_id at a pinned commit."
                 "github_stage_patch" -> "Validate expected head/blob SHAs and preview exact edits without committing."
                 "github_commit" -> "Create a working branch or commit a validated stage_id with head checks."

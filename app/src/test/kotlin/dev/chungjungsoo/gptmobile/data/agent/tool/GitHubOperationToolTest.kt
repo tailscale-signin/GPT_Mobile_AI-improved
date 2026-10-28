@@ -33,6 +33,19 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubOperationToolTest {
+    @Test fun invalidSearchQueriesAreRejectedBeforeDispatch() = runBlocking {
+        val backend = Backend()
+        val operation = GitHubOperationTool("github_search", backend, "search-validation")
+        for (input in listOf("{}", "{\"query\":\"   \"}", "{\"query\":false}", "{\"query\":\"${"x".repeat(201)}\"}")) {
+            val result = operation.execute("invalid", args(input))
+            assertTrue(result.isError)
+            assertEquals("INVALID_ARGUMENTS", result.errorCode)
+        }
+        assertTrue(backend.calls.isEmpty())
+        operation.execute("valid", args("{\"query\":\"${"x".repeat(200)}\"}"))
+        assertEquals(1, backend.calls.size)
+    }
+
     @Test fun incompleteRepositoryOverridesAreRejectedWithoutDispatch() = runBlocking {
         val backend = Backend()
         val operation = GitHubOperationTool("github_context", backend, "validation-test")

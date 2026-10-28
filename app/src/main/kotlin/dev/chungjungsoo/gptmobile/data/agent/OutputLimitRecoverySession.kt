@@ -159,7 +159,11 @@ internal class OutputLimitRecoverySession(
                 emit(failure ?: ProviderEvent.Failed("The model reached its output limit without a visible answer. Check reasoning and output settings before retrying."))
                 return@flow
             }
-            lowYieldLimitRounds = if (limitFailure && (reportedOutputTokens ?: 0) >= 1024 && novel.toByteArray(Charsets.UTF_8).size <= 256) lowYieldLimitRounds + 1 else 0
+            // Providers can omit usage on length-limited responses. The known request
+            // cap still establishes the budget; absent usage must not disable the
+            // visible-progress guard and fund repeated reasoning-only requests.
+            val outputBudget = reportedOutputTokens ?: effectiveOutputCap ?: 0
+            lowYieldLimitRounds = if (limitFailure && outputBudget >= 1024 && novel.toByteArray(Charsets.UTF_8).size <= 256) lowYieldLimitRounds + 1 else 0
             if (lowYieldLimitRounds >= 2) {
                 saveProgress(answer.toString(), continuations, effectiveOutputCap, "PARTIAL")
                 retainedFailure(ProviderEvent.Failed("OUTPUT_CONTINUATION_NO_VISIBLE_PROGRESS: Two output-limited requests produced negligible visible output. The partial answer and evidence are saved. Check the profile's reasoning and output settings before explicitly retrying."))

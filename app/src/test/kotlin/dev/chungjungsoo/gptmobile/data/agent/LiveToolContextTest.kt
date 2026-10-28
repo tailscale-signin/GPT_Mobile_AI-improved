@@ -9,6 +9,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LiveToolContextTest {
+    @Test fun githubRequestsRequireConcreteEditsAndToolReceipts() {
+        val prompt = liveToolSystemPrompt(null, listOf("github_write__github_api", "github_read__github_api"))
+        assertTrue(prompt.contains("prose or code examples alone do not apply changes"))
+        assertTrue(prompt.contains("successful tool receipts"))
+        assertTrue(prompt.contains("evidence_id is not a view_cursor"))
+    }
+
     @Test fun deferredCompactPolicyActuallyShrinksAndPreservesUserInstructions() {
         val original = "Keep my exact profile instructions."
         val full = liveToolSystemPrompt(original, emptyList(), deferCapabilities = true)

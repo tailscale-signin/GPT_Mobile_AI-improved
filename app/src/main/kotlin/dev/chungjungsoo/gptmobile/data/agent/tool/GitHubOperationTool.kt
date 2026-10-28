@@ -29,6 +29,9 @@ internal class GitHubOperationTool(
             }
             val cursor = (arguments["view_cursor"] as? JsonPrimitive)?.takeIf { it.isString }?.content
                 ?: return AgentToolResult(callId, ToolResultContent.Text("view_cursor must be the exact saved cursor string."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
+            if (!cursor.contains(':')) {
+                return AgentToolResult(callId, ToolResultContent.Text("Invalid saved-view cursor. Use the exact continuation_call arguments returned by the previous result. To read an evidence_id, omit view_cursor and provide evidence_id alone with the repository context."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
+            }
             return views.read(scope, operation, definition.name, cursor, callId)
         }
         // Explicit repository overrides must be complete; both absent uses the pinned task context.

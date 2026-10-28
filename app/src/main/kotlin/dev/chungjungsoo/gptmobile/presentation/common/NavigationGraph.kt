@@ -121,7 +121,8 @@ private fun AppNavHost(
         startScreenNavigation(navController)
         setupNavigation(navController)
         settingNavigation(navController, toolConnectionsViewModel, onLaunchOAuth)
-        chatScreenNavigation(navController)
+        chatScreenNavigation(navController, toolConnectionsViewModel)
+        githubChatNavigation(navController, toolConnectionsViewModel)
     }
 }
 
@@ -311,7 +312,7 @@ fun NavGraphBuilder.newChatNavigation(navController: NavHostController, revealOr
     }
 }
 
-fun NavGraphBuilder.chatScreenNavigation(navController: NavHostController) {
+fun NavGraphBuilder.chatScreenNavigation(navController: NavHostController, toolConnectionsViewModel: ToolConnectionsViewModel) {
     composable(
         Route.CHAT_ROOM,
         arguments = listOf(
@@ -330,14 +331,37 @@ fun NavGraphBuilder.chatScreenNavigation(navController: NavHostController) {
         )
     ) {
         val conversation: dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatViewModel = hiltViewModel()
-        dev.chungjungsoo.gptmobile.presentation.ui.chat.AdaptiveConversationLayout(it.arguments?.getInt("chatRoomId") ?: 0, { id -> conversation.leaveConversation { navController.navigate("chat_room/$id") { popUpTo(Route.CHAT_ROOM) { inclusive = true } } } }) {
-            ChatScreen(
+        val features by conversation.featureSettings.collectAsStateWithLifecycle()
+        val toolState by toolConnectionsViewModel.uiState.collectAsStateWithLifecycle()
+        val chatId = it.arguments?.getInt("chatRoomId") ?: 0
+        val githubContext = features.conversationGitHub[chatId]
+        val connection = toolState.connections.firstOrNull { connection ->
+            connection.connectionUid == githubContext?.connectionUid &&
+                connection.type == ToolConnectionType.GITHUB &&
+                (toolState.pluginStates[ToolPluginId.GITHUB] ?: true) &&
+                (toolState.pluginStates[ToolPluginId.connection(connection.connectionUid)] ?: true)
+        }
+        if (githubContext != null && connection != null) {
+            dev.chungjungsoo.gptmobile.presentation.ui.setting.GitHubWorkspaceScreen(
+                connection = connection,
+                onDismiss = { navController.navigateUp() },
+                initialChatId = chatId,
+                initialProfileUid = githubContext.mainProfileUid,
+                initialContext = githubContext,
+                onOpenConversation = { id -> navController.navigate("chat_room/$id") },
                 onReviewEvidenceAccess = { navController.navigate(Route.TOOL_CONNECTIONS) },
-                chatViewModel = conversation,
-                onBackAction = { navController.navigateUp() },
-                onNavigateToLocalModels = { navController.navigate(Route.LOCAL_MODELS + "?marketplace=true") },
-                onOpenConversation = { id, regenerate -> navController.navigate("chat_room/$id?regenerate=$regenerate") }
+                onNavigateToLocalModels = { navController.navigate(Route.LOCAL_MODELS + "?marketplace=true") }
             )
+        } else {
+            dev.chungjungsoo.gptmobile.presentation.ui.chat.AdaptiveConversationLayout(it.arguments?.getInt("chatRoomId") ?: 0, { id -> conversation.leaveConversation { navController.navigate("chat_room/$id") { popUpTo(Route.CHAT_ROOM) { inclusive = true } } } }) {
+                ChatScreen(
+                    onReviewEvidenceAccess = { navController.navigate(Route.TOOL_CONNECTIONS) },
+                    chatViewModel = conversation,
+                    onBackAction = { navController.navigateUp() },
+                    onNavigateToLocalModels = { navController.navigate(Route.LOCAL_MODELS + "?marketplace=true") },
+                    onOpenConversation = { id, regenerate -> navController.navigate("chat_room/$id?regenerate=$regenerate") }
+                )
+            }
         }
     }
 }
@@ -426,7 +450,10 @@ fun NavGraphBuilder.settingNavigation(
             if (githubConnection != null) {
                 dev.chungjungsoo.gptmobile.presentation.ui.setting.GitHubWorkspaceScreen(
                     connection = githubConnection,
-                    onDismiss = { navController.navigateUp() }
+                    onDismiss = { navController.navigateUp() },
+                    onOpenConversation = { id -> navController.navigate("chat_room/$id") },
+                    onReviewEvidenceAccess = { navController.navigate(Route.TOOL_CONNECTIONS) },
+                    onNavigateToLocalModels = { navController.navigate(Route.LOCAL_MODELS + "?marketplace=true") }
                 )
             } else {
                 androidx.compose.material3.Text(
@@ -751,6 +778,35 @@ fun NavGraphBuilder.settingNavigation(
         }
         composable(Route.LICENSE) {
             LicenseScreen(onNavigationClick = { navController.navigateUp() })
+        }
+    }
+}
+
+fun NavGraphBuilder.githubChatNavigation(navController: NavHostController, toolConnectionsViewModel: ToolConnectionsViewModel) {
+    composable("github_chat/{profileUid}", arguments = listOf(navArgument("profileUid") { type = NavType.StringType })) { entry ->
+        val toolState by toolConnectionsViewModel.uiState.collectAsStateWithLifecycle()
+        val connection = toolState.connections.firstOrNull { connection ->
+            connection.type == ToolConnectionType.GITHUB &&
+                (toolState.pluginStates[ToolPluginId.GITHUB] ?: true) &&
+                (toolState.pluginStates[ToolPluginId.connection(connection.connectionUid)] ?: true)
+        }
+        if (connection != null) {
+            dev.chungjungsoo.gptmobile.presentation.ui.setting.GitHubWorkspaceScreen(
+                connection = connection,
+                onDismiss = { navController.navigateUp() },
+                initialProfileUid = entry.arguments?.getString("profileUid"),
+                newConversation = true,
+                onOpenConversation = { id -> navController.navigate("chat_room/$id") },
+                onReviewEvidenceAccess = { navController.navigate(Route.TOOL_CONNECTIONS) },
+                onNavigateToLocalModels = { navController.navigate(Route.LOCAL_MODELS + "?marketplace=true") }
+            )
+        } else {
+            androidx.activity.compose.BackHandler { navController.navigateUp() }
+            Column(Modifier.fillMaxSize()) {
+                androidx.compose.material3.Text("Connect and enable GitHub in Plugins & Tools to start GitHub chat.")
+                androidx.compose.material3.TextButton(onClick = { navController.navigate(Route.TOOL_CONNECTIONS) }) { androidx.compose.material3.Text("Set up GitHub") }
+                androidx.compose.material3.TextButton(onClick = { navController.navigateUp() }) { androidx.compose.material3.Text("Back") }
+            }
         }
     }
 }

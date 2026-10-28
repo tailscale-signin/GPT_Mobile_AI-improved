@@ -8,6 +8,20 @@ import org.junit.Test
 
 class NewChatTypeTest {
     @Test
+    fun githubRequiresOneProfileAndItsPluginAndPrecedesResearch() {
+        val defaults = AppFeatureSettings().withToolPluginEnabled(ToolPluginId.GITHUB, false)
+        assertFalse(availableNewChatTypes(defaults).contains(NewChatType.GITHUB))
+        assertFalse(NewChatType.GITHUB.isCountValid(0))
+        assertTrue(NewChatType.GITHUB.isCountValid(1))
+        assertFalse(NewChatType.GITHUB.isCountValid(2))
+        assertEquals(ConversationMode.STANDARD, NewChatType.GITHUB.executionMode(1))
+        val enabled = defaults.withToolPluginEnabled(ToolPluginId.GITHUB, true).withToolPluginEnabled(ToolPluginId.DEEP_RESEARCH, true)
+        val choices = availableNewChatTypes(enabled)
+        assertEquals(choices.indexOf(NewChatType.RESEARCH) - 1, choices.indexOf(NewChatType.GITHUB))
+        assertFalse(availableNewChatTypes(enabled.withToolPluginEnabled(ToolPluginId.GITHUB, false)).contains(NewChatType.GITHUB))
+    }
+
+    @Test
     fun singleRequiresOneProfile() {
         assertFalse(NewChatType.SINGLE.isCountValid(0))
         assertTrue(NewChatType.SINGLE.isCountValid(1))
@@ -39,7 +53,7 @@ class NewChatTypeTest {
     }
 
     @org.junit.Test fun researchModeRequiresItsPluginAndAppearsAfterBuiltInModes() {
-        val disabled = AppFeatureSettings()
+        val disabled = AppFeatureSettings().withToolPluginEnabled(ToolPluginId.GITHUB, false)
         org.junit.Assert.assertFalse(availableNewChatTypes(disabled).contains(NewChatType.RESEARCH))
         val enabled = disabled.withToolPluginEnabled(ToolPluginId.DEEP_RESEARCH, true)
         org.junit.Assert.assertEquals(NewChatType.RESEARCH, availableNewChatTypes(enabled).last())

@@ -81,6 +81,40 @@ class GitHubProgrammerViewModelTest {
         Dispatchers.resetMain()
     }
 
+    @Test fun legacyCommandDraftMovesToTheStandardComposerOnce() = runBlocking {
+        withTimeout(5000) { model.state.first { it.draftLoaded } }
+        val context = model.state.value.context!!
+        model.updateDraft(context, "Continue the code review")
+        model.ensureConversation().join()
+        withTimeout(5000) { model.state.first { it.chatId == 42 } }
+        coVerify { chats.saveComposerDraft(42, "Continue the code review", "[]", any()) }
+        coVerify { drafts.write(match { "owner/repo:feature:coder" in it }, "") }
+        assertEquals("", model.state.value.draft)
+    }
+
+    @Test fun openingChatCreatesOneScopedRoomWithoutSubmittingWork() = runBlocking {
+        model.configureSession("coder", newConversation = true)
+        withTimeout(5000) { model.state.first { it.draftLoaded && it.profileUid == "coder" } }
+        kotlinx.coroutines.joinAll(model.ensureConversation(), model.ensureConversation())
+        withTimeout(5000) { model.state.first { it.chatId == 42 } }
+        coVerify(exactly = 1) { chats.createDraftChat(listOf("coder"), "STANDARD", "owner/repo", "coder") }
+        coVerify(exactly = 0) { queue.enqueue(any(), any(), any()) }
+        assertEquals("feature", features.value.conversationGitHub.getValue(42).ref)
+        assertEquals("coder", model.state.value.profileOverrideUid)
+        assertTrue(features.value.githubMainProfiles == mapOf("github" to "coder"))
+        // Re-entering the same destination after recreation must not allocate another room.
+        model.configureSession("coder", newConversation = true)
+        model.ensureConversation().join()
+        coVerify(exactly = 1) { chats.createDraftChat(any(), any(), any(), any()) }
+    }
+
+    @Test fun unavailableExplicitProfileDoesNotSilentlyRunAnotherProfile() = runBlocking {
+        model.configureSession("deleted-profile", newConversation = true)
+        withTimeout(5000) { model.state.first { it.profileUid == null && it.context == null } }
+        model.ensureConversation().join()
+        coVerify(exactly = 0) { chats.createDraftChat(any(), any(), any(), any()) }
+    }
+
     @Test fun acceptedCommandUsesDurableQueueWithFrozenProfileAndRepositoryScope() = runBlocking {
         withTimeout(5000) { model.state.first { it.draftLoaded } }
         val accepted = CompletableDeferred<Unit>()

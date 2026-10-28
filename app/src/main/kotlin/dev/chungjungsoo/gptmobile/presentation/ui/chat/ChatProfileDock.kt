@@ -40,13 +40,14 @@ internal fun ChatProfileDock(
     combined: Boolean,
     combinedGenerating: Boolean,
     onSelect: (String?) -> Unit,
-    onPause: (String) -> Unit,
+    onPause: ((String) -> Unit)?,
     failedUids: Set<String> = emptySet(),
     combinedFailed: Boolean = false,
     profileColorIdentities: Map<String, ProfileColorIdentity> = emptyMap(),
     responseLabels: Map<String, String> = emptyMap(),
     combinedLabel: String? = null,
-    combinedWaiting: Boolean = false
+    combinedWaiting: Boolean = false,
+    showStatus: Boolean = true
 ) {
     val colors = MaterialTheme.colorScheme
     Surface(
@@ -111,12 +112,12 @@ internal fun ChatProfileDock(
                             selected = active
                             stateDescription = status
                         }
-                        .combinedClickable(role = Role.Tab, onClick = { onSelect(uid) }, onLongClick = uid?.let { { onPause(it) } })
+                        .combinedClickable(role = Role.Tab, onClick = { onSelect(uid) }, onLongClick = uid?.takeIf { onPause != null }?.let { { onPause?.invoke(it) } })
                 ) {
                     Row(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         if (running) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp, color = colors.primary)
                         Text(label.take(120), modifier = Modifier.widthIn(max = 160.dp), style = MaterialTheme.typography.labelLarge, color = labelColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(status, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                        if (showStatus) Text(status, style = MaterialTheme.typography.labelSmall, maxLines = 1)
                     }
                 }
             }

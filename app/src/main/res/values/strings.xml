@@ -1173,4 +1173,6 @@
     <string name="audit_remove_profile_effect">Profiles using this model remain saved and will need a model before running.</string>
     <string name="combined_profile_paused">Paused: provider limit</string>
     <string name="provider_wait_saved">Paused: provider limit. Your work is saved and eligibility will be checked again after the cooldown.</string>
+    <string name="github_chat_title">GitHub Chat</string>
+    <string name="github_chat_description">Work on a repository with one AI profile</string>
 </resources>

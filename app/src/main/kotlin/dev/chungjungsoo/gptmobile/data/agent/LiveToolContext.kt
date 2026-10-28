@@ -11,6 +11,10 @@ internal fun liveToolSystemPrompt(original: String?, toolNames: Collection<Strin
         append("\n\n")
     }
     val names = toolNames.distinct().sorted()
+    if (names.any { it == "github" || it.startsWith("github_") }) {
+        append("For GitHub work, inspect exact source before reporting verified defects. When the user requests changes, prepare concrete edits with the registered staging/write tools; prose or code examples alone do not apply changes. If a write capability is missing, use registered discovery before declaring it unavailable. Create a working branch when the selected branch is protected or is the default. Request any required approval for the exact prepared patch. Only claim staged, committed or opened-PR outcomes after successful tool receipts. Use returned continuation_call arguments verbatim; evidence_id is not a view_cursor. ")
+    }
+
     // Local callers defer their inventory until after context admission. Previously
     // deferCapabilities returned before compact was considered, so the fallback
     // repeated the full policy and could reject even a greeting on a small context.

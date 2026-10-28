@@ -54,7 +54,7 @@ class NewChatViewModel @Inject constructor(
         savedStateHandle["new_chat_type"] = choice.name
         val enabled = profiles.value.filter { it.enabled }.map { it.uid }.toSet()
         val kept = selectedUids.value.filter { it in enabled }.let {
-            if (choice == NewChatType.SINGLE) it.take(1) else it
+            if (choice in setOf(NewChatType.SINGLE, NewChatType.GITHUB)) it.take(1) else it
         }
         savedStateHandle["new_chat_uids"] = kept
         if (primaryUid.value !in kept) savedStateHandle["new_chat_primary"] = kept.firstOrNull().orEmpty()
@@ -71,7 +71,7 @@ class NewChatViewModel @Inject constructor(
                 return
             }
         }
-        val next = if (type == NewChatType.SINGLE) {
+        val next = if (type in setOf(NewChatType.SINGLE, NewChatType.GITHUB)) {
             if (current.singleOrNull() == uid) emptyList() else listOf(uid)
         } else if (uid in current) {
             current - uid
@@ -168,7 +168,7 @@ class NewChatViewModel @Inject constructor(
         val selected = selectedUids.value.distinct()
         if (!choice.isCountValid(selected.size)) {
             _error.value = when (choice) {
-                NewChatType.SINGLE -> "Select exactly one AI profile."
+                NewChatType.SINGLE, NewChatType.GITHUB -> "Select exactly one AI profile."
                 NewChatType.RESEARCH -> "Select at least one AI profile."
                 else -> "Select at least two AI profiles."
             }
@@ -202,6 +202,15 @@ class NewChatViewModel @Inject constructor(
                         )
                         require(reason == null) { profile.name + ": " + reason }
                     }
+                }
+                require(choice.requiredPluginId?.let { settings.getFeatureSettings().isToolPluginEnabled(it) } != false) {
+                    "This chat mode's plugin was disabled. Enable it before continuing."
+                }
+                if (choice == NewChatType.GITHUB) {
+                    val nextRoute = "github_chat/${android.net.Uri.encode(selected.single())}"
+                    savedStateHandle["new_chat_finished_route"] = nextRoute
+                    onCreated(nextRoute)
+                    return@launch
                 }
                 val mode = choice.executionMode(selected.size)
                 val nextRoute = run {

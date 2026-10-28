@@ -359,7 +359,7 @@ class AgentToolResolver @Inject constructor(
 
         // Expand native contracts before telemetry replaces the concrete backend
         // with ObservedTool. Otherwise the model only gets the hidden legacy tool.
-        val hasGitHubRepositoryContext = resolved.any { (it.tool as? GitHubTool)?.hasRepositoryContext == true }
+        val hasGitHubRepositoryContext = hasSelectedGitHubRepository(resolved)
         val expandedGitHub = expandNativeGitHubTools(resolved)
         resolved.clear()
         resolved.addAll(expandedGitHub)
@@ -466,7 +466,7 @@ class AgentToolResolver @Inject constructor(
         }
 
         val finalized = finalizeResolvedTools(resolved, profileUid, platform, featureSettings, bindings, chatToolConfig, freeProfile, disableRemote, disableLocal, onConnectionError, chatId = userMessage?.chatId, consentPlatform = consentPlatform)
-        val catalogTask = githubCatalogTask(profileUid, userMessage, hasGitHubRepositoryContext)
+        val catalogTask = githubCatalogTask(profileUid, scopedGitHubMessage(userMessage, chatToolConfig?.github), hasGitHubRepositoryContext)
         val coldBindings = if (cachedCataloguesOnly && allowRemoteMcp && userMessage != null) {
             bindings.filter { binding ->
                 binding.connection?.type == ToolConnectionType.MCP &&
@@ -1218,6 +1218,15 @@ class AgentToolResolver @Inject constructor(
                 live.isToolPluginEnabledForProfile(profileUid, ToolPluginId.GITHUB) &&
                 (actualConnection == null || (toolConnectionRepository.getConnection(actualConnection.connectionUid) == actualConnection && live.isToolPluginEnabledForProfile(profileUid, ToolPluginId.connection(actualConnection.connectionUid))))
         })
+    }
+
+    private fun hasSelectedGitHubRepository(tools: List<ResolvedAgentTool>): Boolean =
+        tools.any { (it.tool as? GitHubTool)?.hasRepositoryContext == true }
+
+    /** Keep scope assembly outside the large suspending resolver's DEX method. */
+    private fun scopedGitHubMessage(message: MessageV2?, context: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext?): MessageV2? {
+        if (message == null || context == null) return message
+        return message.copy(content = context.promptContext() + "\n\n" + message.content)
     }
 
     private suspend fun githubCatalogTask(profileUid: String, userMessage: MessageV2?, selectedRepository: Boolean): String {

@@ -148,6 +148,18 @@ class GitHubPublicAuthCoordinatorTest {
         }
     }
 
+    @Test fun changingTheRegisteredClientCannotReuseAnExistingDeviceSession() = runBlocking {
+        Fixture().use { f ->
+            val coordinator = f.coordinator()
+            coordinator.completeDevice(f.connection, "Iv1.custom", GitHubOAuthCredential("ghu_first", "ghr_first", f.now + 100_000, f.now + 200_000))
+            f.connection = f.connection.copy(oauthClientId = "Iv1.different")
+            assertTrue(runCatching { f.coordinator().accessToken(f.connection) }.exceptionOrNull()?.message.orEmpty().contains("configuration changed"))
+            assertEquals(0, f.rotations)
+            assertEquals(0, f.deviceRotations)
+            assertEquals("ghu_first", f.vault.read("stored-access")!!.decodeToString())
+        }
+    }
+
     @Test fun processRestartCanCompletePendingSignInExactlyOnce() = runBlocking {
         Fixture().use { f ->
             f.coordinator().begin("github")

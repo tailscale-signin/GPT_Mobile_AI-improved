@@ -180,6 +180,9 @@ class GitHubPublicAuthCoordinator internal constructor(
             return@withLock currentToken
         }
         check(session.fingerprint == fingerprint(currentToken)) { "GitHub credentials changed. Reconnect to verify this account." }
+        if (session.refreshToken != null || connection.authType == "OAUTH") {
+            check(connection.authType == "OAUTH" && connection.oauthClientId == session.clientId) { "GitHub App configuration changed. Reconnect to verify this client and account." }
+        }
         val rejected = GitHubSessionCaches.authenticationForCredential(currentToken).get()
         if (!rejected && (session.expiresAt == null || clock() + 60_000 < session.expiresAt)) return@withLock currentToken
         val canRefresh = when (session.refreshMethod) {

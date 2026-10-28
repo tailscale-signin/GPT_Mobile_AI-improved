@@ -43,5 +43,5 @@ All 6,818 JSONL records were parsed: 4,717 event records and 2,101 continuation 
 - Changed Kotlin files pass ktlint; staged changes pass whitespace checks.
 - Android resource validation passed (29 XML files); Android regex validation passed (946 literal patterns; 59 dynamic patterns skipped).
 - Icon consistency and QNN dependency provenance checks passed. Native device execution remains unverified.
-- Full `:app:lintDebug` is in progress at publication. Initial offline attempts could not resolve instrumentation/lint dependencies; these were resolved and the full scan reached application analysis. No completed lint pass is claimed here.
+- Full `:app:lintDebug` passed, including production, instrumentation-test and unit-test analysis for the application and local GGUF module (17m 54s). Missing offline dependencies were resolved before the completed scan.
 - New-head CI and device/live-provider acceptance remain open. No merge or release is authorized by this review.

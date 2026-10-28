@@ -151,11 +151,7 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
     var confirmCommit by remember { mutableStateOf(false) }
     var confirmClose by remember { mutableStateOf(false) }
     var engineeringReviewOpen by rememberSaveable { mutableStateOf(false) }
-    var requestedBranch by rememberSaveable(state.selection?.fullName, state.selection?.ref) { mutableStateOf<String?>(null) }
-    var requestedCreation by rememberSaveable(state.selection?.fullName, state.selection?.ref) { mutableStateOf<String?>(null) }
-    var requestedCreationHead by rememberSaveable { mutableStateOf("") }
     var acknowledgedBranchEvents by rememberSaveable(connection.connectionUid) { mutableStateOf(emptyList<String>()) }
-    var branchEventId by rememberSaveable { mutableStateOf<String?>(null) }
     var editorDirty by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(connection.connectionUid) {
         if (viewModel.state.value.connection?.connectionUid != connection.connectionUid) viewModel.open(connection)
@@ -186,15 +182,10 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
         commandContext?.let { context -> latestBranchProposal(visibleProgrammer.events, context, acknowledgedBranchEvents) }
     }
     LaunchedEffect(branchProposal?.eventId, canNavigate) {
-        if (canNavigate && requestedBranch == null && branchProposal != null) {
-            branchEventId = branchProposal.eventId
-            requestedBranch = branchProposal.branch
+        if (canNavigate && branchProposal != null) {
+            acknowledgedBranchEvents = (acknowledgedBranchEvents + branchProposal.eventId).takeLast(100)
+            viewModel.selectBranch(branchProposal.branch, programmerState.chatId)
         }
-    }
-    fun acknowledgeBranch() {
-        branchEventId?.let { acknowledgedBranchEvents = (acknowledgedBranchEvents + it).takeLast(100) }
-        branchEventId = null
-        requestedBranch = null
     }
     Dialog(onDismissRequest = { close() }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Scaffold(
@@ -298,7 +289,7 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
                                         state.branches.forEach { branch ->
                                             DropdownMenuItem(text = { Text(branch) }, leadingIcon = { Icon(Icons.Rounded.AccountTree, null) }, onClick = {
                                                 branchMenu = false
-                                                if (branch != state.selection?.ref) requestedBranch = branch
+                                                if (branch != state.selection?.ref) viewModel.selectBranch(branch, programmerState.chatId)
                                             })
                                         }
                                         if (state.moreBranches) DropdownMenuItem(text = { Text("Load more branches") }, enabled = !state.busy, onClick = viewModel::moreBranches)
@@ -367,8 +358,7 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
                                 if (state.selection != null) {
                                     OutlinedTextField(branchName, { branchName = it }, label = { Text("New working branch") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                                     Button(onClick = {
-                                        requestedCreationHead = state.headSha
-                                        requestedCreation = branchName.trim()
+                                        viewModel.createBranch(branchName.trim(), state.headSha, programmerState.chatId)
                                     }, enabled = state.canWrite && canNavigate && branchName.isNotBlank()) { Text("Create working branch") }
                                     WorkspaceAction(Icons.Rounded.Check, "Checks & builds") { tab = 4 }
                                     WorkspaceAction(Icons.Rounded.AccountTree, "Pull requests") { tab = 2 }
@@ -464,8 +454,7 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
                                 if (state.selection?.ref == state.defaultBranch) {
                                     OutlinedTextField(branchName, { branchName = it }, label = { Text("New working branch") }, leadingIcon = { Icon(Icons.Rounded.AccountTree, null) }, singleLine = true, modifier = Modifier.fillMaxWidth())
                                     Button(onClick = {
-                                        requestedCreationHead = state.headSha
-                                        requestedCreation = branchName.trim()
+                                        viewModel.createBranch(branchName.trim(), state.headSha, programmerState.chatId)
                                     }, enabled = state.canWrite && canNavigate && branchName.isNotBlank()) { Text("Create branch") }
                                 }
                                 if (state.staged.isEmpty() && state.patchStage == null) WorkspaceEmpty(Icons.Rounded.Commit, "No staged changes", "Browse files from Settings, then stage your changes for review.")
@@ -540,34 +529,6 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
                     }
                 }
             }
-        }
-        requestedBranch?.let { branch ->
-            AlertDialog(
-                onDismissRequest = { acknowledgeBranch() },
-                title = { Text("Switch working branch?") },
-                text = { Text("${state.selection?.fullName}\n${state.selection?.ref} → $branch\nNew commands will use this branch. Running commands keep their captured destination.") },
-                confirmButton = {
-                    OutlinedButton(enabled = canNavigate, onClick = {
-                        acknowledgeBranch()
-                        viewModel.selectBranch(branch, programmerState.chatId)
-                    }) { Text("Switch branch") }
-                },
-                dismissButton = { OutlinedButton(onClick = { acknowledgeBranch() }) { Text("Cancel") } }
-            )
-        }
-        requestedCreation?.let { branch ->
-            AlertDialog(
-                onDismissRequest = { requestedCreation = null },
-                title = { Text("Create and switch branch?") },
-                text = { Text("Create $branch in ${state.selection?.fullName} from ${state.selection?.ref} at ${requestedCreationHead.take(8)} and use it for new commands.") },
-                confirmButton = {
-                    OutlinedButton(enabled = canNavigate, onClick = {
-                        requestedCreation = null
-                        viewModel.createBranch(branch, requestedCreationHead, programmerState.chatId)
-                    }) { Text("Create branch") }
-                },
-                dismissButton = { OutlinedButton(onClick = { requestedCreation = null }) { Text("Cancel") } }
-            )
         }
         if (confirmCommit) {
             AlertDialog(

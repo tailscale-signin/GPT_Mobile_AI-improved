@@ -262,12 +262,15 @@ class GitHubReviewViewModel @Inject constructor(private val connections: ToolCon
     }
     fun reviewEngineering(taskId: String) = action { reviewEngineeringNow(taskId) }
     private suspend fun reviewEngineeringNow(taskId: String) {
+        val scope = programmerScope.value
         val task = engineering.recent().single { it.taskId == taskId }
         val run = requireNotNull(engineering.run(taskId))
-        require(review.value?.files?.none { it.changed } != false || selectedEngineeringRun.value?.taskId == taskId) { "Save or discard the current proposal before reviewing a saved task." }
+        require(scope == null || (run.connectionUid == scope.connectionUid && task.repositoryOwner.equals(scope.owner, true) && task.repositoryName.equals(scope.repo, true))) { "This proposal belongs to another workspace." }
+        require(scope != null || review.value?.files?.none { it.changed } != false || selectedEngineeringRun.value?.taskId == taskId) { "Save or discard the current proposal before reviewing a saved task." }
         val files = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
             dev.chungjungsoo.gptmobile.data.agent.tool.GitHubEngineeringAuthorization.files(run.patchJson).map { GitHubFileProposal(it.path, it.before, it.after, it.delete) }
         }
+        if (programmerScope.value != scope) return
         record.value = null
         save(GitHubReview(run.connectionUid, task.repositoryOwner, task.repositoryName, task.workingBranch, task.baseSha, files = files))
         inspectEngineeringTaskNow(taskId)
@@ -276,11 +279,16 @@ class GitHubReviewViewModel @Inject constructor(private val connections: ToolCon
     }
     suspend fun refreshWorkspaceApproval(scope: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext) {
         if (busy.value || programmerScope.value != scope || pendingEngineeringTask.value != null) return
-        refreshEngineeringTasksNow()
-        val task = engineeringTasks.value.firstOrNull { it.state == "AWAITING_APPROVAL" && it.taskId !in dismissedCommitTasks } ?: return
-        // Hydrate the frozen patch before presenting the one commit confirmation.
-        reviewEngineeringNow(task.taskId)
-        if (programmerScope.value == scope) pendingEngineeringTask.value = task.taskId
+        busy.value = true
+        try {
+            refreshEngineeringTasksNow()
+            val task = engineeringTasks.value.firstOrNull { it.state == "AWAITING_APPROVAL" && it.taskId !in dismissedCommitTasks } ?: return
+            // Hydrate the frozen patch before presenting the one commit confirmation.
+            reviewEngineeringNow(task.taskId)
+            if (programmerScope.value == scope) pendingEngineeringTask.value = task.taskId
+        } finally {
+            busy.value = false
+        }
     }
     fun requestEngineeringApproval(taskId: String) = action {
         require(selectedEngineeringRun.value?.taskId == taskId && review.value != null) { "Open and review the saved patch first." }

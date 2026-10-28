@@ -585,13 +585,11 @@ class ProcessLocalRuntime(
                             if (connection !== this) return
                             try {
                                 binder.linkToDeath({
-                                    observeWorkerExit(binder, "binder_death")
-                                    if (connection ===
-                                        this
-                                    ) {
-                                        disconnect(
-                                            "Native inference worker stopped. Completed output is preserved; tools will not be repeated."
-                                        )
+                                    synchronized(this@ProcessLocalRuntime) {
+                                        if (connection === this) {
+                                            observeWorkerExit(binder, "binder_death")
+                                            disconnect("Native inference worker stopped. Completed output is preserved; tools will not be repeated.")
+                                        }
                                     }
                                 }, 0)
                                 check(binder.isBinderAlive) { "Inference worker stopped while connecting" }
@@ -608,7 +606,8 @@ class ProcessLocalRuntime(
                     }
 
                     override fun onServiceDisconnected(name: ComponentName) {
-                        if (connection === this) {
+                        synchronized(this@ProcessLocalRuntime) {
+                            if (connection !== this) return
                             dev.chungjungsoo.gptmobile.data.diagnostics.LocalRuntimeIncidentHistory.record(
                                 "WORKER_CONNECTION_LOST",
                                 mapOf(
@@ -625,14 +624,18 @@ class ProcessLocalRuntime(
                     }
 
                     override fun onBindingDied(name: ComponentName) {
-                        if (connection === this) disconnect("Inference binding expired")
+                        synchronized(this@ProcessLocalRuntime) {
+                            if (connection === this) disconnect("Inference binding expired")
+                        }
                     }
 
                     override fun onNullBinding(name: ComponentName) {
-                        result.completeExceptionally(IllegalStateException("Inference service unavailable"))
+                        synchronized(this@ProcessLocalRuntime) {
+                            if (connection === this) disconnect("Inference service unavailable")
+                        }
                     }
                 }
-            connection = next
+            synchronized(this@ProcessLocalRuntime) { connection = next }
             try {
                 check(context.bindService(Intent(context, LocalInferenceService::class.java), next, Context.BIND_AUTO_CREATE)) {
                     "Could not bind inference service"
@@ -907,7 +910,7 @@ class ProcessLocalRuntime(
         }
     }
 
-    private fun unbind() {
+    @Synchronized private fun unbind() {
         val previous = connection
         connection = null
         remote = null

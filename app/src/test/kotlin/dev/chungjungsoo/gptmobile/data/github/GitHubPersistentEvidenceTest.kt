@@ -25,6 +25,45 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubPersistentEvidenceTest {
+    @Test fun slowSearchReturnsResumableCursorAndNeverSkipsTimedOutFile() = runTest {
+        var slow = true
+        var fetched = 0
+        val store = GitHubRepositoryStateStore()
+        val client = session(store, request = { path ->
+            when {
+                "/commits/" in path -> commit(head, headTree)
+                "/git/trees/" in path -> tree(listOf(item("src/Target.kt", sha(1), 30)))
+                else -> {
+                    fetched++
+                    if (slow) kotlinx.coroutines.delay(20_000)
+                    blob(sha(1), "fun findMe() = 1")
+                }
+            }
+        })
+        val first = client.execute("search_repository", "owner", "repo", args("query" to JsonPrimitive("findMe"))).jsonObject
+        assertEquals(0, first.getValue("scanned_files").jsonPrimitive.intOrNull)
+        assertTrue(first.getValue("read_deadline_reached").jsonPrimitive.booleanOrNull == true)
+        assertEquals(0, first.getValue("continuation").jsonObject.getValue("index_cursor").jsonPrimitive.intOrNull)
+        assertFalse(first.getValue("complete").jsonPrimitive.booleanOrNull == true)
+        slow = false
+        val resumed = client.execute("search_repository", "owner", "repo", first.getValue("continuation").jsonObject).jsonObject
+        assertEquals("src/Target.kt", resumed.getValue("items").jsonArray.single().jsonObject.getValue("path").jsonPrimitive.content)
+        assertEquals(2, fetched)
+    }
+
+    @Test fun missingWorkflowPathSuggestsActualPinnedFilesWithoutReadingInventedPath() = runTest {
+        val client = session(GitHubRepositoryStateStore(), request = { path ->
+            when {
+                "/commits/" in path -> commit(head, headTree)
+                "/git/trees/" in path -> tree(listOf(item(".github/workflows/build.yml", sha(1), 30)))
+                else -> error("No nonexistent blob may be fetched")
+            }
+        })
+        val failure = runCatching { client.execute("read_ranges", "owner", "repo", args("path" to JsonPrimitive(".github/workflows/main.yml"))) }.exceptionOrNull()
+        assertTrue(failure?.message.orEmpty().contains(".github/workflows/build.yml"))
+        assertTrue(failure?.message.orEmpty().contains("mode=paths"))
+    }
+
     @Test fun changesWithoutBaseReturnsAnActionableErrorBeforeAnyNetworkWork() = runTest {
         val client = session(GitHubRepositoryStateStore(), request = { error("Invalid request must not resolve the repository") })
         val failure = runCatching { client.execute("changed_since", "owner", "repo", buildJsonObject {}) }.exceptionOrNull()
@@ -251,12 +290,15 @@ class GitHubPersistentEvidenceTest {
         }
         val client = session(GitHubRepositoryStateStore(), request = fetch)
         val first = client.execute("search_repository", "owner", "repo", args("query" to JsonPrimitive("missing"), "path_prefix" to JsonPrimitive("src/"))).jsonObject
-        assertEquals(24, blobs)
+        assertEquals(4, blobs)
         assertTrue(first["has_more"]!!.jsonPrimitive.booleanOrNull == true)
         assertFalse(first["complete"]!!.jsonPrimitive.booleanOrNull == true)
         val continuation = first["continuation"]!!.jsonObject
         assertEquals("src/", continuation["path_prefix"]!!.jsonPrimitive.content)
-        client.execute("search_repository", "owner", "repo", continuation)
+        var page = client.execute("search_repository", "owner", "repo", continuation).jsonObject
+        while (page["has_more"]?.jsonPrimitive?.booleanOrNull == true) {
+            page = client.execute("search_repository", "owner", "repo", page.getValue("continuation").jsonObject).jsonObject
+        }
         assertEquals(30, blobs)
         client.execute("search_repository", "owner", "repo", args("query" to JsonPrimitive("missing")))
         assertEquals(30, blobs)
@@ -276,8 +318,8 @@ class GitHubPersistentEvidenceTest {
             }
         })
         val result = client.execute("search_repository", "owner", "repo", args("query" to JsonPrimitive("absent"))).jsonObject
-        assertEquals(24, blobs)
-        assertEquals(24, result["skipped_files"]!!.jsonPrimitive.intOrNull)
+        assertEquals(4, blobs)
+        assertEquals(4, result["skipped_files"]!!.jsonPrimitive.intOrNull)
         assertTrue(result["has_more"]!!.jsonPrimitive.booleanOrNull == true)
     }
 

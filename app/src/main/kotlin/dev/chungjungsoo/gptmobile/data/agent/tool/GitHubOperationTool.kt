@@ -368,7 +368,7 @@ internal class GitHubOperationTool(
                 "github_pr" -> "Read PR files, checks and review threads; explicitly post inline review comments, reply to review comments, update/comment/create, or merge after all checks pass. Writes require the current expected head SHA."
                 "github_ci" -> "List workflows and runs, inspect run/job status, artifacts and parsed failure logs, or explicitly dispatch/rerun/cancel a workflow."
                 else -> "Check release readiness or explicitly publish the selected release."
-            } + " Omitted repository uses this task's context. Expand retained results with view_cursor."
+            } + " Supply owner and repo together or omit both. Expand retained results with view_cursor."
             return AgentToolDefinition(
                 modelName,
                 description,

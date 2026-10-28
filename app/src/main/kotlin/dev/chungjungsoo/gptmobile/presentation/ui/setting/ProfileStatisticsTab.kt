@@ -21,10 +21,12 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -36,6 +38,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkMode
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkRun
 import dev.chungjungsoo.gptmobile.data.benchmark.benchmarkRating
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 internal fun ProfileStatisticsTab(
@@ -49,8 +54,15 @@ internal fun ProfileStatisticsTab(
     val benchmarkViewModel: ProfileBenchmarkViewModel = hiltViewModel()
     val benchmarkHistory by benchmarkViewModel.history.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    val preferences = remember(context) { context.getSharedPreferences("profile_statistics", android.content.Context.MODE_PRIVATE) }
-    var resetAt by rememberSaveable(profileUid) { mutableLongStateOf(preferences.getLong("reset:$profileUid", 0L)) }
+    val scope = rememberCoroutineScope()
+    var resetAt by remember(profileUid) { mutableLongStateOf(Long.MAX_VALUE) }
+    var resetReady by remember(profileUid) { mutableStateOf(false) }
+    LaunchedEffect(context, profileUid) {
+        resetAt = withContext(Dispatchers.IO) {
+            context.getSharedPreferences("profile_statistics", android.content.Context.MODE_PRIVATE).getLong("reset:$profileUid", 0L)
+        }
+        resetReady = true
+    }
     var confirmReset by rememberSaveable { mutableStateOf(false) }
     val samples = remember(statistics.profilePerformance, profileUid, resetAt) {
         statistics.profilePerformance
@@ -138,7 +150,7 @@ internal fun ProfileStatisticsTab(
         }
 
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            TextButton(onClick = { confirmReset = true }, enabled = samples.isNotEmpty()) { Text("Reset this profile's view") }
+            TextButton(onClick = { confirmReset = true }, enabled = resetReady && samples.isNotEmpty()) { Text("Reset this profile's view") }
         }
         Text("Resetting this view keeps the shared app statistics and backed-up run history intact.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
@@ -151,7 +163,10 @@ internal fun ProfileStatisticsTab(
             confirmButton = {
                 TextButton(onClick = {
                     val now = System.currentTimeMillis()
-                    preferences.edit().putLong("reset:$profileUid", now).apply()
+                    scope.launch(Dispatchers.IO) {
+                        context.getSharedPreferences("profile_statistics", android.content.Context.MODE_PRIVATE)
+                            .edit().putLong("reset:$profileUid", now).apply()
+                    }
                     resetAt = now
                     confirmReset = false
                 }) { Text("Reset view") }

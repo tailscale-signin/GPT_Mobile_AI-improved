@@ -27,6 +27,61 @@ class GitHubAuthorizationBoundaryTest {
     private val connections = mockk<ToolConnectionRepository> { coEvery { getConnection("github") } returns connection }
     private val manager = ToolApprovalManager(database, connections)
 
+    @Test fun trustedNativeReadCanRetryAfterPreviousUnknownOutcome() = runTest {
+        coEvery { dao.previousMatchingAction(any(), any(), any(), any(), any()) } returns "OUTCOME_UNKNOWN"
+        val state = MutableStateFlow<ToolApproval?>(null)
+        coEvery { dao.insert(any()) } coAnswers {
+            state.value = firstArg()
+            1L
+        }
+        every { dao.observe(any()) } returns state
+        coEvery { dao.claim(any()) } returns 1
+        assertTrue(
+            manager.authorizeOrThrow(
+                "github",
+                "run",
+                "retry",
+                "github_read__github_api",
+                buildJsonObject {
+                    put("path", "README.md")
+                }
+            )
+        )
+        assertEquals("APPROVED", state.value?.state)
+        coVerify(exactly = 0) { dao.previousMatchingAction(any(), any(), any(), any(), any()) }
+    }
+
+    @Test fun failedReadReceiptDoesNotAppearAsAnUncertainMutation() = runTest {
+        every { dao.observe("run:read") } returns MutableStateFlow(
+            ToolApproval("run:read", "run", "GitHub", "github", "hash", argumentPreview = GitHubAuthorizationBoundary.READ_APPROVAL_PREFIX, state = "EXECUTING")
+        )
+        every { dao.observe("run:write") } returns MutableStateFlow(
+            ToolApproval("run:write", "run", "GitHub", "github", "hash", state = "EXECUTING")
+        )
+        manager.finish("run", "read", false)
+        manager.finish("run", "write", false)
+        coVerify { dao.finish("run:read", "READ_FAILED") }
+        coVerify { dao.finish("run:write", "OUTCOME_UNKNOWN") }
+    }
+
+    @Test fun unknownWriteIsStillBlockedEvenWithTrustedPermission() = runTest {
+        coEvery { dao.previousMatchingAction(any(), any(), any(), any(), any()) } returns "OUTCOME_UNKNOWN"
+        every { dao.observe(any()) } returns MutableStateFlow(null)
+        val failure = runCatching {
+            manager.authorizeOrThrow("github", "run", "retry", "github", buildJsonObject { put("action", "create_branch") })
+        }.exceptionOrNull()
+        assertEquals("DUPLICATE_ACTION", (failure as? ToolAuthorizationRejected)?.code)
+        coVerify(exactly = 0) { dao.insert(any()) }
+    }
+
+    @Test fun replayClassificationNeverIncludesMutationsOrUnknownTools() {
+        for (action in listOf("commit_files", "create_branch", "stage_patch", "dispatch_workflow", "rerun_workflow_run", "delete_repository")) {
+            assertFalse(action, GitHubAuthorizationBoundary.isReplayableRead("github", buildJsonObject { put("action", action) }))
+        }
+        assertFalse(GitHubAuthorizationBoundary.isReplayableRead("arbitrary_mcp_read", buildJsonObject {}))
+        assertTrue(GitHubAuthorizationBoundary.isReplayableRead("github_search__github_api", buildJsonObject {}))
+    }
+
     @Test fun ordinaryTrustCannotAuthorizeAdministrativeChanges() = runTest {
         for (action in listOf("update_repository", "update_branch_protection", "add_repository_collaborator", "create_repository_secret", "update_repository_ruleset")) {
             val error = runCatching { manager.authorize("github", "run", "call", "github", buildJsonObject { put("action", action) }) }.exceptionOrNull()

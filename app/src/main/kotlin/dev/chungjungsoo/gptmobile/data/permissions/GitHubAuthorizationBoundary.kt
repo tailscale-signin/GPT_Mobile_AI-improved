@@ -7,6 +7,7 @@ import kotlinx.serialization.json.JsonPrimitive
 
 /** Ordinary tool trust is never an administrative GitHub authorization. */
 internal object GitHubAuthorizationBoundary {
+    const val READ_APPROVAL_PREFIX = "GitHub read · safe to retry\n"
     const val EXACT_APPROVAL_PREFIX = "GitHub action · exact approval required\n"
 
     fun applies(connection: ToolConnection): Boolean = connection.type == "GITHUB" ||
@@ -17,6 +18,23 @@ internal object GitHubAuthorizationBoundary {
                     uri.scheme.equals("https", true) && (uri.host.equals("api.githubcopilot.com", true) || uri.host.equals("api.github.com", true) && uri.path.orEmpty().startsWith("/mcp"))
                 }.getOrDefault(false)
             )
+
+    /** Native reviewed reads may be repeated with a fresh invocation after a timeout.
+     * This is replay classification, never a grant of permission. */
+    fun isReplayableRead(tool: String, arguments: JsonObject): Boolean {
+        val native = if (tool == "github") {
+            arguments
+        } else {
+            dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.nativeArguments(tool, arguments) ?: return false
+        }
+        val action = (native["action"] as? JsonPrimitive)?.content ?: return false
+        return action in dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceClient.readActions ||
+            action in setOf(
+                "read_saved_result", "search_repositories", "search_issues", "search_code", "get_file_contents",
+                "get_issue", "get_pull_request", "list_pull_requests", "list_workflow_runs", "list_workflows",
+                "get_workflow_run", "list_workflow_jobs", "list_workflow_artifacts", "get_job_logs"
+            )
+    }
 
     fun requiresElevatedAuthorization(tool: String, arguments: JsonObject): Boolean {
         val operation = if (tool == "github") (arguments["action"] as? JsonPrimitive)?.content.orEmpty() else tool.substringAfterLast("__")
@@ -37,3 +55,6 @@ internal object GitHubAuthorizationBoundary {
 
 internal val ToolApproval.requiresExactConfirmation: Boolean
     get() = argumentPreview.startsWith(GitHubAuthorizationBoundary.EXACT_APPROVAL_PREFIX)
+
+internal val ToolApproval.isReplayableGitHubRead: Boolean
+    get() = argumentPreview.startsWith(GitHubAuthorizationBoundary.READ_APPROVAL_PREFIX)

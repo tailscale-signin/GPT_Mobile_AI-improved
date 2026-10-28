@@ -258,9 +258,13 @@ internal class GitHubRepositorySession(
         var next = cursor
         var fetched = 0
         var skipped = 0
+        val startedNanos = System.nanoTime()
+        var readDeadline = false
         var incompleteSymbols = false
         val hits = mutableListOf<JsonObject>()
         while (next < all.size && next - cursor < 2000 && hits.size < 20) {
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            if ((System.nanoTime() - startedNanos) / 1_000_000 >= 12_000) break
             val item = all[next]
             if (mode == "paths") {
                 next++
@@ -273,7 +277,7 @@ internal class GitHubRepositorySession(
                 continue
             }
             val cached = store.read(blobScope(context), "blob:${item.s("sha")}")
-            if (cached == null && fetched >= 24) break
+            if (cached == null && fetched >= 4) break
             next++
             if ((item["size"]?.jsonPrimitive?.longOrNull ?: 0) > MAX_BLOB_BYTES) {
                 skipped++
@@ -281,7 +285,15 @@ internal class GitHubRepositorySession(
             }
             val content = try {
                 if (cached == null) fetched++
-                cached ?: blob(context, item)
+                val retained = cached ?: kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    kotlinx.coroutines.withTimeoutOrNull(8_000) { blob(context, item) }
+                }
+                if (retained == null) {
+                    next--
+                    readDeadline = true
+                    break
+                }
+                retained
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (_: IllegalArgumentException) {
@@ -329,6 +341,7 @@ internal class GitHubRepositorySession(
             put("total_candidate_files", all.size)
             put("skipped_files", skipped)
             put("symbols_incomplete", incompleteSymbols)
+            put("read_deadline_reached", readDeadline)
             put("has_more", next < all.size)
             put("complete", next == all.size && cursor == 0 && skipped == 0 && !incompleteSymbols && data["truncated"]?.jsonPrimitive?.booleanOrNull != true)
             put("coverage", "Query coverage is limited to the scanned interval and retained lexical positions.")
@@ -356,7 +369,16 @@ internal class GitHubRepositorySession(
         val results = ranges.map { raw ->
             val range = raw.jsonObject
             val path = range.s("path").also { GitHubWorkspaceClient.filePath(it) }
-            val entry = entries[path] ?: error("Path is not in the pinned tree: $path")
+            val entry = entries[path] ?: run {
+                val parent = path.substringBeforeLast('/', "")
+                val available = entries.values.filter {
+                    it.s("type") == "blob" && it.s("path").substringBeforeLast('/', "") == parent
+                }.map { it.s("path") }.sorted().take(12)
+                error(
+                    "Path is not in the pinned tree: $path. Use github_search mode=paths to discover exact paths." +
+                        if (available.isEmpty()) "" else " Available files in this directory: ${available.joinToString()}"
+                )
+            }
             require(entry.s("mode") in setOf("", "100644", "100755") && entry.s("type") == "blob") { "Only regular text files can be read." }
             val content = blob(context, entry).s("content")
             val lines = content.split('\n')

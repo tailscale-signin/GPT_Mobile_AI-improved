@@ -240,6 +240,26 @@ class DurableExecutionIntegrationTest {
     }
 
     @Test
+    fun `native read retry crosses run recovery but never reclaims an invocation`() = runBlocking {
+        database.pendingPromptDao().enqueue(prompt())
+        val run = database.agentPersistenceDao().persistAgentTurn(request()).runs.single()
+        database.agentRunDao().upsert(run.copy(runId = "read-retry"))
+        val connection = ToolConnection("github", "GitHub", "github", "GITHUB", null, "BEARER", null, null, toolPolicy = "TRUSTED")
+        database.toolConnectionDao().upsertConnection(connection)
+        val manager = ToolApprovalManager(database, ToolConnectionRepository(database.toolConnectionDao(), mockk<SecretVault>(relaxed = true)))
+        val args = buildJsonObject { put("query", "findSymbol") }
+        assertTrue(manager.authorize("github", run.runId, "first", "github_search__github_api", args))
+        manager.finish(run.runId, "first", false)
+        assertEquals("READ_FAILED", database.toolApprovalDao().observe("${run.runId}:first").first()?.state)
+        assertFalse(manager.authorize("github", run.runId, "first", "github_search__github_api", args))
+        assertTrue(manager.authorize("github", "read-retry", "fresh", "github_search__github_api", args))
+        manager.finish("read-retry", "fresh", true)
+        assertTrue(database.toolApprovalDao().attention().first().isEmpty())
+        assertTrue(manager.authorize("github", "read-retry", "next", "github_search__github_api", args))
+        manager.finish("read-retry", "next", true)
+    }
+
+    @Test
     fun `permanent tool grant releases parallel model requests and can be revoked`() = runBlocking {
         database.pendingPromptDao().enqueue(prompt())
         val run = database.agentPersistenceDao().persistAgentTurn(request()).runs.single()

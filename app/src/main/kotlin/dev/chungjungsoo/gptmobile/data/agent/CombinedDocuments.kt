@@ -85,6 +85,7 @@ internal object CombinedDocuments {
         require(report.passages.all { it.matches(source.content) && it.links.all { link -> link.matches(source.content) && link.start >= it.start && link.end <= it.end } }) { "COMBINED_MANIFEST_SOURCE_RANGE" }
         val revisionId = revision
         val storedCompleteness = when {
+            report.assessmentStage == CombinedCommittedDraft.STAGE -> CombinedCommittedDraft.STAGE
             recorded == null || report.status == CombinedAttributionRecovery.PENDING || report.status == "WRITING" && report.claimMapping == null -> CombinedAttributionRecovery.PENDING
             report.status == CombinedAttributionRecovery.RECOVERED -> CombinedAttributionRecovery.RECOVERED
             completeness == "COMPLETED" && !report.complete -> "PARTIAL"

@@ -1,0 +1,105 @@
+{
+  "source_archive_sha256": "ed797d07889260f5e54354701ba33e3d59e13bac5b2a4afc084aed005a3bddb8",
+  "file_hashes_verified": true,
+  "build": {
+    "version": "0.9.62.0",
+    "build": 130,
+    "package": "dev.melo.gptmobile.improved",
+    "appCommit": "fe4de044363aed9f9143f882e5fedaf02286d493",
+    "buildVariant": "debug",
+    "nativeRuntimeCommit": "620d2225cc436ab0b001e3200e590e3b286ef9ab"
+  },
+  "export_is_full_replay": false,
+  "contributor_messages": 5,
+  "contributor_characters": 86456,
+  "prompt_characters": 213592,
+  "candidate_units": 636,
+  "writer_plan": {
+    "requiredOutputTokens": 723,
+    "effectiveOutputTokens": 723,
+    "contextTokens": 1048576
+  },
+  "synthesis_invocations": 11,
+  "provider_reported_input_tokens": 656051,
+  "provider_reported_output_tokens": 5669,
+  "physical_call_duration_ms": 60682,
+  "raw_visible_output_bytes": 21496,
+  "finish_reasons": {
+    "length": 7,
+    "stop": 4
+  },
+  "frozen_to_first_invocation_ms": 861768,
+  "final_message_characters": 0,
+  "final_status": "INTERRUPTED",
+  "reducer_checkpoints": 287,
+  "maximum_reducer_visible_bytes": 0,
+  "continuation_cursors": [
+    {
+      "next_sequence": 5,
+      "committed_visible_words": 260,
+      "rejected_record_reason": "",
+      "starts_with_json_fence": false
+    },
+    {
+      "next_sequence": 6,
+      "committed_visible_words": 341,
+      "rejected_record_reason": "",
+      "starts_with_json_fence": false
+    },
+    {
+      "next_sequence": 11,
+      "committed_visible_words": 592,
+      "rejected_record_reason": "",
+      "starts_with_json_fence": false
+    },
+    {
+      "next_sequence": 16,
+      "committed_visible_words": 865,
+      "rejected_record_reason": "",
+      "starts_with_json_fence": false
+    },
+    {
+      "next_sequence": 17,
+      "committed_visible_words": 889,
+      "rejected_record_reason": "",
+      "starts_with_json_fence": false
+    },
+    {
+      "next_sequence": 22,
+      "committed_visible_words": 1150,
+      "rejected_record_reason": "",
+      "starts_with_json_fence": false
+    },
+    {
+      "next_sequence": 23,
+      "committed_visible_words": 1214,
+      "rejected_record_reason": "",
+      "starts_with_json_fence": false
+    },
+    {
+      "next_sequence": 28,
+      "committed_visible_words": 1527,
+      "rejected_record_reason": "",
+      "starts_with_json_fence": false
+    },
+    {
+      "next_sequence": 29,
+      "committed_visible_words": 1614,
+      "rejected_record_reason": "",
+      "starts_with_json_fence": false
+    },
+    {
+      "next_sequence": 29,
+      "committed_visible_words": 1614,
+      "rejected_record_reason": "INVALID_DELIVERY_RECORD",
+      "starts_with_json_fence": true
+    }
+  ],
+  "diagnostic_operation_counts": {
+    "database_checkpoint": 288,
+    "database_publication": 1,
+    "document_staging": 291,
+    "markdown_prepare": 6,
+    "text_measure": 3
+  }
+}

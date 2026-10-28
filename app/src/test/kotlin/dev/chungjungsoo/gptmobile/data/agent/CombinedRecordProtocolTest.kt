@@ -13,6 +13,36 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CombinedRecordProtocolTest {
+    @Test fun eachContinuationCanUseAFenceWithoutResettingTheLogicalSequence() {
+        val secondPacket = "```json\n" + passage(2, "Second saved paragraph.") + "\n```\n"
+        for (cut in 0..secondPacket.length) {
+            val first = protocol()
+            first.accept(passage(1, "First saved paragraph."))
+            first.continuationContext()
+            first.accept(secondPacket.take(cut))
+            val restored = protocol(first.checkpoint())
+            restored.accept(secondPacket.drop(cut))
+            assertNull("boundary $cut", restored.failureReason)
+            assertEquals(2, restored.checkpoint().lastSequence)
+            assertFalse(restored.checkpoint().ended)
+            restored.continuationContext()
+            restored.accept("```ndjson\n" + """{"type":"end","seq":3,"id":"END","lastSeq":2}""" + "\n```")
+            assertNull(restored.failureReason)
+            assertTrue(restored.checkpoint().ended)
+        }
+    }
+
+    @Test fun continuationWrappersDoNotRelaxUnknownReferencesOrReplayChecks() {
+        for (invalid in listOf(passage(2, "Unknown").replace("C1.1", "C99.1"), passage(1, "Rewritten"))) {
+            val parser = protocol()
+            parser.accept(passage(1, "Original"))
+            parser.continuationContext()
+            parser.accept("```json\n$invalid\n```\n")
+            assertEquals(1, parser.checkpoint().lastSequence)
+            assertTrue(parser.failureReason != null)
+        }
+    }
+
     @Test fun fencedJsonRecordsSurviveEveryTransportBoundaryAndCheckpointRestore() {
         val wire = "```jsonl\n" + passage(1, "Exact quoted text with { braces } and a backslash \\") + "\n" +
             """{"type":"end","seq":2,"id":"END","lastSeq":1}""" + "\n```"

@@ -467,6 +467,27 @@ interface AgentPersistenceDao :
         val raw = run.synthesisSnapshot ?: return current
         if (run.synthesisKey != dev.chungjungsoo.gptmobile.data.research.researchHash(raw)) return current
         val snapshot = runCatching { kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromString<dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot>(raw) }.getOrNull() ?: return current
+        val checkpoint = if (snapshot.deliveryProtocol == "PASSAGES_V3") combinedDeliveryCheckpoint(runId, snapshot.liveRevisionId(runId)) else null
+        if (checkpoint != null && checkpoint.renderedAnswer.isNotBlank()) {
+            require(checkpoint.fence == run.ownershipFence && checkpoint.snapshotDigest == snapshot.inputDigest && checkpoint.snapshotJson == raw) { "COMBINED_CHECKPOINT_RECOVERY_OWNER_MISMATCH" }
+            val savedReport = kotlinx.serialization.json.Json.decodeFromString<dev.chungjungsoo.gptmobile.data.agent.CombinedQualityReport>(checkpoint.attributionJson)
+            val owners = snapshot.sources.mapTo(hashSetOf()) { it.platformUid }
+            require(savedReport.answerDigest == dev.chungjungsoo.gptmobile.data.research.researchHash(checkpoint.renderedAnswer)) { "COMBINED_CHECKPOINT_RECOVERY_DIGEST_MISMATCH" }
+            require(savedReport.passages.all { owners.containsAll(it.profileUids) && it.links.all { link -> owners.containsAll(link.profileUids) } }) { "COMBINED_CHECKPOINT_RECOVERY_ATTRIBUTION_MISMATCH" }
+            val report = dev.chungjungsoo.gptmobile.data.agent.CombinedCommittedDraft.report(checkpoint.renderedAnswer, checkpoint.revisionId, savedReport.passages, owners)
+                .copy(status = run.status, issues = listOf("RECOVERED_COMMITTED_DRAFT"))
+            dev.chungjungsoo.gptmobile.data.agent.CombinedAnswerPublication.validate(checkpoint.renderedAnswer, report)
+            val restored = current.copy(
+                content = checkpoint.renderedAnswer,
+                activeRevisionIndex = ACTIVE_REVISION_LATEST,
+                timeline = current.timeline.filter { it.type != dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.TEXT && it.combinedQuality == null } + listOf(
+                    dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.TEXT, content = checkpoint.renderedAnswer),
+                    dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE, content = "Saved Combined draft restored. The answer is unfinished and has not passed final checks.", combinedQuality = report)
+                )
+            )
+            updateMessage(restored)
+            return restored
+        }
         val source = snapshot.sources.firstOrNull { it.platformUid == current.platformType && it.content.isNotBlank() } ?: return current
         val existing = current.revisions.indexOfFirst { revision ->
             revision.runId == source.attemptId && (source.rawContentDigest.ifBlank { source.sourceDigest } == dev.chungjungsoo.gptmobile.data.research.researchHash(revision.content) || source.content == revision.content)

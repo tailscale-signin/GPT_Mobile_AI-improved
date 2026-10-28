@@ -12,6 +12,26 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CombinedRecordRecoverySessionTest {
+    @Test fun fencedPacketsCommitAndContinueWithoutSpendingMalformedRecovery() = runTest {
+        val parser = protocol()
+        var requests = 0
+        val recovery = CombinedRecordRecoverySession(
+            session(ProviderEvent.TextDelta("```json\n$first\n```"), ProviderEvent.Usage(finishReason = "length"), ProviderEvent.Completed),
+            parser, 2, acceptedAppend = true, validateAccess = {}, save = {}
+        ) { state, _ ->
+            requests++
+            assertEquals(1, state.lastSequence)
+            assertTrue(state.pending.isEmpty())
+            assertEquals(0, state.malformedRecoveryAttempts)
+            session(ProviderEvent.TextDelta("```json\n$second\n$end\n```"), ProviderEvent.Completed)
+        }
+        val events = recovery.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(1, requests)
+        assertEquals(ProviderEvent.Completed, events.last())
+        assertEquals(0, parser.checkpoint().malformedRecoveryAttempts)
+        assertEquals(3, parser.checkpoint().lastSequence)
+    }
+
     private val first = """{"type":"passage","seq":1,"id":"P1","text":"Original paragraph.","claims":[],"contributors":[],"evidence":[]}"""
     private val second = """{"type":"passage","seq":2,"id":"P2","text":"Interrupted section, now complete.","claims":[],"contributors":[],"evidence":[]}"""
     private val end = """{"type":"end","seq":3,"id":"END","lastSeq":2}"""

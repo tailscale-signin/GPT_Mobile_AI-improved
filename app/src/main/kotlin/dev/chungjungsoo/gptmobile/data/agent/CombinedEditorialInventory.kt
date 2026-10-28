@@ -4,15 +4,16 @@ package dev.chungjungsoo.gptmobile.data.agent
 internal object CombinedEditorialInventory {
     private val requestNoise = setOf("rank", "ranking", "best", "top", "list", "find", "give", "show", "compare", "please", "write", "answer", "words", "word", "using", "about")
     fun select(records: List<CombinedClaimRecord>, request: String, policy: CombinedAnswerPolicy, expansion: Int = 0): List<CombinedClaimRecord> {
-        val fingerprints = CombinedContentIndexes.fingerprints(records)
-        fun fingerprint(text: String) = fingerprints[text] ?: CombinedClaimMatcher.fingerprint(text)
+        val prepared = records.associate { it.proposition to CombinedClaimMatcher.prepare(it.proposition) }
+        fun comparison(text: String) = prepared.getValue(text)
+        fun fingerprint(text: String) = comparison(text).fingerprint
         val groups = mutableListOf<CombinedClaimRecord>()
         records.forEach { claim ->
             val index = groups.indexOfFirst { prior ->
-                CombinedHistoricalEvent.sameEvent(prior, claim) ||
+                CombinedHistoricalEvent.sameEvent(prior, claim, fingerprint(prior.proposition), fingerprint(claim.proposition)) ||
                     prior.qualifiers == claim.qualifiers &&
-                    CombinedClaimMatcher.match(prior.proposition, claim.proposition) >= CombinedClaimMatcher.Match.PARAPHRASE &&
-                    CombinedClaimMatcher.match(claim.proposition, prior.proposition) >= CombinedClaimMatcher.Match.PARAPHRASE
+                    CombinedClaimMatcher.match(comparison(prior.proposition), comparison(claim.proposition)) >= CombinedClaimMatcher.Match.PARAPHRASE &&
+                    CombinedClaimMatcher.match(comparison(claim.proposition), comparison(prior.proposition)) >= CombinedClaimMatcher.Match.PARAPHRASE
             }
             if (index < 0) {
                 groups += claim

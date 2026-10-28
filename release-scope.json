@@ -1,23 +1,14 @@
 {
-  "version": "0.9.61.0",
-  "versionCode": 129,
+  "version": "0.9.62.0",
+  "versionCode": 130,
   "qualification": "scoped",
-  "baseCommit": "d1c415e4c22425702ec9f0da96b358066dd981ab",
+  "baseCommit": "52edbffc6c58dab743193e57a27ad3f421f0bb17",
   "changes": [
-    "Device-local provider activation, scoped personal-data transfer grants, provenance and retired endpoint enforcement",
-    "Persistent request/token reservations, credential/model health, exact deferred Research stages and accepted queue identity",
-    "Dedicated Combined final identity, shared source mapping, optional append continuation and content-addressed paged documents",
-    "Room 47 additive migration, complete document backup/export and bounded final/source UI",
-    "GGUF native backend selection, operation receipts, memory/context admission, cleanup/quarantine and controlled CPU trials",
-    "Versioned benchmark execution, validation, coverage, metric populations and reproducible exports",
-    "Bounded benchmark export serialization, staged Android file saving and a 256 MiB export regression gate",
-    "CodeQL-only 4096 MiB heap override for the observed traced Kotlin compiler heap exhaustion; required clean build and analysis gates remain intact",
-    "Identity-bound LiteRT inspection caching, typed structured-output failures, exact-schema readiness and retained fallback provenance",
-    "Suite 10 semantic/format/tool separation, rotated eight-domain intelligence, independent performance modes and execution policies",
-    "Observed backend comparisons, descriptive history, explicit deadline/settings evidence and provisional benchmark UI",
-    "Accept/Decline examination consent, main-thread IO repairs, coalesced metadata inspection and causal diagnostics",
-    "PR repair: cancellation-safe LiteRT replanning, deterministic retained-result scrolling, extracted dispatch stages, selected-answer revision binding and compressed release APK DEX within the existing size budgets",
-    "Research delivery recovery, Free web-tool execution, GitHub App OAuth and CI regression repairs"
+    "Defer GitHub draft directory resolution to IO; run repository hashing and lexical indexing on Dispatchers.Default.",
+    "Validate compact GitHub search inputs and require an explicit comparison base before dispatch.",
+    "Retain the low-yield continuation guard when providers omit usage; preserve the earlier immediate empty-restored-continuation stop.",
+    "Resolve chat deletion and temporary-chat cleanup directories on Dispatchers.IO.",
+    "Regression coverage for encrypted draft persistence, search/comparison validation, missing-usage continuation bounds and cleanup dispatcher ownership."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; its remaining acceptance cases are not represented as passed.",
@@ -27,7 +18,10 @@
     "Qwen demo backend availability and live authenticated LLM7 generation are not established by deterministic tests.",
     "Optional runtime extraction remains a staged packaging project. The measured payload inventory and APK code compression do not extract plugins or remove native runtimes.",
     "Exact recovered France/Portugal wording and report fields, and the earlier benchmark export round-trip, do not establish a complete conversation replay; the later 16-run benchmark export remains unavailable.",
-    "GitHub OAuth requires a registered GitHub App client ID with device flow enabled; token refresh is manual and live sign-in remains unverified."
+    "GitHub OAuth requires a registered GitHub App client ID with device flow enabled; token refresh is manual and live sign-in remains unverified.",
+    "The October 28 export still requires physical-device performance replay; fixing the identified filesDir calls does not establish that the 748 ms frame stalls are resolved.",
+    "Provider HTTP 403s, Android-app GitHub token endpoint permissions, private local/MCP server reachability and the remote MCP discovery timeout require service, credential or device-route verification.",
+    "The ASUS framework finalizer SecurityException is outside application control. Host and emulator checks do not qualify the affected vendor firmware."
   ],
   "requiredWorkflows": [
     "Build Android APK",
@@ -37,21 +31,8 @@
   ],
   "allowedPaths": [
     "app/",
-    "local-gguf-runtime/",
-    "macrobenchmark/",
-    "scripts/",
-    "docs/releases/",
-    "docs/validation/",
-    ".github/workflows/gguf-native-smoke.yml",
-    ".github/workflows/device-validation.yml",
-    ".github/workflows/pr-validation.yml",
-    ".github/workflows/codeql.yml",
-    ".gitignore",
-    "CHANGELOG.md",
     "RELEASE_NOTES.md",
     "release-scope.json",
-    "docs/diagnostics/2026-10-26-combined-mode-follow-up.md",
-    "docs/implementation/research-recovery-github-oauth-2026-10-25.md",
-    "docs/research/RESEARCH_MODE_RELIABILITY_2026-10-25.md"
+    "docs/diagnostics/2026-10-28-log-remediation.md"
   ]
 }

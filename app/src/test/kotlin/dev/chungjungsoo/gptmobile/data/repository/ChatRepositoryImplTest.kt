@@ -100,6 +100,27 @@ import org.junit.Test
 class ChatRepositoryImplTest {
     @get:org.junit.Rule val testFiles = org.junit.rules.TemporaryFolder()
 
+    @Test fun deletingAndMakingChatsTemporaryResolveFilesOffTheCallerThread() = runBlocking {
+        val caller = Thread.currentThread()
+        val reads = java.util.concurrent.atomic.AtomicInteger()
+        val context = object : ContextWrapper(null) {
+            override fun getFilesDir(): File {
+                assertFalse("filesDir must resolve on IO", Thread.currentThread() === caller)
+                reads.incrementAndGet()
+                return testFiles.root
+            }
+        }
+        val runs = mockk<dev.chungjungsoo.gptmobile.data.database.dao.AgentRunDao>(relaxed = true)
+        coEvery { runs.getReadableByChatId(any()) } returns emptyList()
+        val repository = createRepository(contextOverride = context, runsOverride = runs)
+        val room = dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2(id = 42, title = "Cleanup fixture")
+        repository.deleteChatsV2(listOf(room))
+        val deletionReads = reads.get()
+        assertTrue(deletionReads > 0)
+        repository.updateTemporary(room, true)
+        assertTrue(reads.get() > deletionReads)
+    }
+
     @Test fun oneThousandTokenContextUsesTheSameOutputAllowanceForAdmissionWireAndAccounting() = runBlocking {
         val platform = customPlatform().copy(enabled = true, maxTokens = 1024, disableAllTools = true)
         val request = "Explain a topic in approximately 128 words."
@@ -1864,9 +1885,11 @@ class ChatRepositoryImplTest {
         knowledgeOverride: dev.chungjungsoo.gptmobile.data.knowledge.MemoryDocumentRepository? = null,
         pendingOverride: dev.chungjungsoo.gptmobile.data.queue.PendingPromptDao? = null,
         invocationLedgerOverride: dev.chungjungsoo.gptmobile.data.accounting.InvocationLedger? = null,
-        combinedBudgetsOverride: dev.chungjungsoo.gptmobile.data.agent.CombinedTurnBudgetStore = dev.chungjungsoo.gptmobile.data.agent.CombinedTurnBudgetStore.inMemory()
+        combinedBudgetsOverride: dev.chungjungsoo.gptmobile.data.agent.CombinedTurnBudgetStore = dev.chungjungsoo.gptmobile.data.agent.CombinedTurnBudgetStore.inMemory(),
+        contextOverride: android.content.Context? = null,
+        runsOverride: dev.chungjungsoo.gptmobile.data.database.dao.AgentRunDao? = null
     ): ChatRepositoryImpl = ChatRepositoryImpl(
-        context = object : ContextWrapper(null) {
+        context = contextOverride ?: object : ContextWrapper(null) {
             override fun getFilesDir(): File = testFiles.root
             override fun getSystemService(name: String): Any? = null
             override fun getSharedPreferences(name: String, mode: Int): android.content.SharedPreferences = mockk {
@@ -1880,7 +1903,7 @@ class ChatRepositoryImplTest {
         messageV2Dao = proxy(),
         chatPlatformModelV2Dao = proxy(),
         agentPersistenceDao = persistenceOverride ?: proxy(),
-        agentRunDao = proxy(),
+        agentRunDao = runsOverride ?: proxy(),
         settingRepository = settingsOverride ?: mockk<SettingRepository>(relaxed = true).also { settings ->
             io.mockk.coEvery { settings.getFeatureSettings() } returns dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings()
         },

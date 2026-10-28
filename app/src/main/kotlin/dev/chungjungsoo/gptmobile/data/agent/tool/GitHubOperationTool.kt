@@ -42,12 +42,24 @@ internal class GitHubOperationTool(
                 dispatched = false
             )
         }
-        if (operation in setOf("github_write", "github_search", "github_pr", "github_commit", "github_stage_patch")) {
+        if (operation in setOf("github_context", "github_write", "github_search", "github_pr", "github_commit", "github_stage_patch")) {
             val errors = ToolArgumentValidator.errors(arguments, definition.inputSchema)
             if (errors.isNotEmpty()) {
                 return AgentToolResult(
                     callId,
                     ToolResultContent.Text("Invalid $operation arguments: " + errors.joinToString("; ") + ". Correct the fields before retrying; this request was not dispatched."),
+                    true,
+                    errorCode = "INVALID_ARGUMENTS",
+                    dispatched = false
+                )
+            }
+        }
+        if (operation == "github_context" && (arguments["action"] as? JsonPrimitive)?.content == "changes") {
+            val base = (arguments["base_sha"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+            if (base.isNullOrBlank()) {
+                return AgentToolResult(
+                    callId,
+                    ToolResultContent.Text("github_context action=changes requires a non-blank base_sha (commit SHA or ref). Resolve the intended comparison base first; for PR files use github_pr action=context with include_files=true. Nothing was dispatched."),
                     true,
                     errorCode = "INVALID_ARGUMENTS",
                     dispatched = false

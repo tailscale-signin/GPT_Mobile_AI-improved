@@ -164,9 +164,13 @@ extensions.configure<ApplicationExtension> {
         buildConfigField("String", "QAIRT_VERSION", "\"${if (geniexRuntime) "bundled-geniex-${libs.versions.geniex.get()}" else libs.versions.qnn.get()}\"")
         buildConfigField("String", "HF_OAUTH_CLIENT_ID", "\"$hfClientId\"")
         buildConfigField("String", "HF_OAUTH_REDIRECT_URI", "\"$hfRedirect\"")
-        val githubClientId = providers.gradleProperty("GITHUB_OAUTH_CLIENT_ID").orElse(providers.environmentVariable("GITHUB_OAUTH_CLIENT_ID")).getOrElse("")
+        val registeredGitHubClientId = "Iv23liZ80mi4wzhJIrWM"
+        val githubClientId = providers.gradleProperty("GITHUB_OAUTH_CLIENT_ID").orElse(providers.environmentVariable("GITHUB_OAUTH_CLIENT_ID")).getOrElse(registeredGitHubClientId)
         require(githubClientId.all { it.isLetterOrDigit() || it in "-_." }) { "Invalid GitHub OAuth client ID" }
         buildConfigField("String", "GITHUB_OAUTH_CLIENT_ID", "\"$githubClientId\"")
+        val githubAppSlug = providers.gradleProperty("GITHUB_APP_SLUG").orElse(providers.environmentVariable("GITHUB_APP_SLUG")).getOrElse(if (githubClientId == registeredGitHubClientId) "gpt-mobile-ai-workspace" else "")
+        require(githubAppSlug.isEmpty() || githubAppSlug.matches(Regex("[a-z0-9](?:[a-z0-9-]{0,98}[a-z0-9])?"))) { "Invalid GitHub App slug" }
+        buildConfigField("String", "GITHUB_APP_SLUG", "\"$githubAppSlug\"")
         val githubBroker = providers.gradleProperty("GITHUB_AUTH_BROKER_ORIGIN").orElse(providers.environmentVariable("GITHUB_AUTH_BROKER_ORIGIN")).getOrElse("").trimEnd('/')
         val githubBrokerUri = githubBroker.takeIf(String::isNotEmpty)?.let(::URI)
         require(githubBrokerUri == null || (githubBrokerUri.scheme == "https" && githubBrokerUri.host != null && githubBrokerUri.userInfo == null && githubBrokerUri.port in setOf(-1, 443) && githubBrokerUri.path.isNullOrEmpty() && githubBrokerUri.query == null && githubBrokerUri.fragment == null && githubClientId.isNotEmpty())) { "GitHub public sign-in requires the registered client ID and a fixed HTTPS broker origin." }

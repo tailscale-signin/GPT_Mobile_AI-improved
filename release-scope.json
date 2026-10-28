@@ -7,7 +7,8 @@
     "Cleaner GitHub Workspace with icons, outlined controls, automatic scoped repository tools and one immutable branch/change-summary approval per commit.",
     "Follow the explicitly selected task branch for commit preparation; run the complete chat-deletion operation on IO.",
     "Refresh device-issued GitHub App credentials directly without a confidential broker, retaining account binding and uncertain-rotation protection.",
-    "Select accessible GitHub App installations and repositories, preserve saved edits during selection and enforce installation Contents permission in edit availability."
+    "Select accessible GitHub App installations and repositories, preserve saved edits during selection and enforce installation Contents permission in edit availability.",
+    "Configure the registered public GitHub App client and matching-client installation onboarding; include the concurrent diagnostic synthesis document in the bounded release scope."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; its remaining acceptance cases are not represented as passed.",
@@ -21,7 +22,7 @@
     "The October 28 export still requires physical-device performance replay; fixing the identified filesDir calls does not establish that the 748 ms frame stalls are resolved.",
     "Provider HTTP 403s, Android-app GitHub token endpoint permissions, private local/MCP server reachability and the remote MCP discovery timeout require service, credential or device-route verification.",
     "The ASUS framework finalizer SecurityException is outside application control. Host and emulator checks do not qualify the affected vendor firmware.",
-    "GitHub App registration, a real release client ID, clean-device sign-in and live private-repository read/write and refresh acceptance remain required before merge/publication. Browser PKCE also requires its registered broker and verified HTTPS callback deployment. Workflows write permission is pending explicit approval after automatic approval review rejected preparation of that privileged access."
+    "GitHub App registration and the selected-repository installation are complete, with a real public release client ID and approved Workflows write permission. Live Android sign-in, authenticated App-token read/write and refresh acceptance remain unverified; publication remains held. Browser PKCE requires its broker and verified HTTPS callback deployment."
   ],
   "requiredWorkflows": [
     "Build Android APK",
@@ -34,6 +35,7 @@
     "RELEASE_NOTES.md",
     "release-scope.json",
     "docs/diagnostics/2026-10-28-build129-workspace-remediation.md",
-    "docs/github-app-sign-in-implementation.md"
+    "docs/github-app-sign-in-implementation.md",
+    "docs/implementation/Diagnostics_Repair_2026-10-28_Synthesis.md"
   ]
 }

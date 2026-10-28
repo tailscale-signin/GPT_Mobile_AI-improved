@@ -3,8 +3,15 @@ package dev.chungjungsoo.gptmobile.data.github
 import dev.chungjungsoo.gptmobile.BuildConfig
 import java.net.URI
 
-internal data class GitHubPublicAuthConfiguration(val clientId: String, val brokerOrigin: String, val callbackUri: String) {
+internal data class GitHubPublicAuthConfiguration(val clientId: String, val brokerOrigin: String, val callbackUri: String, val appSlug: String = "") {
     val configured: Boolean get() = clientId.isNotBlank() && brokerOrigin.isNotBlank()
+
+    fun installationManagementUrl(connectionClientId: String?): String =
+        if (clientId.isNotBlank() && connectionClientId == clientId && appSlug.matches(Regex("[a-z0-9](?:[a-z0-9-]{0,98}[a-z0-9])?"))) {
+            "https://github.com/apps/$appSlug"
+        } else {
+            "https://github.com/settings/installations"
+        }
 
     fun acceptsCallback(value: String): Boolean {
         if (!configured || value.length > 8192) return false
@@ -26,6 +33,6 @@ internal data class GitHubPublicAuthConfiguration(val clientId: String, val brok
     }.getOrDefault(false)
 
     companion object {
-        fun project() = GitHubPublicAuthConfiguration(BuildConfig.GITHUB_OAUTH_CLIENT_ID, BuildConfig.GITHUB_AUTH_BROKER_ORIGIN, BuildConfig.GITHUB_AUTH_CALLBACK_URI)
+        fun project() = GitHubPublicAuthConfiguration(BuildConfig.GITHUB_OAUTH_CLIENT_ID, BuildConfig.GITHUB_AUTH_BROKER_ORIGIN, BuildConfig.GITHUB_AUTH_CALLBACK_URI, BuildConfig.GITHUB_APP_SLUG)
     }
 }

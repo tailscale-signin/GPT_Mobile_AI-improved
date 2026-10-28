@@ -1,15 +1,13 @@
 {
-  "version": "0.9.62.0",
-  "versionCode": 130,
+  "version": "0.9.63.0",
+  "versionCode": 131,
   "qualification": "scoped",
-  "baseCommit": "52edbffc6c58dab743193e57a27ad3f421f0bb17",
+  "baseCommit": "fe4de044363aed9f9143f882e5fedaf02286d493",
   "changes": [
-    "Defer GitHub draft directory resolution to IO; run repository hashing and lexical indexing on Dispatchers.Default.",
-    "Validate compact GitHub search inputs and require an explicit comparison base before dispatch.",
-    "Retain the low-yield continuation guard when providers omit usage; preserve the earlier immediate empty-restored-continuation stop.",
-    "Resolve chat deletion and temporary-chat cleanup directories on Dispatchers.IO.",
-    "Regression coverage for encrypted draft persistence, search/comparison validation, missing-usage continuation bounds and cleanup dispatcher ownership.",
-    "Separate cold unit-test compilation from full-suite execution in PR and GenieX CI; retain bounded stages, complete test selection and coverage failure gates."
+    "Cleaner GitHub Workspace with icons, outlined controls, automatic scoped repository tools and one immutable branch/change-summary approval per commit.",
+    "Follow the explicitly selected task branch for commit preparation; run the complete chat-deletion operation on IO.",
+    "Refresh device-issued GitHub App credentials directly without a confidential broker, retaining account binding and uncertain-rotation protection.",
+    "Select accessible GitHub App installations and repositories, preserve saved edits during selection and enforce installation Contents permission in edit availability."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; its remaining acceptance cases are not represented as passed.",
@@ -22,7 +20,8 @@
     "Live GitHub sign-in, private-repository access and credential-refresh acceptance remain unverified in this diagnostic audit; public browser sign-in requires the registered broker deployment.",
     "The October 28 export still requires physical-device performance replay; fixing the identified filesDir calls does not establish that the 748 ms frame stalls are resolved.",
     "Provider HTTP 403s, Android-app GitHub token endpoint permissions, private local/MCP server reachability and the remote MCP discovery timeout require service, credential or device-route verification.",
-    "The ASUS framework finalizer SecurityException is outside application control. Host and emulator checks do not qualify the affected vendor firmware."
+    "The ASUS framework finalizer SecurityException is outside application control. Host and emulator checks do not qualify the affected vendor firmware.",
+    "GitHub App registration, a real release client ID, clean-device sign-in and live private-repository read/write and refresh acceptance remain required before merge/publication. Browser PKCE also requires its registered broker and verified HTTPS callback deployment. Workflows write permission is pending explicit approval after automatic approval review rejected preparation of that privileged access."
   ],
   "requiredWorkflows": [
     "Build Android APK",
@@ -34,8 +33,7 @@
     "app/",
     "RELEASE_NOTES.md",
     "release-scope.json",
-    "docs/diagnostics/2026-10-28-log-remediation.md",
-    ".github/workflows/pr-validation.yml",
-    ".github/workflows/geniex-preview.yml"
+    "docs/diagnostics/2026-10-28-build129-workspace-remediation.md",
+    "docs/github-app-sign-in-implementation.md"
   ]
 }

@@ -6,9 +6,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -29,7 +29,7 @@ internal fun GitHubProfilePicker(profiles: List<PlatformV2>, selectedUid: String
     var expanded by remember { mutableStateOf(false) }
     Column {
         Text(if (global) "Default GitHub AI profile" else "Engineering AI profile", style = MaterialTheme.typography.titleSmall)
-        TextButton(onClick = { expanded = true }, modifier = Modifier.testTag("github_main_profile")) {
+        OutlinedButton(onClick = { expanded = true }, modifier = Modifier.testTag("github_main_profile")) {
             Text(profiles.firstOrNull { it.uid == selectedUid }?.name?.take(120) ?: if (selectedUid == null) if (global) "Use favorite AI profile" else "Use global default" else "Selected profile unavailable", maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
@@ -52,7 +52,7 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         GitHubProfilePicker(state.profiles, state.profileOverrideUid, onProfile)
         state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        Text("Branch creation and switching always require confirmation. Commits, pushes and other consequential actions retain their exact approvals.", style = MaterialTheme.typography.bodySmall)
+        Text("GitHub tools run automatically in this workspace. Each commit asks once, with a branch and change summary.", style = MaterialTheme.typography.bodySmall)
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("Prepare code context", style = MaterialTheme.typography.titleSmall)
@@ -65,6 +65,6 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
             val total = status["total_paths"]?.jsonPrimitive?.intOrNull
             Text(if (total == null) "$indexed files cached. Coverage is checked against the selected revision." else "$indexed of $total files cached. Partial indexing remains visible.", style = MaterialTheme.typography.bodySmall)
         }
-        if (state.prepareIndex) TextButton(onClick = onPrepare, enabled = !workspace.busy) { Text("Prepare next batch") }
+        if (state.prepareIndex) OutlinedButton(onClick = onPrepare, enabled = !workspace.busy) { Text("Prepare next batch") }
     }
 }

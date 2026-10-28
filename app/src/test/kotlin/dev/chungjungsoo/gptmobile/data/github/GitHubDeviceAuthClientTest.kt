@@ -16,6 +16,35 @@ class GitHubDeviceAuthClientTest {
     private val code = """{"device_code":"private-device-code","user_code":"ABCD-EFGH","verification_uri":"https://github.com/login/device","expires_in":900,"interval":5}"""
     private val token = """{"access_token":"test-user-token","token_type":"bearer"}"""
 
+    @Test fun deviceRefreshUsesASecretFreeFormAndRequiresRotatedCredentials() = runTest {
+        for (rotated in listOf("ghr_new", "ghr_old")) {
+            val client = HttpClient(
+                MockEngine { request ->
+                    assertEquals(GitHubDeviceAuthClient.TOKEN_ENDPOINT, request.url.toString())
+                    val form = (request.body as io.ktor.http.content.OutgoingContent.ByteArrayContent).bytes().decodeToString()
+                    assertTrue(form.contains("client_id=Iv1.custom"))
+                    assertTrue(form.contains("grant_type=refresh_token"))
+                    assertTrue(form.contains("refresh_token=ghr_old"))
+                    assertFalse(form.contains("client_secret"))
+                    assertFalse(request.url.toString().contains("ghr_old"))
+                    respond("""{"access_token":"ghu_new","refresh_token":"$rotated","token_type":"bearer","expires_in":28800,"refresh_token_expires_in":15897600}""", headers = headersOf(HttpHeaders.ContentType, "application/json"))
+                }
+            )
+            try {
+                val result = runCatching { GitHubDeviceAuthClient(client, wallMillis = { 1000L }).refresh("Iv1.custom", "ghr_old") }
+                if (rotated == "ghr_new") {
+                    assertEquals("ghu_new", result.getOrThrow().accessToken)
+                    assertEquals(28_801_000L, result.getOrThrow().expiresAt)
+                } else {
+                    assertTrue(result.isFailure)
+                    assertFalse(result.exceptionOrNull()?.message.orEmpty().contains("ghr_old"))
+                }
+            } finally {
+                client.close()
+            }
+        }
+    }
+
     @Test fun deviceFlowRetainsExpiryAndRefreshMetadataWithoutExposingCredentials() = runTest {
         var now = 0L
         val responses = ArrayDeque(listOf(code, """{"access_token":"ghu_private","refresh_token":"ghr_private","token_type":"bearer","expires_in":28800,"refresh_token_expires_in":15897600}"""))

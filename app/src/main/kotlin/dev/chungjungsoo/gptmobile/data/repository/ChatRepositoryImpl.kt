@@ -5650,7 +5650,7 @@ class ChatRepositoryImpl(
         factVault?.forgetChat(chatId)
     }
 
-    override suspend fun deleteChatsV2(chatRooms: List<ChatRoomV2>) {
+    override suspend fun deleteChatsV2(chatRooms: List<ChatRoomV2>) = withContext(Dispatchers.IO) {
         factVault?.load()
         chatRooms.forEach { room ->
             val runs = agentRunDao.getReadableByChatId(room.id)

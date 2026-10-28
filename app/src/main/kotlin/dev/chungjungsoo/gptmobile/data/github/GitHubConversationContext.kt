@@ -2,7 +2,7 @@ package dev.chungjungsoo.gptmobile.data.github
 
 import kotlinx.serialization.Serializable
 
-/** Frozen workspace destination; it grants no credential, tool or write permission. */
+/** Frozen destination and explicit workspace tool policy; credentials are still checked remotely. */
 @Serializable
 data class GitHubConversationContext(
     val connectionUid: String,
@@ -11,7 +11,8 @@ data class GitHubConversationContext(
     val ref: String,
     val commitSha: String,
     val mainProfileUid: String,
-    val prepareIndex: Boolean = false
+    val prepareIndex: Boolean = false,
+    val autoApproveTools: Boolean = false
 ) {
     init {
         require(connectionUid.isNotBlank() && mainProfileUid.isNotBlank())

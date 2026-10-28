@@ -141,7 +141,7 @@ class GitHubProgrammerViewModel @Inject constructor(
                 val previousKey = mutable.value.context?.let(::key)
                 val nextKey = context?.let(::key)
                 if (previousKey != nextKey) observeConversation(null)
-                mutable.update { it.copy(profiles = enabled, profileUid = uid, profileOverrideUid = storedUid, context = context, prepareIndex = prepare, draftLoaded = it.draftLoaded && previousKey == nextKey) }
+                mutable.update { it.copy(profiles = enabled, profileUid = uid, profileOverrideUid = sessionProfile.value ?: storedUid, context = context, prepareIndex = prepare, draftLoaded = it.draftLoaded && previousKey == nextKey) }
                 if (previousKey != nextKey || !mutable.value.draftLoaded) {
                     try {
                         val restored = nextKey?.let { latestDrafts[it]?.text ?: drafts.read(it) }.orEmpty()

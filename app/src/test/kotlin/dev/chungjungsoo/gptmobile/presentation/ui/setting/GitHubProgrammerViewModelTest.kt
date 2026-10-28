@@ -100,6 +100,7 @@ class GitHubProgrammerViewModelTest {
         coVerify(exactly = 1) { chats.createDraftChat(listOf("coder"), "STANDARD", "owner/repo", "coder") }
         coVerify(exactly = 0) { queue.enqueue(any(), any(), any()) }
         assertEquals("feature", features.value.conversationGitHub.getValue(42).ref)
+        assertEquals("coder", model.state.value.profileOverrideUid)
         assertTrue(features.value.githubMainProfiles == mapOf("github" to "coder"))
         // Re-entering the same destination after recreation must not allocate another room.
         model.configureSession("coder", newConversation = true)
